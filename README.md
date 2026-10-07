@@ -14,6 +14,8 @@ Each part of the scheme is marked either decided or open.
 
 `rsdb` is a command-line wrapper around a SQLite database, `redstone.db`. The database is the source of truth: it holds each `.schem` file, its fields, and its tags. Filenames are generated from it on export. `migrations/` defines the tables; the server and the CLI apply pending migrations when they open the database.
 
+`redstone.db` is not in git, so back it up on its own. A fresh checkout starts with no database; the CLI or the server creates an empty one on first use. `rsdb` writes every change into the file before it exits, so copying `redstone.db` alone is a complete backup.
+
 ```sh
 just rsdb add adder.schem --function adder --orientation vert --encoding bin \
     --width 8 --latency 3 --author cullback --built-on 2026-10-07 --tag alpha

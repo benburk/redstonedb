@@ -4,3 +4,6 @@
 target/
 *.db-wal
 *.db-shm
+
+# The database holds the schematics and is backed up outside git.
+redstone.db

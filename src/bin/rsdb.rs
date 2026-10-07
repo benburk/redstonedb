@@ -160,9 +160,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
     let result = run(&db, cli.command).await;
-    // redstone.db is committed and its write-ahead log is not, so move the
-    // log's pages into the file. Closing alone does this only when no other
-    // process, such as a running server, has the database open.
+    // Move the write-ahead log's pages into redstone.db, so the file alone
+    // holds every write when it is copied or backed up. Closing alone does
+    // this only when no other process, such as a running server, has the
+    // database open.
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(&db)
         .await?;
