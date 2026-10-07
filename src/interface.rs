@@ -1,6 +1,7 @@
 //! A build's inputs and outputs, read from its blocks and signs as
 //! `conventions.md` lays them out. An input is a block with a lever on it;
-//! an output is a yellow concrete block, or any block without a lever that
+//! an output is a yellow concrete or yellow stained glass block, or any
+//! block without a lever that
 //! carries a name sign or matches a block that does. Each bus's least significant bit is the one
 //! nearest the south-east-bottom corner of the bounding box.
 
@@ -54,7 +55,10 @@ pub fn read(blocks: &Blocks) -> Interface {
             !levers.contains_key(*pos) && name(lines).is_some()
         })
         .map(|(&pos, _)| schem::id(blocks.get(pos)))
-        .chain(["minecraft:yellow_concrete"])
+        .chain([
+            "minecraft:yellow_concrete",
+            "minecraft:yellow_stained_glass",
+        ])
         .collect();
     let outputs: Vec<Pos> = blocks
         .iter()
@@ -88,10 +92,7 @@ fn ports(
                 named.push(port);
             }
             None => {
-                buses
-                    .entry(schem::id(blocks.get(pos)))
-                    .or_default()
-                    .push(pos);
+                buses.entry(kind(blocks.get(pos))).or_default().push(pos);
             }
         }
     }
@@ -175,6 +176,15 @@ fn port(
         labelled: false,
         bits,
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
+    }
+}
+
+/// The block kind a bus groups by. Yellow concrete and yellow stained glass
+/// both mark outputs, so they share one bus.
+fn kind(state: &str) -> &str {
+    match schem::id(state) {
+        "minecraft:yellow_stained_glass" => "minecraft:yellow_concrete",
+        id => id,
     }
 }
 

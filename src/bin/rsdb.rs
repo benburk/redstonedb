@@ -14,7 +14,7 @@ use app::{
     lint,
     models::schematic::{self, Changes, New, Optional, StackDirection},
     schem::Blocks,
-    search, stack,
+    search, stack, standardize,
 };
 use clap::{Args, Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -127,6 +127,11 @@ struct Add {
     /// Import even if the file breaks the building conventions
     #[arg(long)]
     force: bool,
+    /// Whiten every block but redstone components, inputs, and outputs,
+    /// turn slabs and glass into white stained glass, fit the box, and add
+    /// the corner markers, before linting
+    #[arg(long)]
+    standardize: bool,
 }
 
 #[derive(Args)]
@@ -291,6 +296,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let file = &args.file;
     let data = fs::read(file)
         .with_context(|| format!("cannot read {}", file.display()))?;
+    let data = if args.standardize {
+        standardize::standardize(&data)
+            .with_context(|| format!("cannot standardize {}", file.display()))?
+    } else {
+        data
+    };
     let blocks =
         Blocks::read(&data).with_context(|| file.display().to_string())?;
     let conventional = args.details.conventional.unwrap_or(true);

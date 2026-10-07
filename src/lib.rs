@@ -16,6 +16,7 @@ pub mod schem;
 pub mod search;
 pub mod services;
 pub mod stack;
+pub mod standardize;
 pub mod thumbnail;
 pub mod util;
 pub mod web;

@@ -197,3 +197,20 @@ fn shell_holds_only_the_interface() {
         ]
     );
 }
+
+#[test]
+fn standardizing_whitens_the_build_and_adds_markers() {
+    let data =
+        app::standardize::standardize(&slice("threshold-3-raw")).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let messages: Vec<String> = lint::check(&blocks)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(messages.is_empty(), "{messages:#?}");
+    assert!(blocks.iter().all(|(_, state)| !state.contains("quartz")));
+    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    assert_eq!(names(&inputs), [("A", 8)]);
+    assert_eq!(names(&outputs), [("output", 1)]);
+    assert_eq!(outputs[0].block, "yellow stained glass");
+}

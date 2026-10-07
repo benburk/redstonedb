@@ -15,18 +15,16 @@ use std::{
     hash::BuildHasher,
 };
 
-use anyhow::{Context, Result, bail, ensure};
-use fastnbt::{ByteArray, IntArray, Value};
+use anyhow::{Result, bail, ensure};
 
 use crate::{
     interface,
     models::schematic::StackDirection,
-    schem::{self, Blocks, Pos},
+    schem::{self, AIR, Blocks, Pos},
 };
 
 const WHITE: &str = "minecraft:white_concrete";
 const GLASS: &str = "minecraft:glass";
-const AIR: &str = "minecraft:air";
 
 /// The stored file stacked with `copies` along each direction, with the
 /// inner size of the result.
@@ -117,21 +115,22 @@ fn along(
     }
 
     let mut nbt = schem::decode(data)?;
-    let entities = take_entities(&mut nbt.body);
+    let entities = nbt.take_entities();
     let mut stacked_entities = Vec::new();
     for i in 0..=last {
         for entity in &entities {
-            let Some(pos) = entity_pos(entity) else {
+            let Some(pos) = schem::entity_pos(entity) else {
                 continue;
             };
             let dropped = (i != 0 && edge.contains(&pos))
                 || (i != last && outputs.signs.contains(&pos));
             if !dropped {
-                stacked_entities.push(with_pos(entity, add(pos, shift(i))));
+                stacked_entities
+                    .push(schem::with_pos(entity, add(pos, shift(i))));
             }
         }
     }
-    write_blocks(&mut nbt.body, size, &grid, stacked_entities)?;
+    nbt.write_blocks(size, &grid, stacked_entities)?;
     schem::encode(nbt)
 }
 
@@ -219,96 +218,4 @@ fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) -> Result<()> {
 
 fn add(a: Pos, b: Pos) -> Pos {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-/// The fields that hold blocks: a `Blocks` compound in version 3, the body
-/// itself in version 2.
-fn block_fields(
-    body: &mut HashMap<String, Value>,
-) -> &mut HashMap<String, Value> {
-    if matches!(body.get("Blocks"), Some(Value::Compound(_))) {
-        let Some(Value::Compound(blocks)) = body.get_mut("Blocks") else {
-            unreachable!("checked above");
-        };
-        blocks
-    } else {
-        body
-    }
-}
-
-fn take_entities(body: &mut HashMap<String, Value>) -> Vec<Value> {
-    match block_fields(body).remove("BlockEntities") {
-        Some(Value::List(entities)) => entities,
-        _ => Vec::new(),
-    }
-}
-
-fn entity_pos(entity: &Value) -> Option<Pos> {
-    let Value::Compound(fields) = entity else {
-        return None;
-    };
-    match fields.get("Pos") {
-        Some(Value::IntArray(pos)) if pos.len() == 3 => {
-            Some([pos[0], pos[1], pos[2]])
-        }
-        _ => None,
-    }
-}
-
-fn with_pos(entity: &Value, pos: Pos) -> Value {
-    let mut entity = entity.clone();
-    if let Value::Compound(fields) = &mut entity {
-        fields.insert(
-            "Pos".to_owned(),
-            Value::IntArray(IntArray::new(pos.to_vec())),
-        );
-    }
-    entity
-}
-
-/// Replaces the size, palette, block data, and block entities.
-fn write_blocks(
-    body: &mut HashMap<String, Value>,
-    size: Pos,
-    grid: &HashMap<Pos, String>,
-    entities: Vec<Value>,
-) -> Result<()> {
-    let [w, h, l] = size;
-    let mut palette: HashMap<String, usize> = HashMap::new();
-    palette.insert(AIR.to_owned(), 0);
-    let mut indices = Vec::new();
-    for y in 0..h {
-        for z in 0..l {
-            for x in 0..w {
-                let state = grid.get(&[x, y, z]).map_or(AIR, String::as_str);
-                let next = palette.len();
-                indices.push(*palette.entry(state.to_owned()).or_insert(next));
-            }
-        }
-    }
-    for (key, n) in [("Width", w), ("Height", h), ("Length", l)] {
-        let n = u16::try_from(n).context("stacked build is too large")?;
-        body.insert(key.to_owned(), Value::Short(n.cast_signed()));
-    }
-    let palette_len = i32::try_from(palette.len())?;
-    let palette = palette
-        .into_iter()
-        .map(|(state, i)| Ok((state, Value::Int(i32::try_from(i)?))))
-        .collect::<Result<HashMap<_, _>>>()?;
-    if body.contains_key("PaletteMax") {
-        body.insert("PaletteMax".to_owned(), Value::Int(palette_len));
-    }
-    let fields = block_fields(body);
-    let data_key = if fields.contains_key("Data") {
-        "Data"
-    } else {
-        "BlockData"
-    };
-    fields.insert(
-        data_key.to_owned(),
-        Value::ByteArray(ByteArray::new(schem::to_varints(&indices))),
-    );
-    fields.insert("Palette".to_owned(), Value::Compound(palette));
-    fields.insert("BlockEntities".to_owned(), Value::List(entities));
-    Ok(())
 }

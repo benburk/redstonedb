@@ -19,7 +19,7 @@ Built so far:
 - Every A and B lever is on the south side of its block.
 - No lever touches a redstone component other than through its own block.
 - Every control line has a sign naming it.
-- Every output is yellow concrete.
+- Every output is yellow concrete or yellow stained glass.
 
 Still to build:
 

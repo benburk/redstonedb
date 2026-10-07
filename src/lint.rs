@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`.
-const PALETTE: [&str; 7] = [
+const PALETTE: [&str; 8] = [
     "white_concrete",
     "white_stained_glass",
     "glass",
@@ -16,10 +16,11 @@ const PALETTE: [&str; 7] = [
     "light_blue_concrete",
     "magenta_concrete",
     "yellow_concrete",
+    "yellow_stained_glass",
 ];
 
 /// Redstone components and the other blocks every build may use.
-const COMPONENTS: [&str; 16] = [
+const COMPONENTS: [&str; 17] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -36,6 +37,7 @@ const COMPONENTS: [&str; 16] = [
     "redstone_block",
     "redstone_lamp",
     "hopper",
+    "target",
 ];
 
 /// Blocks a lever must not touch, since it would power them directly.
@@ -126,12 +128,9 @@ fn shell(blocks: &Blocks, found: &mut Vec<Violation>) {
             }
             continue;
         }
-        let allowed = name == "lever"
-            || name.ends_with("sign")
-            || is_input(name)
-            || schem::torch_block(pos, state)
-                .is_some_and(|block| is_input(short(blocks.get(block))));
-        if allowed {
+        let support =
+            schem::torch_block(pos, state).map(|block| blocks.get(block));
+        if allowed_in_shell(state, support) {
             continue;
         }
         let message = if name == "glass" {
@@ -241,14 +240,40 @@ fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     for port in &outputs {
         // Interface positions are already inside the markers.
         let pos = port.bits.first().map(|bit| bit.pos.map(|n| n + 1));
-        if port.block != "yellow concrete" {
+        if !matches!(
+            port.block.as_str(),
+            "yellow concrete" | "yellow stained glass"
+        ) {
             say(
                 found,
                 pos,
-                format!("{} is {}, not yellow concrete", port.name, port.block),
+                format!(
+                    "{} is {}, not yellow concrete or yellow stained glass",
+                    port.name, port.block
+                ),
             );
         }
     }
+}
+
+/// Whether `state` may sit in the shell around a build: a lever, a sign,
+/// an input block, or a torch on an input block. `support` is the block a
+/// torch stands on or hangs from.
+pub fn allowed_in_shell(state: &str, support: Option<&str>) -> bool {
+    let name = short(state);
+    name == "lever"
+        || name.ends_with("sign")
+        || is_input(name)
+        || (name.contains("torch")
+            && support.is_some_and(|s| is_input(short(s))))
+}
+
+/// Whether standardizing keeps `name` as it is: a redstone component, an
+/// input block, or an output block.
+pub fn keeps(name: &str) -> bool {
+    COMPONENTS.contains(&name)
+        || is_input(name)
+        || matches!(name, "yellow_concrete" | "yellow_stained_glass")
 }
 
 fn is_input(block: &str) -> bool {

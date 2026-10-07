@@ -50,6 +50,8 @@ Whether every output bit settles on the same tick is not a tag but a field, `syn
 
 ## Functions
 
-`adder`, `multiplier`, `dataloop`, `register`, `alu`, `line_drawer`, `door`, `decoder`, `bin2bcd`, `maze_screen`.
+`adder`, `multiplier`, `dataloop`, `register`, `alu`, `line_drawer`, `door`, `decoder`, `bin2bcd`, `maze_screen`, `threshold_3`.
+
+A threshold gate turns on when at least *k* of its inputs are on; `threshold_3` turns on for at least 3. Popcount, by contrast, outputs how many inputs are on. Majority is the threshold at half the inputs.
 
 Add new functions here before using them in a filename.

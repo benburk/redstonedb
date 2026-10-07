@@ -56,7 +56,9 @@ watch:
 prepare:
     SQLX_OFFLINE=false cargo sqlx prepare -- --all-targets
 
-# Run the rsdb CLI against this repo's database, from any directory
+# Positional arguments keep a quoted argument, such as a description, whole.
+[doc("Run the rsdb CLI against this repo's database, from any directory")]
 [no-cd]
+[positional-arguments]
 rsdb *args:
-    @DATABASE_URL=sqlite:{{ justfile_directory() }}/redstone.db cargo run -q --manifest-path {{ justfile_directory() }}/Cargo.toml --bin rsdb -- {{ args }}
+    @DATABASE_URL=sqlite:{{ justfile_directory() }}/redstone.db cargo run -q --manifest-path {{ justfile_directory() }}/Cargo.toml --bin rsdb -- "$@"

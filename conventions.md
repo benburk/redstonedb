@@ -6,14 +6,15 @@ Each schematic should follow one default building convention, so builds line up 
 
 Builds use only whitelisted blocks. Each interface role has its own block, so a block's role can be read from its colour: inputs and outputs are bright colours that stand out against white. Red is left to redstone dust and torches.
 
-| Role        | Block               |
-| ----------- | ------------------- |
-| Solid       | white concrete      |
-| Transparent | white stained glass |
-| Input A     | lime concrete       |
-| Input B     | light blue concrete |
-| Control     | magenta concrete    |
-| Output      | yellow concrete     |
+| Role                | Block                |
+| ------------------- | -------------------- |
+| Solid               | white concrete       |
+| Transparent         | white stained glass  |
+| Input A             | lime concrete        |
+| Input B             | light blue concrete  |
+| Control             | magenta concrete     |
+| Output              | yellow concrete      |
+| Output, see-through | yellow stained glass |
 
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
@@ -44,7 +45,7 @@ Import derives this from the build, so nothing in-world marks it.
 
 ## Outputs
 
-- Every output bit is a yellow concrete block. Redstone lamps are allowed as ordinary components but do not mark outputs.
+- Every output bit is a yellow concrete block, or yellow stained glass where the output needs a transparent block. Redstone lamps are allowed as ordinary components but do not mark outputs.
 
 ## Signs
 

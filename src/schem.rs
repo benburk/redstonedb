@@ -1,10 +1,12 @@
 use std::{
     collections::HashMap,
+    hash::BuildHasher,
     io::{Read, Write},
 };
 
 use anyhow::{Context, Result, bail};
 use fastnbt::Value;
+use fastnbt::{ByteArray, IntArray};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 
 /// A build's size inside its corner markers, in blocks along x, y, z.
@@ -100,6 +102,8 @@ pub fn marker_positions(size: Pos) -> Vec<Pos> {
     }
     positions
 }
+
+pub const AIR: &str = "minecraft:air";
 
 /// A block position, as x, y, z.
 pub type Pos = [i32; 3];
@@ -426,5 +430,104 @@ fn text(line: &Value) -> String {
         }
         Value::Compound(c) => c.get("text").map(text).unwrap_or_default(),
         _ => String::new(),
+    }
+}
+
+/// The fields that hold blocks: a `Blocks` compound in version 3, the body
+/// itself in version 2.
+fn block_fields(
+    body: &mut HashMap<String, Value>,
+) -> &mut HashMap<String, Value> {
+    if matches!(body.get("Blocks"), Some(Value::Compound(_))) {
+        let Some(Value::Compound(blocks)) = body.get_mut("Blocks") else {
+            unreachable!("checked above");
+        };
+        blocks
+    } else {
+        body
+    }
+}
+
+pub fn entity_pos(entity: &Value) -> Option<Pos> {
+    let Value::Compound(fields) = entity else {
+        return None;
+    };
+    match fields.get("Pos") {
+        Some(Value::IntArray(pos)) if pos.len() == 3 => {
+            Some([pos[0], pos[1], pos[2]])
+        }
+        _ => None,
+    }
+}
+
+pub fn with_pos(entity: &Value, pos: Pos) -> Value {
+    let mut entity = entity.clone();
+    if let Value::Compound(fields) = &mut entity {
+        fields.insert(
+            "Pos".to_owned(),
+            Value::IntArray(IntArray::new(pos.to_vec())),
+        );
+    }
+    entity
+}
+
+impl Nbt {
+    /// Removes and returns the block entities, such as signs.
+    pub fn take_entities(&mut self) -> Vec<Value> {
+        match block_fields(&mut self.body).remove("BlockEntities") {
+            Some(Value::List(entities)) => entities,
+            _ => Vec::new(),
+        }
+    }
+
+    /// Replaces the size, palette, block data, and block entities.
+    pub fn write_blocks<S: BuildHasher>(
+        &mut self,
+        size: Pos,
+        grid: &HashMap<Pos, String, S>,
+        entities: Vec<Value>,
+    ) -> Result<()> {
+        let body = &mut self.body;
+        let [w, h, l] = size;
+        let mut palette: HashMap<String, usize> = HashMap::new();
+        palette.insert(AIR.to_owned(), 0);
+        let mut indices = Vec::new();
+        for y in 0..h {
+            for z in 0..l {
+                for x in 0..w {
+                    let state =
+                        grid.get(&[x, y, z]).map_or(AIR, String::as_str);
+                    let next = palette.len();
+                    indices
+                        .push(*palette.entry(state.to_owned()).or_insert(next));
+                }
+            }
+        }
+        for (key, n) in [("Width", w), ("Height", h), ("Length", l)] {
+            let n = u16::try_from(n)
+                .context("build is too large for a schematic")?;
+            body.insert(key.to_owned(), Value::Short(n.cast_signed()));
+        }
+        let palette_len = i32::try_from(palette.len())?;
+        let palette = palette
+            .into_iter()
+            .map(|(state, i)| Ok((state, Value::Int(i32::try_from(i)?))))
+            .collect::<Result<HashMap<_, _>>>()?;
+        if body.contains_key("PaletteMax") {
+            body.insert("PaletteMax".to_owned(), Value::Int(palette_len));
+        }
+        let fields = block_fields(body);
+        let data_key = if fields.contains_key("Data") {
+            "Data"
+        } else {
+            "BlockData"
+        };
+        fields.insert(
+            data_key.to_owned(),
+            Value::ByteArray(ByteArray::new(to_varints(&indices))),
+        );
+        fields.insert("Palette".to_owned(), Value::Compound(palette));
+        fields.insert("BlockEntities".to_owned(), Value::List(entities));
+        Ok(())
     }
 }

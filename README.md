@@ -36,12 +36,13 @@ just rsdb define-tag pipelined --category timing --token pipe
 
 - `add` reads the size from the file, inside the corner markers, and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
 - `add` lints the file against [conventions.md](conventions.md) first and refuses it if it breaks one, unless given `--force`. `just rsdb lint <file or id>` runs the same checks on their own.
+- `--standardize` brings a downloaded build into the palette before importing it. Slabs, stairs, and glass become white stained glass, and every other solid block becomes white concrete, keeping redstone components, inputs, and outputs. Old corner markers are removed, the box is fitted with a one-block margin, and all 32 markers are added. Inputs (levers on lime, light blue, or magenta blocks) and outputs (yellow concrete or yellow stained glass) must already be marked, since they are what survives.
 - `--conventional false` marks a build, such as a display, that follows its own layout. `add` skips the lint for it, and its page does not read inputs and outputs from it. A build without glass corner markers is measured by its whole box.
 - `--stack` marks a build as a stackable slice, once for each direction it stacks along: how far each copy sits `west`, `up`, or `north` of the one before, and optionally the `max` copies that work. Giving `--stack` to `set` replaces the stored directions; `--unset stacking` makes a build unstackable. `export --copies` writes the copies joined into one schematic, as [conventions.md](conventions.md) describes: a plain count for a build that stacks one way, or a count per direction such as `west=7,north=3`.
 - `--synchronized true` or `false` records whether every output bit settles on the same tick; left out, it is unknown.
 - `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `synchronized`, `author`, or `built-on` and repeats.
 - Ids can be shortened to any unique prefix.
-- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
+- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. A name with spaces needs quotes, as in `just rsdb tag 23a9 "carry lookahead"`.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
 - `--description` stores free text about the build, such as how to use it. The build's page shows it under the title, and search matches words in it.
 - `--imported-by` records the in-game name of whoever imported the build. It is shown on the site but is not part of the filename.
