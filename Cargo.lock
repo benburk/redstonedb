@@ -1493,6 +1493,7 @@ dependencies = [
  "dotenvy",
  "fastnbt",
  "flate2",
+ "form_urlencoded",
  "maud",
  "serde",
  "sha2 0.11.0",

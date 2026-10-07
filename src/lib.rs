@@ -13,6 +13,7 @@ pub mod lint;
 pub mod models;
 pub mod password;
 pub mod schem;
+pub mod search;
 pub mod services;
 pub mod stack;
 pub mod thumbnail;

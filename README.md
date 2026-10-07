@@ -18,6 +18,7 @@ Each part of the scheme is marked either decided or open.
 just rsdb add adder.schem --function adder --orientation vert --encoding bin \
     --width 8 --latency 3 --author cullback --built-on 2026-10-07 --tag alpha
 just rsdb list --tag alpha
+just rsdb search register vertical alpha -torchless
 just rsdb show 23a9
 just rsdb set 23a9 --latency 4
 just rsdb tag 23a9 torchless carry_lookahead
@@ -50,6 +51,7 @@ cp .env.example .env
 just serve
 ```
 
+- `/?q=register+vertical+alpha+-torchless` narrows the list to builds matching every word. A word names a function, orientation, encoding, tag, width such as `8b`, author or importer, `stackable`, or `sync` or `unsync`; a word that names none of those matches part of a build's name instead. `-` or `not` before a word leaves those builds out, and quotes or underscores keep a multi-word tag together. `rsdb search` takes the same words.
 - `/` shows every schematic as a card with a thumbnail, its name, tag badges coloured by category, and its latency, size, volume, and author. `/?view=list` shows the same schematics as a table instead.
 - `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block, leaving out the corner markers. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
 - `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.

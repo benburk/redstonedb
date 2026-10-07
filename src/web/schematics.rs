@@ -17,7 +17,7 @@ use crate::{
     models::schematic::{self, Schematic, Tag},
     models::user::User,
     schem::Blocks,
-    stack, thumbnail,
+    search, stack, thumbnail,
 };
 
 use super::pages;
@@ -25,9 +25,12 @@ use super::pages;
 #[derive(Deserialize)]
 pub struct ListQuery {
     view: Option<String>,
+    /// A search such as `register vertical alpha -torchless`.
+    q: Option<String>,
 }
 
-/// Every schematic, as cards unless `?view=list` asks for the table.
+/// The schematics matching `?q=`, as cards unless `?view=list` asks for
+/// the table.
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
@@ -38,9 +41,23 @@ pub async fn list(
         Some("list") => pages::View::List,
         _ => pages::View::Cards,
     };
+    let query_text = query.q.unwrap_or_default();
+    let terms = search::parse(&query_text);
     match schematic::all(&state.db).await {
-        Ok(schematics) => {
-            pages::schematics(&username, &schematics, view).into_response()
+        Ok(all) => {
+            let total = all.len();
+            let shown = search::matching(&terms, all);
+            pages::schematics(
+                &username,
+                &pages::Listing {
+                    shown: &shown,
+                    total,
+                    view,
+                    query: &query_text,
+                    terms: &terms,
+                },
+            )
+            .into_response()
         }
         Err(err) => internal_error(err).into_response(),
     }

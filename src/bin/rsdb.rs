@@ -14,7 +14,7 @@ use app::{
     lint,
     models::schematic::{self, Changes, New, Optional, StackDirection},
     schem::Blocks,
-    stack,
+    search, stack,
 };
 use clap::{Args, Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -36,33 +36,15 @@ enum Command {
     /// building conventions
     Lint { file_or_id: String },
     /// Change fields of a schematic; omitted fields are kept
-    Set {
-        id: String,
-        #[arg(long)]
-        function: Option<String>,
-        #[arg(long, value_parser = ["horz", "vert", "diag"])]
-        orientation: Option<String>,
-        #[arg(long, value_parser = ["bin", "hex"])]
-        encoding: Option<String>,
-        #[command(flatten)]
-        details: Details,
-        /// Field to make unknown; repeatable
-        #[arg(
-            long,
-            value_parser = [
-                "width",
-                "latency",
-                "synchronized",
-                "stacking",
-                "author",
-                "built-on",
-                "imported-by",
-            ]
-        )]
-        unset: Vec<String>,
-    },
+    Set(Set),
     /// Delete a schematic
     Remove { id: String },
+    /// List schematics matching every term, such as
+    /// `register vertical alpha -torchless`
+    Search {
+        #[arg(required = true, allow_hyphen_values = true)]
+        terms: Vec<String>,
+    },
     /// List schematics by id prefix and filename
     List {
         #[arg(long)]
@@ -98,6 +80,33 @@ enum Command {
         #[arg(long)]
         token: Option<String>,
     },
+}
+
+#[derive(Args)]
+struct Set {
+    id: String,
+    #[arg(long)]
+    function: Option<String>,
+    #[arg(long, value_parser = ["horz", "vert", "diag"])]
+    orientation: Option<String>,
+    #[arg(long, value_parser = ["bin", "hex"])]
+    encoding: Option<String>,
+    #[command(flatten)]
+    details: Details,
+    /// Field to make unknown; repeatable
+    #[arg(
+        long,
+        value_parser = [
+            "width",
+            "latency",
+            "synchronized",
+            "stacking",
+            "author",
+            "built-on",
+            "imported-by",
+        ]
+    )]
+    unset: Vec<String>,
 }
 
 #[derive(Args)]
@@ -165,54 +174,16 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
     match command {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
-        Command::Set {
-            id,
-            function,
-            orientation,
-            encoding,
-            details,
-            unset,
-        } => {
-            let id = resolve(db, &id).await?;
-            let author = details.author.map(|a| a.to_lowercase());
-            let imported_by = details.imported_by.map(|a| a.to_lowercase());
-            let changes = Changes {
-                function: function.as_deref(),
-                width: details.width.map(i64::from),
-                orientation: orientation.as_deref(),
-                encoding: encoding.as_deref(),
-                latency: details.latency.map(i64::from),
-                synchronized: details.synchronized,
-                author: author.as_deref(),
-                built_on: details.built_on.as_deref(),
-                imported_by: imported_by.as_deref(),
-            };
-            schematic::update(db, &id, &changes).await?;
-            let fields: Vec<Optional> = unset
-                .iter()
-                .filter_map(|field| match field.as_str() {
-                    "width" => Some(Optional::Width),
-                    "latency" => Some(Optional::Latency),
-                    "synchronized" => Some(Optional::Synchronized),
-                    "author" => Some(Optional::Author),
-                    "built-on" => Some(Optional::BuiltOn),
-                    "imported-by" => Some(Optional::ImportedBy),
-                    _ => None,
-                })
-                .collect();
-            schematic::forget(db, &id, &fields).await?;
-            if !details.stacking.is_empty()
-                || unset.iter().any(|f| f == "stacking")
-            {
-                let mut conn = db.acquire().await?;
-                schematic::set_stacking(&mut conn, &id, &details.stacking)
-                    .await?;
-            }
-            println!("{}", load(db, &id).await?.filename());
-            Ok(())
-        }
+        Command::Set(args) => set(db, args).await,
         Command::List { function, tags } => {
             list(db, function.as_deref(), &tags).await
+        }
+        Command::Search { terms } => {
+            let terms = search::parse(&terms.join(" "));
+            for s in search::matching(&terms, schematic::all(db).await?) {
+                println!("{}  {}", &s.id[..8], s.filename());
+            }
+            Ok(())
         }
         Command::Remove { id } => {
             let id = resolve(db, &id).await?;
@@ -256,6 +227,52 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Changes the fields `args` gives and forgets the ones it unsets.
+async fn set(db: &SqlitePool, args: Set) -> Result<()> {
+    let Set {
+        id,
+        function,
+        orientation,
+        encoding,
+        details,
+        unset,
+    } = args;
+    let id = resolve(db, &id).await?;
+    let author = details.author.map(|a| a.to_lowercase());
+    let imported_by = details.imported_by.map(|a| a.to_lowercase());
+    let changes = Changes {
+        function: function.as_deref(),
+        width: details.width.map(i64::from),
+        orientation: orientation.as_deref(),
+        encoding: encoding.as_deref(),
+        latency: details.latency.map(i64::from),
+        synchronized: details.synchronized,
+        author: author.as_deref(),
+        built_on: details.built_on.as_deref(),
+        imported_by: imported_by.as_deref(),
+    };
+    schematic::update(db, &id, &changes).await?;
+    let fields: Vec<Optional> = unset
+        .iter()
+        .filter_map(|field| match field.as_str() {
+            "width" => Some(Optional::Width),
+            "latency" => Some(Optional::Latency),
+            "synchronized" => Some(Optional::Synchronized),
+            "author" => Some(Optional::Author),
+            "built-on" => Some(Optional::BuiltOn),
+            "imported-by" => Some(Optional::ImportedBy),
+            _ => None,
+        })
+        .collect();
+    schematic::forget(db, &id, &fields).await?;
+    if !details.stacking.is_empty() || unset.iter().any(|f| f == "stacking") {
+        let mut conn = db.acquire().await?;
+        schematic::set_stacking(&mut conn, &id, &details.stacking).await?;
+    }
+    println!("{}", load(db, &id).await?.filename());
+    Ok(())
 }
 
 async fn add(db: &SqlitePool, args: &Add) -> Result<()> {

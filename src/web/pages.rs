@@ -10,6 +10,7 @@ use crate::{
     interface::{Bit, Interface, Port},
     lint::Violation,
     models::schematic::{Schematic, StackDirection, Tag},
+    search::Term,
 };
 
 use super::components::{
@@ -29,36 +30,120 @@ pub enum View {
     List,
 }
 
-pub fn schematics(
-    username: &str,
-    schematics: &[Schematic],
-    view: View,
-) -> Markup {
+/// The home page's schematics and how they were asked for.
+pub struct Listing<'a> {
+    /// The schematics matching the search.
+    pub shown: &'a [Schematic],
+    /// How many schematics there are in all.
+    pub total: usize,
+    pub view: View,
+    pub query: &'a str,
+    pub terms: &'a [Term],
+}
+
+pub fn schematics(username: &str, listing: &Listing) -> Markup {
+    let Listing {
+        shown,
+        total,
+        view,
+        query,
+        terms,
+    } = *listing;
     let switch = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+    let builds = if total == 1 { "build" } else { "builds" };
+    let count = if shown.len() == total {
+        format!("{total} {builds}")
+    } else {
+        format!("{} of {total} {builds}", shown.len())
+    };
     base(
         username,
         APP_NAME,
         "/",
         &html! {
-            div class="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2" {
+            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { "Schematics" }
-                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
-                    (schematics.len()) " " (if schematics.len() == 1 { "build" } else { "builds" })
-                }
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" { (count) }
                 nav aria-label="Layout" class="flex gap-1 rounded-control bg-sidebar p-1" {
-                    a href="/" class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
-                    a href="/?view=list" class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
+                    a href=(home(View::Cards, query)) class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
+                    a href=(home(View::List, query)) class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
                 }
             }
-            @if schematics.is_empty() {
+            form action="/" method="get" role="search" class="mb-6 flex flex-col gap-2" {
+                @if view == View::List {
+                    input type="hidden" name="view" value="list";
+                }
+                div class="flex gap-2" {
+                    label for="search" class="sr-only" { "Search schematics" }
+                    input type="search" id="search" name="q" value=(query)
+                        placeholder="register vertical alpha -torchless"
+                        aria-describedby="search-help"
+                        class="input flex-1";
+                    button type="submit" class="btn btn-primary" { "Search" }
+                }
+                p id="search-help" class="text-meta text-muted" {
+                    "Every word must match: a function, orientation, tag, width such as 8b, author, "
+                    code { "stackable" } ", or part of the name. Put " code { "-" } " or "
+                    code { "not" } " before a word to leave those builds out, and quotes around a tag with spaces."
+                }
+                @if !terms.is_empty() {
+                    ul class="flex flex-wrap items-center gap-1.5" aria-label="Search terms" {
+                        @for (i, term) in terms.iter().enumerate() {
+                            li {
+                                a href=(home(view, &without(terms, i)))
+                                    aria-label={ "Remove " (term.display()) }
+                                    class={ "badge gap-1.5 pr-2 hover:no-underline "
+                                        (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
+                                    (if term.negated { "not " } else { "" }) (term.text)
+                                    span aria-hidden="true" { "×" }
+                                }
+                            }
+                        }
+                        li {
+                            a href=(home(view, "")) class="px-1.5 text-meta" { "Clear" }
+                        }
+                    }
+                }
+            }
+            @if total == 0 {
                 p class="text-muted" { "No schematics yet. Import one with " code { "just rsdb add" } "." }
+            } @else if shown.is_empty() {
+                p class="text-muted" { "No builds match. Remove a term to widen the search." }
             } @else if view == View::Cards {
-                (cards(schematics))
+                (cards(shown))
             } @else {
-                (table(schematics))
+                (table(shown))
             }
         },
     )
+}
+
+/// The home page's address for `view` and `query`.
+fn home(view: View, query: &str) -> String {
+    let mut params = form_urlencoded::Serializer::new(String::new());
+    if view == View::List {
+        params.append_pair("view", "list");
+    }
+    if !query.is_empty() {
+        params.append_pair("q", query);
+    }
+    let params = params.finish();
+    if params.is_empty() {
+        "/".to_owned()
+    } else {
+        format!("/?{params}")
+    }
+}
+
+/// The query with term `index` taken out.
+fn without(terms: &[Term], index: usize) -> String {
+    terms
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != index)
+        .map(|(_, term)| term.display())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn cards(schematics: &[Schematic]) -> Markup {
