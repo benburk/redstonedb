@@ -12,7 +12,8 @@ None of these are built yet.
 
 Built so far:
 
-- Glass fills all 32 corner marker positions.
+- Glass fills all 32 corner marker positions and appears nowhere else; transparent blocks in the build are white stained glass.
+- The shell holds only levers, signs, input blocks, and torches on input blocks.
 - Every block is in the palette or is a redstone component. The whitelist is `PALETTE` and `COMPONENTS` in `src/lint.rs`.
 - Every lever sits on a lime, light blue, or magenta block, and every such block has exactly one lever.
 - Every A and B lever is on the south side of its block.

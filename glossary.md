@@ -50,6 +50,6 @@ Whether every output bit settles on the same tick is not a tag but a field, `syn
 
 ## Functions
 
-`adder`, `multiplier`, `dataloop`, `register`, `alu`, `line_drawer`, `door`, `decoder`, `bin2bcd`.
+`adder`, `multiplier`, `dataloop`, `register`, `alu`, `line_drawer`, `door`, `decoder`, `bin2bcd`, `maze_screen`.
 
 Add new functions here before using them in a filename.

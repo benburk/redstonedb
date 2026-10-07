@@ -128,6 +128,9 @@ fn facts(s: &Schematic) -> Vec<String> {
     if !s.stacking.is_empty() {
         facts.push("stackable".to_owned());
     }
+    if !s.conventional {
+        facts.push("unconventional".to_owned());
+    }
     match s.synchronized {
         Some(true) => {
             facts.extend(["sync".to_owned(), "synchronized".to_owned()]);
@@ -163,6 +166,7 @@ mod tests {
             author: Some("embizone".to_owned()),
             built_on: None,
             imported_by: None,
+            conventional: true,
             sha256: String::new(),
             added_at: String::new(),
             tags: tags

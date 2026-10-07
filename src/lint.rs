@@ -8,8 +8,9 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`.
-const PALETTE: [&str; 6] = [
+const PALETTE: [&str; 7] = [
     "white_concrete",
+    "white_stained_glass",
     "glass",
     "lime_concrete",
     "light_blue_concrete",
@@ -18,7 +19,7 @@ const PALETTE: [&str; 6] = [
 ];
 
 /// Redstone components and the other blocks every build may use.
-const COMPONENTS: [&str; 15] = [
+const COMPONENTS: [&str; 16] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -34,6 +35,7 @@ const COMPONENTS: [&str; 15] = [
     "observer",
     "redstone_block",
     "redstone_lamp",
+    "hopper",
 ];
 
 /// Blocks a lever must not touch, since it would power them directly.
@@ -71,6 +73,7 @@ impl fmt::Display for Violation {
 pub fn check(blocks: &Blocks) -> Vec<Violation> {
     let mut found = Vec::new();
     markers(blocks, &mut found);
+    shell(blocks, &mut found);
     palette(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
@@ -90,6 +93,59 @@ fn say(found: &mut Vec<Violation>, pos: Option<Pos>, message: String) {
 fn markers(blocks: &Blocks, found: &mut Vec<Violation>) {
     for pos in blocks.missing_markers() {
         say(found, Some(pos), "corner marker is not glass".to_owned());
+    }
+}
+
+/// Only a build's interface reaches into the shell around it: levers,
+/// signs, input blocks, and torches hanging on input blocks. Plain glass,
+/// in the shell or inside, is for the corner markers alone.
+fn shell(blocks: &Blocks, found: &mut Vec<Violation>) {
+    let [w, h, l] = blocks.size;
+    let markers: std::collections::HashSet<Pos> =
+        blocks.marker_positions().into_iter().collect();
+    for (pos @ [x, y, z], state) in blocks.iter() {
+        let in_shell = x == 0
+            || y == 0
+            || z == 0
+            || x == w - 1
+            || y == h - 1
+            || z == l - 1;
+        let name = short(state);
+        if markers.contains(&pos) || name == "air" {
+            continue;
+        }
+        if !in_shell {
+            if name == "glass" {
+                say(
+                    found,
+                    Some(pos),
+                    "glass inside the build; plain glass is for the corner \
+                     markers, so use white stained glass"
+                        .to_owned(),
+                );
+            }
+            continue;
+        }
+        let allowed = name == "lever"
+            || name.ends_with("sign")
+            || is_input(name)
+            || schem::torch_block(pos, state)
+                .is_some_and(|block| is_input(short(blocks.get(block))));
+        if allowed {
+            continue;
+        }
+        let message = if name == "glass" {
+            "glass in the shell outside the corner markers".to_owned()
+        } else if name.contains("torch") {
+            "torch in the shell is not on an input block".to_owned()
+        } else {
+            format!(
+                "{} in the shell; only levers, signs, input blocks, and \
+                 torches on input blocks belong there",
+                name.replace('_', " ")
+            )
+        };
+        say(found, Some(pos), message);
     }
 }
 

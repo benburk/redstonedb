@@ -88,7 +88,12 @@ pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
 /// Every block with something to draw, far blocks first so near ones
 /// paint over them.
 fn visible(blocks: &Blocks) -> Vec<Drawn> {
-    let markers: HashSet<Pos> = blocks.marker_positions().into_iter().collect();
+    // A build without markers keeps its corner blocks.
+    let markers: HashSet<Pos> = blocks
+        .marker_positions()
+        .into_iter()
+        .filter(|&pos| blocks.get(pos) == "minecraft:glass")
+        .collect();
     let shape = |pos: Pos| {
         if markers.contains(&pos) {
             Shape::Empty

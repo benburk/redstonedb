@@ -43,16 +43,23 @@ fn conventional_ripple_carry_passes_lint() {
 
 #[test]
 fn lint_flags_blocks_outside_the_palette() {
-    let messages: Vec<String> = lint::check(&blocks("vert-3t-cca"))
+    let messages: Vec<String> = lint::check(&blocks("quartz-rca-slice"))
         .iter()
         .map(|v| v.message.clone())
         .collect();
     assert!(
         messages.contains(
-            &"white stained glass is not in the block palette (58 blocks)"
-                .to_owned()
-        )
+            &"quartz block is not in the block palette (20 blocks)".to_owned()
+        ),
+        "{messages:#?}"
     );
+}
+
+#[test]
+fn a_named_output_leaves_the_bus() {
+    let interface::Interface { outputs, .. } =
+        interface::read(&blocks("diag-3t-cca"));
+    assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
 }
 
 #[test]
@@ -171,4 +178,22 @@ fn a_wrong_step_collides() {
     let plan = [(direction("west=1"), 2)];
     let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
     assert!(err.to_string().contains("collide"), "{err}");
+}
+
+#[test]
+fn shell_holds_only_the_interface() {
+    let messages: Vec<String> = lint::check(&blocks("alpha-register"))
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    // The wall torches on the read and write blocks are allowed; the white
+    // block beside them, and the torch standing on it, are not.
+    assert_eq!(
+        messages,
+        [
+            "(2, 8, 2): white concrete in the shell; only levers, signs, \
+             input blocks, and torches on input blocks belong there",
+            "(2, 9, 2): torch in the shell is not on an input block",
+        ]
+    );
 }

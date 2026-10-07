@@ -264,6 +264,11 @@ pub fn schematic(
                 (schematic_info(s, available, ""))
             }
             @match analysis {
+                _ if !s.conventional => {
+                    p class="mt-10 max-w-prose text-muted" {
+                        "This build follows its own layout rather than the building conventions, so its inputs and outputs are not read from the file and it is not linted."
+                    }
+                }
                 Ok(analysis) => (interface_section(analysis)),
                 Err(err) => {
                     p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
@@ -513,6 +518,7 @@ pub fn schematic_info(
                     (field("Author", s.author.as_deref().unwrap_or("unknown")))
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
                     (field("Imported by", s.imported_by.as_deref().unwrap_or("unknown")))
+                    (field("Conventions", if s.conventional { "followed" } else { "not followed" }))
                 }
             }
         }

@@ -134,6 +134,9 @@ pub struct Schematic {
     pub size: (i64, i64, i64),
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
+    /// Whether the build follows the building conventions, so the lint and
+    /// the interface reader apply to it.
+    pub conventional: bool,
     pub author: Option<String>,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
@@ -265,7 +268,8 @@ impl Schematic {
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
+            conventional as "conventional: bool"
          FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
@@ -319,6 +323,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             author: row.author,
             built_on: row.built_on,
             imported_by: row.imported_by,
+            conventional: row.conventional,
             sha256: row.sha256,
             added_at: row.added_at,
         })
@@ -331,7 +336,8 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
+            conventional as "conventional: bool"
          FROM schematic WHERE id = ?"#,
         id
     )
@@ -363,6 +369,7 @@ pub async fn get(
         author: row.author,
         built_on: row.built_on,
         imported_by: row.imported_by,
+        conventional: row.conventional,
         sha256: row.sha256,
         added_at: row.added_at,
         tags,
@@ -452,6 +459,7 @@ pub struct New<'a> {
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
+    pub conventional: bool,
     pub sha256: &'a str,
     pub data: &'a [u8],
 }
@@ -465,8 +473,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, author, built_on,
-            imported_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            imported_by, conventional, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
         new.width,
@@ -480,6 +488,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.author,
         new.built_on,
         new.imported_by,
+        new.conventional,
         new.sha256,
         new.data,
     )
@@ -510,6 +519,7 @@ pub struct Changes<'a> {
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
+    pub conventional: Option<bool>,
 }
 
 pub async fn update<'e, E: SqliteExecutor<'e>>(
@@ -527,7 +537,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             synchronized = coalesce(?, synchronized),
             author = coalesce(?, author),
             built_on = coalesce(?, built_on),
-            imported_by = coalesce(?, imported_by)
+            imported_by = coalesce(?, imported_by),
+            conventional = coalesce(?, conventional)
          WHERE id = ?",
         changes.function,
         changes.width,
@@ -538,6 +549,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.author,
         changes.built_on,
         changes.imported_by,
+        changes.conventional,
         id,
     )
     .execute(db)
@@ -696,6 +708,7 @@ mod tests {
             author: Some("embizone".to_owned()),
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
+            conventional: true,
             sha256: String::new(),
             added_at: String::new(),
             tags: vec![

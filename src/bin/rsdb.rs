@@ -153,6 +153,10 @@ struct Details {
     /// In-game name of whoever imported the build; stored lowercase
     #[arg(long)]
     imported_by: Option<String>,
+    /// Whether the build follows the building conventions: true or false.
+    /// A build that does not is imported without the lint.
+    #[arg(long)]
+    conventional: Option<bool>,
 }
 
 #[tokio::main]
@@ -253,6 +257,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         author: author.as_deref(),
         built_on: details.built_on.as_deref(),
         imported_by: imported_by.as_deref(),
+        conventional: details.conventional,
     };
     schematic::update(db, &id, &changes).await?;
     let fields: Vec<Optional> = unset
@@ -282,7 +287,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         .with_context(|| format!("cannot read {}", file.display()))?;
     let blocks =
         Blocks::read(&data).with_context(|| file.display().to_string())?;
-    let violations = lint::check(&blocks);
+    let conventional = args.details.conventional.unwrap_or(true);
+    let violations = if conventional {
+        lint::check(&blocks)
+    } else {
+        Vec::new()
+    };
     if !violations.is_empty() {
         for violation in &violations {
             eprintln!("{violation}");
@@ -295,7 +305,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             );
         }
     }
-    let size = blocks.inner_size()?;
+    // A build without corner markers measures its whole box.
+    let size = if blocks.missing_markers().is_empty() {
+        blocks.inner_size()?
+    } else {
+        blocks.full_size()?
+    };
     let sha256 =
         Sha256::digest(&data)
             .iter()
@@ -324,6 +339,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             author: author.as_deref(),
             built_on: details.built_on.as_deref(),
             imported_by: imported_by.as_deref(),
+            conventional,
             sha256: &sha256,
             data: &data,
         },
@@ -489,6 +505,14 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));
     println!("imported by  {}", unknown(s.imported_by));
+    println!(
+        "conventions  {}",
+        if s.conventional {
+            "followed"
+        } else {
+            "not followed"
+        }
+    );
     println!("added at     {}", s.added_at);
     Ok(())
 }

@@ -195,6 +195,12 @@ impl Blocks {
         })
     }
 
+    /// The whole bounding box.
+    pub fn full_size(&self) -> Result<Size> {
+        let [x, y, z] = self.size.map(|n| u16::try_from(n).unwrap_or(0));
+        Ok(Size { x, y, z })
+    }
+
     /// The size inside the corner markers, one block in from every face.
     pub fn inner_size(&self) -> Result<Size> {
         let [x, y, z] = self.size.map(|n| u16::try_from(n - 2).unwrap_or(0));
@@ -275,6 +281,17 @@ pub struct Lever {
     /// The side of `block` the lever is on, such as `south` or `up`.
     pub side: String,
     pub on: bool,
+}
+
+/// The block a redstone torch at `pos` stands on or hangs from.
+pub fn torch_block(pos: Pos, state: &str) -> Option<Pos> {
+    match id(state) {
+        "minecraft:redstone_torch" => Some(step(pos, "down")),
+        "minecraft:redstone_wall_torch" => {
+            Some(step(pos, opposite(property(state, "facing")?)))
+        }
+        _ => None,
+    }
 }
 
 /// The neighbour of `pos` one block toward `direction`, such as `north`.

@@ -9,14 +9,15 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 | Role        | Block               |
 | ----------- | ------------------- |
 | Solid       | white concrete      |
-| Transparent | glass               |
+| Transparent | white stained glass |
 | Input A     | lime concrete       |
 | Input B     | light blue concrete |
 | Control     | magenta concrete    |
 | Output      | yellow concrete     |
 
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
-- Glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
+- White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
+- Plain glass is kept for the corner markers, so a marker is never mistaken for part of the build.
 - A is green and B is blue, which stay apart under red-green colour blindness.
 - Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
 - Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.
@@ -76,11 +77,14 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 
 - Every input is saved at logical 0: a normal input with its lever off, an inverted input with its lever on.
 
+Some builds, such as displays, follow their own layout. They are stored with `--conventional false`, which exempts them from everything here.
+
 ## Corner markers
 
 - The schematic's bounding box has a glass marker at each of its eight corners: the corner block, plus the block next to it along each axis, so 32 glass blocks in all.
 - The markers sit in a shell one block thick around the build. The build's size is the bounding box shrunk by one block on every face, and positions count from the first block inside the shell.
-- `rsdb add` refuses a schematic with a marker block that is not glass.
+- Only a build's interface reaches into the shell: levers, signs, input blocks, and redstone torches standing on or hanging from an input block, such as the torch that drives a control line from its magenta block. Glass in the shell belongs only to the corner markers.
+- `rsdb add` refuses a schematic with a marker block that is not glass, or with anything else in the shell.
 
 ## Layout proposals
 
