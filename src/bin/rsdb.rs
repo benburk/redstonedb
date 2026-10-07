@@ -104,6 +104,7 @@ struct Set {
             "author",
             "built-on",
             "imported-by",
+            "description",
         ]
     )]
     unset: Vec<String>,
@@ -153,6 +154,9 @@ struct Details {
     /// In-game name of whoever imported the build; stored lowercase
     #[arg(long)]
     imported_by: Option<String>,
+    /// Free text about the build, such as how to use it
+    #[arg(long)]
+    description: Option<String>,
     /// Whether the build follows the building conventions: true or false.
     /// A build that does not is imported without the lint.
     #[arg(long)]
@@ -258,6 +262,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         built_on: details.built_on.as_deref(),
         imported_by: imported_by.as_deref(),
         conventional: details.conventional,
+        description: details.description.as_deref(),
     };
     schematic::update(db, &id, &changes).await?;
     let fields: Vec<Optional> = unset
@@ -269,6 +274,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "author" => Some(Optional::Author),
             "built-on" => Some(Optional::BuiltOn),
             "imported-by" => Some(Optional::ImportedBy),
+            "description" => Some(Optional::Description),
             _ => None,
         })
         .collect();
@@ -340,6 +346,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             built_on: details.built_on.as_deref(),
             imported_by: imported_by.as_deref(),
             conventional,
+            description: details.description.as_deref(),
             sha256: &sha256,
             data: &data,
         },
@@ -514,5 +521,8 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         }
     );
     println!("added at     {}", s.added_at);
+    if let Some(description) = &s.description {
+        println!("\n{description}");
+    }
     Ok(())
 }

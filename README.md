@@ -43,6 +43,7 @@ just rsdb define-tag pipelined --category timing --token pipe
 - Ids can be shortened to any unique prefix.
 - Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
+- `--description` stores free text about the build, such as how to use it. The build's page shows it under the title, and search matches words in it.
 - `--imported-by` records the in-game name of whoever imported the build. It is shown on the site but is not part of the filename.
 
 ## Website

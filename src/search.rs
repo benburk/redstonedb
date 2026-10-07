@@ -6,7 +6,7 @@
 //! it names one of its facts (function, orientation, encoding, a tag, its
 //! width such as `8b`, its author or importer, `stackable`, `sync` or
 //! `unsync`). A term that is no fact of any schematic matches when it
-//! appears in a schematic's title or filename instead, so `add` finds
+//! appears in a schematic's title, filename, or description instead, so `add` finds
 //! adders while `sync` does not find `unsync`. Quotes keep a multi-word term together, as in
 //! `"carry lookahead"`; underscores work too.
 
@@ -89,7 +89,13 @@ pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
         .into_iter()
         .filter(|s| {
             let facts = facts(s);
-            let text = format!("{} {}", s.title(), s.filename()).to_lowercase();
+            let text = format!(
+                "{} {} {}",
+                s.title(),
+                s.filename(),
+                s.description.as_deref().unwrap_or("")
+            )
+            .to_lowercase();
             terms.iter().all(|term| {
                 let found = if known.contains(&term.text) {
                     facts.contains(&term.text)
@@ -167,6 +173,7 @@ mod tests {
             built_on: None,
             imported_by: None,
             conventional: true,
+            description: None,
             sha256: String::new(),
             added_at: String::new(),
             tags: tags

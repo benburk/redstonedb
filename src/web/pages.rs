@@ -259,6 +259,9 @@ pub fn schematic(
         &path,
         &html! {
             h1 class={ (PAGE_TITLE) " mb-6" } { (name) }
+            @if let Some(description) = &s.description {
+                p class="-mt-3 mb-6 max-w-prose leading-prose whitespace-pre-line text-muted" { (description) }
+            }
             div class="grid gap-8 desktop:grid-cols-[minmax(0,1fr)_var(--spacing-aside)]" {
                 (viewer(&format!("{path}/download")))
                 (schematic_info(s, available, ""))

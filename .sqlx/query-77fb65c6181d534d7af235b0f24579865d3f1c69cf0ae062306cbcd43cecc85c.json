@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO schematic (function, width, orientation, encoding,\n            latency, synchronized, size_x, size_y, size_z, author, built_on,\n            imported_by, conventional, description, sha256, data)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n         RETURNING id as \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 16
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "77fb65c6181d534d7af235b0f24579865d3f1c69cf0ae062306cbcd43cecc85c"
+}

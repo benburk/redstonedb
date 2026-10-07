@@ -137,6 +137,8 @@ pub struct Schematic {
     /// Whether the build follows the building conventions, so the lint and
     /// the interface reader apply to it.
     pub conventional: bool,
+    /// Free text about the build, such as how to use it.
+    pub description: Option<String>,
     pub author: Option<String>,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
@@ -269,7 +271,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool"
+            conventional as "conventional: bool", description
          FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
@@ -324,6 +326,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             built_on: row.built_on,
             imported_by: row.imported_by,
             conventional: row.conventional,
+            description: row.description,
             sha256: row.sha256,
             added_at: row.added_at,
         })
@@ -337,7 +340,7 @@ pub async fn get(
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool"
+            conventional as "conventional: bool", description
          FROM schematic WHERE id = ?"#,
         id
     )
@@ -370,6 +373,7 @@ pub async fn get(
         built_on: row.built_on,
         imported_by: row.imported_by,
         conventional: row.conventional,
+        description: row.description,
         sha256: row.sha256,
         added_at: row.added_at,
         tags,
@@ -460,6 +464,7 @@ pub struct New<'a> {
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
     pub conventional: bool,
+    pub description: Option<&'a str>,
     pub sha256: &'a str,
     pub data: &'a [u8],
 }
@@ -473,8 +478,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, author, built_on,
-            imported_by, conventional, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            imported_by, conventional, description, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
         new.width,
@@ -489,6 +494,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.built_on,
         new.imported_by,
         new.conventional,
+        new.description,
         new.sha256,
         new.data,
     )
@@ -520,6 +526,7 @@ pub struct Changes<'a> {
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
     pub conventional: Option<bool>,
+    pub description: Option<&'a str>,
 }
 
 pub async fn update<'e, E: SqliteExecutor<'e>>(
@@ -538,7 +545,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             author = coalesce(?, author),
             built_on = coalesce(?, built_on),
             imported_by = coalesce(?, imported_by),
-            conventional = coalesce(?, conventional)
+            conventional = coalesce(?, conventional),
+            description = coalesce(?, description)
          WHERE id = ?",
         changes.function,
         changes.width,
@@ -550,6 +558,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.built_on,
         changes.imported_by,
         changes.conventional,
+        changes.description,
         id,
     )
     .execute(db)
@@ -567,6 +576,7 @@ pub enum Optional {
     Author,
     BuiltOn,
     ImportedBy,
+    Description,
 }
 
 /// Makes `fields` unknown.
@@ -584,6 +594,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         has(Optional::BuiltOn),
     );
     let imported_by = has(Optional::ImportedBy);
+    let description = has(Optional::Description);
     sqlx::query!(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
@@ -591,7 +602,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             synchronized = iif(?, NULL, synchronized),
             author = iif(?, NULL, author),
             built_on = iif(?, NULL, built_on),
-            imported_by = iif(?, NULL, imported_by)
+            imported_by = iif(?, NULL, imported_by),
+            description = iif(?, NULL, description)
          WHERE id = ?",
         width,
         latency,
@@ -599,6 +611,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         author,
         built_on,
         imported_by,
+        description,
         id,
     )
     .execute(db)
@@ -709,6 +722,7 @@ mod tests {
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
             conventional: true,
+            description: None,
             sha256: String::new(),
             added_at: String::new(),
             tags: vec![
