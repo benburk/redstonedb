@@ -40,7 +40,10 @@ enum Command {
         #[command(flatten)]
         details: Details,
         /// Field to make unknown; repeatable
-        #[arg(long, value_parser = ["width", "latency", "author", "built-on"])]
+        #[arg(
+            long,
+            value_parser = ["width", "latency", "synchronized", "author", "built-on"]
+        )]
         unset: Vec<String>,
     },
     /// List schematics by id prefix and filename
@@ -103,6 +106,9 @@ struct Details {
     /// Latency in ticks
     #[arg(long)]
     latency: Option<u32>,
+    /// Whether every output bit settles on the same tick: true or false
+    #[arg(long)]
+    synchronized: Option<bool>,
     /// In-game name; stored lowercase
     #[arg(long)]
     author: Option<String>,
@@ -142,6 +148,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
                 orientation: orientation.as_deref(),
                 encoding: encoding.as_deref(),
                 latency: details.latency.map(i64::from),
+                synchronized: details.synchronized,
                 author: author.as_deref(),
                 built_on: details.built_on.as_deref(),
             };
@@ -151,6 +158,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
                 .filter_map(|field| match field.as_str() {
                     "width" => Some(Optional::Width),
                     "latency" => Some(Optional::Latency),
+                    "synchronized" => Some(Optional::Synchronized),
                     "author" => Some(Optional::Author),
                     "built-on" => Some(Optional::BuiltOn),
                     _ => None,
@@ -254,6 +262,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             orientation: &args.orientation,
             encoding: &args.encoding,
             latency: details.latency.map(i64::from),
+            synchronized: details.synchronized,
             size: (size.x.into(), size.y.into(), size.z.into()),
             author: author.as_deref(),
             built_on: details.built_on.as_deref(),
@@ -354,6 +363,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
+    println!("synchronized {}", s.synchronized_label());
     println!("size         {x}x{y}x{z}, {} blocks", s.volume());
     println!("author       {}", unknown(s.author));
     println!("built on     {}", unknown(s.built_on));

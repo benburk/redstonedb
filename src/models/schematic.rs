@@ -39,6 +39,8 @@ pub struct Schematic {
     pub orientation: String,
     pub encoding: String,
     pub latency: Option<i64>,
+    /// Whether every output bit settles on the same tick.
+    pub synchronized: Option<bool>,
     /// Inside the corner markers.
     pub size: (i64, i64, i64),
     pub author: Option<String>,
@@ -90,6 +92,10 @@ impl Schematic {
             .chain(self.tags_in("restriction").map(|t| t.token().to_owned()))
             .chain([self.orientation.clone(), self.encoding.clone()])
             .chain(self.tags_in("timing").map(|t| t.token().to_owned()))
+            .chain(
+                self.synchronized
+                    .map(|s| (if s { "sync" } else { "unsync" }).to_owned()),
+            )
             .chain(self.latency.map(|t| format!("{t}t")))
             .chain([format!("{x}x{y}x{z}")])
             .chain(self.author.clone())
@@ -102,6 +108,15 @@ impl Schematic {
     pub fn volume(&self) -> i64 {
         let (x, y, z) = self.size;
         x * y * z
+    }
+
+    /// `yes`, `no`, or `unknown`.
+    pub fn synchronized_label(&self) -> &str {
+        match self.synchronized {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        }
     }
 
     pub fn orientation_label(&self) -> &str {
@@ -125,9 +140,9 @@ impl Schematic {
 /// Every schematic, ordered by function, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
-        "SELECT id, function, width, orientation, encoding, latency,
-            size_x, size_y, size_z, author, built_on, source_name, added_at
-         FROM schematic ORDER BY function, width, added_at"
+        r#"SELECT id, function, width, orientation, encoding, latency,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, added_at
+         FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
     .await?;
@@ -156,6 +171,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             orientation: row.orientation,
             encoding: row.encoding,
             latency: row.latency,
+            synchronized: row.synchronized,
             size: (row.size_x, row.size_y, row.size_z),
             author: row.author,
             built_on: row.built_on,
@@ -170,9 +186,9 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
-        "SELECT id, function, width, orientation, encoding, latency,
-            size_x, size_y, size_z, author, built_on, source_name, added_at
-         FROM schematic WHERE id = ?",
+        r#"SELECT id, function, width, orientation, encoding, latency,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, added_at
+         FROM schematic WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -197,6 +213,7 @@ pub async fn get(
         orientation: row.orientation,
         encoding: row.encoding,
         latency: row.latency,
+        synchronized: row.synchronized,
         size: (row.size_x, row.size_y, row.size_z),
         author: row.author,
         built_on: row.built_on,
@@ -244,6 +261,7 @@ pub struct New<'a> {
     pub orientation: &'a str,
     pub encoding: &'a str,
     pub latency: Option<i64>,
+    pub synchronized: Option<bool>,
     pub size: (i64, i64, i64),
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
@@ -260,15 +278,16 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     let (x, y, z) = new.size;
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
-            latency, size_x, size_y, size_z, author, built_on, source_name,
-            sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            latency, synchronized, size_x, size_y, size_z, author, built_on,
+            source_name, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
         new.width,
         new.orientation,
         new.encoding,
         new.latency,
+        new.synchronized,
         x,
         y,
         z,
@@ -290,6 +309,7 @@ pub struct Changes<'a> {
     pub orientation: Option<&'a str>,
     pub encoding: Option<&'a str>,
     pub latency: Option<i64>,
+    pub synchronized: Option<bool>,
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
 }
@@ -306,6 +326,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             orientation = coalesce(?, orientation),
             encoding = coalesce(?, encoding),
             latency = coalesce(?, latency),
+            synchronized = coalesce(?, synchronized),
             author = coalesce(?, author),
             built_on = coalesce(?, built_on)
          WHERE id = ?",
@@ -314,6 +335,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.orientation,
         changes.encoding,
         changes.latency,
+        changes.synchronized,
         changes.author,
         changes.built_on,
         id,
@@ -329,6 +351,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
 pub enum Optional {
     Width,
     Latency,
+    Synchronized,
     Author,
     BuiltOn,
 }
@@ -339,9 +362,10 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     id: &str,
     fields: &[Optional],
 ) -> Result<(), sqlx::Error> {
-    let (width, latency, author, built_on) = (
+    let (width, latency, synchronized, author, built_on) = (
         fields.contains(&Optional::Width),
         fields.contains(&Optional::Latency),
+        fields.contains(&Optional::Synchronized),
         fields.contains(&Optional::Author),
         fields.contains(&Optional::BuiltOn),
     );
@@ -349,11 +373,13 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
             latency = iif(?, NULL, latency),
+            synchronized = iif(?, NULL, synchronized),
             author = iif(?, NULL, author),
             built_on = iif(?, NULL, built_on)
          WHERE id = ?",
         width,
         latency,
+        synchronized,
         author,
         built_on,
         id,
@@ -459,6 +485,7 @@ mod tests {
             orientation: "horz".to_owned(),
             encoding: "bin".to_owned(),
             latency: Some(8),
+            synchronized: Some(false),
             size: (19, 11, 18),
             author: Some("embizone".to_owned()),
             built_on: Some("2014-09-06".to_owned()),
@@ -467,7 +494,6 @@ mod tests {
             tags: vec![
                 tag("carry_lookahead", None, "other"),
                 tag("alpha", None, "restriction"),
-                tag("unsynchronized", Some("unsync"), "timing"),
             ],
         }
     }
@@ -490,6 +516,7 @@ mod tests {
         let s = Schematic {
             width: None,
             latency: None,
+            synchronized: None,
             author: None,
             built_on: None,
             tags: Vec::new(),

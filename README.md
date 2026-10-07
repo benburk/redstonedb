@@ -24,12 +24,13 @@ just rsdb tag 23a9 torchless carry_lookahead
 just rsdb export 23a9 --out ~/.minecraft/config/worldedit/schematics
 just rsdb tags
 just rsdb define-tag carry_lookahead --category other
-just rsdb define-tag unsynchronized --category timing --token unsync
+just rsdb define-tag pipelined --category timing --token pipe
 ```
 
 - `add` reads the size from the file, inside the corner markers, and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
 - `add` lints the file against [conventions.md](conventions.md) first and refuses it if it breaks one, unless given `--force`. `just rsdb lint <file or id>` runs the same checks on their own.
-- `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `author`, or `built-on` and repeats.
+- `--synchronized true` or `false` records whether every output bit settles on the same tick; left out, it is unknown.
+- `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `synchronized`, `author`, or `built-on` and repeats.
 - Ids can be shortened to any unique prefix.
 - Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.

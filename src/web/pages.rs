@@ -341,6 +341,7 @@ pub fn schematic_info(
                     (field("Orientation", s.orientation_label()))
                     (field("Encoding", s.encoding_label()))
                     (field("Latency", &s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
+                    (field("Synchronized", s.synchronized_label()))
                     (field("Size", &size(s)))
                     (field("Volume", &volume(s)))
                     (field("Author", s.author.as_deref().unwrap_or("unknown")))
@@ -469,7 +470,7 @@ pub fn about(username: &str) -> Markup {
                     dt { span class="badge badge-restriction" { "Restriction" } }
                     dd { "Components the build does without." }
                     dt { span class="badge badge-timing" { "Timing" } }
-                    dd { "How the outputs settle, when it differs from what the function implies." }
+                    dd { "How the build is clocked, when it differs from what the function implies." }
                     dt { span class="badge badge-other" { "Other" } }
                     dd { "Anything else worth searching by, such as the design." }
                 }

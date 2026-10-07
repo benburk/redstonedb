@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, function, width, orientation, encoding, latency,\n            size_x, size_y, size_z, author, built_on, source_name, added_at\n         FROM schematic WHERE id = ?",
+  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, source_name, added_at\n         FROM schematic ORDER BY function, width, added_at",
   "describe": {
     "columns": [
       {
@@ -34,43 +34,48 @@
         "type_info": "Integer"
       },
       {
-        "name": "size_x",
+        "name": "synchronized: bool",
         "ordinal": 6,
         "type_info": "Integer"
       },
       {
-        "name": "size_y",
+        "name": "size_x",
         "ordinal": 7,
         "type_info": "Integer"
       },
       {
-        "name": "size_z",
+        "name": "size_y",
         "ordinal": 8,
         "type_info": "Integer"
       },
       {
-        "name": "author",
+        "name": "size_z",
         "ordinal": 9,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "built_on",
+        "name": "author",
         "ordinal": 10,
         "type_info": "Text"
       },
       {
-        "name": "source_name",
+        "name": "built_on",
         "ordinal": 11,
         "type_info": "Text"
       },
       {
-        "name": "added_at",
+        "name": "source_name",
         "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_at",
+        "ordinal": 13,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -78,6 +83,7 @@
       true,
       false,
       false,
+      true,
       true,
       false,
       false,
@@ -88,5 +94,5 @@
       false
     ]
   },
-  "hash": "b709ce219183d042c3af029f966bd1213c5067e0c52b02a248de5cade7beb598"
+  "hash": "4818d603f9552834463af490c202a5bb7050a9ab0062c6f76deb538551f46c57"
 }
