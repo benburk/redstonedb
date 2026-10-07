@@ -20,7 +20,7 @@ just rsdb add adder.schem --function adder --orientation vert --encoding bin \
 just rsdb list --tag alpha
 just rsdb show 23a9
 just rsdb set 23a9 --latency 4
-just rsdb tag 23a9 torchless "carry lookahead"
+just rsdb tag 23a9 torchless carry_lookahead
 just rsdb export 23a9 --out ~/.minecraft/config/worldedit/schematics
 just rsdb tags
 just rsdb define-tag carry_lookahead --category other
@@ -29,7 +29,7 @@ just rsdb define-tag unsynchronized --category timing --token unsync
 
 - `add` reads the size from the file and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
 - Ids can be shortened to any unique prefix.
-- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name, with spaces or underscores, or by token.
+- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
 
 ## Website
