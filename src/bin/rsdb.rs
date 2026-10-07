@@ -1,13 +1,20 @@
 //! Command-line access to the schematic database named by `DATABASE_URL`.
 
-use std::{fmt::Write as _, fs, io::Write as _, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fmt::Write as _,
+    fs,
+    io::Write as _,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
     lint,
-    models::schematic::{self, Changes, New, Optional},
+    models::schematic::{self, Changes, New, Optional, StackDirection},
     schem::Blocks,
+    stack,
 };
 use clap::{Args, Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -42,7 +49,15 @@ enum Command {
         /// Field to make unknown; repeatable
         #[arg(
             long,
-            value_parser = ["width", "latency", "synchronized", "author", "built-on"]
+            value_parser = [
+                "width",
+                "latency",
+                "synchronized",
+                "stacking",
+                "author",
+                "built-on",
+                "imported-by",
+            ]
         )]
         unset: Vec<String>,
     },
@@ -63,6 +78,10 @@ enum Command {
         id: String,
         #[arg(long, default_value = ".")]
         out: PathBuf,
+        /// Copies of a stackable build to join into one: a count, or one per
+        /// direction such as `west=7,north=3`
+        #[arg(long)]
+        copies: Option<String>,
     },
     /// Attach tags to a schematic
     Tag { id: String, tags: Vec<String> },
@@ -111,12 +130,20 @@ struct Details {
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
+    /// A direction the build stacks along, such as `west=2,max=7`: blocks
+    /// each copy sits west, up, or north of the one before, and the most
+    /// copies that work; repeatable, and replaces any stored directions
+    #[arg(long = "stack")]
+    stacking: Vec<StackDirection>,
     /// In-game name; stored lowercase
     #[arg(long)]
     author: Option<String>,
     /// Build date as YYYY-MM-DD
     #[arg(long)]
     built_on: Option<String>,
+    /// In-game name of whoever imported the build; stored lowercase
+    #[arg(long)]
+    imported_by: Option<String>,
 }
 
 #[tokio::main]
@@ -148,6 +175,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         } => {
             let id = resolve(db, &id).await?;
             let author = details.author.map(|a| a.to_lowercase());
+            let imported_by = details.imported_by.map(|a| a.to_lowercase());
             let changes = Changes {
                 function: function.as_deref(),
                 width: details.width.map(i64::from),
@@ -157,6 +185,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
                 synchronized: details.synchronized,
                 author: author.as_deref(),
                 built_on: details.built_on.as_deref(),
+                imported_by: imported_by.as_deref(),
             };
             schematic::update(db, &id, &changes).await?;
             let fields: Vec<Optional> = unset
@@ -167,10 +196,18 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
                     "synchronized" => Some(Optional::Synchronized),
                     "author" => Some(Optional::Author),
                     "built-on" => Some(Optional::BuiltOn),
+                    "imported-by" => Some(Optional::ImportedBy),
                     _ => None,
                 })
                 .collect();
             schematic::forget(db, &id, &fields).await?;
+            if !details.stacking.is_empty()
+                || unset.iter().any(|f| f == "stacking")
+            {
+                let mut conn = db.acquire().await?;
+                schematic::set_stacking(&mut conn, &id, &details.stacking)
+                    .await?;
+            }
             println!("{}", load(db, &id).await?.filename());
             Ok(())
         }
@@ -185,17 +222,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Show { id } => show(db, &resolve(db, &id).await?).await,
-        Command::Export { id, out } => {
-            let id = resolve(db, &id).await?;
-            let path = out.join(load(db, &id).await?.filename());
-            let data = schematic::data(db, &id)
-                .await?
-                .context("schematic vanished")?;
-            fs::File::create_new(&path)
-                .with_context(|| format!("cannot create {}", path.display()))?
-                .write_all(&data)?;
-            println!("{}", path.display());
-            Ok(())
+        Command::Export { id, out, copies } => {
+            export(db, &id, &out, copies.as_deref()).await
         }
         Command::Tag { id, tags } => {
             let id = resolve(db, &id).await?;
@@ -260,11 +288,9 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     if let Some(id) = schematic::id_by_sha256(db, &sha256).await? {
         bail!("{} is already stored as {}", file.display(), &id[..8]);
     }
-    let source_name = file
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let details = &args.details;
     let author = details.author.as_ref().map(|a| a.to_lowercase());
+    let imported_by = details.imported_by.as_ref().map(|a| a.to_lowercase());
 
     let mut tx = db.begin().await?;
     let id = schematic::insert(
@@ -279,7 +305,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             size: (size.x.into(), size.y.into(), size.z.into()),
             author: author.as_deref(),
             built_on: details.built_on.as_deref(),
-            source_name: &source_name,
+            imported_by: imported_by.as_deref(),
             sha256: &sha256,
             data: &data,
         },
@@ -289,9 +315,65 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         let tag = tag_id(&mut *tx, name).await?;
         schematic::attach(&mut *tx, &id, &tag).await?;
     }
+    schematic::set_stacking(&mut tx, &id, &details.stacking).await?;
     tx.commit().await?;
     println!("{}  {}", &id[..8], load(db, &id).await?.filename());
     Ok(())
+}
+
+/// Writes a schematic to `out` under its generated filename, stacked as
+/// `copies` says: a count for a build that stacks one way, or one count per
+/// direction such as `west=7,north=3`.
+async fn export(
+    db: &SqlitePool,
+    id: &str,
+    out: &Path,
+    copies: Option<&str>,
+) -> Result<()> {
+    let id = resolve(db, id).await?;
+    let s = load(db, &id).await?;
+    let data = schematic::data(db, &id)
+        .await?
+        .context("schematic vanished")?;
+    let (data, s) = match copies {
+        None => (data, s),
+        Some(copies) => {
+            let wanted = copy_counts(&s.stacking, copies)?;
+            let plan = stack::plan(&s.stacking, &wanted)?;
+            let (data, size) = stack::stack(&data, &plan)?;
+            (data, s.stacked(&plan, size))
+        }
+    };
+    let path = out.join(s.filename());
+    fs::File::create_new(&path)
+        .with_context(|| format!("cannot create {}", path.display()))?
+        .write_all(&data)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// Reads `8` for a build that stacks one way, or `west=7,north=3`.
+fn copy_counts(
+    stacking: &[StackDirection],
+    text: &str,
+) -> Result<HashMap<String, usize>> {
+    if let Ok(count) = text.parse() {
+        let [direction] = stacking else {
+            bail!(
+                "this build stacks {} ways; give a count for each, such as west=7",
+                stacking.len()
+            );
+        };
+        return Ok(HashMap::from([(direction.name(), count)]));
+    }
+    text.split(',')
+        .map(|pair| {
+            let (name, count) = pair
+                .split_once('=')
+                .context("give copies as a count or as direction=count")?;
+            Ok((name.trim().to_owned(), count.trim().parse()?))
+        })
+        .collect()
 }
 
 /// Prints the schematics with `function`, if given, and every one of `tags`,
@@ -366,10 +448,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("title        {}", s.title());
     println!("filename     {}", s.filename());
     println!("function     {}", s.function);
-    println!(
-        "width        {}",
-        unknown(s.width.map(|w| format!("{w} bits")))
-    );
+    println!("width        {}", unknown(s.width_label()));
     println!("orientation  {}", s.orientation_label());
     println!("encoding     {}", s.encoding_label());
     println!(
@@ -377,11 +456,21 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
     println!("synchronized {}", s.synchronized_label());
+    let stacking: Vec<String> =
+        s.stacking.iter().map(StackDirection::describe).collect();
+    println!(
+        "stacking     {}",
+        if stacking.is_empty() {
+            "no".to_owned()
+        } else {
+            stacking.join("; ")
+        }
+    );
     println!("size         {x}x{y}x{z}, {} blocks", s.volume());
     println!("author       {}", unknown(s.author));
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));
-    println!("source name  {}", s.source_name);
+    println!("imported by  {}", unknown(s.imported_by));
     println!("added at     {}", s.added_at);
     Ok(())
 }

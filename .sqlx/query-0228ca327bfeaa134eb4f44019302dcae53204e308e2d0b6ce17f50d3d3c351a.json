@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic_id, west, up, north, max_copies\n         FROM stack_direction ORDER BY west DESC, up DESC, north DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "schematic_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "west",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "up",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "north",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "max_copies",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0228ca327bfeaa134eb4f44019302dcae53204e308e2d0b6ce17f50d3d3c351a"
+}

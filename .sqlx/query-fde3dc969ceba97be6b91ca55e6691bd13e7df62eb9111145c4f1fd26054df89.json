@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, source_name, sha256, added_at\n         FROM schematic WHERE id = ?",
+  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at\n         FROM schematic WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -64,7 +64,7 @@
         "type_info": "Text"
       },
       {
-        "name": "source_name",
+        "name": "imported_by",
         "ordinal": 12,
         "type_info": "Text"
       },
@@ -95,10 +95,10 @@
       false,
       true,
       true,
-      false,
+      true,
       false,
       false
     ]
   },
-  "hash": "bc8d72f0ccba1dcc3afa5550309139ac67f08050a165d4d5dbd82c450c912edf"
+  "hash": "fde3dc969ceba97be6b91ca55e6691bd13e7df62eb9111145c4f1fd26054df89"
 }

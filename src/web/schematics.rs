@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     Form,
     extract::{Path, Query, State},
@@ -15,7 +17,7 @@ use crate::{
     models::schematic::{self, Schematic, Tag},
     models::user::User,
     schem::Blocks,
-    thumbnail,
+    stack, thumbnail,
 };
 
 use super::pages;
@@ -197,6 +199,7 @@ async fn available_tags(
 pub async fn download(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let found = match schematic::get(&state.db, &id).await {
         Ok(found) => found,
@@ -205,19 +208,41 @@ pub async fn download(
     let Some(s) = found else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    match schematic::data(&state.db, &id).await {
-        Ok(Some(data)) => (
-            [
-                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{}\"", s.filename()),
-                ),
-            ],
-            data,
-        )
-            .into_response(),
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(err) => internal_error(err).into_response(),
-    }
+    let data = match schematic::data(&state.db, &id).await {
+        Ok(Some(data)) => data,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal_error(err).into_response(),
+    };
+    // The query names copies per direction, such as `?west=7&north=3`.
+    let (data, s) = if query.is_empty() {
+        (data, s)
+    } else {
+        let stacked = query
+            .iter()
+            .map(|(name, count)| Ok((name.clone(), count.parse()?)))
+            .collect::<anyhow::Result<HashMap<String, usize>>>()
+            .and_then(|wanted| stack::plan(&s.stacking, &wanted))
+            .and_then(|plan| {
+                let (data, size) = stack::stack(&data, &plan)?;
+                Ok((data, s.stacked(&plan, size)))
+            });
+        match stacked {
+            Ok(stacked) => stacked,
+            Err(err) => {
+                return (StatusCode::BAD_REQUEST, err.to_string())
+                    .into_response();
+            }
+        }
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", s.filename()),
+            ),
+        ],
+        data,
+    )
+        .into_response()
 }

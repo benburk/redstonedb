@@ -39,7 +39,7 @@ register-16b-diag-bin-2t-32x6x4-someone-20261007.schem
 ## Decided
 
 - Width, latency, and size go in the filename.
-- Stackability follows from the orientation, and the bit pitch is almost always 2 wide or follows from the function, so neither gets its own part.
+- Stacking does not get its own part. A stackable build is stored as one slice, and its step and limit are fields in the database; see [conventions.md](conventions.md). A stack exported with `--stack` is named for what it became: its width is the slice's times the copies, and its size is the stack's.
 - Orientation and encoding are always written; restrictions and timing only when they apply.
 - Abbreviated tokens use 3 or 4 letters. Restrictions are written out in full.
 - The author and a date together identify the version.

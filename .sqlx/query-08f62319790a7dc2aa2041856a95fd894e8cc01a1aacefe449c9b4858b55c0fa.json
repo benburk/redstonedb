@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM stack_direction WHERE schematic_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "08f62319790a7dc2aa2041856a95fd894e8cc01a1aacefe449c9b4858b55c0fa"
+}

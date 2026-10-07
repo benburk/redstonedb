@@ -1,6 +1,8 @@
 //! Reading builds from their files, against the two stored adders.
 
-use app::{interface, lint, schem::Blocks};
+use app::{
+    interface, lint, models::schematic::StackDirection, schem::Blocks, stack,
+};
 
 fn blocks(name: &str) -> Blocks {
     let data = std::fs::read(format!("tests/fixtures/{name}.schem"))
@@ -114,4 +116,59 @@ fn thumbnail_is_a_png_of_the_set_size() {
     let expected =
         [app::thumbnail::WIDTH, app::thumbnail::HEIGHT].map(u32::from);
     assert_eq!([width, height], expected);
+}
+
+fn slice(name: &str) -> Vec<u8> {
+    std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap()
+}
+
+fn direction(text: &str) -> StackDirection {
+    text.parse().unwrap()
+}
+
+#[test]
+fn stacked_slices_form_one_wider_build() {
+    let plan = [(direction("west=2"), 8)];
+    let (data, size) = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap();
+    assert_eq!(size, [16, 6, 9]);
+    let blocks = Blocks::read(&data).unwrap();
+    let messages: Vec<String> = lint::check(&blocks)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(messages.is_empty(), "{messages:#?}");
+    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
+    assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
+}
+
+#[test]
+fn a_register_stacks_two_ways() {
+    let plan = [
+        (direction("west=2,max=7"), 7),
+        (direction("north=4,max=3"), 3),
+    ];
+    let (data, size) = stack::stack(&slice("alpha-register"), &plan).unwrap();
+    assert_eq!(size, [14, 12, 12]);
+    let interface::Interface { inputs, .. } =
+        interface::read(&Blocks::read(&data).unwrap());
+    // Each of the three registers keeps its own read and write lines.
+    let controls = inputs
+        .iter()
+        .filter(|p| p.name == "read" || p.name == "write");
+    assert_eq!(controls.count(), 6);
+}
+
+#[test]
+fn stacking_respects_the_limit() {
+    let west = direction("west=2,max=4");
+    assert!(stack::stack(&slice("alpha-rca-slice"), &[(west, 4)]).is_ok());
+    assert!(stack::stack(&slice("alpha-rca-slice"), &[(west, 5)]).is_err());
+}
+
+#[test]
+fn a_wrong_step_collides() {
+    let plan = [(direction("west=1"), 2)];
+    let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
+    assert!(err.to_string().contains("collide"), "{err}");
 }

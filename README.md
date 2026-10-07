@@ -23,6 +23,9 @@ just rsdb set 23a9 --latency 4
 just rsdb tag 23a9 torchless carry_lookahead
 just rsdb export 23a9 --out ~/.minecraft/config/worldedit/schematics
 just rsdb remove 23a9
+just rsdb add slice.schem --function adder --orientation horz --encoding bin \
+    --width 1 --stack west=2,max=7 --stack north=4,max=3
+just rsdb export 23a9 --copies west=7,north=3 --out .
 just rsdb tags
 just rsdb define-tag carry_lookahead --category other
 just rsdb define-tag pipelined --category timing --token pipe
@@ -30,11 +33,13 @@ just rsdb define-tag pipelined --category timing --token pipe
 
 - `add` reads the size from the file, inside the corner markers, and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
 - `add` lints the file against [conventions.md](conventions.md) first and refuses it if it breaks one, unless given `--force`. `just rsdb lint <file or id>` runs the same checks on their own.
+- `--stack` marks a build as a stackable slice, once for each direction it stacks along: how far each copy sits `west`, `up`, or `north` of the one before, and optionally the `max` copies that work. Giving `--stack` to `set` replaces the stored directions; `--unset stacking` makes a build unstackable. `export --copies` writes the copies joined into one schematic, as [conventions.md](conventions.md) describes: a plain count for a build that stacks one way, or a count per direction such as `west=7,north=3`.
 - `--synchronized true` or `false` records whether every output bit settles on the same tick; left out, it is unknown.
 - `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `synchronized`, `author`, or `built-on` and repeats.
 - Ids can be shortened to any unique prefix.
 - Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
+- `--imported-by` records the in-game name of whoever imported the build. It is shown on the site but is not part of the filename.
 
 ## Website
 
@@ -49,7 +54,7 @@ just serve
 - `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block, leaving out the corner markers. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
 - `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
-- `/schematics/<id>/download` returns the stored file under its generated filename.
+- `/schematics/<id>/download` returns the stored file under its generated filename. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and the page has a form for it.
 - Accounts are needed only to edit tags. Signing up takes an invite code; `seeds/seed.sql` creates some.
 - Styles are Tailwind. `styles/app.css` is the source, and `just css` builds `static/app.css`, which is committed so the server and the Nix build need no Tailwind. `just serve` rebuilds it first, and `just check` fails when it is stale.
 

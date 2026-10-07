@@ -18,6 +18,9 @@ pub struct Port {
     pub name: String,
     /// The block marking each bit, such as `lime concrete`.
     pub block: String,
+    /// Whether a sign names the port, as with `carry in`; buses are named
+    /// by their block instead.
+    pub labelled: bool,
     /// Least significant first.
     pub bits: Vec<Bit>,
     /// The weakest signal strength that drives an input correctly, from a
@@ -80,7 +83,9 @@ fn ports(
         let lines = signs.get(&pos).copied().unwrap_or_default();
         match name(lines) {
             Some(name) => {
-                named.push(port(blocks, name, vec![pos], lines, levers));
+                let mut port = port(blocks, name, vec![pos], lines, levers);
+                port.labelled = true;
+                named.push(port);
             }
             None => {
                 buses
@@ -167,6 +172,7 @@ fn port(
             .first()
             .map(|&pos| block_label(blocks.get(pos)))
             .unwrap_or_default(),
+        labelled: false,
         bits,
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
     }

@@ -1,8 +1,11 @@
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+};
 
 use anyhow::{Context, Result, bail};
 use fastnbt::Value;
-use flate2::read::GzDecoder;
+use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 
 /// A build's size inside its corner markers, in blocks along x, y, z.
 pub struct Size {
@@ -11,9 +14,20 @@ pub struct Size {
     pub z: u16,
 }
 
-/// The schematic's top-level fields. Version 2 keeps them at the root;
-/// version 3 nests them in a `Schematic` compound.
+/// The schematic's top-level fields.
 fn body(data: &[u8]) -> Result<HashMap<String, Value>> {
+    Ok(decode(data)?.body)
+}
+
+/// A schematic's NBT, kept whole so it can be changed and written back.
+pub struct Nbt {
+    pub body: HashMap<String, Value>,
+    /// Version 3 nests the fields in a `Schematic` compound; version 2
+    /// keeps them at the root.
+    nested: bool,
+}
+
+pub fn decode(data: &[u8]) -> Result<Nbt> {
     let mut raw = Vec::new();
     GzDecoder::new(data)
         .read_to_end(&mut raw)
@@ -24,10 +38,36 @@ fn body(data: &[u8]) -> Result<HashMap<String, Value>> {
     if root.contains_key("Materials") {
         bail!("legacy MCEdit .schematic files are not supported");
     }
-    match root.remove("Schematic") {
-        Some(Value::Compound(nested)) => Ok(nested),
-        _ => Ok(root),
-    }
+    Ok(match root.remove("Schematic") {
+        Some(Value::Compound(nested)) => Nbt {
+            body: nested,
+            nested: true,
+        },
+        _ => Nbt {
+            body: root,
+            nested: false,
+        },
+    })
+}
+
+/// Gzipped NBT, laid out as the file it was decoded from.
+pub fn encode(nbt: Nbt) -> Result<Vec<u8>> {
+    let (root, name) = if nbt.nested {
+        let root = HashMap::from([(
+            "Schematic".to_owned(),
+            Value::Compound(nbt.body),
+        )]);
+        (root, "")
+    } else {
+        (nbt.body, "Schematic")
+    };
+    let raw = fastnbt::to_bytes_with_opts(
+        &Value::Compound(root),
+        fastnbt::SerOpts::new().root_name(name),
+    )?;
+    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+    gz.write_all(&raw)?;
+    Ok(gz.finish()?)
 }
 
 // Sponge stores dimensions as unsigned shorts in NBT's signed short type.
@@ -36,6 +76,29 @@ fn dimension(body: &HashMap<String, Value>, key: &str) -> Result<u16> {
         Some(Value::Short(n)) => Ok(n.cast_unsigned()),
         _ => bail!("schematic has no {key}"),
     }
+}
+
+/// Where the corner markers go in a bounding box of `size`: each of its
+/// eight corners, and the block next to it along each axis.
+pub fn marker_positions(size: Pos) -> Vec<Pos> {
+    let [w, h, l] = size;
+    let mut positions = Vec::new();
+    for x in [0, w - 1] {
+        for y in [0, h - 1] {
+            for z in [0, l - 1] {
+                // One step from the corner toward the box's middle.
+                let [dx, dy, dz] =
+                    [x, y, z].map(|n| if n == 0 { 1 } else { -1 });
+                positions.extend([
+                    [x, y, z],
+                    [x + dx, y, z],
+                    [x, y + dy, z],
+                    [x, y, z + dz],
+                ]);
+            }
+        }
+    }
+    positions
 }
 
 /// A block position, as x, y, z.
@@ -141,27 +204,9 @@ impl Blocks {
         Ok(Size { x, y, z })
     }
 
-    /// Where the corner markers go: each of the eight corners of the
-    /// bounding box, and the block next to it along each axis.
+    /// Where the corner markers go.
     pub fn marker_positions(&self) -> Vec<Pos> {
-        let [w, h, l] = self.size;
-        let mut positions = Vec::new();
-        for x in [0, w - 1] {
-            for y in [0, h - 1] {
-                for z in [0, l - 1] {
-                    // One step from the corner toward the box's middle.
-                    let [dx, dy, dz] =
-                        [x, y, z].map(|n| if n == 0 { 1 } else { -1 });
-                    positions.extend([
-                        [x, y, z],
-                        [x + dx, y, z],
-                        [x, y + dy, z],
-                        [x, y, z + dz],
-                    ]);
-                }
-            }
-        }
-        positions
+        marker_positions(self.size)
     }
 
     /// Marker positions that do not hold glass.
@@ -196,26 +241,30 @@ impl Blocks {
             .collect()
     }
 
-    /// Each sign's text, by the block the sign is attached to. Wall
-    /// hanging signs hang from no block and are left out.
+    /// Each sign's text, by the block the sign is attached to.
     pub fn sign_texts(&self) -> HashMap<Pos, &[String]> {
         self.signs
             .iter()
             .filter_map(|(&pos, lines)| {
-                let state = self.get(pos);
-                let name = id(state);
-                let block = if name.ends_with("_wall_hanging_sign") {
-                    return None;
-                } else if name.ends_with("_hanging_sign") {
-                    step(pos, "up")
-                } else if name.ends_with("_wall_sign") {
-                    step(pos, opposite(property(state, "facing")?))
-                } else {
-                    step(pos, "down")
-                };
-                Some((block, lines.as_slice()))
+                Some((self.sign_block(pos)?, lines.as_slice()))
             })
             .collect()
+    }
+
+    /// The block the sign at `pos` is attached to. Wall hanging signs hang
+    /// from no block.
+    pub fn sign_block(&self, pos: Pos) -> Option<Pos> {
+        let state = self.get(pos);
+        let name = id(state);
+        if name.ends_with("_wall_hanging_sign") {
+            None
+        } else if name.ends_with("_hanging_sign") {
+            Some(step(pos, "up"))
+        } else if name.ends_with("_wall_sign") {
+            Some(step(pos, opposite(property(state, "facing")?)))
+        } else {
+            Some(step(pos, "down"))
+        }
     }
 }
 
@@ -272,7 +321,26 @@ pub fn property<'a>(state: &'a str, key: &str) -> Option<&'a str> {
 }
 
 /// Sponge stores each palette index as an unsigned LEB128 varint.
-fn varints(bytes: &[i8]) -> Vec<usize> {
+pub fn to_varints(values: &[usize]) -> Vec<i8> {
+    let mut bytes = Vec::new();
+    for &value in values {
+        let mut rest = value;
+        loop {
+            // The mask keeps seven bits, so the cast cannot truncate.
+            #[allow(clippy::cast_possible_truncation)]
+            let low = (rest & 0x7f) as u8;
+            rest >>= 7;
+            if rest == 0 {
+                bytes.push(low.cast_signed());
+                break;
+            }
+            bytes.push((low | 0x80).cast_signed());
+        }
+    }
+    bytes
+}
+
+pub fn varints(bytes: &[i8]) -> Vec<usize> {
     let mut values = Vec::new();
     let mut value = 0;
     let mut shift = 0;

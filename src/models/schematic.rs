@@ -29,6 +29,95 @@ pub fn tag_name(input: &str) -> String {
     input.trim().to_lowercase().replace(' ', "_")
 }
 
+/// One direction a stackable build repeats along. Each copy sits `west`,
+/// `up`, and `north` blocks from the one before, since copies count up from
+/// the south-east-bottom corner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StackDirection {
+    pub west: i64,
+    pub up: i64,
+    pub north: i64,
+    /// The most copies that work; `None` for no limit.
+    pub max_copies: Option<i64>,
+}
+
+impl StackDirection {
+    fn parts(&self) -> impl Iterator<Item = (i64, &'static str)> {
+        [(self.west, "west"), (self.up, "up"), (self.north, "north")]
+            .into_iter()
+            .filter(|(n, _)| *n > 0)
+    }
+
+    /// The way copies go, such as `west` or `west-up`. It names the
+    /// direction in a download link.
+    pub fn name(&self) -> String {
+        self.parts()
+            .map(|(_, way)| way)
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+
+    /// Such as `2 west per copy, up to 7 copies`.
+    pub fn describe(&self) -> String {
+        let steps: Vec<String> =
+            self.parts().map(|(n, way)| format!("{n} {way}")).collect();
+        let limit = match self.max_copies {
+            Some(n) => format!("up to {n} copies"),
+            None => "any number of copies".to_owned(),
+        };
+        format!("{} per copy, {limit}", steps.join(" and "))
+    }
+
+    /// Whether copies this way add bits, as along the way the build's bits
+    /// already run, rather than add parallel copies such as more registers.
+    pub fn adds_bits(&self, orientation: &str) -> bool {
+        match orientation {
+            "horz" => self.west > 0 && self.up == 0 && self.north == 0,
+            "vert" => self.up > 0 && self.west == 0 && self.north == 0,
+            "diag" => self.west > 0 && self.up > 0 && self.north == 0,
+            _ => false,
+        }
+    }
+}
+
+impl std::str::FromStr for StackDirection {
+    type Err = String;
+
+    /// Parses `west=2`, `north=4,max=3`, or `west=1,up=1`.
+    fn from_str(text: &str) -> Result<Self, String> {
+        let mut direction = StackDirection {
+            west: 0,
+            up: 0,
+            north: 0,
+            max_copies: None,
+        };
+        for pair in text.split(',') {
+            let (key, value) = pair
+                .split_once('=')
+                .ok_or_else(|| format!("expected key=value, got `{pair}`"))?;
+            let value: i64 = value
+                .trim()
+                .parse()
+                .map_err(|_| format!("`{value}` is not a whole number"))?;
+            match key.trim() {
+                "west" => direction.west = value,
+                "up" => direction.up = value,
+                "north" => direction.north = value,
+                "max" => direction.max_copies = Some(value),
+                other => {
+                    return Err(format!(
+                        "unknown key `{other}`; use west, up, north, or max"
+                    ));
+                }
+            }
+        }
+        if direction.west + direction.up + direction.north <= 0 {
+            return Err("give a step west, up, or north".to_owned());
+        }
+        Ok(direction)
+    }
+}
+
 /// A stored schematic's metadata. The `.schem` bytes stay in the database
 /// until [`data`] fetches them.
 #[derive(Debug, Clone)]
@@ -43,9 +132,12 @@ pub struct Schematic {
     pub synchronized: Option<bool>,
     /// Inside the corner markers.
     pub size: (i64, i64, i64),
+    /// Empty for a build that does not stack.
+    pub stacking: Vec<StackDirection>,
     pub author: Option<String>,
     pub built_on: Option<String>,
-    pub source_name: String,
+    /// The in-game name of whoever imported the build.
+    pub imported_by: Option<String>,
     /// Of the stored file, so a URL derived from the file can name its
     /// version.
     pub sha256: String,
@@ -61,6 +153,12 @@ impl Schematic {
         category: &'a str,
     ) -> impl Iterator<Item = &'a Tag> + 'a {
         self.tags.iter().filter(move |tag| tag.category == category)
+    }
+
+    /// The width in words, such as `8 bits` or `1 bit`.
+    pub fn width_label(&self) -> Option<String> {
+        self.width
+            .map(|w| format!("{w} {}", if w == 1 { "bit" } else { "bits" }))
     }
 
     /// The width and function, such as `8-bit adder`, for views that show
@@ -113,6 +211,29 @@ impl Schematic {
         x * y * z
     }
 
+    /// This build stacked into a box of inner `size`, with `copies` along
+    /// each direction. Copies that add bits widen it. A stack's latency and
+    /// timing are not its slice's, so they are unknown.
+    #[must_use]
+    pub fn stacked(
+        &self,
+        copies: &[(StackDirection, usize)],
+        size: [i32; 3],
+    ) -> Schematic {
+        let factor: i64 = copies
+            .iter()
+            .filter(|(direction, _)| direction.adds_bits(&self.orientation))
+            .map(|(_, n)| i64::try_from(*n).unwrap_or(i64::MAX))
+            .product();
+        Schematic {
+            width: self.width.map(|w| w * factor),
+            latency: None,
+            synchronized: None,
+            size: (size[0].into(), size[1].into(), size[2].into()),
+            ..self.clone()
+        }
+    }
+
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
         match self.synchronized {
@@ -144,11 +265,29 @@ impl Schematic {
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, sha256, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at
          FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
     .await?;
+    let mut stacking: HashMap<String, Vec<StackDirection>> = HashMap::new();
+    for row in sqlx::query!(
+        "SELECT schematic_id, west, up, north, max_copies
+         FROM stack_direction ORDER BY west DESC, up DESC, north DESC"
+    )
+    .fetch_all(db)
+    .await?
+    {
+        stacking
+            .entry(row.schematic_id)
+            .or_default()
+            .push(StackDirection {
+                west: row.west,
+                up: row.up,
+                north: row.north,
+                max_copies: row.max_copies,
+            });
+    }
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
         "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.category
@@ -168,6 +307,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         .into_iter()
         .map(|row| Schematic {
             tags: tags.remove(&row.id).unwrap_or_default(),
+            stacking: stacking.remove(&row.id).unwrap_or_default(),
             id: row.id,
             function: row.function,
             width: row.width,
@@ -178,7 +318,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             size: (row.size_x, row.size_y, row.size_z),
             author: row.author,
             built_on: row.built_on,
-            source_name: row.source_name,
+            imported_by: row.imported_by,
             sha256: row.sha256,
             added_at: row.added_at,
         })
@@ -191,7 +331,7 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, sha256, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at
          FROM schematic WHERE id = ?"#,
         id
     )
@@ -219,13 +359,54 @@ pub async fn get(
         latency: row.latency,
         synchronized: row.synchronized,
         size: (row.size_x, row.size_y, row.size_z),
+        stacking: stacking(db, id).await?,
         author: row.author,
         built_on: row.built_on,
-        source_name: row.source_name,
+        imported_by: row.imported_by,
         sha256: row.sha256,
         added_at: row.added_at,
         tags,
     }))
+}
+
+/// The directions a build stacks along: west first, then up, then north.
+pub async fn stacking<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+) -> Result<Vec<StackDirection>, sqlx::Error> {
+    sqlx::query_as!(
+        StackDirection,
+        "SELECT west, up, north, max_copies FROM stack_direction
+         WHERE schematic_id = ? ORDER BY west DESC, up DESC, north DESC",
+        id
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Replaces the directions a build stacks along; none makes it unstackable.
+pub async fn set_stacking(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    directions: &[StackDirection],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM stack_direction WHERE schematic_id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    for d in directions {
+        sqlx::query!(
+            "INSERT INTO stack_direction (schematic_id, west, up, north, max_copies)
+             VALUES (?, ?, ?, ?, ?)",
+            id,
+            d.west,
+            d.up,
+            d.north,
+            d.max_copies,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    Ok(())
 }
 
 /// The stored `.schem` bytes.
@@ -270,7 +451,7 @@ pub struct New<'a> {
     pub size: (i64, i64, i64),
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
-    pub source_name: &'a str,
+    pub imported_by: Option<&'a str>,
     pub sha256: &'a str,
     pub data: &'a [u8],
 }
@@ -284,7 +465,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, author, built_on,
-            source_name, sha256, data)
+            imported_by, sha256, data)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
@@ -298,7 +479,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         z,
         new.author,
         new.built_on,
-        new.source_name,
+        new.imported_by,
         new.sha256,
         new.data,
     )
@@ -328,6 +509,7 @@ pub struct Changes<'a> {
     pub synchronized: Option<bool>,
     pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
+    pub imported_by: Option<&'a str>,
 }
 
 pub async fn update<'e, E: SqliteExecutor<'e>>(
@@ -344,7 +526,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             latency = coalesce(?, latency),
             synchronized = coalesce(?, synchronized),
             author = coalesce(?, author),
-            built_on = coalesce(?, built_on)
+            built_on = coalesce(?, built_on),
+            imported_by = coalesce(?, imported_by)
          WHERE id = ?",
         changes.function,
         changes.width,
@@ -354,6 +537,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.synchronized,
         changes.author,
         changes.built_on,
+        changes.imported_by,
         id,
     )
     .execute(db)
@@ -370,6 +554,7 @@ pub enum Optional {
     Synchronized,
     Author,
     BuiltOn,
+    ImportedBy,
 }
 
 /// Makes `fields` unknown.
@@ -378,26 +563,30 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     id: &str,
     fields: &[Optional],
 ) -> Result<(), sqlx::Error> {
+    let has = |field| fields.contains(&field);
     let (width, latency, synchronized, author, built_on) = (
-        fields.contains(&Optional::Width),
-        fields.contains(&Optional::Latency),
-        fields.contains(&Optional::Synchronized),
-        fields.contains(&Optional::Author),
-        fields.contains(&Optional::BuiltOn),
+        has(Optional::Width),
+        has(Optional::Latency),
+        has(Optional::Synchronized),
+        has(Optional::Author),
+        has(Optional::BuiltOn),
     );
+    let imported_by = has(Optional::ImportedBy);
     sqlx::query!(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
             latency = iif(?, NULL, latency),
             synchronized = iif(?, NULL, synchronized),
             author = iif(?, NULL, author),
-            built_on = iif(?, NULL, built_on)
+            built_on = iif(?, NULL, built_on),
+            imported_by = iif(?, NULL, imported_by)
          WHERE id = ?",
         width,
         latency,
         synchronized,
         author,
         built_on,
+        imported_by,
         id,
     )
     .execute(db)
@@ -503,9 +692,10 @@ mod tests {
             latency: Some(8),
             synchronized: Some(false),
             size: (19, 11, 18),
+            stacking: Vec::new(),
             author: Some("embizone".to_owned()),
             built_on: Some("2014-09-06".to_owned()),
-            source_name: String::new(),
+            imported_by: None,
             sha256: String::new(),
             added_at: String::new(),
             tags: vec![

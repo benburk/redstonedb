@@ -9,7 +9,7 @@ use crate::{
     APP_NAME,
     interface::{Bit, Interface, Port},
     lint::Violation,
-    models::schematic::{Schematic, Tag},
+    models::schematic::{Schematic, StackDirection, Tag},
 };
 
 use super::components::{
@@ -396,21 +396,38 @@ pub fn schematic_info(
                 h2 id="file-heading" class="sr-only" { "File" }
                 a href={ (path) "/download" } download=(file) class="btn btn-primary" { "Download" }
                 p class="text-meta break-all text-muted" { code { (file) } }
+                @if !s.stacking.is_empty() {
+                    form action={ (path) "/download" } method="get" class="mt-3 flex flex-col gap-3" {
+                        div class="flex gap-2" {
+                            @for direction in &s.stacking {
+                                label class="field flex-1" {
+                                    span { "Copies " (direction.name().replace('-', " and ")) }
+                                    input type="number" name=(direction.name()) min="1"
+                                        max=[direction.max_copies]
+                                        value=(direction.max_copies.unwrap_or(8).min(8)) required
+                                        class="input min-h-9 tabular-nums";
+                                }
+                            }
+                        }
+                        button type="submit" class="btn btn-quiet" { "Download stack" }
+                    }
+                }
             }
             section aria-labelledby="details-heading" {
                 h2 id="details-heading" class={ (SECTION_TITLE) " mb-3" } { "Details" }
                 dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2" {
                     (field("Function", &s.function.replace('_', " ")))
-                    (field("Width", &s.width.map(|w| format!("{w} bits")).unwrap_or_default()))
+                    (field("Width", &s.width_label().unwrap_or_else(|| "unknown".to_owned())))
                     (field("Orientation", s.orientation_label()))
                     (field("Encoding", s.encoding_label()))
                     (field("Latency", &s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
                     (field("Synchronized", s.synchronized_label()))
+                    (field("Stacks", &stacking(s)))
                     (field("Size", &size(s)))
                     (field("Volume", &volume(s)))
                     (field("Author", s.author.as_deref().unwrap_or("unknown")))
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    (field("Imported from", &s.source_name))
+                    (field("Imported by", s.imported_by.as_deref().unwrap_or("unknown")))
                 }
             }
         }
@@ -454,6 +471,18 @@ fn field(name: &str, value: &str) -> Markup {
         dt class="text-muted" { (name) }
         dd { (value) }
     }
+}
+
+/// Each direction a build stacks along, or `no`.
+fn stacking(s: &Schematic) -> String {
+    if s.stacking.is_empty() {
+        return "no".to_owned();
+    }
+    s.stacking
+        .iter()
+        .map(StackDirection::describe)
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn latency(s: &Schematic) -> String {

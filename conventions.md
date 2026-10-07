@@ -63,6 +63,15 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - Each bus's least significant bit is the bit nearest the south-east-bottom corner of the bounding box. The other bits count up from it by distance.
 - So a horizontal bus counts up from its east end, and a vertical bus from its bottom. No sign marks the LSB.
 
+## Stacking
+
+- A stackable build is saved as one slice: the fewest bits that repeat, such as one bit of a ripple carry adder or a register, or two or four bits of a staggered design.
+- A slice may stack along several directions, each with its own step and most copies. Copies count up from the south-east-bottom corner, so they go west, up, north, or a mix, such as west and up for a diagonal build. A register might stack 7 times west for more bits and 3 times north for more registers.
+- Copies along the way the build's bits run add bits: west for a horizontal build, up for a vertical one, west and up for a diagonal one. Copies along any other direction are parallel copies and leave the width alone.
+- Stacking keeps every copy's slice, the blocks inside its corner markers. Blocks a copy has in the marker shell that reach into the previous copy's slice belong to the edge of the stack, such as the magenta block, lever, sign, and torch feeding a carry in or a shared control line, so only the first copy keeps them, with any lever or sign on them.
+- Every copy but the last turns its labelled outputs, such as a carry out, white and drops their signs, since the next copy takes them over.
+- A copy must not overwrite a different block of the copy before. Export refuses a stack whose copies collide, since that means a step is wrong.
+
 ## Saved state
 
 - Every input is saved at logical 0: a normal input with its lever off, an inverted input with its lever on.
