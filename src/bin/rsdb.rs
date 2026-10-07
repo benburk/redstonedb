@@ -46,6 +46,8 @@ enum Command {
         )]
         unset: Vec<String>,
     },
+    /// Delete a schematic
+    Remove { id: String },
     /// List schematics by id prefix and filename
     List {
         #[arg(long)]
@@ -122,8 +124,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
     let result = run(&db, cli.command).await;
-    // Closing checkpoints SQLite's write-ahead log into redstone.db, which
-    // is committed; the log is not.
+    // redstone.db is committed and its write-ahead log is not, so move the
+    // log's pages into the file. Closing alone does this only when no other
+    // process, such as a running server, has the database open.
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&db)
+        .await?;
     db.close().await;
     result
 }
@@ -170,6 +176,13 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         }
         Command::List { function, tags } => {
             list(db, function.as_deref(), &tags).await
+        }
+        Command::Remove { id } => {
+            let id = resolve(db, &id).await?;
+            let filename = load(db, &id).await?.filename();
+            schematic::delete(db, &id).await?;
+            println!("removed {}  {filename}", &id[..8]);
+            Ok(())
         }
         Command::Show { id } => show(db, &resolve(db, &id).await?).await,
         Command::Export { id, out } => {

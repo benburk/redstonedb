@@ -18,14 +18,12 @@ Built so far:
 - Every A and B lever is on the south side of its block.
 - No lever touches a redstone component other than through its own block.
 - Every control line has a sign naming it.
-- A and B each have exactly one `lsb` sign.
-- Every output is a redstone lamp, and a multi-bit output has an `lsb` sign.
+- Every output is yellow concrete.
 
 Still to build:
 
-- Signs appear only on the A and B LSBs, control lines, and the output LSB.
+- Signs appear only on control lines, single-bit outputs, and as strength tokens on A and B.
 - Every lever is saved off, except on inverted inputs.
-- Each role's block appears only in that role, for example no white concrete that is hard-powered.
 
 Most role checks need a model of which blocks are powered, so they come after the whitelist and position checks.
 
@@ -35,10 +33,9 @@ Most role checks need a model of which blocks are powered, so they come after th
 
 - Control lines: find each magenta block, its lever, and its sign, and record the line's name, position, and whether it is inverted.
 - Inverted inputs: any lever saved on.
-- Input and output positions and widths: lime, light blue, and magenta blocks, and lamps.
+- Input and output positions and widths: lime, light blue, magenta, and yellow blocks.
 - How each input must be driven: hard-powered when dust touches its block, soft-powered otherwise, at the strength its sign gives or 1.
-- The LSB of each bus, from its `lsb` sign.
-- Latency, from the output LSB sign.
+- The LSB of each bus: the bit nearest the south-east-bottom corner.
 
 Sponge schematics store sign text in their block entities, so no game is needed to read it. The sign format changed in Minecraft 1.20, so the reader must handle both the old and new layouts.
 

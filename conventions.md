@@ -4,20 +4,18 @@ Each schematic should follow one default building convention, so builds line up 
 
 ## Block palette
 
-Builds use only whitelisted blocks. Each role has its own block, so a block's role can be read from its colour. Power roles are a grey scale that darkens with the role's strength, and inputs are bright colours that stand out against it. Red is left to redstone dust and torches.
+Builds use only whitelisted blocks. Each interface role has its own block, so a block's role can be read from its colour: inputs and outputs are bright colours that stand out against white. Red is left to redstone dust and torches.
 
-| Role         | Block               |
-| ------------ | ------------------- |
-| Soft-powered | white concrete      |
-| Transparent  | glass               |
-| Hard-powered | light gray concrete |
-| Blocker      | gray concrete       |
-| Input A      | lime concrete       |
-| Input B      | light blue concrete |
-| Control      | magenta concrete    |
-| Output       | redstone lamp       |
+| Role        | Block               |
+| ----------- | ------------------- |
+| Solid       | white concrete      |
+| Transparent | glass               |
+| Input A     | lime concrete       |
+| Input B     | light blue concrete |
+| Control     | magenta concrete    |
+| Output      | yellow concrete     |
 
-- Soft-powered blocks most often carry dust, so they get the lightest colour, against which both powered and unpowered dust read clearly.
+- Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - Glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
 - A is green and B is blue, which stay apart under red-green colour blindness.
 - Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
@@ -39,27 +37,31 @@ Import derives this from the build, so nothing in-world marks it.
 - Hard-powered: dust touches the input block, on top, beside, or below. Only a strongly powered block powers dust, so a driver must be a repeater, comparator, or torch.
 - Soft-powered: nothing but torches, repeaters, comparators, and mechanisms touches the input block. These respond to a weakly powered block, so any signal into the block works, including dust.
 - A lever strongly powers its block at 15, so a saved build always works under hard power. The derivation only decides whether weaker drivers work too.
-- Required strength: the input block must be powered at strength 1 or more, unless the operand's LSB sign or the control line's sign says otherwise, such as `4ss` for 4 or more. The value applies to every bit of the operand.
+- Required strength: the input block must be powered at strength 1 or more, unless a sign on one of the operand's input blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. The value applies to every bit of the operand.
 - Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value.
 - Later, a redstone simulator can derive both facts: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign then becomes a check rather than the source.
 
 ## Outputs
 
-- Every output bit is a redstone lamp, so the result reads at a glance.
-- A lamp turns off a short delay after losing power. Account for this when measuring latency.
+- Every output bit is a yellow concrete block. Redstone lamps are allowed as ordinary components but do not mark outputs.
 
 ## Signs
 
-Signs carry machine-readable labels. Import reads them, so a build's interface can be extracted without a human. Everything else is metadata in the database.
+Signs carry machine-readable labels. Import reads them, so a build's interface can be extracted without a human. Everything else, latency included, is metadata in the database.
 
-| Where             | First line | Further lines           |
-| ----------------- | ---------- | ----------------------- |
-| LSB of A and of B | `lsb`      | strength, such as `4ss` |
-| Each control line | its name   | strength, such as `4ss` |
-| Output LSB lamp   | `lsb`      | latency, such as `8t`   |
+| Where                     | First line         | Further lines           |
+| ------------------------- | ------------------ | ----------------------- |
+| Each control line         | its name           | strength, such as `4ss` |
+| Each single-bit output    | its name           |                         |
+| Any input block of A or B | strength, as `4ss` |                         |
 
-- Proposal: each further line is one token in the filename's shapes, such as `8t` for latency.
+- Each further line is one token, such as `4ss`.
 - Import copies sign values into the database. After that the database is the source of truth, so export either rewrites signs from it or strips them.
+
+## Bit order
+
+- Each bus's least significant bit is the bit nearest the south-east-bottom corner of the bounding box. The other bits count up from it by distance.
+- So a horizontal bus counts up from its east end, and a vertical bus from its bottom. No sign marks the LSB.
 
 ## Saved state
 
@@ -76,7 +78,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 None of these are decided yet.
 
 - Data flows toward +x.
-- The LSB sits at a fixed end.
+
 - Inputs enter one face and outputs leave the opposite face.
 - Control lines arrive from above.
 - Each build gets a test bench: input levers with the expected outputs, to catch breakage across game versions. The bench should drive each input with the weakest signal its derived requirement allows, since a lever always gives full hard power and would hide a wrong requirement.
@@ -84,8 +86,5 @@ None of these are decided yet.
 ## Open
 
 - The default orientation and axes. These also fix the order of `WxHxL` in the filename.
-- Whether interface blocks may sit in the marker shell. The carry lookahead adder's output lamps do.
-- Blocker shade: gray, or black for more contrast with light gray. Black hides unpowered dust, but blockers rarely carry dust.
 - Which face a sign goes on.
-- Lamps are conductive blocks, so a powered lamp can power its neighbours. Decide whether output lamps must be isolated.
 - How signal-strength inputs, including `hex` builds, are supplied.

@@ -1,6 +1,6 @@
 use axum::{
     Form,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
@@ -15,20 +15,57 @@ use crate::{
     models::schematic::{self, Schematic, Tag},
     models::user::User,
     schem::Blocks,
+    thumbnail,
 };
 
 use super::pages;
 
+#[derive(Deserialize)]
+pub struct ListQuery {
+    view: Option<String>,
+}
+
+/// Every schematic, as cards unless `?view=list` asks for the table.
 pub async fn list(
     State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
     user_opt: Option<User>,
 ) -> Response {
     let username = user_opt.map(|user| user.username).unwrap_or_default();
+    let view = match query.view.as_deref() {
+        Some("list") => pages::View::List,
+        _ => pages::View::Cards,
+    };
     match schematic::all(&state.db).await {
         Ok(schematics) => {
-            pages::schematics(&username, &schematics).into_response()
+            pages::schematics(&username, &schematics, view).into_response()
         }
         Err(err) => internal_error(err).into_response(),
+    }
+}
+
+/// An isometric picture of the build. Cards link to it with the file's hash
+/// in the query, so a changed file gets a new URL and this one can be
+/// cached for good.
+pub async fn thumbnail(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    let data = match schematic::data(&state.db, &id).await {
+        Ok(Some(data)) => data,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal_error(err).into_response(),
+    };
+    match Blocks::read(&data).and_then(|blocks| thumbnail::render(&blocks)) {
+        Ok(png) => (
+            [
+                (header::CONTENT_TYPE, "image/png"),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            png,
+        )
+            .into_response(),
+        Err(err) => internal_error(&*err).into_response(),
     }
 }
 

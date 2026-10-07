@@ -57,6 +57,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
         .route("/schematics/{id}/download", get(schematics::download))
+        .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))
         .route("/schematics/{id}/tags", post(schematics::add_tag))
         .route(
             "/schematics/{id}/tags/{tag}",

@@ -22,6 +22,7 @@ just rsdb show 23a9
 just rsdb set 23a9 --latency 4
 just rsdb tag 23a9 torchless carry_lookahead
 just rsdb export 23a9 --out ~/.minecraft/config/worldedit/schematics
+just rsdb remove 23a9
 just rsdb tags
 just rsdb define-tag carry_lookahead --category other
 just rsdb define-tag pipelined --category timing --token pipe
@@ -44,7 +45,8 @@ cp .env.example .env
 just serve
 ```
 
-- `/` lists every schematic in a table, named from its width and function, with its tags as badges coloured by category.
+- `/` shows every schematic as a card with a thumbnail, its name, tag badges coloured by category, and its latency, size, volume, and author. `/?view=list` shows the same schematics as a table instead.
+- `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block, leaving out the corner markers. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
 - `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
 - `/schematics/<id>/download` returns the stored file under its generated filename.

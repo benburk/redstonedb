@@ -46,6 +46,9 @@ pub struct Schematic {
     pub author: Option<String>,
     pub built_on: Option<String>,
     pub source_name: String,
+    /// Of the stored file, so a URL derived from the file can name its
+    /// version.
+    pub sha256: String,
     pub added_at: String,
     /// Sorted by category in glossary order (restriction, timing, other),
     /// then name.
@@ -141,7 +144,7 @@ impl Schematic {
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, sha256, added_at
          FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
@@ -176,6 +179,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             author: row.author,
             built_on: row.built_on,
             source_name: row.source_name,
+            sha256: row.sha256,
             added_at: row.added_at,
         })
         .collect())
@@ -187,7 +191,7 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, added_at
+            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, source_name, sha256, added_at
          FROM schematic WHERE id = ?"#,
         id
     )
@@ -218,6 +222,7 @@ pub async fn get(
         author: row.author,
         built_on: row.built_on,
         source_name: row.source_name,
+        sha256: row.sha256,
         added_at: row.added_at,
         tags,
     }))
@@ -299,6 +304,17 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     )
     .fetch_one(db)
     .await
+}
+
+/// Deletes a schematic and its tag links.
+pub async fn delete<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM schematic WHERE id = ?", id)
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 /// Fields to change; `None` keeps the stored value.
@@ -490,6 +506,7 @@ mod tests {
             author: Some("embizone".to_owned()),
             built_on: Some("2014-09-06".to_owned()),
             source_name: String::new(),
+            sha256: String::new(),
             added_at: String::new(),
             tags: vec![
                 tag("carry_lookahead", None, "other"),

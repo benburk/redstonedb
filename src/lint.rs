@@ -8,19 +8,17 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`.
-const PALETTE: [&str; 8] = [
+const PALETTE: [&str; 6] = [
     "white_concrete",
     "glass",
-    "light_gray_concrete",
-    "gray_concrete",
     "lime_concrete",
     "light_blue_concrete",
     "magenta_concrete",
-    "redstone_lamp",
+    "yellow_concrete",
 ];
 
 /// Redstone components and the other blocks every build may use.
-const COMPONENTS: [&str; 14] = [
+const COMPONENTS: [&str; 15] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -35,6 +33,7 @@ const COMPONENTS: [&str; 14] = [
     "piston_head",
     "observer",
     "redstone_block",
+    "redstone_lamp",
 ];
 
 /// Blocks a lever must not touch, since it would power them directly.
@@ -50,8 +49,8 @@ const POWERABLE: [&str; 9] = [
     "observer",
 ];
 
-const OPERANDS: [(&str, &str); 2] =
-    [("lime_concrete", "A"), ("light_blue_concrete", "B")];
+/// The blocks marking A and B input bits.
+const OPERANDS: [&str; 2] = ["lime_concrete", "light_blue_concrete"];
 
 /// One broken convention, at a position inside the corner markers when it
 /// has one.
@@ -124,15 +123,13 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                 format!("lever is on {block}, not an input block"),
             );
         }
-        if OPERANDS.iter().any(|(kind, _)| *kind == block)
-            && lever.facing != "south"
-        {
+        if OPERANDS.contains(&block) && lever.side != "south" {
             say(
                 found,
                 Some(lever.pos),
                 format!(
                     "operand lever is on the {} side of its block, not south",
-                    lever.facing
+                    lever.side
                 ),
             );
         }
@@ -181,24 +178,6 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
             );
         }
     }
-    for (kind, operand) in OPERANDS {
-        let members: Vec<Pos> = blocks
-            .iter()
-            .filter(|(_, state)| short(state) == kind)
-            .map(|(pos, _)| pos)
-            .collect();
-        let lsb_signs = members
-            .iter()
-            .filter(|&&pos| first_line(pos) == "lsb")
-            .count();
-        if !members.is_empty() && lsb_signs != 1 {
-            say(
-                found,
-                None,
-                format!("operand {operand} has {lsb_signs} lsb signs, not 1"),
-            );
-        }
-    }
 }
 
 fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
@@ -206,14 +185,12 @@ fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     for port in &outputs {
         // Interface positions are already inside the markers.
         let pos = port.bits.first().map(|bit| bit.pos.map(|n| n + 1));
-        if port.block != "redstone lamp" {
+        if port.block != "yellow concrete" {
             say(
                 found,
                 pos,
-                format!("{} is {}, not redstone lamps", port.name, port.block),
+                format!("{} is {}, not yellow concrete", port.name, port.block),
             );
-        } else if port.bits.len() > 1 && !port.lsb_known {
-            say(found, None, format!("{} has no lsb sign", port.name));
         }
     }
 }

@@ -14,5 +14,6 @@ pub mod models;
 pub mod password;
 pub mod schem;
 pub mod services;
+pub mod thumbnail;
 pub mod util;
 pub mod web;

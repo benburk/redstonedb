@@ -141,32 +141,35 @@ impl Blocks {
         Ok(Size { x, y, z })
     }
 
-    /// Marker positions that do not hold glass. Each of the eight corners
-    /// of the bounding box holds glass, as does the block next to it along
-    /// each axis.
-    pub fn missing_markers(&self) -> Vec<Pos> {
+    /// Where the corner markers go: each of the eight corners of the
+    /// bounding box, and the block next to it along each axis.
+    pub fn marker_positions(&self) -> Vec<Pos> {
         let [w, h, l] = self.size;
-        let mut missing = Vec::new();
+        let mut positions = Vec::new();
         for x in [0, w - 1] {
             for y in [0, h - 1] {
                 for z in [0, l - 1] {
                     // One step from the corner toward the box's middle.
                     let [dx, dy, dz] =
                         [x, y, z].map(|n| if n == 0 { 1 } else { -1 });
-                    for pos in [
+                    positions.extend([
                         [x, y, z],
                         [x + dx, y, z],
                         [x, y + dy, z],
                         [x, y, z + dz],
-                    ] {
-                        if self.get(pos) != "minecraft:glass" {
-                            missing.push(pos);
-                        }
-                    }
+                    ]);
                 }
             }
         }
-        missing
+        positions
+    }
+
+    /// Marker positions that do not hold glass.
+    pub fn missing_markers(&self) -> Vec<Pos> {
+        self.marker_positions()
+            .into_iter()
+            .filter(|&pos| self.get(pos) != "minecraft:glass")
+            .collect()
     }
 }
 
@@ -176,15 +179,17 @@ impl Blocks {
         self.iter()
             .filter(|(_, state)| id(state) == "minecraft:lever")
             .filter_map(|(pos, state)| {
-                let block = match property(state, "face")? {
-                    "floor" => step(pos, "down"),
-                    "ceiling" => step(pos, "up"),
-                    _ => step(pos, opposite(property(state, "facing")?)),
+                // A floor or ceiling lever's `facing` is only the way its
+                // handle points.
+                let side = match property(state, "face")? {
+                    "floor" => "up",
+                    "ceiling" => "down",
+                    _ => property(state, "facing")?,
                 };
                 Some(Lever {
                     pos,
-                    block,
-                    facing: property(state, "facing")?.to_owned(),
+                    block: step(pos, opposite(side)),
+                    side: side.to_owned(),
                     on: property(state, "powered") == Some("true"),
                 })
             })
@@ -218,8 +223,8 @@ pub struct Lever {
     pub pos: Pos,
     /// The block the lever is attached to, which it powers.
     pub block: Pos,
-    /// The side of `block` the lever is on, such as `south`.
-    pub facing: String,
+    /// The side of `block` the lever is on, such as `south` or `up`.
+    pub side: String,
     pub on: bool,
 }
 
@@ -291,6 +296,11 @@ fn sign(entity: &Value) -> Option<(Pos, Vec<String>)> {
     let Value::Compound(entity) = entity else {
         return None;
     };
+    // Comparators and other block entities share the list.
+    match entity.get("Id") {
+        Some(Value::String(id)) if id.ends_with("sign") => {}
+        _ => return None,
+    }
     let fields = match entity.get("Data") {
         Some(Value::Compound(data)) => data,
         _ => entity,

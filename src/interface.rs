@@ -1,7 +1,8 @@
 //! A build's inputs and outputs, read from its blocks and signs as
 //! `conventions.md` lays them out. An input is a block with a lever on it;
-//! an output is a lamp, or a block without a lever that carries a sign or
-//! matches the block an output `lsb` sign is on. `lsb` signs order the bits.
+//! an output is a yellow concrete block, or any block without a lever that
+//! carries a name sign or matches a block that does. Each bus's least significant bit is the one
+//! nearest the south-east-bottom corner of the bounding box.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -17,11 +18,10 @@ pub struct Port {
     pub name: String,
     /// The block marking each bit, such as `lime concrete`.
     pub block: String,
-    /// Least significant first, when an `lsb` sign says which that is.
+    /// Least significant first.
     pub bits: Vec<Bit>,
-    pub lsb_known: bool,
     /// The weakest signal strength that drives an input correctly, from a
-    /// sign token such as `4ss`.
+    /// sign token such as `4ss` on any of its bits.
     pub strength: u8,
 }
 
@@ -48,17 +48,15 @@ pub fn read(blocks: &Blocks) -> Interface {
     let output_kinds: HashSet<&str> = signs
         .iter()
         .filter(|(pos, lines)| {
-            !levers.contains_key(*pos) && label(lines) == "lsb"
+            !levers.contains_key(*pos) && name(lines).is_some()
         })
         .map(|(&pos, _)| schem::id(blocks.get(pos)))
-        .chain(["minecraft:redstone_lamp"])
+        .chain(["minecraft:yellow_concrete"])
         .collect();
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !levers.contains_key(pos)
-                && (output_kinds.contains(schem::id(state))
-                    || signs.contains_key(pos))
+            !levers.contains_key(pos) && output_kinds.contains(schem::id(state))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -68,7 +66,7 @@ pub fn read(blocks: &Blocks) -> Interface {
     }
 }
 
-/// Groups `members` into ports: one per named sign, then one bus per block
+/// Groups `members` into ports: one per name sign, then one bus per block
 /// kind. `levers` is given for inputs.
 fn ports(
     blocks: &Blocks,
@@ -80,21 +78,16 @@ fn ports(
     let mut buses: BTreeMap<&str, Vec<Pos>> = BTreeMap::new();
     for pos in members {
         let lines = signs.get(&pos).copied().unwrap_or_default();
-        match label(lines).as_str() {
-            "" | "lsb" => {
+        match name(lines) {
+            Some(name) => {
+                named.push(port(blocks, name, vec![pos], lines, levers));
+            }
+            None => {
                 buses
                     .entry(schem::id(blocks.get(pos)))
                     .or_default()
                     .push(pos);
             }
-            name => named.push(port(
-                blocks,
-                name.to_owned(),
-                vec![pos],
-                Some(pos),
-                lines,
-                levers,
-            )),
         }
     }
     // Operands take letters in palette order: lime is A, light blue B.
@@ -112,11 +105,12 @@ fn ports(
         .enumerate()
         .map(|(i, kind)| {
             let members = buses.remove(kind).unwrap_or_default();
-            let lsb = members
+            // A sign on any bit can carry the bus's strength.
+            let lines: Vec<String> = members
                 .iter()
-                .copied()
-                .find(|pos| signs.get(pos).is_some_and(|l| label(l) == "lsb"));
-            let lines = lsb.and_then(|pos| signs.get(&pos).copied());
+                .filter_map(|pos| signs.get(pos))
+                .flat_map(|lines| lines.iter().cloned())
+                .collect();
             let name = if levers.is_none() {
                 if output_count == 1 {
                     "output".to_owned()
@@ -128,31 +122,27 @@ fn ports(
             } else {
                 letters.next().map(String::from).unwrap_or_default()
             };
-            port(
-                blocks,
-                name,
-                members,
-                lsb,
-                lines.unwrap_or_default(),
-                levers,
-            )
+            port(blocks, name, members, &lines, levers)
         })
         .collect();
     result.extend(named);
     result
 }
 
+/// A port with its bits ordered from the one nearest the south-east-bottom
+/// corner of the bounding box.
 fn port(
     blocks: &Blocks,
     name: String,
     mut members: Vec<Pos>,
-    lsb: Option<Pos>,
     lines: &[String],
     levers: Option<&HashMap<Pos, Lever>>,
 ) -> Port {
-    match lsb {
-        Some(lsb) => members.sort_by_key(|pos| distance(*pos, lsb)),
-        None => members.sort_unstable(),
+    let [width, _, length] = blocks.size;
+    let corner = [width - 1, 0, length - 1];
+    if let Some(&lsb) = members.iter().min_by_key(|&&pos| distance(pos, corner))
+    {
+        members.sort_by_key(|&pos| distance(pos, lsb));
     }
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
     let bits = members
@@ -161,7 +151,7 @@ fn port(
             let lever = levers.and_then(|levers| levers.get(&pos));
             Bit {
                 pos: pos.map(|n| n - 1),
-                entry: lever.map(|lever| lever.facing.clone()),
+                entry: lever.map(|lever| lever.side.clone()),
                 hard: lever.is_some()
                     && DIRECTIONS.iter().any(|&d| {
                         schem::id(blocks.get(schem::step(pos, d)))
@@ -178,17 +168,17 @@ fn port(
             .map(|&pos| block_label(blocks.get(pos)))
             .unwrap_or_default(),
         bits,
-        lsb_known: lsb.is_some(),
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
     }
 }
 
-/// A sign's first line, which names its port or says `lsb`.
-fn label(lines: &[String]) -> String {
-    lines
-        .first()
-        .map(|line| line.trim().to_lowercase())
-        .unwrap_or_default()
+/// The port a sign names: its first line, unless that is empty or a token.
+/// Older builds marked their least significant bit with an `lsb` sign,
+/// which the corner rule replaces.
+fn name(lines: &[String]) -> Option<String> {
+    let first = lines.first()?.trim().to_lowercase();
+    (!first.is_empty() && first != "lsb" && strength(&first).is_none())
+        .then_some(first)
 }
 
 /// A strength token such as `4ss`.

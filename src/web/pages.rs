@@ -22,23 +22,92 @@ const SECTION_TITLE: &str = "text-section font-semibold";
 const TABLE_HEAD: &str = "border-b border-line py-2 pr-4 text-left text-meta font-semibold text-muted";
 const TABLE_CELL: &str = "border-b border-line py-2.5 pr-4 align-top";
 
-pub fn schematics(username: &str, schematics: &[Schematic]) -> Markup {
-    // Columns a phone has no room for; the name and its tags come first.
-    let secondary = "hidden desktop:table-cell";
+/// How the home page lays out its schematics.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Cards,
+    List,
+}
+
+pub fn schematics(
+    username: &str,
+    schematics: &[Schematic],
+    view: View,
+) -> Markup {
+    let switch = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
     base(
         username,
         APP_NAME,
         "/",
         &html! {
-            div class="mb-6 flex items-baseline justify-between gap-4" {
+            div class="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { "Schematics" }
-                p class="text-muted tabular-nums" {
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
                     (schematics.len()) " " (if schematics.len() == 1 { "build" } else { "builds" })
+                }
+                nav aria-label="Layout" class="flex gap-1 rounded-control bg-sidebar p-1" {
+                    a href="/" class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
+                    a href="/?view=list" class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
                 }
             }
             @if schematics.is_empty() {
                 p class="text-muted" { "No schematics yet. Import one with " code { "just rsdb add" } "." }
+            } @else if view == View::Cards {
+                (cards(schematics))
             } @else {
+                (table(schematics))
+            }
+        },
+    )
+}
+
+fn cards(schematics: &[Schematic]) -> Markup {
+    html! {
+        ul class="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5" {
+            @for s in schematics {
+                li {
+                    a href={ "/schematics/" (s.id) }
+                        class="group flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary hover:no-underline" {
+                        img src={ "/schematics/" (s.id) "/thumbnail.png?v=" (&s.sha256[..12.min(s.sha256.len())]) }
+                            alt="" loading="lazy" width="640" height="480"
+                            class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                        div class="flex flex-1 flex-col gap-2 p-4" {
+                            h2 class="text-section font-semibold group-hover:text-brand" { (s.name()) }
+                            @if !s.tags.is_empty() {
+                                ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
+                                    @for tag in &s.tags {
+                                        li { (badge(tag)) }
+                                    }
+                                }
+                            }
+                            p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The few facts a card has room for, such as `8 ticks · 19×11×18 ·
+/// 3762 blocks · embizone`.
+fn facts(s: &Schematic) -> String {
+    [
+        s.latency.map(|t| format!("{t} ticks")),
+        Some(size(s)),
+        Some(volume(s)),
+        s.author.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+fn table(schematics: &[Schematic]) -> Markup {
+    // Columns a phone has no room for; the name and its tags come first.
+    let secondary = "hidden desktop:table-cell";
+    html! {
                 div class="overflow-x-auto" {
                     table class="w-full border-collapse" {
                         thead {
@@ -80,9 +149,7 @@ pub fn schematics(username: &str, schematics: &[Schematic]) -> Markup {
                         }
                     }
                 }
-            }
-        },
-    )
+    }
 }
 
 /// What the stored file says about a build.
@@ -127,7 +194,7 @@ fn interface_section(analysis: &Analysis) -> Markup {
         section aria-labelledby="interface-heading" class="mt-12" {
             h2 id="interface-heading" class={ (SECTION_TITLE) " mb-1" } { "Inputs and outputs" }
             p class="mb-4 text-meta text-muted" {
-                "Read from the file's levers, lamps, and signs. Positions count from the first block inside the corner markers."
+                "Read from the file's levers, yellow output blocks, and signs. Positions count from the first block inside the corner markers."
             }
             div class="overflow-x-auto" {
                 table class="w-full border-collapse" {
@@ -207,13 +274,10 @@ fn interface_section(analysis: &Analysis) -> Markup {
 }
 
 fn lsb(port: &Port) -> String {
-    match port.bits.first() {
-        Some(bit) if port.lsb_known || port.bits.len() == 1 => {
-            let [x, y, z] = bit.pos;
-            format!("{x}, {y}, {z}")
-        }
-        _ => "no lsb sign".to_owned(),
-    }
+    port.bits.first().map_or_else(String::new, |bit| {
+        let [x, y, z] = bit.pos;
+        format!("{x}, {y}, {z}")
+    })
 }
 
 /// How far apart neighbouring bits are, such as `2 along −x`.
