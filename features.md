@@ -15,6 +15,7 @@ None of these are built yet.
 - Every lever is saved off, except on inverted inputs. A lever's block state records whether it is on, so the check reads it from the palette.
 - Each role's block appears only in that role, for example no white concrete that is hard-powered.
 - Every lever sits on an input or control block, and every such block has a lever.
+- Every lever touches nothing but its input block.
 - A and B each have exactly one `lsb` sign, and the output has one with a latency.
 - Every control input has a sign naming it.
 - Every output bit is a redstone lamp.
@@ -28,7 +29,8 @@ Most role checks need a model of which blocks are powered, so they come after th
 
 - Control lines: find each magenta block, its lever, and its sign, and record the line's name, position, and whether it is inverted.
 - Inverted inputs: any lever saved on.
-- Input and output positions and widths: lime, green, light blue, cyan, and magenta blocks, and lamps. The shade of an input also gives whether it is soft- or hard-powered.
+- Input and output positions and widths: lime, light blue, and magenta blocks, and lamps.
+- How each input must be driven: hard-powered when dust touches its block, soft-powered otherwise, at the strength its sign gives or 1.
 - The LSB of each bus, from its `lsb` sign.
 - Latency, from the output LSB sign.
 
