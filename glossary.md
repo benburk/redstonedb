@@ -4,6 +4,8 @@ Modifiers appear in the filename in the order of this file's sections, alphabeti
 
 Abbreviated tokens use 3 or 4 letters. Restrictions are written out in full.
 
+Restrictions and timing are tags in the database. A tag is named in full words, such as `unsynchronized`, and the website and `rsdb show` print that name. A tag whose filename token is an abbreviation stores the token beside its name.
+
 ## Restrictions
 
 Optional. Omitted when the build is unrestricted.
@@ -38,13 +40,13 @@ Required.
 
 Optional. The default is whatever the function implies: a register is assumed sequential and an adder combinational. Add a token only when the build departs from that.
 
-| Token    | Meaning                                   |
-| -------- | ----------------------------------------- |
-| `seq`    | sequential                                |
-| `comb`   | combinational                             |
-| `pipe`   | pipelined                                 |
-| `sync`   | every output bit settles on the same tick |
-| `unsync` | output bits settle on different ticks     |
+| Token    | Tag name         | Meaning                               |
+| -------- | ---------------- | ------------------------------------- |
+| `seq`    | `sequential`     |                                       |
+| `comb`   | `combinational`  |                                       |
+| `pipe`   | `pipelined`      |                                       |
+| `sync`   | `synchronized`   | every output bit settles on one tick  |
+| `unsync` | `unsynchronized` | output bits settle on different ticks |
 
 ## Functions
 

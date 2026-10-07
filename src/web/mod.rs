@@ -21,17 +21,11 @@ mod signup;
 use about::about;
 use profile::profile;
 
-async fn get_pico_css() -> impl IntoResponse {
+/// Built from `styles/app.css` by `just css`.
+async fn get_css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css")],
-        include_str!("../../static/pico.min.css"),
-    )
-}
-
-async fn get_pico_colors() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css")],
-        include_str!("../../static/pico.colors.min.css"),
+        include_str!("../../static/app.css"),
     )
 }
 
@@ -52,8 +46,7 @@ async fn get_fixi_config() -> impl IntoResponse {
 /// Static assets (CSS, JS) - no request logging
 pub fn static_router() -> Router<AppState> {
     Router::new()
-        .route("/pico.min.css", get(get_pico_css))
-        .route("/pico.colors.min.css", get(get_pico_colors))
+        .route("/app.css", get(get_css))
         .route("/fixi.js", get(get_fixi))
         .route("/fixi-config.js", get(get_fixi_config))
 }
@@ -64,6 +57,11 @@ pub fn router() -> Router<AppState> {
         .route("/", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
         .route("/schematics/{id}/download", get(schematics::download))
+        .route("/schematics/{id}/tags", post(schematics::add_tag))
+        .route(
+            "/schematics/{id}/tags/{tag}",
+            delete(schematics::remove_tag),
+        )
         .route("/about", get(about))
         .route("/users/{username}", get(profile))
         .route("/sessions/new", get(login::get))

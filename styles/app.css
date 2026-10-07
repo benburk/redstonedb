@@ -1,0 +1,159 @@
+/* Tailwind entry point. `just css` builds static/app.css from it; templates
+   live in src/, so that is the only place scanned for classes. */
+@import "tailwindcss" source(none);
+@source "../src";
+
+:root {
+  color-scheme: light dark;
+}
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.375rem;
+  --text-section: 1rem;
+  --text-section--line-height: 1.5rem;
+  --text-page: 1.875rem;
+  --text-page--line-height: 2.25rem;
+  --leading-prose: 1.55;
+
+  --breakpoint-desktop: 60rem;
+  --container-calm: 56rem;
+  --container-wide: 80rem;
+  --spacing-aside: 22rem;
+  --spacing-row: 2rem;
+  --spacing-row-rich: 2.75rem;
+  --spacing-touch: 2.75rem;
+
+  --color-canvas: light-dark(oklch(99% 0.003 250), oklch(18% 0.008 250));
+  --color-sidebar: light-dark(oklch(97% 0.006 250), oklch(15% 0.008 250));
+  --color-raised: light-dark(oklch(100% 0 0), oklch(23% 0.008 250));
+  --color-ink: light-dark(oklch(23% 0.012 250), oklch(94% 0.005 250));
+  --color-muted: light-dark(oklch(47% 0.012 250), oklch(74% 0.008 250));
+  --color-faint: light-dark(oklch(62% 0.01 250), oklch(61% 0.008 250));
+  --color-line: light-dark(oklch(91% 0.006 250), oklch(29% 0.008 250));
+  --color-boundary: light-dark(oklch(61% 0.01 250), oklch(61% 0.008 250));
+  --color-selection: light-dark(oklch(93% 0.025 250), oklch(30% 0.05 250));
+  --color-brand: light-dark(oklch(50% 0.19 250), oklch(72% 0.14 250));
+  --color-on-brand: light-dark(oklch(100% 0 0), oklch(16% 0.01 250));
+  --color-danger: light-dark(oklch(49% 0.19 25), oklch(72% 0.15 25));
+  --color-on-danger: light-dark(oklch(100% 0 0), oklch(16% 0.01 250));
+
+  /* One tint per tag category, so a badge's kind reads from its colour. */
+  --color-restriction: light-dark(oklch(95% 0.045 80), oklch(30% 0.05 70));
+  --color-on-restriction: light-dark(oklch(42% 0.09 60), oklch(88% 0.09 80));
+  --color-timing: light-dark(oklch(94% 0.03 250), oklch(30% 0.06 250));
+  --color-on-timing: light-dark(oklch(44% 0.15 255), oklch(87% 0.07 250));
+  --color-other: light-dark(oklch(94% 0.035 300), oklch(30% 0.06 300));
+  --color-on-other: light-dark(oklch(43% 0.14 300), oklch(87% 0.07 300));
+
+  /* The brand mark; decorative, so it carries no contrast pair. */
+  --color-redstone: oklch(52% 0.2 27);
+
+  --radius-control: 0.5rem;
+  --radius-overlay: 0.875rem;
+  --shadow-overlay: 0 1rem 3rem rgb(15 23 42 / 0.14),
+    0 0.125rem 0.5rem rgb(15 23 42 / 0.1);
+  --ease-calm: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  body {
+    @apply bg-canvas font-sans text-body text-ink antialiased;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply appearance-none rounded-none shadow-none;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+
+  a {
+    @apply text-brand;
+  }
+
+  a:hover {
+    @apply underline;
+  }
+
+  code {
+    @apply font-mono text-[0.875em];
+  }
+}
+
+@layer components {
+  /* `.btn` shapes a control; one of the colour classes paints it. */
+  .btn {
+    @apply inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-control px-4 font-semibold no-underline transition-[opacity,background-color] duration-150 ease-calm hover:no-underline aria-busy:opacity-60;
+  }
+
+  .btn-primary {
+    @apply bg-brand text-on-brand hover:opacity-90;
+  }
+
+  .btn-quiet {
+    @apply text-ink outline-1 -outline-offset-1 outline-boundary hover:bg-selection;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-on-danger hover:opacity-90;
+  }
+
+  .field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .field > span {
+    @apply text-meta font-semibold text-muted;
+  }
+
+  .input {
+    @apply min-h-10 w-full rounded-control border border-boundary bg-raised px-3 text-ink placeholder:text-muted focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none aria-invalid:border-danger;
+  }
+
+  /* Base styles strip the native arrow from a select, so draw one. */
+  select.input {
+    @apply bg-[length:0.75rem] bg-[position:right_0.75rem_center] bg-no-repeat pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
+  .message {
+    @apply text-meta text-muted;
+  }
+
+  .message[role="alert"] {
+    @apply text-danger;
+  }
+
+  .badge {
+    @apply inline-flex min-h-6 items-center gap-1 rounded-full px-2.5 text-meta font-medium whitespace-nowrap;
+  }
+
+  .badge-restriction {
+    @apply bg-restriction text-on-restriction;
+  }
+
+  .badge-timing {
+    @apply bg-timing text-on-timing;
+  }
+
+  .badge-other {
+    @apply bg-other text-on-other;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}

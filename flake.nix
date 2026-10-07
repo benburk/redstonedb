@@ -57,6 +57,7 @@
               nixfmt
               watchexec
               sqlite
+              tailwindcss_4
             ];
           };
         }

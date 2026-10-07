@@ -1,0 +1,27 @@
+{
+  "css": "app.css",
+  "pairs": [
+    { "foreground": "--color-ink", "background": "--color-canvas", "minimum": 4.5 },
+    { "foreground": "--color-ink", "background": "--color-sidebar", "minimum": 4.5 },
+    { "foreground": "--color-ink", "background": "--color-raised", "minimum": 4.5 },
+    { "foreground": "--color-ink", "background": "--color-selection", "minimum": 4.5 },
+    { "foreground": "--color-muted", "background": "--color-canvas", "minimum": 4.5 },
+    { "foreground": "--color-muted", "background": "--color-sidebar", "minimum": 4.5 },
+    { "foreground": "--color-muted", "background": "--color-raised", "minimum": 4.5 },
+    { "foreground": "--color-muted", "background": "--color-selection", "minimum": 4.5 },
+    { "foreground": "--color-brand", "background": "--color-canvas", "minimum": 4.5 },
+    { "foreground": "--color-brand", "background": "--color-raised", "minimum": 4.5 },
+    { "foreground": "--color-brand", "background": "--color-selection", "minimum": 4.5 },
+    { "foreground": "--color-danger", "background": "--color-canvas", "minimum": 4.5 },
+    { "foreground": "--color-danger", "background": "--color-raised", "minimum": 4.5 },
+    { "foreground": "--color-on-brand", "background": "--color-brand", "minimum": 4.5 },
+    { "foreground": "--color-on-danger", "background": "--color-danger", "minimum": 4.5 },
+    { "foreground": "--color-canvas", "background": "--color-ink", "minimum": 4.5, "label": "notice text" },
+    { "foreground": "--color-boundary", "background": "--color-canvas", "minimum": 3 },
+    { "foreground": "--color-boundary", "background": "--color-raised", "minimum": 3 },
+    { "foreground": "--color-boundary", "background": "--color-sidebar", "minimum": 3 },
+    { "foreground": "--color-on-restriction", "background": "--color-restriction", "minimum": 4.5 },
+    { "foreground": "--color-on-timing", "background": "--color-timing", "minimum": 4.5 },
+    { "foreground": "--color-on-other", "background": "--color-other", "minimum": 4.5 }
+  ]
+}

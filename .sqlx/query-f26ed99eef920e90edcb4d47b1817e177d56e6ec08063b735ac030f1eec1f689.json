@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id FROM tag WHERE name = ?",
+  "query": "SELECT id FROM tag WHERE name = ? OR token = ?",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false
     ]
   },
-  "hash": "8690dc0c2cc8b2a0ea7b913a71127badca238572860672f27dd0c109574b4046"
+  "hash": "f26ed99eef920e90edcb4d47b1817e177d56e6ec08063b735ac030f1eec1f689"
 }

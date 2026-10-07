@@ -12,22 +12,25 @@ Builds use only whitelisted blocks. Each role has its own block, so a block's ro
 | Transparent  | glass               |
 | Hard-powered | light gray concrete |
 | Blocker      | gray concrete       |
-| Input A      | lime concrete       |
-| Input B      | yellow concrete     |
+| Input A soft | lime concrete       |
+| Input A hard | green concrete      |
+| Input B soft | light blue concrete |
+| Input B hard | cyan concrete       |
 | Control      | magenta concrete    |
 | Output       | redstone lamp       |
 
 - Soft-powered blocks most often carry dust, so they get the lightest colour, against which both powered and unpowered dust read clearly.
 - Glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
-- Lime and yellow can look alike under red-green colour blindness, so the layout should fix which side A is on.
+- Each input's soft-powered block is the lighter of its pair, as white is lighter than light gray: dust on a soft-powered input reads clearly, and a hard-powered input rarely carries dust.
+- A is green and B is blue, which stay apart under red-green colour blindness. Light blue and cyan are closer to each other than lime and green are, so the layout should still fix which side A is on.
 - Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.
 - Colours are semantic, not aesthetic. Because no two roles share a block, export can recolour each role to a user's palette.
 
 ## Inputs
 
-- Each input bit is a block with a lever on it: lime for every bit of A, yellow for every bit of B, magenta for every control line, such as a clock, enable, carry-in, or ALU op line.
+- Each input bit is a block with a lever on it: lime or green for every bit of A, light blue or cyan for every bit of B, magenta for every control line, such as a clock, enable, carry-in, or ALU op line.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
-- A circuit may need its input hard-powered or soft-powered. Placement shows which: the input block either is the block the circuit reads, or reaches it through dust. The exact placement rules are still open.
+- A circuit may need its input hard-powered or soft-powered, and the input's colour shows which: the lighter block for soft-powered, the darker for hard-powered. A hard-powered input block is the block the circuit reads; a soft-powered one reaches it through dust. The exact placement rules are still open.
 
 ## Outputs
 

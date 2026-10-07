@@ -2,35 +2,38 @@
 
 use maud::{Markup, html};
 
+const CARD: &str = "mx-auto mt-8 max-w-sm rounded-overlay border border-line bg-raised p-6 shadow-sm";
+const TITLE: &str = "mb-6 text-page font-bold";
+const FORM: &str = "flex flex-col gap-4";
+const FOOTER: &str = "mt-6 text-muted";
+
 pub fn login_form(username: &str, error_message: &str) -> Markup {
     let has_error = !error_message.is_empty();
     html! {
-        article id="login-form" {
-            header { h1 { "Log in" } }
+        section id="login-form" class=(CARD) {
+            h1 class=(TITLE) { "Log in" }
             form action="/sessions" method="post"
-                fx-action="/sessions" fx-method="post" fx-target="#login-form" {
-                fieldset {
-                    legend { "Credentials" }
-                    label {
-                        "Username "
-                        input name="username" type="text" placeholder="Username" required autofocus autocomplete="username"
+                fx-action="/sessions" fx-method="post" fx-target="#login-form"
+                class=(FORM) {
+                    label class="field" {
+                        span { "Username" }
+                        input name="username" type="text" required autofocus autocomplete="username" class="input"
                             value=[has_error.then_some(username)]
                             aria-invalid=[has_error.then_some("true")]
                             aria-describedby=[has_error.then_some("login-error")];
                     }
-                    label {
-                        "Password "
-                        input name="password" type="password" placeholder="Password" required autocomplete="current-password"
+                    label class="field" {
+                        span { "Password" }
+                        input name="password" type="password" required autocomplete="current-password" class="input"
                             aria-invalid=[has_error.then_some("true")]
                             aria-describedby=[has_error.then_some("login-error")];
                         @if has_error {
-                            small id="login-error" role="alert" { (error_message) }
+                            small id="login-error" role="alert" class="message" { (error_message) }
                         }
                     }
-                }
-                button type="submit" { "Log in" }
+                button type="submit" class="btn btn-primary" { "Log in" }
             }
-            footer { "Don't have an account? " a href="/users/new" { "Sign up" } }
+            p class=(FOOTER) { "Don't have an account? " a href="/users/new" { "Sign up" } }
         }
     }
 }
@@ -52,58 +55,53 @@ pub fn signup_form(
     };
 
     html! {
-        article id="signup-form" {
-            header { h1 { "Sign up" } }
-            form action="/invite-codes/check" method="post" {
-                fieldset {
-                    legend { "Invitation" }
-                    label {
-                        "Invite code"
-                        input name="invite_code" type="text" placeholder="XXXX-XXXX-XXXX-XXXX"
+        section id="signup-form" class=(CARD) {
+            h1 class=(TITLE) { "Sign up" }
+            form action="/invite-codes/check" method="post" class=(FORM) {
+                    label class="field" {
+                        span { "Invite code" }
+                        input name="invite_code" type="text" placeholder="XXXX-XXXX-XXXX-XXXX" class="input font-mono"
                             value=(invite_code) required autofocus[invite_issuer.is_empty()]
                             autocomplete="off" autocapitalize="characters" spellcheck="false"
                             aria-invalid=[(!invite_message.is_empty()).then_some("true")]
                             aria-describedby=[invite_description];
                         @if !invite_message.is_empty() {
-                            small id="signup-invite-error" role="alert" { (invite_message) }
+                            small id="signup-invite-error" role="alert" class="message" { (invite_message) }
                         } @else if !invite_issuer.is_empty() {
-                            small id="signup-invite-issuer" { "Issued by " (invite_issuer) "." }
+                            small id="signup-invite-issuer" class="message" { "Issued by " (invite_issuer) "." }
                         } @else {
-                            small id="signup-invite-help" { "Enter the 16-character code you received." }
+                            small id="signup-invite-help" class="message" { "Enter the 16-character code you received." }
                         }
                     }
-                }
-                button type="submit" { "Check invite" }
+                button type="submit" class={ "btn " (if invite_issuer.is_empty() { "btn-primary" } else { "btn-quiet" }) } { "Check invite" }
             }
             @if !invite_issuer.is_empty() {
                 form action="/users" method="post"
-                    fx-action="/users" fx-method="post" fx-target="#signup-form" {
+                    fx-action="/users" fx-method="post" fx-target="#signup-form"
+                    class={ (FORM) " mt-6 border-t border-line pt-6" } {
                     input name="invite_code" type="hidden" value=(invite_code);
-                    fieldset {
-                        legend { "Credentials" }
-                        label {
-                            "Username"
-                            input name="username" type="text" placeholder="Username" value=(username) required autofocus autocomplete="username"
+                        label class="field" {
+                            span { "Username" }
+                            input name="username" type="text" value=(username) required autofocus autocomplete="username" class="input"
                                 aria-invalid=[(!username_message.is_empty()).then_some("true")]
                                 aria-describedby=[(!username_message.is_empty()).then_some("signup-username-error")];
                             @if !username_message.is_empty() {
-                                small id="signup-username-error" role="alert" { (username_message) }
+                                small id="signup-username-error" role="alert" class="message" { (username_message) }
                             }
                         }
-                        label {
-                            "Password"
-                            input name="password" type="password" placeholder="Password" required autocomplete="new-password"
+                        label class="field" {
+                            span { "Password" }
+                            input name="password" type="password" required autocomplete="new-password" class="input"
                                 aria-invalid=[(!password_message.is_empty()).then_some("true")]
                                 aria-describedby=[(!password_message.is_empty()).then_some("signup-password-error")];
                             @if !password_message.is_empty() {
-                                small id="signup-password-error" role="alert" { (password_message) }
+                                small id="signup-password-error" role="alert" class="message" { (password_message) }
                             }
                         }
-                    }
-                    button type="submit" { "Sign up" }
+                    button type="submit" class="btn btn-primary" { "Sign up" }
                 }
             }
-            footer { "Already have an account? " a href="/sessions/new" { "Log in" } }
+            p class=(FOOTER) { "Already have an account? " a href="/sessions/new" { "Log in" } }
         }
     }
 }

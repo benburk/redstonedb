@@ -24,27 +24,32 @@ check:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     fd -e nix -X nixfmt --check
+    tailwindcss --input styles/app.css --minify | cmp - static/app.css
     ! rg -l '[^\n]\z' --multiline .
 
 # Run the test suite
 test:
     cargo test --workspace
 
+# Build static/app.css from styles/app.css
+css:
+    tailwindcss --input styles/app.css --minify > static/app.css
+
 # Build release binary
 [group('podium')]
-build:
+build: css
     cargo build --release
 
 # A second line of comment would be all `just --list` shows, and this one is a
 # button's tooltip, so it is stated outright.
 [doc('Serve until interrupted, on a free port')]
 [group('podium')]
-serve port=`free-port`:
+serve port=`free-port`: css
     PORT={{ port }} cargo run --bin redstone-database
 
 # Restart the server when source files change
 watch:
-    watchexec --restart --watch src --watch static --exts rs,html,css,js -- just serve
+    watchexec --restart --watch src --watch static --watch styles --ignore static/app.css --exts rs,css,js -- just serve
 
 # Needs a live database; everything else does not.
 [doc('Refresh the offline query metadata in .sqlx/ after changing a query')]

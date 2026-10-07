@@ -20,15 +20,16 @@ just rsdb add adder.schem --function adder --orientation vert --encoding bin \
 just rsdb list --tag alpha
 just rsdb show 23a9
 just rsdb set 23a9 --latency 4
-just rsdb tag 23a9 torchless
+just rsdb tag 23a9 torchless "carry lookahead"
 just rsdb export 23a9 --out ~/.minecraft/config/worldedit/schematics
 just rsdb tags
-just rsdb define-tag <name> --category other
+just rsdb define-tag carry_lookahead --category other
+just rsdb define-tag unsynchronized --category timing --token unsync
 ```
 
 - `add` reads the size from the file and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
 - Ids can be shortened to any unique prefix.
-- Tags must exist before use; `define-tag` creates one.
+- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name, with spaces or underscores, or by token.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
 
 ## Website
@@ -40,11 +41,12 @@ cp .env.example .env
 just serve
 ```
 
-- `/` lists every schematic in a table, named from its width, restriction tags, other tags, and function.
-- `/schematics/<id>` shows one schematic's fields, a 3D viewer, and a download link.
+- `/` lists every schematic in a table, named from its width and function, with its tags as badges coloured by category.
+- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
 - `/schematics/<id>/download` returns the stored file under its generated filename.
-- The template's accounts, sessions, and invite codes are kept for later upload support but are not required to browse.
+- Accounts are needed only to edit tags. Signing up takes an invite code; `seeds/seed.sql` creates some.
+- Styles are Tailwind. `styles/app.css` is the source, and `just css` builds `static/app.css`, which is committed so the server and the Nix build need no Tailwind. `just serve` rebuilds it first, and `just check` fails when it is stale.
 
 After changing a query, run `just prepare` to refresh the offline query metadata in `.sqlx/`.
 

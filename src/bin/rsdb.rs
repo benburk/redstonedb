@@ -70,11 +70,14 @@ enum Command {
     Untag { id: String, tags: Vec<String> },
     /// List known tags by category
     Tags,
-    /// Create a new tag
+    /// Create a new tag, named in full words
     DefineTag {
         name: String,
         #[arg(long, value_parser = ["restriction", "timing", "other"])]
         category: String,
+        /// Abbreviation that filenames write instead of the name
+        #[arg(long)]
+        token: Option<String>,
     },
 }
 
@@ -141,17 +144,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::List { function, tags } => {
-            for s in schematic::all(&db).await? {
-                let has_tags = tags
-                    .iter()
-                    .all(|t| s.tags.iter().any(|tag| &tag.name == t));
-                if function.as_ref().is_none_or(|f| *f == s.function)
-                    && has_tags
-                {
-                    println!("{}  {}", &s.id[..8], s.filename());
-                }
-            }
-            Ok(())
+            list(&db, function.as_deref(), &tags).await
         }
         Command::Show { id } => show(&db, &resolve(&db, &id).await?).await,
         Command::Export { id, out } => {
@@ -182,12 +175,18 @@ async fn main() -> Result<()> {
         }
         Command::Tags => {
             for tag in schematic::all_tags(&db).await? {
-                println!("{:<12} {}", tag.category, tag.name);
+                let token = tag.token.as_deref().unwrap_or("");
+                println!("{:<12} {:<8} {}", tag.category, token, tag.label());
             }
             Ok(())
         }
-        Command::DefineTag { name, category } => {
-            schematic::define_tag(&db, &name, &category).await?;
+        Command::DefineTag {
+            name,
+            category,
+            token,
+        } => {
+            schematic::define_tag(&db, &name, token.as_deref(), &category)
+                .await?;
             Ok(())
         }
     }
@@ -248,6 +247,27 @@ async fn add(
     Ok(())
 }
 
+/// Prints the schematics with `function`, if given, and every one of `tags`,
+/// each named in full or by its filename token.
+async fn list(
+    db: &SqlitePool,
+    function: Option<&str>,
+    tags: &[String],
+) -> Result<()> {
+    for s in schematic::all(db).await? {
+        let has_tags = tags.iter().all(|t| {
+            let name = schematic::tag_name(t);
+            s.tags
+                .iter()
+                .any(|tag| tag.name == name || tag.token() == t)
+        });
+        if function.is_none_or(|f| f == s.function) && has_tags {
+            println!("{}  {}", &s.id[..8], s.filename());
+        }
+    }
+    Ok(())
+}
+
 /// Resolves a unique prefix of a schematic id to the full id.
 async fn resolve(db: &SqlitePool, prefix: &str) -> Result<String> {
     match schematic::ids_with_prefix(db, prefix).await?.as_slice() {
@@ -274,7 +294,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
     let unknown = |v: Option<String>| v.unwrap_or_else(|| "unknown".into());
     let (x, y, z) = s.size;
-    let tags: Vec<&str> = s.tags.iter().map(|tag| tag.name.as_str()).collect();
+    let tags: Vec<String> = s.tags.iter().map(schematic::Tag::label).collect();
     println!("id           {}", s.id);
     println!("title        {}", s.title());
     println!("filename     {}", s.filename());
@@ -283,8 +303,8 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "width        {}",
         unknown(s.width.map(|w| format!("{w} bits")))
     );
-    println!("orientation  {}", s.orientation);
-    println!("encoding     {}", s.encoding);
+    println!("orientation  {}", s.orientation_label());
+    println!("encoding     {}", s.encoding_label());
     println!(
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
@@ -292,7 +312,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("size         {x}x{y}x{z}");
     println!("author       {}", unknown(s.author));
     println!("built on     {}", unknown(s.built_on));
-    println!("tags         {}", tags.join(" "));
+    println!("tags         {}", tags.join(", "));
     println!("source name  {}", s.source_name);
     println!("added at     {}", s.added_at);
     Ok(())

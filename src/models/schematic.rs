@@ -2,10 +2,31 @@ use std::collections::HashMap;
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
+/// A tag's name is written in full words joined by underscores, such as
+/// `carry_lookahead`.
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub name: String,
+    /// The filename abbreviation, when the name is too long for one.
+    pub token: Option<String>,
     pub category: String,
+}
+
+impl Tag {
+    /// The name as words, such as `carry lookahead`.
+    pub fn label(&self) -> String {
+        self.name.replace('_', " ")
+    }
+
+    /// How a filename writes this tag.
+    pub fn token(&self) -> &str {
+        self.token.as_deref().unwrap_or(&self.name)
+    }
+}
+
+/// The form of a tag name a person types, with spaces for underscores.
+pub fn tag_name(input: &str) -> String {
+    input.trim().to_lowercase().replace(' ', "_")
 }
 
 /// A stored schematic's metadata. The `.schem` bytes stay in the database
@@ -23,29 +44,37 @@ pub struct Schematic {
     pub built_on: Option<String>,
     pub source_name: String,
     pub added_at: String,
-    /// Sorted by category, then name.
+    /// Sorted by category in glossary order (restriction, timing, other),
+    /// then name.
     pub tags: Vec<Tag>,
 }
 
 impl Schematic {
-    fn tags_in<'a>(
+    pub fn tags_in<'a>(
         &'a self,
         category: &'a str,
-    ) -> impl Iterator<Item = &'a str> + 'a {
-        self.tags
-            .iter()
-            .filter(move |tag| tag.category == category)
-            .map(|tag| tag.name.as_str())
+    ) -> impl Iterator<Item = &'a Tag> + 'a {
+        self.tags.iter().filter(move |tag| tag.category == category)
+    }
+
+    /// The width and function, such as `8-bit adder`, for views that show
+    /// the tags beside it.
+    pub fn name(&self) -> String {
+        let function = self.function.replace('_', " ");
+        match self.width {
+            Some(w) => format!("{w}-bit {function}"),
+            None => function,
+        }
     }
 
     /// A readable name from the most identifying facts, such as
-    /// `8-bit alpha cla adder`.
+    /// `8-bit alpha carry lookahead adder`.
     pub fn title(&self) -> String {
         self.width
             .map(|w| format!("{w}-bit"))
             .into_iter()
-            .chain(self.tags_in("restriction").map(str::to_owned))
-            .chain(self.tags_in("other").map(str::to_owned))
+            .chain(self.tags_in("restriction").map(Tag::label))
+            .chain(self.tags_in("other").map(Tag::label))
             .chain([self.function.replace('_', " ")])
             .collect::<Vec<_>>()
             .join(" ")
@@ -57,15 +86,32 @@ impl Schematic {
         let (x, y, z) = self.size;
         let parts: Vec<String> = std::iter::once(self.function.clone())
             .chain(self.width.map(|w| format!("{w:02}b")))
-            .chain(self.tags_in("restriction").map(str::to_owned))
+            .chain(self.tags_in("restriction").map(|t| t.token().to_owned()))
             .chain([self.orientation.clone(), self.encoding.clone()])
-            .chain(self.tags_in("timing").map(str::to_owned))
+            .chain(self.tags_in("timing").map(|t| t.token().to_owned()))
             .chain(self.latency.map(|t| format!("{t}t")))
             .chain([format!("{x}x{y}x{z}")])
             .chain(self.author.clone())
             .chain(self.built_on.as_ref().map(|d| d.replace('-', "")))
             .collect();
         format!("{}.schem", parts.join("-"))
+    }
+
+    pub fn orientation_label(&self) -> &str {
+        match self.orientation.as_str() {
+            "horz" => "horizontal",
+            "vert" => "vertical",
+            "diag" => "diagonal",
+            other => other,
+        }
+    }
+
+    pub fn encoding_label(&self) -> &str {
+        match self.encoding.as_str() {
+            "bin" => "binary",
+            "hex" => "signal strength",
+            other => other,
+        }
     }
 }
 
@@ -80,15 +126,16 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     .await?;
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_tag.schematic_id, tag.name, tag.category
+        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.category
          FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         ORDER BY tag.category, tag.name"
+         ORDER BY tag.category = 'other', tag.category, tag.name"
     )
     .fetch_all(db)
     .await?
     {
         tags.entry(row.schematic_id).or_default().push(Tag {
             name: row.name,
+            token: row.token,
             category: row.category,
         });
     }
@@ -128,10 +175,10 @@ pub async fn get(
     };
     let tags = sqlx::query_as!(
         Tag,
-        "SELECT tag.name, tag.category
+        "SELECT tag.name, tag.token, tag.category
          FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
          WHERE schematic_tag.schematic_id = ?
-         ORDER BY tag.category, tag.name",
+         ORDER BY tag.category = 'other', tag.category, tag.name",
         id
     )
     .fetch_all(db)
@@ -269,13 +316,19 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// The tag named `name`, which may also be its filename token.
 pub async fn tag_id<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT id FROM tag WHERE name = ?", name)
-        .fetch_optional(db)
-        .await
+    let name = tag_name(name);
+    sqlx::query_scalar!(
+        "SELECT id FROM tag WHERE name = ? OR token = ?",
+        name,
+        name
+    )
+    .fetch_optional(db)
+    .await
 }
 
 pub async fn attach<'e, E: SqliteExecutor<'e>>(
@@ -314,7 +367,8 @@ pub async fn all_tags<'e, E: SqliteExecutor<'e>>(
 ) -> Result<Vec<Tag>, sqlx::Error> {
     sqlx::query_as!(
         Tag,
-        "SELECT name, category FROM tag ORDER BY category, name"
+        "SELECT name, token, category FROM tag
+         ORDER BY category = 'other', category, name"
     )
     .fetch_all(db)
     .await
@@ -323,11 +377,14 @@ pub async fn all_tags<'e, E: SqliteExecutor<'e>>(
 pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
+    token: Option<&str>,
     category: &str,
 ) -> Result<(), sqlx::Error> {
+    let name = tag_name(name);
     sqlx::query!(
-        "INSERT INTO tag (name, category) VALUES (?, ?)",
+        "INSERT INTO tag (name, token, category) VALUES (?, ?, ?)",
         name,
+        token,
         category
     )
     .execute(db)
@@ -339,9 +396,10 @@ pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
 mod tests {
     use super::*;
 
-    fn tag(name: &str, category: &str) -> Tag {
+    fn tag(name: &str, token: Option<&str>, category: &str) -> Tag {
         Tag {
             name: name.to_owned(),
+            token: token.map(str::to_owned),
             category: category.to_owned(),
         }
     }
@@ -360,20 +418,20 @@ mod tests {
             source_name: String::new(),
             added_at: String::new(),
             tags: vec![
-                tag("cla", "other"),
-                tag("alpha", "restriction"),
-                tag("unsync", "timing"),
+                tag("carry_lookahead", None, "other"),
+                tag("alpha", None, "restriction"),
+                tag("unsynchronized", Some("unsync"), "timing"),
             ],
         }
     }
 
     #[test]
     fn title_reads_width_restrictions_other_tags_then_function() {
-        assert_eq!(cla().title(), "8-bit alpha cla adder");
+        assert_eq!(cla().title(), "8-bit alpha carry lookahead adder");
     }
 
     #[test]
-    fn filename_follows_naming_scheme() {
+    fn filename_writes_tag_tokens() {
         assert_eq!(
             cla().filename(),
             "adder-08b-alpha-horz-bin-unsync-8t-21x13x19-embizone-20140906.schem"

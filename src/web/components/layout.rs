@@ -15,21 +15,27 @@ pub fn base(
     };
     html! {
         (DOCTYPE)
-        html lang="en" data-theme="light" {
+        html lang="en" {
             head {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { (document_title) }
-                link rel="stylesheet" href="/pico.min.css";
-                link rel="stylesheet" href="/pico.colors.min.css";
+                link rel="stylesheet" href="/app.css";
                 script defer src="/fixi.js" {}
                 script defer src="/fixi-config.js" {}
             }
-            body {
+            body class="flex min-h-screen flex-col" {
+                a href="#main"
+                    class="sr-only rounded-control bg-raised px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-10" {
+                    "Skip to content"
+                }
                 (navbar(username, current_path))
-                main class="container" {
+                main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
                     (content)
                 }
+                // fixi-config.js writes failures here; no swap replaces it.
+                div id="notice" role="status"
+                    class="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-control bg-ink px-4 py-2 text-canvas shadow-overlay empty:hidden" {}
             }
         }
     }
@@ -37,37 +43,27 @@ pub fn base(
 
 pub fn navbar(username: &str, current_path: &str) -> Markup {
     let profile_path = format!("/users/{username}");
+    let current = |path: &str| (current_path == path).then_some("page");
+    let link = "whitespace-nowrap rounded-control px-2 py-1.5 desktop:px-2.5 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:font-semibold aria-[current=page]:text-ink";
     html! {
-        nav class="container-fluid" aria-label="Primary" {
-            ul {
-                li {
-                    strong {
-                        a href="/" aria-current=[(current_path == "/").then_some("page")] { (APP_NAME) }
-                    }
+        header class="border-b border-line bg-sidebar" {
+            nav aria-label="Primary"
+                class="mx-auto flex min-h-14 max-w-wide flex-wrap items-center gap-x-1 px-4 py-2 desktop:px-5" {
+                a href="/" aria-current=[current("/")]
+                    class="mr-auto flex items-center gap-2.5 font-bold whitespace-nowrap text-ink hover:no-underline" {
+                    // The brand mark: a block of redstone.
+                    span aria-hidden="true" class="size-3.5 rotate-45 rounded-[3px] bg-redstone" {}
+                    (APP_NAME)
                 }
-            }
-            ul {
-                li {
-                    a href="/about" aria-current=[(current_path == "/about").then_some("page")] { "About" }
-                }
+                a href="/about" aria-current=[current("/about")] class=(link) { "About" }
                 @if username.is_empty() {
-                    li {
-                        a href="/sessions/new" aria-current=[(current_path == "/sessions/new").then_some("page")] { "Log in" }
-                    }
-                    li {
-                        a href="/users/new" aria-current=[(current_path == "/users/new").then_some("page")] { "Sign up" }
-                    }
+                    a href="/sessions/new" aria-current=[current("/sessions/new")] class=(link) { "Log in" }
+                    a href="/users/new" aria-current=[current("/users/new")] class=(link) { "Sign up" }
                 } @else {
-                    li {
-                        a href=(profile_path.as_str()) aria-current=[(current_path == profile_path).then_some("page")] { (username) }
-                    }
-                    li {
-                        a href="/settings" aria-current=[(current_path == "/settings").then_some("page")] { "Settings" }
-                    }
-                    li {
-                        a href="/" fx-action="/sessions" fx-method="delete" fx-swap="none" class="secondary" {
-                            "Logout"
-                        }
+                    a href=(profile_path) aria-current=[current(&profile_path)] class=(link) { (username) }
+                    a href="/settings" aria-current=[current("/settings")] class=(link) { "Settings" }
+                    a href="/" fx-action="/sessions" fx-method="delete" fx-swap="none" class=(link) {
+                        "Log out"
                     }
                 }
             }
