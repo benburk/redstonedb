@@ -1,147 +1,63 @@
-use axum::extract::{ConnectInfo, Path, State};
 use axum::{
-    Form,
-    http::StatusCode,
+    extract::State,
     response::{IntoResponse, Redirect},
 };
-use axum_extra::TypedHeader;
 use axum_extra::extract::{
     CookieJar,
     cookie::{Cookie, SameSite},
 };
-use axum_extra::headers::UserAgent;
-use serde::Deserialize;
-use sqlx::SqliteExecutor;
-use std::net::SocketAddr;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::app_state::AppState;
-use crate::error::internal_error;
-use crate::models::{session::Session, user::User};
-use crate::util::current_time_micros;
+use crate::{
+    app_state::AppState, error::internal_error, models::session::Session,
+};
 
-use super::login;
+/// How long a login lasts.
+const LIFETIME: time::Duration = time::Duration::WEEK;
 
-fn build_session_cookie(session_id: Uuid) -> Cookie<'static> {
-    // This is a workaround so when we're testing locally
-    // without https
-    const IS_RELEASE: bool = !cfg!(debug_assertions);
+fn session_cookie(session_id: Uuid) -> Cookie<'static> {
     Cookie::build(("session_id", session_id.to_string()))
         .path("/")
-        .same_site(SameSite::Strict)
-        .secure(IS_RELEASE)
+        // Lax, not Strict: a login ends with Discord sending the browser
+        // back here, and Strict would hold the cookie back on that visit.
+        .same_site(SameSite::Lax)
+        // Plain http is allowed only in debug builds, for local testing.
+        .secure(!cfg!(debug_assertions))
         .http_only(true)
-        .max_age(time::Duration::WEEK)
+        .max_age(LIFETIME)
         .build()
-        .into_owned()
 }
 
-/// Create a new session for the user, insert it into the database,
-/// and return the associated cookie for it.
-pub async fn create_session<'e, E: SqliteExecutor<'e>>(
-    db: E,
+/// Starts a session for an account and returns its cookie. Expired
+/// sessions are cleared out on the way.
+pub async fn create_session(
+    db: &SqlitePool,
     user_id: Uuid,
-    time: i64,
-    ip_address: String,
-    user_agent: UserAgent,
+    now: i64,
 ) -> Result<Cookie<'static>, sqlx::Error> {
-    let id = uuid::Uuid::new_v4();
-    // This constant conversion always succeeds (1 week in microseconds fits in i64)
-    let expire_micros =
-        i64::try_from(time::Duration::WEEK.whole_microseconds()).unwrap();
+    Session::delete_expired(db, now).await?;
+    let lifetime = i64::try_from(LIFETIME.whole_microseconds())
+        .expect("a week in microseconds fits in i64");
     let session = Session {
-        id,
+        id: Uuid::new_v4(),
         user_id,
-        ip_address,
-        user_agent: user_agent.to_string(),
-        created_at: time,
-        expires_at: time.wrapping_add(expire_micros),
+        expires_at: now.saturating_add(lifetime),
     };
     Session::insert(db, &session).await?;
-    Ok(build_session_cookie(id))
+    Ok(session_cookie(session.id))
 }
 
-#[derive(Deserialize, Debug)]
-pub struct CreateSessionPayload {
-    username: String,
-    password: String,
-}
-
-/// Create a new session (login)
-pub async fn post(
-    jar: CookieJar,
-    TypedHeader(user_agent): TypedHeader<UserAgent>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    state: State<AppState>,
-    Form(form): Form<CreateSessionPayload>,
-) -> impl IntoResponse {
-    let created_at = current_time_micros();
-    let Some(user) =
-        User::check_login(&state.db, &form.username, &form.password).await
-    else {
-        return login::login_form(
-            &form.username,
-            "Invalid username or password",
-        )
-        .into_response();
-    };
-
-    match create_session(
-        &state.db,
-        user.id,
-        created_at,
-        addr.to_string(),
-        user_agent,
-    )
-    .await
-    {
-        Ok(cookie) => (jar.add(cookie), Redirect::to("/")).into_response(),
-        Err(err) => internal_error(err).into_response(),
-    }
-}
-
-/// Delete the current user's session (logout)
+/// Logs out: deletes the session and its cookie.
 pub async fn delete(
     jar: CookieJar,
-    state: State<AppState>,
-    _user: Option<User>, // Triggers extractor to record session/user in span
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
-    if let Some(session_cookie) = jar.get("session_id")
-        && let Ok(session_id) = Uuid::parse_str(session_cookie.value())
-        && let Err(err) = Session::delete_by_id(&state.db, session_id).await
+    if let Some(cookie) = jar.get("session_id")
+        && let Ok(id) = Uuid::parse_str(cookie.value())
+        && let Err(err) = Session::delete_by_id(&state.db, id).await
     {
         return internal_error(err).into_response();
     }
     (jar.remove(Cookie::build("session_id")), Redirect::to("/")).into_response()
-}
-
-/// Delete a specific session by session ID
-pub async fn delete_by_id(
-    Path(session_id): Path<String>,
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> impl IntoResponse {
-    let Some(user) = user_opt else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-
-    let Ok(session_uuid) = Uuid::parse_str(&session_id) else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-
-    // Verify the session belongs to the authenticated user
-    let session = match Session::get_by_id(&state.db, session_uuid).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
-
-    if session.user_id != user.id {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    match Session::delete_by_id(&state.db, session_uuid).await {
-        Ok(_) => "".into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
 }

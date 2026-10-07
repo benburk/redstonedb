@@ -3,8 +3,7 @@ use axum::{
     http::{StatusCode, request::Parts},
 };
 use axum_extra::extract::{CookieJar, cookie::Cookie};
-use sqlx::Error;
-use tracing::{Span, debug, warn};
+use tracing::{Span, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
 };
 
 impl OptionalFromRequestParts<AppState> for User {
-    type Rejection = (StatusCode, String);
+    type Rejection = (StatusCode, &'static str);
 
     async fn from_request_parts(
         parts: &mut Parts,
@@ -42,7 +41,7 @@ impl OptionalFromRequestParts<AppState> for User {
 async fn extract_session_id(
     parts: &mut Parts,
     state: &AppState,
-) -> Result<Option<Uuid>, (StatusCode, String)> {
+) -> Result<Option<Uuid>, (StatusCode, &'static str)> {
     let Ok(jar) = CookieJar::from_request_parts(parts, state).await;
 
     let Some(raw) = jar.get("session_id").map(Cookie::value) else {
@@ -54,15 +53,14 @@ async fn extract_session_id(
         return Ok(None);
     };
 
-    debug!(%session_id, "Session cookie found");
-    Span::current().record("session_id", session_id.to_string());
+    // The id stays out of the logs: it works like a password.
     Ok(Some(session_id))
 }
 
 async fn load_session(
     db: &sqlx::SqlitePool,
     session_id: Uuid,
-) -> Result<Option<Session>, (StatusCode, String)> {
+) -> Result<Option<Session>, (StatusCode, &'static str)> {
     match Session::get_by_id(db, session_id).await {
         Ok(session) => Ok(session),
         Err(err) => Err(internal_error(err)),
@@ -76,7 +74,6 @@ async fn is_session_expired(
 ) -> bool {
     let current_time = current_time_micros();
     if session.expires_at <= current_time {
-        warn!("Session {session_id} has expired");
         if let Err(err) = Session::delete_by_id(db, session_id).await {
             warn!("Failed to delete expired session: {err}");
         }
@@ -88,13 +85,12 @@ async fn is_session_expired(
 async fn load_user(
     db: &sqlx::SqlitePool,
     user_id: Uuid,
-) -> Result<Option<User>, (StatusCode, String)> {
+) -> Result<Option<User>, (StatusCode, &'static str)> {
     match User::get_by_id(db, user_id).await {
         Ok(user) => {
             Span::current().record("user_id", user_id.to_string());
-            Ok(Some(user))
+            Ok(user)
         }
-        Err(Error::RowNotFound) => Ok(None),
         Err(err) => Err(internal_error(err)),
     }
 }

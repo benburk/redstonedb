@@ -9,14 +9,14 @@ use crate::{
     APP_NAME,
     interface::{Bit, Interface, Port},
     lint::Violation,
-    models::schematic::{Schematic, StackDirection, Tag},
+    models::{
+        schematic::{Schematic, StackDirection, Tag},
+        user::{Role, User},
+    },
     search::Term,
 };
 
-use super::components::{
-    SessionDisplay, base, email_form, login_form, password_form, signup_form,
-    username_form,
-};
+use super::components::base;
 
 const PAGE_TITLE: &str = "text-page font-bold";
 const SECTION_TITLE: &str = "text-section font-semibold";
@@ -41,7 +41,7 @@ pub struct Listing<'a> {
     pub terms: &'a [Term],
 }
 
-pub fn schematics(username: &str, listing: &Listing) -> Markup {
+pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
     let Listing {
         shown,
         total,
@@ -57,7 +57,7 @@ pub fn schematics(username: &str, listing: &Listing) -> Markup {
         format!("{} of {total} {builds}", shown.len())
     };
     base(
-        username,
+        viewer,
         APP_NAME,
         "/",
         &html! {
@@ -246,7 +246,7 @@ pub struct Analysis {
 /// One schematic's page. `available` holds the tags that may still be
 /// attached, and is `None` for a visitor who may not edit tags.
 pub fn schematic(
-    username: &str,
+    viewer: Option<&User>,
     s: &Schematic,
     available: Option<&[Tag]>,
     analysis: &Result<Analysis, String>,
@@ -254,7 +254,7 @@ pub fn schematic(
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
     base(
-        username,
+        viewer,
         &name,
         &path,
         &html! {
@@ -263,8 +263,11 @@ pub fn schematic(
                 p class="-mt-3 mb-6 max-w-prose leading-prose whitespace-pre-line text-muted" { (description) }
             }
             div class="grid gap-8 desktop:grid-cols-[minmax(0,1fr)_var(--spacing-aside)]" {
-                (viewer(&format!("{path}/download")))
+                (viewer_3d(&format!("{path}/download")))
                 (schematic_info(s, available, ""))
+            }
+            @if viewer.is_some_and(User::can_edit) {
+                (details_form(s))
             }
             @match analysis {
                 _ if !s.conventional => {
@@ -474,12 +477,7 @@ pub fn schematic_info(
                             button type="submit" class="btn btn-quiet" { "Add" }
                         }
                     }
-                    Some(_) => {}
-                    None => {
-                        p class="mt-3 text-meta text-muted" {
-                            a href="/sessions/new" { "Log in" } " to add or remove tags."
-                        }
-                    }
+                    _ => {}
                 }
                 @if !message.is_empty() {
                     p id="tag-message" role="alert" class="message mt-2" { (message) }
@@ -520,10 +518,108 @@ pub fn schematic_info(
                     (field("Volume", &volume(s)))
                     (field("Author", s.author.as_deref().unwrap_or("unknown")))
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    (field("Imported by", s.imported_by.as_deref().unwrap_or("unknown")))
+                    (field("Imported by", s.importer().unwrap_or("unknown")))
                     (field("Conventions", if s.conventional { "followed" } else { "not followed" }))
                 }
             }
+        }
+    }
+}
+
+/// The mod's form for a build's details, in a disclosure below its view.
+fn details_form(s: &Schematic) -> Markup {
+    let path = format!("/schematics/{}", s.id);
+    let number = |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
+    html! {
+        details class="mt-8 max-w-calm rounded-overlay border border-line bg-raised p-5 shadow-sm" {
+            summary class={ (SECTION_TITLE) " cursor-pointer" } { "Edit details" }
+            form action={ (path) "/details" } method="post" class="mt-4 grid gap-4 sm:grid-cols-2" {
+                (fields(&Fields {
+                    function: &s.function,
+                    width: &number(s.width),
+                    orientation: &s.orientation,
+                    encoding: &s.encoding,
+                    latency: &number(s.latency),
+                    synchronized: s.synchronized,
+                    author: s.author.as_deref().unwrap_or(""),
+                    built_on: s.built_on.as_deref().unwrap_or(""),
+                    description: s.description.as_deref().unwrap_or(""),
+                }))
+                div class="sm:col-span-2" {
+                    button type="submit" class="btn btn-primary" { "Save details" }
+                }
+            }
+        }
+    }
+}
+
+/// The values a details form starts with.
+pub struct Fields<'a> {
+    pub function: &'a str,
+    pub width: &'a str,
+    pub orientation: &'a str,
+    pub encoding: &'a str,
+    pub latency: &'a str,
+    pub synchronized: Option<bool>,
+    pub author: &'a str,
+    pub built_on: &'a str,
+    pub description: &'a str,
+}
+
+/// The inputs for a build's details, shared by editing and uploading.
+fn fields(f: &Fields) -> Markup {
+    html! {
+        label class="field" {
+            span { "Function" }
+            input name="function" value=(f.function) required
+                pattern="[a-z][a-z0-9_]*" title="Lowercase words joined by underscores, such as line_drawer"
+                class="input";
+        }
+        label class="field" {
+            span { "Width in bits" }
+            input name="width" type="number" min="1" value=(f.width) class="input tabular-nums";
+        }
+        label class="field" {
+            span { "Orientation" }
+            select name="orientation" class="input" {
+                @for (value, label) in [("horz", "horizontal"), ("vert", "vertical"), ("diag", "diagonal")] {
+                    option value=(value) selected[f.orientation == value] { (label) }
+                }
+            }
+        }
+        label class="field" {
+            span { "Encoding" }
+            select name="encoding" class="input" {
+                @for (value, label) in [("bin", "binary"), ("hex", "signal strength")] {
+                    option value=(value) selected[f.encoding == value] { (label) }
+                }
+            }
+        }
+        label class="field" {
+            span { "Latency in ticks" }
+            input name="latency" type="number" min="0" value=(f.latency) class="input tabular-nums";
+        }
+        label class="field" {
+            span { "Synchronized" }
+            select name="synchronized" class="input" {
+                option value="" selected[f.synchronized.is_none()] { "unknown" }
+                option value="yes" selected[f.synchronized == Some(true)] { "yes, every output bit settles on one tick" }
+                option value="no" selected[f.synchronized == Some(false)] { "no" }
+            }
+        }
+        label class="field" {
+            span { "Built by" }
+            input name="author" value=(f.author) placeholder="In-game name"
+                pattern="[A-Za-z0-9_]+" title="A Minecraft name: letters, digits, and underscores"
+                class="input";
+        }
+        label class="field" {
+            span { "Built on" }
+            input name="built_on" type="date" value=(f.built_on) class="input";
+        }
+        label class="field sm:col-span-2" {
+            span { "Description" }
+            textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
         }
     }
 }
@@ -594,7 +690,7 @@ fn size(s: &Schematic) -> String {
 
 /// A 3D view of the schematic, drawn by schematic-renderer with the vanilla
 /// resource pack it publishes alongside its own build.
-fn viewer(file: &str) -> Markup {
+fn viewer_3d(file: &str) -> Markup {
     html! {
         script type="importmap" { (PreEscaped(VIEWER_IMPORTS)) }
         // The renderer sizes its canvas to the parent, so the parent's height
@@ -639,9 +735,9 @@ new SchematicRenderer(canvas, {}, {
 });
 "#;
 
-pub fn about(username: &str) -> Markup {
+pub fn about(viewer: Option<&User>) -> Markup {
     base(
-        username,
+        viewer,
         "About",
         "/about",
         &html! {
@@ -666,38 +762,77 @@ pub fn about(username: &str) -> Markup {
     )
 }
 
-pub fn login_page() -> Markup {
-    base("", "Log in", "/sessions/new", &login_form("", ""))
-}
-
-pub fn signup_page(
-    invite_code: &str,
-    invite_issuer: &str,
-    invite_message: &str,
-) -> Markup {
+/// The login page. `enabled` is false when the Discord settings are
+/// missing; `message` explains a failed login.
+pub fn login(enabled: bool, message: &str) -> Markup {
     base(
-        "",
-        "Sign up",
-        "/users/new",
-        &signup_form(invite_code, invite_issuer, invite_message, "", "", ""),
+        None,
+        "Log in",
+        "/sessions/new",
+        &html! {
+            section class="mx-auto mt-8 flex max-w-sm flex-col gap-5 rounded-overlay border border-line bg-raised p-6 shadow-sm" {
+                h1 class=(PAGE_TITLE) { "Log in" }
+                p class="text-muted" {
+                    "Log in with your Discord account to upload builds. Your account is made the first time you log in."
+                }
+                @if !message.is_empty() {
+                    p role="alert" class="text-danger" { (message) }
+                }
+                @if enabled {
+                    a href="/auth/discord" class="btn btn-primary" { "Log in with Discord" }
+                } @else {
+                    p role="alert" class="text-danger" {
+                        "Discord login is not set up on this server: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, and DISCORD_REDIRECT_URI must be set."
+                    }
+                }
+            }
+        },
     )
 }
 
-pub fn settings(username: &str, email: Option<&str>) -> Markup {
+/// The admin's list of accounts, each with a form to set its role.
+pub fn users(admin: &User, users: &[User]) -> Markup {
     base(
-        username,
-        "Settings",
-        "/settings",
+        Some(admin),
+        "Users",
+        "/users",
         &html! {
-            div class="mx-auto max-w-md" {
-                h1 class={ (PAGE_TITLE) " mb-6" } { "Settings" }
-                div class="flex flex-col gap-10" {
-                    (username_form("", "", false))
-                    (email_form(email.unwrap_or(""), "", false))
-                    section {
-                        details class="group" {
-                            summary class={ (SECTION_TITLE) " cursor-pointer" } { "Change password" }
-                            div class="mt-3" { (password_form("", "", false, false)) }
+            h1 class={ (PAGE_TITLE) " mb-2" } { "Users" }
+            p class="mb-6 max-w-prose text-muted" {
+                "A user uploads builds. A mod also edits any build's details and tags. An admin also sets roles."
+            }
+            div class="max-w-calm overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Account" }
+                            th scope="col" class=(TABLE_HEAD) { "Role" }
+                        }
+                    }
+                    tbody {
+                        @for user in users {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                                    (account_link(user))
+                                }
+                                td class=(TABLE_CELL) {
+                                    @if user.id == admin.id {
+                                        span class="text-muted" { "admin (you)" }
+                                    } @else {
+                                        form action={ "/users/" (user.username) "/role" } method="post" class="flex gap-2" {
+                                            label for={ "role-" (user.username) } class="sr-only" {
+                                                "Role for " (user.name())
+                                            }
+                                            select id={ "role-" (user.username) } name="role" class="input min-h-9 w-auto" {
+                                                @for role in Role::ALL {
+                                                    option value=(role.as_str()) selected[role == user.role] { (role.as_str()) }
+                                                }
+                                            }
+                                            button type="submit" class="btn btn-quiet" { "Set" }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -706,57 +841,170 @@ pub fn settings(username: &str, email: Option<&str>) -> Markup {
     )
 }
 
-pub fn profile(username: &str, sessions: &[SessionDisplay]) -> Markup {
-    let profile_path = format!("/users/{username}");
+/// An account's avatar and name, linking to its page.
+fn account_link(user: &User) -> Markup {
+    html! {
+        a href={ "/users/" (user.username) } class="inline-flex items-center gap-2" {
+            @if let Some(avatar) = user.avatar_url() {
+                img src=(avatar) alt="" width="24" height="24" class="size-6 rounded-full";
+            }
+            (user.name())
+        }
+        @if user.display_name.is_some() {
+            span class="ml-2 text-meta text-muted" { "@" (user.username) }
+        }
+    }
+}
+
+/// An account's page: who they are and what they uploaded.
+pub fn profile(
+    viewer: Option<&User>,
+    account: &User,
+    uploads: &[Schematic],
+) -> Markup {
+    let path = format!("/users/{}", account.username);
     base(
-        username,
-        "Profile",
-        &profile_path,
+        viewer,
+        account.name(),
+        &path,
         &html! {
-            h1 class={ (PAGE_TITLE) " mb-8" } { "Hello, " (username) "!" }
-            h2 id="active-sessions-heading" tabindex="-1" class={ (SECTION_TITLE) " mb-3" } { "Active sessions" }
-            @if !sessions.is_empty() {
-                div class="max-w-calm overflow-x-auto" {
-                    table class="w-full border-collapse" {
-                        thead {
-                            tr {
-                                th scope="col" class=(TABLE_HEAD) { "Device or browser" }
-                                th scope="col" class=(TABLE_HEAD) { "IP address" }
-                                th scope="col" class=(TABLE_HEAD) { "Created" }
-                                th scope="col" class=(TABLE_HEAD) { "Expires" }
-                                th scope="col" class=(TABLE_HEAD) { span class="sr-only" { "Actions" } }
-                            }
+            div class="mb-8 flex items-center gap-4" {
+                @if let Some(avatar) = account.avatar_url() {
+                    img src=(avatar) alt="" width="64" height="64" class="size-16 rounded-full";
+                }
+                div {
+                    h1 class=(PAGE_TITLE) { (account.name()) }
+                    p class="text-muted" {
+                        "@" (account.username) " · " (account.role.as_str())
+                    }
+                }
+            }
+            h2 class={ (SECTION_TITLE) " mb-3" } { "Uploads" }
+            @if uploads.is_empty() {
+                p class="text-muted" { "No uploads yet." }
+            } @else {
+                (cards(uploads))
+            }
+        },
+    )
+}
+
+/// The upload page's first step: choosing a file.
+pub fn upload(user: &User, message: &str) -> Markup {
+    base(
+        Some(user),
+        "Upload",
+        "/upload",
+        &html! {
+            div class="max-w-calm" {
+                h1 class={ (PAGE_TITLE) " mb-2" } { "Upload a build" }
+                p class="mb-6 max-w-prose text-muted" {
+                    "Upload a Sponge " code { ".schem" } " file, yours or someone else's. "
+                    "Next you will see what the site reads from it and fill in its details."
+                }
+                form action="/upload/preview" method="post" enctype="multipart/form-data"
+                    class="flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
+                    label class="field" {
+                        span { "Schematic file" }
+                        input type="file" name="file" accept=".schem" required class="input py-1.5";
+                    }
+                    label class="flex items-start gap-2" {
+                        input type="checkbox" name="standardize" value="yes" class="mt-1 size-4 appearance-auto";
+                        span {
+                            "Standardize it: turn every block but redstone parts, inputs, and outputs white, "
+                            "slabs and glass into white stained glass, and add the corner markers. "
+                            "Inputs must already be levers on lime, light blue, or magenta blocks, and outputs yellow."
                         }
-                        tbody {
-                            @for session in sessions {
-                                tr id={ "session-" (session.id) } {
-                                    td class=(TABLE_CELL) { (session.user_agent) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (session.ip_address) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (session.created_at) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (session.expires_at) }
-                                    td class={ (TABLE_CELL) " text-right" } {
-                                        @if session.is_current {
-                                            span class="text-meta text-muted" { "Current session" }
-                                        } @else {
-                                            button type="button"
-                                                fx-action={"/sessions/" (session.id)}
-                                                fx-method="delete"
-                                                fx-target={"#session-" (session.id)}
-                                                ext-fx-confirm="Are you sure you want to revoke this session?"
-                                                data-focus-after-remove="#active-sessions-heading"
-                                                class="btn btn-quiet min-h-8 px-3 text-meta"
-                                            {
-                                                "Revoke"
-                                            }
-                                        }
-                                    }
-                                }
+                    }
+                    @if !message.is_empty() {
+                        p role="alert" class="text-danger" { (message) }
+                    }
+                    div { button type="submit" class="btn btn-primary" { "Preview" } }
+                }
+            }
+        },
+    )
+}
+
+/// What the upload preview shows.
+pub struct UploadPreview<'a> {
+    /// The prepared file, base64, carried to publishing.
+    pub data: &'a str,
+    /// The thumbnail as a data address.
+    pub thumbnail: Option<&'a str>,
+    pub analysis: &'a Analysis,
+    /// Inside the corner markers.
+    pub size: [u16; 3],
+    /// The id of a stored build with the same file, if any.
+    pub duplicate: Option<&'a str>,
+    pub fields: &'a Fields<'a>,
+    pub tags: &'a [Tag],
+    pub chosen_tags: &'a [String],
+    pub unconventional: bool,
+    pub message: &'a str,
+}
+
+/// The upload page's second step: checking what the site read and filling
+/// in the details.
+pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
+    let [x, y, z] = p.size;
+    base(
+        Some(user),
+        "Upload",
+        "/upload",
+        &html! {
+            h1 class={ (PAGE_TITLE) " mb-6" } { "Check and describe it" }
+            div class="grid gap-8 desktop:grid-cols-[minmax(0,1fr)_var(--spacing-aside)]" {
+                div class="overflow-hidden rounded-overlay border border-line bg-sidebar" {
+                    @if let Some(thumbnail) = p.thumbnail {
+                        img src=(thumbnail) alt="The build seen from the south-east" width="640" height="480"
+                            class="aspect-[4/3] w-full object-contain";
+                    }
+                }
+                div class="flex flex-col gap-3" {
+                    p { "Size inside the corner markers: " span class="tabular-nums" { (x) "×" (y) "×" (z) } }
+                    @if let Some(id) = p.duplicate {
+                        p role="alert" class="text-danger" {
+                            "This exact file is already on the site: "
+                            a href={ "/schematics/" (id) } { "see it here" } "."
+                        }
+                    }
+                    a href="/upload" { "Choose a different file" }
+                }
+            }
+            (interface_section(p.analysis))
+            form action="/upload" method="post" class="mt-12 grid max-w-calm gap-4 sm:grid-cols-2" {
+                h2 class={ (SECTION_TITLE) " sm:col-span-2" } { "Details" }
+                input type="hidden" name="data" value=(p.data);
+                (fields(p.fields))
+                fieldset class="flex flex-col gap-2 sm:col-span-2" {
+                    legend class="mb-2 text-meta font-semibold text-muted" { "Tags" }
+                    div class="flex flex-wrap gap-x-5 gap-y-2" {
+                        @for tag in p.tags {
+                            label class="flex items-center gap-2" {
+                                input type="checkbox" name="tag" value=(tag.name)
+                                    checked[p.chosen_tags.contains(&tag.name)]
+                                    class="size-4 appearance-auto";
+                                (badge(tag))
                             }
                         }
                     }
                 }
-            } @else {
-                p class="text-muted" { "No active sessions found." }
+                @if !p.analysis.violations.is_empty() || p.unconventional {
+                    label class="flex items-start gap-2 sm:col-span-2" {
+                        input type="checkbox" name="unconventional" value="yes"
+                            checked[p.unconventional] class="mt-1 size-4 appearance-auto";
+                        span {
+                            "This build follows its own layout, such as a display, so the building conventions do not apply to it."
+                        }
+                    }
+                }
+                @if !p.message.is_empty() {
+                    p role="alert" class="text-danger sm:col-span-2" { (p.message) }
+                }
+                div class="sm:col-span-2" {
+                    button type="submit" class="btn btn-primary" disabled[p.duplicate.is_some()] { "Publish" }
+                }
             }
         },
     )

@@ -58,6 +58,7 @@ const OPERANDS: [&str; 2] = ["lime_concrete", "light_blue_concrete"];
 
 /// One broken convention, at a position inside the corner markers when it
 /// has one.
+#[derive(Clone)]
 pub struct Violation {
     pub pos: Option<Pos>,
     pub message: String,

@@ -20,19 +20,6 @@ document.addEventListener("fx:config", (event) => {
   if (cfg.body instanceof FormData) {
     cfg.body = new URLSearchParams(cfg.body);
   }
-
-  const message = event.target.getAttribute("ext-fx-confirm");
-  if (message) {
-    cfg.confirm = () => window.confirm(message);
-  }
-
-  const focusFallback = event.target.getAttribute("data-focus-after-remove");
-  if (focusFallback) {
-    cfg.focusAfterSwap =
-      cfg.target.nextElementSibling?.querySelector("[data-focus-after-remove]") ??
-      cfg.target.previousElementSibling?.querySelector("[data-focus-after-remove]") ??
-      document.querySelector(focusFallback);
-  }
 });
 
 document.addEventListener("fx:before", (event) => {
@@ -71,13 +58,12 @@ document.addEventListener("fx:error", (event) => {
 });
 
 document.addEventListener("fx:swapped", (event) => {
-  const { source, focusAfterSwap, focusedId } = event.detail.cfg;
+  const { source, focusedId } = event.detail.cfg;
   const targetSelector = source.getAttribute("fx-target");
   const replacement = targetSelector && document.querySelector(targetSelector);
   const focusTarget =
     replacement?.querySelector('[aria-invalid="true"], [role="status"]') ??
     (focusedId && document.getElementById(focusedId)) ??
-    focusAfterSwap ??
     replacement?.querySelector("[tabindex='-1']");
 
   if (focusTarget?.isConnected) {

@@ -1,10 +1,11 @@
 use sqlx::SqlitePool;
-use tokio::sync::mpsc;
 
-use crate::services::Job;
+use crate::discord;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
-    pub job_tx: mpsc::UnboundedSender<Job>,
+    /// `None` when the Discord settings are missing, which turns login off.
+    pub discord: Option<discord::Config>,
+    pub http: reqwest::Client,
 }

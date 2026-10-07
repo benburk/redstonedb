@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,\n            conventional as \"conventional: bool\", description\n         FROM schematic WHERE id = ?",
+  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,\n            conventional as \"conventional: bool\", description,\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic ORDER BY function, width, added_at",
   "describe": {
     "columns": [
       {
@@ -87,10 +87,15 @@
         "name": "description",
         "ordinal": 16,
         "type_info": "Text"
+      },
+      {
+        "name": "uploader?: String",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -109,8 +114,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "5c251f1899276b80daefdf39622314939a4322cf1be0da3af74c8258a2514541"
+  "hash": "56a02def3131c3b96ea9b10df9f5a825bcb5ab83b6c3ad19fe9e2893bdc983af"
 }

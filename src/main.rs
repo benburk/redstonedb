@@ -2,20 +2,20 @@ use std::net::SocketAddr;
 
 use app::app_state::AppState;
 use app::db::connect_to_database;
-use app::services;
+use app::discord;
 use app::web;
 use axum::Router;
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{HeaderValue, Request, header};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
-use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::{
+    set_header::SetResponseHeaderLayer,
+    trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
+};
 use tracing::Level;
 use tracing::field;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-
-mod api;
 
 fn configure_logging() {
     tracing_subscriber::fmt()
@@ -45,20 +45,21 @@ async fn main() {
 
     let db = connect_to_database().await;
 
-    let (job_tx, job_rx) = mpsc::unbounded_channel();
-    tokio::spawn(services::job::run(db.clone(), job_rx));
-
-    let state = AppState { db, job_tx };
+    let state = AppState {
+        db,
+        discord: discord::Config::from_env(),
+        http: reqwest::Client::new(),
+    };
 
     let trace_layer = TraceLayer::new_for_http()
         .make_span_with(|request: &Request<Body>| {
             let request_id = uuid::Uuid::new_v4();
+            // The path only: a query can carry a one-time login code.
             tracing::info_span!(
                 "request",
                 %request_id,
                 method = %request.method(),
-                uri = %request.uri(),
-                session_id = field::Empty,
+                path = %request.uri().path(),
                 user_id = field::Empty,
             )
         })
@@ -67,8 +68,12 @@ async fn main() {
 
     let app = Router::new()
         .merge(web::static_router())
-        .merge(web::router().layer(trace_layer.clone()))
-        .nest("/api/v1", api::router().layer(trace_layer))
+        .merge(web::router().layer(trace_layer))
+        // No framing by other sites, no guessing at file types, and no
+        // page addresses sent to other sites.
+        .layer(header_layer(header::X_FRAME_OPTIONS, "DENY"))
+        .layer(header_layer(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .layer(header_layer(header::REFERRER_POLICY, "same-origin"))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port()));
@@ -76,10 +81,15 @@ async fn main() {
 
     info!("Starting server on {addr}");
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+    axum::serve(listener, app).await.expect("Failed to serve");
+}
+
+fn header_layer(
+    name: header::HeaderName,
+    value: &'static str,
+) -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::if_not_present(
+        name,
+        HeaderValue::from_static(value),
     )
-    .await
-    .expect("Failed to serve");
 }

@@ -20,7 +20,7 @@ use crate::{
     search, stack, thumbnail,
 };
 
-use super::pages;
+use super::{details, pages};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -36,7 +36,6 @@ pub async fn list(
     Query(query): Query<ListQuery>,
     user_opt: Option<User>,
 ) -> Response {
-    let username = user_opt.map(|user| user.username).unwrap_or_default();
     let view = match query.view.as_deref() {
         Some("list") => pages::View::List,
         _ => pages::View::Cards,
@@ -48,7 +47,7 @@ pub async fn list(
             let total = all.len();
             let shown = search::matching(&terms, all);
             pages::schematics(
-                &username,
+                user_opt.as_ref(),
                 &pages::Listing {
                     shown: &shown,
                     total,
@@ -102,14 +101,37 @@ pub async fn detail(
         Ok(data) => analyse(data.as_deref().unwrap_or_default()),
         Err(err) => return internal_error(err).into_response(),
     };
-    let Some(user) = user_opt else {
-        return pages::schematic("", &s, None, &analysis).into_response();
-    };
+    let viewer = user_opt.as_ref();
+    if !viewer.is_some_and(User::can_edit) {
+        return pages::schematic(viewer, &s, None, &analysis).into_response();
+    }
     match available_tags(&state.db, &s).await {
         Ok(available) => {
-            pages::schematic(&user.username, &s, Some(&available), &analysis)
+            pages::schematic(viewer, &s, Some(&available), &analysis)
                 .into_response()
         }
+        Err(err) => internal_error(err).into_response(),
+    }
+}
+
+/// Saves a mod's edit of a build's details, then shows the page again.
+pub async fn edit_details(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+    Form(form): Form<details::Form>,
+) -> Response {
+    if !user_opt.as_ref().is_some_and(User::can_edit) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let parsed = match form.parse() {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            return (StatusCode::BAD_REQUEST, message).into_response();
+        }
+    };
+    match schematic::set_details(&state.db, &id, &parsed.as_details()).await {
+        Ok(()) => Redirect::to(&format!("/schematics/{id}")).into_response(),
         Err(err) => internal_error(err).into_response(),
     }
 }
@@ -138,8 +160,8 @@ pub async fn add_tag(
     user_opt: Option<User>,
     Form(form): Form<AddTag>,
 ) -> Response {
-    if user_opt.is_none() {
-        return Redirect::to("/sessions/new").into_response();
+    if !user_opt.as_ref().is_some_and(User::can_edit) {
+        return StatusCode::FORBIDDEN.into_response();
     }
     let name = form.tag.unwrap_or_default();
     let result = change_tag(&state.db, &id, &name, true).await;
@@ -154,8 +176,8 @@ pub async fn remove_tag(
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Response {
-    if user_opt.is_none() {
-        return Redirect::to("/sessions/new").into_response();
+    if !user_opt.as_ref().is_some_and(User::can_edit) {
+        return StatusCode::FORBIDDEN.into_response();
     }
     respond(change_tag(&state.db, &id, &name, false).await)
 }

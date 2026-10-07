@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET username = discord_id\n             WHERE username = ? AND discord_id <> ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a43cde68aa933841f2ce50d1bbe7e3d9ff36928846695b8cd69b5ad74a5f768d"
+}

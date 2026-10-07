@@ -59,10 +59,28 @@ just serve
 - `/?q=register+vertical+alpha+-torchless` narrows the list to builds matching every word. A word names a function, orientation, encoding, tag, width such as `8b`, author or importer, `stackable`, or `sync` or `unsync`; a word that names none of those matches part of a build's name instead. `-` or `not` before a word leaves those builds out, and quotes or underscores keep a multi-word tag together. `rsdb search` takes the same words.
 - `/` shows every schematic as a card with a thumbnail, its name, tag badges coloured by category, and its latency, size, volume, and author. `/?view=list` shows the same schematics as a table instead.
 - `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block, leaving out the corner markers. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
-- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
+- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A mod or admin can add and remove tags there, and edit its details. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
 - `/schematics/<id>/download` returns the stored file under its generated filename. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and the page has a form for it.
-- Accounts are needed only to edit tags. Signing up takes an invite code; `seeds/seed.sql` creates some.
+- `/upload` lets anyone logged in upload a build, theirs or someone else's: choose a file, optionally standardize it, check the preview of what the site reads from it, fill in its details and tags, and publish. Uploads go live at once.
+
+### Accounts
+
+People log in with Discord; an account is made at their first login. Each account has a role:
+
+- **user** uploads builds.
+- **mod** also edits any build's details and tags.
+- **admin** also sets roles, at `/users`.
+
+Discord login needs `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_REDIRECT_URI` in `.env`; see `.env.example`. The redirect must also be listed on the app's OAuth2 page in the Discord Developer Portal. Without them the site still runs, with login turned off.
+
+The first admin is made from the command line, after they have logged in once:
+
+```sh
+just rsdb users
+just rsdb role <discord username> admin
+```
+
 - Styles are Tailwind. `styles/app.css` is the source, and `just css` builds `static/app.css`, which is committed so the server and the Nix build need no Tailwind. `just serve` rebuilds it first, and `just check` fails when it is stale.
 
 After changing a query, run `just prepare` to refresh the offline query metadata in `.sqlx/`.

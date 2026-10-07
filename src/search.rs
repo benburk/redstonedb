@@ -131,6 +131,7 @@ fn facts(s: &Schematic) -> Vec<String> {
     }
     facts.extend(s.author.clone());
     facts.extend(s.imported_by.clone());
+    facts.extend(s.uploader.clone());
     if !s.stacking.is_empty() {
         facts.push("stackable".to_owned());
     }
@@ -174,6 +175,7 @@ mod tests {
             imported_by: None,
             conventional: true,
             description: None,
+            uploader: None,
             sha256: String::new(),
             added_at: String::new(),
             tags: tags

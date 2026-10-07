@@ -139,6 +139,8 @@ pub struct Schematic {
     pub conventional: bool,
     /// Free text about the build, such as how to use it.
     pub description: Option<String>,
+    /// The username of the account that uploaded it through the site.
+    pub uploader: Option<String>,
     pub author: Option<String>,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
@@ -239,6 +241,12 @@ impl Schematic {
         }
     }
 
+    /// Who brought the build in: the uploading account, else whoever ran
+    /// the import.
+    pub fn importer(&self) -> Option<&str> {
+        self.uploader.as_deref().or(self.imported_by.as_deref())
+    }
+
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
         match self.synchronized {
@@ -271,7 +279,9 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description
+            conventional as "conventional: bool", description,
+            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
+                as "uploader?: String"
          FROM schematic ORDER BY function, width, added_at"#
     )
     .fetch_all(db)
@@ -327,6 +337,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             imported_by: row.imported_by,
             conventional: row.conventional,
             description: row.description,
+            uploader: row.uploader,
             sha256: row.sha256,
             added_at: row.added_at,
         })
@@ -340,7 +351,9 @@ pub async fn get(
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description
+            conventional as "conventional: bool", description,
+            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
+                as "uploader?: String"
          FROM schematic WHERE id = ?"#,
         id
     )
@@ -374,6 +387,7 @@ pub async fn get(
         imported_by: row.imported_by,
         conventional: row.conventional,
         description: row.description,
+        uploader: row.uploader,
         sha256: row.sha256,
         added_at: row.added_at,
         tags,
@@ -465,6 +479,7 @@ pub struct New<'a> {
     pub imported_by: Option<&'a str>,
     pub conventional: bool,
     pub description: Option<&'a str>,
+    pub uploaded_by: Option<uuid::Uuid>,
     pub sha256: &'a str,
     pub data: &'a [u8],
 }
@@ -478,8 +493,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, author, built_on,
-            imported_by, conventional, description, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            imported_by, conventional, description, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
         new.width,
@@ -495,11 +510,52 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.imported_by,
         new.conventional,
         new.description,
+        new.uploaded_by,
         new.sha256,
         new.data,
     )
     .fetch_one(db)
     .await
+}
+
+/// Every field a details form sets; `None` makes a field unknown.
+pub struct Details<'a> {
+    pub function: &'a str,
+    pub width: Option<i64>,
+    pub orientation: &'a str,
+    pub encoding: &'a str,
+    pub latency: Option<i64>,
+    pub synchronized: Option<bool>,
+    pub author: Option<&'a str>,
+    pub built_on: Option<&'a str>,
+    pub description: Option<&'a str>,
+}
+
+/// Sets every field of a details form, clearing the empty ones.
+pub async fn set_details<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    details: &Details<'_>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET function = ?, width = ?, orientation = ?,
+            encoding = ?, latency = ?, synchronized = ?, author = ?,
+            built_on = ?, description = ?
+         WHERE id = ?",
+        details.function,
+        details.width,
+        details.orientation,
+        details.encoding,
+        details.latency,
+        details.synchronized,
+        details.author,
+        details.built_on,
+        details.description,
+        id,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Deletes a schematic and its tag links.
@@ -723,6 +779,7 @@ mod tests {
             imported_by: None,
             conventional: true,
             description: None,
+            uploader: None,
             sha256: String::new(),
             added_at: String::new(),
             tags: vec![

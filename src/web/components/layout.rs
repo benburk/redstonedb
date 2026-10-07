@@ -1,9 +1,11 @@
 use maud::{DOCTYPE, Markup, html};
 
-use crate::APP_NAME;
+use crate::{APP_NAME, models::user::User};
 
+/// A page around `content`, with the header for `viewer`, the account
+/// viewing it, if any.
 pub fn base(
-    username: &str,
+    viewer: Option<&User>,
     page_title: &str,
     current_path: &str,
     content: &Markup,
@@ -29,7 +31,7 @@ pub fn base(
                     class="sr-only rounded-control bg-raised px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-10" {
                     "Skip to content"
                 }
-                (navbar(username, current_path))
+                (navbar(viewer, current_path))
                 main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
                     (content)
                 }
@@ -41,8 +43,7 @@ pub fn base(
     }
 }
 
-pub fn navbar(username: &str, current_path: &str) -> Markup {
-    let profile_path = format!("/users/{username}");
+pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
     let current = |path: &str| (current_path == path).then_some("page");
     let link = "whitespace-nowrap rounded-control px-2 py-1.5 desktop:px-2.5 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:font-semibold aria-[current=page]:text-ink";
     html! {
@@ -56,14 +57,26 @@ pub fn navbar(username: &str, current_path: &str) -> Markup {
                     (APP_NAME)
                 }
                 a href="/about" aria-current=[current("/about")] class=(link) { "About" }
-                @if username.is_empty() {
-                    a href="/sessions/new" aria-current=[current("/sessions/new")] class=(link) { "Log in" }
-                    a href="/users/new" aria-current=[current("/users/new")] class=(link) { "Sign up" }
-                } @else {
-                    a href=(profile_path) aria-current=[current(&profile_path)] class=(link) { (username) }
-                    a href="/settings" aria-current=[current("/settings")] class=(link) { "Settings" }
-                    a href="/" fx-action="/sessions" fx-method="delete" fx-swap="none" class=(link) {
-                        "Log out"
+                @match viewer {
+                    None => {
+                        a href="/sessions/new" aria-current=[current("/sessions/new")] class=(link) { "Log in" }
+                    }
+                    Some(user) => {
+                        @let profile_path = format!("/users/{}", user.username);
+                        a href="/upload" aria-current=[current("/upload")] class=(link) { "Upload" }
+                        @if user.is_admin() {
+                            a href="/users" aria-current=[current("/users")] class=(link) { "Users" }
+                        }
+                        a href=(profile_path) aria-current=[current(&profile_path)]
+                            class={ (link) " flex items-center gap-2" } {
+                            @if let Some(avatar) = user.avatar_url() {
+                                img src=(avatar) alt="" width="20" height="20" class="size-5 rounded-full";
+                            }
+                            (user.name())
+                        }
+                        a href="/" fx-action="/sessions" fx-method="delete" fx-swap="none" class=(link) {
+                            "Log out"
+                        }
                     }
                 }
             }

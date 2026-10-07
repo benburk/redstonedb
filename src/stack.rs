@@ -23,6 +23,11 @@ use crate::{
     schem::{self, AIR, Blocks, Pos},
 };
 
+/// The most copies along one direction.
+const MAX_COPIES: usize = 64;
+/// The most blocks in a stacked schematic.
+const MAX_VOLUME: i64 = 16 * 1024 * 1024;
+
 const WHITE: &str = "minecraft:white_concrete";
 const GLASS: &str = "minecraft:glass";
 
@@ -65,6 +70,11 @@ fn along(
     copies: usize,
 ) -> Result<Vec<u8>> {
     ensure!(copies >= 1, "a stack needs at least one copy");
+    // Anyone can ask for a stack, so cap the work one request can make.
+    ensure!(
+        copies <= MAX_COPIES,
+        "a stack has at most {MAX_COPIES} copies each way"
+    );
     if let Some(max) = direction.max_copies {
         ensure!(
             i64::try_from(copies)? <= max,
@@ -83,6 +93,8 @@ fn along(
     let step = [-west, up, -north];
     let [w, h, l] = blocks.size;
     let size = [w + last * west, h + last * up, l + last * north];
+    let volume: i64 = size.iter().map(|&n| i64::from(n)).product();
+    ensure!(volume <= MAX_VOLUME, "that stack would be too large");
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 

@@ -1,32 +1,37 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            id as \"id: uuid::Uuid\",\n            username,\n            password_hash,\n            email,\n            created_at\n            FROM 'user' WHERE id = ?",
+  "query": "SELECT id as \"id: Uuid\", discord_id, username, display_name,\n                avatar, role\n             FROM user WHERE discord_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "id: uuid::Uuid",
+        "name": "id: Uuid",
         "ordinal": 0,
         "type_info": "Blob"
       },
       {
-        "name": "username",
+        "name": "discord_id",
         "ordinal": 1,
         "type_info": "Text"
       },
       {
-        "name": "password_hash",
+        "name": "username",
         "ordinal": 2,
         "type_info": "Text"
       },
       {
-        "name": "email",
+        "name": "display_name",
         "ordinal": 3,
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "avatar",
         "ordinal": 4,
-        "type_info": "Integer"
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 5,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -37,8 +42,9 @@
       false,
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "f748457f1fa5f3918a782da23395e863e2cc37756def2afd3f59efe14fe0b869"
+  "hash": "be798dbf717a7d0cbd280c120373a8e6d702248db97ab4727e0cada9185cc98e"
 }

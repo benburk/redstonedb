@@ -214,3 +214,18 @@ fn standardizing_whitens_the_build_and_adds_markers() {
     assert_eq!(names(&outputs), [("output", 1)]);
     assert_eq!(outputs[0].block, "yellow stained glass");
 }
+
+#[test]
+fn standardizing_twice_gives_the_same_bytes() {
+    let raw = slice("threshold-3-raw");
+    let first = app::standardize::standardize(&raw).unwrap();
+    let second = app::standardize::standardize(&raw).unwrap();
+    assert_eq!(first, second);
+}
+
+#[test]
+fn stacks_are_capped() {
+    let plan = [(direction("west=2"), 65)];
+    let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
+    assert!(err.to_string().contains("at most 64"), "{err}");
+}

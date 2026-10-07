@@ -6,15 +6,15 @@ pub const APP_NAME: &str = "Redstone Database";
 
 pub mod app_state;
 pub mod db;
+pub mod discord;
 pub mod error;
 pub mod extractors;
+pub mod import;
 pub mod interface;
 pub mod lint;
 pub mod models;
-pub mod password;
 pub mod schem;
 pub mod search;
-pub mod services;
 pub mod stack;
 pub mod standardize;
 pub mod thumbnail;

@@ -2,7 +2,6 @@
 
 use std::{
     collections::HashMap,
-    fmt::Write as _,
     fs,
     io::Write as _,
     path::{Path, PathBuf},
@@ -11,13 +10,13 @@ use std::{
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    lint,
+    import, lint,
     models::schematic::{self, Changes, New, Optional, StackDirection},
+    models::user::{Role, User},
     schem::Blocks,
-    search, stack, standardize,
+    search, stack,
 };
 use clap::{Args, Parser, Subcommand};
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 /// A database of Minecraft redstone schematics.
@@ -39,6 +38,15 @@ enum Command {
     Set(Set),
     /// Delete a schematic
     Remove { id: String },
+    /// List accounts with their roles
+    Users,
+    /// Set an account's role: user, mod, or admin
+    Role {
+        /// The account's Discord username
+        username: String,
+        #[arg(value_parser = ["user", "mod", "admin"])]
+        role: String,
+    },
     /// List schematics matching every term, such as
     /// `register vertical alpha -torchless`
     Search {
@@ -199,6 +207,23 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             }
             Ok(())
         }
+        Command::Users => {
+            for user in User::all(db).await? {
+                println!("{:<6} {}", user.role.as_str(), user.username);
+            }
+            Ok(())
+        }
+        Command::Role { username, role } => {
+            let user = User::get_by_username(db, &username)
+                .await?
+                .with_context(|| {
+                    format!("no account named {username}; they log in with Discord first")
+                })?;
+            let role = Role::parse(&role).context("unknown role")?;
+            User::set_role(db, user.id, role).await?;
+            println!("{} is now {}", user.username, role.as_str());
+            Ok(())
+        }
         Command::Remove { id } => {
             let id = resolve(db, &id).await?;
             let filename = load(db, &id).await?.filename();
@@ -296,55 +321,27 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let file = &args.file;
     let data = fs::read(file)
         .with_context(|| format!("cannot read {}", file.display()))?;
-    let data = if args.standardize {
-        standardize::standardize(&data)
-            .with_context(|| format!("cannot standardize {}", file.display()))?
-    } else {
-        data
-    };
-    let blocks =
-        Blocks::read(&data).with_context(|| file.display().to_string())?;
-    let conventional = args.details.conventional.unwrap_or(true);
-    let violations = if conventional {
-        lint::check(&blocks)
-    } else {
-        Vec::new()
-    };
-    if !violations.is_empty() {
-        for violation in &violations {
+    let details = &args.details;
+    let conventional = details.conventional.unwrap_or(true);
+    let prepared = import::prepare(data, args.standardize, conventional)
+        .with_context(|| file.display().to_string())?;
+    if !prepared.violations.is_empty() {
+        for violation in &prepared.violations {
             eprintln!("{violation}");
         }
         if !args.force {
             bail!(
                 "{} breaks {} building conventions; fix them or pass --force",
                 file.display(),
-                violations.len()
+                prepared.violations.len()
             );
         }
     }
-    // A build without corner markers measures its whole box.
-    let size = if blocks.missing_markers().is_empty() {
-        blocks.inner_size()?
-    } else {
-        blocks.full_size()?
-    };
-    let sha256 =
-        Sha256::digest(&data)
-            .iter()
-            .fold(String::new(), |mut hex, b| {
-                let _ = write!(hex, "{b:02x}");
-                hex
-            });
-    if let Some(id) = schematic::id_by_sha256(db, &sha256).await? {
-        bail!("{} is already stored as {}", file.display(), &id[..8]);
-    }
-    let details = &args.details;
+    let size = &prepared.size;
     let author = details.author.as_ref().map(|a| a.to_lowercase());
     let imported_by = details.imported_by.as_ref().map(|a| a.to_lowercase());
-
-    let mut tx = db.begin().await?;
-    let id = schematic::insert(
-        &mut *tx,
+    let id = import::store(
+        db,
         &New {
             function: &args.function,
             width: details.width.map(i64::from),
@@ -358,17 +355,14 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             imported_by: imported_by.as_deref(),
             conventional,
             description: details.description.as_deref(),
-            sha256: &sha256,
-            data: &data,
+            uploaded_by: None,
+            sha256: &prepared.sha256,
+            data: &prepared.data,
         },
+        &args.tags,
+        &details.stacking,
     )
     .await?;
-    for name in &args.tags {
-        let tag = tag_id(&mut *tx, name).await?;
-        schematic::attach(&mut *tx, &id, &tag).await?;
-    }
-    schematic::set_stacking(&mut tx, &id, &details.stacking).await?;
-    tx.commit().await?;
     println!("{}  {}", &id[..8], load(db, &id).await?.filename());
     Ok(())
 }

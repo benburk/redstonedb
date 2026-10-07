@@ -29,11 +29,19 @@ pub struct Nbt {
     nested: bool,
 }
 
+/// The most a schematic may unpack to. Gzip shrinks a uniform file
+/// enormously, so a small upload could otherwise unpack to gigabytes.
+const MAX_UNPACKED: u64 = 16 * 1024 * 1024;
+
 pub fn decode(data: &[u8]) -> Result<Nbt> {
     let mut raw = Vec::new();
     GzDecoder::new(data)
+        .take(MAX_UNPACKED + 1)
         .read_to_end(&mut raw)
         .context("not a gzipped schematic")?;
+    if raw.len() as u64 > MAX_UNPACKED {
+        bail!("schematic unpacks to more than 16 MiB");
+    }
     let Value::Compound(mut root) = fastnbt::from_bytes::<Value>(&raw)? else {
         bail!("schematic root is not an NBT compound");
     };
@@ -52,6 +60,38 @@ pub fn decode(data: &[u8]) -> Result<Nbt> {
     })
 }
 
+/// NBT with every compound's fields in name order, so the same blocks
+/// always encode to the same bytes and the same hash.
+struct Sorted<'a>(&'a Value);
+
+impl serde::Serialize for Sorted<'_> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeMap as _, SerializeSeq as _};
+        match self.0 {
+            Value::Compound(fields) => {
+                let mut sorted: Vec<_> = fields.iter().collect();
+                sorted.sort_by_key(|(name, _)| *name);
+                let mut map = serializer.serialize_map(Some(sorted.len()))?;
+                for (name, value) in sorted {
+                    map.serialize_entry(name, &Sorted(value))?;
+                }
+                map.end()
+            }
+            Value::List(items) => {
+                let mut seq = serializer.serialize_seq(Some(items.len()))?;
+                for item in items {
+                    seq.serialize_element(&Sorted(item))?;
+                }
+                seq.end()
+            }
+            other => other.serialize(serializer),
+        }
+    }
+}
+
 /// Gzipped NBT, laid out as the file it was decoded from.
 pub fn encode(nbt: Nbt) -> Result<Vec<u8>> {
     let (root, name) = if nbt.nested {
@@ -64,7 +104,7 @@ pub fn encode(nbt: Nbt) -> Result<Vec<u8>> {
         (nbt.body, "Schematic")
     };
     let raw = fastnbt::to_bytes_with_opts(
-        &Value::Compound(root),
+        &Sorted(&Value::Compound(root)),
         fastnbt::SerOpts::new().root_name(name),
     )?;
     let mut gz = GzEncoder::new(Vec::new(), Compression::default());

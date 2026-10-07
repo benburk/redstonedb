@@ -9,14 +9,15 @@ use axum::{
 use crate::app_state::AppState;
 
 mod about;
+mod auth;
 pub mod components;
-mod login;
+mod details;
 pub mod pages;
 mod profile;
 mod schematics;
 mod session;
-mod settings;
-mod signup;
+mod upload;
+mod users;
 
 use about::about;
 use profile::profile;
@@ -63,13 +64,15 @@ pub fn router() -> Router<AppState> {
             "/schematics/{id}/tags/{tag}",
             delete(schematics::remove_tag),
         )
+        .route("/schematics/{id}/details", post(schematics::edit_details))
+        .route("/upload", get(upload::form).post(upload::publish))
+        .route("/upload/preview", post(upload::preview))
         .route("/about", get(about))
+        .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
-        .route("/sessions/new", get(login::get))
-        .route("/sessions", post(session::post).delete(session::delete))
-        .route("/sessions/{session_id}", delete(session::delete_by_id))
-        .route("/users/new", get(signup::get))
-        .route("/invite-codes/check", post(signup::check_invite))
-        .route("/users", post(signup::post))
-        .route("/settings", get(settings::get).patch(settings::patch))
+        .route("/users/{username}/role", post(users::set_role))
+        .route("/sessions/new", get(auth::login))
+        .route("/sessions", delete(session::delete))
+        .route("/auth/discord", get(auth::start))
+        .route("/auth/discord/callback", get(auth::callback))
 }

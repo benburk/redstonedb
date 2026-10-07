@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE user SET email = ? WHERE id = ?",
+  "query": "UPDATE user SET role = ? WHERE id = ?",
   "describe": {
     "columns": [],
     "parameters": {
@@ -8,5 +8,5 @@
     },
     "nullable": []
   },
-  "hash": "c51209fb08669591b0ae5180076526459a0060e97009faf2586e3069660151eb"
+  "hash": "9b30bbcb1b3de68e03e991a723b0d0716704afc7c5ce0923d5f0c5c596b925d2"
 }

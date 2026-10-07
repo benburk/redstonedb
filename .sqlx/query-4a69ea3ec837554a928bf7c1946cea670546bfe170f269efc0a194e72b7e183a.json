@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET function = ?, width = ?, orientation = ?,\n            encoding = ?, latency = ?, synchronized = ?, author = ?,\n            built_on = ?, description = ?\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "4a69ea3ec837554a928bf7c1946cea670546bfe170f269efc0a194e72b7e183a"
+}
