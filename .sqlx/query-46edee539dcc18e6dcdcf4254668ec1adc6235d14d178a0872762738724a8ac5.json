@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic_tag.schematic_id, tag.name, tag.category\n         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id\n         ORDER BY tag.category, tag.name",
+  "describe": {
+    "columns": [
+      {
+        "name": "schematic_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "46edee539dcc18e6dcdcf4254668ec1adc6235d14d178a0872762738724a8ac5"
+}

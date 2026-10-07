@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, function, width, orientation, encoding, latency,\n            size_x, size_y, size_z, author, built_on, source_name, added_at\n         FROM schematic ORDER BY function, width, added_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "function",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "width",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "orientation",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "encoding",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "latency",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "size_x",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "size_y",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "size_z",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "author",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "built_on",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "source_name",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_at",
+        "ordinal": 12,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "34abe14b9eaac89f6959b315f4098ecec38c1455299bc1e13a5c2b8efc1eaf31"
+}

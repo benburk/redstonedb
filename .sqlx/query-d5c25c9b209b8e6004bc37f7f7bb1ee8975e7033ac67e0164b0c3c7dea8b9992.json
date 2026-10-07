@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            id as \"id: uuid::Uuid\",\n            user_id as \"user_id: uuid::Uuid\",\n            ip_address,\n            user_agent,\n            created_at,\n            expires_at\n            FROM 'session' WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: uuid::Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id: uuid::Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "ip_address",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_agent",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d5c25c9b209b8e6004bc37f7f7bb1ee8975e7033ac67e0164b0c3c7dea8b9992"
+}

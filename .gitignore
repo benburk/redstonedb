@@ -1,0 +1,6 @@
+.claude/
+.direnv/
+.env
+target/
+*.db-wal
+*.db-shm

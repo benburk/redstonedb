@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id FROM schematic WHERE id GLOB ? || '*' LIMIT 2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "19cf572ed7dac00a32708e5ae40a040f23db2054d8f0c3ca72406c9dc39f4820"
+}

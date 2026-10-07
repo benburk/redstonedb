@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO schematic_tag (schematic_id, tag_id)\n         VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "bca156ccde8db171ef98060b240e424dfa3d0defe1077e805b7b03a424849290"
+}
