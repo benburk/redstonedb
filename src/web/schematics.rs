@@ -11,8 +11,10 @@ use sqlx::SqlitePool;
 use crate::{
     app_state::AppState,
     error::internal_error,
+    interface, lint,
     models::schematic::{self, Schematic, Tag},
     models::user::User,
+    schem::Blocks,
 };
 
 use super::pages;
@@ -40,14 +42,30 @@ pub async fn detail(
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => return internal_error(err).into_response(),
     };
+    let analysis = match schematic::data(&state.db, &id).await {
+        Ok(data) => analyse(data.as_deref().unwrap_or_default()),
+        Err(err) => return internal_error(err).into_response(),
+    };
     let Some(user) = user_opt else {
-        return pages::schematic("", &s, None).into_response();
+        return pages::schematic("", &s, None, &analysis).into_response();
     };
     match available_tags(&state.db, &s).await {
-        Ok(available) => pages::schematic(&user.username, &s, Some(&available))
-            .into_response(),
+        Ok(available) => {
+            pages::schematic(&user.username, &s, Some(&available), &analysis)
+                .into_response()
+        }
         Err(err) => internal_error(err).into_response(),
     }
+}
+
+/// The build's inputs and outputs and the conventions it breaks, or why
+/// its file could not be read.
+fn analyse(data: &[u8]) -> Result<pages::Analysis, String> {
+    let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
+    Ok(pages::Analysis {
+        interface: interface::read(&blocks),
+        violations: lint::check(&blocks),
+    })
 }
 
 #[derive(Deserialize)]

@@ -7,6 +7,8 @@ use maud::{Markup, PreEscaped, html};
 
 use crate::{
     APP_NAME,
+    interface::{Bit, Interface, Port},
+    lint::Violation,
     models::schematic::{Schematic, Tag},
 };
 
@@ -46,6 +48,7 @@ pub fn schematics(username: &str, schematics: &[Schematic]) -> Markup {
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Encoding" }
                                 th scope="col" class=(TABLE_HEAD) { "Latency" }
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Size" }
+                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Volume" }
                                 th scope="col" class=(TABLE_HEAD) { "Author" }
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Built" }
                             }
@@ -67,6 +70,7 @@ pub fn schematics(username: &str, schematics: &[Schematic]) -> Markup {
                                     td class={ (TABLE_CELL) " " (secondary) } { (s.encoding_label()) }
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
+                                    td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
                                     td class=(TABLE_CELL) { (s.author.as_deref().unwrap_or("")) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
@@ -81,12 +85,19 @@ pub fn schematics(username: &str, schematics: &[Schematic]) -> Markup {
     )
 }
 
+/// What the stored file says about a build.
+pub struct Analysis {
+    pub interface: Interface,
+    pub violations: Vec<Violation>,
+}
+
 /// One schematic's page. `available` holds the tags that may still be
 /// attached, and is `None` for a visitor who may not edit tags.
 pub fn schematic(
     username: &str,
     s: &Schematic,
     available: Option<&[Tag]>,
+    analysis: &Result<Analysis, String>,
 ) -> Markup {
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
@@ -100,8 +111,159 @@ pub fn schematic(
                 (viewer(&format!("{path}/download")))
                 (schematic_info(s, available, ""))
             }
+            @match analysis {
+                Ok(analysis) => (interface_section(analysis)),
+                Err(err) => {
+                    p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
+                }
+            }
         },
     )
+}
+
+fn interface_section(analysis: &Analysis) -> Markup {
+    let Interface { inputs, outputs } = &analysis.interface;
+    html! {
+        section aria-labelledby="interface-heading" class="mt-12" {
+            h2 id="interface-heading" class={ (SECTION_TITLE) " mb-1" } { "Inputs and outputs" }
+            p class="mb-4 text-meta text-muted" {
+                "Read from the file's levers, lamps, and signs. Positions count from the first block inside the corner markers."
+            }
+            div class="overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    caption class="sr-only" { "Inputs" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Input" }
+                            th scope="col" class=(TABLE_HEAD) { "Block" }
+                            th scope="col" class=(TABLE_HEAD) { "Bits" }
+                            th scope="col" class=(TABLE_HEAD) { "LSB at" }
+                            th scope="col" class=(TABLE_HEAD) { "Spacing" }
+                            th scope="col" class=(TABLE_HEAD) { "Enters from" }
+                            th scope="col" class=(TABLE_HEAD) { "Drive" }
+                            th scope="col" class=(TABLE_HEAD) { "Strength" }
+                            th scope="col" class=(TABLE_HEAD) { "Inverted" }
+                        }
+                    }
+                    tbody {
+                        @for port in inputs {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (port.name) }
+                                td class=(TABLE_CELL) { (port.block) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
+                                td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap" } { (lsb(port)) }
+                                td class={ (TABLE_CELL) " whitespace-nowrap" } { (spacing(&port.bits)) }
+                                td class=(TABLE_CELL) { (uniform(&port.bits, |b| b.entry.clone().unwrap_or_default())) }
+                                td class=(TABLE_CELL) { (uniform(&port.bits, |b| (if b.hard { "hard" } else { "soft" }).to_owned())) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (port.strength) " or more" }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (inverted(&port.bits)) }
+                            }
+                        }
+                    }
+                }
+            }
+            div class="mt-8 overflow-x-auto" {
+                table class="w-full max-w-calm border-collapse" {
+                    caption class="sr-only" { "Outputs" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Output" }
+                            th scope="col" class=(TABLE_HEAD) { "Block" }
+                            th scope="col" class=(TABLE_HEAD) { "Bits" }
+                            th scope="col" class=(TABLE_HEAD) { "LSB at" }
+                            th scope="col" class=(TABLE_HEAD) { "Spacing" }
+                        }
+                    }
+                    tbody {
+                        @for port in outputs {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (port.name) }
+                                td class=(TABLE_CELL) { (port.block) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
+                                td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap" } { (lsb(port)) }
+                                td class={ (TABLE_CELL) " whitespace-nowrap" } { (spacing(&port.bits)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        @if !analysis.violations.is_empty() {
+            section aria-labelledby="lint-heading" class="mt-12 max-w-calm" {
+                h2 id="lint-heading" class={ (SECTION_TITLE) " mb-3" } { "Breaks the building conventions" }
+                ul class="flex flex-col gap-1.5" {
+                    @for violation in &analysis.violations {
+                        li class="flex gap-3" {
+                            span class="w-28 shrink-0 text-muted tabular-nums" {
+                                @if let Some([x, y, z]) = violation.pos { (x) ", " (y) ", " (z) }
+                            }
+                            span { (violation.message) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn lsb(port: &Port) -> String {
+    match port.bits.first() {
+        Some(bit) if port.lsb_known || port.bits.len() == 1 => {
+            let [x, y, z] = bit.pos;
+            format!("{x}, {y}, {z}")
+        }
+        _ => "no lsb sign".to_owned(),
+    }
+}
+
+/// How far apart neighbouring bits are, such as `2 along −x`.
+fn spacing(bits: &[Bit]) -> String {
+    let steps: Vec<[i32; 3]> = bits
+        .windows(2)
+        .map(|pair| [0, 1, 2].map(|i| pair[1].pos[i] - pair[0].pos[i]))
+        .collect();
+    let Some(first) = steps.first() else {
+        return String::new();
+    };
+    let axis = (0..3).max_by_key(|&i| first[i].abs()).unwrap_or(0);
+    if steps.iter().any(|step| step[axis] != first[axis]) {
+        return "irregular".to_owned();
+    }
+    let sign = if first[axis] < 0 { "−" } else { "+" };
+    let staggered = steps.iter().any(|step| step != first);
+    format!(
+        "{} along {sign}{}{}",
+        first[axis].abs(),
+        ["x", "y", "z"][axis],
+        if staggered { ", staggered" } else { "" }
+    )
+}
+
+/// One value shared by every bit, or `mixed`.
+fn uniform(bits: &[Bit], value: impl Fn(&Bit) -> String) -> String {
+    let mut values = bits.iter().map(value);
+    let first = values.next().unwrap_or_default();
+    if values.all(|v| v == first) {
+        first
+    } else {
+        "mixed".to_owned()
+    }
+}
+
+/// The bits saved with their lever on, counting from the LSB.
+fn inverted(bits: &[Bit]) -> String {
+    let indices: Vec<String> = bits
+        .iter()
+        .enumerate()
+        .filter(|(_, bit)| bit.inverted)
+        .map(|(i, _)| i.to_string())
+        .collect();
+    match indices.len() {
+        0 => String::new(),
+        n if n == bits.len() && n > 1 => "all".to_owned(),
+        _ if bits.len() == 1 => "yes".to_owned(),
+        _ => indices.join(", "),
+    }
 }
 
 /// Everything on a schematic's page except its title and viewer. Tag edits
@@ -178,8 +340,9 @@ pub fn schematic_info(
                     (field("Width", &s.width.map(|w| format!("{w} bits")).unwrap_or_default()))
                     (field("Orientation", s.orientation_label()))
                     (field("Encoding", s.encoding_label()))
-                    (field("Latency", &latency(s)))
+                    (field("Latency", &s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
                     (field("Size", &size(s)))
+                    (field("Volume", &volume(s)))
                     (field("Author", s.author.as_deref().unwrap_or("unknown")))
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
                     (field("Imported from", &s.source_name))
@@ -230,6 +393,10 @@ fn field(name: &str, value: &str) -> Markup {
 
 fn latency(s: &Schematic) -> String {
     s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
+}
+
+fn volume(s: &Schematic) -> String {
+    format!("{} blocks", s.volume())
 }
 
 fn size(s: &Schematic) -> String {

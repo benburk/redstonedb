@@ -8,6 +8,8 @@ pub mod app_state;
 pub mod db;
 pub mod error;
 pub mod extractors;
+pub mod interface;
+pub mod lint;
 pub mod models;
 pub mod password;
 pub mod schem;

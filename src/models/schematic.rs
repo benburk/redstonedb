@@ -39,6 +39,7 @@ pub struct Schematic {
     pub orientation: String,
     pub encoding: String,
     pub latency: Option<i64>,
+    /// Inside the corner markers.
     pub size: (i64, i64, i64),
     pub author: Option<String>,
     pub built_on: Option<String>,
@@ -95,6 +96,12 @@ impl Schematic {
             .chain(self.built_on.as_ref().map(|d| d.replace('-', "")))
             .collect();
         format!("{}.schem", parts.join("-"))
+    }
+
+    /// The number of blocks inside the build's bounding box.
+    pub fn volume(&self) -> i64 {
+        let (x, y, z) = self.size;
+        x * y * z
     }
 
     pub fn orientation_label(&self) -> &str {
@@ -317,6 +324,46 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
 }
 
 /// The tag named `name`, which may also be its filename token.
+/// A field that may be unknown.
+#[derive(PartialEq, Eq)]
+pub enum Optional {
+    Width,
+    Latency,
+    Author,
+    BuiltOn,
+}
+
+/// Makes `fields` unknown.
+pub async fn forget<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    fields: &[Optional],
+) -> Result<(), sqlx::Error> {
+    let (width, latency, author, built_on) = (
+        fields.contains(&Optional::Width),
+        fields.contains(&Optional::Latency),
+        fields.contains(&Optional::Author),
+        fields.contains(&Optional::BuiltOn),
+    );
+    sqlx::query!(
+        "UPDATE schematic SET
+            width = iif(?, NULL, width),
+            latency = iif(?, NULL, latency),
+            author = iif(?, NULL, author),
+            built_on = iif(?, NULL, built_on)
+         WHERE id = ?",
+        width,
+        latency,
+        author,
+        built_on,
+        id,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The tag named `name`, which may also be its filename token.
 pub async fn tag_id<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
@@ -412,7 +459,7 @@ mod tests {
             orientation: "horz".to_owned(),
             encoding: "bin".to_owned(),
             latency: Some(8),
-            size: (21, 13, 19),
+            size: (19, 11, 18),
             author: Some("embizone".to_owned()),
             built_on: Some("2014-09-06".to_owned()),
             source_name: String::new(),
@@ -434,7 +481,7 @@ mod tests {
     fn filename_writes_tag_tokens() {
         assert_eq!(
             cla().filename(),
-            "adder-08b-alpha-horz-bin-unsync-8t-21x13x19-embizone-20140906.schem"
+            "adder-08b-alpha-horz-bin-unsync-8t-19x11x18-embizone-20140906.schem"
         );
     }
 
@@ -449,6 +496,6 @@ mod tests {
             ..cla()
         };
         assert_eq!(s.title(), "adder");
-        assert_eq!(s.filename(), "adder-horz-bin-21x13x19.schem");
+        assert_eq!(s.filename(), "adder-horz-bin-19x11x18.schem");
     }
 }

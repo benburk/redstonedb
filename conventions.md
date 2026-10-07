@@ -29,7 +29,8 @@ Builds use only whitelisted blocks. Each role has its own block, so a block's ro
 - Each input bit is a block with a lever on it: lime for every bit of A, light blue for every bit of B, magenta for every control line, such as a clock, enable, carry-in, or ALU op line.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
-- Proposal: the face the lever is on is the face power enters from, so the lever also marks where a driver goes.
+- The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
+- Every A and B lever is on the south side of its block, as in the stored adders: the side a player faces north to look at.
 
 ### How an input must be driven
 
@@ -64,12 +65,11 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 
 - Every input is saved at logical 0: a normal input with its lever off, an inverted input with its lever on.
 
-## In-world markers
+## Corner markers
 
-- Original idea: four markers inside the build, for WorldEdit selection.
-- Caveat: a WorldEdit selection is a cuboid defined by two corners, and marker blocks inside the selection paste along with the build.
-- Proposal: two corner markers plus an origin marker on the bit 0 input. WorldEdit records the paste offset relative to where the player stands when copying, so always copy from the origin and pastes will align the same way.
-- Open: the database already stores the exact bounding box, and the A LSB sign may mark the origin, so markers may not be needed at all.
+- The schematic's bounding box has a glass marker at each of its eight corners: the corner block, plus the block next to it along each axis, so 32 glass blocks in all.
+- The markers sit in a shell one block thick around the build. The build's size is the bounding box shrunk by one block on every face, and positions count from the first block inside the shell.
+- `rsdb add` refuses a schematic with a marker block that is not glass.
 
 ## Layout proposals
 
@@ -84,7 +84,7 @@ None of these are decided yet.
 ## Open
 
 - The default orientation and axes. These also fix the order of `WxHxL` in the filename.
-- Whether markers are needed, and if so which block and how many.
+- Whether interface blocks may sit in the marker shell. The carry lookahead adder's output lamps do.
 - Blocker shade: gray, or black for more contrast with light gray. Black hides unpowered dust, but blockers rarely carry dust.
 - Which face a sign goes on.
 - Lamps are conductive blocks, so a powered lamp can power its neighbours. Decide whether output lamps must be isolated.

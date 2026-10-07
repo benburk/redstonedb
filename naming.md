@@ -22,7 +22,7 @@ Dashes separate parts, so no part may contain a dash. Multi-word function names 
 - **width:** zero-padded to two digits so `08b` sorts before `16b`.
 - **modifiers:** in glossary order. Orientation and encoding are required.
 - **latency:** ticks; the unit is still open.
-- **size:** the full bounding box. The axes follow the building convention.
+- **size:** the bounding box inside the corner markers; see [conventions.md](conventions.md). The axes follow the building convention.
 - **author:** lowercase. Minecraft names use only `[A-Za-z0-9_]`.
 - **date:** serves as the version.
 

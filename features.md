@@ -8,18 +8,24 @@ None of these are built yet.
 
 ## Linter
 
-`rsdb lint` checks a schematic against [conventions.md](conventions.md) and reports each violation with its position. It runs on `add` and on demand. Candidate checks:
+`rsdb lint` checks a schematic file, or a stored schematic by id, against [conventions.md](conventions.md) and reports each violation with its position. `rsdb add` runs it too, and refuses a schematic that breaks a convention unless given `--force`.
 
-- Every block is whitelisted.
+Built so far:
+
+- Glass fills all 32 corner marker positions.
+- Every block is in the palette or is a redstone component. The whitelist is `PALETTE` and `COMPONENTS` in `src/lint.rs`.
+- Every lever sits on a lime, light blue, or magenta block, and every such block has exactly one lever.
+- Every A and B lever is on the south side of its block.
+- No lever touches a redstone component other than through its own block.
+- Every control line has a sign naming it.
+- A and B each have exactly one `lsb` sign.
+- Every output is a redstone lamp, and a multi-bit output has an `lsb` sign.
+
+Still to build:
+
 - Signs appear only on the A and B LSBs, control lines, and the output LSB.
-- Every lever is saved off, except on inverted inputs. A lever's block state records whether it is on, so the check reads it from the palette.
+- Every lever is saved off, except on inverted inputs.
 - Each role's block appears only in that role, for example no white concrete that is hard-powered.
-- Every lever sits on an input or control block, and every such block has a lever.
-- Every lever touches nothing but its input block.
-- A and B each have exactly one `lsb` sign, and the output has one with a latency.
-- Every control input has a sign naming it.
-- Every output bit is a redstone lamp.
-- The bounding box matches the stored size.
 
 Most role checks need a model of which blocks are powered, so they come after the whitelist and position checks.
 

@@ -27,7 +27,9 @@ just rsdb define-tag carry_lookahead --category other
 just rsdb define-tag unsynchronized --category timing --token unsync
 ```
 
-- `add` reads the size from the file and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
+- `add` reads the size from the file, inside the corner markers, and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
+- `add` lints the file against [conventions.md](conventions.md) first and refuses it if it breaks one, unless given `--force`. `just rsdb lint <file or id>` runs the same checks on their own.
+- `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `author`, or `built-on` and repeats.
 - Ids can be shortened to any unique prefix.
 - Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. Through `just`, write a name with underscores, since `just` splits quoted arguments at spaces.
 - Width, latency, author, and build date may be left unknown. The generated filename then omits them.
@@ -42,7 +44,7 @@ just serve
 ```
 
 - `/` lists every schematic in a table, named from its width and function, with its tags as badges coloured by category.
-- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there.
+- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A logged-in user can add and remove tags there. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
 - `/schematics/<id>/download` returns the stored file under its generated filename.
 - Accounts are needed only to edit tags. Signing up takes an invite code; `seeds/seed.sql` creates some.

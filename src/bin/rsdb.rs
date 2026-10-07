@@ -5,8 +5,9 @@ use std::{fmt::Write as _, fs, io::Write as _, path::PathBuf};
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    models::schematic::{self, Changes, New},
-    schem,
+    lint,
+    models::schematic::{self, Changes, New, Optional},
+    schem::Blocks,
 };
 use clap::{Args, Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -21,21 +22,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Import a Sponge .schem file
-    Add {
-        file: PathBuf,
-        #[arg(long)]
-        function: String,
-        #[arg(long, value_parser = ["horz", "vert", "diag"])]
-        orientation: String,
-        #[arg(long, value_parser = ["bin", "hex"])]
-        encoding: String,
-        #[command(flatten)]
-        details: Details,
-        /// Tag to attach; repeatable
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-    },
+    /// Import a Sponge .schem file, after checking it against the
+    /// building conventions
+    Add(Add),
+    /// Check a .schem file, or a stored schematic by id, against the
+    /// building conventions
+    Lint { file_or_id: String },
     /// Change fields of a schematic; omitted fields are kept
     Set {
         id: String,
@@ -47,6 +39,9 @@ enum Command {
         encoding: Option<String>,
         #[command(flatten)]
         details: Details,
+        /// Field to make unknown; repeatable
+        #[arg(long, value_parser = ["width", "latency", "author", "built-on"])]
+        unset: Vec<String>,
     },
     /// List schematics by id prefix and filename
     List {
@@ -82,6 +77,25 @@ enum Command {
 }
 
 #[derive(Args)]
+struct Add {
+    file: PathBuf,
+    #[arg(long)]
+    function: String,
+    #[arg(long, value_parser = ["horz", "vert", "diag"])]
+    orientation: String,
+    #[arg(long, value_parser = ["bin", "hex"])]
+    encoding: String,
+    #[command(flatten)]
+    details: Details,
+    /// Tag to attach; repeatable
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    /// Import even if the file breaks the building conventions
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Args)]
 struct Details {
     /// Datapath width in bits
     #[arg(long)]
@@ -101,34 +115,26 @@ struct Details {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
-    match cli.command {
-        Command::Add {
-            file,
-            function,
-            orientation,
-            encoding,
-            details,
-            tags,
-        } => {
-            add(
-                &db,
-                &file,
-                &function,
-                &orientation,
-                &encoding,
-                &details,
-                &tags,
-            )
-            .await
-        }
+    let result = run(&db, cli.command).await;
+    // Closing checkpoints SQLite's write-ahead log into redstone.db, which
+    // is committed; the log is not.
+    db.close().await;
+    result
+}
+
+async fn run(db: &SqlitePool, command: Command) -> Result<()> {
+    match command {
+        Command::Add(args) => add(db, &args).await,
+        Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Set {
             id,
             function,
             orientation,
             encoding,
             details,
+            unset,
         } => {
-            let id = resolve(&db, &id).await?;
+            let id = resolve(db, &id).await?;
             let author = details.author.map(|a| a.to_lowercase());
             let changes = Changes {
                 function: function.as_deref(),
@@ -139,18 +145,29 @@ async fn main() -> Result<()> {
                 author: author.as_deref(),
                 built_on: details.built_on.as_deref(),
             };
-            schematic::update(&db, &id, &changes).await?;
-            println!("{}", load(&db, &id).await?.filename());
+            schematic::update(db, &id, &changes).await?;
+            let fields: Vec<Optional> = unset
+                .iter()
+                .filter_map(|field| match field.as_str() {
+                    "width" => Some(Optional::Width),
+                    "latency" => Some(Optional::Latency),
+                    "author" => Some(Optional::Author),
+                    "built-on" => Some(Optional::BuiltOn),
+                    _ => None,
+                })
+                .collect();
+            schematic::forget(db, &id, &fields).await?;
+            println!("{}", load(db, &id).await?.filename());
             Ok(())
         }
         Command::List { function, tags } => {
-            list(&db, function.as_deref(), &tags).await
+            list(db, function.as_deref(), &tags).await
         }
-        Command::Show { id } => show(&db, &resolve(&db, &id).await?).await,
+        Command::Show { id } => show(db, &resolve(db, &id).await?).await,
         Command::Export { id, out } => {
-            let id = resolve(&db, &id).await?;
-            let path = out.join(load(&db, &id).await?.filename());
-            let data = schematic::data(&db, &id)
+            let id = resolve(db, &id).await?;
+            let path = out.join(load(db, &id).await?.filename());
+            let data = schematic::data(db, &id)
                 .await?
                 .context("schematic vanished")?;
             fs::File::create_new(&path)
@@ -160,21 +177,21 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Tag { id, tags } => {
-            let id = resolve(&db, &id).await?;
+            let id = resolve(db, &id).await?;
             for name in &tags {
-                schematic::attach(&db, &id, &tag_id(&db, name).await?).await?;
+                schematic::attach(db, &id, &tag_id(db, name).await?).await?;
             }
             Ok(())
         }
         Command::Untag { id, tags } => {
-            let id = resolve(&db, &id).await?;
+            let id = resolve(db, &id).await?;
             for name in &tags {
-                schematic::detach(&db, &id, &tag_id(&db, name).await?).await?;
+                schematic::detach(db, &id, &tag_id(db, name).await?).await?;
             }
             Ok(())
         }
         Command::Tags => {
-            for tag in schematic::all_tags(&db).await? {
+            for tag in schematic::all_tags(db).await? {
                 let token = tag.token.as_deref().unwrap_or("");
                 println!("{:<12} {:<8} {}", tag.category, token, tag.label());
             }
@@ -185,26 +202,33 @@ async fn main() -> Result<()> {
             category,
             token,
         } => {
-            schematic::define_tag(&db, &name, token.as_deref(), &category)
+            schematic::define_tag(db, &name, token.as_deref(), &category)
                 .await?;
             Ok(())
         }
     }
 }
 
-async fn add(
-    db: &SqlitePool,
-    file: &PathBuf,
-    function: &str,
-    orientation: &str,
-    encoding: &str,
-    details: &Details,
-    tags: &[String],
-) -> Result<()> {
+async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
+    let file = &args.file;
     let data = fs::read(file)
         .with_context(|| format!("cannot read {}", file.display()))?;
-    let size =
-        schem::size(&data).with_context(|| file.display().to_string())?;
+    let blocks =
+        Blocks::read(&data).with_context(|| file.display().to_string())?;
+    let violations = lint::check(&blocks);
+    if !violations.is_empty() {
+        for violation in &violations {
+            eprintln!("{violation}");
+        }
+        if !args.force {
+            bail!(
+                "{} breaks {} building conventions; fix them or pass --force",
+                file.display(),
+                violations.len()
+            );
+        }
+    }
+    let size = blocks.inner_size()?;
     let sha256 =
         Sha256::digest(&data)
             .iter()
@@ -218,16 +242,17 @@ async fn add(
     let source_name = file
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let details = &args.details;
     let author = details.author.as_ref().map(|a| a.to_lowercase());
 
     let mut tx = db.begin().await?;
     let id = schematic::insert(
         &mut *tx,
         &New {
-            function,
+            function: &args.function,
             width: details.width.map(i64::from),
-            orientation,
-            encoding,
+            orientation: &args.orientation,
+            encoding: &args.encoding,
             latency: details.latency.map(i64::from),
             size: (size.x.into(), size.y.into(), size.z.into()),
             author: author.as_deref(),
@@ -238,7 +263,7 @@ async fn add(
         },
     )
     .await?;
-    for name in tags {
+    for name in &args.tags {
         let tag = tag_id(&mut *tx, name).await?;
         schematic::attach(&mut *tx, &id, &tag).await?;
     }
@@ -264,6 +289,26 @@ async fn list(
         if function.is_none_or(|f| f == s.function) && has_tags {
             println!("{}  {}", &s.id[..8], s.filename());
         }
+    }
+    Ok(())
+}
+
+/// Lints a file, or a stored schematic when no such file exists.
+async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
+    let data = if fs::exists(file_or_id)? {
+        fs::read(file_or_id)?
+    } else {
+        let id = resolve(db, file_or_id).await?;
+        schematic::data(db, &id)
+            .await?
+            .context("schematic vanished")?
+    };
+    let violations = lint::check(&Blocks::read(&data)?);
+    for violation in &violations {
+        println!("{violation}");
+    }
+    if !violations.is_empty() {
+        bail!("{} building conventions broken", violations.len());
     }
     Ok(())
 }
@@ -309,7 +354,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
-    println!("size         {x}x{y}x{z}");
+    println!("size         {x}x{y}x{z}, {} blocks", s.volume());
     println!("author       {}", unknown(s.author));
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));
