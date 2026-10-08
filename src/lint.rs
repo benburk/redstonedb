@@ -21,8 +21,8 @@ const PALETTE: [&str; 7] = [
 /// Redstone components and the other blocks every build may use. Besides
 /// dust, torches, and the like, this keeps the blocks a comparator reads,
 /// such as furnaces, cauldrons, and cakes, since a build uses them for
-/// their signal.
-const COMPONENTS: [&str; 51] = [
+/// their signal. Every kind of button is allowed as well.
+const COMPONENTS: [&str; 49] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -46,8 +46,6 @@ const COMPONENTS: [&str; 51] = [
     "daylight_detector",
     "tripwire_hook",
     "tripwire",
-    "stone_button",
-    "oak_button",
     "stone_pressure_plate",
     "light_weighted_pressure_plate",
     "heavy_weighted_pressure_plate",
@@ -125,7 +123,10 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
     let mut outside: BTreeMap<&str, (Pos, usize)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let name = short(state);
-        if !PALETTE.contains(&name) && !COMPONENTS.contains(&name) {
+        if !PALETTE.contains(&name)
+            && !COMPONENTS.contains(&name)
+            && !name.ends_with("_button")
+        {
             outside.entry(name).or_insert((pos, 0)).1 += 1;
         }
     }
@@ -141,14 +142,23 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
 }
 
 fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
-    for lever in blocks.levers() {
+    for lever in blocks.switches() {
+        let what = if lever.button { "button" } else { "lever" };
         let block = short(blocks.get(lever.block));
         if !is_input(block) {
             let block = block.replace('_', " ");
             say(
                 found,
                 Some(lever.pos),
-                format!("lever is on {block}, not an input block"),
+                format!("{what} is on {block}, not an input block"),
+            );
+        } else if lever.button && OPERANDS.contains(&block) {
+            say(
+                found,
+                Some(lever.pos),
+                "button on an operand bit; only control lines take a button, \
+                 so use a lever"
+                    .to_owned(),
             );
         }
         if OPERANDS.contains(&block) && lever.side != "south" {
@@ -170,7 +180,8 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     found,
                     Some(lever.pos),
                     format!(
-                        "lever touches {touched}, which it would power directly"
+                        "{what} touches {touched}, which it would power \
+                         directly"
                     ),
                 );
             }
@@ -179,7 +190,7 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 }
 
 fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
-    let levers = blocks.levers();
+    let levers = blocks.switches();
     let signs = blocks.sign_texts();
     let first_line = |pos: Pos| {
         signs
@@ -193,10 +204,19 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
         if !is_input(name) {
             continue;
         }
+        let switch = if name == "magenta_concrete" {
+            "lever or button"
+        } else {
+            "lever"
+        };
         match levers.iter().filter(|lever| lever.block == pos).count() {
             1 => {}
-            0 => say(found, Some(pos), "input block has no lever".to_owned()),
-            n => say(found, Some(pos), format!("input block has {n} levers")),
+            0 => say(found, Some(pos), format!("input block has no {switch}")),
+            n => say(
+                found,
+                Some(pos),
+                format!("input block has {n} levers and buttons"),
+            ),
         }
         if name == "magenta_concrete" && first_line(pos).is_empty() {
             say(
@@ -228,12 +248,13 @@ fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     }
 }
 
-/// Whether `state` is part of a build's interface: a lever, a sign, an
-/// input block, or a torch on an input block. `support` is the block a
+/// Whether `state` is part of a build's interface: a lever or button, a
+/// sign, an input block, or a torch on an input block. `support` is the block a
 /// torch stands on or hangs from.
 pub fn is_interface(state: &str, support: Option<&str>) -> bool {
     let name = short(state);
     name == "lever"
+        || name.ends_with("_button")
         || name.ends_with("sign")
         || is_input(name)
         || (name.contains("torch")
@@ -244,6 +265,7 @@ pub fn is_interface(state: &str, support: Option<&str>) -> bool {
 /// input block, or an output block.
 pub fn keeps(name: &str) -> bool {
     COMPONENTS.contains(&name)
+        || name.ends_with("_button")
         || is_input(name)
         || matches!(name, "yellow_concrete" | "yellow_stained_glass")
 }

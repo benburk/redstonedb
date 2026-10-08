@@ -1,48 +1,17 @@
 # Planned features
 
-None of these are built yet.
+None of these are built yet. The linter and import extraction they extend are described in the [README](README.md).
 
-## Block whitelist
-
-`rsdb add` rejects a schematic that contains a block outside the whitelist. The whitelist starts as the block palette in [conventions.md](conventions.md) plus the redstone components themselves, and grows as needed. A Sponge schematic lists every block state it uses in its palette, so the check needs only that list, not a scan of every block.
-
-## Linter
-
-`rsdb lint` checks a schematic file, or a stored schematic by id, against [conventions.md](conventions.md) and reports each violation with its position. `rsdb add` runs it too, and refuses a schematic that breaks a convention unless given `--force`.
-
-Built so far:
-
-- Glass fills all 32 corner marker positions and appears nowhere else; transparent blocks in the build are white stained glass.
-- The shell holds only levers, signs, input blocks, and torches on input blocks.
-- Every block is in the palette or is a redstone component. The whitelist is `PALETTE` and `COMPONENTS` in `src/lint.rs`.
-- Every lever sits on a lime, light blue, or magenta block, and every such block has exactly one lever.
-- Every A and B lever is on the south side of its block.
-- No lever touches a redstone component other than through its own block.
-- Every control line has a sign naming it.
-- Every output is yellow concrete or yellow stained glass.
-
-Still to build:
+## Lint checks
 
 - Signs appear only on control lines, single-bit outputs, and as strength tokens on A and B.
-- Every lever is saved off, except on inverted inputs.
+- Every lever is saved off, except on inverted inputs, and every button is saved unpressed.
 
-Most role checks need a model of which blocks are powered, so they come after the whitelist and position checks.
-
-## Import extraction
-
-`rsdb add` reads facts from the schematic instead of asking for them:
-
-- Control lines: find each magenta block, its lever, and its sign, and record the line's name, position, and whether it is inverted.
-- Inverted inputs: any lever saved on.
-- Input and output positions and widths: lime, light blue, magenta, and yellow blocks.
-- How each input must be driven: hard-powered when dust touches its block, soft-powered otherwise, at the strength its sign gives or 1.
-- The LSB of each bus: the bit nearest the south-east-bottom corner.
-
-Sponge schematics store sign text in their block entities, so no game is needed to read it. The sign format changed in Minecraft 1.20, so the reader must handle both the old and new layouts.
+Most role checks need a model of which blocks are powered, so they come after the position checks.
 
 ## Export options
 
-`rsdb export` rewrites the schematic before writing it:
+`rsdb export` and the download dialog rewrite the schematic before handing it over:
 
 - Recolour each role to a user's palette, such as `--palette mine.toml`.
 - Keep or strip the signs, or rewrite them from the database.
@@ -52,4 +21,3 @@ Because roles are encoded by block, this is a palette substitution, not a change
 ## Open
 
 - Where user palettes live: a file passed on the command line, or stored in the database.
-- Whether the linter blocks `add` or only warns.

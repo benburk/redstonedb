@@ -1,15 +1,15 @@
 //! A build's inputs and outputs, read from its blocks and signs as
-//! `conventions.md` lays them out. An input is a block with a lever on it;
-//! an output is a yellow concrete or yellow stained glass block, or any
-//! block without a lever that
-//! carries a name sign or matches a block that does. Each bus's least significant bit is the one
-//! nearest the south-east-bottom corner of the bounding box.
+//! `conventions.md` lays them out. An input is a block with a lever on it,
+//! or for a control line a button. An output is a yellow concrete or yellow
+//! stained glass block, or any block without a switch that carries a name
+//! sign or matches a block that does. Each bus's least significant bit is
+//! the one nearest the south-east-bottom corner of the bounding box.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     lint,
-    schem::{self, Blocks, DIRECTIONS, Lever, Pos},
+    schem::{self, Blocks, DIRECTIONS, Pos, Switch},
 };
 
 pub struct Interface {
@@ -93,8 +93,8 @@ fn interface_only(
 }
 
 pub fn read(blocks: &Blocks) -> Interface {
-    let levers: HashMap<Pos, Lever> = blocks
-        .levers()
+    let levers: HashMap<Pos, Switch> = blocks
+        .switches()
         .into_iter()
         .map(|lever| (lever.block, lever))
         .collect();
@@ -129,7 +129,7 @@ fn ports(
     blocks: &Blocks,
     members: impl IntoIterator<Item = Pos>,
     signs: &HashMap<Pos, &[String]>,
-    levers: Option<&HashMap<Pos, Lever>>,
+    levers: Option<&HashMap<Pos, Switch>>,
 ) -> Vec<Port> {
     let mut named = Vec::new();
     let mut buses: BTreeMap<&str, Vec<Pos>> = BTreeMap::new();
@@ -192,7 +192,7 @@ fn port(
     name: String,
     mut members: Vec<Pos>,
     lines: &[String],
-    levers: Option<&HashMap<Pos, Lever>>,
+    levers: Option<&HashMap<Pos, Switch>>,
 ) -> Port {
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];

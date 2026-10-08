@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT function, name, abbreviation FROM design\n         ORDER BY function, name = 'other', name",
+  "query": "SELECT category, name, abbreviation FROM design\n         ORDER BY category, name = 'other', name",
   "describe": {
     "columns": [
       {
-        "name": "function",
+        "name": "category",
         "ordinal": 0,
         "type_info": "Text"
       },
@@ -28,5 +28,5 @@
       true
     ]
   },
-  "hash": "6ff96dea79aa57daf33c75b2d0516ad474c4021e5ff8b574c076c5e252189ae4"
+  "hash": "0696984dee05ea6fdcb4524738b7e1ef098b9674de411d2f2a0c79b469625cdd"
 }

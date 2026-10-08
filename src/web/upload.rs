@@ -19,6 +19,7 @@ use crate::{
         schematic::{self, New, Tag},
         user::User,
     },
+    stack,
 };
 
 use super::{
@@ -67,10 +68,16 @@ pub async fn preview(
     let (width, orientation) = import::guess(&interface);
     let (carry_in, carry_out) = import::carries(&interface);
     let width = width.map(|w| w.to_string()).unwrap_or_default();
+    let orientation = orientation.unwrap_or("horz");
+    let size = &prepared.size;
+    let stack_rows = [details::StackRow::suggested(
+        orientation,
+        (size.x.into(), size.y.into(), size.z.into()),
+    )];
     let fields = Fields {
-        function: "",
+        category: "",
         width: &width,
-        orientation: orientation.unwrap_or("horz"),
+        orientation,
         encoding: "bin",
         latency: "",
         // Most builds are; the uploader says when one is not.
@@ -79,9 +86,12 @@ pub async fn preview(
         contributors: &[],
         built_on: "",
         description: "",
+        given_name: "",
         design: "other",
         carry_in,
         carry_out,
+        stackable: false,
+        stack_rows: &stack_rows,
     };
     show_preview(&state, &user, &prepared, &fields, &[], false, "").await
 }
@@ -162,30 +172,29 @@ async fn publish_checked(
     sent: &Submission,
 ) -> Result<String, String> {
     if !prepared.violations.is_empty() {
-        return Err(format!(
-            "This build breaks {} building conventions, listed above. Fix \
-             them in the file, try standardizing it, or mark it as following \
-             its own layout.",
-            prepared.violations.len()
-        ));
+        return Err(match prepared.violations.len() {
+            1 => "It breaks a building convention, listed below.".to_owned(),
+            n => format!("It breaks {n} building conventions, listed below."),
+        });
     }
     let parsed = sent.form.parse()?;
     // Checked here too, so the refusal reads as a sentence of its own.
-    match schematic::check_function(&state.db, &parsed.function, &parsed.design)
+    match schematic::check_category(&state.db, &parsed.category, &parsed.design)
         .await
     {
         Ok(Ok(_)) => {}
         Ok(Err(message)) => return Err(message),
         Err(err) => {
-            return Err(format!("Could not check the function: {err}."));
+            return Err(format!("Could not check the category: {err}."));
         }
     }
+    stack::check(&prepared.data, &parsed.stacking)?;
     let size = &prepared.size;
     let new = New {
-        function: &parsed.function,
+        category: &parsed.category,
         width: parsed.width,
         orientation: &parsed.orientation,
-        encoding: &parsed.encoding,
+        encoding: parsed.encoding.as_deref(),
         latency: parsed.latency,
         synchronized: parsed.synchronized,
         size: (size.x.into(), size.y.into(), size.z.into()),
@@ -196,6 +205,7 @@ async fn publish_checked(
         carry_in: parsed.carry_in,
         carry_out: parsed.carry_out,
         description: parsed.description.as_deref(),
+        given_name: parsed.given_name.as_deref(),
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,
         data: &prepared.data,
@@ -206,7 +216,7 @@ async fn publish_checked(
         tags: &sent.form.tags,
         // Anyone uploading may name a new tag; it starts under other.
         new_tags: true,
-        stacking: &[],
+        stacking: &parsed.stacking,
     };
     import::store(&state.db, &new, &extras)
         .await

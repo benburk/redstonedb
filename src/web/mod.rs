@@ -3,7 +3,7 @@ use axum::{
     Router,
     http::header,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{get, post},
 };
 
 use crate::app_state::AppState;
@@ -30,13 +30,6 @@ async fn get_css() -> impl IntoResponse {
     )
 }
 
-async fn get_fixi() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript")],
-        include_str!("../../static/fixi.js"),
-    )
-}
-
 async fn get_form_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript")],
@@ -44,19 +37,10 @@ async fn get_form_js() -> impl IntoResponse {
     )
 }
 
-async fn get_fixi_config() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript")],
-        include_str!("../../static/fixi-config.js"),
-    )
-}
-
 /// Static assets (CSS, JS) - no request logging
 pub fn static_router() -> Router<AppState> {
     Router::new()
         .route("/app.css", get(get_css))
-        .route("/fixi.js", get(get_fixi))
-        .route("/fixi-config.js", get(get_fixi_config))
         .route("/form.js", get(get_form_js))
 }
 
@@ -71,14 +55,19 @@ pub fn router() -> Router<AppState> {
             "/schematics/{id}/edit",
             get(schematics::edit).post(schematics::save),
         )
+        .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/upload/preview", post(upload::preview))
         .route("/about", get(about))
         .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
         .route("/users/{username}/role", post(users::set_role))
+        .route(
+            "/users/{username}/minecraft",
+            post(profile::set_minecraft_name),
+        )
         .route("/sessions/new", get(auth::login))
-        .route("/sessions", delete(session::delete))
+        .route("/logout", post(session::delete))
         .route("/auth/discord", get(auth::start))
         .route("/auth/discord/callback", get(auth::callback))
 }

@@ -7,9 +7,10 @@ use sqlx::{SqliteExecutor, SqlitePool};
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub name: String,
-    /// The filename abbreviation, when the name is too long for one.
+    /// A short form, such as `comb`, that commands and search accept.
     pub token: Option<String>,
-    pub category: String,
+    /// `restriction`, `timing`, or `other`, which colours its badge.
+    pub kind: String,
 }
 
 impl Tag {
@@ -138,13 +139,15 @@ impl std::str::FromStr for StackDirection {
 #[derive(Debug, Clone)]
 pub struct Schematic {
     pub id: String,
-    pub function: String,
-    /// The standard function's label, such as `RAM`; `None` for a function
+    pub category: String,
+    /// The standard category's label, such as `RAM`; `None` for a category
     /// off the list.
-    pub function_label: Option<String>,
+    pub category_label: Option<String>,
     pub width: Option<i64>,
     pub orientation: String,
-    pub encoding: String,
+    /// `bin` or `hex`; `None` for a category off the list, such as a
+    /// piston door.
+    pub encoding: Option<String>,
     pub latency: Option<i64>,
     /// Whether every output bit settles on the same tick.
     pub synchronized: Option<bool>,
@@ -155,12 +158,15 @@ pub struct Schematic {
     /// Whether the build follows the building conventions, so the lint and
     /// the interface reader apply to it.
     pub conventional: bool,
-    /// The design within its function, such as `carry_lookahead`.
+    /// The name the build was given, for a category that takes one, such
+    /// as `Bus Crossing` under bussing.
+    pub given_name: Option<String>,
+    /// The design within its category, such as `carry_lookahead`.
     pub design: Option<String>,
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
     /// Whether it has a carry in and a carry out; `None` when unknown or
-    /// when its function has no carries.
+    /// when its category has no carries.
     pub carry_in: Option<bool>,
     pub carry_out: Option<bool>,
     /// Free text about the build, such as how to use it.
@@ -178,7 +184,7 @@ pub struct Schematic {
     /// version.
     pub sha256: String,
     pub added_at: String,
-    /// Sorted by category in glossary order (restriction, timing, other),
+    /// Sorted by kind in glossary order (restriction, timing, other),
     /// then name.
     pub tags: Vec<Tag>,
 }
@@ -186,9 +192,9 @@ pub struct Schematic {
 impl Schematic {
     pub fn tags_in<'a>(
         &'a self,
-        category: &'a str,
+        kind: &'a str,
     ) -> impl Iterator<Item = &'a Tag> + 'a {
-        self.tags.iter().filter(move |tag| tag.category == category)
+        self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
     /// The width in words, such as `8 bits` or `1 bit`.
@@ -197,21 +203,29 @@ impl Schematic {
             .map(|w| format!("{w} {}", if w == 1 { "bit" } else { "bits" }))
     }
 
-    /// The function as people read it, such as `RAM` or `Line Drawer`.
-    pub fn function_label(&self) -> String {
-        self.function_label
+    /// The category as people read it, such as `RAM` or `Line Drawer`.
+    pub fn category_label(&self) -> String {
+        self.category_label
             .clone()
-            .unwrap_or_else(|| words(&self.function))
+            .unwrap_or_else(|| words(&self.category))
     }
 
-    /// The width, design, and function, such as `8-bit Carry Lookahead
-    /// Adder`, for views that show the tags beside it.
+    /// What the build is: its given name, or else its category.
+    fn what(&self) -> String {
+        self.given_name
+            .clone()
+            .unwrap_or_else(|| self.category_label())
+    }
+
+    /// The width, design, and category, such as `8-bit Carry Lookahead
+    /// Adder`, for views that show the tags beside it. A build with a given
+    /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
         self.width
             .map(|w| format!("{w}-bit"))
             .into_iter()
             .chain(self.design_label())
-            .chain([self.function_label()])
+            .chain([self.what()])
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -225,7 +239,7 @@ impl Schematic {
             .chain(self.tags_in("restriction").map(Tag::label))
             .chain(self.tags_in("other").map(Tag::label))
             .chain(self.design_label())
-            .chain([self.function_label()])
+            .chain([self.what()])
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -298,30 +312,30 @@ impl Schematic {
         }
     }
 
-    pub fn encoding_label(&self) -> &str {
-        match self.encoding.as_str() {
-            "bin" => "binary",
-            "hex" => "hex",
+    pub fn encoding_label(&self) -> Option<&str> {
+        self.encoding.as_deref().map(|encoding| match encoding {
+            "bin" => "Binary",
+            "hex" => "Hex",
             other => other,
-        }
+        })
     }
 }
 
-/// Every schematic, ordered by function, width, then insertion.
+/// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, function, width, orientation, encoding, latency,
+        r#"SELECT id, category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description, design,
+            conventional as "conventional: bool", description, given_name, design,
             carry_in as "carry_in: bool", carry_out as "carry_out: bool",
-            (SELECT abbreviation FROM design WHERE design.function =
-                schematic.function AND design.name = schematic.design)
+            (SELECT abbreviation FROM design WHERE design.category =
+                schematic.category AND design.name = schematic.design)
                 as "design_abbreviation?: String",
-            (SELECT label FROM function WHERE function.name =
-                schematic.function) as "function_label?: String",
+            (SELECT label FROM category WHERE category.name =
+                schematic.category) as "category_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
-         FROM schematic ORDER BY function, width, added_at"#
+         FROM schematic ORDER BY category, width, added_at"#
     )
     .fetch_all(db)
     .await?;
@@ -361,9 +375,9 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     }
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.category
+        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
          FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         ORDER BY tag.category = 'other', tag.category, tag.name"
+         ORDER BY tag.kind = 'other', tag.kind, tag.name"
     )
     .fetch_all(db)
     .await?
@@ -371,7 +385,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         tags.entry(row.schematic_id).or_default().push(Tag {
             name: row.name,
             token: row.token,
-            category: row.category,
+            kind: row.kind,
         });
     }
     Ok(rows
@@ -382,8 +396,8 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             contributors: contributors.remove(&row.id).unwrap_or_default(),
             stacking: stacking.remove(&row.id).unwrap_or_default(),
             id: row.id,
-            function: row.function,
-            function_label: row.function_label,
+            category: row.category,
+            category_label: row.category_label,
             width: row.width,
             orientation: row.orientation,
             encoding: row.encoding,
@@ -398,6 +412,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             carry_in: row.carry_in,
             carry_out: row.carry_out,
             description: row.description,
+            given_name: row.given_name,
             uploader: row.uploader,
             sha256: row.sha256,
             added_at: row.added_at,
@@ -410,15 +425,15 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
-        r#"SELECT id, function, width, orientation, encoding, latency,
+        r#"SELECT id, category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description, design,
+            conventional as "conventional: bool", description, given_name, design,
             carry_in as "carry_in: bool", carry_out as "carry_out: bool",
-            (SELECT abbreviation FROM design WHERE design.function =
-                schematic.function AND design.name = schematic.design)
+            (SELECT abbreviation FROM design WHERE design.category =
+                schematic.category AND design.name = schematic.design)
                 as "design_abbreviation?: String",
-            (SELECT label FROM function WHERE function.name =
-                schematic.function) as "function_label?: String",
+            (SELECT label FROM category WHERE category.name =
+                schematic.category) as "category_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
          FROM schematic WHERE id = ?"#,
@@ -431,18 +446,18 @@ pub async fn get(
     };
     let tags = sqlx::query_as!(
         Tag,
-        "SELECT tag.name, tag.token, tag.category
+        "SELECT tag.name, tag.token, tag.kind
          FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
          WHERE schematic_tag.schematic_id = ?
-         ORDER BY tag.category = 'other', tag.category, tag.name",
+         ORDER BY tag.kind = 'other', tag.kind, tag.name",
         id
     )
     .fetch_all(db)
     .await?;
     Ok(Some(Schematic {
         id: row.id,
-        function: row.function,
-        function_label: row.function_label,
+        category: row.category,
+        category_label: row.category_label,
         width: row.width,
         orientation: row.orientation,
         encoding: row.encoding,
@@ -460,6 +475,7 @@ pub async fn get(
         carry_in: row.carry_in,
         carry_out: row.carry_out,
         description: row.description,
+        given_name: row.given_name,
         uploader: row.uploader,
         sha256: row.sha256,
         added_at: row.added_at,
@@ -615,10 +631,10 @@ pub async fn id_by_sha256<'e, E: SqliteExecutor<'e>>(
 
 #[derive(Clone, Copy)]
 pub struct New<'a> {
-    pub function: &'a str,
+    pub category: &'a str,
     pub width: Option<i64>,
     pub orientation: &'a str,
-    pub encoding: &'a str,
+    pub encoding: Option<&'a str>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     pub size: (i64, i64, i64),
@@ -629,6 +645,7 @@ pub struct New<'a> {
     pub carry_in: Option<bool>,
     pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
+    pub given_name: Option<&'a str>,
     pub uploaded_by: Option<uuid::Uuid>,
     pub sha256: &'a str,
     pub data: &'a [u8],
@@ -641,13 +658,13 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
 ) -> Result<String, sqlx::Error> {
     let (x, y, z) = new.size;
     sqlx::query_scalar!(
-        r#"INSERT INTO schematic (function, width, orientation, encoding,
+        r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, carry_in, carry_out,
-            description, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            description, given_name, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
-        new.function,
+        new.category,
         new.width,
         new.orientation,
         new.encoding,
@@ -663,6 +680,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.carry_in,
         new.carry_out,
         new.description,
+        new.given_name,
         new.uploaded_by,
         new.sha256,
         new.data,
@@ -671,20 +689,24 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     .await
 }
 
-/// An entry in the list of functions a build may have.
+/// An entry in the list of categories a build may have.
 #[derive(Debug, Clone)]
-pub struct Function {
+pub struct Category {
     pub name: String,
     /// As people read it, such as `RAM` or `BCD to Binary`.
     pub label: String,
+    /// The label for many builds, such as `Adders` or `RAM`.
+    pub plural: String,
     /// Whether its builds have carry lines worth recording.
     pub carries: bool,
+    /// Whether each build gives its own name, as bussing does.
+    pub named: bool,
 }
 
-/// A design within a function, such as the carry lookahead adder.
+/// A design within a category, such as the carry lookahead adder.
 #[derive(Debug, Clone)]
 pub struct Design {
-    pub function: String,
+    pub category: String,
     pub name: String,
     /// The usual short name, such as `CLA`.
     pub abbreviation: Option<String>,
@@ -701,14 +723,16 @@ impl Design {
     }
 }
 
-/// Every standard function, in the list's order.
-pub async fn functions<'e, E: SqliteExecutor<'e>>(
+/// Every standard category, alphabetically by label.
+pub async fn categories<'e, E: SqliteExecutor<'e>>(
     db: E,
-) -> Result<Vec<Function>, sqlx::Error> {
+) -> Result<Vec<Category>, sqlx::Error> {
     sqlx::query_as!(
-        Function,
-        r#"SELECT name as "name!", label, carries as "carries: bool"
-         FROM function ORDER BY position, name"#
+        Category,
+        r#"SELECT name as "name!", label,
+            iif(plural = '', label || 's', plural) as "plural!: String",
+            carries as "carries: bool", named as "named: bool"
+         FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
     .await
@@ -723,75 +747,93 @@ pub async fn all_people<'e, E: SqliteExecutor<'e>>(
         .await
 }
 
-/// Every design, grouped by function.
+/// Every design, grouped by category.
 pub async fn designs<'e, E: SqliteExecutor<'e>>(
     db: E,
 ) -> Result<Vec<Design>, sqlx::Error> {
     sqlx::query_as!(
         Design,
-        "SELECT function, name, abbreviation FROM design
-         ORDER BY function, name = 'other', name"
+        "SELECT category, name, abbreviation FROM design
+         ORDER BY category, name = 'other', name"
     )
     .fetch_all(db)
     .await
 }
 
-/// Checks a build's function and design, and returns the function. A
-/// function is a standard one from the list, or any other name made of
+/// Checks a build's category and design, and returns the category. A
+/// category is a standard one from the list, or any other name made of
 /// lowercase words joined by underscores. A design is `other`, or one the
-/// function lists. The `Err` is a sentence for the person.
-pub async fn check_function(
+/// category lists. The `Err` is a sentence for the person.
+pub async fn check_category(
     db: &SqlitePool,
-    function: &str,
+    category: &str,
     design: &str,
-) -> Result<Result<Function, String>, sqlx::Error> {
+) -> Result<Result<Category, String>, sqlx::Error> {
     let valid = |name: &str| {
-        name.starts_with(|c: char| c.is_ascii_lowercase())
+        name.chars().any(|c| c.is_ascii_alphanumeric())
             && name.chars().all(|c| {
-                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+                c.is_ascii_lowercase()
+                    || c.is_ascii_digit()
+                    || c == '_'
+                    || c == '-'
             })
     };
-    if !valid(function) {
+    if !valid(category) {
         return Ok(Err(
-            "A function's name is lowercase words joined by underscores, \
-             such as line_drawer."
+            "A category's name is words, numbers, and hyphens, such as line \
+             drawer or 8-bit horizontal diode."
                 .to_owned(),
         ));
     }
-    let found = functions(db)
+    // The sidebar gathers every category off the list under `other`.
+    if category == "other" {
+        return Ok(Err("Name the category, rather than other.".to_owned()));
+    }
+    let found = categories(db)
         .await?
         .into_iter()
-        .find(|f| f.name == function)
-        .unwrap_or_else(|| Function {
-            name: function.to_owned(),
-            label: words(function),
+        .find(|f| f.name == category)
+        .unwrap_or_else(|| Category {
+            name: category.to_owned(),
+            label: words(category),
+            plural: words(category),
             carries: false,
+            named: false,
         });
     let listed = designs(db)
         .await?
         .iter()
-        .any(|d| d.function == function && d.name == design);
+        .any(|d| d.category == category && d.name == design);
     if design != "other" && !listed {
         return Ok(Err(format!(
             "{} is not a design of {}.",
             design.replace('_', " "),
-            function.replace('_', " ")
+            category.replace('_', " ")
         )));
     }
     Ok(Ok(found))
 }
 
-/// Adds a standard function to the end of the list.
-pub async fn define_function<'e, E: SqliteExecutor<'e>>(
+/// Adds a standard category to the end of the list. A plural that is the
+/// label with an `s` is left for the database to make.
+pub async fn define_category<'e, E: SqliteExecutor<'e>>(
     db: E,
-    function: &Function,
+    category: &Category,
 ) -> Result<(), sqlx::Error> {
+    let plural = if category.plural == format!("{}s", category.label) {
+        ""
+    } else {
+        &category.plural
+    };
     sqlx::query!(
-        "INSERT INTO function (name, label, carries, position)
-         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM function))",
-        function.name,
-        function.label,
-        function.carries
+        "INSERT INTO category (name, label, plural, carries, named, position)
+         VALUES (?, ?, ?, ?, ?,
+            (SELECT coalesce(max(position), 0) + 1 FROM category))",
+        category.name,
+        category.label,
+        plural,
+        category.carries,
+        category.named
     )
     .execute(db)
     .await?;
@@ -803,8 +845,8 @@ pub async fn define_design<'e, E: SqliteExecutor<'e>>(
     design: &Design,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO design (function, name, abbreviation) VALUES (?, ?, ?)",
-        design.function,
+        "INSERT INTO design (category, name, abbreviation) VALUES (?, ?, ?)",
+        design.category,
         design.name,
         design.abbreviation
     )
@@ -869,10 +911,10 @@ pub async fn set_size<'e, E: SqliteExecutor<'e>>(
 
 /// Every field a details form sets; `None` makes a field unknown.
 pub struct Details<'a> {
-    pub function: &'a str,
+    pub category: &'a str,
     pub width: Option<i64>,
     pub orientation: &'a str,
-    pub encoding: &'a str,
+    pub encoding: Option<&'a str>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     pub design: Option<&'a str>,
@@ -880,6 +922,7 @@ pub struct Details<'a> {
     pub carry_out: Option<bool>,
     pub built_on: Option<&'a str>,
     pub description: Option<&'a str>,
+    pub given_name: Option<&'a str>,
 }
 
 /// Sets every field of a details form, clearing the empty ones.
@@ -889,12 +932,12 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
     details: &Details<'_>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET function = ?, width = ?, orientation = ?,
+        "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             carry_in = ?, carry_out = ?, built_on = ?,
-            description = ?
+            description = ?, given_name = ?
          WHERE id = ?",
-        details.function,
+        details.category,
         details.width,
         details.orientation,
         details.encoding,
@@ -905,6 +948,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.carry_out,
         details.built_on,
         details.description,
+        details.given_name,
         id,
     )
     .execute(db)
@@ -926,7 +970,7 @@ pub async fn delete<'e, E: SqliteExecutor<'e>>(
 /// Fields to change; `None` keeps the stored value.
 #[derive(Default)]
 pub struct Changes<'a> {
-    pub function: Option<&'a str>,
+    pub category: Option<&'a str>,
     pub width: Option<i64>,
     pub orientation: Option<&'a str>,
     pub encoding: Option<&'a str>,
@@ -939,6 +983,7 @@ pub struct Changes<'a> {
     pub carry_in: Option<bool>,
     pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
+    pub given_name: Option<&'a str>,
 }
 
 pub async fn update<'e, E: SqliteExecutor<'e>>(
@@ -948,7 +993,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "UPDATE schematic SET
-            function = coalesce(?, function),
+            category = coalesce(?, category),
             width = coalesce(?, width),
             orientation = coalesce(?, orientation),
             encoding = coalesce(?, encoding),
@@ -960,9 +1005,10 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             design = coalesce(?, design),
             carry_in = coalesce(?, carry_in),
             carry_out = coalesce(?, carry_out),
-            description = coalesce(?, description)
+            description = coalesce(?, description),
+            given_name = coalesce(?, given_name)
          WHERE id = ?",
-        changes.function,
+        changes.category,
         changes.width,
         changes.orientation,
         changes.encoding,
@@ -975,6 +1021,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.carry_in,
         changes.carry_out,
         changes.description,
+        changes.given_name,
         id,
     )
     .execute(db)
@@ -993,6 +1040,7 @@ pub enum Optional {
     Description,
     Design,
     Carries,
+    GivenName,
 }
 
 /// Makes `fields` unknown.
@@ -1012,6 +1060,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     let description = has(Optional::Description);
     let design = has(Optional::Design);
     let carries = has(Optional::Carries);
+    let given_name = has(Optional::GivenName);
     sqlx::query!(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
@@ -1022,7 +1071,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             description = iif(?, NULL, description),
             design = iif(?, NULL, design),
             carry_in = iif(?, NULL, carry_in),
-            carry_out = iif(?, NULL, carry_out)
+            carry_out = iif(?, NULL, carry_out),
+            given_name = iif(?, NULL, given_name)
          WHERE id = ?",
         width,
         latency,
@@ -1033,6 +1083,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         design,
         carries,
         carries,
+        given_name,
         id,
     )
     .execute(db)
@@ -1122,8 +1173,8 @@ pub async fn all_tags<'e, E: SqliteExecutor<'e>>(
 ) -> Result<Vec<Tag>, sqlx::Error> {
     sqlx::query_as!(
         Tag,
-        "SELECT name, token, category FROM tag
-         ORDER BY category = 'other', category, name"
+        "SELECT name, token, kind FROM tag
+         ORDER BY kind = 'other', kind, name"
     )
     .fetch_all(db)
     .await
@@ -1133,14 +1184,14 @@ pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
     token: Option<&str>,
-    category: &str,
+    kind: &str,
 ) -> Result<(), sqlx::Error> {
     let name = tag_name(name);
     sqlx::query!(
-        "INSERT INTO tag (name, token, category) VALUES (?, ?, ?)",
+        "INSERT INTO tag (name, token, kind) VALUES (?, ?, ?)",
         name,
         token,
-        category
+        kind
     )
     .execute(db)
     .await?;
@@ -1151,22 +1202,22 @@ pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
 mod tests {
     use super::*;
 
-    fn tag(name: &str, token: Option<&str>, category: &str) -> Tag {
+    fn tag(name: &str, token: Option<&str>, kind: &str) -> Tag {
         Tag {
             name: name.to_owned(),
             token: token.map(str::to_owned),
-            category: category.to_owned(),
+            kind: kind.to_owned(),
         }
     }
 
     fn cla() -> Schematic {
         Schematic {
             id: String::new(),
-            function: "adder".to_owned(),
-            function_label: Some("Adder".to_owned()),
+            category: "adder".to_owned(),
+            category_label: Some("Adder".to_owned()),
             width: Some(8),
             orientation: "horz".to_owned(),
-            encoding: "bin".to_owned(),
+            encoding: Some("bin".to_owned()),
             latency: Some(8),
             synchronized: Some(false),
             size: (19, 11, 18),
@@ -1181,6 +1232,7 @@ mod tests {
             carry_in: None,
             carry_out: None,
             description: None,
+            given_name: None,
             uploader: None,
             sha256: String::new(),
             added_at: String::new(),
@@ -1189,7 +1241,7 @@ mod tests {
     }
 
     #[test]
-    fn title_reads_width_restrictions_design_then_function() {
+    fn title_reads_width_restrictions_design_then_category() {
         assert_eq!(cla().title(), "8-bit alpha Carry Lookahead Adder");
     }
 
@@ -1199,10 +1251,10 @@ mod tests {
     }
 
     #[test]
-    fn a_function_keeps_its_label() {
+    fn a_category_keeps_its_label() {
         let s = Schematic {
-            function: "ram".to_owned(),
-            function_label: Some("RAM".to_owned()),
+            category: "ram".to_owned(),
+            category_label: Some("RAM".to_owned()),
             design: Some("other".to_owned()),
             ..cla()
         };
@@ -1210,10 +1262,10 @@ mod tests {
     }
 
     #[test]
-    fn a_function_off_the_list_is_capitalized() {
+    fn a_category_off_the_list_is_capitalized() {
         let s = Schematic {
-            function: "maze_screen".to_owned(),
-            function_label: None,
+            category: "maze_screen".to_owned(),
+            category_label: None,
             width: None,
             design: Some("other".to_owned()),
             ..cla()

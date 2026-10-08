@@ -1,7 +1,6 @@
 //! Full page templates.
 //!
 //! These return complete HTML documents wrapped in the base layout.
-//! For fixi partial updates, use components directly.
 
 use maud::{Markup, PreEscaped, html};
 
@@ -10,13 +9,16 @@ use crate::{
     interface::{Bit, Interface},
     lint::Violation,
     models::{
-        schematic::{self, Design, Function, Schematic, StackDirection, Tag},
+        schematic::{self, Category, Design, Schematic, StackDirection, Tag},
         user::{Role, User},
     },
     search::Term,
 };
 
-use super::{components::base, details};
+use super::{
+    components::base,
+    details::{self, STACK_DIRECTIONS, StackRow},
+};
 
 const PAGE_TITLE: &str = "text-page font-bold";
 const SECTION_TITLE: &str = "text-section font-semibold";
@@ -30,26 +32,126 @@ pub enum View {
     List,
 }
 
+/// The order of the home page's schematics.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    /// Newest first, by when each was added to the site.
+    Newest,
+    /// Smallest first.
+    Volume,
+    /// Fastest first; unknown latencies last.
+    Latency,
+}
+
+impl Sort {
+    pub const ALL: [Sort; 3] = [Sort::Newest, Sort::Volume, Sort::Latency];
+
+    /// The value in the address, such as `volume`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Sort::Newest => "",
+            Sort::Volume => "volume",
+            Sort::Latency => "latency",
+        }
+    }
+
+    pub fn parse(text: &str) -> Self {
+        Sort::ALL
+            .into_iter()
+            .find(|sort| sort.as_str() == text)
+            .unwrap_or(Sort::Newest)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Sort::Newest => "Newest",
+            Sort::Volume => "Volume",
+            Sort::Latency => "Latency",
+        }
+    }
+}
+
 /// The home page's schematics and how they were asked for.
 pub struct Listing<'a> {
-    /// The schematics matching the search.
+    /// The schematics matching the search and the chosen category.
     pub shown: &'a [Schematic],
     /// How many schematics there are in all.
     pub total: usize,
+    /// How many match the search, of any category.
+    pub matched: usize,
     pub view: View,
+    pub sort: Sort,
     pub query: &'a str,
     pub terms: &'a [Term],
+    /// The chosen category, such as `adder`; empty for all.
+    pub category: &'a str,
+    pub facets: &'a [Facet],
+}
+
+/// One category in the home page's sidebar.
+pub struct Facet {
+    pub name: String,
+    /// Such as `Adders`.
+    pub label: String,
+    /// How many builds of it match the search.
+    pub count: usize,
+}
+
+/// Where the home page's links lead: its layout, search, and category.
+#[derive(Clone, Copy)]
+struct Home<'a> {
+    view: View,
+    sort: Sort,
+    query: &'a str,
+    category: &'a str,
+}
+
+impl Home<'_> {
+    fn href(self) -> String {
+        let mut params = form_urlencoded::Serializer::new(String::new());
+        if self.view == View::List {
+            params.append_pair("view", "list");
+        }
+        if self.sort != Sort::Newest {
+            params.append_pair("sort", self.sort.as_str());
+        }
+        if !self.category.is_empty() {
+            params.append_pair("category", self.category);
+        }
+        if !self.query.is_empty() {
+            params.append_pair("q", self.query);
+        }
+        let params = params.finish();
+        if params.is_empty() {
+            "/".to_owned()
+        } else {
+            format!("/?{params}")
+        }
+    }
 }
 
 pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
     let Listing {
         shown,
         total,
+        matched,
         view,
+        sort,
         query,
-        terms,
+        category,
+        facets,
+        ..
     } = *listing;
-    let switch = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+    let here = Home {
+        view,
+        sort,
+        query,
+        category,
+    };
+    let title = facets
+        .iter()
+        .find(|facet| facet.name == category)
+        .map_or("Schematics", |facet| facet.label.as_str());
     let builds = if total == 1 { "build" } else { "builds" };
     let count = if shown.len() == total {
         format!("{total} {builds}")
@@ -61,17 +163,84 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
         APP_NAME,
         "/",
         &html! {
+            div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
+                (category_sidebar(here, facets, matched))
+                div { (listing_body(listing, here, title, &count)) }
+            }
+        },
+    )
+}
+
+/// The categories to narrow the list to, each with its count.
+fn category_sidebar(here: Home, facets: &[Facet], matched: usize) -> Markup {
+    let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
+    html! {
+        nav aria-labelledby="categories-heading" class="desktop:sticky desktop:top-4 desktop:self-start" {
+            h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
+            ul class="flex flex-wrap gap-1 desktop:flex-col" {
+                li {
+                    a href=(Home { category: "", ..here }.href()) class=(item)
+                        aria-current=[here.category.is_empty().then_some("page")] {
+                        span { "All" }
+                        span class="text-meta text-muted tabular-nums" { (matched) }
+                    }
+                }
+                @for facet in facets {
+                    li {
+                        a href=(Home { category: &facet.name, ..here }.href()) class=(item)
+                            aria-current=[(facet.name == here.category).then_some("page")] {
+                            span { (facet.label) }
+                            span class="text-meta text-muted tabular-nums" { (facet.count) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The home page's title, search, and schematics.
+fn listing_body(
+    listing: &Listing,
+    here: Home,
+    title: &str,
+    count: &str,
+) -> Markup {
+    let Listing {
+        shown,
+        total,
+        view,
+        query,
+        terms,
+        category,
+        ..
+    } = *listing;
+    let switch = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+    html! {
             div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                h1 class=(PAGE_TITLE) { "Schematics" }
+                h1 class=(PAGE_TITLE) { (title) }
                 p class="mr-auto self-end pb-1 text-muted tabular-nums" { (count) }
                 nav aria-label="Layout" class="flex gap-1 rounded-control bg-sidebar p-1" {
-                    a href=(home(View::Cards, query)) class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
-                    a href=(home(View::List, query)) class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
+                    a href=(Home { view: View::Cards, ..here }.href()) class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
+                    a href=(Home { view: View::List, ..here }.href()) class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
+                }
+                nav aria-label="Sort" class="flex items-center gap-1 rounded-control bg-sidebar p-1" {
+                    span class="px-2 text-meta text-muted" aria-hidden="true" { "Sort" }
+                    @for option in Sort::ALL {
+                        a href=(Home { sort: option, ..here }.href()) class=(switch)
+                            aria-current=[(here.sort == option).then_some("page")] { (option.label()) }
+                    }
                 }
             }
             form action="/" method="get" role="search" class="mb-6 flex flex-col gap-2" {
                 @if view == View::List {
                     input type="hidden" name="view" value="list";
+                }
+                @if !category.is_empty() {
+                    input type="hidden" name="category" value=(category);
+                }
+                @if here.sort != Sort::Newest {
+                    input type="hidden" name="sort" value=(here.sort.as_str());
                 }
                 div class="flex gap-2" {
                     label for="search" class="sr-only" { "Search schematics" }
@@ -82,7 +251,8 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
                     button type="submit" class="btn btn-primary" { "Search" }
                 }
                 p id="search-help" class="text-meta text-muted" {
-                    "Every word must match: a function, orientation, tag, width such as 8b, builder, "
+                    "Every word must match: a category, orientation, tag, width such as 8b, builder such as "
+                    code { "builder:embizone" } ", "
                     code { "stackable" } ", or part of the name. Put " code { "-" } " or "
                     code { "not" } " before a word to leave those builds out, and quotes around a tag with spaces."
                 }
@@ -90,7 +260,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
                     ul class="flex flex-wrap items-center gap-1.5" aria-label="Search terms" {
                         @for (i, term) in terms.iter().enumerate() {
                             li {
-                                a href=(home(view, &without(terms, i)))
+                                a href=(Home { query: &without(terms, i), ..here }.href())
                                     aria-label={ "Remove " (term.display()) }
                                     class={ "badge gap-1.5 pr-2 hover:no-underline "
                                         (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
@@ -100,7 +270,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
                             }
                         }
                         li {
-                            a href=(home(view, "")) class="px-1.5 text-meta" { "Clear" }
+                            a href=(Home { query: "", ..here }.href()) class="px-1.5 text-meta" { "Clear" }
                         }
                     }
                 }
@@ -114,24 +284,6 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
             } @else {
                 (table(shown))
             }
-        },
-    )
-}
-
-/// The home page's address for `view` and `query`.
-fn home(view: View, query: &str) -> String {
-    let mut params = form_urlencoded::Serializer::new(String::new());
-    if view == View::List {
-        params.append_pair("view", "list");
-    }
-    if !query.is_empty() {
-        params.append_pair("q", query);
-    }
-    let params = params.finish();
-    if params.is_empty() {
-        "/".to_owned()
-    } else {
-        format!("/?{params}")
     }
 }
 
@@ -150,23 +302,25 @@ fn cards(schematics: &[Schematic]) -> Markup {
     html! {
         ul class="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5" {
             @for s in schematics {
-                li {
-                    a href={ "/schematics/" (s.id) }
-                        class="group flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary hover:no-underline" {
-                        img src={ "/schematics/" (s.id) "/thumbnail.png?v=" (&s.sha256[..12.min(s.sha256.len())]) }
-                            alt="" loading="lazy" width="640" height="480"
-                            class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
-                        div class="flex flex-1 flex-col gap-2 p-4" {
-                            h2 class="text-section font-semibold group-hover:text-brand" { (s.name()) }
-                            @if !s.tags.is_empty() {
-                                ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
-                                    @for tag in &s.tags {
-                                        li { (badge(tag)) }
-                                    }
+                // The title's link covers the whole card; the tag and name
+                // links sit above it.
+                li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
+                    img src={ "/schematics/" (s.id) "/thumbnail.png?v=" (&s.sha256[..12.min(s.sha256.len())]) }
+                        alt="" loading="lazy" width="640" height="480"
+                        class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                    div class="flex flex-1 flex-col gap-2 p-4" {
+                        h2 class="text-section font-semibold" {
+                            a href={ "/schematics/" (s.id) }
+                                class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
+                        }
+                        @if !s.tags.is_empty() {
+                            ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
+                                @for tag in &s.tags {
+                                    li { (badge(tag)) }
                                 }
                             }
-                            p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
                         }
+                        p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
                     }
                 }
             }
@@ -176,17 +330,48 @@ fn cards(schematics: &[Schematic]) -> Markup {
 
 /// The few facts a card has room for, such as `8 ticks · 19×11×18 ·
 /// 3762 blocks · embizone`.
-fn facts(s: &Schematic) -> String {
-    [
+fn facts(s: &Schematic) -> Markup {
+    let measures: Vec<String> = [
         s.latency.map(|t| format!("{t} ticks")),
         Some(size(s)),
         Some(volume(s)),
-        (!s.builders.is_empty()).then(|| s.builders.join(", ")),
     ]
     .into_iter()
     .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ")
+    .collect();
+    html! {
+        (measures.join(" · "))
+        @if !s.builders.is_empty() {
+            " · " (name_links(&s.builders, "builder"))
+        }
+    }
+}
+
+/// The home page searching for `term`, such as a tag or a builder.
+fn search_href(term: &str) -> String {
+    let query = form_urlencoded::Serializer::new(String::new())
+        .append_pair("q", term)
+        .finish();
+    format!("/?{query}")
+}
+
+/// `text` linking to the builds matching `term`. It sits above a card's
+/// own link.
+fn search_link(text: &str, term: &str) -> Markup {
+    html! {
+        a href=(search_href(term)) class="relative z-10" { (text) }
+    }
+}
+
+/// In-game names, each a link to the builds crediting it in `role`, such
+/// as `builder`.
+fn name_links(names: &[String], role: &str) -> Markup {
+    html! {
+        @for (i, name) in names.iter().enumerate() {
+            @if i > 0 { ", " }
+            (search_link(name, &format!("{role}:{name}")))
+        }
+    }
 }
 
 fn table(schematics: &[Schematic]) -> Markup {
@@ -221,11 +406,11 @@ fn table(schematics: &[Schematic]) -> Markup {
                                         }
                                     }
                                     td class={ (TABLE_CELL) " " (secondary) } { (s.orientation_label()) }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding_label()) }
+                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding_label().unwrap_or_default()) }
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (s.builders.join(", ")) }
+                                    td class=(TABLE_CELL) { (name_links(&s.builders, "builder")) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
                                     }
@@ -258,8 +443,14 @@ pub fn schematic(
         &html! {
             div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
                 h1 class=(PAGE_TITLE) { (name) }
-                @if viewer.is_some_and(User::can_edit) {
-                    a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
+                div class="flex gap-2" {
+                    @if viewer.is_some_and(User::can_edit) {
+                        a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
+                    }
+                    @if viewer.is_some_and(User::is_admin) {
+                        button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
+                        (delete_dialog(s))
+                    }
                 }
             }
             (beside_viewer(&format!("{path}/download"), &schematic_info(s)))
@@ -269,7 +460,7 @@ pub fn schematic(
                         "This build follows its own layout rather than the building conventions, so its inputs and outputs are not read from the file and it is not linted."
                     }
                 }
-                Ok(analysis) => (interface_section(analysis)),
+                Ok(analysis) => (interface_section(analysis, true)),
                 Err(err) => {
                     p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
                 }
@@ -278,13 +469,15 @@ pub fn schematic(
     )
 }
 
-fn interface_section(analysis: &Analysis) -> Markup {
+/// The build's inputs and outputs, and, with `with_violations`, the
+/// conventions it breaks.
+fn interface_section(analysis: &Analysis, with_violations: bool) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
     html! {
         section aria-labelledby="interface-heading" class="mt-12" {
             h2 id="interface-heading" class={ (SECTION_TITLE) " mb-1" } { "Inputs and outputs" }
             p class="mb-4 text-meta text-muted" {
-                "Read from the file's levers, yellow output blocks, and signs."
+                "Read from the file's levers and buttons, yellow output blocks, and signs."
             }
             div class="overflow-x-auto" {
                 table class="w-full max-w-calm border-collapse" {
@@ -329,18 +522,25 @@ fn interface_section(analysis: &Analysis) -> Markup {
                 }
             }
         }
-        @if !analysis.violations.is_empty() {
+        @if with_violations && !analysis.violations.is_empty() {
             section aria-labelledby="lint-heading" class="mt-12 max-w-calm" {
                 h2 id="lint-heading" class={ (SECTION_TITLE) " mb-3" } { "Breaks the building conventions" }
-                ul class="flex flex-col gap-1.5" {
-                    @for violation in &analysis.violations {
-                        li class="flex gap-3" {
-                            span class="w-28 shrink-0 text-muted tabular-nums" {
-                                @if let Some([x, y, z]) = violation.pos { (x) ", " (y) ", " (z) }
-                            }
-                            span { (violation.message) }
-                        }
+                (violation_list(&analysis.violations))
+            }
+        }
+    }
+}
+
+/// Each broken convention with where in the file it is.
+fn violation_list(violations: &[Violation]) -> Markup {
+    html! {
+        ul class="flex flex-col gap-1.5" {
+            @for violation in violations {
+                li class="flex gap-3" {
+                    span class="w-24 shrink-0 text-muted tabular-nums" {
+                        @if let Some([x, y, z]) = violation.pos { (x) ", " (y) ", " (z) }
                     }
+                    span { (violation.message) }
                 }
             }
         }
@@ -355,6 +555,23 @@ fn uniform(bits: &[Bit], value: impl Fn(&Bit) -> String) -> String {
         first
     } else {
         "mixed".to_owned()
+    }
+}
+
+/// An admin's confirmation before deleting a build.
+fn delete_dialog(s: &Schematic) -> Markup {
+    html! {
+        dialog id="delete" aria-labelledby="delete-heading"
+            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            form action={ "/schematics/" (s.id) "/delete" } method="post" class="flex flex-col gap-4" {
+                h2 id="delete-heading" class=(SECTION_TITLE) { "Delete " (s.name()) "?" }
+                p { "The build, its file, tags, and credits are removed for good." }
+                div class="flex items-center gap-4" {
+                    button type="submit" class="btn btn-danger" { "Delete" }
+                    button type="button" commandfor="delete" command="close" class="btn btn-quiet" { "Cancel" }
+                }
+            }
+        }
     }
 }
 
@@ -418,25 +635,63 @@ fn schematic_info(s: &Schematic) -> Markup {
             section aria-labelledby="details-heading" {
                 h2 id="details-heading" class={ (SECTION_TITLE) " mb-3" } { "Details" }
                 dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2" {
-                    (field("Function", &s.function_label()))
-                    (field("Width", &s.width_label().unwrap_or_else(|| "unknown".to_owned())))
-                    (field("Orientation", s.orientation_label()))
-                    (field("Encoding", s.encoding_label()))
-                    (field("Latency", &s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
-                    (field("Synchronized", s.synchronized_label()))
-                    (field("Stacks", &stacking(s)))
-                    (field("Size", &size(s)))
-                    (field("Volume", &volume(s)))
-                    (field(&plural("Builder", &s.builders), &if s.builders.is_empty() { "unknown".to_owned() } else { s.builders.join(", ") }))
+                    // A category off the list has no list of its own to link to.
+                    (field("Category", html! {
+                        @if s.category_label.is_some() {
+                            a href={ "/?category=" (s.category) } { (s.category_label()) }
+                        } @else {
+                            (s.category_label())
+                        }
+                    }))
+                    @if let Some(design) = s.design_label() {
+                        (field("Design", search_link(&design, s.design.as_deref().unwrap_or_default())))
+                    }
+                    (field("Width", s.width.map_or_else(
+                        || html! { "unknown" },
+                        |w| search_link(&s.width_label().unwrap_or_default(), &format!("{w}b")),
+                    )))
+                    (field("Orientation", search_link(s.orientation_label(), &s.orientation_label().to_lowercase())))
+                    @if let Some(encoding) = s.encoding_label() {
+                        (field("Encoding", search_link(encoding, &encoding.to_lowercase())))
+                    }
+                    (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
+                    (field("Synchronized", match s.synchronized {
+                        Some(true) => search_link("yes", "sync"),
+                        Some(false) => search_link("no", "unsync"),
+                        None => html! { "unknown" },
+                    }))
+                    (field("Stacks", if s.stacking.is_empty() {
+                        html! { "no" }
+                    } else {
+                        search_link(&stacking(s), "stackable")
+                    }))
+                    (field("Size", size(s)))
+                    (field("Volume", volume(s)))
+                    (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
+                        html! { "unknown" }
+                    } else {
+                        name_links(&s.builders, "builder")
+                    }))
                     @if !s.contributors.is_empty() {
-                        (field(&plural("Contributor", &s.contributors), &s.contributors.join(", ")))
+                        (field(&plural("Contributor", &s.contributors), name_links(&s.contributors, "contributor")))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    (field("Imported by", s.importer().unwrap_or("unknown")))
-                    (field("Conventions", if s.conventional { "followed" } else { "not followed" }))
+                    (field("Added", s.added_at.get(..10).unwrap_or(&s.added_at)))
+                    (field("Imported by", s.importer().map_or_else(
+                        || html! { "unknown" },
+                        |name| search_link(name, &format!("importer:{name}")),
+                    )))
+                    (field("Conventions", if s.conventional {
+                        html! { "followed" }
+                    } else {
+                        search_link("not followed", "unconventional")
+                    }))
                 }
-                @if let Some(description) = &s.description {
-                    p class="mt-4 leading-prose whitespace-pre-line" { (description) }
+            }
+            @if let Some(description) = &s.description {
+                section aria-labelledby="description-heading" {
+                    h2 id="description-heading" class={ (SECTION_TITLE) " mb-3" } { "Description" }
+                    p class="leading-prose whitespace-pre-line" { (description) }
                 }
             }
         }
@@ -463,23 +718,32 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
     let (width, latency) = (number(s.width), number(s.latency));
     let own_tags: Vec<String> =
         s.tags.iter().map(|tag| tag.name.clone()).collect();
+    // A build that does not stack yet starts with a likely direction.
+    let stack_rows: Vec<StackRow> = if s.stacking.is_empty() {
+        vec![StackRow::suggested(&s.orientation, s.size)]
+    } else {
+        s.stacking.iter().map(StackRow::of).collect()
+    };
     let (values, chosen_tags) = match e.sent {
         Some(form) => (form.fields(), form.tags.as_slice()),
         None => (
             Fields {
-                function: &s.function,
+                category: &s.category,
                 width: &width,
                 orientation: &s.orientation,
-                encoding: &s.encoding,
+                encoding: s.encoding.as_deref().unwrap_or_default(),
                 latency: &latency,
                 synchronized: s.synchronized,
                 builders: &s.builders,
                 contributors: &s.contributors,
                 built_on: s.built_on.as_deref().unwrap_or(""),
                 description: s.description.as_deref().unwrap_or(""),
+                given_name: s.given_name.as_deref().unwrap_or(""),
                 design: s.design.as_deref().unwrap_or(""),
                 carry_in: s.carry_in == Some(true),
                 carry_out: s.carry_out == Some(true),
+                stackable: !s.stacking.is_empty(),
+                stack_rows: &stack_rows,
             },
             own_tags.as_slice(),
         ),
@@ -510,7 +774,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
 
 /// The values a details form starts with.
 pub struct Fields<'a> {
-    pub function: &'a str,
+    pub category: &'a str,
     pub width: &'a str,
     pub orientation: &'a str,
     pub encoding: &'a str,
@@ -521,15 +785,20 @@ pub struct Fields<'a> {
     pub contributors: &'a [String],
     pub built_on: &'a str,
     pub description: &'a str,
+    /// The build's own name, for a category that takes one.
+    pub given_name: &'a str,
     pub design: &'a str,
     pub carry_in: bool,
     pub carry_out: bool,
+    pub stackable: bool,
+    /// The stacking directions so far, or a suggested first one.
+    pub stack_rows: &'a [StackRow],
 }
 
 /// The lists a details form chooses from or suggests.
 pub struct Choices {
-    /// The standard functions.
-    pub functions: Vec<Function>,
+    /// The standard categories.
+    pub categories: Vec<Category>,
     pub designs: Vec<Design>,
     /// Everyone credited on a stored build, to suggest as builders and
     /// contributors.
@@ -539,58 +808,68 @@ pub struct Choices {
 impl Choices {
     pub async fn load(db: &sqlx::SqlitePool) -> Result<Self, sqlx::Error> {
         Ok(Choices {
-            functions: schematic::functions(db).await?,
+            categories: schematic::categories(db).await?,
             designs: schematic::designs(db).await?,
             people: schematic::all_people(db).await?,
         })
     }
 }
 
-/// The function, its name when other, its design, and its carry lines.
-fn function_fields(f: &Fields, choices: &Choices) -> Markup {
+/// The category, its name when other, its design, and its carry lines.
+fn category_fields(f: &Fields, choices: &Choices) -> Markup {
     html! {
-        // A function off the standard list shows as other, with its name.
-        @let standard = f.function.is_empty()
-            || choices.functions.iter().any(|function| function.name == f.function);
+        // A category off the standard list shows as other, with its name.
+        @let standard = f.category.is_empty()
+            || choices.categories.iter().any(|category| category.name == f.category);
         @let carries = choices
-            .functions
+            .categories
             .iter()
-            .any(|function| function.name == f.function && function.carries);
+            .any(|category| category.name == f.category && category.carries);
+        @let named = choices
+            .categories
+            .iter()
+            .any(|category| category.name == f.category && category.named);
         @let has_designs = choices
             .designs
             .iter()
-            .any(|design| design.function == f.function);
+            .any(|design| design.category == f.category);
         label class="field" {
-            span { "Function" }
-            select name="function" required class="input" data-function {
-                @if f.function.is_empty() {
-                    option value="" selected { "Choose a function" }
+            span { "Category" }
+            select name="category" required class="input" data-category {
+                @if f.category.is_empty() {
+                    option value="" selected { "Choose a category" }
                 }
-                @for function in &choices.functions {
-                    option value=(function.name) selected[f.function == function.name]
-                        data-carries[function.carries] {
-                        (function.label)
+                @for category in &choices.categories {
+                    option value=(category.name) selected[f.category == category.name]
+                        data-carries[category.carries] data-named[category.named] {
+                        (category.label)
                     }
                 }
                 option value="other" selected[!standard] { "Other" }
             }
         }
-        label class="field" data-function-name {
-            span { "Function name, if other" }
-            input name="function_name" value=(if standard { "" } else { f.function })
-                placeholder="such as line_drawer" pattern="[A-Za-z][A-Za-z0-9_ ]*"
-                title="Words of letters and digits, such as line drawer"
+        label class="field" data-category-name {
+            span { "Category name, if other" }
+            input name="category_name" value=(if standard { "" } else { f.category })
+                placeholder="such as line drawer" pattern="[A-Za-z0-9][A-Za-z0-9_ \\-]*"
+                title="Words, numbers, and hyphens, such as 8-bit horizontal diode"
                 class="input";
         }
-        // Shown once the chosen function has designs to choose from.
+        // For a category whose builds each have a name, such as bussing.
+        label class="field" data-named-field hidden[!named] {
+            span { "Name" }
+            input name="given_name" value=(f.given_name) maxlength="60"
+                placeholder="such as Bus Crossing" class="input";
+        }
+        // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {
             span { "Design" }
             select name="design" class="input" data-design {
                 option value="other" selected[f.design.is_empty() || f.design == "other"] { "Other" }
-                @for function in &choices.functions {
-                    @let designs: Vec<&Design> = choices.designs.iter().filter(|d| d.function == function.name).collect();
+                @for category in &choices.categories {
+                    @let designs: Vec<&Design> = choices.designs.iter().filter(|d| d.category == category.name).collect();
                     @if !designs.is_empty() {
-                        optgroup label=(function.label) data-for=(function.name) {
+                        optgroup label=(category.label) data-for=(category.name) {
                             @for design in designs {
                                 option value=(design.name) selected[f.design == design.name] { (design.label()) }
                             }
@@ -600,7 +879,7 @@ fn function_fields(f: &Fields, choices: &Choices) -> Markup {
             }
         }
         div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-carries-field
-            hidden[!carries && !f.function.is_empty()] {
+            hidden[!carries && !f.category.is_empty()] {
             label class="flex items-center gap-2" {
                 input type="checkbox" name="carry_in" value="yes" checked[f.carry_in] class="size-4 appearance-auto";
                 "Has a carry in"
@@ -616,9 +895,15 @@ fn function_fields(f: &Fields, choices: &Choices) -> Markup {
 
 /// The inputs for a build's details, shared by editing and uploading.
 fn fields(f: &Fields, choices: &Choices) -> Markup {
+    // A category off the list, such as a piston door, has no width or encoding.
+    let other = !f.category.is_empty()
+        && !choices
+            .categories
+            .iter()
+            .any(|category| category.name == f.category);
     html! {
-        (function_fields(f, choices))
-        label class="field" {
+        (category_fields(f, choices))
+        label class="field" data-standard-only hidden[other] {
             span { "Width in bits" }
             input name="width" type="number" min="1" value=(f.width) class="input tabular-nums";
         }
@@ -630,10 +915,10 @@ fn fields(f: &Fields, choices: &Choices) -> Markup {
                 }
             }
         }
-        label class="field" {
+        label class="field" data-standard-only hidden[other] {
             span { "Encoding" }
             select name="encoding" class="input" {
-                @for (value, label) in [("bin", "binary"), ("hex", "hex")] {
+                @for (value, label) in [("bin", "Binary"), ("hex", "Hex")] {
                     option value=(value) selected[f.encoding == value] { (label) }
                 }
             }
@@ -657,6 +942,7 @@ fn fields(f: &Fields, choices: &Choices) -> Markup {
                 input type="hidden" name="synchronized_unknown" value="yes";
             }
         }
+        (stacking_fields(f))
         (person_field("Builders", "builder", "Add a builder's in-game name", f.builders, choices))
         (person_field("Contributors", "contributor", "Add someone who helped", f.contributors, choices))
         div class="field" {
@@ -689,7 +975,62 @@ fn tag_pill(tag: &Tag) -> Pill {
     Pill {
         label: tag.label(),
         value: tag.name.clone(),
-        class: format!("badge-{}", tag.category),
+        class: format!("badge-{}", tag.kind),
+    }
+}
+
+/// Whether the build stacks, and how: two rows, each a direction with its
+/// step and most copies. The second row is for a build that also stacks
+/// another way, and is left empty otherwise. `form.js` hides the rows
+/// while the toggle is off.
+fn stacking_fields(f: &Fields) -> Markup {
+    let blank = StackRow::default();
+    let rows = f
+        .stack_rows
+        .iter()
+        .chain(std::iter::repeat(&blank))
+        .take(f.stack_rows.len().max(2));
+    html! {
+        fieldset class="flex flex-col gap-3" data-stacking {
+            legend class="mb-1.5 text-meta font-semibold text-muted" { "Stacking" }
+            label class="flex items-start gap-2" {
+                input type="checkbox" name="stackable" value="yes" checked[f.stackable]
+                    class="mt-1 size-4 appearance-auto";
+                span { "Stackable: copies placed one after another make a bigger build" }
+            }
+            div class="flex flex-col gap-3" data-stack-rows {
+                @for (i, row) in rows.enumerate() {
+                    @let n = i + 1;
+                    // Wraps between phrases, never inside one.
+                    div class="flex flex-wrap items-center gap-x-2 gap-y-2" {
+                        span class="flex items-center gap-2" {
+                            "Each copy is"
+                            input type="number" name="stack_step" min="1" value=(row.step)
+                                aria-label={ "Blocks per copy, direction " (n) }
+                                class="input w-18 tabular-nums";
+                            "blocks"
+                        }
+                        select name="stack_direction" aria-label={ "Direction " (n) } class="input w-auto" {
+                            @for (value, label) in STACK_DIRECTIONS {
+                                option value=(value) selected[row.direction == value] { (label) }
+                            }
+                        }
+                        span class="flex items-center gap-2" {
+                            "up to"
+                            input type="number" name="stack_max" min="2" value=(row.max) placeholder="any"
+                                aria-label={ "Most copies, direction " (n) }
+                                class="input w-18 tabular-nums";
+                            "copies"
+                        }
+                    }
+                }
+                p class="text-meta text-muted" {
+                    "Fill in the second row only for a build that also stacks another way, such as north for "
+                    "more registers side by side. Leave the most copies empty for no limit. Saving stacks two "
+                    "copies each way to check the step."
+                }
+            }
+        }
     }
 }
 
@@ -847,23 +1188,26 @@ fn cross() -> Markup {
     }
 }
 
+/// A tag, linking to the builds that carry it.
 fn badge(tag: &Tag) -> Markup {
     html! {
-        span class={ "badge badge-" (tag.category) } title=(category_label(&tag.category)) {
+        a href=(search_href(&tag.name)) title=(kind_label(&tag.kind))
+            class={ "badge badge-" (tag.kind) " relative z-10 hover:no-underline hover:brightness-95" } {
             (tag.label())
         }
     }
 }
 
-fn category_label(category: &str) -> &str {
-    match category {
+/// A tag kind as people read it, such as `Restriction`.
+fn kind_label(kind: &str) -> &str {
+    match kind {
         "restriction" => "Restriction",
         "timing" => "Timing",
         _ => "Other",
     }
 }
 
-fn field(name: &str, value: &str) -> Markup {
+fn field(name: &str, value: impl maud::Render) -> Markup {
     html! {
         dt class="text-muted" { (name) }
         dd { (value) }
@@ -976,7 +1320,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     dt { span class="badge badge-restriction" { "Restriction" } }
                     dd { "Components the build does without." }
                     dt { span class="badge badge-timing" { "Timing" } }
-                    dd { "How the build is clocked, when it differs from what the function implies." }
+                    dd { "How the build is clocked, when it differs from what the category implies." }
                     dt { span class="badge badge-other" { "Other" } }
                     dd { "Anything else worth searching by." }
                 }
@@ -1022,7 +1366,7 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
         &html! {
             h1 class={ (PAGE_TITLE) " mb-2" } { "Users" }
             p class="mb-6 max-w-prose text-muted" {
-                "A user uploads builds. A mod also edits any build's details and tags. An admin also sets roles."
+                "A user uploads builds. A mod also edits any build's details and tags. An admin also deletes builds and sets roles."
             }
             div class="max-w-calm overflow-x-auto" {
                 table class="w-full border-collapse" {
@@ -1080,12 +1424,16 @@ fn account_link(user: &User) -> Markup {
 }
 
 /// An account's page: who they are and what they uploaded.
+/// An account's page. Its owner can set their Minecraft name here;
+/// `message` says why a name was refused.
 pub fn profile(
     viewer: Option<&User>,
     account: &User,
     uploads: &[Schematic],
+    message: &str,
 ) -> Markup {
     let path = format!("/users/{}", account.username);
+    let own = viewer.is_some_and(|viewer| viewer.id == account.id);
     base(
         viewer,
         account.name(),
@@ -1099,6 +1447,34 @@ pub fn profile(
                     h1 class=(PAGE_TITLE) { (account.name()) }
                     p class="text-muted" {
                         "@" (account.username) " · " (account.role.as_str())
+                    }
+                    @if let Some(name) = &account.minecraft_name {
+                        p {
+                            "Minecraft: "
+                            a href=(search_href(&format!("builder:{name}"))) { (name) }
+                        }
+                    }
+                }
+            }
+            @if own {
+                form action={ (path) "/minecraft" } method="post" class="mb-8 flex max-w-form flex-col gap-2" {
+                    label for="minecraft-name" class="text-meta font-semibold text-muted" { "Your Minecraft name" }
+                    div class="flex gap-2" {
+                        input id="minecraft-name" name="minecraft_name"
+                            value=(account.minecraft_name.as_deref().unwrap_or_default())
+                            pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
+                            placeholder="Your in-game name"
+                            aria-invalid=[(!message.is_empty()).then_some("true")]
+                            aria-describedby="minecraft-help"
+                            class="input flex-1";
+                        button type="submit" class="btn btn-quiet" { "Save" }
+                    }
+                    @if message.is_empty() {
+                        p id="minecraft-help" class="text-meta text-muted" {
+                            "Shown on your profile, linked to the builds you built. Leave it empty to remove it."
+                        }
+                    } @else {
+                        p id="minecraft-help" role="alert" class="text-meta text-danger" { (message) }
                     }
                 }
             }
@@ -1190,9 +1566,31 @@ pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
                     }
                     a href="/upload" { "Choose a different file" }
                 }
+                // A refused publish comes back here, so say why first.
+                @if !p.message.is_empty() {
+                    p id="refusal" role="alert" tabindex="-1" autofocus
+                        class="rounded-control border border-danger p-3 text-danger" {
+                        strong { "Not published. " } (p.message)
+                    }
+                }
+                @if !p.analysis.violations.is_empty() {
+                    section aria-labelledby="lint-heading" class="flex flex-col gap-3" {
+                        h2 id="lint-heading" class={ (SECTION_TITLE) " text-danger" } {
+                            @match p.analysis.violations.len() {
+                                1 => "Breaks a building convention",
+                                count => { "Breaks " (count) " building conventions" }
+                            }
+                        }
+                        p class="text-muted" {
+                            "It can't be published until these are fixed: choose the file again with Standardize ticked, "
+                            "fix them in-game, or tick “follows its own layout” below if it is a display or similar."
+                        }
+                        (violation_list(&p.analysis.violations))
+                    }
+                }
                 (upload_form(p))
             }))
-            (interface_section(p.analysis))
+            (interface_section(p.analysis, false))
             script defer src="/form.js" {}
         },
     )
@@ -1214,9 +1612,6 @@ fn upload_form(p: &UploadPreview) -> Markup {
                             "This build follows its own layout, such as a display, so the building conventions do not apply to it."
                         }
                     }
-                }
-                @if !p.message.is_empty() {
-                    p role="alert" class="text-danger" { (p.message) }
                 }
                 div {
                     button type="submit" class="btn btn-primary" disabled[p.duplicate.is_some()] { "Publish" }

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO category (name, label, plural, carries, named, position)\n         VALUES (?, ?, ?, ?, ?,\n            (SELECT coalesce(max(position), 0) + 1 FROM category))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "4bdbe04197f6757ab76d27ccb46ebaa8594bb092150b1c8e201a890d2f640446"
+}

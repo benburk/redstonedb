@@ -12,7 +12,7 @@ use crate::{
     app_state::AppState,
     error::internal_error,
     interface, lint,
-    models::schematic::{self, Credit},
+    models::schematic::{self, Category, Credit, Schematic},
     models::user::User,
     schem::Blocks,
     search, stack, standardize, thumbnail,
@@ -28,6 +28,10 @@ pub struct ListQuery {
     view: Option<String>,
     /// A search such as `register vertical alpha -torchless`.
     q: Option<String>,
+    /// Only builds of this category, such as `adder`.
+    category: Option<String>,
+    /// `volume` or `latency`; the default order otherwise.
+    sort: Option<String>,
 }
 
 /// The schematics matching `?q=`, as cards unless `?view=list` asks for
@@ -42,25 +46,97 @@ pub async fn list(
         _ => pages::View::Cards,
     };
     let query_text = query.q.unwrap_or_default();
+    let category = query.category.unwrap_or_default();
     let terms = search::parse(&query_text);
-    match schematic::all(&state.db).await {
-        Ok(all) => {
-            let total = all.len();
-            let shown = search::matching(&terms, all);
-            pages::schematics(
-                user_opt.as_ref(),
-                &pages::Listing {
-                    shown: &shown,
-                    total,
-                    view,
-                    query: &query_text,
-                    terms: &terms,
-                },
-            )
-            .into_response()
+    let loaded = async {
+        Ok::<_, sqlx::Error>((
+            schematic::all(&state.db).await?,
+            schematic::categories(&state.db).await?,
+        ))
+    };
+    let (all, categories) = match loaded.await {
+        Ok(loaded) => loaded,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    let total = all.len();
+    let found = search::matching(&terms, all);
+    let facets = facets(&categories, &found, &category);
+    let matched = found.len();
+    let mut shown: Vec<Schematic> = if category.is_empty() {
+        found
+    } else {
+        found
+            .into_iter()
+            .filter(|s| in_category(s, &category))
+            .collect()
+    };
+    // Newest first, and the other orders are stable, so ties keep it.
+    shown.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    let sort = pages::Sort::parse(query.sort.as_deref().unwrap_or_default());
+    match sort {
+        pages::Sort::Newest => {}
+        pages::Sort::Volume => shown.sort_by_key(Schematic::volume),
+        pages::Sort::Latency => {
+            shown.sort_by_key(|s| (s.latency.is_none(), s.latency));
         }
-        Err(err) => internal_error(err).into_response(),
     }
+    pages::schematics(
+        user_opt.as_ref(),
+        &pages::Listing {
+            shown: &shown,
+            total,
+            matched,
+            view,
+            sort,
+            query: &query_text,
+            terms: &terms,
+            category: &category,
+            facets: &facets,
+        },
+    )
+    .into_response()
+}
+
+/// The sidebar's name for every category off the standard list.
+const OTHER: &str = "other";
+
+/// Whether `s` belongs under the sidebar's `category`: its own category, or
+/// `other` for any category off the standard list.
+fn in_category(s: &Schematic, category: &str) -> bool {
+    if category == OTHER {
+        s.category_label.is_none()
+    } else {
+        s.category == category
+    }
+}
+
+/// How many of `found` each category has, for the sidebar: the standard
+/// categories alphabetically, then every other category together under
+/// Other.
+fn facets(
+    categories: &[Category],
+    found: &[Schematic],
+    chosen: &str,
+) -> Vec<pages::Facet> {
+    let count =
+        |name: &str| found.iter().filter(|s| in_category(s, name)).count();
+    let mut facets: Vec<pages::Facet> = categories
+        .iter()
+        .map(|f| pages::Facet {
+            name: f.name.clone(),
+            label: f.plural.clone(),
+            count: count(&f.name),
+        })
+        .collect();
+    facets.push(pages::Facet {
+        name: OTHER.to_owned(),
+        label: "Other".to_owned(),
+        count: count(OTHER),
+    });
+    // Every standard category shows, even with no builds yet; Other only
+    // when it has some or is chosen.
+    facets.retain(|f| f.name != OTHER || f.count > 0 || f.name == chosen);
+    facets
 }
 
 /// An isometric picture of the build. Cards link to it with the file's hash
@@ -142,6 +218,25 @@ pub async fn save(
     show_edit(&state.db, &user, &id, Some(&form), &refused).await
 }
 
+/// Deletes a build for good, with its tags, credits, and stacking; admins
+/// only.
+pub async fn delete(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+) -> Response {
+    let Some(admin) = user_opt.filter(User::is_admin) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match schematic::delete(&state.db, &id).await {
+        Ok(()) => {
+            tracing::info!(id, by = admin.username, "deleted a build");
+            Redirect::to("/").into_response()
+        }
+        Err(err) => internal_error(err).into_response(),
+    }
+}
+
 /// Checks and stores an edit, or says why it was refused.
 async fn saved(
     db: &SqlitePool,
@@ -152,21 +247,31 @@ async fn saved(
         Ok(parsed) => parsed,
         Err(message) => return Ok(Err(message)),
     };
-    let function =
-        match schematic::check_function(db, &parsed.function, &parsed.design)
+    let category =
+        match schematic::check_category(db, &parsed.category, &parsed.design)
             .await?
         {
-            Ok(function) => function,
+            Ok(category) => category,
             Err(message) => return Ok(Err(message)),
         };
+    if let Some(data) = schematic::data(db, id).await?
+        && let Err(message) = stack::check(&data, &parsed.stacking)
+    {
+        return Ok(Err(message));
+    }
     let mut details = parsed.as_details();
-    // Carry lines mean nothing for a function without them.
-    if !function.carries {
+    // Carry lines mean nothing for a category without them.
+    if !category.carries {
         details.carry_in = None;
         details.carry_out = None;
     }
+    // Only a category that names each build keeps a given name.
+    if !category.named {
+        details.given_name = None;
+    }
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
+    schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
     let credits = [
         (Credit::Builder, &parsed.builders),
         (Credit::Contributor, &parsed.contributors),

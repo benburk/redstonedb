@@ -3,12 +3,14 @@
 //!
 //! Every term must match, so terms AND together. A term prefixed with `-`
 //! or written after `not` must not match. A term matches a schematic when
-//! it names one of its facts (function, orientation, encoding, a tag, its
-//! width such as `8b`, a builder, contributor, or importer, `stackable`, `sync` or
-//! `unsync`). A term that is no fact of any schematic matches when it
-//! appears in a schematic's title, filename, or description instead, so `add` finds
-//! adders while `sync` does not find `unsync`. Quotes keep a multi-word term together, as in
-//! `"carry lookahead"`; underscores work too.
+//! it names one of its facts (category, orientation, encoding, a tag, its
+//! width such as `8b`, a builder, contributor, or importer, `stackable`,
+//! `sync` or `unsync`). A name can be tied to its role, as in
+//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`. A
+//! term that is no fact of any schematic matches when it appears in a
+//! schematic's title or description instead, so `add` finds adders while
+//! `sync` does not find `unsync`. Quotes keep a multi-word term together,
+//! as in `"carry lookahead"`; underscores work too.
 
 use std::collections::HashSet;
 
@@ -90,9 +92,8 @@ pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
         .filter(|s| {
             let facts = facts(s);
             let text = format!(
-                "{} {} {}",
+                "{} {}",
                 s.title(),
-                s.filename(),
                 s.description.as_deref().unwrap_or("")
             )
             .to_lowercase();
@@ -111,12 +112,12 @@ pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
 /// Every word a term can name a schematic by.
 fn facts(s: &Schematic) -> Vec<String> {
     let mut facts = vec![
-        s.function.replace('_', " "),
+        s.category.replace('_', " "),
         s.orientation.clone(),
         s.orientation_label().to_lowercase(),
-        s.encoding.clone(),
-        s.encoding_label().to_owned(),
     ];
+    facts.extend(s.encoding.clone());
+    facts.extend(s.encoding_label().map(str::to_lowercase));
     for tag in &s.tags {
         facts.push(tag.label());
         facts.push(tag.token().replace('_', " "));
@@ -134,8 +135,22 @@ fn facts(s: &Schematic) -> Vec<String> {
     let person =
         |name: &String| name.to_lowercase().replace('_', " ").trim().to_owned();
     let people = s.builders.iter().chain(&s.contributors);
-    facts.extend(people.chain(&s.imported_by).map(person));
-    facts.extend(s.uploader.clone());
+    facts.extend(people.chain(&s.imported_by).chain(&s.uploader).map(person));
+    let roles = [
+        ("builder", s.builders.iter().collect::<Vec<_>>()),
+        ("contributor", s.contributors.iter().collect()),
+        (
+            "importer",
+            s.imported_by.iter().chain(&s.uploader).collect(),
+        ),
+    ];
+    for (role, names) in roles {
+        facts.extend(
+            names
+                .into_iter()
+                .map(|name| format!("{role}:{}", person(name))),
+        );
+    }
     if !s.stacking.is_empty() {
         facts.push("stackable".to_owned());
     }
@@ -172,17 +187,17 @@ mod tests {
     use crate::models::schematic::Tag;
 
     fn schematic(
-        function: &str,
+        category: &str,
         orientation: &str,
         tags: &[&str],
     ) -> Schematic {
         Schematic {
             id: String::new(),
-            function: function.to_owned(),
-            function_label: None,
+            category: category.to_owned(),
+            category_label: None,
             width: Some(8),
             orientation: orientation.to_owned(),
-            encoding: "bin".to_owned(),
+            encoding: Some("bin".to_owned()),
             latency: None,
             synchronized: None,
             size: (1, 1, 1),
@@ -197,6 +212,7 @@ mod tests {
             carry_in: None,
             carry_out: None,
             description: None,
+            given_name: None,
             uploader: None,
             sha256: String::new(),
             added_at: String::new(),
@@ -205,7 +221,7 @@ mod tests {
                 .map(|name| Tag {
                     name: (*name).to_owned(),
                     token: None,
-                    category: "other".to_owned(),
+                    kind: "other".to_owned(),
                 })
                 .collect(),
         }
@@ -257,6 +273,21 @@ mod tests {
         };
         let terms = parse("fearless_z_");
         assert_eq!(matching(&terms, vec![s]).len(), 1);
+    }
+
+    #[test]
+    fn a_role_ties_a_name_to_it() {
+        let built = Schematic {
+            builders: vec!["Alex_you".to_owned()],
+            ..schematic("adder", "horz", &[])
+        };
+        let helped = Schematic {
+            contributors: vec!["alex_you".to_owned()],
+            ..schematic("register", "horz", &[])
+        };
+        let found = matching(&parse("builder:Alex_you"), vec![built, helped]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].category, "adder");
     }
 
     #[test]

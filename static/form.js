@@ -1,12 +1,12 @@
 // Details forms. Without this script every field shows and the server
-// checks them all; with it, fields follow the chosen function.
+// checks them all; with it, fields follow the chosen category.
 
-// Function fields: the name box shows only for other, the carry boxes only
-// for functions with carries, and the design list only once the chosen
-// function has designs, offering just those.
-for (const select of document.querySelectorAll("select[data-function]")) {
+// Category fields: the name box shows only for other, the carry boxes only
+// for categories with carries, and the design list only once the chosen
+// category has designs, offering just those.
+for (const select of document.querySelectorAll("select[data-category]")) {
   const form = select.closest("form");
-  const name = form.querySelector("[data-function-name]");
+  const name = form.querySelector("[data-category-name]");
   const nameInput = name.querySelector("input");
   const carries = form.querySelector("[data-carries-field]");
   const design = form.querySelector("select[data-design]");
@@ -16,7 +16,13 @@ for (const select of document.querySelectorAll("select[data-function]")) {
     const other = select.value === "other";
     name.hidden = !other;
     nameInput.required = other;
+    // A category off the list has no width or encoding.
+    for (const field of form.querySelectorAll("[data-standard-only]")) {
+      field.hidden = other;
+    }
     carries.hidden = !select.selectedOptions[0]?.hasAttribute("data-carries");
+    form.querySelector("[data-named-field]").hidden =
+      !select.selectedOptions[0]?.hasAttribute("data-named");
     let designs = false;
     for (const group of design.querySelectorAll("optgroup")) {
       const mine = group.dataset.for === select.value;
@@ -29,6 +35,17 @@ for (const select of document.querySelectorAll("select[data-function]")) {
   };
 
   select.addEventListener("change", update);
+  update();
+}
+
+// Stacking: the direction rows show only while Stackable is ticked.
+for (const field of document.querySelectorAll("[data-stacking]")) {
+  const toggle = field.querySelector('input[name="stackable"]');
+  const rows = field.querySelector("[data-stack-rows]");
+  const update = () => {
+    rows.hidden = !toggle.checked;
+  };
+  toggle.addEventListener("change", update);
   update();
 }
 

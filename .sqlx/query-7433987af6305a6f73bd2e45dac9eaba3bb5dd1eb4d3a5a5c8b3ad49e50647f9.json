@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name as \"name!\", label,\n            iif(plural = '', label || 's', plural) as \"plural!: String\",\n            carries as \"carries: bool\", named as \"named: bool\"\n         FROM category ORDER BY label COLLATE NOCASE",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "plural!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "carries: bool",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "named: bool",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7433987af6305a6f73bd2e45dac9eaba3bb5dd1eb4d3a5a5c8b3ad49e50647f9"
+}

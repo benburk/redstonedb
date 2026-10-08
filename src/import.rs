@@ -68,7 +68,7 @@ pub fn sha256(data: &[u8]) -> String {
 /// that follows the conventions, and its whole box for one that does not.
 pub fn measure(blocks: &Blocks, conventional: bool) -> Result<Size> {
     if !conventional {
-        return blocks.full_size();
+        return Ok(blocks.full_size());
     }
     let (low, high) = interface::core(blocks);
     let [x, y, z] = [0, 1, 2]
@@ -81,7 +81,7 @@ pub struct Extras<'a> {
     pub builders: &'a [String],
     pub contributors: &'a [String],
     pub tags: &'a [String],
-    /// Make tags that do not exist yet, in the `other` category, rather
+    /// Make tags that do not exist yet, of the `other` kind, rather
     /// than refusing them.
     pub new_tags: bool,
     pub stacking: &'a [StackDirection],
@@ -108,13 +108,13 @@ pub async fn store(
         bail!("this file is already stored as {}", &id[..8]);
     }
     let design = new.design.unwrap_or("other");
-    let function =
-        match schematic::check_function(db, new.function, design).await? {
-            Ok(function) => function,
+    let category =
+        match schematic::check_category(db, new.category, design).await? {
+            Ok(category) => category,
             Err(message) => bail!("{message}"),
         };
-    // Carry lines mean nothing for a function without them.
-    let (carry_in, carry_out) = if function.carries {
+    // Carry lines mean nothing for a category without them.
+    let (carry_in, carry_out) = if category.carries {
         (new.carry_in, new.carry_out)
     } else {
         (None, None)
@@ -123,6 +123,8 @@ pub async fn store(
         design: Some(design),
         carry_in,
         carry_out,
+        // Only a category that names each build keeps a given name.
+        given_name: new.given_name.filter(|_| category.named),
         ..*new
     };
     let mut tx = db.begin().await?;

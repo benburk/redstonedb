@@ -217,30 +217,33 @@ impl Blocks {
     }
 
     /// The whole bounding box.
-    pub fn full_size(&self) -> Result<Size> {
+    pub fn full_size(&self) -> Size {
         let [x, y, z] = self.size.map(|n| u16::try_from(n).unwrap_or(0));
-        Ok(Size { x, y, z })
+        Size { x, y, z }
     }
 }
 
 impl Blocks {
-    /// Each lever with the block it is attached to.
-    pub fn levers(&self) -> Vec<Lever> {
+    /// Each lever and button with the block it is attached to.
+    pub fn switches(&self) -> Vec<Switch> {
         self.iter()
-            .filter(|(_, state)| id(state) == "minecraft:lever")
+            .filter(|(_, state)| {
+                id(state) == "minecraft:lever" || id(state).ends_with("_button")
+            })
             .filter_map(|(pos, state)| {
-                // A floor or ceiling lever's `facing` is only the way its
-                // handle points.
+                // A floor or ceiling lever's or button's `facing` is only the
+                // way it points.
                 let side = match property(state, "face")? {
                     "floor" => "up",
                     "ceiling" => "down",
                     _ => property(state, "facing")?,
                 };
-                Some(Lever {
+                Some(Switch {
                     pos,
                     block: step(pos, opposite(side)),
                     side: side.to_owned(),
                     on: property(state, "powered") == Some("true"),
+                    button: id(state).ends_with("_button"),
                 })
             })
             .collect()
@@ -273,13 +276,16 @@ impl Blocks {
     }
 }
 
-pub struct Lever {
+/// A lever, or a button, which a control line may use instead.
+pub struct Switch {
     pub pos: Pos,
-    /// The block the lever is attached to, which it powers.
+    /// The block the switch is attached to, which it powers.
     pub block: Pos,
-    /// The side of `block` the lever is on, such as `south` or `up`.
+    /// The side of `block` the switch is on, such as `south` or `up`.
     pub side: String,
     pub on: bool,
+    /// A button rather than a lever: it powers its block for a moment.
+    pub button: bool,
 }
 
 /// The block a redstone torch at `pos` stands on or hangs from.

@@ -48,6 +48,18 @@ pub fn stack(
     Ok((data, size))
 }
 
+/// Stacks two copies each way, so a wrong step is refused when it is saved
+/// rather than when someone downloads a stack. The `Err` is a sentence for
+/// the person.
+pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
+    for &direction in directions {
+        along(data, direction, 2).map_err(|err| {
+            format!("Two copies stacked {} don't fit: {err}.", direction.name())
+        })?;
+    }
+    Ok(())
+}
+
 /// Pairs each of `directions` with its count in `wanted`, keyed by
 /// direction name such as `west`. A direction left out gets one copy.
 pub fn plan<S: BuildHasher>(
@@ -165,7 +177,7 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     let lands_inside = |pos: Pos| !inside(pos) && inside(add(pos, step));
     // What each lever, sign, and torch hangs on.
     let mut support: HashMap<Pos, Pos> = blocks
-        .levers()
+        .switches()
         .into_iter()
         .map(|lever| (lever.pos, lever.block))
         .collect();

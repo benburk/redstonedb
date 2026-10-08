@@ -23,8 +23,6 @@ pub fn base(
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { (document_title) }
                 link rel="stylesheet" href="/app.css";
-                script defer src="/fixi.js" {}
-                script defer src="/fixi-config.js" {}
             }
             body class="flex min-h-screen flex-col" {
                 a href="#main"
@@ -35,9 +33,6 @@ pub fn base(
                 main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
                     (content)
                 }
-                // fixi-config.js writes failures here; no swap replaces it.
-                div id="notice" role="status"
-                    class="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-control bg-ink px-4 py-2 text-canvas shadow-overlay empty:hidden" {}
             }
         }
     }
@@ -74,8 +69,8 @@ pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                             }
                             (user.name())
                         }
-                        a href="/" fx-action="/sessions" fx-method="delete" fx-swap="none" class=(link) {
-                            "Log out"
+                        form action="/logout" method="post" class="contents" {
+                            button type="submit" class={ (link) " cursor-pointer" } { "Log out" }
                         }
                     }
                 }

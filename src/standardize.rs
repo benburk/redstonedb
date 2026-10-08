@@ -145,7 +145,7 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
         .collect();
     // The blocks a lever or sign hangs on, which must stay.
     let mut held: HashSet<Pos> = blocks
-        .levers()
+        .switches()
         .into_iter()
         .map(|lever| lever.block)
         .collect();

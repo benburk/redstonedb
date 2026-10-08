@@ -261,6 +261,56 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
     assert!(lint::check(&blocks).is_empty());
     let size = import::measure(&blocks, true).unwrap();
     assert_eq!((size.x, size.y, size.z), (7, 35, 8));
-    let all_layers = blocks.full_size().unwrap();
+    let all_layers = blocks.full_size();
     assert!(all_layers.z > size.z, "the input layer is left out");
+}
+
+#[test]
+fn a_control_line_may_use_a_button() {
+    let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let messages: Vec<String> = lint::check(&blocks)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(messages.is_empty(), "{messages:#?}");
+    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    let mut controls = names(&inputs);
+    controls.sort_unstable();
+    assert_eq!(
+        controls,
+        [("A", 8), ("B", 8), ("calculate", 1), ("reset", 1)]
+    );
+    assert_eq!(names(&outputs), [("output", 8)]);
+}
+
+#[test]
+fn an_operand_may_not_use_a_button() {
+    let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let lever = blocks.switches().into_iter().find(|l| !l.button).unwrap();
+    let pos = lever.pos;
+    let state = blocks
+        .get(pos)
+        .replace("minecraft:lever", "minecraft:stone_button");
+    let mut nbt = app::schem::decode(&data).unwrap();
+    let mut grid: std::collections::HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, s)| *s != "minecraft:air")
+        .map(|(p, s)| (p, s.to_owned()))
+        .collect();
+    grid.insert(pos, state);
+    let entities = nbt.take_entities();
+    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    let changed = Blocks::read(&app::schem::encode(nbt).unwrap()).unwrap();
+    let messages: Vec<String> = lint::check(&changed)
+        .iter()
+        .map(|v| v.message.clone())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("button on an operand bit")),
+        "{messages:#?}"
+    );
 }

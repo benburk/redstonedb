@@ -39,6 +39,8 @@ pub struct User {
     /// The Discord avatar's hash.
     pub avatar: Option<String>,
     pub role: Role,
+    /// The in-game name the person gave, if any.
+    pub minecraft_name: Option<String>,
 }
 
 /// Who Discord says a person is, from its `/users/@me`.
@@ -56,6 +58,7 @@ struct Row {
     display_name: Option<String>,
     avatar: Option<String>,
     role: String,
+    minecraft_name: Option<String>,
 }
 
 impl From<Row> for User {
@@ -67,6 +70,7 @@ impl From<Row> for User {
             display_name: row.display_name,
             avatar: row.avatar,
             role: Role::parse(&row.role).unwrap_or(Role::User),
+            minecraft_name: row.minecraft_name,
         }
     }
 }
@@ -103,7 +107,7 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role
+                avatar, role, minecraft_name
              FROM user WHERE id = ?"#,
             id
         )
@@ -119,7 +123,7 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role
+                avatar, role, minecraft_name
              FROM user WHERE username = ?"#,
             username
         )
@@ -135,7 +139,7 @@ impl User {
         let rows = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role
+                avatar, role, minecraft_name
              FROM user
              ORDER BY role = 'user', role = 'mod', username"#
         )
@@ -179,7 +183,7 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role
+                avatar, role, minecraft_name
              FROM user WHERE discord_id = ?"#,
             profile.id
         )
@@ -187,6 +191,32 @@ impl User {
         .await?;
         tx.commit().await?;
         Ok(row.into())
+    }
+
+    /// Sets or clears the account's Minecraft name. The `Err` is a sentence
+    /// for the person when the name is taken by another account.
+    pub async fn set_minecraft_name<'e, E: SqliteExecutor<'e>>(
+        db: E,
+        id: Uuid,
+        name: Option<&str>,
+    ) -> Result<Result<(), String>, sqlx::Error> {
+        let result = sqlx::query!(
+            "UPDATE user SET minecraft_name = ? WHERE id = ?",
+            name,
+            id
+        )
+        .execute(db)
+        .await;
+        match result {
+            Ok(_) => Ok(Ok(())),
+            Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
+                Ok(Err(format!(
+                    "{} is already the Minecraft name of another account.",
+                    name.unwrap_or_default()
+                )))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub async fn set_role<'e, E: SqliteExecutor<'e>>(

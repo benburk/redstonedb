@@ -1,6 +1,6 @@
 # Building conventions
 
-Each schematic should follow one default building convention, so builds line up when combined and their names describe them consistently. The planned linter checks these conventions; see [features.md](features.md).
+Each schematic should follow one default building convention, so builds line up when combined and their names describe them consistently. `rsdb lint` and the upload page check these conventions, and refuse a build that breaks one; [features.md](features.md) lists the checks still to come.
 
 ## Block palette
 
@@ -27,6 +27,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 ## Inputs
 
 - Each input bit is a block with a lever on it: lime for every bit of A, light blue for every bit of B, magenta for every control line, such as a clock, enable, carry-in, or ALU op line.
+- A control line may use a button instead of a lever, for a pulse such as a reset or a calculate line. Operand bits always use levers.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
 - The face the lever is on is the face power enters from, so the lever also marks where a driver goes.

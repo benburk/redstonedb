@@ -1,14 +1,102 @@
 //! Reading a build's details from a form, for editing and uploading.
 
 use super::pages::Fields;
-use crate::models::schematic::{self, Details};
+use crate::models::schematic::{self, Details, StackDirection};
+
+/// The ways the form can stack a build, as `StackDirection::name` gives
+/// them, with their labels.
+pub const STACK_DIRECTIONS: [(&str, &str); 4] = [
+    ("west", "West"),
+    ("up", "Up"),
+    ("north", "North"),
+    ("west-up", "West and up"),
+];
+
+/// One stacking direction as the form shows it, every field as text.
+#[derive(Clone, Default)]
+pub struct StackRow {
+    /// One of [`STACK_DIRECTIONS`], such as `west`.
+    pub direction: String,
+    /// Blocks from each copy to the next.
+    pub step: String,
+    /// The most copies that work; empty for no limit.
+    pub max: String,
+}
+
+impl StackRow {
+    pub fn of(direction: &StackDirection) -> Self {
+        StackRow {
+            direction: direction.name(),
+            step: direction
+                .west
+                .max(direction.up)
+                .max(direction.north)
+                .to_string(),
+            max: direction
+                .max_copies
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// A likely first direction for a build whose bits run along
+    /// `orientation`, with core `size`: copies placed its size apart the
+    /// way the bits run. A diagonal build's step is left to the person.
+    pub fn suggested(orientation: &str, size: (i64, i64, i64)) -> Self {
+        let (direction, step) = match orientation {
+            "vert" => ("up", size.1.to_string()),
+            "diag" => ("west-up", String::new()),
+            _ => ("west", size.0.to_string()),
+        };
+        StackRow {
+            direction: direction.to_owned(),
+            step,
+            max: String::new(),
+        }
+    }
+
+    /// The direction this row describes; `None` when its step is empty.
+    fn parse(&self) -> Result<Option<StackDirection>, String> {
+        let step = self.step.trim();
+        if step.is_empty() {
+            return Ok(None);
+        }
+        let step: i64 = step
+            .parse()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or("A stacking step must be a whole number of blocks.")?;
+        let (west, up, north) = match self.direction.as_str() {
+            "west" => (step, 0, 0),
+            "up" => (0, step, 0),
+            "north" => (0, 0, step),
+            "west-up" => (step, step, 0),
+            _ => return Err("Choose a stacking direction.".to_owned()),
+        };
+        let max = self.max.trim();
+        let max_copies = if max.is_empty() {
+            None
+        } else {
+            Some(max.parse().ok().filter(|n| *n >= 2).ok_or(
+                "The most copies must be a whole number, 2 or more; leave \
+                 it empty for no limit.",
+            )?)
+        };
+        Ok(Some(StackDirection {
+            west,
+            up,
+            north,
+            max_copies,
+        }))
+    }
+}
 
 /// A details form as sent, every field as text; empty means unknown.
 #[derive(Default)]
 pub struct Form {
-    /// A standard function, or `other` with its name in `function_name`.
-    pub function: String,
-    pub function_name: String,
+    /// A standard category, or `other` with its name in `category_name`.
+    pub category: String,
+    pub category_name: String,
     pub width: String,
     pub orientation: String,
     pub encoding: String,
@@ -19,9 +107,14 @@ pub struct Form {
     /// Empty when the "don't know" box beside it is ticked.
     pub built_on: String,
     pub description: String,
+    /// The build's own name, for a category that takes one.
+    pub given_name: String,
     pub design: String,
     pub carry_in: bool,
     pub carry_out: bool,
+    /// Whether the stacking toggle is on; the rows count only when it is.
+    pub stackable: bool,
+    pub stack_rows: Vec<StackRow>,
     /// In order, from the builder pills and anything typed beside them.
     pub builders: Vec<String>,
     /// Likewise, from the contributor pills.
@@ -32,19 +125,22 @@ pub struct Form {
 
 /// A details form checked and converted.
 pub struct Parsed {
-    pub function: String,
+    pub category: String,
     pub width: Option<i64>,
     pub orientation: String,
-    pub encoding: String,
+    pub encoding: Option<String>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     pub built_on: Option<String>,
     pub description: Option<String>,
+    pub given_name: Option<String>,
     pub design: String,
     pub carry_in: Option<bool>,
     pub carry_out: Option<bool>,
     pub builders: Vec<String>,
     pub contributors: Vec<String>,
+    /// Empty for a build that does not stack.
+    pub stacking: Vec<StackDirection>,
 }
 
 impl Form {
@@ -60,6 +156,23 @@ impl Form {
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default()
         };
+        let each = |key: &str| -> Vec<String> {
+            pairs
+                .iter()
+                .filter(|(k, _)| k == key)
+                .map(|(_, v)| v.trim().to_owned())
+                .collect()
+        };
+        let stack_rows = each("stack_direction")
+            .into_iter()
+            .zip(each("stack_step"))
+            .zip(each("stack_max"))
+            .map(|((direction, step), max)| StackRow {
+                direction,
+                step,
+                max,
+            })
+            .collect();
         let all = |key: &str, entry: &str| -> Vec<String> {
             pairs
                 .iter()
@@ -70,8 +183,8 @@ impl Form {
                 .collect()
         };
         Form {
-            function: get("function"),
-            function_name: get("function_name"),
+            category: get("category"),
+            category_name: get("category_name"),
             width: get("width"),
             orientation: get("orientation"),
             encoding: get("encoding"),
@@ -85,9 +198,12 @@ impl Form {
                 String::new()
             },
             description: get("description"),
+            given_name: get("given_name"),
             design: get("design"),
             carry_in: !get("carry_in").is_empty(),
             carry_out: !get("carry_out").is_empty(),
+            stackable: !get("stackable").is_empty(),
+            stack_rows,
             builders: all("builder", "builder_entry"),
             contributors: all("contributor", "contributor_entry"),
             tags: all("tag", "tag_entry")
@@ -97,14 +213,14 @@ impl Form {
         }
     }
 
-    /// The sent values, to show again after a refusal. A function named
+    /// The sent values, to show again after a refusal. A category named
     /// under other shows as that name.
     pub fn fields(&self) -> Fields<'_> {
         Fields {
-            function: if self.function == "other" {
-                &self.function_name
+            category: if self.category == "other" {
+                &self.category_name
             } else {
-                &self.function
+                &self.category
             },
             width: &self.width,
             orientation: &self.orientation,
@@ -115,10 +231,34 @@ impl Form {
             contributors: &self.contributors,
             built_on: &self.built_on,
             description: &self.description,
+            given_name: &self.given_name,
             design: &self.design,
             carry_in: self.carry_in,
             carry_out: self.carry_out,
+            stackable: self.stackable,
+            stack_rows: &self.stack_rows,
         }
+    }
+
+    /// The stacking directions, checked: none unless the toggle is on, and
+    /// then at least one, each way once.
+    fn stacking(&self) -> Result<Vec<StackDirection>, String> {
+        if !self.stackable {
+            return Ok(Vec::new());
+        }
+        let mut directions: Vec<StackDirection> = Vec::new();
+        for row in &self.stack_rows {
+            if let Some(direction) = row.parse()? {
+                if directions.iter().any(|d| d.name() == direction.name()) {
+                    return Err("Give each stacking direction once.".to_owned());
+                }
+                directions.push(direction);
+            }
+        }
+        if directions.is_empty() {
+            return Err("Give a stacking step, or untick Stackable.".to_owned());
+        }
+        Ok(directions)
     }
 
     /// The checked fields, or a sentence saying which field is wrong.
@@ -135,13 +275,13 @@ impl Form {
                 })
                 .transpose()
         };
-        let function = if self.function == "other" {
-            schematic::tag_name(&self.function_name)
+        let category = if self.category == "other" {
+            schematic::tag_name(&self.category_name)
         } else {
-            self.function.trim().to_lowercase()
+            self.category.trim().to_lowercase()
         };
-        if function.is_empty() {
-            return Err("Choose a function, or name it under other.".to_owned());
+        if category.is_empty() {
+            return Err("Choose a category, or name it under other.".to_owned());
         }
         if !matches!(self.orientation.as_str(), "horz" | "vert" | "diag") {
             return Err(
@@ -149,9 +289,16 @@ impl Form {
                     .to_owned(),
             );
         }
-        if !matches!(self.encoding.as_str(), "bin" | "hex") {
-            return Err("Encoding must be binary or hex.".to_owned());
-        }
+        // A category off the list, such as a piston door, has no width or
+        // encoding.
+        let other = self.category == "other";
+        let encoding = if other {
+            None
+        } else if matches!(self.encoding.as_str(), "bin" | "hex") {
+            Some(self.encoding.clone())
+        } else {
+            return Err("Encoding must be Binary or Hex.".to_owned());
+        };
         if let Some(name) = self
             .builders
             .iter()
@@ -171,6 +318,9 @@ impl Form {
                 name.replace('_', " ")
             ));
         }
+        if self.given_name.trim().chars().count() > 60 {
+            return Err("A name is at most 60 characters.".to_owned());
+        }
         let built_on = text(&self.built_on);
         if built_on.as_deref().is_some_and(|d| {
             d.len() != 10
@@ -187,19 +337,25 @@ impl Form {
             );
         }
         Ok(Parsed {
-            function,
-            width: number(&self.width, "Width")?.filter(|w| *w > 0),
+            category,
+            width: if other {
+                None
+            } else {
+                number(&self.width, "Width")?.filter(|w| *w > 0)
+            },
             orientation: self.orientation.clone(),
-            encoding: self.encoding.clone(),
+            encoding,
             latency: number(&self.latency, "Latency")?,
             synchronized: self.synchronized,
             built_on,
             description: text(&self.description),
+            given_name: text(&self.given_name),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
             carry_in: Some(self.carry_in),
             carry_out: Some(self.carry_out),
             builders: self.builders.clone(),
             contributors: self.contributors.clone(),
+            stacking: self.stacking()?,
         })
     }
 }
@@ -207,14 +363,15 @@ impl Form {
 impl Parsed {
     pub fn as_details(&self) -> Details<'_> {
         Details {
-            function: &self.function,
+            category: &self.category,
             width: self.width,
             orientation: &self.orientation,
-            encoding: &self.encoding,
+            encoding: self.encoding.as_deref(),
             latency: self.latency,
             synchronized: self.synchronized,
             built_on: self.built_on.as_deref(),
             description: self.description.as_deref(),
+            given_name: self.given_name.as_deref(),
             design: Some(&self.design),
             carry_in: self.carry_in,
             carry_out: self.carry_out,
@@ -227,4 +384,85 @@ pub fn pairs(body: &[u8]) -> Vec<(String, String)> {
     form_urlencoded::parse(body)
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn form(stackable: bool, rows: &[(&str, &str, &str)]) -> Form {
+        Form {
+            stackable,
+            stack_rows: rows
+                .iter()
+                .map(|&(direction, step, max)| StackRow {
+                    direction: direction.to_owned(),
+                    step: step.to_owned(),
+                    max: max.to_owned(),
+                })
+                .collect(),
+            ..Form::default()
+        }
+    }
+
+    #[test]
+    fn stacking_counts_only_while_ticked() {
+        let off = form(false, &[("west", "2", "")]);
+        assert!(off.stacking().unwrap().is_empty());
+    }
+
+    #[test]
+    fn stacking_reads_each_filled_row() {
+        let on = form(
+            true,
+            &[("west", "2", "7"), ("north", "4", ""), ("west", "", "")],
+        );
+        let directions = on.stacking().unwrap();
+        assert_eq!(directions.len(), 2);
+        assert_eq!(
+            (directions[0].west, directions[0].max_copies),
+            (2, Some(7))
+        );
+        assert_eq!((directions[1].north, directions[1].max_copies), (4, None));
+        let diagonal = form(true, &[("west-up", "1", "")]).stacking().unwrap();
+        assert_eq!((diagonal[0].west, diagonal[0].up), (1, 1));
+    }
+
+    #[test]
+    fn stacking_refuses_what_cannot_stack() {
+        for rows in [
+            vec![("west", "", "")],
+            vec![("west", "0", "")],
+            vec![("west", "2", "1")],
+            vec![("west", "2", ""), ("west", "3", "")],
+            vec![("sideways", "2", "")],
+        ] {
+            assert!(form(true, &rows).stacking().is_err(), "{rows:?}");
+        }
+    }
+
+    #[test]
+    fn a_category_off_the_list_has_no_width_or_encoding() {
+        let sent = Form {
+            category: "other".to_owned(),
+            category_name: "8-Bit Horizontal Diode".to_owned(),
+            width: "8".to_owned(),
+            orientation: "horz".to_owned(),
+            encoding: "bin".to_owned(),
+            ..Form::default()
+        };
+        let parsed = sent.parse().unwrap();
+        assert_eq!(parsed.category, "8-bit_horizontal_diode");
+        assert_eq!((parsed.width, parsed.encoding), (None, None));
+    }
+
+    #[test]
+    fn a_stored_direction_shows_as_its_row() {
+        let direction: StackDirection = "north=4,max=3".parse().unwrap();
+        let row = StackRow::of(&direction);
+        assert_eq!(
+            (row.direction.as_str(), row.step.as_str(), row.max.as_str()),
+            ("north", "4", "3")
+        );
+    }
 }

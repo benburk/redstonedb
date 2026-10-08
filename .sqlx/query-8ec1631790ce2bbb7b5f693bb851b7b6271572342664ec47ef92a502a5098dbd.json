@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET\n            category = coalesce(?, category),\n            width = coalesce(?, width),\n            orientation = coalesce(?, orientation),\n            encoding = coalesce(?, encoding),\n            latency = coalesce(?, latency),\n            synchronized = coalesce(?, synchronized),\n            built_on = coalesce(?, built_on),\n            imported_by = coalesce(?, imported_by),\n            conventional = coalesce(?, conventional),\n            design = coalesce(?, design),\n            carry_in = coalesce(?, carry_in),\n            carry_out = coalesce(?, carry_out),\n            description = coalesce(?, description),\n            given_name = coalesce(?, given_name)\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 15
+    },
+    "nullable": []
+  },
+  "hash": "8ec1631790ce2bbb7b5f693bb851b7b6271572342664ec47ef92a502a5098dbd"
+}

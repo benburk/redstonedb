@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    import, interface, lint,
+    import, interface,
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
     models::user::{Role, User},
     schem::Blocks,
@@ -32,30 +32,38 @@ enum Command {
     /// building conventions
     Add(Add),
     /// Check a .schem file, or a stored schematic by id, against the
-    /// building conventions
+    /// building conventions, as an upload would: with any corner markers
+    /// taken out and the box fitted first
     Lint { file_or_id: String },
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),
     /// Delete a schematic
     Remove { id: String },
-    /// Read every stored file again: its size, and its carry lines where
-    /// they are unknown
+    /// Read every stored file again: take out corner markers and fit its
+    /// box, measure it, and fill in its carry lines where they are unknown
     Reread,
-    /// List the standard functions, with their designs
-    Functions,
-    /// Add a standard function to the list
-    DefineFunction {
+    /// List the standard categories, with their designs
+    Categories,
+    /// Add a standard category to the list
+    DefineCategory {
         name: String,
         /// How people read it, such as RAM; words of the name by default
         #[arg(long)]
         label: Option<String>,
+        /// How people read many of them, such as ALUs; the label with an s
+        /// by default
+        #[arg(long)]
+        plural: Option<String>,
         /// Its builds have carry lines worth recording
         #[arg(long)]
         carries: bool,
+        /// Each of its builds gives its own name, as bussing's do
+        #[arg(long)]
+        named: bool,
     },
-    /// Add a design to a function
+    /// Add a design to a category
     DefineDesign {
-        function: String,
+        category: String,
         name: String,
         /// The usual short name, such as CLA
         #[arg(long)]
@@ -79,7 +87,7 @@ enum Command {
     /// List schematics by id prefix and filename
     List {
         #[arg(long)]
-        function: Option<String>,
+        category: Option<String>,
         /// Only schematics carrying this tag; repeatable
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -103,13 +111,13 @@ enum Command {
     Tag { id: String, tags: Vec<String> },
     /// Detach tags from a schematic
     Untag { id: String, tags: Vec<String> },
-    /// List known tags by category
+    /// List known tags by kind
     Tags,
     /// Create a new tag, named in full words
     DefineTag {
         name: String,
         #[arg(long, value_parser = ["restriction", "timing", "other"])]
-        category: String,
+        kind: String,
         /// Abbreviation that filenames write instead of the name
         #[arg(long)]
         token: Option<String>,
@@ -120,7 +128,7 @@ enum Command {
 struct Set {
     id: String,
     #[arg(long)]
-    function: Option<String>,
+    category: Option<String>,
     #[arg(long, value_parser = ["horz", "vert", "diag"])]
     orientation: Option<String>,
     #[arg(long, value_parser = ["bin", "hex"])]
@@ -142,6 +150,7 @@ struct Set {
             "description",
             "design",
             "carries",
+            "name",
         ]
     )]
     unset: Vec<String>,
@@ -151,11 +160,12 @@ struct Set {
 struct Add {
     file: PathBuf,
     #[arg(long)]
-    function: String,
+    category: String,
     #[arg(long, value_parser = ["horz", "vert", "diag"])]
     orientation: String,
+    /// Left out for a category off the list, such as a piston door
     #[arg(long, value_parser = ["bin", "hex"])]
-    encoding: String,
+    encoding: Option<String>,
     #[command(flatten)]
     details: Details,
     /// Tag to attach; repeatable
@@ -165,8 +175,7 @@ struct Add {
     #[arg(long)]
     force: bool,
     /// Whiten every block but redstone components, inputs, and outputs,
-    /// turn slabs and glass into white stained glass, fit the box, and add
-    /// the corner markers, before linting
+    /// and turn slabs and glass into white stained glass, before linting
     #[arg(long)]
     standardize: bool,
 }
@@ -205,8 +214,12 @@ struct Details {
     /// Free text about the build, such as how to use it
     #[arg(long)]
     description: Option<String>,
-    /// The design within its function, such as `carry_lookahead`; see
-    /// `rsdb functions`. Left out, `add` stores `other`
+    /// The build's own name, for a category that takes one, such as
+    /// `Bus Crossing` under bussing
+    #[arg(long = "name")]
+    given_name: Option<String>,
+    /// The design within its category, such as `carry_lookahead`; see
+    /// `rsdb categories`. Left out, `add` stores `other`
     #[arg(long)]
     design: Option<String>,
     /// Whether it has a carry in: true or false. `add` reads it from the
@@ -244,8 +257,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Set(args) => set(db, args).await,
-        Command::List { function, tags } => {
-            list(db, function.as_deref(), &tags).await
+        Command::List { category, tags } => {
+            list(db, category.as_deref(), &tags).await
         }
         Command::Search { terms } => {
             let terms = search::parse(&terms.join(" "));
@@ -255,20 +268,22 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Reread => reread(db).await,
-        Command::Functions => print_functions(db).await,
-        Command::DefineFunction {
+        Command::Categories => print_categories(db).await,
+        Command::DefineCategory {
             name,
             label,
+            plural,
             carries,
-        } => define_function(db, name, label, carries).await,
+            named,
+        } => define_category(db, name, label, plural, carries, named).await,
         Command::DefineDesign {
-            function,
+            category,
             name,
             abbreviation,
         } => Ok(schematic::define_design(
             db,
             &schematic::Design {
-                function,
+                category,
                 name,
                 abbreviation,
             },
@@ -314,17 +329,12 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Tags => {
             for tag in schematic::all_tags(db).await? {
                 let token = tag.token.as_deref().unwrap_or("");
-                println!("{:<12} {:<8} {}", tag.category, token, tag.label());
+                println!("{:<12} {:<8} {}", tag.kind, token, tag.label());
             }
             Ok(())
         }
-        Command::DefineTag {
-            name,
-            category,
-            token,
-        } => {
-            schematic::define_tag(db, &name, token.as_deref(), &category)
-                .await?;
+        Command::DefineTag { name, kind, token } => {
+            schematic::define_tag(db, &name, token.as_deref(), &kind).await?;
             Ok(())
         }
     }
@@ -334,7 +344,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
 async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let Set {
         id,
-        function,
+        category,
         orientation,
         encoding,
         details,
@@ -343,7 +353,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let id = resolve(db, &id).await?;
     let imported_by = details.imported_by;
     let changes = Changes {
-        function: function.as_deref(),
+        category: category.as_deref(),
         width: details.width.map(i64::from),
         orientation: orientation.as_deref(),
         encoding: encoding.as_deref(),
@@ -356,15 +366,16 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         carry_in: details.carry_in,
         carry_out: details.carry_out,
         description: details.description.as_deref(),
+        given_name: details.given_name.as_deref(),
     };
     let current = load(db, &id).await?;
-    let function = changes.function.unwrap_or(&current.function);
+    let category = changes.category.unwrap_or(&current.category);
     let design = changes
         .design
         .or(current.design.as_deref())
         .unwrap_or("other");
     if let Err(message) =
-        schematic::check_function(db, function, design).await?
+        schematic::check_category(db, category, design).await?
     {
         bail!("{message}");
     }
@@ -378,6 +389,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "built-on" => Some(Optional::BuiltOn),
             "imported-by" => Some(Optional::ImportedBy),
             "description" => Some(Optional::Description),
+            "name" => Some(Optional::GivenName),
             "design" => Some(Optional::Design),
             "carries" => Some(Optional::Carries),
             _ => None,
@@ -433,10 +445,10 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let id = import::store(
         db,
         &New {
-            function: &args.function,
+            category: &args.category,
             width: details.width.map(i64::from),
             orientation: &args.orientation,
-            encoding: &args.encoding,
+            encoding: args.encoding.as_deref(),
             latency: details.latency.map(i64::from),
             synchronized: details.synchronized,
             size: (size.x.into(), size.y.into(), size.z.into()),
@@ -447,6 +459,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             carry_in: details.carry_in.or(Some(file_carries.0)),
             carry_out: details.carry_out.or(Some(file_carries.1)),
             description: details.description.as_deref(),
+            given_name: details.given_name.as_deref(),
             uploaded_by: None,
             sha256: &prepared.sha256,
             data: &prepared.data,
@@ -501,21 +514,26 @@ async fn export(
     Ok(())
 }
 
-/// Adds a standard function, labelled with its name's words unless given
+/// Adds a standard category, labelled with its name's words unless given
 /// a label.
-async fn define_function(
+async fn define_category(
     db: &SqlitePool,
     name: String,
     label: Option<String>,
+    plural: Option<String>,
     carries: bool,
+    named: bool,
 ) -> Result<()> {
     let label = label.unwrap_or_else(|| schematic::words(&name));
-    let function = schematic::Function {
+    let plural = plural.unwrap_or_else(|| format!("{label}s"));
+    let category = schematic::Category {
         name,
         label,
+        plural,
         carries,
+        named,
     };
-    Ok(schematic::define_function(db, &function).await?)
+    Ok(schematic::define_category(db, &category).await?)
 }
 
 /// Sets the role of the account with a Discord username.
@@ -533,19 +551,19 @@ async fn set_role(db: &SqlitePool, username: &str, role: &str) -> Result<()> {
     Ok(())
 }
 
-/// Prints each function with its designs.
-async fn print_functions(db: &SqlitePool) -> Result<()> {
+/// Prints each category with its designs.
+async fn print_categories(db: &SqlitePool) -> Result<()> {
     let designs = schematic::designs(db).await?;
-    for function in schematic::functions(db).await? {
+    for category in schematic::categories(db).await? {
         let names: Vec<&str> = designs
             .iter()
-            .filter(|d| d.function == function.name)
+            .filter(|d| d.category == category.name)
             .map(|d| d.name.as_str())
             .collect();
         println!(
             "{:<20} {:<20} {}",
-            function.name,
-            function.label,
+            category.name,
+            category.label,
             names.join(", ")
         );
     }
@@ -554,9 +572,9 @@ async fn print_functions(db: &SqlitePool) -> Result<()> {
 
 /// Reads every stored file again and prints what changed: the file
 /// itself, with any corner markers taken out and its box fitted; its size;
-/// and its carry lines where they are unknown and its function has them.
+/// and its carry lines where they are unknown and its category has them.
 async fn reread(db: &SqlitePool) -> Result<()> {
-    let functions = schematic::functions(db).await?;
+    let categories = schematic::categories(db).await?;
     for s in schematic::all(db).await? {
         let stored = schematic::data(db, &s.id)
             .await?
@@ -571,7 +589,7 @@ async fn reread(db: &SqlitePool) -> Result<()> {
         }
         let blocks = Blocks::read(&data)?;
         let carries =
-            functions.iter().any(|f| f.name == s.function && f.carries);
+            categories.iter().any(|f| f.name == s.category && f.carries);
         if carries
             && s.conventional
             && (s.carry_in.is_none() || s.carry_out.is_none())
@@ -624,11 +642,11 @@ fn copy_counts(
         .collect()
 }
 
-/// Prints the schematics with `function`, if given, and every one of `tags`,
+/// Prints the schematics with `category`, if given, and every one of `tags`,
 /// each named in full or by its filename token.
 async fn list(
     db: &SqlitePool,
-    function: Option<&str>,
+    category: Option<&str>,
     tags: &[String],
 ) -> Result<()> {
     for s in schematic::all(db).await? {
@@ -638,7 +656,7 @@ async fn list(
                 .iter()
                 .any(|tag| tag.name == name || tag.token() == t)
         });
-        if function.is_none_or(|f| f == s.function) && has_tags {
+        if category.is_none_or(|f| f == s.category) && has_tags {
             println!("{}  {}", &s.id[..8], s.filename());
         }
     }
@@ -655,7 +673,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
             .await?
             .context("schematic vanished")?
     };
-    let violations = lint::check(&Blocks::read(&data)?);
+    let violations = import::prepare(&data, false, true)?.violations;
     for violation in &violations {
         println!("{violation}");
     }
@@ -695,10 +713,10 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("id           {}", s.id);
     println!("title        {}", s.title());
     println!("filename     {}", s.filename());
-    println!("function     {}", s.function);
+    println!("category     {}", s.category);
     println!("width        {}", unknown(s.width_label()));
     println!("orientation  {}", s.orientation_label());
-    println!("encoding     {}", s.encoding_label());
+    println!("encoding     {}", s.encoding_label().unwrap_or("none"));
     println!(
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))

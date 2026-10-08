@@ -134,8 +134,12 @@
     @apply text-danger;
   }
 
+  /* Badges hold lowercase words, which look centred when their x-height
+     is. Centring the line box centres the cap height instead, which leaves
+     lowercase text a pixel low with the system font, so the bottom padding
+     lifts it by that pixel. */
   .badge {
-    @apply inline-flex min-h-6 items-center gap-1 rounded-full px-2.5 text-meta font-medium whitespace-nowrap;
+    @apply inline-flex min-h-6 items-center gap-1 rounded-full px-2.5 pb-0.5 text-meta font-medium whitespace-nowrap;
   }
 
   .badge-restriction {

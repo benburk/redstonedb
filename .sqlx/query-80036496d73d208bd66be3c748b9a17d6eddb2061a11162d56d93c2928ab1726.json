@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name, token, category FROM tag\n         ORDER BY category = 'other', category, name",
+  "query": "SELECT tag.name, tag.token, tag.kind\n         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id\n         WHERE schematic_tag.schematic_id = ?\n         ORDER BY tag.kind = 'other', tag.kind, tag.name",
   "describe": {
     "columns": [
       {
@@ -14,13 +14,13 @@
         "type_info": "Text"
       },
       {
-        "name": "category",
+        "name": "kind",
         "ordinal": 2,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "2a1befec4bae695cb04915e89c5e1d3f285707dbaeff8fe615c9a689960f8785"
+  "hash": "80036496d73d208bd66be3c748b9a17d6eddb2061a11162d56d93c2928ab1726"
 }
