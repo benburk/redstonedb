@@ -370,10 +370,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     };
     let current = load(db, &id).await?;
     let category = changes.category.unwrap_or(&current.category);
-    let design = changes
-        .design
-        .or(current.design.as_deref())
-        .unwrap_or("other");
+    let design = changes.design.unwrap_or(&current.design);
     if let Err(message) =
         schematic::check_category(db, category, design).await?
     {
@@ -722,10 +719,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
     println!("synchronized {}", s.synchronized_label());
-    println!(
-        "design       {}",
-        s.design.as_deref().unwrap_or("none").replace('_', " ")
-    );
+    println!("design       {}", s.design.replace('_', " "));
     let yes_no = |v: Option<bool>| match v {
         Some(true) => "yes",
         Some(false) => "no",

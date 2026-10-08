@@ -22,7 +22,7 @@ pub fn base(
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { (document_title) }
-                link rel="stylesheet" href="/app.css";
+                link rel="stylesheet" href=(crate::web::css_url());
             }
             body class="flex min-h-screen flex-col" {
                 a href="#main"

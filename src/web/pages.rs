@@ -32,44 +32,14 @@ pub enum View {
     List,
 }
 
-/// The order of the home page's schematics.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Sort {
-    /// Newest first, by when each was added to the site.
-    Newest,
-    /// Smallest first.
-    Volume,
-    /// Fastest first; unknown latencies last.
-    Latency,
-}
-
-impl Sort {
-    pub const ALL: [Sort; 3] = [Sort::Newest, Sort::Volume, Sort::Latency];
-
-    /// The value in the address, such as `volume`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Sort::Newest => "",
-            Sort::Volume => "volume",
-            Sort::Latency => "latency",
-        }
-    }
-
-    pub fn parse(text: &str) -> Self {
-        Sort::ALL
-            .into_iter()
-            .find(|sort| sort.as_str() == text)
-            .unwrap_or(Sort::Newest)
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Sort::Newest => "Newest",
-            Sort::Volume => "Volume",
-            Sort::Latency => "Latency",
-        }
-    }
-}
+/// The orders the home page offers, as `sort` values and their labels. Any
+/// other value in the address works too; see `schematics::order`.
+const SORTS: [(&str, &str); 4] = [
+    ("", "Newest"),
+    ("volume", "Volume"),
+    ("latency", "Latency"),
+    ("-downloads", "Downloads"),
+];
 
 /// The home page's schematics and how they were asked for.
 pub struct Listing<'a> {
@@ -80,11 +50,14 @@ pub struct Listing<'a> {
     /// How many match the search, of any category.
     pub matched: usize,
     pub view: View,
-    pub sort: Sort,
+    /// Such as `-downloads`; empty for newest first.
+    pub sort: &'a str,
     pub query: &'a str,
     pub terms: &'a [Term],
     /// The chosen category, such as `adder`; empty for all.
     pub category: &'a str,
+    /// Tag filters, each needing a match; commas within one give choices.
+    pub tags: &'a [String],
     pub facets: &'a [Facet],
 }
 
@@ -101,9 +74,10 @@ pub struct Facet {
 #[derive(Clone, Copy)]
 struct Home<'a> {
     view: View,
-    sort: Sort,
+    sort: &'a str,
     query: &'a str,
     category: &'a str,
+    tags: &'a [String],
 }
 
 impl Home<'_> {
@@ -112,11 +86,14 @@ impl Home<'_> {
         if self.view == View::List {
             params.append_pair("view", "list");
         }
-        if self.sort != Sort::Newest {
-            params.append_pair("sort", self.sort.as_str());
+        if !self.sort.is_empty() {
+            params.append_pair("sort", self.sort);
         }
         if !self.category.is_empty() {
             params.append_pair("category", self.category);
+        }
+        for tag in self.tags {
+            params.append_pair("tag", tag);
         }
         if !self.query.is_empty() {
             params.append_pair("q", self.query);
@@ -139,6 +116,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
         sort,
         query,
         category,
+        tags,
         facets,
         ..
     } = *listing;
@@ -147,6 +125,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
         sort,
         query,
         category,
+        tags,
     };
     let title = facets
         .iter()
@@ -226,9 +205,9 @@ fn listing_body(
                 }
                 nav aria-label="Sort" class="flex items-center gap-1 rounded-control bg-sidebar p-1" {
                     span class="px-2 text-meta text-muted" aria-hidden="true" { "Sort" }
-                    @for option in Sort::ALL {
-                        a href=(Home { sort: option, ..here }.href()) class=(switch)
-                            aria-current=[(here.sort == option).then_some("page")] { (option.label()) }
+                    @for (value, label) in SORTS {
+                        a href=(Home { sort: value, ..here }.href()) class=(switch)
+                            aria-current=[(here.sort == value).then_some("page")] { (label) }
                     }
                 }
             }
@@ -239,8 +218,11 @@ fn listing_body(
                 @if !category.is_empty() {
                     input type="hidden" name="category" value=(category);
                 }
-                @if here.sort != Sort::Newest {
-                    input type="hidden" name="sort" value=(here.sort.as_str());
+                @if !here.sort.is_empty() {
+                    input type="hidden" name="sort" value=(here.sort);
+                }
+                @for tag in here.tags {
+                    input type="hidden" name="tag" value=(tag);
                 }
                 div class="flex gap-2" {
                     label for="search" class="sr-only" { "Search schematics" }
@@ -271,6 +253,23 @@ fn listing_body(
                         }
                         li {
                             a href=(Home { query: "", ..here }.href()) class="px-1.5 text-meta" { "Clear" }
+                        }
+                    }
+                }
+                @if !here.tags.is_empty() {
+                    ul class="flex flex-wrap items-center gap-1.5" aria-label="Tag filters" {
+                        @for (i, group) in here.tags.iter().enumerate() {
+                            @let rest: Vec<String> = here.tags.iter().enumerate()
+                                .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
+                            @let shown = group.replace('_', " ").replace(',', " or ");
+                            li {
+                                a href=(Home { tags: &rest, ..here }.href())
+                                    aria-label={ "Remove the tag filter " (shown) }
+                                    class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
+                                    "tag: " (shown)
+                                    span aria-hidden="true" { "×" }
+                                }
+                            }
                         }
                     }
                 }
@@ -644,7 +643,7 @@ fn schematic_info(s: &Schematic) -> Markup {
                         }
                     }))
                     @if let Some(design) = s.design_label() {
-                        (field("Design", search_link(&design, s.design.as_deref().unwrap_or_default())))
+                        (field("Design", search_link(&design, &s.design)))
                     }
                     (field("Width", s.width.map_or_else(
                         || html! { "unknown" },
@@ -743,7 +742,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
                 built_on: s.built_on.as_deref().unwrap_or(""),
                 description: s.description.as_deref().unwrap_or(""),
                 given_name: s.given_name.as_deref().unwrap_or(""),
-                design: s.design.as_deref().unwrap_or(""),
+                design: &s.design,
                 carry_in: s.carry_in == Some(true),
                 carry_out: s.carry_out == Some(true),
                 stackable: !s.stacking.is_empty(),
@@ -771,7 +770,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
                     }
                 }
             }))
-            script defer src="/form.js" {}
+            script defer src=(super::form_js_url()) {}
         },
     )
 }
@@ -1195,7 +1194,8 @@ fn cross() -> Markup {
 /// A tag, linking to the builds that carry it.
 fn badge(tag: &Tag) -> Markup {
     html! {
-        a href=(search_href(&tag.name)) title=(kind_label(&tag.kind))
+        a href={ "/?" (form_urlencoded::Serializer::new(String::new()).append_pair("tag", &tag.name).finish()) }
+            title=(kind_label(&tag.kind))
             class={ "badge badge-" (tag.kind) " relative z-10 hover:no-underline hover:brightness-95" } {
             (tag.label())
         }
@@ -1629,7 +1629,7 @@ pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
                 (upload_form(p))
             }))
             (interface_section(p.analysis, false))
-            script defer src="/form.js" {}
+            script defer src=(super::form_js_url()) {}
         },
     )
 }

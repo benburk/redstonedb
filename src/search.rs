@@ -157,9 +157,7 @@ fn facts(s: &Schematic) -> Vec<String> {
     if !s.conventional {
         facts.push("unconventional".to_owned());
     }
-    if let Some(design) = &s.design {
-        facts.push(design.replace('_', " "));
-    }
+    facts.push(s.design.replace('_', " "));
     if let Some(short) = &s.design_abbreviation {
         facts.push(short.to_lowercase());
     }
@@ -207,7 +205,7 @@ mod tests {
             built_on: None,
             imported_by: None,
             conventional: true,
-            design: None,
+            design: "other".to_owned(),
             design_abbreviation: None,
             carry_in: None,
             carry_out: None,

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET\n            width = iif(?, NULL, width),\n            latency = iif(?, NULL, latency),\n            synchronized = iif(?, NULL, synchronized),\n            built_on = iif(?, NULL, built_on),\n            imported_by = iif(?, NULL, imported_by),\n            description = iif(?, NULL, description),\n            design = iif(?, 'other', design),\n            carry_in = iif(?, NULL, carry_in),\n            carry_out = iif(?, NULL, carry_out),\n            given_name = iif(?, NULL, given_name)\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "9ce8687d2882b90b7e8ae54c2187ff7cb4a84d6bbf85a1eae8dff6d2452eb99c"
+}

@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::{Method, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
@@ -23,31 +22,51 @@ use super::{
     pages::{self, Choices},
 };
 
-#[derive(Deserialize)]
-pub struct ListQuery {
-    view: Option<String>,
+/// What the home page's address asks for. Separate parameters narrow
+/// together; within one, commas mean any of them, as in
+/// `?category=adder,subtractor`. `tag` may repeat, each needing a match:
+/// `?tag=alpha&tag=torchless` is both, and `?tag=alpha,torchless` either.
+#[derive(Default)]
+struct ListQuery {
+    view: String,
     /// A search such as `register vertical alpha -torchless`.
-    q: Option<String>,
-    /// Only builds of this category, such as `adder`.
-    category: Option<String>,
-    /// `volume` or `latency`; the default order otherwise.
-    sort: Option<String>,
+    q: String,
+    category: String,
+    /// Fields such as `-downloads,volume`; see [`order`].
+    sort: String,
+    tags: Vec<String>,
 }
 
-/// The schematics matching `?q=`, as cards unless `?view=list` asks for
-/// the table.
+impl ListQuery {
+    fn read(raw: Option<&str>) -> Self {
+        let mut query = ListQuery::default();
+        let pairs = form_urlencoded::parse(raw.unwrap_or_default().as_bytes());
+        for (key, value) in pairs {
+            let value = value.trim().to_owned();
+            match key.as_ref() {
+                "view" => query.view = value,
+                "q" => query.q = value,
+                "category" => query.category = value,
+                "sort" => query.sort = value,
+                "tag" if !value.is_empty() => query.tags.push(value),
+                _ => {}
+            }
+        }
+        query
+    }
+}
+
 pub async fn list(
     State(state): State<AppState>,
-    Query(query): Query<ListQuery>,
+    RawQuery(raw): RawQuery,
     user_opt: Option<User>,
 ) -> Response {
-    let view = match query.view.as_deref() {
-        Some("list") => pages::View::List,
+    let query = ListQuery::read(raw.as_deref());
+    let view = match query.view.as_str() {
+        "list" => pages::View::List,
         _ => pages::View::Cards,
     };
-    let query_text = query.q.unwrap_or_default();
-    let category = query.category.unwrap_or_default();
-    let terms = search::parse(&query_text);
+    let terms = search::parse(&query.q);
     let loaded = async {
         Ok::<_, sqlx::Error>((
             schematic::all(&state.db).await?,
@@ -59,27 +78,21 @@ pub async fn list(
         Err(err) => return internal_error(err).into_response(),
     };
     let total = all.len();
-    let found = search::matching(&terms, all);
-    let facets = facets(&categories, &found, &category);
+    let found: Vec<Schematic> = search::matching(&terms, all)
+        .into_iter()
+        .filter(|s| has_tags(s, &query.tags))
+        .collect();
+    let facets = facets(&categories, &found, &query.category);
     let matched = found.len();
-    let mut shown: Vec<Schematic> = if category.is_empty() {
+    let mut shown: Vec<Schematic> = if query.category.is_empty() {
         found
     } else {
         found
             .into_iter()
-            .filter(|s| in_category(s, &category))
+            .filter(|s| in_category(s, &query.category))
             .collect()
     };
-    // Newest first, and the other orders are stable, so ties keep it.
-    shown.sort_by(|a, b| b.added_at.cmp(&a.added_at));
-    let sort = pages::Sort::parse(query.sort.as_deref().unwrap_or_default());
-    match sort {
-        pages::Sort::Newest => {}
-        pages::Sort::Volume => shown.sort_by_key(Schematic::volume),
-        pages::Sort::Latency => {
-            shown.sort_by_key(|s| (s.latency.is_none(), s.latency));
-        }
-    }
+    order(&mut shown, &query.sort);
     pages::schematics(
         user_opt.as_ref(),
         &pages::Listing {
@@ -87,27 +100,78 @@ pub async fn list(
             total,
             matched,
             view,
-            sort,
-            query: &query_text,
+            sort: &query.sort,
+            query: &query.q,
             terms: &terms,
-            category: &category,
+            category: &query.category,
+            tags: &query.tags,
             facets: &facets,
         },
     )
     .into_response()
 }
 
+/// Whether `s` carries a tag from every group, a group being one `tag`
+/// value with its alternatives separated by commas. A tag matches by name
+/// or token.
+fn has_tags(s: &Schematic, groups: &[String]) -> bool {
+    groups.iter().all(|group| {
+        group.split(',').map(schematic::tag_name).any(|wanted| {
+            s.tags.iter().any(|tag| {
+                tag.name == wanted || tag.token.as_deref() == Some(&*wanted)
+            })
+        })
+    })
+}
+
+/// Orders builds by `sort`: fields separated by commas, each with `-` for
+/// descending, such as `-downloads,volume`. The fields are `added_at`,
+/// `volume`, `latency`, and `downloads`; an unknown latency goes last
+/// either way. Ties, and an empty sort, fall back to newest first.
+fn order(shown: &mut [Schematic], sort: &str) {
+    shown.sort_by(|a, b| {
+        for key in sort.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+            let (field, descending) = key
+                .strip_prefix('-')
+                .map_or((key, false), |field| (field, true));
+            let ordering = match field {
+                "added_at" => a.added_at.cmp(&b.added_at),
+                "volume" => a.volume().cmp(&b.volume()),
+                "downloads" => a.downloads.cmp(&b.downloads),
+                "latency" => match (a.latency, b.latency) {
+                    (Some(x), Some(y)) => x.cmp(&y),
+                    (None, Some(_)) => return Ordering::Greater,
+                    (Some(_), None) => return Ordering::Less,
+                    (None, None) => Ordering::Equal,
+                },
+                _ => Ordering::Equal,
+            };
+            let ordering = if descending {
+                ordering.reverse()
+            } else {
+                ordering
+            };
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        b.added_at.cmp(&a.added_at)
+    });
+}
+
 /// The sidebar's name for every category off the standard list.
 const OTHER: &str = "other";
 
 /// Whether `s` belongs under the sidebar's `category`: its own category, or
-/// `other` for any category off the standard list.
+/// `other` for any category off the standard list. Commas give several.
 fn in_category(s: &Schematic, category: &str) -> bool {
-    if category == OTHER {
-        s.category_label.is_none()
-    } else {
-        s.category == category
-    }
+    category.split(',').any(|category| {
+        if category == OTHER {
+            s.category_label.is_none()
+        } else {
+            s.category == category
+        }
+    })
 }
 
 /// How many of `found` each category has, for the sidebar: the standard

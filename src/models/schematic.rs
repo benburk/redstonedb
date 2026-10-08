@@ -161,8 +161,9 @@ pub struct Schematic {
     /// The name the build was given, for a category that takes one, such
     /// as `Bus Crossing` under bussing.
     pub given_name: Option<String>,
-    /// The design within its category, such as `carry_lookahead`.
-    pub design: Option<String>,
+    /// The design within its category, such as `carry_lookahead`, or
+    /// `other`.
+    pub design: String,
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
     /// Whether it has a carry in and a carry out; `None` when unknown or
@@ -251,10 +252,7 @@ impl Schematic {
     /// The design in words, such as `Carry Lookahead`; `None` for no
     /// design or `other`.
     pub fn design_label(&self) -> Option<String> {
-        self.design
-            .as_deref()
-            .filter(|design| *design != "other")
-            .map(words)
+        (self.design != "other").then(|| words(&self.design))
     }
 
     /// The download filename: the build's name with dashes for spaces,
@@ -738,7 +736,7 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
     sqlx::query_as!(
         Category,
         r#"SELECT name as "name!", label,
-            iif(plural = '', label || 's', plural) as "plural!: String",
+            coalesce(plural, label || 's') as "plural!: String",
             carries as "carries: bool", named as "named: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
     )
@@ -822,21 +820,17 @@ pub async fn check_category(
     Ok(Ok(found))
 }
 
-/// Adds a standard category to the end of the list. A plural that is the
-/// label with an `s` is left for the database to make.
+/// Adds a standard category. A plural that is the label with an `s` is
+/// left for the database to make.
 pub async fn define_category<'e, E: SqliteExecutor<'e>>(
     db: E,
     category: &Category,
 ) -> Result<(), sqlx::Error> {
-    let plural = if category.plural == format!("{}s", category.label) {
-        ""
-    } else {
-        &category.plural
-    };
+    let plural = (category.plural != format!("{}s", category.label))
+        .then_some(category.plural.as_str());
     sqlx::query!(
-        "INSERT INTO category (name, label, plural, carries, named, position)
-         VALUES (?, ?, ?, ?, ?,
-            (SELECT coalesce(max(position), 0) + 1 FROM category))",
+        "INSERT INTO category (name, label, plural, carries, named)
+         VALUES (?, ?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
@@ -1093,7 +1087,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             built_on = iif(?, NULL, built_on),
             imported_by = iif(?, NULL, imported_by),
             description = iif(?, NULL, description),
-            design = iif(?, NULL, design),
+            design = iif(?, 'other', design),
             carry_in = iif(?, NULL, carry_in),
             carry_out = iif(?, NULL, carry_out),
             given_name = iif(?, NULL, given_name)
@@ -1251,7 +1245,7 @@ mod tests {
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
             conventional: true,
-            design: Some("carry_lookahead".to_owned()),
+            design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
             carry_in: None,
             carry_out: None,
@@ -1281,7 +1275,7 @@ mod tests {
         let s = Schematic {
             category: "ram".to_owned(),
             category_label: Some("RAM".to_owned()),
-            design: Some("other".to_owned()),
+            design: "other".to_owned(),
             ..cla()
         };
         assert_eq!(s.name(), "8-bit RAM");
@@ -1293,7 +1287,7 @@ mod tests {
             category: "maze_screen".to_owned(),
             category_label: None,
             width: None,
-            design: Some("other".to_owned()),
+            design: "other".to_owned(),
             ..cla()
         };
         assert_eq!(s.name(), "Maze Screen");
@@ -1303,7 +1297,7 @@ mod tests {
     fn unknown_parts_are_left_out() {
         let s = Schematic {
             width: None,
-            design: None,
+            design: "other".to_owned(),
             latency: None,
             synchronized: None,
             builders: Vec::new(),

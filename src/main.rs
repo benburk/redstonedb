@@ -68,7 +68,13 @@ async fn main() {
 
     let app = Router::new()
         .merge(web::static_router())
-        .merge(web::router().layer(trace_layer))
+        // Pages show live data, so browsers fetch them afresh, even on Back;
+        // a handler that knows better, such as thumbnails, says so itself.
+        .merge(
+            web::router()
+                .layer(trace_layer)
+                .layer(header_layer(header::CACHE_CONTROL, "no-store")),
+        )
         // No framing by other sites, no guessing at file types, and no
         // page addresses sent to other sites.
         .layer(header_layer(header::X_FRAME_OPTIONS, "DENY"))

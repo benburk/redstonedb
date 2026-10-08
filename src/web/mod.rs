@@ -1,4 +1,6 @@
 //! Web routes.
+use std::sync::LazyLock;
+
 use axum::{
     Router,
     http::header,
@@ -23,17 +25,50 @@ use about::about;
 use profile::profile;
 
 /// Built from `styles/app.css` by `just css`.
+const CSS: &str = include_str!("../../static/app.css");
+const FORM_JS: &str = include_str!("../../static/form.js");
+
+/// An asset's address with its contents' hash, so browsers may keep it for
+/// good: a changed file gets a new address.
+fn versioned(path: &str, contents: &str) -> String {
+    let hash = crate::import::sha256(contents.as_bytes());
+    format!("{path}?v={}", &hash[..12])
+}
+
+static CSS_URL: LazyLock<String> = LazyLock::new(|| versioned("/app.css", CSS));
+static FORM_JS_URL: LazyLock<String> =
+    LazyLock::new(|| versioned("/form.js", FORM_JS));
+
+/// Where pages link the stylesheet.
+pub fn css_url() -> &'static str {
+    &CSS_URL
+}
+
+/// Where the details forms load their script.
+pub fn form_js_url() -> &'static str {
+    &FORM_JS_URL
+}
+
+/// Versioned addresses never change, so they are cached for a year.
+const FOREVER: &str = "public, max-age=31536000, immutable";
+
 async fn get_css() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/css")],
-        include_str!("../../static/app.css"),
+        [
+            (header::CONTENT_TYPE, "text/css"),
+            (header::CACHE_CONTROL, FOREVER),
+        ],
+        CSS,
     )
 }
 
 async fn get_form_js() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/javascript")],
-        include_str!("../../static/form.js"),
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, FOREVER),
+        ],
+        FORM_JS,
     )
 }
 
