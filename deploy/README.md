@@ -22,5 +22,6 @@ Done once, already, on the current server:
    redstonedb`, and `/var/lib/redstonedb` and `/var/backups/redstonedb` owned by it, mode `750`.
 3. `/etc/redstonedb.env`, owned `root:redstonedb`, mode `640`: `DATABASE_URL=sqlite:/var/lib/redstonedb/redstone.db`, `PORT=3100`, `RUST_LOG`, and the three `DISCORD_` settings, the redirect being `https://redstonedb.benburk.ca/auth/discord/callback`. That redirect is also listed in the Discord Developer Portal.
 4. The database copied in with `sqlite3 .backup`, never `cp`, which misses what is still in the WAL.
-5. `deploy/Caddyfile` appended to `/etc/caddy/Caddyfile`, then `systemctl
-   reload caddy`. DNS for the name points at the server.
+5. `/etc/caddy/Caddyfile` is `deploy/Caddyfile`, the server's only site, then `systemctl reload caddy`. DNS for the name points at the server: a plain A record on benburk.ca, beside the dynamic ones crimson keeps current.
+6. SSH takes keys only (`/etc/ssh/sshd_config.d/00-hardening.conf`); the Hetzner console is the way in if every key is lost.
+7. `ufw` lets in only 22/tcp, 80/tcp, and 443 over TCP and UDP; the site's own port, 3100, is reachable only through Caddy.
