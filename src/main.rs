@@ -1,3 +1,4 @@
+use std::io::IsTerminal as _;
 use std::net::SocketAddr;
 
 use app::app_state::AppState;
@@ -19,6 +20,8 @@ use tracing_subscriber::EnvFilter;
 
 fn configure_logging() {
     tracing_subscriber::fmt()
+        // Colour for a terminal only, not for the journal.
+        .with_ansi(std::io::stdout().is_terminal())
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .or_else(|_| EnvFilter::try_new("app=info,tower_http=info"))
