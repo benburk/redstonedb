@@ -47,6 +47,10 @@ build: css
 serve port=`free-port`: css
     PORT={{ port }} cargo run --bin redstone-database
 
+# Build the committed HEAD on the server and restart the site
+deploy:
+    ./deploy/deploy.sh
+
 # Restart the server when source files change
 watch:
     watchexec --restart --watch src --watch static --watch styles --ignore static/app.css --exts rs,css,js -- just serve

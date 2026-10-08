@@ -1,0 +1,7 @@
+#!/bin/sh
+# rsdb against the live database, as the site's own user.
+set -a
+. /etc/redstonedb.env
+set +a
+exec setpriv --reuid=redstonedb --regid=redstonedb --init-groups \
+    /usr/local/lib/redstonedb/rsdb "$@"

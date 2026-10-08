@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the Redstone Database
+
+[Service]
+Type=oneshot
+User=redstonedb
+Group=redstonedb
+# A copy through SQLite, which includes what is still in the WAL; a
+# fortnight of them is kept.
+ExecStart=/bin/sh -c 'sqlite3 /var/lib/redstonedb/redstone.db ".backup /var/backups/redstonedb/redstone-$(date +%%F).db" && find /var/backups/redstonedb -name "redstone-*.db" -mtime +14 -delete'
