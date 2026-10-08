@@ -55,6 +55,14 @@ deploy: test
 pull-db:
     ./deploy/pull-db.sh
 
+# Follow the live site's log
+logs:
+    ssh root@157.180.85.191 journalctl -u redstonedb -f -o cat
+
+# Show the live site's commit, service state, and latest backups
+status:
+    ssh root@157.180.85.191 'echo "Live commit: $(cat /usr/local/lib/redstonedb/DEPLOYED)"; systemctl --no-pager status redstonedb | head -5; ls -t /var/backups/redstonedb | head -3'
+
 # Restart the server when source files change
 watch:
     watchexec --restart --watch src --watch static --watch styles --ignore static/app.css --exts rs,css,js -- just serve

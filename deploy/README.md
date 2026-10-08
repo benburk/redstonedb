@@ -11,6 +11,8 @@ The site runs on the Hetzner server (Ubuntu, aarch64) at <https://redstonedb.ben
 
 To roll back, move each `*.previous` binary back over its new one and `systemctl restart redstonedb`. If the bad deploy migrated the database, the old binary refuses it; with the site stopped, restore the copy taken before the deploy, `redstone-<date>-before-<commit>.db` in `/var/backups/redstonedb`, with `runuser -u redstonedb -- sqlite3 /var/lib/redstonedb/redstone.db ".restore <copy>"`.
 
+`just logs` follows the site's log, and `just status` shows the live commit, the service, and the latest backups.
+
 `just pull-db` replaces the local `redstone.db` with a copy of the live one, backing the local one up to `backups/` first. The live database is the real one: changes to data belong there, through `rsdb` on the server. Run commands against the live database as the site's user, never as root, which could leave files beside it the site cannot open.
 
 | Path                      | What                                    |
@@ -18,7 +20,7 @@ To roll back, move each `*.previous` binary back over its new one and `systemctl
 | `/var/lib/redstonedb`     | The database, owned by `redstonedb`     |
 | `/etc/redstonedb.env`     | Settings and the Discord secret, `0640` |
 | `/var/backups/redstonedb` | Daily copies, kept for 14 days          |
-| `/etc/caddy/Caddyfile`    | Has the block in `deploy/Caddyfile`     |
+| `/etc/caddy/Caddyfile`    | `deploy/Caddyfile`, installed on deploy |
 
 On the server, `rsdb` runs against the live database as the site's user, as in `rsdb role <name> admin`. `journalctl -u redstonedb` has the log.
 

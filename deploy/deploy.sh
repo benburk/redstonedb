@@ -36,6 +36,14 @@ ssh "$host" "set -e
         install -m 755 /root/build/target/release/\$bin $lib/
     done
     install -m 755 $src/deploy/rsdb /usr/local/bin/rsdb
+    # The site is the server's only one, so its Caddyfile is the whole file.
+    if ! caddy validate --config $src/deploy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+        echo 'deploy/Caddyfile is not valid; nothing was restarted:' >&2
+        caddy validate --config $src/deploy/Caddyfile --adapter caddyfile >&2 || true
+        exit 1
+    fi
+    install -m 644 $src/deploy/Caddyfile /etc/caddy/Caddyfile
+    systemctl reload-or-restart caddy
     install -m 644 $src/deploy/redstonedb.service \
         $src/deploy/redstonedb-backup.service \
         $src/deploy/redstonedb-backup.timer /etc/systemd/system/
