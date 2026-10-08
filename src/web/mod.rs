@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 
 use axum::{
     Router,
-    http::header,
-    response::IntoResponse,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 
-use crate::app_state::AppState;
+use crate::{app_state::AppState, models::user::User};
 
 mod about;
 mod auth;
@@ -80,6 +80,16 @@ pub fn static_router() -> Router<AppState> {
         .route("/form.js", get(get_form_js))
 }
 
+/// A 404 with the not-found page, for an address naming no build, person,
+/// or page.
+pub fn not_found(viewer: Option<&User>) -> Response {
+    (StatusCode::NOT_FOUND, pages::not_found(viewer)).into_response()
+}
+
+async fn fallback(user_opt: Option<User>) -> Response {
+    not_found(user_opt.as_ref())
+}
+
 /// Dynamic routes - with request logging
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -107,4 +117,5 @@ pub fn router() -> Router<AppState> {
         .route("/logout", post(session::delete))
         .route("/auth/discord", get(auth::start))
         .route("/auth/discord/callback", get(auth::callback))
+        .fallback(fallback)
 }

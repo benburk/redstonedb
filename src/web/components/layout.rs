@@ -2,6 +2,14 @@ use maud::{DOCTYPE, Markup, html};
 
 use crate::{APP_NAME, models::user::User};
 
+/// What the site is, for search results and link previews.
+const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
+    multipliers, each with its latency, size, and builders, ranked and ready \
+    to download.";
+
+/// A block of redstone, turned on its corner, as in the header.
+const ICON: &str = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='1.5' transform='rotate(45 8 8)' fill='%23c4302b'/%3E%3C/svg%3E";
+
 /// A page around `content`, with the header for `viewer`, the account
 /// viewing it, if any.
 pub fn base(
@@ -22,6 +30,9 @@ pub fn base(
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { (document_title) }
+                meta name="description" content=(DESCRIPTION);
+                // The brand mark, inline, so there is no icon file to fetch.
+                link rel="icon" href=(ICON);
                 link rel="stylesheet" href=(crate::web::css_url());
             }
             body class="flex min-h-screen flex-col" {

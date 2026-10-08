@@ -28,6 +28,8 @@
             version = cargoToml.package.version;
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
+            # Queries compile against the metadata in .sqlx/, not a database.
+            env.SQLX_OFFLINE = "true";
             meta = {
               mainProgram = cargoToml.package.name;
             };

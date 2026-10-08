@@ -46,12 +46,29 @@ pub async fn preview(
     };
     let mut file = None;
     let mut standardize = false;
-    while let Ok(Some(field)) = multipart.next_field().await {
-        match field.name() {
-            Some("file") => file = field.bytes().await.ok(),
-            Some("standardize") => standardize = true,
-            _ => {}
+    // A body over the server's limit, 2 MB, breaks off partway.
+    let mut broken = false;
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(field)) => match field.name() {
+                Some("file") => match field.bytes().await {
+                    Ok(bytes) => file = Some(bytes),
+                    Err(_) => broken = true,
+                },
+                Some("standardize") => standardize = true,
+                _ => {}
+            },
+            Ok(None) => break,
+            Err(_) => {
+                broken = true;
+                break;
+            }
         }
+    }
+    if broken {
+        let message = "That file did not arrive whole. Files up to 2 MB are \
+                       accepted; a build's .schem is usually a few kilobytes.";
+        return pages::upload(&user, message).into_response();
     }
     let Some(file) = file.filter(|bytes| !bytes.is_empty()) else {
         return pages::upload(&user, "Choose a .schem file to upload.")

@@ -235,7 +235,7 @@ pub async fn detail(
 ) -> Response {
     let s = match schematic::get(&state.db, &id).await {
         Ok(Some(s)) => s,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Ok(None) => return super::not_found(user_opt.as_ref()),
         Err(err) => return internal_error(err).into_response(),
     };
     let analysis = match schematic::data(&state.db, &id).await {
@@ -372,7 +372,7 @@ async fn show_edit(
             },
         )
         .into_response(),
-        Ok((None, ..)) => StatusCode::NOT_FOUND.into_response(),
+        Ok((None, ..)) => super::not_found(Some(user)),
         Err(err) => internal_error(err).into_response(),
     }
 }

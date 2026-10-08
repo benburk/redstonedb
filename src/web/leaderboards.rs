@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -45,7 +44,7 @@ pub async fn show(
         Err(err) => return internal_error(err).into_response(),
     };
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
-        return StatusCode::NOT_FOUND.into_response();
+        return super::not_found(user_opt.as_ref());
     };
     let ranked = |name: &str| {
         all.iter()

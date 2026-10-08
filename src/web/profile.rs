@@ -22,7 +22,7 @@ pub async fn profile(
 ) -> Response {
     let account = match User::get_by_username(&state.db, &username).await {
         Ok(Some(account)) => account,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Ok(None) => return super::not_found(user_opt.as_ref()),
         Err(err) => return internal_error(err).into_response(),
     };
     show(&state, user_opt.as_ref(), &account, "").await

@@ -319,7 +319,7 @@ fn listing_body(
                 }
             }
             @if total == 0 {
-                p class="text-muted" { "No schematics yet. Import one with " code { "just rsdb add" } "." }
+                p class="text-muted" { "No schematics yet." }
             } @else if shown.is_empty() {
                 p class="text-muted" { "No builds match. Remove a term to widen the search." }
             } @else if view == View::Cards {
@@ -1402,6 +1402,24 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     dt { span class="badge badge-other" { "Other" } }
                     dd { "Anything else worth searching by." }
                 }
+            }
+        },
+    )
+}
+
+/// The page for an address that names nothing.
+pub fn not_found(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Not found",
+        "",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Not found" }
+                p class="mb-4" {
+                    "Nothing is here. The build or person may have been removed, or the address mistyped."
+                }
+                p { a href="/" { "See every build" } }
             }
         },
     )
