@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
 use axum::{
-    Form,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use maud::Markup;
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
@@ -14,13 +12,16 @@ use crate::{
     app_state::AppState,
     error::internal_error,
     interface, lint,
-    models::schematic::{self, Schematic, Tag},
+    models::schematic::{self, Credit},
     models::user::User,
     schem::Blocks,
-    search, stack, thumbnail,
+    search, stack, standardize, thumbnail,
 };
 
-use super::{details, pages};
+use super::{
+    details,
+    pages::{self, Choices},
+};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -101,37 +102,110 @@ pub async fn detail(
         Ok(data) => analyse(data.as_deref().unwrap_or_default()),
         Err(err) => return internal_error(err).into_response(),
     };
-    let viewer = user_opt.as_ref();
-    if !viewer.is_some_and(User::can_edit) {
-        return pages::schematic(viewer, &s, None, &analysis).into_response();
-    }
-    match available_tags(&state.db, &s).await {
-        Ok(available) => {
-            pages::schematic(viewer, &s, Some(&available), &analysis)
-                .into_response()
-        }
-        Err(err) => internal_error(err).into_response(),
-    }
+    pages::schematic(user_opt.as_ref(), &s, &analysis).into_response()
 }
 
-/// Saves a mod's edit of a build's details, then shows the page again.
-pub async fn edit_details(
+/// The page where a mod edits a build's details and tags.
+pub async fn edit(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-    Form(form): Form<details::Form>,
 ) -> Response {
-    if !user_opt.as_ref().is_some_and(User::can_edit) {
+    let Some(user) = user_opt else {
+        return Redirect::to("/sessions/new").into_response();
+    };
+    if !user.can_edit() {
         return StatusCode::FORBIDDEN.into_response();
     }
+    show_edit(&state.db, &user, &id, None, "").await
+}
+
+/// Saves a mod's edit of a build's details and tags, then shows its page;
+/// a refusal shows the edit page again with the values sent.
+pub async fn save(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(user) = user_opt.filter(User::can_edit) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let form = details::Form::read(&details::pairs(&body));
+    let refused = match saved(&state.db, &id, &form).await {
+        Ok(Ok(())) => {
+            return Redirect::to(&format!("/schematics/{id}")).into_response();
+        }
+        Ok(Err(message)) => message,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    show_edit(&state.db, &user, &id, Some(&form), &refused).await
+}
+
+/// Checks and stores an edit, or says why it was refused.
+async fn saved(
+    db: &SqlitePool,
+    id: &str,
+    form: &details::Form,
+) -> Result<Result<(), String>, sqlx::Error> {
     let parsed = match form.parse() {
         Ok(parsed) => parsed,
-        Err(message) => {
-            return (StatusCode::BAD_REQUEST, message).into_response();
-        }
+        Err(message) => return Ok(Err(message)),
     };
-    match schematic::set_details(&state.db, &id, &parsed.as_details()).await {
-        Ok(()) => Redirect::to(&format!("/schematics/{id}")).into_response(),
+    let function =
+        match schematic::check_function(db, &parsed.function, &parsed.design)
+            .await?
+        {
+            Ok(function) => function,
+            Err(message) => return Ok(Err(message)),
+        };
+    let mut details = parsed.as_details();
+    // Carry lines mean nothing for a function without them.
+    if !function.carries {
+        details.carry_in = None;
+        details.carry_out = None;
+    }
+    let mut tx = db.begin().await?;
+    schematic::set_details(&mut *tx, id, &details).await?;
+    let credits = [
+        (Credit::Builder, &parsed.builders),
+        (Credit::Contributor, &parsed.contributors),
+    ];
+    for (credit, names) in credits {
+        schematic::set_credits(&mut tx, id, credit, names).await?;
+    }
+    schematic::set_tags(&mut tx, id, &form.tags).await?;
+    tx.commit().await?;
+    Ok(Ok(()))
+}
+
+async fn show_edit(
+    db: &SqlitePool,
+    user: &User,
+    id: &str,
+    sent: Option<&details::Form>,
+    message: &str,
+) -> Response {
+    let loaded = async {
+        Ok::<_, sqlx::Error>((
+            schematic::get(db, id).await?,
+            Choices::load(db).await?,
+            schematic::all_tags(db).await?,
+        ))
+    };
+    match loaded.await {
+        Ok((Some(s), choices, tags)) => pages::edit_schematic(
+            user,
+            &pages::EditSchematic {
+                s: &s,
+                sent,
+                choices: &choices,
+                tags: &tags,
+                message,
+            },
+        )
+        .into_response(),
+        Ok((None, ..)) => StatusCode::NOT_FOUND.into_response(),
         Err(err) => internal_error(err).into_response(),
     }
 }
@@ -146,100 +220,18 @@ fn analyse(data: &[u8]) -> Result<pages::Analysis, String> {
     })
 }
 
-#[derive(Deserialize)]
-pub struct AddTag {
-    tag: Option<String>,
-}
-
-/// Attaches a tag. A fixi request gets the redrawn info panel; a plain form
-/// post is sent back to the page.
-pub async fn add_tag(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    user_opt: Option<User>,
-    Form(form): Form<AddTag>,
-) -> Response {
-    if !user_opt.as_ref().is_some_and(User::can_edit) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    let name = form.tag.unwrap_or_default();
-    let result = change_tag(&state.db, &id, &name, true).await;
-    if !headers.contains_key("fx-request") {
-        return Redirect::to(&format!("/schematics/{id}")).into_response();
-    }
-    respond(result)
-}
-
-pub async fn remove_tag(
-    Path((id, name)): Path<(String, String)>,
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    if !user_opt.as_ref().is_some_and(User::can_edit) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    respond(change_tag(&state.db, &id, &name, false).await)
-}
-
-fn respond(result: Result<Option<Markup>, sqlx::Error>) -> Response {
-    match result {
-        Ok(Some(info)) => info.into_response(),
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(err) => internal_error(err).into_response(),
-    }
-}
-
-/// Attaches or detaches the tag `name`, then redraws the schematic's info
-/// panel, naming the tag in it if it does not exist. `None` means there is
-/// no such schematic.
-async fn change_tag(
-    db: &SqlitePool,
-    id: &str,
-    name: &str,
-    attach: bool,
-) -> Result<Option<Markup>, sqlx::Error> {
-    if schematic::get(db, id).await?.is_none() {
-        return Ok(None);
-    }
-    let message = match schematic::tag_id(db, name).await? {
-        _ if name.is_empty() => String::new(),
-        Some(tag) if attach => {
-            schematic::attach(db, id, &tag).await?;
-            String::new()
-        }
-        Some(tag) => {
-            schematic::detach(db, id, &tag).await?;
-            String::new()
-        }
-        None => format!("There is no tag named {name}."),
-    };
-    let Some(s) = schematic::get(db, id).await? else {
-        return Ok(None);
-    };
-    let available = available_tags(db, &s).await?;
-    Ok(Some(pages::schematic_info(&s, Some(&available), &message)))
-}
-
-/// The tags `s` does not carry yet.
-async fn available_tags(
-    db: &SqlitePool,
-    s: &Schematic,
-) -> Result<Vec<Tag>, sqlx::Error> {
-    Ok(schematic::all_tags(db)
-        .await?
-        .into_iter()
-        .filter(|tag| s.tags.iter().all(|own| own.name != tag.name))
-        .collect())
-}
-
 /// The stored `.schem` file, named by the naming scheme. The viewer fetches
 /// the same URL.
 pub async fn download(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(mut query): Query<HashMap<String, String>>,
 ) -> Response {
+    // `markers=yes` adds WorldEdit corner markers; the rest of the query
+    // names copies per direction, such as `?west=7&north=3`.
+    let markers = query.remove("markers").is_some_and(|v| v == "yes");
+    // One copy each way is the build itself.
+    query.retain(|_, count| count != "1");
     let found = match schematic::get(&state.db, &id).await {
         Ok(found) => found,
         Err(err) => return internal_error(err).into_response(),
@@ -252,7 +244,6 @@ pub async fn download(
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => return internal_error(err).into_response(),
     };
-    // The query names copies per direction, such as `?west=7&north=3`.
     let (data, s) = if query.is_empty() {
         (data, s)
     } else {
@@ -272,6 +263,14 @@ pub async fn download(
                     .into_response();
             }
         }
+    };
+    let data = if markers {
+        match standardize::with_corner_markers(&data) {
+            Ok(data) => data,
+            Err(err) => return internal_error(&*err).into_response(),
+        }
+    } else {
+        data
     };
     (
         [

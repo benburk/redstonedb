@@ -19,12 +19,11 @@ use crate::{
         schematic::{self, New, Tag},
         user::User,
     },
-    thumbnail,
 };
 
 use super::{
     details,
-    pages::{self, Fields, UploadPreview},
+    pages::{self, Choices, Fields, UploadPreview},
 };
 
 pub async fn form(user_opt: Option<User>) -> Response {
@@ -57,7 +56,7 @@ pub async fn preview(
         return pages::upload(&user, "Choose a .schem file to upload.")
             .into_response();
     };
-    let prepared = match import::prepare(file.to_vec(), standardize, true) {
+    let prepared = match import::prepare(&file, standardize, true) {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -66,6 +65,7 @@ pub async fn preview(
     };
     let interface = interface::read(&prepared.blocks);
     let (width, orientation) = import::guess(&interface);
+    let (carry_in, carry_out) = import::carries(&interface);
     let width = width.map(|w| w.to_string()).unwrap_or_default();
     let fields = Fields {
         function: "",
@@ -73,10 +73,15 @@ pub async fn preview(
         orientation: orientation.unwrap_or("horz"),
         encoding: "bin",
         latency: "",
-        synchronized: None,
-        author: "",
+        // Most builds are; the uploader says when one is not.
+        synchronized: Some(true),
+        builders: &[],
+        contributors: &[],
         built_on: "",
         description: "",
+        design: "other",
+        carry_in,
+        carry_out,
     };
     show_preview(&state, &user, &prepared, &fields, &[], false, "").await
 }
@@ -85,17 +90,13 @@ pub async fn preview(
 struct Submission {
     /// The prepared file, base64.
     data: String,
-    tags: Vec<String>,
     unconventional: bool,
     form: details::Form,
 }
 
 impl Submission {
-    /// Read by hand, since the tag checkboxes repeat one name.
     fn read(body: &[u8]) -> Self {
-        let pairs: Vec<(String, String)> = form_urlencoded::parse(body)
-            .map(|(k, v)| (k.into_owned(), v.into_owned()))
-            .collect();
+        let pairs = details::pairs(body);
         let get = |key: &str| {
             pairs
                 .iter()
@@ -105,43 +106,8 @@ impl Submission {
         };
         Submission {
             data: get("data"),
-            tags: pairs
-                .iter()
-                .filter(|(k, _)| k == "tag")
-                .map(|(_, v)| v.clone())
-                .collect(),
             unconventional: !get("unconventional").is_empty(),
-            form: details::Form {
-                function: get("function"),
-                width: get("width"),
-                orientation: get("orientation"),
-                encoding: get("encoding"),
-                latency: get("latency"),
-                synchronized: get("synchronized"),
-                author: get("author"),
-                built_on: get("built_on"),
-                description: get("description"),
-            },
-        }
-    }
-
-    /// The form's values, to show again after a refusal.
-    fn fields(&self) -> Fields<'_> {
-        let form = &self.form;
-        Fields {
-            function: &form.function,
-            width: &form.width,
-            orientation: &form.orientation,
-            encoding: &form.encoding,
-            latency: &form.latency,
-            synchronized: match form.synchronized.as_str() {
-                "yes" => Some(true),
-                "no" => Some(false),
-                _ => None,
-            },
-            author: &form.author,
-            built_on: &form.built_on,
-            description: &form.description,
+            form: details::Form::read(&pairs),
         }
     }
 }
@@ -163,7 +129,7 @@ pub async fn publish(
         )
         .into_response();
     };
-    let prepared = match import::prepare(data, false, !sent.unconventional) {
+    let prepared = match import::prepare(&data, false, !sent.unconventional) {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -180,8 +146,8 @@ pub async fn publish(
         &state,
         &user,
         &prepared,
-        &sent.fields(),
-        &sent.tags,
+        &sent.form.fields(),
+        &sent.form.tags,
         sent.unconventional,
         &refused,
     )
@@ -204,6 +170,16 @@ async fn publish_checked(
         ));
     }
     let parsed = sent.form.parse()?;
+    // Checked here too, so the refusal reads as a sentence of its own.
+    match schematic::check_function(&state.db, &parsed.function, &parsed.design)
+        .await
+    {
+        Ok(Ok(_)) => {}
+        Ok(Err(message)) => return Err(message),
+        Err(err) => {
+            return Err(format!("Could not check the function: {err}."));
+        }
+    }
     let size = &prepared.size;
     let new = New {
         function: &parsed.function,
@@ -213,16 +189,26 @@ async fn publish_checked(
         latency: parsed.latency,
         synchronized: parsed.synchronized,
         size: (size.x.into(), size.y.into(), size.z.into()),
-        author: parsed.author.as_deref(),
         built_on: parsed.built_on.as_deref(),
         imported_by: None,
         conventional: !sent.unconventional,
+        design: Some(&parsed.design),
+        carry_in: parsed.carry_in,
+        carry_out: parsed.carry_out,
         description: parsed.description.as_deref(),
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,
         data: &prepared.data,
     };
-    import::store(&state.db, &new, &sent.tags, &[])
+    let extras = import::Extras {
+        builders: &parsed.builders,
+        contributors: &parsed.contributors,
+        tags: &sent.form.tags,
+        // Anyone uploading may name a new tag; it starts under other.
+        new_tags: true,
+        stacking: &[],
+    };
+    import::store(&state.db, &new, &extras)
         .await
         .map_err(|err| format!("Could not publish it: {err:#}."))
 }
@@ -246,14 +232,14 @@ async fn show_preview(
             Ok(found) => found,
             Err(err) => return internal_error(err).into_response(),
         };
-    let thumbnail = thumbnail::render(&prepared.blocks)
-        .map(|png| format!("data:image/png;base64,{}", STANDARD.encode(png)))
-        .ok();
+    let choices = match Choices::load(&state.db).await {
+        Ok(choices) => choices,
+        Err(err) => return internal_error(err).into_response(),
+    };
     pages::upload_preview(
         user,
         &UploadPreview {
             data: &STANDARD.encode(&prepared.data),
-            thumbnail: thumbnail.as_deref(),
             analysis: &pages::Analysis {
                 interface: interface::read(&prepared.blocks),
                 violations: prepared.violations.clone(),
@@ -261,6 +247,7 @@ async fn show_preview(
             size: [prepared.size.x, prepared.size.y, prepared.size.z],
             duplicate: duplicate.as_deref(),
             fields,
+            choices: &choices,
             tags: &tags,
             chosen_tags,
             unconventional,

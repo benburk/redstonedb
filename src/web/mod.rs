@@ -37,6 +37,13 @@ async fn get_fixi() -> impl IntoResponse {
     )
 }
 
+async fn get_form_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript")],
+        include_str!("../../static/form.js"),
+    )
+}
+
 async fn get_fixi_config() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript")],
@@ -50,6 +57,7 @@ pub fn static_router() -> Router<AppState> {
         .route("/app.css", get(get_css))
         .route("/fixi.js", get(get_fixi))
         .route("/fixi-config.js", get(get_fixi_config))
+        .route("/form.js", get(get_form_js))
 }
 
 /// Dynamic routes - with request logging
@@ -59,12 +67,10 @@ pub fn router() -> Router<AppState> {
         .route("/schematics/{id}", get(schematics::detail))
         .route("/schematics/{id}/download", get(schematics::download))
         .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))
-        .route("/schematics/{id}/tags", post(schematics::add_tag))
         .route(
-            "/schematics/{id}/tags/{tag}",
-            delete(schematics::remove_tag),
+            "/schematics/{id}/edit",
+            get(schematics::edit).post(schematics::save),
         )
-        .route("/schematics/{id}/details", post(schematics::edit_details))
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/upload/preview", post(upload::preview))
         .route("/about", get(about))

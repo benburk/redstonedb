@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO design (function, name, abbreviation) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "256f6a1f17b6563cf76fda8c8c6cf86937ff12db7a66aa34e3a07745891346b2"
+}

@@ -1,11 +1,14 @@
 //! Copies of a stackable build joined into one schematic.
 //!
 //! Copy 0 sits at the south-east-bottom corner and each later copy one
-//! step further along. A copy's blocks inside the corner-marker shell are
-//! its slice; its blocks in the shell that reach into the previous copy's
-//! slice, such as the lever, sign, and torch feeding a carry in or a
-//! control line, belong to the edge of the stack and are dropped, along
-//! with any lever or sign on them. The previous copy's blocks stand there.
+//! step further along. A copy's slice is the part that repeats: its core,
+//! as [`interface::core`] finds it, cut along each stacking axis to as many
+//! layers as the step, at the end away from the previous copy. Its blocks
+//! outside the slice that reach into the previous copy's slice, such as
+//! the magenta block feeding a carry in or a control line, belong to the
+//! edge of the stack and are dropped, along with the levers, signs, and
+//! torches on them. A lever, sign, or torch on a block that stays, stays
+//! too, unless it would land on one of the previous copy's blocks. The previous copy's blocks stand there.
 //! Every copy but the last turns its labelled outputs white and drops their
 //! signs, since the next copy takes them over. Several directions stack one
 //! after another.
@@ -29,10 +32,9 @@ const MAX_COPIES: usize = 64;
 const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
-const GLASS: &str = "minecraft:glass";
 
 /// The stored file stacked with `copies` along each direction, with the
-/// inner size of the result.
+/// size of the result's core.
 pub fn stack(
     data: &[u8],
     copies: &[(StackDirection, usize)],
@@ -41,7 +43,8 @@ pub fn stack(
     for &(direction, count) in copies {
         data = along(&data, direction, count)?;
     }
-    let size = Blocks::read(&data)?.size.map(|n| n - 2);
+    let (low, high) = interface::core(&Blocks::read(&data)?);
+    let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
     Ok((data, size))
 }
 
@@ -100,7 +103,6 @@ fn along(
 
     let edge = edge_blocks(&blocks, step);
     let outputs = labelled_outputs(&blocks);
-    let markers: HashSet<Pos> = blocks.marker_positions().into_iter().collect();
 
     let mut grid: HashMap<Pos, String> = HashMap::new();
     for i in 0..=last {
@@ -108,7 +110,6 @@ fn along(
         let final_copy = i == last;
         for (pos, state) in blocks.iter() {
             if state == AIR
-                || markers.contains(&pos)
                 || (!first && edge.contains(&pos))
                 || (!final_copy && outputs.signs.contains(&pos))
             {
@@ -121,9 +122,6 @@ fn along(
             };
             place(&mut grid, add(pos, shift(i)), state)?;
         }
-    }
-    for pos in schem::marker_positions(size) {
-        place(&mut grid, pos, GLASS)?;
     }
 
     let mut nbt = schem::decode(data)?;
@@ -146,36 +144,56 @@ fn along(
     schem::encode(nbt)
 }
 
-/// Blocks in the shell around the slice that a step lands inside the
-/// slice, so on the previous copy, with the levers and signs on them.
+/// Blocks outside the slice that a step lands inside the slice, so on the
+/// previous copy, and the levers, signs, and torches hanging on them. A
+/// lever, sign, or torch on a block that stays, stays too, unless it lands
+/// on one of the previous copy's blocks.
 fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
-    let [w, h, l] = blocks.size;
-    let inside = |[x, y, z]: Pos| {
-        (1..w - 1).contains(&x)
-            && (1..h - 1).contains(&y)
-            && (1..l - 1).contains(&z)
+    let (mut low, mut high) = interface::core(blocks);
+    // The previous copy lies the opposite way from `step`, so the slice is
+    // the `step` layers at the core's far end.
+    for axis in 0..3 {
+        match step[axis] {
+            n if n < 0 => high[axis] = high[axis].min(low[axis] - n - 1),
+            n if n > 0 => low[axis] = low[axis].max(high[axis] - n + 1),
+            _ => {}
+        }
+    }
+    let inside = |pos: Pos| {
+        (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
     };
-    let mut edge: HashSet<Pos> = blocks
-        .iter()
-        .map(|(pos, _)| pos)
-        .filter(|&pos| !inside(pos) && inside(add(pos, step)))
-        .collect();
-    let levers: Vec<Pos> = blocks
+    let lands_inside = |pos: Pos| !inside(pos) && inside(add(pos, step));
+    // What each lever, sign, and torch hangs on.
+    let mut support: HashMap<Pos, Pos> = blocks
         .levers()
         .into_iter()
-        .filter(|lever| edge.contains(&lever.block))
-        .map(|lever| lever.pos)
+        .map(|lever| (lever.pos, lever.block))
         .collect();
-    let signs: Vec<Pos> = blocks
-        .signs
-        .keys()
-        .copied()
-        .filter(|&sign| {
-            blocks.sign_block(sign).is_some_and(|b| edge.contains(&b))
+    support.extend(
+        blocks
+            .signs
+            .keys()
+            .filter_map(|&sign| Some((sign, blocks.sign_block(sign)?))),
+    );
+    support.extend(blocks.iter().filter_map(|(pos, state)| {
+        Some((pos, schem::torch_block(pos, state)?))
+    }));
+    let mut edge: HashSet<Pos> = blocks
+        .iter()
+        .filter(|&(pos, state)| {
+            state != AIR && !support.contains_key(&pos) && lands_inside(pos)
         })
+        .map(|(pos, _)| pos)
         .collect();
-    edge.extend(levers);
-    edge.extend(signs);
+    let hanging: Vec<Pos> = support
+        .iter()
+        .filter(|&(&pos, on)| {
+            edge.contains(on)
+                || (lands_inside(pos) && blocks.get(add(pos, step)) != AIR)
+        })
+        .map(|(&pos, _)| pos)
+        .collect();
+    edge.extend(hanging);
     edge
 }
 
@@ -187,12 +205,11 @@ struct Outputs {
 /// The blocks of labelled outputs, such as a carry out, and their signs.
 fn labelled_outputs(blocks: &Blocks) -> Outputs {
     let interface = interface::read(blocks);
-    // Interface positions count from inside the corner markers.
     let outputs: HashSet<Pos> = interface
         .outputs
         .iter()
         .filter(|port| port.labelled)
-        .flat_map(|port| port.bits.iter().map(|bit| bit.pos.map(|n| n + 1)))
+        .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
         .collect();
     let signs = blocks
         .signs

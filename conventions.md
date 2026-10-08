@@ -18,7 +18,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
-- Plain glass is kept for the corner markers, so a marker is never mistaken for part of the build.
+- Plain glass is not in the palette, so the WorldEdit corner markers a download can add are never mistaken for part of the build.
 - A is green and B is blue, which stay apart under red-green colour blindness.
 - Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
 - Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.
@@ -70,7 +70,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - A stackable build is saved as one slice: the fewest bits that repeat, such as one bit of a ripple carry adder or a register, or two or four bits of a staggered design.
 - A slice may stack along several directions, each with its own step and most copies. Copies count up from the south-east-bottom corner, so they go west, up, north, or a mix, such as west and up for a diagonal build. A register might stack 7 times west for more bits and 3 times north for more registers.
 - Copies along the way the build's bits run add bits: west for a horizontal build, up for a vertical one, west and up for a diagonal one. Copies along any other direction are parallel copies and leave the width alone.
-- Stacking keeps every copy's slice, the blocks inside its corner markers. Blocks a copy has in the marker shell that reach into the previous copy's slice belong to the edge of the stack, such as the magenta block, lever, sign, and torch feeding a carry in or a shared control line, so only the first copy keeps them, with any lever or sign on them.
+- Stacking keeps every copy's slice: the build less its interface layers (see Bounding box), cut along each stacking direction to as many layers as the step, at the end away from the previous copy. Blocks a copy has outside its slice that reach into the previous copy's slice belong to the edge of the stack, such as the magenta block, lever, sign, and torch feeding a carry in or a shared control line, so only the first copy keeps them, with any lever or sign on them.
 - Every copy but the last turns its labelled outputs, such as a carry out, white and drops their signs, since the next copy takes them over.
 - A copy must not overwrite a different block of the copy before. Export refuses a stack whose copies collide, since that means a step is wrong.
 
@@ -80,12 +80,12 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 
 Some builds, such as displays, follow their own layout. They are stored with `--conventional false`, which exempts them from everything here.
 
-## Corner markers
+## Bounding box
 
-- The schematic's bounding box has a glass marker at each of its eight corners: the corner block, plus the block next to it along each axis, so 32 glass blocks in all.
-- The markers sit in a shell one block thick around the build. The build's size is the bounding box shrunk by one block on every face, and positions count from the first block inside the shell.
-- Only a build's interface reaches into the shell: levers, signs, input blocks, and redstone torches standing on or hanging from an input block, such as the torch that drives a control line from its magenta block. Glass in the shell belongs only to the corner markers.
-- `rsdb add` refuses a schematic with a marker block that is not glass, or with anything else in the shell.
+- A stored schematic's box fits its blocks tightly. Import takes out any glass corner markers, such as the 32 glass blocks older builds carried or WorldEdit's single corner blocks, and trims every empty layer.
+- The build's size is that box, less any outer layer that holds nothing but its interface: input blocks with their levers, signs, and torches. Such a layer only carries the inputs, so it does not make the build bigger. So input blocks can sit in their own layer, with their levers on the south side, without making the build bigger.
+- Positions count from the box's first block, its north-west-bottom corner.
+- A download can add a glass block off each corner of the box, diagonally, so WorldEdit can select the build by them without the glass touching it.
 
 ## Layout proposals
 

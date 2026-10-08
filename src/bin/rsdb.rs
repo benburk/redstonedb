@@ -10,11 +10,11 @@ use std::{
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    import, lint,
-    models::schematic::{self, Changes, New, Optional, StackDirection},
+    import, interface, lint,
+    models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
     models::user::{Role, User},
     schem::Blocks,
-    search, stack,
+    search, stack, standardize,
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -38,6 +38,29 @@ enum Command {
     Set(Set),
     /// Delete a schematic
     Remove { id: String },
+    /// Read every stored file again: its size, and its carry lines where
+    /// they are unknown
+    Reread,
+    /// List the standard functions, with their designs
+    Functions,
+    /// Add a standard function to the list
+    DefineFunction {
+        name: String,
+        /// How people read it, such as RAM; words of the name by default
+        #[arg(long)]
+        label: Option<String>,
+        /// Its builds have carry lines worth recording
+        #[arg(long)]
+        carries: bool,
+    },
+    /// Add a design to a function
+    DefineDesign {
+        function: String,
+        name: String,
+        /// The usual short name, such as CLA
+        #[arg(long)]
+        abbreviation: Option<String>,
+    },
     /// List accounts with their roles
     Users,
     /// Set an account's role: user, mod, or admin
@@ -72,6 +95,9 @@ enum Command {
         /// direction such as `west=7,north=3`
         #[arg(long)]
         copies: Option<String>,
+        /// Put a glass block off each corner, to select the build in-game by
+        #[arg(long)]
+        markers: bool,
     },
     /// Attach tags to a schematic
     Tag { id: String, tags: Vec<String> },
@@ -109,10 +135,13 @@ struct Set {
             "latency",
             "synchronized",
             "stacking",
-            "author",
+            "builders",
+            "contributors",
             "built-on",
             "imported-by",
             "description",
+            "design",
+            "carries",
         ]
     )]
     unset: Vec<String>,
@@ -158,18 +187,36 @@ struct Details {
     /// copies that work; repeatable, and replaces any stored directions
     #[arg(long = "stack")]
     stacking: Vec<StackDirection>,
-    /// In-game name; stored lowercase
-    #[arg(long)]
-    author: Option<String>,
+    /// A builder's in-game name, as written; repeatable, in order.
+    /// Given to `set`, the names replace the stored builders
+    #[arg(long = "builder", alias = "author")]
+    builders: Vec<String>,
+    /// The in-game name of someone who helped without building it, such as
+    /// with the design; repeatable, in order. Given to `set`, the names
+    /// replace the stored contributors
+    #[arg(long = "contributor")]
+    contributors: Vec<String>,
     /// Build date as YYYY-MM-DD
     #[arg(long)]
     built_on: Option<String>,
-    /// In-game name of whoever imported the build; stored lowercase
+    /// In-game name of whoever imported the build
     #[arg(long)]
     imported_by: Option<String>,
     /// Free text about the build, such as how to use it
     #[arg(long)]
     description: Option<String>,
+    /// The design within its function, such as `carry_lookahead`; see
+    /// `rsdb functions`. Left out, `add` stores `other`
+    #[arg(long)]
+    design: Option<String>,
+    /// Whether it has a carry in: true or false. `add` reads it from the
+    /// file's `carry in` sign when left out
+    #[arg(long)]
+    carry_in: Option<bool>,
+    /// Whether it has a carry out: true or false. `add` reads it from the
+    /// file's `carry out` sign when left out
+    #[arg(long)]
+    carry_out: Option<bool>,
     /// Whether the build follows the building conventions: true or false.
     /// A build that does not is imported without the lint.
     #[arg(long)]
@@ -207,6 +254,26 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             }
             Ok(())
         }
+        Command::Reread => reread(db).await,
+        Command::Functions => print_functions(db).await,
+        Command::DefineFunction {
+            name,
+            label,
+            carries,
+        } => define_function(db, name, label, carries).await,
+        Command::DefineDesign {
+            function,
+            name,
+            abbreviation,
+        } => Ok(schematic::define_design(
+            db,
+            &schematic::Design {
+                function,
+                name,
+                abbreviation,
+            },
+        )
+        .await?),
         Command::Users => {
             for user in User::all(db).await? {
                 println!("{:<6} {}", user.role.as_str(), user.username);
@@ -214,15 +281,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Role { username, role } => {
-            let user = User::get_by_username(db, &username)
-                .await?
-                .with_context(|| {
-                    format!("no account named {username}; they log in with Discord first")
-                })?;
-            let role = Role::parse(&role).context("unknown role")?;
-            User::set_role(db, user.id, role).await?;
-            println!("{} is now {}", user.username, role.as_str());
-            Ok(())
+            set_role(db, &username, &role).await
         }
         Command::Remove { id } => {
             let id = resolve(db, &id).await?;
@@ -232,9 +291,12 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Show { id } => show(db, &resolve(db, &id).await?).await,
-        Command::Export { id, out, copies } => {
-            export(db, &id, &out, copies.as_deref()).await
-        }
+        Command::Export {
+            id,
+            out,
+            copies,
+            markers,
+        } => export(db, &id, &out, copies.as_deref(), markers).await,
         Command::Tag { id, tags } => {
             let id = resolve(db, &id).await?;
             for name in &tags {
@@ -279,8 +341,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         unset,
     } = args;
     let id = resolve(db, &id).await?;
-    let author = details.author.map(|a| a.to_lowercase());
-    let imported_by = details.imported_by.map(|a| a.to_lowercase());
+    let imported_by = details.imported_by;
     let changes = Changes {
         function: function.as_deref(),
         width: details.width.map(i64::from),
@@ -288,12 +349,25 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         encoding: encoding.as_deref(),
         latency: details.latency.map(i64::from),
         synchronized: details.synchronized,
-        author: author.as_deref(),
         built_on: details.built_on.as_deref(),
         imported_by: imported_by.as_deref(),
         conventional: details.conventional,
+        design: details.design.as_deref(),
+        carry_in: details.carry_in,
+        carry_out: details.carry_out,
         description: details.description.as_deref(),
     };
+    let current = load(db, &id).await?;
+    let function = changes.function.unwrap_or(&current.function);
+    let design = changes
+        .design
+        .or(current.design.as_deref())
+        .unwrap_or("other");
+    if let Err(message) =
+        schematic::check_function(db, function, design).await?
+    {
+        bail!("{message}");
+    }
     schematic::update(db, &id, &changes).await?;
     let fields: Vec<Optional> = unset
         .iter()
@@ -301,17 +375,33 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "width" => Some(Optional::Width),
             "latency" => Some(Optional::Latency),
             "synchronized" => Some(Optional::Synchronized),
-            "author" => Some(Optional::Author),
             "built-on" => Some(Optional::BuiltOn),
             "imported-by" => Some(Optional::ImportedBy),
             "description" => Some(Optional::Description),
+            "design" => Some(Optional::Design),
+            "carries" => Some(Optional::Carries),
             _ => None,
         })
         .collect();
     schematic::forget(db, &id, &fields).await?;
+    let mut conn = db.acquire().await?;
     if !details.stacking.is_empty() || unset.iter().any(|f| f == "stacking") {
-        let mut conn = db.acquire().await?;
         schematic::set_stacking(&mut conn, &id, &details.stacking).await?;
+    }
+    let credits = [
+        (Credit::Builder, &details.builders, "builders"),
+        (Credit::Contributor, &details.contributors, "contributors"),
+    ];
+    for (credit, names, field) in credits {
+        if names.is_empty() && !unset.iter().any(|f| f == field) {
+            continue;
+        }
+        if let Some(name) =
+            names.iter().find(|n| !schematic::valid_player_name(n))
+        {
+            bail!("{name} is not a Minecraft name");
+        }
+        schematic::set_credits(&mut conn, &id, credit, names).await?;
     }
     println!("{}", load(db, &id).await?.filename());
     Ok(())
@@ -323,7 +413,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         .with_context(|| format!("cannot read {}", file.display()))?;
     let details = &args.details;
     let conventional = details.conventional.unwrap_or(true);
-    let prepared = import::prepare(data, args.standardize, conventional)
+    let prepared = import::prepare(&data, args.standardize, conventional)
         .with_context(|| file.display().to_string())?;
     if !prepared.violations.is_empty() {
         for violation in &prepared.violations {
@@ -338,8 +428,8 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         }
     }
     let size = &prepared.size;
-    let author = details.author.as_ref().map(|a| a.to_lowercase());
-    let imported_by = details.imported_by.as_ref().map(|a| a.to_lowercase());
+    let file_carries = import::carries(&interface::read(&prepared.blocks));
+    let imported_by = details.imported_by.clone();
     let id = import::store(
         db,
         &New {
@@ -350,17 +440,24 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             latency: details.latency.map(i64::from),
             synchronized: details.synchronized,
             size: (size.x.into(), size.y.into(), size.z.into()),
-            author: author.as_deref(),
             built_on: details.built_on.as_deref(),
             imported_by: imported_by.as_deref(),
             conventional,
+            design: details.design.as_deref(),
+            carry_in: details.carry_in.or(Some(file_carries.0)),
+            carry_out: details.carry_out.or(Some(file_carries.1)),
             description: details.description.as_deref(),
             uploaded_by: None,
             sha256: &prepared.sha256,
             data: &prepared.data,
         },
-        &args.tags,
-        &details.stacking,
+        &import::Extras {
+            builders: &details.builders,
+            contributors: &details.contributors,
+            tags: &args.tags,
+            new_tags: false,
+            stacking: &details.stacking,
+        },
     )
     .await?;
     println!("{}  {}", &id[..8], load(db, &id).await?.filename());
@@ -375,6 +472,7 @@ async fn export(
     id: &str,
     out: &Path,
     copies: Option<&str>,
+    markers: bool,
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
@@ -390,11 +488,115 @@ async fn export(
             (data, s.stacked(&plan, size))
         }
     };
+    let data = if markers {
+        standardize::with_corner_markers(&data)?
+    } else {
+        data
+    };
     let path = out.join(s.filename());
     fs::File::create_new(&path)
         .with_context(|| format!("cannot create {}", path.display()))?
         .write_all(&data)?;
     println!("{}", path.display());
+    Ok(())
+}
+
+/// Adds a standard function, labelled with its name's words unless given
+/// a label.
+async fn define_function(
+    db: &SqlitePool,
+    name: String,
+    label: Option<String>,
+    carries: bool,
+) -> Result<()> {
+    let label = label.unwrap_or_else(|| schematic::words(&name));
+    let function = schematic::Function {
+        name,
+        label,
+        carries,
+    };
+    Ok(schematic::define_function(db, &function).await?)
+}
+
+/// Sets the role of the account with a Discord username.
+async fn set_role(db: &SqlitePool, username: &str, role: &str) -> Result<()> {
+    let user = User::get_by_username(db, username).await?.with_context(
+        || {
+            format!(
+                "no account named {username}; they log in with Discord first"
+            )
+        },
+    )?;
+    let role = Role::parse(role).context("unknown role")?;
+    User::set_role(db, user.id, role).await?;
+    println!("{} is now {}", user.username, role.as_str());
+    Ok(())
+}
+
+/// Prints each function with its designs.
+async fn print_functions(db: &SqlitePool) -> Result<()> {
+    let designs = schematic::designs(db).await?;
+    for function in schematic::functions(db).await? {
+        let names: Vec<&str> = designs
+            .iter()
+            .filter(|d| d.function == function.name)
+            .map(|d| d.name.as_str())
+            .collect();
+        println!(
+            "{:<20} {:<20} {}",
+            function.name,
+            function.label,
+            names.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Reads every stored file again and prints what changed: the file
+/// itself, with any corner markers taken out and its box fitted; its size;
+/// and its carry lines where they are unknown and its function has them.
+async fn reread(db: &SqlitePool) -> Result<()> {
+    let functions = schematic::functions(db).await?;
+    for s in schematic::all(db).await? {
+        let stored = schematic::data(db, &s.id)
+            .await?
+            .context("schematic vanished")?;
+        let data = standardize::tidy(&stored)?;
+        if data != stored {
+            let sha256 = import::sha256(&data);
+            schematic::set_file(db, &s.id, &data, &sha256).await?;
+            let [w, h, l] = Blocks::read(&stored)?.size;
+            let [nw, nh, nl] = Blocks::read(&data)?.size;
+            println!("{}  file {w}x{h}x{l} -> {nw}x{nh}x{nl}", &s.id[..8]);
+        }
+        let blocks = Blocks::read(&data)?;
+        let carries =
+            functions.iter().any(|f| f.name == s.function && f.carries);
+        if carries
+            && s.conventional
+            && (s.carry_in.is_none() || s.carry_out.is_none())
+        {
+            let (carry_in, carry_out) =
+                import::carries(&interface::read(&blocks));
+            let carry_in = s.carry_in.or(Some(carry_in));
+            let carry_out = s.carry_out.or(Some(carry_out));
+            schematic::set_carries(db, &s.id, carry_in, carry_out).await?;
+            println!(
+                "{}  carry in {}, carry out {}",
+                &s.id[..8],
+                carry_in == Some(true),
+                carry_out == Some(true)
+            );
+        }
+        let size = import::measure(&blocks, s.conventional)?;
+        let size = (size.x.into(), size.y.into(), size.z.into());
+        if size != s.size {
+            schematic::set_size(db, &s.id, size).await?;
+            let (x, y, z) = s.size;
+            let (nx, ny, nz) = size;
+            println!("{}  {x}x{y}x{z} -> {nx}x{ny}x{nz}", &s.id[..8]);
+        }
+    }
     Ok(())
 }
 
@@ -502,6 +704,17 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
     println!("synchronized {}", s.synchronized_label());
+    println!(
+        "design       {}",
+        s.design.as_deref().unwrap_or("none").replace('_', " ")
+    );
+    let yes_no = |v: Option<bool>| match v {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
+    };
+    println!("carry in     {}", yes_no(s.carry_in));
+    println!("carry out    {}", yes_no(s.carry_out));
     let stacking: Vec<String> =
         s.stacking.iter().map(StackDirection::describe).collect();
     println!(
@@ -513,7 +726,17 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         }
     );
     println!("size         {x}x{y}x{z}, {} blocks", s.volume());
-    println!("author       {}", unknown(s.author));
+    println!(
+        "built by     {}",
+        if s.builders.is_empty() {
+            "unknown".to_owned()
+        } else {
+            s.builders.join(", ")
+        }
+    );
+    if !s.contributors.is_empty() {
+        println!("contributors {}", s.contributors.join(", "));
+    }
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));
     println!("imported by  {}", unknown(s.imported_by));

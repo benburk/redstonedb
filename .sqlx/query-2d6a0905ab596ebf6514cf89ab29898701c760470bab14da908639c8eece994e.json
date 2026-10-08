@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,\n            conventional as \"conventional: bool\", description,\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic ORDER BY function, width, added_at",
+  "query": "SELECT id, function, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,\n            conventional as \"conventional: bool\", description, design,\n            carry_in as \"carry_in: bool\", carry_out as \"carry_out: bool\",\n            (SELECT abbreviation FROM design WHERE design.function =\n                schematic.function AND design.name = schematic.design)\n                as \"design_abbreviation?: String\",\n            (SELECT label FROM function WHERE function.name =\n                schematic.function) as \"function_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic ORDER BY function, width, added_at",
   "describe": {
     "columns": [
       {
@@ -54,43 +54,63 @@
         "type_info": "Integer"
       },
       {
-        "name": "author",
+        "name": "built_on",
         "ordinal": 10,
         "type_info": "Text"
       },
       {
-        "name": "built_on",
+        "name": "imported_by",
         "ordinal": 11,
         "type_info": "Text"
       },
       {
-        "name": "imported_by",
+        "name": "sha256",
         "ordinal": 12,
         "type_info": "Text"
       },
       {
-        "name": "sha256",
+        "name": "added_at",
         "ordinal": 13,
         "type_info": "Text"
       },
       {
-        "name": "added_at",
-        "ordinal": 14,
-        "type_info": "Text"
-      },
-      {
         "name": "conventional: bool",
-        "ordinal": 15,
+        "ordinal": 14,
         "type_info": "Integer"
       },
       {
         "name": "description",
+        "ordinal": 15,
+        "type_info": "Text"
+      },
+      {
+        "name": "design",
         "ordinal": 16,
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "carry_in: bool",
         "ordinal": 17,
+        "type_info": "Integer"
+      },
+      {
+        "name": "carry_out: bool",
+        "ordinal": 18,
+        "type_info": "Integer"
+      },
+      {
+        "name": "design_abbreviation?: String",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "function_label?: String",
+        "ordinal": 20,
+        "type_info": "Text"
+      },
+      {
+        "name": "uploader?: String",
+        "ordinal": 21,
         "type_info": "Text"
       }
     ],
@@ -110,13 +130,17 @@
       false,
       true,
       true,
+      false,
+      false,
+      false,
       true,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
+      true,
       true,
       true
     ]
   },
-  "hash": "56a02def3131c3b96ea9b10df9f5a825bcb5ab83b6c3ad19fe9e2893bdc983af"
+  "hash": "2d6a0905ab596ebf6514cf89ab29898701c760470bab14da908639c8eece994e"
 }

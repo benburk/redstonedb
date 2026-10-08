@@ -1,9 +1,6 @@
 //! A picture of a build for its card: an isometric view from the south-east
 //! and above, with a flat colour for each block. Full blocks are shaded
 //! cubes; dust, torches, repeaters, comparators, and levers are small boxes.
-//! The corner markers are left out.
-
-use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
@@ -88,19 +85,7 @@ pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
 /// Every block with something to draw, far blocks first so near ones
 /// paint over them.
 fn visible(blocks: &Blocks) -> Vec<Drawn> {
-    // A build without markers keeps its corner blocks.
-    let markers: HashSet<Pos> = blocks
-        .marker_positions()
-        .into_iter()
-        .filter(|&pos| blocks.get(pos) == "minecraft:glass")
-        .collect();
-    let shape = |pos: Pos| {
-        if markers.contains(&pos) {
-            Shape::Empty
-        } else {
-            shape(blocks.get(pos))
-        }
-    };
+    let shape = |pos: Pos| shape(blocks.get(pos));
     let opaque =
         |pos: Pos| matches!(shape(pos), Shape::Cube(color) if color[3] == 255);
     let mut drawn: Vec<Drawn> = blocks

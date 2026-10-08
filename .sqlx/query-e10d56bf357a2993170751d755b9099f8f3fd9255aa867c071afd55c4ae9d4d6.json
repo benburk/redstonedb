@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET carry_in = ?, carry_out = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e10d56bf357a2993170751d755b9099f8f3fd9255aa867c071afd55c4ae9d4d6"
+}

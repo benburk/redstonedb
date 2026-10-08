@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM schematic_tag WHERE schematic_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "350ae71ef076f75b6d8cf5dfdc6389a28310cae2c27d77b8863b5abea1eb12e3"
+}

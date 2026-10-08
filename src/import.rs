@@ -8,9 +8,9 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
-    interface::{Interface, Port},
+    interface::{self, Interface, Port},
     lint::{self, Violation},
-    models::schematic::{self, New, StackDirection},
+    models::schematic::{self, Credit, New, StackDirection},
     schem::{Blocks, Size},
     standardize,
 };
@@ -25,16 +25,17 @@ pub struct Prepared {
     pub sha256: String,
 }
 
-/// Standardizes `data` if asked, then measures, lints, and hashes it.
+/// Standardizes `data` if asked, and in any case takes out corner markers
+/// and fits its box tightly; then measures, lints, and hashes it.
 pub fn prepare(
-    data: Vec<u8>,
+    data: &[u8],
     standardize: bool,
     conventional: bool,
 ) -> Result<Prepared> {
     let data = if standardize {
-        standardize::standardize(&data).context("cannot standardize it")?
+        standardize::standardize(data).context("cannot standardize it")?
     } else {
-        data
+        standardize::tidy(data)?
     };
     let blocks = Blocks::read(&data)?;
     let violations = if conventional {
@@ -42,19 +43,8 @@ pub fn prepare(
     } else {
         Vec::new()
     };
-    // A build without corner markers measures its whole box.
-    let size = if blocks.missing_markers().is_empty() {
-        blocks.inner_size()?
-    } else {
-        blocks.full_size()?
-    };
-    let sha256 =
-        Sha256::digest(&data)
-            .iter()
-            .fold(String::new(), |mut hex, b| {
-                let _ = write!(hex, "{b:02x}");
-                hex
-            });
+    let size = measure(&blocks, conventional)?;
+    let sha256 = sha256(&data);
     Ok(Prepared {
         data,
         blocks,
@@ -64,28 +54,122 @@ pub fn prepare(
     })
 }
 
-/// Stores a schematic with its tags and stacking, and returns its id. The
-/// tags must already exist.
+/// The file's SHA-256, in hex.
+pub fn sha256(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .fold(String::new(), |mut hex, b| {
+            let _ = write!(hex, "{b:02x}");
+            hex
+        })
+}
+
+/// A build's size: its core, as [`interface::core`] finds it, for a build
+/// that follows the conventions, and its whole box for one that does not.
+pub fn measure(blocks: &Blocks, conventional: bool) -> Result<Size> {
+    if !conventional {
+        return blocks.full_size();
+    }
+    let (low, high) = interface::core(blocks);
+    let [x, y, z] = [0, 1, 2]
+        .map(|axis| u16::try_from(high[axis] - low[axis] + 1).unwrap_or(0));
+    Ok(Size { x, y, z })
+}
+
+/// What else a stored schematic carries besides its row.
+pub struct Extras<'a> {
+    pub builders: &'a [String],
+    pub contributors: &'a [String],
+    pub tags: &'a [String],
+    /// Make tags that do not exist yet, in the `other` category, rather
+    /// than refusing them.
+    pub new_tags: bool,
+    pub stacking: &'a [StackDirection],
+}
+
+/// Stores a schematic with its credits, tags, and stacking, and returns
+/// its id.
 pub async fn store(
     db: &SqlitePool,
     new: &New<'_>,
-    tags: &[String],
-    stacking: &[StackDirection],
+    extras: &Extras<'_>,
 ) -> Result<String> {
+    if let Some(name) = extras
+        .builders
+        .iter()
+        .chain(extras.contributors)
+        .find(|n| !schematic::valid_player_name(n))
+    {
+        bail!(
+            "{name} is not a Minecraft name: letters, digits, and underscores"
+        );
+    }
     if let Some(id) = schematic::id_by_sha256(db, new.sha256).await? {
         bail!("this file is already stored as {}", &id[..8]);
     }
+    let design = new.design.unwrap_or("other");
+    let function =
+        match schematic::check_function(db, new.function, design).await? {
+            Ok(function) => function,
+            Err(message) => bail!("{message}"),
+        };
+    // Carry lines mean nothing for a function without them.
+    let (carry_in, carry_out) = if function.carries {
+        (new.carry_in, new.carry_out)
+    } else {
+        (None, None)
+    };
+    let new = &New {
+        design: Some(design),
+        carry_in,
+        carry_out,
+        ..*new
+    };
     let mut tx = db.begin().await?;
     let id = schematic::insert(&mut *tx, new).await?;
-    for name in tags {
-        let tag = schematic::tag_id(&mut *tx, name)
-            .await?
-            .with_context(|| format!("there is no tag named {name}"))?;
+    schematic::set_credits(&mut tx, &id, Credit::Builder, extras.builders)
+        .await?;
+    schematic::set_credits(
+        &mut tx,
+        &id,
+        Credit::Contributor,
+        extras.contributors,
+    )
+    .await?;
+    for name in extras.tags {
+        let tag = match schematic::tag_id(&mut *tx, name).await? {
+            Some(tag) => tag,
+            None if extras.new_tags => {
+                schematic::define_tag(&mut *tx, name, None, "other")
+                    .await
+                    .with_context(|| {
+                        format!("{name} cannot be a tag's name")
+                    })?;
+                schematic::tag_id(&mut *tx, name)
+                    .await?
+                    .context("the new tag vanished")?
+            }
+            None => bail!("there is no tag named {name}"),
+        };
         schematic::attach(&mut *tx, &id, &tag).await?;
     }
-    schematic::set_stacking(&mut tx, &id, stacking).await?;
+    schematic::set_stacking(&mut tx, &id, extras.stacking).await?;
     tx.commit().await?;
     Ok(id)
+}
+
+/// Whether the build has a carry in and a carry out, from lines labelled
+/// `carry in` or `cin`, and `carry out` or `cout`.
+pub fn carries(interface: &Interface) -> (bool, bool) {
+    let named = |ports: &[Port], names: [&str; 2]| {
+        ports
+            .iter()
+            .any(|port| port.labelled && names.contains(&port.name.as_str()))
+    };
+    (
+        named(&interface.inputs, ["carry in", "cin"]),
+        named(&interface.outputs, ["carry out", "cout"]),
+    )
 }
 
 /// The width and orientation the inputs suggest: the widest operand's bit

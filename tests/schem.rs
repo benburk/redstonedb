@@ -1,13 +1,29 @@
 //! Reading builds from their files, against the two stored adders.
 
 use app::{
-    interface, lint, models::schematic::StackDirection, schem::Blocks, stack,
+    import, interface, lint, models::schematic::StackDirection, schem::Blocks,
+    stack, standardize,
 };
 
+fn raw(name: &str) -> Vec<u8> {
+    std::fs::read(format!("tests/fixtures/{name}.schem"))
+        .expect("fixture is readable")
+}
+
+/// A fixture as the site stores it: markers out, box fitted.
+fn slice(name: &str) -> Vec<u8> {
+    standardize::tidy(&raw(name)).expect("fixture tidies")
+}
+
 fn blocks(name: &str) -> Blocks {
-    let data = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    Blocks::read(&data).expect("fixture parses")
+    Blocks::read(&slice(name)).expect("fixture parses")
+}
+
+fn glass(blocks: &Blocks) -> usize {
+    blocks
+        .iter()
+        .filter(|(_, state)| *state == "minecraft:glass")
+        .count()
 }
 
 fn names(ports: &[interface::Port]) -> Vec<(&str, usize)> {
@@ -18,11 +34,38 @@ fn names(ports: &[interface::Port]) -> Vec<(&str, usize)> {
 }
 
 #[test]
-fn size_is_inside_the_corner_markers() {
-    let size = blocks("alpha-cla").inner_size().unwrap();
+fn size_leaves_out_the_interface_layers() {
+    let size = import::measure(&blocks("alpha-cla"), true).unwrap();
     assert_eq!((size.x, size.y, size.z), (19, 11, 18));
-    let size = blocks("alpha-rca").inner_size().unwrap();
+    let size = import::measure(&blocks("alpha-rca"), true).unwrap();
     assert_eq!((size.x, size.y, size.z), (16, 6, 9));
+}
+
+#[test]
+fn tidying_takes_out_the_markers_and_fits_the_box() {
+    let before = Blocks::read(&raw("alpha-cla")).unwrap();
+    assert_eq!(glass(&before), 32);
+    let after = blocks("alpha-cla");
+    assert_eq!(glass(&after), 0);
+    assert!((0..3).all(|axis| after.size[axis] < before.size[axis]));
+    let again = standardize::tidy(&slice("alpha-cla")).unwrap();
+    assert_eq!(again, slice("alpha-cla"));
+}
+
+#[test]
+fn corner_markers_sit_one_block_off_each_corner() {
+    let marked = standardize::with_corner_markers(&slice("alpha-cla")).unwrap();
+    let blocks = Blocks::read(&marked).unwrap();
+    assert_eq!(glass(&blocks), 8);
+    let [w, h, l] = blocks.size;
+    for x in [0, w - 1] {
+        for y in [0, h - 1] {
+            for z in [0, l - 1] {
+                assert_eq!(blocks.get([x, y, z]), "minecraft:glass");
+            }
+        }
+    }
+    assert_eq!(standardize::tidy(&marked).unwrap(), slice("alpha-cla"));
 }
 
 #[test]
@@ -125,10 +168,6 @@ fn thumbnail_is_a_png_of_the_set_size() {
     assert_eq!([width, height], expected);
 }
 
-fn slice(name: &str) -> Vec<u8> {
-    std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap()
-}
-
 fn direction(text: &str) -> StackDirection {
     text.parse().unwrap()
 }
@@ -156,7 +195,8 @@ fn a_register_stacks_two_ways() {
         (direction("north=4,max=3"), 3),
     ];
     let (data, size) = stack::stack(&slice("alpha-register"), &plan).unwrap();
-    assert_eq!(size, [14, 12, 12]);
+    // Seven 2-wide copies, and the first copy's feed for the control lines.
+    assert_eq!(size, [15, 12, 12]);
     let interface::Interface { inputs, .. } =
         interface::read(&Blocks::read(&data).unwrap());
     // Each of the three registers keeps its own read and write lines.
@@ -181,28 +221,10 @@ fn a_wrong_step_collides() {
 }
 
 #[test]
-fn shell_holds_only_the_interface() {
-    let messages: Vec<String> = lint::check(&blocks("alpha-register"))
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    // The wall torches on the read and write blocks are allowed; the white
-    // block beside them, and the torch standing on it, are not.
-    assert_eq!(
-        messages,
-        [
-            "(2, 8, 2): white concrete in the shell; only levers, signs, \
-             input blocks, and torches on input blocks belong there",
-            "(2, 9, 2): torch in the shell is not on an input block",
-        ]
-    );
-}
-
-#[test]
-fn standardizing_whitens_the_build_and_adds_markers() {
-    let data =
-        app::standardize::standardize(&slice("threshold-3-raw")).unwrap();
+fn standardizing_whitens_the_build() {
+    let data = standardize::standardize(&raw("threshold-3-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
+    assert_eq!(glass(&blocks), 0);
     let messages: Vec<String> = lint::check(&blocks)
         .iter()
         .map(ToString::to_string)
@@ -217,9 +239,9 @@ fn standardizing_whitens_the_build_and_adds_markers() {
 
 #[test]
 fn standardizing_twice_gives_the_same_bytes() {
-    let raw = slice("threshold-3-raw");
-    let first = app::standardize::standardize(&raw).unwrap();
-    let second = app::standardize::standardize(&raw).unwrap();
+    let raw = raw("threshold-3-raw");
+    let first = standardize::standardize(&raw).unwrap();
+    let second = standardize::standardize(&raw).unwrap();
     assert_eq!(first, second);
 }
 
@@ -228,4 +250,17 @@ fn stacks_are_capped() {
     let plan = [(direction("west=2"), 65)];
     let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
     assert!(err.to_string().contains("at most 64"), "{err}");
+}
+
+#[test]
+fn a_layer_of_only_inputs_does_not_count_toward_size() {
+    // The raw file also has misplaced marker glass, which standardizing
+    // drops rather than keeping as part of the build.
+    let data = standardize::standardize(&raw("cca-16-raw")).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    assert!(lint::check(&blocks).is_empty());
+    let size = import::measure(&blocks, true).unwrap();
+    assert_eq!((size.x, size.y, size.z), (7, 35, 8));
+    let all_layers = blocks.full_size().unwrap();
+    assert!(all_layers.z > size.z, "the input layer is left out");
 }

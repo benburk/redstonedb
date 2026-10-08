@@ -1,53 +1,24 @@
 # Naming
 
-## Grammar
+A build's name is its width, design, and function, such as `8-bit Carry Lookahead Adder`. Unknown parts are left out, and so is the design `other`. Its download filename is that name with dashes for spaces:
 
 ```text
-<function>-<width>-<modifiers…>-<latency>-<size>-<author>-<date>.schem
+8-bit-Carry-Lookahead-Adder.schem
+16-bit-RAM.schem
+Adder.schem
 ```
 
-Dashes separate parts, so no part may contain a dash. Multi-word function names use underscores, such as `line_drawer`. Each part has a distinct shape, so a name can be parsed without placeholders for omitted parts.
+A stack is named for what it became: its width is the slice's times the copies that add bits.
 
-| Part      | Shape           | Example          |
-| --------- | --------------- | ---------------- |
-| function  | snake_case word | `bin2bcd`        |
-| width     | `NNb`           | `08b`            |
-| modifiers | glossary tokens | `alpha-horz-bin` |
-| latency   | `Nt`            | `3t`             |
-| size      | `WxHxL`         | `16x4x9`         |
-| author    | in-game name    | `cullback`       |
-| date      | `YYYYMMDD`      | `20261007`       |
-
-- **function:** always present. It comes first so builds group by function.
-- **width:** zero-padded to two digits so `08b` sorts before `16b`.
-- **modifiers:** in glossary order. Orientation and encoding are required.
-- **latency:** ticks; the unit is still open.
-- **size:** the bounding box inside the corner markers; see [conventions.md](conventions.md). The axes follow the building convention.
-- **author:** lowercase. Minecraft names use only `[A-Za-z0-9_]`.
-- **date:** serves as the version.
-
-## Examples
-
-These are illustrative only; they are not real builds.
-
-```text
-adder-08b-alpha-vert-bin-3t-16x4x9-cullback-20261007.schem
-bin2bcd-08b-horz-hex-5t-16x5x12-someone-20261007.schem
-register-16b-diag-bin-2t-32x6x4-someone-20261007.schem
-```
+The name does not identify a build; the database's id does. Two builds can share a name, and everything else about them, such as tags, latency, size, builders, and build date, is in the database and on the site.
 
 ## Decided
 
-- Width, latency, and size go in the filename.
-- Stacking does not get its own part. A stackable build is stored as one slice, and its step and limit are fields in the database; see [conventions.md](conventions.md). A stack exported with `--stack` is named for what it became: its width is the slice's times the copies, and its size is the stack's.
-- Orientation and encoding are always written; restrictions and timing only when they apply.
-- Abbreviated tokens use 3 or 4 letters. Restrictions are written out in full.
-- The author and a date together identify the version.
+- Filenames are for people downloading a build, not a catalogue. They stay short and readable.
+- Functions and designs are stored as lowercase words joined by underscores, such as `carry_lookahead`, and named with their labels, such as `Carry Lookahead` and `RAM`; see [glossary.md](glossary.md).
 
 ## Open
 
 - Latency unit: redstone ticks or game ticks.
-- Throughput or period for pipelined and sequential builds: in the filename, or only in the database.
-- Which date to use: the build date, or the capture date when the build date is unknown.
-- Width for multi-operand functions. One proposal: `08b` means 8-bit inputs, so an `08b` multiplier is 8 × 8.
+- Width for multi-operand functions. One proposal: `8-bit` means 8-bit inputs, so an 8-bit Multiplier is 8 × 8.
 - Builds without a datapath, such as doors. One proposal: put the opening size in the function name, as in `door_3x3`.

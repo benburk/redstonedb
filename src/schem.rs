@@ -9,7 +9,7 @@ use fastnbt::Value;
 use fastnbt::{ByteArray, IntArray};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 
-/// A build's size inside its corner markers, in blocks along x, y, z.
+/// A build's size, in blocks along x, y, z.
 pub struct Size {
     pub x: u16,
     pub y: u16,
@@ -120,29 +120,6 @@ fn dimension(body: &HashMap<String, Value>, key: &str) -> Result<u16> {
     }
 }
 
-/// Where the corner markers go in a bounding box of `size`: each of its
-/// eight corners, and the block next to it along each axis.
-pub fn marker_positions(size: Pos) -> Vec<Pos> {
-    let [w, h, l] = size;
-    let mut positions = Vec::new();
-    for x in [0, w - 1] {
-        for y in [0, h - 1] {
-            for z in [0, l - 1] {
-                // One step from the corner toward the box's middle.
-                let [dx, dy, dz] =
-                    [x, y, z].map(|n| if n == 0 { 1 } else { -1 });
-                positions.extend([
-                    [x, y, z],
-                    [x + dx, y, z],
-                    [x, y + dy, z],
-                    [x, y, z + dz],
-                ]);
-            }
-        }
-    }
-    positions
-}
-
 pub const AIR: &str = "minecraft:air";
 
 /// A block position, as x, y, z.
@@ -150,7 +127,7 @@ pub type Pos = [i32; 3];
 
 /// A schematic's blocks and sign text, by position.
 pub struct Blocks {
-    /// The full bounding box, corner markers included.
+    /// The bounding box.
     pub size: Pos,
     palette: Vec<String>,
     grid: Vec<usize>,
@@ -243,28 +220,6 @@ impl Blocks {
     pub fn full_size(&self) -> Result<Size> {
         let [x, y, z] = self.size.map(|n| u16::try_from(n).unwrap_or(0));
         Ok(Size { x, y, z })
-    }
-
-    /// The size inside the corner markers, one block in from every face.
-    pub fn inner_size(&self) -> Result<Size> {
-        let [x, y, z] = self.size.map(|n| u16::try_from(n - 2).unwrap_or(0));
-        if x == 0 || y == 0 || z == 0 {
-            bail!("schematic is too small to hold corner markers");
-        }
-        Ok(Size { x, y, z })
-    }
-
-    /// Where the corner markers go.
-    pub fn marker_positions(&self) -> Vec<Pos> {
-        marker_positions(self.size)
-    }
-
-    /// Marker positions that do not hold glass.
-    pub fn missing_markers(&self) -> Vec<Pos> {
-        self.marker_positions()
-            .into_iter()
-            .filter(|&pos| self.get(pos) != "minecraft:glass")
-            .collect()
     }
 }
 

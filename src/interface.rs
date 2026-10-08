@@ -7,7 +7,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::schem::{self, Blocks, DIRECTIONS, Lever, Pos};
+use crate::{
+    lint,
+    schem::{self, Blocks, DIRECTIONS, Lever, Pos},
+};
 
 pub struct Interface {
     pub inputs: Vec<Port>,
@@ -30,7 +33,7 @@ pub struct Port {
 }
 
 pub struct Bit {
-    /// Position inside the corner markers.
+    /// Position in the file.
     pub pos: Pos,
     /// For an input, the side power enters through: the side its lever is
     /// on, such as `south`.
@@ -40,6 +43,53 @@ pub struct Bit {
     pub hard: bool,
     /// For an input, whether it is saved with its lever on.
     pub inverted: bool,
+}
+
+/// The bounds, inclusive, of the build itself: its box less any outer
+/// layer that holds nothing but its interface, meaning input blocks with
+/// their levers, signs, and torches. Such a layer only carries the inputs,
+/// so it does not make the build bigger, and a stack's copies share it.
+pub fn core(blocks: &Blocks) -> (Pos, Pos) {
+    let mut low = [0; 3];
+    let mut high = blocks.size.map(|n| n - 1);
+    for axis in 0..3 {
+        while high[axis] > low[axis]
+            && interface_only(blocks, axis, low[axis], low, high)
+        {
+            low[axis] += 1;
+        }
+        while high[axis] > low[axis]
+            && interface_only(blocks, axis, high[axis], low, high)
+        {
+            high[axis] -= 1;
+        }
+    }
+    (low, high)
+}
+
+/// Whether the layer at `at` along `axis`, within `low` to `high` on the
+/// other axes, holds nothing but the interface.
+fn interface_only(
+    blocks: &Blocks,
+    axis: usize,
+    at: i32,
+    low: Pos,
+    high: Pos,
+) -> bool {
+    let (mut low, mut high) = (low, high);
+    low[axis] = at;
+    high[axis] = at;
+    (low[0]..=high[0]).all(|x| {
+        (low[1]..=high[1]).all(|y| {
+            (low[2]..=high[2]).all(|z| {
+                let pos = [x, y, z];
+                let state = blocks.get(pos);
+                let support = schem::torch_block(pos, state)
+                    .map(|block| blocks.get(block));
+                state == schem::AIR || lint::is_interface(state, support)
+            })
+        })
+    })
 }
 
 pub fn read(blocks: &Blocks) -> Interface {
@@ -156,7 +206,7 @@ fn port(
         .map(|&pos| {
             let lever = levers.and_then(|levers| levers.get(&pos));
             Bit {
-                pos: pos.map(|n| n - 1),
+                pos,
                 entry: lever.map(|lever| lever.side.clone()),
                 hard: lever.is_some()
                     && DIRECTIONS.iter().any(|&d| {

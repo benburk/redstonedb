@@ -8,10 +8,9 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`.
-const PALETTE: [&str; 8] = [
+const PALETTE: [&str; 7] = [
     "white_concrete",
     "white_stained_glass",
-    "glass",
     "lime_concrete",
     "light_blue_concrete",
     "magenta_concrete",
@@ -19,8 +18,11 @@ const PALETTE: [&str; 8] = [
     "yellow_stained_glass",
 ];
 
-/// Redstone components and the other blocks every build may use.
-const COMPONENTS: [&str; 17] = [
+/// Redstone components and the other blocks every build may use. Besides
+/// dust, torches, and the like, this keeps the blocks a comparator reads,
+/// such as furnaces, cauldrons, and cakes, since a build uses them for
+/// their signal.
+const COMPONENTS: [&str; 51] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -38,6 +40,40 @@ const COMPONENTS: [&str; 17] = [
     "redstone_lamp",
     "hopper",
     "target",
+    "note_block",
+    "dropper",
+    "dispenser",
+    "daylight_detector",
+    "tripwire_hook",
+    "tripwire",
+    "stone_button",
+    "oak_button",
+    "stone_pressure_plate",
+    "light_weighted_pressure_plate",
+    "heavy_weighted_pressure_plate",
+    "furnace",
+    "blast_furnace",
+    "smoker",
+    "chest",
+    "trapped_chest",
+    "barrel",
+    "cauldron",
+    "water_cauldron",
+    "lava_cauldron",
+    "powder_snow_cauldron",
+    "cake",
+    "composter",
+    "jukebox",
+    "lectern",
+    "brewing_stand",
+    "beehive",
+    "bee_nest",
+    "respawn_anchor",
+    "end_portal_frame",
+    "chiseled_bookshelf",
+    "crafter",
+    "sculk_sensor",
+    "calibrated_sculk_sensor",
 ];
 
 /// Blocks a lever must not touch, since it would power them directly.
@@ -56,8 +92,7 @@ const POWERABLE: [&str; 9] = [
 /// The blocks marking A and B input bits.
 const OPERANDS: [&str; 2] = ["lime_concrete", "light_blue_concrete"];
 
-/// One broken convention, at a position inside the corner markers when it
-/// has one.
+/// One broken convention, at a position in the file when it has one.
 #[derive(Clone)]
 pub struct Violation {
     pub pos: Option<Pos>,
@@ -75,8 +110,6 @@ impl fmt::Display for Violation {
 
 pub fn check(blocks: &Blocks) -> Vec<Violation> {
     let mut found = Vec::new();
-    markers(blocks, &mut found);
-    shell(blocks, &mut found);
     palette(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
@@ -84,69 +117,8 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
     found
 }
 
-/// Records a violation at a position in the file, converting it to one
-/// inside the corner markers.
 fn say(found: &mut Vec<Violation>, pos: Option<Pos>, message: String) {
-    found.push(Violation {
-        pos: pos.map(|p| p.map(|n| n - 1)),
-        message,
-    });
-}
-
-fn markers(blocks: &Blocks, found: &mut Vec<Violation>) {
-    for pos in blocks.missing_markers() {
-        say(found, Some(pos), "corner marker is not glass".to_owned());
-    }
-}
-
-/// Only a build's interface reaches into the shell around it: levers,
-/// signs, input blocks, and torches hanging on input blocks. Plain glass,
-/// in the shell or inside, is for the corner markers alone.
-fn shell(blocks: &Blocks, found: &mut Vec<Violation>) {
-    let [w, h, l] = blocks.size;
-    let markers: std::collections::HashSet<Pos> =
-        blocks.marker_positions().into_iter().collect();
-    for (pos @ [x, y, z], state) in blocks.iter() {
-        let in_shell = x == 0
-            || y == 0
-            || z == 0
-            || x == w - 1
-            || y == h - 1
-            || z == l - 1;
-        let name = short(state);
-        if markers.contains(&pos) || name == "air" {
-            continue;
-        }
-        if !in_shell {
-            if name == "glass" {
-                say(
-                    found,
-                    Some(pos),
-                    "glass inside the build; plain glass is for the corner \
-                     markers, so use white stained glass"
-                        .to_owned(),
-                );
-            }
-            continue;
-        }
-        let support =
-            schem::torch_block(pos, state).map(|block| blocks.get(block));
-        if allowed_in_shell(state, support) {
-            continue;
-        }
-        let message = if name == "glass" {
-            "glass in the shell outside the corner markers".to_owned()
-        } else if name.contains("torch") {
-            "torch in the shell is not on an input block".to_owned()
-        } else {
-            format!(
-                "{} in the shell; only levers, signs, input blocks, and \
-                 torches on input blocks belong there",
-                name.replace('_', " ")
-            )
-        };
-        say(found, Some(pos), message);
-    }
+    found.push(Violation { pos, message });
 }
 
 fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
@@ -239,8 +211,7 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
 fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     let Interface { outputs, .. } = interface::read(blocks);
     for port in &outputs {
-        // Interface positions are already inside the markers.
-        let pos = port.bits.first().map(|bit| bit.pos.map(|n| n + 1));
+        let pos = port.bits.first().map(|bit| bit.pos);
         if !matches!(
             port.block.as_str(),
             "yellow concrete" | "yellow stained glass"
@@ -257,10 +228,10 @@ fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     }
 }
 
-/// Whether `state` may sit in the shell around a build: a lever, a sign,
-/// an input block, or a torch on an input block. `support` is the block a
+/// Whether `state` is part of a build's interface: a lever, a sign, an
+/// input block, or a torch on an input block. `support` is the block a
 /// torch stands on or hangs from.
-pub fn allowed_in_shell(state: &str, support: Option<&str>) -> bool {
+pub fn is_interface(state: &str, support: Option<&str>) -> bool {
     let name = short(state);
     name == "lever"
         || name.ends_with("sign")
@@ -277,7 +248,9 @@ pub fn keeps(name: &str) -> bool {
         || matches!(name, "yellow_concrete" | "yellow_stained_glass")
 }
 
-fn is_input(block: &str) -> bool {
+/// Whether a block id without its namespace, such as `lime_concrete`,
+/// marks an input.
+pub fn is_input(block: &str) -> bool {
     matches!(
         block,
         "lime_concrete" | "light_blue_concrete" | "magenta_concrete"

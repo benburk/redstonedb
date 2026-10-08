@@ -4,7 +4,7 @@
 //! Every term must match, so terms AND together. A term prefixed with `-`
 //! or written after `not` must not match. A term matches a schematic when
 //! it names one of its facts (function, orientation, encoding, a tag, its
-//! width such as `8b`, its author or importer, `stackable`, `sync` or
+//! width such as `8b`, a builder, contributor, or importer, `stackable`, `sync` or
 //! `unsync`). A term that is no fact of any schematic matches when it
 //! appears in a schematic's title, filename, or description instead, so `add` finds
 //! adders while `sync` does not find `unsync`. Quotes keep a multi-word term together, as in
@@ -113,7 +113,7 @@ fn facts(s: &Schematic) -> Vec<String> {
     let mut facts = vec![
         s.function.replace('_', " "),
         s.orientation.clone(),
-        s.orientation_label().to_owned(),
+        s.orientation_label().to_lowercase(),
         s.encoding.clone(),
         s.encoding_label().to_owned(),
     ];
@@ -129,14 +129,30 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{w} bit"),
         ]);
     }
-    facts.extend(s.author.clone());
-    facts.extend(s.imported_by.clone());
+    // In-game names keep their capitals and underscores, but terms are
+    // lowercase, with spaces for underscores.
+    let person =
+        |name: &String| name.to_lowercase().replace('_', " ").trim().to_owned();
+    let people = s.builders.iter().chain(&s.contributors);
+    facts.extend(people.chain(&s.imported_by).map(person));
     facts.extend(s.uploader.clone());
     if !s.stacking.is_empty() {
         facts.push("stackable".to_owned());
     }
     if !s.conventional {
         facts.push("unconventional".to_owned());
+    }
+    if let Some(design) = &s.design {
+        facts.push(design.replace('_', " "));
+    }
+    if let Some(short) = &s.design_abbreviation {
+        facts.push(short.to_lowercase());
+    }
+    if s.carry_in == Some(true) {
+        facts.extend(["cin".to_owned(), "carry in".to_owned()]);
+    }
+    if s.carry_out == Some(true) {
+        facts.extend(["cout".to_owned(), "carry out".to_owned()]);
     }
     match s.synchronized {
         Some(true) => {
@@ -163,6 +179,7 @@ mod tests {
         Schematic {
             id: String::new(),
             function: function.to_owned(),
+            function_label: None,
             width: Some(8),
             orientation: orientation.to_owned(),
             encoding: "bin".to_owned(),
@@ -170,10 +187,15 @@ mod tests {
             synchronized: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
-            author: Some("embizone".to_owned()),
+            builders: vec!["embizone".to_owned()],
+            contributors: Vec::new(),
             built_on: None,
             imported_by: None,
             conventional: true,
+            design: None,
+            design_abbreviation: None,
+            carry_in: None,
+            carry_out: None,
             description: None,
             uploader: None,
             sha256: String::new(),
@@ -225,6 +247,16 @@ mod tests {
         assert!(find("08b", &adder));
         assert!(!find("16b", &adder));
         assert!(find("add", &adder), "falls back to the title");
+    }
+
+    #[test]
+    fn a_builder_matches_whatever_its_case_and_underscores() {
+        let s = Schematic {
+            builders: vec!["FEARLESS_Z_".to_owned()],
+            ..schematic("adder", "horz", &[])
+        };
+        let terms = parse("fearless_z_");
+        assert_eq!(matching(&terms, vec![s]).len(), 1);
     }
 
     #[test]

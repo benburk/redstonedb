@@ -12,13 +12,13 @@ Each part of the scheme is marked either decided or open.
 
 ## rsdb
 
-`rsdb` is a command-line wrapper around a SQLite database, `redstone.db`. The database is the source of truth: it holds each `.schem` file, its fields, and its tags. Filenames are generated from it on export. `migrations/` defines the tables; the server and the CLI apply pending migrations when they open the database.
+`rsdb` is a command-line wrapper around a SQLite database, `redstone.db`. The database is the source of truth: it holds each `.schem` file, its fields, and its tags. Filenames are generated from it on export; see [naming.md](naming.md). `migrations/` defines the tables; the server and the CLI apply pending migrations when they open the database.
 
 `redstone.db` is not in git, so back it up on its own. A fresh checkout starts with no database; the CLI or the server creates an empty one on first use. `rsdb` writes every change into the file before it exits, so copying `redstone.db` alone is a complete backup.
 
 ```sh
 just rsdb add adder.schem --function adder --orientation vert --encoding bin \
-    --width 8 --latency 3 --author cullback --built-on 2026-10-07 --tag alpha
+    --width 8 --latency 3 --builder cullback --built-on 2026-10-07 --tag alpha
 just rsdb list --tag alpha
 just rsdb search register vertical alpha -torchless
 just rsdb show 23a9
@@ -34,18 +34,20 @@ just rsdb define-tag carry_lookahead --category other
 just rsdb define-tag pipelined --category timing --token pipe
 ```
 
-- `add` reads the size from the file, inside the corner markers, and rejects a file already stored. It accepts Sponge `.schem` files, versions 2 and 3.
+- `add` takes any glass corner markers out of the file and fits its box tightly, as uploads do; see [conventions.md](conventions.md). It reads the size from that box, leaving out any outer layer of nothing but the interface, and rejects a file already stored. `rsdb reread` reshapes and measures every stored build again after the rules change. It accepts Sponge `.schem` files, versions 2 and 3.
 - `add` lints the file against [conventions.md](conventions.md) first and refuses it if it breaks one, unless given `--force`. `just rsdb lint <file or id>` runs the same checks on their own.
-- `--standardize` brings a downloaded build into the palette before importing it. Slabs, stairs, and glass become white stained glass, and every other solid block becomes white concrete, keeping redstone components, inputs, and outputs. Old corner markers are removed, the box is fitted with a one-block margin, and all 32 markers are added. Inputs (levers on lime, light blue, or magenta blocks) and outputs (yellow concrete or yellow stained glass) must already be marked, since they are what survives.
-- `--conventional false` marks a build, such as a display, that follows its own layout. `add` skips the lint for it, and its page does not read inputs and outputs from it. A build without glass corner markers is measured by its whole box.
-- `--stack` marks a build as a stackable slice, once for each direction it stacks along: how far each copy sits `west`, `up`, or `north` of the one before, and optionally the `max` copies that work. Giving `--stack` to `set` replaces the stored directions; `--unset stacking` makes a build unstackable. `export --copies` writes the copies joined into one schematic, as [conventions.md](conventions.md) describes: a plain count for a build that stacks one way, or a count per direction such as `west=7,north=3`.
+- `--standardize` brings a downloaded build into the palette before importing it. Slabs, stairs, and glass become white stained glass, and every other solid block becomes white concrete, keeping redstone components, inputs, and outputs. Old corner markers, and any other plain glass touching nothing but air, are removed, and the box is fitted tightly. Inputs (levers on lime, light blue, or magenta blocks) and outputs (yellow concrete or yellow stained glass) must already be marked, since they are what survives.
+- `--conventional false` marks a build, such as a display, that follows its own layout. `add` skips the lint for it, and its page does not read inputs and outputs from it. It is measured by its whole box.
+- `--stack` marks a build as a stackable slice, once for each direction it stacks along: how far each copy sits `west`, `up`, or `north` of the one before, and optionally the `max` copies that work. Giving `--stack` to `set` replaces the stored directions; `--unset stacking` makes a build unstackable. `export --copies` writes the copies joined into one schematic, as [conventions.md](conventions.md) describes: a plain count for a build that stacks one way, or a count per direction such as `west=7,north=3`. `export --markers` puts a glass block off each corner, for WorldEdit to select the build by.
 - `--synchronized true` or `false` records whether every output bit settles on the same tick; left out, it is unknown.
-- `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `synchronized`, `author`, or `built-on` and repeats.
+- `set --unset latency` makes a field unknown again; `--unset` takes `width`, `latency`, `synchronized`, `builders`, `contributors`, or `built-on` and repeats.
 - Ids can be shortened to any unique prefix.
-- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and a timing tag also gets the abbreviated token filenames use. Commands accept a tag by name or by token. A name with spaces needs quotes, as in `just rsdb tag 23a9 "carry lookahead"`.
-- Width, latency, author, and build date may be left unknown. The generated filename then omits them.
+- A build's function is a standard one, such as `adder`, or any other name; every build also has a design, `other` unless its function lists one such as `carry_lookahead`. `rsdb functions` shows the standard functions and their designs, and `define-function` and `define-design` add to them. `--design`, `--carry-in`, and `--carry-out` set them; `add` reads the carry lines from the file's signs when they are left out, and `rsdb reread` fills them in for stored builds.
+- Tags must exist before use; `define-tag` creates one. A tag is named in full words joined by underscores, and may also get a short token. Commands accept a tag by name or by token. A name with spaces needs quotes, as in `just rsdb tag 23a9 "carry lookahead"`.
+- `--builder` records an in-game name of someone who built it, and repeats for a build with several builders, kept in the order given. Giving `--builder` to `set` replaces the stored builders. `--contributor` does the same for people who helped without building it, such as with the design.
+- Width, latency, builders, and build date may be left unknown. The generated filename omits an unknown width.
 - `--description` stores free text about the build, such as how to use it. The build's page shows it under the title, and search matches words in it.
-- `--imported-by` records the in-game name of whoever imported the build. It is shown on the site but is not part of the filename.
+- `--imported-by` records the in-game name of whoever imported the build. It is shown on the site.
 
 ## Website
 
@@ -56,13 +58,15 @@ cp .env.example .env
 just serve
 ```
 
-- `/?q=register+vertical+alpha+-torchless` narrows the list to builds matching every word. A word names a function, orientation, encoding, tag, width such as `8b`, author or importer, `stackable`, or `sync` or `unsync`; a word that names none of those matches part of a build's name instead. `-` or `not` before a word leaves those builds out, and quotes or underscores keep a multi-word tag together. `rsdb search` takes the same words.
-- `/` shows every schematic as a card with a thumbnail, its name, tag badges coloured by category, and its latency, size, volume, and author. `/?view=list` shows the same schematics as a table instead.
-- `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block, leaving out the corner markers. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
-- `/schematics/<id>` shows one schematic's fields, tags, a 3D viewer, and a download link. A mod or admin can add and remove tags there, and edit its details. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its block, bit count, LSB position, spacing, the side power enters from, whether it needs hard power, and its required strength. Any conventions the file breaks are listed under it.
+- `/?q=register+vertical+alpha+-torchless` narrows the list to builds matching every word. A word names a function, orientation, encoding, tag, width such as `8b`, builder, contributor, or importer, `stackable`, or `sync` or `unsync`; a word that names none of those matches part of a build's name instead. `-` or `not` before a word leaves those builds out, and quotes or underscores keep a multi-word tag together. `rsdb search` takes the same words.
+- `/` shows every schematic as a card with a thumbnail, its name, tag badges coloured by category, and its latency, size, volume, and builders. `/?view=list` shows the same schematics as a table instead.
+- `/schematics/<id>/thumbnail.png` draws the build from the south-east and above, one flat colour per block. It is rendered from the stored file on request; cards link to it with the file's hash in the URL, so browsers cache it until the file changes.
+- `/schematics/<id>` shows one schematic's tags, Download button, and fields on the left and a 3D viewer on the right. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its bit count, its required strength, and whether it needs hard power. Any conventions the file breaks are listed under it.
+- `/schematics/<id>/edit` is where a mod or admin edits a build's details and tags, laid out like the upload preview. The build's page links to it with an Edit button.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
-- `/schematics/<id>/download` returns the stored file under its generated filename. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and the page has a form for it.
+- `/schematics/<id>/download` returns the stored file under its generated filename. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and `?markers=yes` adds a glass block off each corner for WorldEdit. The page's Download button opens a dialog with both choices.
 - `/upload` lets anyone logged in upload a build, theirs or someone else's: choose a file, optionally standardize it, check the preview of what the site reads from it, fill in its details and tags, and publish. Uploads go live at once.
+- Builders, contributors, and tags are typed as pills: pick a suggestion, or type a new name and press Enter, and × removes one. New tags are created under `other`. The build date has a "Don't know" box. Synchronized is a toggle, on for a new upload; for a stored build where it is unknown, the toggle shows a dash and saving leaves it unknown until it is clicked. Without scripting, the boxes take one value each and the server checks everything again.
 
 ### Accounts
 

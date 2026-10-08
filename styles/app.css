@@ -24,6 +24,7 @@
   --breakpoint-desktop: 60rem;
   --container-calm: 56rem;
   --container-wide: 80rem;
+  --container-form: 28rem;
   --spacing-aside: 22rem;
   --spacing-row: 2rem;
   --spacing-row-rich: 2.75rem;
@@ -147,6 +148,10 @@
 
   .badge-other {
     @apply bg-other text-on-other;
+  }
+
+  .badge-builder {
+    @apply bg-selection text-ink;
   }
 }
 

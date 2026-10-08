@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO function (name, label, carries, position)\n         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM function))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "119f93104f4ffa344de545204ca8db7afd878a91ddb52455142befa05a942684"
+}

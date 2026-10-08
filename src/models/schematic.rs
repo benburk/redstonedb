@@ -29,6 +29,21 @@ pub fn tag_name(input: &str) -> String {
     input.trim().to_lowercase().replace(' ', "_")
 }
 
+/// A name's words for people to read, each capitalized, such as
+/// `Carry Lookahead` for `carry_lookahead`.
+pub fn words(name: &str) -> String {
+    name.split('_')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// One direction a stackable build repeats along. Each copy sits `west`,
 /// `up`, and `north` blocks from the one before, since copies count up from
 /// the south-east-bottom corner.
@@ -124,24 +139,38 @@ impl std::str::FromStr for StackDirection {
 pub struct Schematic {
     pub id: String,
     pub function: String,
+    /// The standard function's label, such as `RAM`; `None` for a function
+    /// off the list.
+    pub function_label: Option<String>,
     pub width: Option<i64>,
     pub orientation: String,
     pub encoding: String,
     pub latency: Option<i64>,
     /// Whether every output bit settles on the same tick.
     pub synchronized: Option<bool>,
-    /// Inside the corner markers.
+    /// The build's box less any outer layer holding only its interface.
     pub size: (i64, i64, i64),
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
     /// Whether the build follows the building conventions, so the lint and
     /// the interface reader apply to it.
     pub conventional: bool,
+    /// The design within its function, such as `carry_lookahead`.
+    pub design: Option<String>,
+    /// The design's usual short name, such as `CLA`.
+    pub design_abbreviation: Option<String>,
+    /// Whether it has a carry in and a carry out; `None` when unknown or
+    /// when its function has no carries.
+    pub carry_in: Option<bool>,
+    pub carry_out: Option<bool>,
     /// Free text about the build, such as how to use it.
     pub description: Option<String>,
     /// The username of the account that uploaded it through the site.
     pub uploader: Option<String>,
-    pub author: Option<String>,
+    /// In-game names, in the order given; empty when unknown.
+    pub builders: Vec<String>,
+    /// In-game names of people who helped without building it, in order.
+    pub contributors: Vec<String>,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
     pub imported_by: Option<String>,
@@ -168,48 +197,52 @@ impl Schematic {
             .map(|w| format!("{w} {}", if w == 1 { "bit" } else { "bits" }))
     }
 
-    /// The width and function, such as `8-bit adder`, for views that show
-    /// the tags beside it.
+    /// The function as people read it, such as `RAM` or `Line Drawer`.
+    pub fn function_label(&self) -> String {
+        self.function_label
+            .clone()
+            .unwrap_or_else(|| words(&self.function))
+    }
+
+    /// The width, design, and function, such as `8-bit Carry Lookahead
+    /// Adder`, for views that show the tags beside it.
     pub fn name(&self) -> String {
-        let function = self.function.replace('_', " ");
-        match self.width {
-            Some(w) => format!("{w}-bit {function}"),
-            None => function,
-        }
+        self.width
+            .map(|w| format!("{w}-bit"))
+            .into_iter()
+            .chain(self.design_label())
+            .chain([self.function_label()])
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// A readable name from the most identifying facts, such as
-    /// `8-bit alpha carry lookahead adder`.
+    /// `8-bit alpha Carry Lookahead Adder`.
     pub fn title(&self) -> String {
         self.width
             .map(|w| format!("{w}-bit"))
             .into_iter()
             .chain(self.tags_in("restriction").map(Tag::label))
             .chain(self.tags_in("other").map(Tag::label))
-            .chain([self.function.replace('_', " ")])
+            .chain(self.design_label())
+            .chain([self.function_label()])
             .collect::<Vec<_>>()
             .join(" ")
     }
 
-    /// The download filename, following `naming.md`. Unknown parts are left
-    /// out.
+    /// The design in words, such as `Carry Lookahead`; `None` for no
+    /// design or `other`.
+    pub fn design_label(&self) -> Option<String> {
+        self.design
+            .as_deref()
+            .filter(|design| *design != "other")
+            .map(words)
+    }
+
+    /// The download filename: the build's name with dashes for spaces,
+    /// such as `8-bit-Carry-Lookahead-Adder.schem`.
     pub fn filename(&self) -> String {
-        let (x, y, z) = self.size;
-        let parts: Vec<String> = std::iter::once(self.function.clone())
-            .chain(self.width.map(|w| format!("{w:02}b")))
-            .chain(self.tags_in("restriction").map(|t| t.token().to_owned()))
-            .chain([self.orientation.clone(), self.encoding.clone()])
-            .chain(self.tags_in("timing").map(|t| t.token().to_owned()))
-            .chain(
-                self.synchronized
-                    .map(|s| (if s { "sync" } else { "unsync" }).to_owned()),
-            )
-            .chain(self.latency.map(|t| format!("{t}t")))
-            .chain([format!("{x}x{y}x{z}")])
-            .chain(self.author.clone())
-            .chain(self.built_on.as_ref().map(|d| d.replace('-', "")))
-            .collect();
-        format!("{}.schem", parts.join("-"))
+        format!("{}.schem", self.name().replace(' ', "-"))
     }
 
     /// The number of blocks inside the build's bounding box.
@@ -258,9 +291,9 @@ impl Schematic {
 
     pub fn orientation_label(&self) -> &str {
         match self.orientation.as_str() {
-            "horz" => "horizontal",
-            "vert" => "vertical",
-            "diag" => "diagonal",
+            "horz" => "Horizontal",
+            "vert" => "Vertical",
+            "diag" => "Diagonal",
             other => other,
         }
     }
@@ -268,7 +301,7 @@ impl Schematic {
     pub fn encoding_label(&self) -> &str {
         match self.encoding.as_str() {
             "bin" => "binary",
-            "hex" => "signal strength",
+            "hex" => "hex",
             other => other,
         }
     }
@@ -278,8 +311,14 @@ impl Schematic {
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
+            conventional as "conventional: bool", description, design,
+            carry_in as "carry_in: bool", carry_out as "carry_out: bool",
+            (SELECT abbreviation FROM design WHERE design.function =
+                schematic.function AND design.name = schematic.design)
+                as "design_abbreviation?: String",
+            (SELECT label FROM function WHERE function.name =
+                schematic.function) as "function_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
          FROM schematic ORDER BY function, width, added_at"#
@@ -304,6 +343,22 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
                 max_copies: row.max_copies,
             });
     }
+    let mut builders: HashMap<String, Vec<String>> = HashMap::new();
+    let mut contributors: HashMap<String, Vec<String>> = HashMap::new();
+    for row in sqlx::query!(
+        "SELECT schematic_id, role, name FROM credit
+         ORDER BY schematic_id, position"
+    )
+    .fetch_all(db)
+    .await?
+    {
+        let people = if row.role == Credit::Builder.as_str() {
+            &mut builders
+        } else {
+            &mut contributors
+        };
+        people.entry(row.schematic_id).or_default().push(row.name);
+    }
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
         "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.category
@@ -323,19 +378,25 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         .into_iter()
         .map(|row| Schematic {
             tags: tags.remove(&row.id).unwrap_or_default(),
+            builders: builders.remove(&row.id).unwrap_or_default(),
+            contributors: contributors.remove(&row.id).unwrap_or_default(),
             stacking: stacking.remove(&row.id).unwrap_or_default(),
             id: row.id,
             function: row.function,
+            function_label: row.function_label,
             width: row.width,
             orientation: row.orientation,
             encoding: row.encoding,
             latency: row.latency,
             synchronized: row.synchronized,
             size: (row.size_x, row.size_y, row.size_z),
-            author: row.author,
             built_on: row.built_on,
             imported_by: row.imported_by,
             conventional: row.conventional,
+            design: row.design,
+            design_abbreviation: row.design_abbreviation,
+            carry_in: row.carry_in,
+            carry_out: row.carry_out,
             description: row.description,
             uploader: row.uploader,
             sha256: row.sha256,
@@ -350,8 +411,14 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT id, function, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, author, built_on, imported_by, sha256, added_at,
-            conventional as "conventional: bool", description,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
+            conventional as "conventional: bool", description, design,
+            carry_in as "carry_in: bool", carry_out as "carry_out: bool",
+            (SELECT abbreviation FROM design WHERE design.function =
+                schematic.function AND design.name = schematic.design)
+                as "design_abbreviation?: String",
+            (SELECT label FROM function WHERE function.name =
+                schematic.function) as "function_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
          FROM schematic WHERE id = ?"#,
@@ -375,6 +442,7 @@ pub async fn get(
     Ok(Some(Schematic {
         id: row.id,
         function: row.function,
+        function_label: row.function_label,
         width: row.width,
         orientation: row.orientation,
         encoding: row.encoding,
@@ -382,16 +450,95 @@ pub async fn get(
         synchronized: row.synchronized,
         size: (row.size_x, row.size_y, row.size_z),
         stacking: stacking(db, id).await?,
-        author: row.author,
+        builders: credits(db, id, Credit::Builder).await?,
+        contributors: credits(db, id, Credit::Contributor).await?,
         built_on: row.built_on,
         imported_by: row.imported_by,
         conventional: row.conventional,
+        design: row.design,
+        design_abbreviation: row.design_abbreviation,
+        carry_in: row.carry_in,
+        carry_out: row.carry_out,
         description: row.description,
         uploader: row.uploader,
         sha256: row.sha256,
         added_at: row.added_at,
         tags,
     }))
+}
+
+/// What a person did for a build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credit {
+    Builder,
+    /// Helped, such as with the design or testing, without building it.
+    Contributor,
+}
+
+impl Credit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Credit::Builder => "builder",
+            Credit::Contributor => "contributor",
+        }
+    }
+}
+
+/// The people a build credits in one role, in the order given.
+pub async fn credits<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    credit: Credit,
+) -> Result<Vec<String>, sqlx::Error> {
+    let role = credit.as_str();
+    sqlx::query_scalar!(
+        "SELECT name FROM credit WHERE schematic_id = ? AND role = ?
+         ORDER BY position",
+        id,
+        role
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Replaces the people a build credits in one role with `names`, in that
+/// order. A name given twice, in any case, is credited once.
+pub async fn set_credits(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    credit: Credit,
+    names: &[String],
+) -> Result<(), sqlx::Error> {
+    let role = credit.as_str();
+    sqlx::query!(
+        "DELETE FROM credit WHERE schematic_id = ? AND role = ?",
+        id,
+        role
+    )
+    .execute(&mut *tx)
+    .await?;
+    for (position, name) in names.iter().enumerate() {
+        let position = i64::try_from(position).unwrap_or(i64::MAX);
+        sqlx::query!(
+            "INSERT OR IGNORE INTO credit (schematic_id, role, name, position)
+             VALUES (?, ?, ?, ?)",
+            id,
+            role,
+            name,
+            position
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Whether a name can be credited: a Minecraft name of letters, digits,
+/// and underscores.
+pub fn valid_player_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 16
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The directions a build stacks along: west first, then up, then north.
@@ -466,6 +613,7 @@ pub async fn id_by_sha256<'e, E: SqliteExecutor<'e>>(
         .await
 }
 
+#[derive(Clone, Copy)]
 pub struct New<'a> {
     pub function: &'a str,
     pub width: Option<i64>,
@@ -474,10 +622,12 @@ pub struct New<'a> {
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     pub size: (i64, i64, i64),
-    pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
     pub conventional: bool,
+    pub design: Option<&'a str>,
+    pub carry_in: Option<bool>,
+    pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
     pub uploaded_by: Option<uuid::Uuid>,
     pub sha256: &'a str,
@@ -492,9 +642,10 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     let (x, y, z) = new.size;
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (function, width, orientation, encoding,
-            latency, synchronized, size_x, size_y, size_z, author, built_on,
-            imported_by, conventional, description, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            latency, synchronized, size_x, size_y, size_z, built_on,
+            imported_by, conventional, design, carry_in, carry_out,
+            description, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.function,
         new.width,
@@ -505,10 +656,12 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         x,
         y,
         z,
-        new.author,
         new.built_on,
         new.imported_by,
         new.conventional,
+        new.design,
+        new.carry_in,
+        new.carry_out,
         new.description,
         new.uploaded_by,
         new.sha256,
@@ -516,6 +669,202 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     )
     .fetch_one(db)
     .await
+}
+
+/// An entry in the list of functions a build may have.
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: String,
+    /// As people read it, such as `RAM` or `BCD to Binary`.
+    pub label: String,
+    /// Whether its builds have carry lines worth recording.
+    pub carries: bool,
+}
+
+/// A design within a function, such as the carry lookahead adder.
+#[derive(Debug, Clone)]
+pub struct Design {
+    pub function: String,
+    pub name: String,
+    /// The usual short name, such as `CLA`.
+    pub abbreviation: Option<String>,
+}
+
+impl Design {
+    /// Such as `Carry Lookahead (CLA)`.
+    pub fn label(&self) -> String {
+        let words = words(&self.name);
+        match &self.abbreviation {
+            Some(short) => format!("{words} ({short})"),
+            None => words,
+        }
+    }
+}
+
+/// Every standard function, in the list's order.
+pub async fn functions<'e, E: SqliteExecutor<'e>>(
+    db: E,
+) -> Result<Vec<Function>, sqlx::Error> {
+    sqlx::query_as!(
+        Function,
+        r#"SELECT name as "name!", label, carries as "carries: bool"
+         FROM function ORDER BY position, name"#
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Everyone credited on a stored build, by name.
+pub async fn all_people<'e, E: SqliteExecutor<'e>>(
+    db: E,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!("SELECT DISTINCT name FROM credit ORDER BY name")
+        .fetch_all(db)
+        .await
+}
+
+/// Every design, grouped by function.
+pub async fn designs<'e, E: SqliteExecutor<'e>>(
+    db: E,
+) -> Result<Vec<Design>, sqlx::Error> {
+    sqlx::query_as!(
+        Design,
+        "SELECT function, name, abbreviation FROM design
+         ORDER BY function, name = 'other', name"
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Checks a build's function and design, and returns the function. A
+/// function is a standard one from the list, or any other name made of
+/// lowercase words joined by underscores. A design is `other`, or one the
+/// function lists. The `Err` is a sentence for the person.
+pub async fn check_function(
+    db: &SqlitePool,
+    function: &str,
+    design: &str,
+) -> Result<Result<Function, String>, sqlx::Error> {
+    let valid = |name: &str| {
+        name.starts_with(|c: char| c.is_ascii_lowercase())
+            && name.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+            })
+    };
+    if !valid(function) {
+        return Ok(Err(
+            "A function's name is lowercase words joined by underscores, \
+             such as line_drawer."
+                .to_owned(),
+        ));
+    }
+    let found = functions(db)
+        .await?
+        .into_iter()
+        .find(|f| f.name == function)
+        .unwrap_or_else(|| Function {
+            name: function.to_owned(),
+            label: words(function),
+            carries: false,
+        });
+    let listed = designs(db)
+        .await?
+        .iter()
+        .any(|d| d.function == function && d.name == design);
+    if design != "other" && !listed {
+        return Ok(Err(format!(
+            "{} is not a design of {}.",
+            design.replace('_', " "),
+            function.replace('_', " ")
+        )));
+    }
+    Ok(Ok(found))
+}
+
+/// Adds a standard function to the end of the list.
+pub async fn define_function<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    function: &Function,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO function (name, label, carries, position)
+         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM function))",
+        function.name,
+        function.label,
+        function.carries
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn define_design<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    design: &Design,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO design (function, name, abbreviation) VALUES (?, ?, ?)",
+        design.function,
+        design.name,
+        design.abbreviation
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Stores a schematic's carry lines, as read from its file.
+pub async fn set_carries<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    carry_in: Option<bool>,
+    carry_out: Option<bool>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET carry_in = ?, carry_out = ? WHERE id = ?",
+        carry_in,
+        carry_out,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Replaces a schematic's stored file, as `rsdb reread` rewrites it.
+pub async fn set_file<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    data: &[u8],
+    sha256: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET data = ?, sha256 = ? WHERE id = ?",
+        data,
+        sha256,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Stores a schematic's size, as `rsdb reread` finds it.
+pub async fn set_size<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    (x, y, z): (i64, i64, i64),
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET size_x = ?, size_y = ?, size_z = ? WHERE id = ?",
+        x,
+        y,
+        z,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Every field a details form sets; `None` makes a field unknown.
@@ -526,7 +875,9 @@ pub struct Details<'a> {
     pub encoding: &'a str,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
-    pub author: Option<&'a str>,
+    pub design: Option<&'a str>,
+    pub carry_in: Option<bool>,
+    pub carry_out: Option<bool>,
     pub built_on: Option<&'a str>,
     pub description: Option<&'a str>,
 }
@@ -539,8 +890,9 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "UPDATE schematic SET function = ?, width = ?, orientation = ?,
-            encoding = ?, latency = ?, synchronized = ?, author = ?,
-            built_on = ?, description = ?
+            encoding = ?, latency = ?, synchronized = ?, design = ?,
+            carry_in = ?, carry_out = ?, built_on = ?,
+            description = ?
          WHERE id = ?",
         details.function,
         details.width,
@@ -548,7 +900,9 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.encoding,
         details.latency,
         details.synchronized,
-        details.author,
+        details.design,
+        details.carry_in,
+        details.carry_out,
         details.built_on,
         details.description,
         id,
@@ -578,10 +932,12 @@ pub struct Changes<'a> {
     pub encoding: Option<&'a str>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
-    pub author: Option<&'a str>,
     pub built_on: Option<&'a str>,
     pub imported_by: Option<&'a str>,
     pub conventional: Option<bool>,
+    pub design: Option<&'a str>,
+    pub carry_in: Option<bool>,
+    pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
 }
 
@@ -598,10 +954,12 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             encoding = coalesce(?, encoding),
             latency = coalesce(?, latency),
             synchronized = coalesce(?, synchronized),
-            author = coalesce(?, author),
             built_on = coalesce(?, built_on),
             imported_by = coalesce(?, imported_by),
             conventional = coalesce(?, conventional),
+            design = coalesce(?, design),
+            carry_in = coalesce(?, carry_in),
+            carry_out = coalesce(?, carry_out),
             description = coalesce(?, description)
          WHERE id = ?",
         changes.function,
@@ -610,10 +968,12 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.encoding,
         changes.latency,
         changes.synchronized,
-        changes.author,
         changes.built_on,
         changes.imported_by,
         changes.conventional,
+        changes.design,
+        changes.carry_in,
+        changes.carry_out,
         changes.description,
         id,
     )
@@ -622,17 +982,17 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// The tag named `name`, which may also be its filename token.
 /// A field that may be unknown.
 #[derive(PartialEq, Eq)]
 pub enum Optional {
     Width,
     Latency,
     Synchronized,
-    Author,
     BuiltOn,
     ImportedBy,
     Description,
+    Design,
+    Carries,
 }
 
 /// Makes `fields` unknown.
@@ -642,32 +1002,37 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     fields: &[Optional],
 ) -> Result<(), sqlx::Error> {
     let has = |field| fields.contains(&field);
-    let (width, latency, synchronized, author, built_on) = (
+    let (width, latency, synchronized, built_on) = (
         has(Optional::Width),
         has(Optional::Latency),
         has(Optional::Synchronized),
-        has(Optional::Author),
         has(Optional::BuiltOn),
     );
     let imported_by = has(Optional::ImportedBy);
     let description = has(Optional::Description);
+    let design = has(Optional::Design);
+    let carries = has(Optional::Carries);
     sqlx::query!(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
             latency = iif(?, NULL, latency),
             synchronized = iif(?, NULL, synchronized),
-            author = iif(?, NULL, author),
             built_on = iif(?, NULL, built_on),
             imported_by = iif(?, NULL, imported_by),
-            description = iif(?, NULL, description)
+            description = iif(?, NULL, description),
+            design = iif(?, NULL, design),
+            carry_in = iif(?, NULL, carry_in),
+            carry_out = iif(?, NULL, carry_out)
          WHERE id = ?",
         width,
         latency,
         synchronized,
-        author,
         built_on,
         imported_by,
         description,
+        design,
+        carries,
+        carries,
         id,
     )
     .execute(db)
@@ -675,7 +1040,38 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// The tag named `name`, which may also be its filename token.
+/// Whether a typed name, once in the form [`tag_name`] gives, can name a
+/// tag: lowercase letters, digits, and underscores.
+pub fn valid_tag_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Replaces a build's tags with the ones `names` name. A name no tag has
+/// yet makes a new tag under `other`.
+pub async fn set_tags(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    names: &[String],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM schematic_tag WHERE schematic_id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    for name in names {
+        if tag_id(&mut *tx, name).await?.is_none() {
+            define_tag(&mut *tx, name, None, "other").await?;
+        }
+        let tag = tag_id(&mut *tx, name)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        attach(&mut *tx, id, &tag).await?;
+    }
+    Ok(())
+}
+
+/// The tag named `name`, which may also be its short token.
 pub async fn tag_id<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
@@ -767,6 +1163,7 @@ mod tests {
         Schematic {
             id: String::new(),
             function: "adder".to_owned(),
+            function_label: Some("Adder".to_owned()),
             width: Some(8),
             orientation: "horz".to_owned(),
             encoding: "bin".to_owned(),
@@ -774,46 +1171,69 @@ mod tests {
             synchronized: Some(false),
             size: (19, 11, 18),
             stacking: Vec::new(),
-            author: Some("embizone".to_owned()),
+            builders: vec!["embizone".to_owned()],
+            contributors: Vec::new(),
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
             conventional: true,
+            design: Some("carry_lookahead".to_owned()),
+            design_abbreviation: None,
+            carry_in: None,
+            carry_out: None,
             description: None,
             uploader: None,
             sha256: String::new(),
             added_at: String::new(),
-            tags: vec![
-                tag("carry_lookahead", None, "other"),
-                tag("alpha", None, "restriction"),
-            ],
+            tags: vec![tag("alpha", None, "restriction")],
         }
     }
 
     #[test]
-    fn title_reads_width_restrictions_other_tags_then_function() {
-        assert_eq!(cla().title(), "8-bit alpha carry lookahead adder");
+    fn title_reads_width_restrictions_design_then_function() {
+        assert_eq!(cla().title(), "8-bit alpha Carry Lookahead Adder");
     }
 
     #[test]
-    fn filename_writes_tag_tokens() {
-        assert_eq!(
-            cla().filename(),
-            "adder-08b-alpha-horz-bin-unsync-8t-19x11x18-embizone-20140906.schem"
-        );
+    fn filename_is_the_name() {
+        assert_eq!(cla().filename(), "8-bit-Carry-Lookahead-Adder.schem");
+    }
+
+    #[test]
+    fn a_function_keeps_its_label() {
+        let s = Schematic {
+            function: "ram".to_owned(),
+            function_label: Some("RAM".to_owned()),
+            design: Some("other".to_owned()),
+            ..cla()
+        };
+        assert_eq!(s.name(), "8-bit RAM");
+    }
+
+    #[test]
+    fn a_function_off_the_list_is_capitalized() {
+        let s = Schematic {
+            function: "maze_screen".to_owned(),
+            function_label: None,
+            width: None,
+            design: Some("other".to_owned()),
+            ..cla()
+        };
+        assert_eq!(s.name(), "Maze Screen");
     }
 
     #[test]
     fn unknown_parts_are_left_out() {
         let s = Schematic {
             width: None,
+            design: None,
             latency: None,
             synchronized: None,
-            author: None,
+            builders: Vec::new(),
             built_on: None,
             tags: Vec::new(),
             ..cla()
         };
-        assert_eq!(s.title(), "adder");
-        assert_eq!(s.filename(), "adder-horz-bin-19x11x18.schem");
+        assert_eq!(s.title(), "Adder");
+        assert_eq!(s.filename(), "Adder.schem");
     }
 }
