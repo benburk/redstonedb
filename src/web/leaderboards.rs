@@ -58,6 +58,7 @@ pub async fn show(
             name: c.name.clone(),
             label: c.plural.clone(),
             count: ranked(&c.name),
+            section: c.section.clone(),
         })
         .filter(|f| f.count > 0 || f.name == category)
         .collect();

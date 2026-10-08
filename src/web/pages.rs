@@ -79,6 +79,9 @@ pub struct Facet {
     pub label: String,
     /// How many builds of it match the search.
     pub count: usize,
+    /// Its sidebar section, one of [`schematic::SECTIONS`]; `None` for
+    /// Other.
+    pub section: Option<String>,
 }
 
 /// Where the home page's links lead: its layout, search, and category.
@@ -167,8 +170,9 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 }
 
 /// The categories to narrow a page to, each with its count and its
-/// address from `href`; `current` is the chosen one, and `all` the link
-/// and count for every category, if the page has one.
+/// address from `href`, under their sections' headings and then the rest;
+/// `current` is the chosen one, and `all` the link and count for every
+/// category, if the page has one.
 fn category_sidebar(
     facets: &[Facet],
     current: &str,
@@ -176,26 +180,49 @@ fn category_sidebar(
     href: impl Fn(&str) -> String,
 ) -> Markup {
     let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
+    let list = "flex flex-wrap gap-1 desktop:flex-col";
+    let link = |to: &str, label: &str, count: usize, chosen: bool| {
+        html! {
+            li {
+                a href=(to) class=(item) aria-current=[chosen.then_some("page")] {
+                    span { (label) }
+                    span class="text-meta text-muted tabular-nums" { (count) }
+                }
+            }
+        }
+    };
+    let in_section = |section: Option<&str>| -> Vec<&Facet> {
+        facets
+            .iter()
+            .filter(|f| f.section.as_deref() == section)
+            .collect()
+    };
+    let rest = in_section(None);
     html! {
-        nav aria-labelledby="categories-heading" class="desktop:sticky desktop:top-4 desktop:self-start" {
+        // Its own scroller on a wide screen, since it stays in view and
+        // may be taller than the window.
+        nav aria-labelledby="categories-heading"
+            class="desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-2rem)] desktop:self-start desktop:overflow-y-auto" {
             h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
-            ul class="flex flex-wrap gap-1 desktop:flex-col" {
-                @if let Some((all_href, matched)) = all {
-                    li {
-                        a href=(all_href) class=(item)
-                            aria-current=[current.is_empty().then_some("page")] {
-                            span { "All" }
-                            span class="text-meta text-muted tabular-nums" { (matched) }
+            @if let Some((all_href, matched)) = all {
+                ul class=(list) { (link(all_href, "All", matched, current.is_empty())) }
+            }
+            @for (name, heading) in schematic::SECTIONS {
+                @let members = in_section(Some(name));
+                @if !members.is_empty() {
+                    h3 id={ "section-" (name) } class="mt-4 mb-1 px-2.5 text-meta font-semibold text-muted" { (heading) }
+                    ul aria-labelledby={ "section-" (name) } class=(list) {
+                        @for facet in members {
+                            (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))
                         }
                     }
                 }
-                @for facet in facets {
-                    li {
-                        a href=(href(&facet.name)) class=(item)
-                            aria-current=[(facet.name == current).then_some("page")] {
-                            span { (facet.label) }
-                            span class="text-meta text-muted tabular-nums" { (facet.count) }
-                        }
+            }
+            // Other, off the list, needs no heading of its own.
+            @if !rest.is_empty() {
+                ul class={ "mt-4 " (list) } {
+                    @for facet in rest {
+                        (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))
                     }
                 }
             }

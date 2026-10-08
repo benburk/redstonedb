@@ -750,7 +750,21 @@ pub struct Category {
     /// Whether its designs all do the same job, so a leaderboard may rank
     /// them together, as adders' do and gates' do not.
     pub designs_interchangeable: bool,
+    /// The sidebar section it sits in, one of [`SECTIONS`]; `None` for
+    /// Other, with the categories off the list.
+    pub section: Option<String>,
 }
+
+/// The sidebar's sections of standard categories, in order: each stored
+/// name, as `rsdb define-category --section` takes it, with its heading.
+pub const SECTIONS: [(&str, &str); 6] = [
+    ("arithmetic", "Arithmetic"),
+    ("logic", "Logic"),
+    ("conversion", "Conversion"),
+    ("memory", "Memory"),
+    ("display", "Display"),
+    ("wiring", "Wiring"),
+];
 
 /// A design within a category, such as the carry lookahead adder.
 #[derive(Debug, Clone)]
@@ -783,7 +797,8 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
         r#"SELECT name as "name!", label,
             coalesce(plural, label || 's') as "plural!: String",
             named as "named: bool",
-            designs_interchangeable as "designs_interchangeable: bool"
+            designs_interchangeable as "designs_interchangeable: bool",
+            section
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
@@ -851,6 +866,7 @@ pub async fn check_category(
             plural: words(category),
             named: false,
             designs_interchangeable: true,
+            section: None,
         });
     let listed = designs(db)
         .await?
@@ -875,12 +891,13 @@ pub async fn define_category<'e, E: SqliteExecutor<'e>>(
     let plural = (category.plural != format!("{}s", category.label))
         .then_some(category.plural.as_str());
     sqlx::query!(
-        "INSERT INTO category (name, label, plural, named)
-         VALUES (?, ?, ?, ?)",
+        "INSERT INTO category (name, label, plural, named, section)
+         VALUES (?, ?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
-        category.named
+        category.named,
+        category.section
     )
     .execute(db)
     .await?;

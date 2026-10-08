@@ -190,12 +190,14 @@ fn facets(
             name: f.name.clone(),
             label: f.plural.clone(),
             count: count(&f.name),
+            section: f.section.clone(),
         })
         .collect();
     facets.push(pages::Facet {
         name: OTHER.to_owned(),
         label: "Other".to_owned(),
         count: count(OTHER),
+        section: None,
     });
     // Every standard category shows, even with no builds yet; Other only
     // when it has some or is chosen.

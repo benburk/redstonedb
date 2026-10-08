@@ -57,6 +57,9 @@ enum Command {
         /// Each of its builds gives its own name, as bussing's do
         #[arg(long)]
         named: bool,
+        /// The sidebar section it sits in; left out, it sits under Other
+        #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
+        section: Option<String>,
     },
     /// Add a yes-or-no flag to a category's builds, such as a shift
     /// register being bidirectional
@@ -281,7 +284,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             label,
             plural,
             named,
-        } => define_category(db, name, label, plural, named).await,
+            section,
+        } => define_category(db, name, label, plural, named, section).await,
         Command::DefineFlag {
             category,
             name,
@@ -530,23 +534,24 @@ async fn export(
     Ok(())
 }
 
-/// Adds a standard category, labelled with its name's words unless given
-/// a label.
+/// Adds a standard category, its label being its name's words and its
+/// plural the label with an s unless given.
 async fn define_category(
     db: &SqlitePool,
     name: String,
     label: Option<String>,
     plural: Option<String>,
     named: bool,
+    section: Option<String>,
 ) -> Result<()> {
     let label = label.unwrap_or_else(|| schematic::words(&name));
-    let plural = plural.unwrap_or_else(|| format!("{label}s"));
     let category = schematic::Category {
+        plural: plural.unwrap_or_else(|| format!("{label}s")),
         name,
         label,
-        plural,
         named,
         designs_interchangeable: true,
+        section,
     };
     Ok(schematic::define_category(db, &category).await?)
 }
