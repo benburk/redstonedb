@@ -15,6 +15,7 @@ pub mod leaderboard;
 pub mod lint;
 pub mod models;
 pub mod schem;
+pub mod schemati;
 pub mod search;
 pub mod stack;
 pub mod standardize;

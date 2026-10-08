@@ -19,13 +19,19 @@ use crate::{
         schematic::{self, New, Tag},
         user::User,
     },
-    stack,
+    schemati, stack,
 };
 
 use super::{
     details,
     pages::{self, Choices, Fields, UploadPreview},
 };
+
+/// The file behind a Schemati download link, or why it could not be had.
+async fn from_schemati(link: &str) -> Result<Bytes, String> {
+    let key = schemati::download_key(link)?;
+    Ok(Bytes::from(schemati::fetch(&key).await?))
+}
 
 pub async fn form(user_opt: Option<User>) -> Response {
     match user_opt {
@@ -45,6 +51,7 @@ pub async fn preview(
         return Redirect::to("/sessions/new").into_response();
     };
     let mut file = None;
+    let mut link = String::new();
     let mut standardize = false;
     // A body over the server's limit, 2 MB, breaks off partway.
     let mut broken = false;
@@ -56,6 +63,10 @@ pub async fn preview(
                     Err(_) => broken = true,
                 },
                 Some("standardize") => standardize = true,
+                Some("schemati") => match field.text().await {
+                    Ok(text) => link = text,
+                    Err(_) => broken = true,
+                },
                 _ => {}
             },
             Ok(None) => break,
@@ -70,9 +81,20 @@ pub async fn preview(
                        accepted; a build's .schem is usually a few kilobytes.";
         return pages::upload(&user, message).into_response();
     }
-    let Some(file) = file.filter(|bytes| !bytes.is_empty()) else {
-        return pages::upload(&user, "Choose a .schem file to upload.")
-            .into_response();
+    // A file chosen wins over a link pasted.
+    let file = match file.filter(|bytes| !bytes.is_empty()) {
+        Some(file) => file,
+        None if !link.trim().is_empty() => match from_schemati(&link).await {
+            Ok(file) => file,
+            Err(message) => {
+                return pages::upload(&user, &message).into_response();
+            }
+        },
+        None => {
+            let message =
+                "Choose a .schem file, or paste a link from //download.";
+            return pages::upload(&user, message).into_response();
+        }
     };
     let prepared = match import::prepare(&file, standardize, true) {
         Ok(prepared) => prepared,

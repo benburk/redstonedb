@@ -1688,14 +1688,25 @@ pub fn upload(user: &User, message: &str) -> Markup {
             div class="max-w-calm" {
                 h1 class={ (PAGE_TITLE) " mb-2" } { "Upload a build" }
                 p class="mb-6 max-w-prose text-muted" {
-                    "A Sponge " code { ".schem" } " file, yours or someone else's. "
+                    "A Sponge " code { ".schem" } " file, yours or someone else's, or a link from "
+                    code { "//download" } " on OpenRedstone. "
                     "Next you'll see what the site reads from it, and describe it."
                 }
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
                     label class="field" {
                         span { "Schematic file" }
-                        input type="file" name="file" accept=".schem" required class="input py-1.5";
+                        input type="file" name="file" accept=".schem" class="input py-1.5";
+                    }
+                    label class="field" {
+                        span { "Or a Schemati link" }
+                        input type="url" name="schemati" inputmode="url" autocomplete="off"
+                            placeholder="https://schemati.openredstone.org/download?file=…"
+                            aria-describedby="schemati-help" class="input";
+                        span id="schemati-help" class="text-meta font-normal" {
+                            "In game, " code { "//save <name>" } " then " code { "//download <name>" }
+                            " gives this link. It lasts seven days."
+                        }
                     }
                     label class="flex items-start gap-2" {
                         input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
