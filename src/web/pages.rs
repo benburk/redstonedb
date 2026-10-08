@@ -453,7 +453,7 @@ pub fn schematic(
                     }
                 }
             }
-            (beside_viewer(&format!("{path}/download"), &schematic_info(s)))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s)))
             @match analysis {
                 _ if !s.conventional => {
                     p class="mt-10 max-w-prose text-muted" {
@@ -676,7 +676,11 @@ fn schematic_info(s: &Schematic) -> Markup {
                         (field(&plural("Contributor", &s.contributors), name_links(&s.contributors, "contributor")))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    (field("Added", s.added_at.get(..10).unwrap_or(&s.added_at)))
+                    (field("Uploaded", s.added_at.get(..10).unwrap_or(&s.added_at)))
+                    @if let Some(edited) = &s.edited_at {
+                        (field("Last edited", edited.get(..10).unwrap_or(edited)))
+                    }
+                    (field("Downloads", s.downloads.to_string()))
                     (field("Imported by", s.importer().map_or_else(
                         || html! { "unknown" },
                         |name| search_link(name, &format!("importer:{name}")),
@@ -754,7 +758,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
         &path,
         &html! {
             h1 class={ (PAGE_TITLE) " mb-6" } { "Edit " (s.name()) }
-            (beside_viewer(&format!("{path}/download"), &html! {
+            (beside_viewer(&format!("{path}/download?preview=yes"), &html! {
                 form action={ (path) "/edit" } method="post" class="flex flex-col gap-4" {
                     (fields(&values, e.choices))
                     (tag_picker(e.tags, chosen_tags))
@@ -1424,12 +1428,23 @@ fn account_link(user: &User) -> Markup {
 }
 
 /// An account's page: who they are and what they uploaded.
-/// An account's page. Its owner can set their Minecraft name here;
-/// `message` says why a name was refused.
+/// The builds a profile lists.
+pub struct ProfileBuilds {
+    /// Credited to the account's Minecraft name as builder.
+    pub built: Vec<Schematic>,
+    /// Credited to it as contributor.
+    pub contributed: Vec<Schematic>,
+    /// Uploaded by the account through the site.
+    pub uploaded: Vec<Schematic>,
+}
+
+/// An account's page: the builds it built, helped with, and uploaded. Its
+/// owner can set their Minecraft name here; `message` says why a name was
+/// refused.
 pub fn profile(
     viewer: Option<&User>,
     account: &User,
-    uploads: &[Schematic],
+    builds: &ProfileBuilds,
     message: &str,
 ) -> Markup {
     let path = format!("/users/{}", account.username);
@@ -1478,11 +1493,34 @@ pub fn profile(
                     }
                 }
             }
-            h2 class={ (SECTION_TITLE) " mb-3" } { "Uploads" }
-            @if uploads.is_empty() {
-                p class="text-muted" { "No uploads yet." }
-            } @else {
-                (cards(uploads))
+            section aria-labelledby="built-heading" class="mb-10" {
+                h2 id="built-heading" class={ (SECTION_TITLE) " mb-3" } { "Built" }
+                @match (&account.minecraft_name, builds.built.is_empty()) {
+                    (None, _) if own => {
+                        p class="text-muted" { "Give your Minecraft name above to list the builds credited to it." }
+                    }
+                    (None, _) => {
+                        p class="text-muted" { "No Minecraft name given, so their builds can't be listed." }
+                    }
+                    (Some(name), true) => {
+                        p class="text-muted" { "No builds credit " (name) " as builder yet." }
+                    }
+                    (Some(_), false) => { (cards(&builds.built)) }
+                }
+            }
+            @if !builds.contributed.is_empty() {
+                section aria-labelledby="contributed-heading" class="mb-10" {
+                    h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Contributed to" }
+                    (cards(&builds.contributed))
+                }
+            }
+            section aria-labelledby="uploads-heading" {
+                h2 id="uploads-heading" class={ (SECTION_TITLE) " mb-3" } { "Uploads" }
+                @if builds.uploaded.is_empty() {
+                    p class="text-muted" { "No uploads yet." }
+                } @else {
+                    (cards(&builds.uploaded))
+                }
             }
         },
     )

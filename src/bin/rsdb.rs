@@ -767,6 +767,10 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         }
     );
     println!("added at     {}", s.added_at);
+    if let Some(edited) = &s.edited_at {
+        println!("edited at    {edited}");
+    }
+    println!("downloads    {}", s.downloads);
     if let Some(description) = &s.description {
         println!("\n{description}");
     }

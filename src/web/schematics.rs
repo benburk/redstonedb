@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
@@ -330,11 +330,15 @@ fn analyse(data: &[u8]) -> Result<pages::Analysis, String> {
 pub async fn download(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    method: Method,
     Query(mut query): Query<HashMap<String, String>>,
 ) -> Response {
     // `markers=yes` adds WorldEdit corner markers; the rest of the query
     // names copies per direction, such as `?west=7&north=3`.
     let markers = query.remove("markers").is_some_and(|v| v == "yes");
+    // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
+    // request, is no download.
+    let counted = query.remove("preview").is_none() && method == Method::GET;
     // One copy each way is the build itself.
     query.retain(|_, count| count != "1");
     let found = match schematic::get(&state.db, &id).await {
@@ -369,6 +373,10 @@ pub async fn download(
             }
         }
     };
+    if counted && let Err(err) = schematic::count_download(&state.db, &id).await
+    {
+        return internal_error(err).into_response();
+    }
     let data = if markers {
         match standardize::with_corner_markers(&data) {
             Ok(data) => data,

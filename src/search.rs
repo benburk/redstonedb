@@ -216,6 +216,8 @@ mod tests {
             uploader: None,
             sha256: String::new(),
             added_at: String::new(),
+            edited_at: None,
+            downloads: 0,
             tags: tags
                 .iter()
                 .map(|name| Tag {

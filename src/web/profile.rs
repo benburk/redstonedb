@@ -70,14 +70,28 @@ async fn show(
     account: &User,
     message: &str,
 ) -> Response {
-    let uploads: Vec<_> = match schematic::all(&state.db).await {
-        Ok(all) => all
-            .into_iter()
-            .filter(|s| {
-                s.uploader.as_deref() == Some(account.username.as_str())
-            })
-            .collect(),
+    let mut all = match schematic::all(&state.db).await {
+        Ok(all) => all,
         Err(err) => return internal_error(err).into_response(),
     };
-    pages::profile(viewer, account, &uploads, message).into_response()
+    // Newest first, as on the home page.
+    all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    // Credits are in-game names, so they match the profile's Minecraft
+    // name, whatever its case.
+    let credited = |names: &[String]| {
+        account.minecraft_name.as_deref().is_some_and(|own| {
+            names.iter().any(|name| name.eq_ignore_ascii_case(own))
+        })
+    };
+    let pick = |keep: &dyn Fn(&schematic::Schematic) -> bool| -> Vec<_> {
+        all.iter().filter(|s| keep(s)).cloned().collect()
+    };
+    let builds = pages::ProfileBuilds {
+        built: pick(&|s| credited(&s.builders)),
+        contributed: pick(&|s| credited(&s.contributors)),
+        uploaded: pick(&|s| {
+            s.uploader.as_deref() == Some(account.username.as_str())
+        }),
+    };
+    pages::profile(viewer, account, &builds, message).into_response()
 }

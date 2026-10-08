@@ -65,7 +65,7 @@ just serve
 - `/schematics/<id>` shows one schematic's tags, Download button, and fields on the left and a 3D viewer on the right. Below, a table lists the build's inputs and outputs as read from the stored file: each bus or named line, its bit count, its required strength, and whether it needs hard power. Any conventions the file breaks are listed under it.
 - `/schematics/<id>/edit` is where a mod or admin edits a build's details and tags, laid out like the upload preview. The build's page links to it with an Edit button.
 - The viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr together with its vanilla resource pack. The pack is about 7 MB and the browser caches it after the first view.
-- `/schematics/<id>/download` returns the stored file under its generated filename. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and `?markers=yes` adds a glass block off each corner for WorldEdit. The page's Download button opens a dialog with both choices.
+- `/schematics/<id>/download` returns the stored file under its generated filename. A build's page also shows when it was uploaded and, once a person has changed its details on the edit page or with `rsdb set`, when it was last edited. Each download is counted and shown on the build's page; the 3D viewer fetches the file with `?preview=yes`, which is not counted, and neither is a HEAD request. For a stackable build, a count per direction, such as `?west=7&north=3`, returns the copies joined, and `?markers=yes` adds a glass block off each corner for WorldEdit. The page's Download button opens a dialog with both choices.
 - `/upload` lets anyone logged in upload a build, theirs or someone else's: choose a file, optionally standardize it, check the preview of what the site reads from it, fill in its details and tags, and publish. Uploads go live at once.
 - The details form's Stacking section marks a build stackable: each row is a direction (west, up, north, or west and up), the blocks from one copy to the next, and optionally the most copies. A second row is for a build that also stacks another way. The first row starts from the build's size the way its bits run, and saving stacks two copies each way and refuses a step whose copies collide.
 - Builders, contributors, and tags are typed as pills: pick a suggestion, or type a new name and press Enter, and × removes one. New tags are of the `other` kind. The build date has a "Don't know" box. Synchronized is a toggle, on for a new upload; for a stored build where it is unknown, the toggle shows a dash and saving leaves it unknown until it is clicked. Without scripting, the boxes take one value each and the server checks everything again.
@@ -74,7 +74,7 @@ just serve
 
 People log in with Discord; an account is made at their first login. Each account has a role:
 
-- **user** uploads builds. Anyone logged in can give their Minecraft name on their profile, at `/users/<username>`; the profile then links it to the builds credited to it. One name belongs to one account, whatever its case.
+- **user** uploads builds. Anyone logged in can give their Minecraft name on their profile, at `/users/<username>`; the profile then lists the builds credited to it as builder, then as contributor, above the builds the account uploaded. One name belongs to one account, whatever its case.
 - **mod** also edits any build's details and tags.
 - **admin** also deletes builds, from the Delete button on a build's page, and sets roles, at `/users`.
 

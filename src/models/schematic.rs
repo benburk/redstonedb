@@ -184,6 +184,10 @@ pub struct Schematic {
     /// version.
     pub sha256: String,
     pub added_at: String,
+    /// When a person last changed its details; `None` if never.
+    pub edited_at: Option<String>,
+    /// How many times it has been downloaded.
+    pub downloads: i64,
     /// Sorted by kind in glossary order (restriction, timing, other),
     /// then name.
     pub tags: Vec<Tag>,
@@ -325,7 +329,7 @@ impl Schematic {
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             carry_in as "carry_in: bool", carry_out as "carry_out: bool",
             (SELECT abbreviation FROM design WHERE design.category =
@@ -416,6 +420,8 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             uploader: row.uploader,
             sha256: row.sha256,
             added_at: row.added_at,
+            edited_at: row.edited_at,
+            downloads: row.downloads,
         })
         .collect())
 }
@@ -426,7 +432,7 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT id, category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at,
+            synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             carry_in as "carry_in: bool", carry_out as "carry_out: bool",
             (SELECT abbreviation FROM design WHERE design.category =
@@ -479,6 +485,8 @@ pub async fn get(
         uploader: row.uploader,
         sha256: row.sha256,
         added_at: row.added_at,
+        edited_at: row.edited_at,
+        downloads: row.downloads,
         tags,
     }))
 }
@@ -891,6 +899,20 @@ pub async fn set_file<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Counts one more download of a schematic.
+pub async fn count_download<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET downloads = downloads + 1 WHERE id = ?",
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Stores a schematic's size, as `rsdb reread` finds it.
 pub async fn set_size<'e, E: SqliteExecutor<'e>>(
     db: E,
@@ -935,7 +957,8 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             carry_in = ?, carry_out = ?, built_on = ?,
-            description = ?, given_name = ?
+            description = ?, given_name = ?,
+            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
         details.width,
@@ -1006,7 +1029,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             carry_in = coalesce(?, carry_in),
             carry_out = coalesce(?, carry_out),
             description = coalesce(?, description),
-            given_name = coalesce(?, given_name)
+            given_name = coalesce(?, given_name),
+            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         changes.category,
         changes.width,
@@ -1236,6 +1260,8 @@ mod tests {
             uploader: None,
             sha256: String::new(),
             added_at: String::new(),
+            edited_at: None,
+            downloads: 0,
             tags: vec![tag("alpha", None, "restriction")],
         }
     }
