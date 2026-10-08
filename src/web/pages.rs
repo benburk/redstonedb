@@ -26,6 +26,15 @@ const PAGE_TITLE: &str = "text-page font-bold";
 const SECTION_TITLE: &str = "text-section font-semibold";
 const TABLE_HEAD: &str = "border-b border-line py-2 pr-4 text-left text-meta font-semibold text-muted";
 const TABLE_CELL: &str = "border-b border-line py-2.5 pr-4 align-top";
+/// One link of a segmented control, such as Cards and List; the chosen one
+/// carries `aria-current`.
+const SWITCH: &str = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+/// The bar holding a segmented control's links.
+const SWITCHES: &str =
+    "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";
+
+mod leaderboard;
+pub use leaderboard::{LeaderboardPage, leaderboard};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -145,31 +154,45 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
         "/",
         &html! {
             div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-                (category_sidebar(here, facets, matched))
+                (category_sidebar(
+                    facets,
+                    category,
+                    Some((&Home { category: "", ..here }.href(), matched)),
+                    |name| Home { category: name, ..here }.href(),
+                ))
                 div { (listing_body(listing, here, title, &count)) }
             }
         },
     )
 }
 
-/// The categories to narrow the list to, each with its count.
-fn category_sidebar(here: Home, facets: &[Facet], matched: usize) -> Markup {
+/// The categories to narrow a page to, each with its count and its
+/// address from `href`; `current` is the chosen one, and `all` the link
+/// and count for every category, if the page has one.
+fn category_sidebar(
+    facets: &[Facet],
+    current: &str,
+    all: Option<(&str, usize)>,
+    href: impl Fn(&str) -> String,
+) -> Markup {
     let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
     html! {
         nav aria-labelledby="categories-heading" class="desktop:sticky desktop:top-4 desktop:self-start" {
             h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
             ul class="flex flex-wrap gap-1 desktop:flex-col" {
-                li {
-                    a href=(Home { category: "", ..here }.href()) class=(item)
-                        aria-current=[here.category.is_empty().then_some("page")] {
-                        span { "All" }
-                        span class="text-meta text-muted tabular-nums" { (matched) }
+                @if let Some((all_href, matched)) = all {
+                    li {
+                        a href=(all_href) class=(item)
+                            aria-current=[current.is_empty().then_some("page")] {
+                            span { "All" }
+                            span class="text-meta text-muted tabular-nums" { (matched) }
+                        }
                     }
                 }
                 @for facet in facets {
                     li {
-                        a href=(Home { category: &facet.name, ..here }.href()) class=(item)
-                            aria-current=[(facet.name == here.category).then_some("page")] {
+                        a href=(href(&facet.name)) class=(item)
+                            aria-current=[(facet.name == current).then_some("page")] {
                             span { (facet.label) }
                             span class="text-meta text-muted tabular-nums" { (facet.count) }
                         }
@@ -177,6 +200,40 @@ fn category_sidebar(here: Home, facets: &[Facet], matched: usize) -> Markup {
                 }
             }
         }
+    }
+}
+
+/// The home page's title and count, with its tabs, layouts, and sorts.
+fn listing_header(
+    listing: &Listing,
+    here: Home,
+    title: &str,
+    count: &str,
+) -> Markup {
+    let Listing { view, category, .. } = *listing;
+    // A single standard category has a leaderboard to switch to.
+    let ranked = !category.contains(',')
+        && category != "other"
+        && listing.facets.iter().any(|f| f.name == category);
+    html! {
+            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                h1 class=(PAGE_TITLE) { (title) }
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" { (count) }
+                @if ranked {
+                    (category_tabs(category, false))
+                }
+                nav aria-label="Layout" class=(SWITCHES) {
+                    a href=(Home { view: View::Cards, ..here }.href()) class=(SWITCH) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
+                    a href=(Home { view: View::List, ..here }.href()) class=(SWITCH) aria-current=[(view == View::List).then_some("page")] { "List" }
+                }
+                nav aria-label="Sort" class=(SWITCHES) {
+                    span class="px-2 text-meta text-muted" aria-hidden="true" { "Sort" }
+                    @for (value, label) in SORTS {
+                        a href=(Home { sort: value, ..here }.href()) class=(SWITCH)
+                            aria-current=[(here.sort == value).then_some("page")] { (label) }
+                    }
+                }
+            }
     }
 }
 
@@ -196,23 +253,8 @@ fn listing_body(
         category,
         ..
     } = *listing;
-    let switch = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
     html! {
-            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                h1 class=(PAGE_TITLE) { (title) }
-                p class="mr-auto self-end pb-1 text-muted tabular-nums" { (count) }
-                nav aria-label="Layout" class="flex gap-1 rounded-control bg-sidebar p-1" {
-                    a href=(Home { view: View::Cards, ..here }.href()) class=(switch) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
-                    a href=(Home { view: View::List, ..here }.href()) class=(switch) aria-current=[(view == View::List).then_some("page")] { "List" }
-                }
-                nav aria-label="Sort" class="flex items-center gap-1 rounded-control bg-sidebar p-1" {
-                    span class="px-2 text-meta text-muted" aria-hidden="true" { "Sort" }
-                    @for (value, label) in SORTS {
-                        a href=(Home { sort: value, ..here }.href()) class=(switch)
-                            aria-current=[(here.sort == value).then_some("page")] { (label) }
-                    }
-                }
-            }
+            (listing_header(listing, here, title, count))
             form action="/" method="get" role="search" class="mb-6 flex flex-col gap-2" {
                 @if view == View::List {
                     input type="hidden" name="view" value="list";
@@ -285,6 +327,22 @@ fn listing_body(
             } @else {
                 (table(shown))
             }
+    }
+}
+
+/// A category's builds and its leaderboard, as two tabs; `leaderboard` is
+/// whether that is the one shown.
+fn category_tabs(category: &str, leaderboard: bool) -> Markup {
+    let builds = form_urlencoded::Serializer::new(String::new())
+        .append_pair("category", category)
+        .finish();
+    html! {
+        nav aria-label="Builds or leaderboard" class=(SWITCHES) {
+            a href={ "/?" (builds) } class=(SWITCH)
+                aria-current=[(!leaderboard).then_some("page")] { "Builds" }
+            a href={ "/leaderboards/" (category) } class=(SWITCH)
+                aria-current=[leaderboard.then_some("page")] { "Leaderboard" }
+        }
     }
 }
 

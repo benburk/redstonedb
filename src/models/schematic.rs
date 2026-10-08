@@ -747,6 +747,9 @@ pub struct Category {
     pub plural: String,
     /// Whether each build gives its own name, as bussing does.
     pub named: bool,
+    /// Whether its designs all do the same job, so a leaderboard may rank
+    /// them together, as adders' do and gates' do not.
+    pub designs_interchangeable: bool,
 }
 
 /// A design within a category, such as the carry lookahead adder.
@@ -779,7 +782,8 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
         Category,
         r#"SELECT name as "name!", label,
             coalesce(plural, label || 's') as "plural!: String",
-            named as "named: bool"
+            named as "named: bool",
+            designs_interchangeable as "designs_interchangeable: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
@@ -846,6 +850,7 @@ pub async fn check_category(
             label: words(category),
             plural: words(category),
             named: false,
+            designs_interchangeable: true,
         });
     let listed = designs(db)
         .await?

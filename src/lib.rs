@@ -11,6 +11,7 @@ pub mod error;
 pub mod extractors;
 pub mod import;
 pub mod interface;
+pub mod leaderboard;
 pub mod lint;
 pub mod models;
 pub mod schem;

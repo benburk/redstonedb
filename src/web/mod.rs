@@ -14,6 +14,7 @@ mod about;
 mod auth;
 pub mod components;
 mod details;
+mod leaderboards;
 pub mod pages;
 mod profile;
 mod schematics;
@@ -84,6 +85,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
+        .route("/leaderboards/{category}", get(leaderboards::show))
         .route("/schematics/{id}/download", get(schematics::download))
         .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))
         .route(

@@ -546,6 +546,7 @@ async fn define_category(
         label,
         plural,
         named,
+        designs_interchangeable: true,
     };
     Ok(schematic::define_category(db, &category).await?)
 }
