@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT category, name, abbreviation FROM design\n         ORDER BY category, name = 'other', name",
+  "query": "SELECT category, name, abbreviation, label FROM design\n         ORDER BY category, name = 'other', name",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "name": "abbreviation",
         "ordinal": 2,
         "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 3,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -25,8 +30,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "0696984dee05ea6fdcb4524738b7e1ef098b9674de411d2f2a0c79b469625cdd"
+  "hash": "ff06f85428743787bce0e9204b2bfe6a6bdb7cf6d4a412f6e66d6284cf5d94d6"
 }

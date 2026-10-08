@@ -329,7 +329,7 @@ fn cards(schematics: &[Schematic]) -> Markup {
     }
 }
 
-/// The few facts a card has room for, such as `8 ticks · 19×11×18 ·
+/// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.
 fn facts(s: &Schematic) -> Markup {
     let measures: Vec<String> = [
@@ -445,13 +445,15 @@ pub fn schematic(
             div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
                 h1 class=(PAGE_TITLE) { (name) }
                 div class="flex gap-2" {
-                    @if viewer.is_some_and(User::can_edit) {
-                        a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
-                    }
                     @if viewer.is_some_and(User::is_admin) {
                         button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
                         (delete_dialog(s))
                     }
+                    @if viewer.is_some_and(User::can_edit) {
+                        a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
+                    }
+                    button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
+                    (download_dialog(s))
                 }
             }
             (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s)))
@@ -495,9 +497,16 @@ fn interface_section(analysis: &Analysis, with_violations: bool) -> Markup {
                         @for port in inputs {
                             tr {
                                 th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (port.name) }
-                                td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
-                                td class={ (TABLE_CELL) " tabular-nums" } { (port.strength) " or more" }
-                                td class=(TABLE_CELL) { (uniform(&port.bits, |b| (if b.hard { "hard" } else { "soft" }).to_owned())) }
+                                @if port.signal_strength {
+                                    // Each block is a hex digit, its strength the value.
+                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len() * 4) }
+                                    td class=(TABLE_CELL) { "the value" }
+                                    td class=(TABLE_CELL) { "signal strength" }
+                                } @else {
+                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
+                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.strength) " or more" }
+                                    td class=(TABLE_CELL) { (uniform(&port.bits, |b| (if b.hard { "hard" } else { "soft" }).to_owned())) }
+                                }
                             }
                         }
                     }
@@ -610,9 +619,8 @@ fn download_dialog(s: &Schematic) -> Markup {
     }
 }
 
-/// A schematic's tags, download, and details, beside its viewer.
+/// A schematic's tags and details, beside its viewer.
 fn schematic_info(s: &Schematic) -> Markup {
-    let file = s.filename();
     html! {
         div class="flex flex-col gap-8" {
             section aria-labelledby="tags-heading" {
@@ -626,12 +634,6 @@ fn schematic_info(s: &Schematic) -> Markup {
                         }
                     }
                 }
-            }
-            section aria-labelledby="file-heading" class="flex flex-col gap-2" {
-                h2 id="file-heading" class="sr-only" { "File" }
-                button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
-                p class="text-meta break-all text-muted" { code { (file) } }
-                (download_dialog(s))
             }
             section aria-labelledby="details-heading" {
                 h2 id="details-heading" class={ (SECTION_TITLE) " mb-3" } { "Details" }
@@ -666,7 +668,7 @@ fn schematic_info(s: &Schematic) -> Markup {
                     } else {
                         search_link(&stacking(s), "stackable")
                     }))
-                    (field("Size", size(s)))
+                    (field("Size", format!("{} (HWD)", size(s))))
                     (field("Volume", volume(s)))
                     (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                         html! { "unknown" }
@@ -684,6 +686,7 @@ fn schematic_info(s: &Schematic) -> Markup {
                     @if let Some(edited) = &s.edited_at {
                         (field("Last edited", edited.get(..10).unwrap_or(edited)))
                     }
+                    (field("File", html! { code class="break-all" { (s.filename()) } }))
                     (field("Downloads", s.downloads.to_string()))
                     (field("Imported by", s.importer().map_or_else(
                         || html! { "unknown" },
@@ -1250,9 +1253,10 @@ fn volume(s: &Schematic) -> String {
     format!("{} blocks", s.volume())
 }
 
+/// Height × width × depth, as the build looks from the south.
 fn size(s: &Schematic) -> String {
     let (x, y, z) = s.size;
-    format!("{x}×{y}×{z}")
+    format!("{y}×{x}×{z}")
 }
 
 /// The layout of a build's page and of an upload's preview: `side`, its
@@ -1712,7 +1716,7 @@ pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
             // is stored until publishing.
             (beside_viewer(&format!("data:application/octet-stream;base64,{}", p.data), &html! {
                 div class="flex flex-col gap-3" {
-                    p { "Size: " span class="tabular-nums" { (x) "×" (y) "×" (z) } }
+                    p { "Size: " span class="tabular-nums" { (y) "×" (x) "×" (z) " (HWD)" } }
                     @if let Some(id) = p.duplicate {
                         p role="alert" class="text-danger" {
                             "This exact file is already on the site: "

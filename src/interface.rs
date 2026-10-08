@@ -1,12 +1,12 @@
 //! A build's inputs and outputs, read from its blocks and signs as
 //! `conventions.md` lays them out. An input is a block with a lever on it,
-//! or for a control line a button; an output is a block of an output
-//! colour. Each colour is one bus, named by a sign on any of its blocks,
+//! or for a control line a button, or for a signal-strength input dust on
+//! top; an output is a block of an output colour. Each colour is one bus, named by a sign on any of its blocks,
 //! except magenta control lines and pink status lines, each one line named
 //! by its own sign. Each bus's least significant bit is the one nearest the
 //! south-east-bottom corner of the bounding box.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     lint,
@@ -31,13 +31,17 @@ pub struct Port {
     /// The weakest signal strength that drives an input correctly, from a
     /// sign token such as `4ss` on any of its bits.
     pub strength: u8,
+    /// A signal-strength input: each block takes a value from 0 to 15 as
+    /// its strength, through the dust on top, rather than a bit from a
+    /// lever.
+    pub signal_strength: bool,
 }
 
 pub struct Bit {
     /// Position in the file.
     pub pos: Pos,
-    /// For an input, the side power enters through: the side its lever is
-    /// on, such as `south`.
+    /// For an input, the side power enters through, such as `south`: the
+    /// side its lever is on, or the open end of the dust on top.
     pub entry: Option<String>,
     /// For an input, whether dust touches its block, so only strong power
     /// from a repeater, comparator, or torch drives it.
@@ -48,19 +52,21 @@ pub struct Bit {
 
 /// The bounds, inclusive, of the build itself: its box less any outer
 /// layer that holds nothing but its interface, meaning input blocks with
-/// their levers, signs, and torches. Such a layer only carries the inputs,
-/// so it does not make the build bigger, and a stack's copies share it.
+/// their levers, dust, signs, and torches. Such a layer only carries the
+/// inputs, so it does not make the build bigger, and a stack's copies share
+/// it.
 pub fn core(blocks: &Blocks) -> (Pos, Pos) {
+    let fed = dust_inputs(blocks);
     let mut low = [0; 3];
     let mut high = blocks.size.map(|n| n - 1);
     for axis in 0..3 {
         while high[axis] > low[axis]
-            && interface_only(blocks, axis, low[axis], low, high)
+            && interface_only(blocks, &fed, axis, low[axis], low, high)
         {
             low[axis] += 1;
         }
         while high[axis] > low[axis]
-            && interface_only(blocks, axis, high[axis], low, high)
+            && interface_only(blocks, &fed, axis, high[axis], low, high)
         {
             high[axis] -= 1;
         }
@@ -69,9 +75,11 @@ pub fn core(blocks: &Blocks) -> (Pos, Pos) {
 }
 
 /// Whether the layer at `at` along `axis`, within `low` to `high` on the
-/// other axes, holds nothing but the interface.
+/// other axes, holds nothing but the interface. `fed` holds the
+/// signal-strength inputs, whose dust is part of the interface.
 fn interface_only(
     blocks: &Blocks,
+    fed: &HashMap<Pos, Option<String>>,
     axis: usize,
     at: i32,
     low: Pos,
@@ -87,33 +95,97 @@ fn interface_only(
                 let state = blocks.get(pos);
                 let support = schem::torch_block(pos, state)
                     .map(|block| blocks.get(block));
-                state == schem::AIR || lint::is_interface(state, support)
+                state == schem::AIR
+                    || lint::is_interface(state, support)
+                    || (schem::id(state) == DUST
+                        && fed.contains_key(&schem::step(pos, "down")))
             })
         })
     })
 }
 
-pub fn read(blocks: &Blocks) -> Interface {
-    let levers: HashMap<Pos, Switch> = blocks
-        .switches()
+const DUST: &str = "minecraft:redstone_wire";
+
+/// How an input block takes its signal.
+pub enum Feed {
+    /// A lever, or for a control line a button, on the block.
+    Switch(Switch),
+    /// Dust on top, for a signal-strength input, entered through the side
+    /// its open end points to.
+    Dust { entry: Option<String> },
+}
+
+/// Every input block, with what feeds it.
+pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
+    let mut feeds: HashMap<Pos, Feed> = dust_inputs(blocks)
         .into_iter()
-        .map(|lever| (lever.block, lever))
+        .map(|(pos, entry)| (pos, Feed::Dust { entry }))
         .collect();
+    feeds.extend(
+        blocks
+            .switches()
+            .into_iter()
+            .map(|switch| (switch.block, Feed::Switch(switch))),
+    );
+    feeds
+}
+
+/// The signal-strength inputs: input-colour concrete with no lever or
+/// button on it and dust on top, each with the side its signal enters
+/// through.
+pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<String>> {
+    let switched: HashSet<Pos> = blocks
+        .switches()
+        .iter()
+        .map(|switch| switch.block)
+        .collect();
+    blocks
+        .iter()
+        .filter(|&(pos, state)| {
+            lint::is_input(short(state))
+                && !switched.contains(&pos)
+                && schem::id(blocks.get(schem::step(pos, "up"))) == DUST
+        })
+        .map(|(pos, _)| (pos, open_end(blocks, schem::step(pos, "up"))))
+        .collect()
+}
+
+/// The side of the dust at `pos` that leads nowhere, where its driver
+/// goes; `None` unless exactly one side does.
+fn open_end(blocks: &Blocks, pos: Pos) -> Option<String> {
+    let state = blocks.get(pos);
+    let mut open =
+        ["north", "south", "west", "east"]
+            .into_iter()
+            .filter(|&side| {
+                let next = schem::step(pos, side);
+                schem::property(state, side) == Some("side")
+                    && blocks.get(next) == schem::AIR
+                    && schem::id(blocks.get(schem::step(next, "down"))) != DUST
+            });
+    match (open.next(), open.next()) {
+        (Some(side), None) => Some(side.to_owned()),
+        _ => None,
+    }
+}
+
+pub fn read(blocks: &Blocks) -> Interface {
+    let feeds = feeds(blocks);
     let signs = blocks.sign_texts();
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !levers.contains_key(pos) && lint::is_output(short(state))
+            !feeds.contains_key(pos) && lint::is_output(short(state))
         })
         .map(|(pos, _)| pos)
         .collect();
     Interface {
-        inputs: ports(blocks, levers.keys().copied(), &signs, Some(&levers)),
+        inputs: ports(blocks, feeds.keys().copied(), &signs, Some(&feeds)),
         outputs: ports(blocks, outputs, &signs, None),
     }
 }
 
-/// Groups `members` into ports, `levers` being given for inputs. Each
+/// Groups `members` into ports, `feeds` being given for inputs. Each
 /// control or status line with a name sign is a line of its own. Every
 /// other colour is one bus, named by a sign on any of its blocks, or else
 /// by the next letter for an input, A for lime, or by its place among the
@@ -122,9 +194,9 @@ fn ports(
     blocks: &Blocks,
     members: impl IntoIterator<Item = Pos>,
     signs: &HashMap<Pos, &[String]>,
-    levers: Option<&HashMap<Pos, Switch>>,
+    feeds: Option<&HashMap<Pos, Feed>>,
 ) -> Vec<Port> {
-    let (order, line): (&[&str], _) = if levers.is_some() {
+    let (order, line): (&[&str], _) = if feeds.is_some() {
         (&lint::INPUT_COLOURS, lint::CONTROL)
     } else {
         (&lint::OUTPUT_COLOURS, lint::STATUS)
@@ -136,7 +208,7 @@ fn ports(
         let colour = colour(blocks.get(pos));
         match sign_name(lines).filter(|_| colour == line) {
             Some(name) => {
-                let mut port = port(blocks, name, vec![pos], lines, levers);
+                let mut port = port(blocks, name, vec![pos], lines, feeds);
                 port.labelled = true;
                 named.push(port);
             }
@@ -168,22 +240,18 @@ fn ports(
                 .iter()
                 .find_map(|pos| signs.get(pos).and_then(|l| sign_name(l)));
             let name = if colour == line {
-                let what = if levers.is_some() {
-                    "control"
-                } else {
-                    "status"
-                };
+                let what = if feeds.is_some() { "control" } else { "status" };
                 format!("unnamed {what}")
             } else if let Some(given) = given {
                 given
-            } else if levers.is_some() {
+            } else if feeds.is_some() {
                 letters.next().map(String::from).unwrap_or_default()
             } else if output_count == 1 {
                 "output".to_owned()
             } else {
                 format!("output {}", i + 1)
             };
-            port(blocks, name, members, &lines, levers)
+            port(blocks, name, members, &lines, feeds)
         })
         .collect();
     result.extend(named);
@@ -197,7 +265,7 @@ fn port(
     name: String,
     mut members: Vec<Pos>,
     lines: &[String],
-    levers: Option<&HashMap<Pos, Switch>>,
+    feeds: Option<&HashMap<Pos, Feed>>,
 ) -> Port {
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];
@@ -206,17 +274,28 @@ fn port(
         members.sort_by_key(|&pos| distance(pos, lsb));
     }
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
+    let feed = |pos: Pos| feeds.and_then(|feeds| feeds.get(&pos));
+    let signal_strength = !members.is_empty()
+        && members
+            .iter()
+            .all(|&pos| matches!(feed(pos), Some(Feed::Dust { .. })));
     let bits = members
         .iter()
         .map(|&pos| {
-            let lever = levers.and_then(|levers| levers.get(&pos));
+            let lever = match feed(pos) {
+                Some(Feed::Switch(lever)) => Some(lever),
+                _ => None,
+            };
             Bit {
                 pos,
-                entry: lever.map(|lever| lever.side.clone()),
+                entry: match feed(pos) {
+                    Some(Feed::Switch(lever)) => Some(lever.side.clone()),
+                    Some(Feed::Dust { entry }) => entry.clone(),
+                    None => None,
+                },
                 hard: lever.is_some()
                     && DIRECTIONS.iter().any(|&d| {
-                        schem::id(blocks.get(schem::step(pos, d)))
-                            == "minecraft:redstone_wire"
+                        schem::id(blocks.get(schem::step(pos, d))) == DUST
                     }),
                 inverted: lever.is_some_and(|lever| lever.on) || inverted_line,
             }
@@ -231,6 +310,7 @@ fn port(
         labelled: false,
         bits,
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
+        signal_strength,
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            (SELECT abbreviation FROM design WHERE design.category =\n                schematic.category AND design.name = schematic.design)\n                as \"design_abbreviation?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic WHERE id = ?",
+  "query": "SELECT id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -109,13 +109,18 @@
         "type_info": "Text"
       },
       {
-        "name": "category_label?: String",
+        "name": "design_given_label?: String",
         "ordinal": 21,
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "category_label?: String",
         "ordinal": 22,
+        "type_info": "Text"
+      },
+      {
+        "name": "uploader?: String",
+        "ordinal": 23,
         "type_info": "Text"
       }
     ],
@@ -144,9 +149,10 @@
       true,
       false,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "c371ace2883a6fca8a2e96e979a9191cc30ea1cc82c3e3b5a8e35507b9817477"
+  "hash": "26cd8109fab21920624a7b9d40485f8b0b4712504bba1c3808bf858209a7b507"
 }

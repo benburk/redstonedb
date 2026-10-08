@@ -75,6 +75,9 @@ enum Command {
         /// The usual short name, such as CLA
         #[arg(long)]
         abbreviation: Option<String>,
+        /// How people read it, such as XOR; the name's words by default
+        #[arg(long)]
+        label: Option<String>,
     },
     /// List accounts with their roles
     Users,
@@ -288,12 +291,14 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             category,
             name,
             abbreviation,
+            label,
         } => Ok(schematic::define_design(
             db,
             &schematic::Design {
                 category,
                 name,
                 abbreviation,
+                label,
             },
         )
         .await?),
@@ -632,7 +637,7 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             if [w, h, l] == [nw, nh, nl] {
                 println!("{}  file rewritten", &s.id[..8]);
             } else {
-                println!("{}  file {w}x{h}x{l} -> {nw}x{nh}x{nl}", &s.id[..8]);
+                println!("{}  file {h}x{w}x{l} -> {nh}x{nw}x{nl}", &s.id[..8]);
             }
         }
         let blocks = Blocks::read(&data)?;
@@ -642,7 +647,7 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             schematic::set_size(db, &s.id, size).await?;
             let (x, y, z) = s.size;
             let (nx, ny, nz) = size;
-            println!("{}  {x}x{y}x{z} -> {nx}x{ny}x{nz}", &s.id[..8]);
+            println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
         }
     }
     Ok(())
@@ -765,7 +770,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
             stacking.join("; ")
         }
     );
-    println!("size         {x}x{y}x{z}, {} blocks", s.volume());
+    println!("size         {y}x{x}x{z} (HWD), {} blocks", s.volume());
     println!(
         "built by     {}",
         if s.builders.is_empty() {

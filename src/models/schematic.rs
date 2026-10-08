@@ -166,6 +166,9 @@ pub struct Schematic {
     pub design: String,
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
+    /// How people read the design when that is not just its name's words,
+    /// such as `XOR`.
+    pub design_given_label: Option<String>,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,
@@ -251,7 +254,11 @@ impl Schematic {
     /// The design in words, such as `Carry Lookahead`; `None` for no
     /// design or `other`.
     pub fn design_label(&self) -> Option<String> {
-        (self.design != "other").then(|| words(&self.design))
+        (self.design != "other").then(|| {
+            self.design_given_label
+                .clone()
+                .unwrap_or_else(|| words(&self.design))
+        })
     }
 
     /// The download filename: the build's name with dashes for spaces,
@@ -351,17 +358,18 @@ async fn flags_by_schematic(
 /// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, category, width, orientation, encoding, latency,
+        r#"SELECT id, schematic.category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
-            (SELECT abbreviation FROM design WHERE design.category =
-                schematic.category AND design.name = schematic.design)
-                as "design_abbreviation?: String",
+            design.abbreviation as "design_abbreviation?: String",
+            design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
-         FROM schematic ORDER BY category, width, added_at"#
+         FROM schematic LEFT JOIN design ON design.category =
+             schematic.category AND design.name = schematic.design
+         ORDER BY schematic.category, width, added_at"#
     )
     .fetch_all(db)
     .await?;
@@ -437,6 +445,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             conventional: row.conventional,
             design: row.design,
             design_abbreviation: row.design_abbreviation,
+            design_given_label: row.design_given_label,
             description: row.description,
             given_name: row.given_name,
             uploader: row.uploader,
@@ -453,17 +462,18 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
-        r#"SELECT id, category, width, orientation, encoding, latency,
+        r#"SELECT id, schematic.category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
-            (SELECT abbreviation FROM design WHERE design.category =
-                schematic.category AND design.name = schematic.design)
-                as "design_abbreviation?: String",
+            design.abbreviation as "design_abbreviation?: String",
+            design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
             (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
                 as "uploader?: String"
-         FROM schematic WHERE id = ?"#,
+         FROM schematic LEFT JOIN design ON design.category =
+             schematic.category AND design.name = schematic.design
+         WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -512,6 +522,7 @@ pub async fn get(
         conventional: row.conventional,
         design: row.design,
         design_abbreviation: row.design_abbreviation,
+        design_given_label: row.design_given_label,
         description: row.description,
         given_name: row.given_name,
         uploader: row.uploader,
@@ -745,12 +756,14 @@ pub struct Design {
     pub name: String,
     /// The usual short name, such as `CLA`.
     pub abbreviation: Option<String>,
+    /// How people read it, such as `XOR`; `None` for the name's words.
+    pub label: Option<String>,
 }
 
 impl Design {
     /// Such as `Carry Lookahead (CLA)`.
     pub fn label(&self) -> String {
-        let words = words(&self.name);
+        let words = self.label.clone().unwrap_or_else(|| words(&self.name));
         match &self.abbreviation {
             Some(short) => format!("{words} ({short})"),
             None => words,
@@ -788,7 +801,7 @@ pub async fn designs<'e, E: SqliteExecutor<'e>>(
 ) -> Result<Vec<Design>, sqlx::Error> {
     sqlx::query_as!(
         Design,
-        "SELECT category, name, abbreviation FROM design
+        "SELECT category, name, abbreviation, label FROM design
          ORDER BY category, name = 'other', name"
     )
     .fetch_all(db)
@@ -874,10 +887,12 @@ pub async fn define_design<'e, E: SqliteExecutor<'e>>(
     design: &Design,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO design (category, name, abbreviation) VALUES (?, ?, ?)",
+        "INSERT INTO design (category, name, abbreviation, label)
+         VALUES (?, ?, ?, ?)",
         design.category,
         design.name,
-        design.abbreviation
+        design.abbreviation,
+        design.label
     )
     .execute(db)
     .await?;
@@ -1319,6 +1334,7 @@ mod tests {
             conventional: true,
             design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
+            design_given_label: None,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -1339,6 +1355,19 @@ mod tests {
     #[test]
     fn filename_is_the_name() {
         assert_eq!(cla().filename(), "8-bit-Carry-Lookahead-Adder.schem");
+    }
+
+    #[test]
+    fn a_design_keeps_its_label() {
+        let s = Schematic {
+            category: "gate".to_owned(),
+            category_label: Some("Gate".to_owned()),
+            design: "nand_xnor".to_owned(),
+            design_given_label: Some("NAND+XNOR".to_owned()),
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(s.name(), "8-bit NAND+XNOR Gate");
     }
 
     #[test]

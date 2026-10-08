@@ -178,14 +178,18 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
 }
 
 /// The width and orientation the inputs suggest: the widest operand's bit
-/// count, and which way its bits run. `None` where the inputs say nothing.
+/// count, four for each block of a signal-strength input, and which way its
+/// bits run. `None` where the inputs say nothing.
 pub fn guess(interface: &Interface) -> (Option<usize>, Option<&'static str>) {
+    let bits = |port: &Port| {
+        port.bits.len() * if port.signal_strength { 4 } else { 1 }
+    };
     let widest = interface
         .inputs
         .iter()
         .filter(|port| !port.labelled)
-        .max_by_key(|port| port.bits.len());
-    let width = widest.map(|port| port.bits.len());
+        .max_by_key(|port| bits(port));
+    let width = widest.map(bits);
     let orientation = widest.and_then(orientation);
     (width, orientation)
 }

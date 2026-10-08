@@ -10,7 +10,8 @@
 //! - Slabs, stairs, and every kind of glass become white stained glass;
 //!   every other solid block becomes white concrete. Redstone components
 //!   and output blocks are kept, and so is an input: a coloured block with
-//!   a lever on it, which becomes that colour's concrete.
+//!   a lever on it, which becomes that colour's concrete, or input-colour
+//!   concrete with dust on top, a signal-strength input.
 //! - A status line, a block whose sign names a status output such as
 //!   `carry out`, turns pink, as older builds marked them on yellow.
 //! - The box is fitted tightly around what is left.
@@ -31,12 +32,7 @@ const GLASS: &str = "minecraft:glass";
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let old_markers = loose_glass(&blocks, false);
-    // The blocks a lever or button is on: the inputs.
-    let inputs: HashSet<Pos> = blocks
-        .switches()
-        .iter()
-        .map(|switch| switch.block)
-        .collect();
+    let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
     let status = status_lines(&blocks);
     let grid: HashMap<Pos, String> = blocks
         .iter()
@@ -56,13 +52,16 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let found = interface::read(&Blocks::read(&standardized)?);
     ensure!(
         !found.inputs.is_empty(),
-        "no inputs found: mark each input with a lever on a lime, light \
-         blue, or magenta block before standardizing"
+        "no inputs found: mark each input with a lever on lime, light blue, \
+         cyan, blue, or magenta concrete, or for a signal-strength input \
+         dust on top, before standardizing"
     );
     ensure!(
         !found.outputs.is_empty(),
-        "no outputs found: mark each output with yellow concrete or yellow \
-         stained glass before standardizing"
+        "no outputs found: mark each output with yellow, orange, brown, or \
+         pink concrete or stained glass before standardizing; if the file \
+         should have some, check the selection it was saved from covers \
+         the whole build"
     );
     Ok(standardized)
 }
@@ -91,19 +90,15 @@ pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
     rebox(data, &grid, [0, 0, 0], blocks.size)
 }
 
-/// The blocks that are status lines but not yet pink: no lever on them, and
-/// a sign naming a status output.
+/// The blocks that are status lines but not yet pink: not inputs, and a
+/// sign naming a status output.
 fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
-    let inputs: HashSet<Pos> = blocks
-        .switches()
-        .iter()
-        .map(|switch| switch.block)
-        .collect();
+    let inputs = interface::feeds(blocks);
     blocks
         .sign_texts()
         .into_iter()
         .filter(|(pos, lines)| {
-            !inputs.contains(pos)
+            !inputs.contains_key(pos)
                 && interface::sign_name(lines)
                     .is_some_and(|name| lint::is_status_name(&name))
                 && !blocks.get(*pos).starts_with("minecraft:pink_")
@@ -267,8 +262,9 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
 }
 
 /// The block a standardized build uses in place of `state`. A coloured
-/// block with a lever on it, an `input`, becomes that colour's concrete;
-/// without one, its colour means nothing and it turns white.
+/// block with a lever or signal-strength dust on it, an `input`, becomes
+/// that colour's concrete; without one, its colour means nothing and it
+/// turns white.
 fn restyle(state: &str, input: bool) -> String {
     let id = schem::id(state);
     let name = id.strip_prefix("minecraft:").unwrap_or(id);

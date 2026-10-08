@@ -217,26 +217,80 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
     }
 }
 
+/// Each input block takes a lever, or for a control line a button, or for
+/// a signal-strength input dust on top with an open end to drive it from.
+/// One colour is one bus, so its blocks are all driven the same way.
 fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     let levers = blocks.switches();
+    let dust = interface::dust_inputs(blocks);
+    // Each operand colour's first levered block and first dust-fed one.
+    let mut kinds: BTreeMap<&str, (Option<Pos>, Option<Pos>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let name = short(state);
         if !is_input(name) {
             continue;
         }
-        let switch = if name == format!("{CONTROL}_concrete") {
+        let colour = name.strip_suffix("_concrete").unwrap_or(name);
+        let kind = kinds.entry(colour).or_default();
+        let switch = if colour == CONTROL {
             "lever or button"
         } else {
             "lever"
         };
         match levers.iter().filter(|lever| lever.block == pos).count() {
-            1 => {}
-            0 => say(found, Some(pos), format!("input block has no {switch}")),
+            1 => {
+                kind.0.get_or_insert(pos);
+            }
+            0 => match dust.get(&pos) {
+                None => say(
+                    found,
+                    Some(pos),
+                    format!(
+                        "input block has no {switch}, nor dust on top for a \
+                         signal-strength input"
+                    ),
+                ),
+                Some(None) => say(
+                    found,
+                    Some(pos),
+                    "signal-strength input's dust has no one open end to \
+                     drive it from"
+                        .to_owned(),
+                ),
+                Some(Some(entry)) => {
+                    kind.1.get_or_insert(pos);
+                    if colour == INPUT_COLOURS[0] && entry != "south" {
+                        say(
+                            found,
+                            Some(pos),
+                            format!(
+                                "A's dust enters from the {entry} side of its \
+                                 block, not south"
+                            ),
+                        );
+                    }
+                }
+            },
             n => say(
                 found,
                 Some(pos),
                 format!("input block has {n} levers and buttons"),
             ),
+        }
+    }
+    for (colour, kind) in kinds {
+        if colour != CONTROL
+            && let (Some(_), Some(pos)) = kind
+        {
+            say(
+                found,
+                Some(pos),
+                format!(
+                    "{} has both levers and signal-strength dust; one colour \
+                     is one bus, driven one way",
+                    colour.replace('_', " ")
+                ),
+            );
         }
     }
 }
@@ -247,8 +301,7 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
 /// on a block that is neither an input nor an output names nothing.
 fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
     let signs = blocks.sign_texts();
-    let held: std::collections::HashSet<Pos> =
-        blocks.switches().iter().map(|lever| lever.block).collect();
+    let held = interface::feeds(blocks);
     let mut buses: BTreeMap<&str, (Pos, Vec<String>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let block = short(state);
@@ -267,7 +320,8 @@ fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
             continue;
         }
         let Some(name) = name else { continue };
-        let bus = (is_input(block) && held.contains(&pos)) || is_output(block);
+        let bus =
+            (is_input(block) && held.contains_key(&pos)) || is_output(block);
         if !bus {
             say(
                 found,
@@ -335,7 +389,8 @@ pub fn keeps(name: &str) -> bool {
 }
 
 /// Whether a block id without its namespace, such as `lime_concrete`, is
-/// an input colour of concrete; it is an input once a lever is on it.
+/// an input colour of concrete; it is an input once a lever is on it, or
+/// dust for a signal-strength input.
 pub fn is_input(block: &str) -> bool {
     block.strip_suffix("_concrete").is_some_and(|colour| {
         colour == CONTROL || INPUT_COLOURS.contains(&colour)

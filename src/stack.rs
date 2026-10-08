@@ -157,9 +157,9 @@ fn along(
 }
 
 /// Blocks outside the slice that a step lands inside the slice, so on the
-/// previous copy, and the levers, signs, and torches hanging on them. A
-/// lever, sign, or torch on a block that stays, stays too, unless it lands
-/// on one of the previous copy's blocks.
+/// previous copy, and the levers, signs, torches, and input dust on them. A
+/// lever, sign, torch, or input dust on a block that stays, stays too,
+/// unless it lands on one of the previous copy's blocks.
 fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     let (mut low, mut high) = interface::core(blocks);
     // The previous copy lies the opposite way from `step`, so the slice is
@@ -175,7 +175,7 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
     };
     let lands_inside = |pos: Pos| !inside(pos) && inside(add(pos, step));
-    // What each lever, sign, and torch hangs on.
+    // What each lever, sign, torch, and input's dust hangs on.
     let mut support: HashMap<Pos, Pos> = blocks
         .switches()
         .into_iter()
@@ -190,6 +190,11 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     support.extend(blocks.iter().filter_map(|(pos, state)| {
         Some((pos, schem::torch_block(pos, state)?))
     }));
+    support.extend(
+        interface::dust_inputs(blocks)
+            .into_keys()
+            .map(|block| (schem::step(block, "up"), block)),
+    );
     let mut edge: HashSet<Pos> = blocks
         .iter()
         .filter(|&(pos, state)| {

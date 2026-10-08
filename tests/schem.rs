@@ -520,3 +520,51 @@ fn only_a_levers_must_face_south() {
     );
     assert_eq!(complaints.len(), 8);
 }
+
+#[test]
+fn dust_on_an_input_block_is_a_signal_strength_input() {
+    // A hex digit to four bits: one lime block with dust on top, its open
+    // end south, feeding comparators. No lever could give its value.
+    let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let messages: Vec<String> = lint::check(&blocks)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(messages.is_empty(), "{messages:#?}");
+    let interface = interface::read(&blocks);
+    assert_eq!(names(&interface.inputs), [("A", 1)]);
+    let a = &interface.inputs[0];
+    assert!(a.signal_strength);
+    assert_eq!(a.block, "lime concrete");
+    assert_eq!(a.bits[0].entry.as_deref(), Some("south"));
+    assert!(!a.bits[0].hard);
+    assert_eq!(names(&interface.outputs), [("output", 4)]);
+    assert_eq!(import::guess(&interface).0, Some(4));
+    let size = import::measure(&blocks, true).unwrap();
+    assert_eq!(
+        (size.x, size.y, size.z),
+        (8, 3, 11),
+        "the input layer is left out"
+    );
+}
+
+#[test]
+fn signal_strength_dust_needs_an_open_end() {
+    // Dust that turns back into the build, a dot, leaves no side to drive.
+    let data = rebuilt(&raw("hex2bin-raw"), |pos, state| {
+        (pos == [6, 1, 11] && state.starts_with("minecraft:redstone_wire"))
+            .then(|| {
+                "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"
+                    .to_owned()
+            })
+    });
+    let messages: Vec<String> = lint::check(&Blocks::read(&data).unwrap())
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        messages.iter().any(|m| m.contains("no one open end")),
+        "{messages:#?}"
+    );
+}

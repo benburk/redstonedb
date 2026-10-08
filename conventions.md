@@ -29,12 +29,19 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 
 - Each input bit is a block of concrete with a lever on it: lime for every bit of A, light blue for B, cyan for C, blue for D, and magenta for every control line, such as a clock, enable, carry-in, or ALU op line. A further operand, such as the addend of a fused multiply-add, is C.
 - All of one operand colour is one input. Unnamed, the operands take letters in colour order, so the first present is A. A sign naming any block of an operand's colour, such as `addend`, names that whole input, so a colour takes one name. Each magenta block is its own control line, named by its own sign.
-- An input colour with no lever on it is not allowed; other solid blocks are white. Standardizing keeps an input colour with a lever, as concrete, and whitens the rest.
+- An input colour with no lever on it is not allowed, unless it is a signal-strength input; other solid blocks are white. Standardizing keeps an input colour with a lever, as concrete, and input-colour concrete with dust on top, and whitens the rest.
 - A control line may use a button instead of a lever, for a pulse such as a reset or a calculate line. Operand bits always use levers.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
 - The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
 - Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. The other operands' levers may be on any side, north, south, east, or west, but not on top or underneath.
+
+### Signal-strength inputs
+
+- A signal-strength input takes a value from 0 to 15 as its strength, which no lever can give. Each bit is a block of its operand's colour with no lever and dust on top, and each block is one hex digit, four bits of the build's width.
+- The dust's one open end, the side that leads nowhere, is where power enters, so it marks where a driver goes, as a lever's face does. A's dust enters from the south.
+- One colour is one bus, so an operand's blocks are either all levered or all signal-strength.
+- The derived drive and the `4ss` strength sign do not apply: the strength is the value.
 
 ### How an input must be driven
 
@@ -44,7 +51,7 @@ Import derives this from the build, so nothing in-world marks it.
 - Soft-powered: nothing but torches, repeaters, comparators, and mechanisms touches the input block. These respond to a weakly powered block, so any signal into the block works, including dust.
 - A lever strongly powers its block at 15, so a saved build always works under hard power. The derivation only decides whether weaker drivers work too.
 - Required strength: the input block must be powered at strength 1 or more, unless a sign on one of the operand's input blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. The value applies to every bit of the operand.
-- Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value.
+- Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value; see Signal-strength inputs.
 - Later, a redstone simulator can derive both facts: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign then becomes a check rather than the source.
 
 ## Outputs
@@ -91,7 +98,8 @@ Some builds, such as displays, follow their own layout. They are stored with `--
 ## Bounding box
 
 - A stored schematic's box fits its blocks tightly. Import takes out any glass corner markers, such as the 32 glass blocks older builds carried or WorldEdit's single corner blocks, and trims every empty layer.
-- The build's size is that box, less any outer layer that holds nothing but its interface: input blocks with their levers, signs, and torches. Such a layer only carries the inputs, so it does not make the build bigger. So input blocks can sit in their own layer, with their levers on the south side, without making the build bigger.
+- The build's size is that box, less any outer layer that holds nothing but its interface: input blocks with their levers, dust, signs, and torches. Such a layer only carries the inputs, so it does not make the build bigger. So input blocks can sit in their own layer, with their levers on the south side, without making the build bigger.
+- Sizes read height × width × depth, as the build looks from the south: up, then west to east, then north to south.
 - Positions count from the box's first block, its north-west-bottom corner.
 - A download can add a glass block off each corner of the box, diagonally, so WorldEdit can select the build by them without the glass touching it.
 
@@ -109,4 +117,3 @@ None of these are decided yet.
 
 - The default orientation and axes. These also fix the order of `WxHxL` in the filename.
 - Which face a sign goes on.
-- How signal-strength inputs, including `hex` builds, are supplied.

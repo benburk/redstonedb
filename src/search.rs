@@ -210,6 +210,7 @@ mod tests {
             conventional: true,
             design: "other".to_owned(),
             design_abbreviation: None,
+            design_given_label: None,
             flags: Vec::new(),
             description: None,
             given_name: None,
