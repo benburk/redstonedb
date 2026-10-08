@@ -179,8 +179,8 @@ fn category_sidebar(
     all: Option<(&str, usize)>,
     href: impl Fn(&str) -> String,
 ) -> Markup {
-    let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
-    let list = "flex flex-wrap gap-1 desktop:flex-col";
+    let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1 text-nav text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
+    let list = "flex flex-wrap gap-0.5 desktop:flex-col";
     let link = |to: &str, label: &str, count: usize, chosen: bool| {
         html! {
             li {
@@ -210,7 +210,7 @@ fn category_sidebar(
             @for (name, heading) in schematic::SECTIONS {
                 @let members = in_section(Some(name));
                 @if !members.is_empty() {
-                    h3 id={ "section-" (name) } class="mt-4 mb-1 px-2.5 text-meta font-semibold text-muted" { (heading) }
+                    h3 id={ "section-" (name) } class="mt-5 mb-1 px-2.5 text-section font-semibold" { (heading) }
                     ul aria-labelledby={ "section-" (name) } class=(list) {
                         @for facet in members {
                             (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))

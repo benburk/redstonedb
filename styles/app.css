@@ -15,6 +15,9 @@
   --text-meta--line-height: 1rem;
   --text-body: 0.9375rem;
   --text-body--line-height: 1.375rem;
+  /* Sidebar links: a step below body text, so section headings stand out. */
+  --text-nav: 0.875rem;
+  --text-nav--line-height: 1.25rem;
   --text-section: 1rem;
   --text-section--line-height: 1.5rem;
   --text-page: 1.875rem;
