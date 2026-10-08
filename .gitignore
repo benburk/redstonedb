@@ -8,3 +8,6 @@ target/
 # The database holds the schematics and is backed up outside git.
 redstone.db
 result
+
+# Local database copies made by `just pull-db`.
+backups/

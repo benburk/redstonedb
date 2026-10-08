@@ -47,9 +47,13 @@ build: css
 serve port=`free-port`: css
     PORT={{ port }} cargo run --bin redstone-database
 
-# Build the committed HEAD on the server and restart the site
-deploy:
+# Test, then build the committed HEAD on the server and restart the site
+deploy: test
     ./deploy/deploy.sh
+
+# Replace the local database with a copy of the live one
+pull-db:
+    ./deploy/pull-db.sh
 
 # Restart the server when source files change
 watch:

@@ -2,7 +2,16 @@
 
 The site runs on the Hetzner server (Ubuntu, aarch64) at <https://redstonedb.benburk.ca>, as the `redstonedb` service behind Caddy.
 
-`just deploy` ships the committed HEAD: it builds on the server, installs the binaries in `/usr/local/lib/redstonedb`, installs the unit files here, and restarts the service. The service applies any new migrations as it starts.
+`just deploy` runs the tests, then ships the committed HEAD:
+
+1. It builds on the server; a failed build leaves the site as it was.
+2. It backs up the live database, since the new binary applies any new migrations as it starts.
+3. It installs the binaries in `/usr/local/lib/redstonedb`, keeping the old ones as `*.previous`, and the unit files here, then restarts the site.
+4. It waits for the site to answer, and prints its log if it does not. `/usr/local/lib/redstonedb/DEPLOYED` names the commit running.
+
+To roll back, move each `*.previous` binary back over its new one and `systemctl restart redstonedb`. If the bad deploy migrated the database, the old binary refuses it; with the site stopped, restore the copy taken before the deploy, `redstone-<date>-before-<commit>.db` in `/var/backups/redstonedb`, with `runuser -u redstonedb -- sqlite3 /var/lib/redstonedb/redstone.db ".restore <copy>"`.
+
+`just pull-db` replaces the local `redstone.db` with a copy of the live one, backing the local one up to `backups/` first. The live database is the real one: changes to data belong there, through `rsdb` on the server. Run commands against the live database as the site's user, never as root, which could leave files beside it the site cannot open.
 
 | Path                      | What                                    |
 | ------------------------- | --------------------------------------- |

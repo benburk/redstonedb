@@ -1,35 +1,57 @@
 #!/usr/bin/env bash
-# Builds the committed HEAD on the server, installs it with its service
-# files, and restarts the site. The server's one-time setup is in
-# deploy/README.md.
+# Builds the committed HEAD on the server, backs up the live database,
+# installs the new binaries and service files, restarts the site, and checks
+# that it answers. The server's one-time setup is in deploy/README.md.
 set -euo pipefail
 
 host=${DEPLOY_HOST:-root@157.180.85.191}
 src=/root/build/redstone-database
+lib=/usr/local/lib/redstonedb
 
 cd "$(git rev-parse --show-toplevel)"
-if ! git diff --quiet HEAD; then
+if ! git diff --quiet HEAD || [ -n "$(git ls-files --others --exclude-standard)" ]; then
     echo "Commit first: deploy ships HEAD, not the working tree." >&2
     exit 1
 fi
+commit=$(git rev-parse --short HEAD)
 
 git archive --format=tar HEAD | ssh "$host" \
     "rm -rf $src && mkdir -p $src && tar -x -C $src"
 # The target directory sits outside the source, so builds stay incremental.
+# Building comes before anything changes, so a failed build leaves the site
+# as it was.
 ssh "$host" "set -e
     cd $src
     SQLX_OFFLINE=true CARGO_TARGET_DIR=/root/build/target \
-        ~/.cargo/bin/cargo build --release --locked --bins
-    install -d /usr/local/lib/redstonedb
-    install -m 755 /root/build/target/release/redstone-database \
-        /root/build/target/release/rsdb /usr/local/lib/redstonedb/
-    install -m 755 deploy/rsdb /usr/local/bin/rsdb
-    install -m 644 deploy/redstonedb.service deploy/redstonedb-backup.service \
-        deploy/redstonedb-backup.timer /etc/systemd/system/
+        ~/.cargo/bin/cargo build --release --locked --bins"
+
+# The new binary may migrate the database as it starts, so a copy is taken
+# first, as the site's user and named so the daily pruning keeps it 14 days.
+ssh "$host" "set -e
+    runuser -u redstonedb -- sqlite3 /var/lib/redstonedb/redstone.db \
+        \".backup /var/backups/redstonedb/redstone-$(date +%F-%H%M%S)-before-$commit.db\"
+    install -d $lib
+    for bin in redstone-database rsdb; do
+        if [ -e $lib/\$bin ]; then cp -p $lib/\$bin $lib/\$bin.previous; fi
+        install -m 755 /root/build/target/release/\$bin $lib/
+    done
+    install -m 755 $src/deploy/rsdb /usr/local/bin/rsdb
+    install -m 644 $src/deploy/redstonedb.service \
+        $src/deploy/redstonedb-backup.service \
+        $src/deploy/redstonedb-backup.timer /etc/systemd/system/
     systemctl daemon-reload
-    systemctl enable --now redstonedb-backup.timer
-    systemctl enable redstonedb
+    systemctl enable --quiet --now redstonedb-backup.timer
+    systemctl enable --quiet redstonedb
+    previous=\$(cat $lib/DEPLOYED 2>/dev/null || echo none)
     systemctl restart redstonedb
-    sleep 2
-    systemctl is-active redstonedb"
-echo "Deployed $(git rev-parse --short HEAD)."
+    for i in \$(seq 1 20); do
+        if curl -fs -o /dev/null http://127.0.0.1:3100/; then
+            echo $commit > $lib/DEPLOYED
+            echo \"Live: \$previous -> $commit\"
+            exit 0
+        fi
+        sleep 0.5
+    done
+    echo 'The site did not answer after restarting. Its log:' >&2
+    journalctl -u redstonedb -n 30 --no-pager -o cat >&2
+    exit 1"
