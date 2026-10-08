@@ -10,9 +10,11 @@ fn raw(name: &str) -> Vec<u8> {
         .expect("fixture is readable")
 }
 
-/// A fixture as the site stores it: markers out, box fitted.
+/// A fixture as the site stores it: markers out, box fitted, and status
+/// lines pink, since the fixtures predate that.
 fn slice(name: &str) -> Vec<u8> {
-    standardize::tidy(&raw(name)).expect("fixture tidies")
+    let tidied = standardize::tidy(&raw(name)).expect("fixture tidies");
+    standardize::pink_status(&tidied).expect("fixture recolours")
 }
 
 fn blocks(name: &str) -> Blocks {
@@ -313,4 +315,208 @@ fn an_operand_may_not_use_a_button() {
             .any(|m| m.starts_with("button on an operand bit")),
         "{messages:#?}"
     );
+}
+
+/// `data` with each block that `change` names replaced, signs and all kept.
+fn rebuilt(
+    data: &[u8],
+    change: impl Fn(app::schem::Pos, &str) -> Option<String>,
+) -> Vec<u8> {
+    let blocks = Blocks::read(data).unwrap();
+    let grid: std::collections::HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, state)| *state != "minecraft:air")
+        .map(|(pos, state)| {
+            (pos, change(pos, state).unwrap_or_else(|| state.to_owned()))
+        })
+        .collect();
+    let mut nbt = app::schem::decode(data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    app::schem::encode(nbt).unwrap()
+}
+
+fn multiplier() -> Vec<u8> {
+    standardize::standardize(&raw("mult-8-buttons")).unwrap()
+}
+
+#[test]
+fn a_colour_with_a_sign_is_one_named_operand() {
+    // The reset line's block becomes cyan: a third operand, named by its
+    // sign, beside A and B.
+    let data = multiplier();
+    let reset = interface::read(&Blocks::read(&data).unwrap())
+        .inputs
+        .into_iter()
+        .find(|port| port.name == "reset")
+        .unwrap()
+        .bits[0]
+        .pos;
+    let data = rebuilt(&data, |pos, _| {
+        (pos == reset).then(|| "minecraft:cyan_concrete".to_owned())
+    });
+    let inputs = interface::read(&Blocks::read(&data).unwrap()).inputs;
+    let mut found = names(&inputs);
+    found.sort_unstable();
+    assert_eq!(found, [("A", 8), ("B", 8), ("calculate", 1), ("reset", 1)]);
+    let reset = inputs.iter().find(|port| port.name == "reset").unwrap();
+    assert!(!reset.labelled, "a bus, though a sign names it");
+    assert_eq!(reset.block, "cyan concrete");
+}
+
+#[test]
+fn one_colour_takes_one_name() {
+    let data = rebuilt(&multiplier(), |_, state| {
+        (state == "minecraft:magenta_concrete")
+            .then(|| "minecraft:cyan_concrete".to_owned())
+    });
+    let messages: Vec<String> = lint::check(&Blocks::read(&data).unwrap())
+        .iter()
+        .map(|v| v.message.clone())
+        .collect();
+    assert!(
+        messages.iter().any(|m| m.starts_with("cyan is named both")),
+        "{messages:#?}"
+    );
+}
+
+#[test]
+fn standardizing_keeps_a_levered_colour_as_concrete() {
+    // Light blue becomes cyan terracotta; with levers on it, it stays an
+    // input, as cyan concrete, and takes the letter after A.
+    let data = rebuilt(&raw("mult-8-buttons"), |_, state| {
+        (state == "minecraft:light_blue_concrete")
+            .then(|| "minecraft:cyan_terracotta".to_owned())
+    });
+    let standardized = standardize::standardize(&data).unwrap();
+    let blocks = Blocks::read(&standardized).unwrap();
+    let inputs = interface::read(&blocks).inputs;
+    let b = inputs.iter().find(|port| port.name == "B").unwrap();
+    assert_eq!((b.block.as_str(), b.bits.len()), ("cyan concrete", 8));
+    assert!(
+        blocks
+            .iter()
+            .all(|(_, state)| !state.contains("terracotta"))
+    );
+}
+
+#[test]
+fn each_output_colour_is_a_bus_in_order() {
+    // The output's upper four bits become orange: two buses, yellow first.
+    let data = multiplier();
+    let output = interface::read(&Blocks::read(&data).unwrap())
+        .outputs
+        .into_iter()
+        .find(|port| port.name == "output")
+        .unwrap();
+    let upper: Vec<_> = output.bits[4..].iter().map(|bit| bit.pos).collect();
+    let data = rebuilt(&data, |pos, _| {
+        upper
+            .contains(&pos)
+            .then(|| "minecraft:orange_concrete".to_owned())
+    });
+    let outputs = interface::read(&Blocks::read(&data).unwrap()).outputs;
+    let read: Vec<(&str, usize, &str)> = outputs
+        .iter()
+        .map(|p| (p.name.as_str(), p.bits.len(), p.block.as_str()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("output 1", 4, "yellow concrete"),
+            ("output 2", 4, "orange concrete"),
+        ]
+    );
+}
+
+#[test]
+fn a_status_line_is_pink() {
+    let outputs = interface::read(&blocks("alpha-cla")).outputs;
+    let carry = outputs.iter().find(|p| p.name == "carry out").unwrap();
+    assert!(carry.labelled);
+    assert_eq!(carry.block, "pink concrete");
+}
+
+#[test]
+fn a_yellow_status_line_is_flagged() {
+    // Tidied but not recoloured, as an older file arrives.
+    let tidied = standardize::tidy(&raw("alpha-cla")).unwrap();
+    let messages: Vec<String> = lint::check(&Blocks::read(&tidied).unwrap())
+        .iter()
+        .map(|v| v.message.clone())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("carry out is a status output")),
+        "{messages:#?}"
+    );
+}
+
+/// The multiplier with B's levers moved to `side` of their blocks, or
+/// `None` when something is in the way.
+fn b_levers_on(side: &str) -> Option<Vec<u8>> {
+    let data = multiplier();
+    let blocks = Blocks::read(&data).unwrap();
+    let b: Vec<_> = blocks
+        .switches()
+        .into_iter()
+        .filter(|s| blocks.get(s.block) == "minecraft:light_blue_concrete")
+        .collect();
+    let mut grid: std::collections::HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, state)| *state != "minecraft:air")
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    for lever in &b {
+        grid.remove(&lever.pos);
+    }
+    for lever in &b {
+        let pos = app::schem::step(lever.block, side);
+        if grid.contains_key(&pos) {
+            return None;
+        }
+        let state = match side {
+            "up" => "minecraft:lever[face=floor,facing=north,powered=false]"
+                .to_owned(),
+            _ => format!(
+                "minecraft:lever[face=wall,facing={side},powered=false]"
+            ),
+        };
+        grid.insert(pos, state);
+    }
+    let mut nbt = app::schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    Some(app::schem::encode(nbt).unwrap())
+}
+
+fn lever_complaints(data: &[u8]) -> Vec<String> {
+    lint::check(&Blocks::read(data).unwrap())
+        .iter()
+        .map(|v| v.message.clone())
+        .filter(|m| m.contains("lever is on"))
+        .collect()
+}
+
+#[test]
+fn only_a_levers_must_face_south() {
+    let side = ["east", "west", "north"]
+        .into_iter()
+        .find_map(b_levers_on)
+        .expect("a free side for B's levers");
+    assert!(
+        lever_complaints(&side).is_empty(),
+        "{:#?}",
+        lever_complaints(&side)
+    );
+    let top = b_levers_on("up").expect("room on top of B");
+    let complaints = lever_complaints(&top);
+    assert!(
+        complaints
+            .iter()
+            .all(|m| m.starts_with("operand lever is on the top")),
+        "{complaints:#?}"
+    );
+    assert_eq!(complaints.len(), 8);
 }

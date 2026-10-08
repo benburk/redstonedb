@@ -8,8 +8,11 @@
 //! - Old corner markers are taken out: any group of plain glass that
 //!   touches nothing but air, wherever it sits.
 //! - Slabs, stairs, and every kind of glass become white stained glass;
-//!   every other solid block becomes white concrete. Redstone components,
-//!   input blocks, and output blocks are kept.
+//!   every other solid block becomes white concrete. Redstone components
+//!   and output blocks are kept, and so is an input: a coloured block with
+//!   a lever on it, which becomes that colour's concrete.
+//! - A status line, a block whose sign names a status output such as
+//!   `carry out`, turns pink, as older builds marked them on yellow.
 //! - The box is fitted tightly around what is left.
 
 use std::collections::{HashMap, HashSet};
@@ -28,10 +31,24 @@ const GLASS: &str = "minecraft:glass";
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let old_markers = loose_glass(&blocks, false);
+    // The blocks a lever or button is on: the inputs.
+    let inputs: HashSet<Pos> = blocks
+        .switches()
+        .iter()
+        .map(|switch| switch.block)
+        .collect();
+    let status = status_lines(&blocks);
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| *state != AIR && !old_markers.contains(pos))
-        .map(|(pos, state)| (pos, restyle(state)))
+        .map(|(pos, state)| {
+            let state = if status.contains(&pos) {
+                pink(state)
+            } else {
+                restyle(state, inputs.contains(&pos))
+            };
+            (pos, state)
+        })
         .collect();
     let restyled = rebox(data, &grid, [0, 0, 0], blocks.size)?;
     let standardized = tidy(&restyled)?;
@@ -48,6 +65,61 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
          stained glass before standardizing"
     );
     Ok(standardized)
+}
+
+/// The file with each status line pink: a block with no lever whose sign
+/// names a status output, such as `carry out`, as older builds marked them
+/// on yellow. A file with none comes back as it was.
+pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let status = status_lines(&blocks);
+    if status.is_empty() {
+        return Ok(data.to_vec());
+    }
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| {
+            let state = if status.contains(&pos) {
+                pink(state)
+            } else {
+                state.to_owned()
+            };
+            (pos, state)
+        })
+        .collect();
+    rebox(data, &grid, [0, 0, 0], blocks.size)
+}
+
+/// The blocks that are status lines but not yet pink: no lever on them, and
+/// a sign naming a status output.
+fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
+    let inputs: HashSet<Pos> = blocks
+        .switches()
+        .iter()
+        .map(|switch| switch.block)
+        .collect();
+    blocks
+        .sign_texts()
+        .into_iter()
+        .filter(|(pos, lines)| {
+            !inputs.contains(pos)
+                && interface::sign_name(lines)
+                    .is_some_and(|name| lint::is_status_name(&name))
+                && !blocks.get(*pos).starts_with("minecraft:pink_")
+        })
+        .map(|(pos, _)| pos)
+        .collect()
+}
+
+/// A status line's block: pink stained glass where it was glass, else pink
+/// concrete.
+fn pink(state: &str) -> String {
+    if schem::id(state).ends_with("glass") {
+        "minecraft:pink_stained_glass".to_owned()
+    } else {
+        "minecraft:pink_concrete".to_owned()
+    }
 }
 
 /// The file with any corner markers taken out, its box fitted tightly
@@ -194,11 +266,15 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
     loose
 }
 
-/// The block a standardized build uses in place of `state`.
-fn restyle(state: &str) -> String {
+/// The block a standardized build uses in place of `state`. A coloured
+/// block with a lever on it, an `input`, becomes that colour's concrete;
+/// without one, its colour means nothing and it turns white.
+fn restyle(state: &str, input: bool) -> String {
     let id = schem::id(state);
     let name = id.strip_prefix("minecraft:").unwrap_or(id);
-    if lint::keeps(name) {
+    if input && let Some(colour) = lint::input_colour(name) {
+        format!("minecraft:{colour}_concrete")
+    } else if lint::keeps(name) {
         state.to_owned()
     } else if name.contains("glass")
         || name.ends_with("_slab")

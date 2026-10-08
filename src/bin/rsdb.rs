@@ -40,7 +40,7 @@ enum Command {
     /// Delete a schematic
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
-    /// and measure it
+    /// turn status lines pink, and measure it
     Reread,
     /// List the standard categories, with their designs and flags
     Categories,
@@ -612,20 +612,28 @@ async fn print_categories(db: &SqlitePool) -> Result<()> {
 }
 
 /// Reads every stored file again and prints what changed: the file
-/// itself, with any corner markers taken out and its box fitted, and its
-/// size.
+/// itself, with any corner markers taken out, its box fitted, and its
+/// status lines pink, and its size.
 async fn reread(db: &SqlitePool) -> Result<()> {
     for s in schematic::all(db).await? {
         let stored = schematic::data(db, &s.id)
             .await?
             .context("schematic vanished")?;
-        let data = standardize::tidy(&stored)?;
+        let mut data = standardize::tidy(&stored)?;
+        // Older builds marked status lines yellow; they are pink now.
+        if s.conventional {
+            data = standardize::pink_status(&data)?;
+        }
         if data != stored {
             let sha256 = import::sha256(&data);
             schematic::set_file(db, &s.id, &data, &sha256).await?;
             let [w, h, l] = Blocks::read(&stored)?.size;
             let [nw, nh, nl] = Blocks::read(&data)?.size;
-            println!("{}  file {w}x{h}x{l} -> {nw}x{nh}x{nl}", &s.id[..8]);
+            if [w, h, l] == [nw, nh, nl] {
+                println!("{}  file rewritten", &s.id[..8]);
+            } else {
+                println!("{}  file {w}x{h}x{l} -> {nw}x{nh}x{nl}", &s.id[..8]);
+            }
         }
         let blocks = Blocks::read(&data)?;
         let size = import::measure(&blocks, s.conventional)?;

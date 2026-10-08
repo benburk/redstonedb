@@ -1548,12 +1548,11 @@ pub fn upload(user: &User, message: &str) -> Markup {
             div class="max-w-calm" {
                 h1 class={ (PAGE_TITLE) " mb-2" } { "Upload a build" }
                 p class="mb-6 max-w-prose text-muted" {
-                    "Upload a Sponge " code { ".schem" } " file, yours or someone else's. "
-                    "Any glass corner markers are taken out and the box is fitted tightly around the build. "
-                    "Next you will see what the site reads from it and fill in its details."
+                    "A Sponge " code { ".schem" } " file, yours or someone else's. "
+                    "Next you'll see what the site reads from it, and describe it."
                 }
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
-                    class="flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
+                    class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
                     label class="field" {
                         span { "Schematic file" }
                         input type="file" name="file" accept=".schem" required class="input py-1.5";
@@ -1561,9 +1560,8 @@ pub fn upload(user: &User, message: &str) -> Markup {
                     label class="flex items-start gap-2" {
                         input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
                         span {
-                            "Standardize it: turn every block but redstone parts, inputs, and outputs white, "
-                            "and slabs and glass into white stained glass. "
-                            "Inputs must already be levers on lime, light blue, or magenta blocks, and outputs yellow."
+                            "Standardize it: every block that isn't redstone, an input, or an output turns white, "
+                            "and slabs and glass white stained glass. The inputs and outputs must already be marked, as below."
                         }
                     }
                     @if !message.is_empty() {
@@ -1571,9 +1569,116 @@ pub fn upload(user: &User, message: &str) -> Markup {
                     }
                     div { button type="submit" class="btn btn-primary" { "Preview" } }
                 }
+                (marking_guide())
             }
         },
     )
+}
+
+/// One role in the marking guide: its colours, as swatch and name, and
+/// what goes with them.
+struct Marking {
+    role: &'static str,
+    colours: &'static [(&'static str, &'static str)],
+    block: &'static str,
+    rule: &'static str,
+}
+
+/// How a build marks its inputs and outputs so the site can read it, from
+/// `conventions.md`, kept to what an upload needs.
+fn marking_guide() -> Markup {
+    // Minecraft's concrete colours, for the swatches.
+    const MARKINGS: [Marking; 6] = [
+        Marking {
+            role: "Input A",
+            colours: &[("bg-[#5ea818]", "lime")],
+            block: "concrete",
+            rule: "A lever on the south face of each bit.",
+        },
+        Marking {
+            role: "Inputs B, C, D",
+            colours: &[
+                ("bg-[#2389c6]", "light blue"),
+                ("bg-[#157788]", "cyan"),
+                ("bg-[#2c2e8f]", "blue"),
+            ],
+            block: "concrete",
+            rule: "A lever on any side of each bit.",
+        },
+        Marking {
+            role: "Control line",
+            colours: &[("bg-[#a9309f]", "magenta")],
+            block: "concrete",
+            rule: "A lever or button, and a sign naming it, such as carry in or reset.",
+        },
+        Marking {
+            role: "Outputs 1, 2, 3",
+            colours: &[
+                ("bg-[#f0af15]", "yellow"),
+                ("bg-[#e06100]", "orange"),
+                ("bg-[#603b1f]", "brown"),
+            ],
+            block: "concrete or stained glass",
+            rule: "When they make one value, yellow holds the lowest bits.",
+        },
+        Marking {
+            role: "Status line",
+            colours: &[("bg-[#d5658e]", "pink")],
+            block: "concrete or stained glass",
+            rule: "A sign naming it, such as carry out or overflow.",
+        },
+        Marking {
+            role: "Everything else",
+            colours: &[("bg-[#cfd5d6]", "white")],
+            block: "concrete or stained glass",
+            rule: "No other colours or blocks, besides redstone parts.",
+        },
+    ];
+    html! {
+        section aria-labelledby="guide-heading" {
+            h2 id="guide-heading" class={ (SECTION_TITLE) " mb-1" } { "How to mark a build" }
+            p class="mb-4 max-w-prose text-muted" {
+                "The site reads a build's inputs and outputs from its colours and signs."
+            }
+            div class="overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Part" }
+                            th scope="col" class=(TABLE_HEAD) { "Block" }
+                            th scope="col" class=(TABLE_HEAD) { "Rule" }
+                        }
+                    }
+                    tbody {
+                        @for marking in &MARKINGS {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-semibold whitespace-nowrap" } { (marking.role) }
+                                td class=(TABLE_CELL) {
+                                    span class="flex flex-wrap items-center gap-x-3 gap-y-1" {
+                                        @for (swatch, name) in marking.colours {
+                                            span class="flex items-center gap-1.5 whitespace-nowrap" {
+                                                span aria-hidden="true" class={ "size-3.5 shrink-0 rounded-[3px] border border-black/15 " (swatch) } {}
+                                                (name)
+                                            }
+                                        }
+                                    }
+                                    span class="text-meta text-muted" { (marking.block) }
+                                }
+                                td class=(TABLE_CELL) { (marking.rule) }
+                            }
+                        }
+                    }
+                }
+            }
+            ul class="mt-4 flex max-w-prose list-disc flex-col gap-1.5 pl-5" {
+                li { "Each colour is one bus. A sign on any of its blocks names it, such as addend, low, or high; unnamed, inputs are A to D and outputs 1 to 3." }
+                li { "A bus counts up from the bit nearest the south-east bottom corner." }
+                li { "A lever touches nothing but its input block. Save inputs off, or on for an inverted input." }
+                li { "Corner markers aren't needed; the box is trimmed to the build." }
+                li { "A build with its own layout, such as a display, can skip all this: tick “follows its own layout” on the next page." }
+            }
+        }
+    }
 }
 
 /// What the upload preview shows.

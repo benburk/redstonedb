@@ -6,16 +6,17 @@ Each schematic should follow one default building convention, so builds line up 
 
 Builds use only whitelisted blocks. Each interface role has its own block, so a block's role can be read from its colour: inputs and outputs are bright colours that stand out against white. Red is left to redstone dust and torches.
 
-| Role                | Block                |
-| ------------------- | -------------------- |
-| Solid               | white concrete       |
-| Transparent         | white stained glass  |
-| Input A             | lime concrete        |
-| Input B             | light blue concrete  |
-| Control             | magenta concrete     |
-| Output              | yellow concrete      |
-| Output, see-through | yellow stained glass |
+| Role         | Block                                   |
+| ------------ | --------------------------------------- |
+| Solid        | white concrete                          |
+| Transparent  | white stained glass                     |
+| Inputs A–D   | lime, light blue, cyan, blue concrete   |
+| Control line | magenta concrete                        |
+| Outputs 1–3  | yellow, orange, brown concrete or glass |
+| Status line  | pink concrete or glass                  |
 
+- Cool colours are inputs and warm colours outputs. Each family runs lightest first: inputs from green to blue, A to D, and outputs from yellow to brown, first to third. Each colour is one bus. Magenta and pink are the exceptions: each magenta block is its own control line, and each pink block its own status line, named by its own sign.
+- An output colour may be stained glass where the output needs a transparent block.
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
 - Plain glass is not in the palette, so the WorldEdit corner markers a download can add are never mistaken for part of the build.
@@ -26,12 +27,14 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 
 ## Inputs
 
-- Each input bit is a block with a lever on it: lime for every bit of A, light blue for every bit of B, magenta for every control line, such as a clock, enable, carry-in, or ALU op line.
+- Each input bit is a block of concrete with a lever on it: lime for every bit of A, light blue for B, cyan for C, blue for D, and magenta for every control line, such as a clock, enable, carry-in, or ALU op line. A further operand, such as the addend of a fused multiply-add, is C.
+- All of one operand colour is one input. Unnamed, the operands take letters in colour order, so the first present is A. A sign naming any block of an operand's colour, such as `addend`, names that whole input, so a colour takes one name. Each magenta block is its own control line, named by its own sign.
+- An input colour with no lever on it is not allowed; other solid blocks are white. Standardizing keeps an input colour with a lever, as concrete, and whitens the rest.
 - A control line may use a button instead of a lever, for a pulse such as a reset or a calculate line. Operand bits always use levers.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
 - The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
-- Every A and B lever is on the south side of its block, as in the stored adders: the side a player faces north to look at.
+- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. The other operands' levers may be on any side, north, south, east, or west, but not on top or underneath.
 
 ### How an input must be driven
 
@@ -46,18 +49,22 @@ Import derives this from the build, so nothing in-world marks it.
 
 ## Outputs
 
-- Every output bit is a yellow concrete block, or yellow stained glass where the output needs a transparent block. Redstone lamps are allowed as ordinary components but do not mark outputs.
+- Every output bit is yellow, orange, or brown concrete, or the same colour of stained glass where it needs a transparent block. All of one colour is one bus. Unnamed, a lone bus is `output` and several are `output 1`, `output 2`, `output 3` in colour order; a sign naming any block of a colour, such as `low` or `remainder`, names that whole bus. When the buses make one value, as a 16-bit product from two 8-bit halves, yellow holds the lowest bits.
+- A status line, such as `carry out`, `overflow`, or `zero`, is pink concrete or glass, each block its own line named by its own sign. A status name on any other output colour is an error. Standardizing turns a block whose sign names a status output pink, as older builds marked them on yellow; `rsdb reread` did so for the stored builds.
+- Redstone lamps are allowed as ordinary components but do not mark outputs.
 
 ## Signs
 
 Signs carry machine-readable labels. Import reads them, so a build's interface can be extracted without a human. Everything else, latency included, is metadata in the database.
 
-| Where                     | First line         | Further lines           |
-| ------------------------- | ------------------ | ----------------------- |
-| Each control line         | its name           | strength, such as `4ss` |
-| Each single-bit output    | its name           |                         |
-| Any input block of A or B | strength, as `4ss` |                         |
+| Where              | First line           | Further lines      |
+| ------------------ | -------------------- | ------------------ |
+| Control line       | its name             | strength, as `4ss` |
+| Status line        | its name             |                    |
+| Input colour, any  | bus name or strength | strength, as `4ss` |
+| Output colour, any | bus name, if any     |                    |
 
+- A status name ends in `out`, as `carry out`, `cout`, or `shift out`, or is `overflow`, `zero`, `negative`, `ready`, or `done`.
 - Each further line is one token, such as `4ss`.
 - Import copies sign values into the database. After that the database is the source of truth, so export either rewrites signs from it or strips them.
 

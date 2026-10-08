@@ -57,7 +57,7 @@ Every build has a design: `other`, unless its category lists a better one (`rsdb
 | `carry_cancel`          | CCA   |
 | `carry_look_everywhere` | CLE   |
 
-The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record: adders and subtractors have Carry in and Carry out, set from signs labelled `carry in` or `cin` and `carry out` or `cout`, and shift registers have Bidirectional and Writeable.
+The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record: adders and subtractors have Carry in and Carry out, set from signs labelled `carry in` or `cin` and `carry out` or `cout`, shift registers have Bidirectional and Writeable, and multipliers have Upper product, for one that outputs the full product, as 16 bits from 8 by 8, and FMA, for a fused multiply-add, A×B+C.
 
 A threshold gate turns on when at least *k* of its inputs are on; `threshold_3` turns on for at least 3. Popcount, by contrast, outputs how many inputs are on. Majority is the threshold at half the inputs.
 

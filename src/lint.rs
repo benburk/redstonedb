@@ -3,20 +3,30 @@
 use std::{collections::BTreeMap, fmt};
 
 use crate::{
-    interface::{self, Interface},
+    interface,
     schem::{self, Blocks, DIRECTIONS, Pos},
 };
 
-/// The block palette from `conventions.md`.
-const PALETTE: [&str; 7] = [
-    "white_concrete",
-    "white_stained_glass",
-    "lime_concrete",
-    "light_blue_concrete",
-    "magenta_concrete",
-    "yellow_concrete",
-    "yellow_stained_glass",
-];
+/// The block palette from `conventions.md`, besides the input and output
+/// colours: white for everything that is neither.
+const PALETTE: [&str; 2] = ["white_concrete", "white_stained_glass"];
+
+/// The operand colours of concrete, in order: lime for A, light blue for B,
+/// cyan for C, blue for D. Lightest first, going from green to blue.
+pub const INPUT_COLOURS: [&str; 4] = ["lime", "light_blue", "cyan", "blue"];
+
+/// The colour of a control line, an input named on its own, such as
+/// `carry in`.
+pub const CONTROL: &str = "magenta";
+
+/// The output bus colours of concrete or stained glass, in order, the first
+/// holding the lowest bits when they make one value: yellow, orange, brown.
+/// Lightest first, going from yellow to brown.
+pub const OUTPUT_COLOURS: [&str; 3] = ["yellow", "orange", "brown"];
+
+/// The colour of a status line, an output named on its own, such as
+/// `carry out`.
+pub const STATUS: &str = "pink";
 
 /// Redstone components and the other blocks every build may use. Besides
 /// dust, torches, and the like, this keeps the blocks a comparator reads,
@@ -87,9 +97,6 @@ const POWERABLE: [&str; 9] = [
     "observer",
 ];
 
-/// The blocks marking A and B input bits.
-const OPERANDS: [&str; 2] = ["lime_concrete", "light_blue_concrete"];
-
 /// One broken convention, at a position in the file when it has one.
 #[derive(Clone)]
 pub struct Violation {
@@ -111,7 +118,7 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
     palette(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
-    outputs(blocks, &mut found);
+    names(blocks, &mut found);
     found
 }
 
@@ -124,6 +131,8 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
     for (pos, state) in blocks.iter() {
         let name = short(state);
         if !PALETTE.contains(&name)
+            && !is_input(name)
+            && !is_output(name)
             && !COMPONENTS.contains(&name)
             && !name.ends_with("_button")
         {
@@ -150,9 +159,12 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
             say(
                 found,
                 Some(lever.pos),
-                format!("{what} is on {block}, not an input block"),
+                format!(
+                    "{what} is on {block}; an input is a {what} on lime, light \
+                     blue, cyan, blue, or magenta concrete"
+                ),
             );
-        } else if lever.button && OPERANDS.contains(&block) {
+        } else if lever.button && block != format!("{CONTROL}_concrete") {
             say(
                 found,
                 Some(lever.pos),
@@ -161,13 +173,29 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     .to_owned(),
             );
         }
-        if OPERANDS.contains(&block) && lever.side != "south" {
+        // A's levers face south, so builds line up; the other operands'
+        // may be on any side, but not on top or underneath.
+        let operand = block
+            .strip_suffix("_concrete")
+            .is_some_and(|colour| INPUT_COLOURS.contains(&colour));
+        let primary = block == format!("{}_concrete", INPUT_COLOURS[0]);
+        if primary && lever.side != "south" {
             say(
                 found,
                 Some(lever.pos),
                 format!(
-                    "operand lever is on the {} side of its block, not south",
+                    "A's lever is on the {} side of its block, not south",
                     lever.side
+                ),
+            );
+        } else if operand && matches!(lever.side.as_str(), "up" | "down") {
+            say(
+                found,
+                Some(lever.pos),
+                format!(
+                    "operand lever is on the {} of its block; it goes on a \
+                     side, north, south, east, or west",
+                    if lever.side == "up" { "top" } else { "bottom" }
                 ),
             );
         }
@@ -191,20 +219,12 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 
 fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     let levers = blocks.switches();
-    let signs = blocks.sign_texts();
-    let first_line = |pos: Pos| {
-        signs
-            .get(&pos)
-            .and_then(|lines| lines.first())
-            .map(|line| line.trim().to_owned())
-            .unwrap_or_default()
-    };
     for (pos, state) in blocks.iter() {
         let name = short(state);
         if !is_input(name) {
             continue;
         }
-        let switch = if name == "magenta_concrete" {
+        let switch = if name == format!("{CONTROL}_concrete") {
             "lever or button"
         } else {
             "lever"
@@ -218,30 +238,77 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
                 format!("input block has {n} levers and buttons"),
             ),
         }
-        if name == "magenta_concrete" && first_line(pos).is_empty() {
-            say(
-                found,
-                Some(pos),
-                "control line has no sign naming it".to_owned(),
-            );
-        }
     }
 }
 
-fn outputs(blocks: &Blocks, found: &mut Vec<Violation>) {
-    let Interface { outputs, .. } = interface::read(blocks);
-    for port in &outputs {
-        let pos = port.bits.first().map(|bit| bit.pos);
-        if !matches!(
-            port.block.as_str(),
-            "yellow concrete" | "yellow stained glass"
-        ) {
+/// Signs name the interface: each control and status line by its own sign,
+/// and each bus colour by a sign on any of its blocks, so a bus colour
+/// takes one name. A status name belongs on a pink status line, and a name
+/// on a block that is neither an input nor an output names nothing.
+fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
+    let signs = blocks.sign_texts();
+    let held: std::collections::HashSet<Pos> =
+        blocks.switches().iter().map(|lever| lever.block).collect();
+    let mut buses: BTreeMap<&str, (Pos, Vec<String>)> = BTreeMap::new();
+    for (pos, state) in blocks.iter() {
+        let block = short(state);
+        let name = signs.get(&pos).and_then(|l| interface::sign_name(l));
+        let line = block == format!("{CONTROL}_concrete")
+            || output_colour(block) == Some(STATUS);
+        if line {
+            if name.is_none() {
+                let what = if is_input(block) { "control" } else { "status" };
+                say(
+                    found,
+                    Some(pos),
+                    format!("{what} line has no sign naming it"),
+                );
+            }
+            continue;
+        }
+        let Some(name) = name else { continue };
+        let bus = (is_input(block) && held.contains(&pos)) || is_output(block);
+        if !bus {
             say(
                 found,
-                pos,
+                Some(pos),
                 format!(
-                    "{} is {}, not yellow concrete or yellow stained glass",
-                    port.name, port.block
+                    "a sign names {}, which is neither an input nor an output",
+                    block.replace('_', " ")
+                ),
+            );
+            continue;
+        }
+        if is_output(block) && is_status_name(&name) {
+            say(
+                found,
+                Some(pos),
+                format!(
+                    "{name} is a status output, so it is pink concrete or \
+                     glass, not {}",
+                    block.replace('_', " ")
+                ),
+            );
+            continue;
+        }
+        let colour = output_colour(block)
+            .or_else(|| block.strip_suffix("_concrete"))
+            .unwrap_or(block);
+        let entry = buses.entry(colour).or_insert((pos, Vec::new()));
+        if !entry.1.contains(&name) {
+            entry.1.push(name);
+        }
+    }
+    for (colour, (pos, names)) in buses {
+        if names.len() > 1 {
+            say(
+                found,
+                Some(pos),
+                format!(
+                    "{} is named both {}; one colour is one bus, so give it \
+                     one name",
+                    colour.replace('_', " "),
+                    names.join(" and ")
                 ),
             );
         }
@@ -264,19 +331,56 @@ pub fn is_interface(state: &str, support: Option<&str>) -> bool {
 /// Whether standardizing keeps `name` as it is: a redstone component, an
 /// input block, or an output block.
 pub fn keeps(name: &str) -> bool {
-    COMPONENTS.contains(&name)
-        || name.ends_with("_button")
-        || is_input(name)
-        || matches!(name, "yellow_concrete" | "yellow_stained_glass")
+    COMPONENTS.contains(&name) || name.ends_with("_button") || is_output(name)
 }
 
-/// Whether a block id without its namespace, such as `lime_concrete`,
-/// marks an input.
+/// Whether a block id without its namespace, such as `lime_concrete`, is
+/// an input colour of concrete; it is an input once a lever is on it.
 pub fn is_input(block: &str) -> bool {
-    matches!(
-        block,
-        "lime_concrete" | "light_blue_concrete" | "magenta_concrete"
-    )
+    block.strip_suffix("_concrete").is_some_and(|colour| {
+        colour == CONTROL || INPUT_COLOURS.contains(&colour)
+    })
+}
+
+/// Whether a block id without its namespace marks an output: yellow,
+/// orange, brown, or pink concrete or stained glass.
+pub fn is_output(block: &str) -> bool {
+    output_colour(block).is_some()
+}
+
+/// The colour of an output block, such as `yellow` for yellow stained
+/// glass; `None` for any other block.
+pub fn output_colour(block: &str) -> Option<&str> {
+    block
+        .strip_suffix("_concrete")
+        .or_else(|| block.strip_suffix("_stained_glass"))
+        .filter(|colour| *colour == STATUS || OUTPUT_COLOURS.contains(colour))
+}
+
+/// The input colour of a solid coloured block, such as `cyan` for cyan
+/// terracotta, which standardizing turns into that colour's concrete when
+/// a lever is on it.
+pub fn input_colour(block: &str) -> Option<&str> {
+    ["_concrete_powder", "_concrete", "_terracotta", "_wool"]
+        .iter()
+        .find_map(|suffix| block.strip_suffix(suffix))
+        .filter(|colour| *colour == CONTROL || INPUT_COLOURS.contains(colour))
+}
+
+/// Whether a sign's name marks a status output, such as `carry out`,
+/// `cout`, or `overflow`: one line of its own, which is pink.
+pub fn is_status_name(name: &str) -> bool {
+    name.ends_with(" out")
+        || matches!(
+            name,
+            "cout"
+                | "bout"
+                | "overflow"
+                | "zero"
+                | "negative"
+                | "ready"
+                | "done"
+        )
 }
 
 /// A block state's id without its namespace, such as `lever`.

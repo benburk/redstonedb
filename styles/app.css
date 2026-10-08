@@ -116,8 +116,10 @@
     @apply text-meta font-semibold text-muted;
   }
 
+  /* The system font sits a pixel high in its line, so capitals land one
+     pixel above the middle; the top padding lowers them by that pixel. */
   .input {
-    @apply min-h-10 w-full rounded-control border border-boundary bg-raised px-3 text-ink placeholder:text-muted focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none aria-invalid:border-danger;
+    @apply min-h-10 w-full rounded-control border border-boundary bg-raised px-3 pt-0.5 text-ink placeholder:text-muted focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none aria-invalid:border-danger;
   }
 
   /* Base styles strip the native arrow from a select, so draw one. */

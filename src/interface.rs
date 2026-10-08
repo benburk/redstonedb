@@ -1,11 +1,12 @@
 //! A build's inputs and outputs, read from its blocks and signs as
 //! `conventions.md` lays them out. An input is a block with a lever on it,
-//! or for a control line a button. An output is a yellow concrete or yellow
-//! stained glass block, or any block without a switch that carries a name
-//! sign or matches a block that does. Each bus's least significant bit is
-//! the one nearest the south-east-bottom corner of the bounding box.
+//! or for a control line a button; an output is a block of an output
+//! colour. Each colour is one bus, named by a sign on any of its blocks,
+//! except magenta control lines and pink status lines, each one line named
+//! by its own sign. Each bus's least significant bit is the one nearest the
+//! south-east-bottom corner of the bounding box.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     lint,
@@ -22,8 +23,8 @@ pub struct Port {
     pub name: String,
     /// The block marking each bit, such as `lime concrete`.
     pub block: String,
-    /// Whether a sign names the port, as with `carry in`; buses are named
-    /// by their block instead.
+    /// Whether it is a line named on its own, a control line such as `carry
+    /// in` or a status line such as `carry out`, rather than a bus.
     pub labelled: bool,
     /// Least significant first.
     pub bits: Vec<Bit>,
@@ -99,21 +100,10 @@ pub fn read(blocks: &Blocks) -> Interface {
         .map(|lever| (lever.block, lever))
         .collect();
     let signs = blocks.sign_texts();
-    let output_kinds: HashSet<&str> = signs
-        .iter()
-        .filter(|(pos, lines)| {
-            !levers.contains_key(*pos) && name(lines).is_some()
-        })
-        .map(|(&pos, _)| schem::id(blocks.get(pos)))
-        .chain([
-            "minecraft:yellow_concrete",
-            "minecraft:yellow_stained_glass",
-        ])
-        .collect();
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !levers.contains_key(pos) && output_kinds.contains(schem::id(state))
+            !levers.contains_key(pos) && lint::is_output(short(state))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -123,60 +113,75 @@ pub fn read(blocks: &Blocks) -> Interface {
     }
 }
 
-/// Groups `members` into ports: one per name sign, then one bus per block
-/// kind. `levers` is given for inputs.
+/// Groups `members` into ports, `levers` being given for inputs. Each
+/// control or status line with a name sign is a line of its own. Every
+/// other colour is one bus, named by a sign on any of its blocks, or else
+/// by the next letter for an input, A for lime, or by its place among the
+/// output colours.
 fn ports(
     blocks: &Blocks,
     members: impl IntoIterator<Item = Pos>,
     signs: &HashMap<Pos, &[String]>,
     levers: Option<&HashMap<Pos, Switch>>,
 ) -> Vec<Port> {
+    let (order, line): (&[&str], _) = if levers.is_some() {
+        (&lint::INPUT_COLOURS, lint::CONTROL)
+    } else {
+        (&lint::OUTPUT_COLOURS, lint::STATUS)
+    };
     let mut named = Vec::new();
     let mut buses: BTreeMap<&str, Vec<Pos>> = BTreeMap::new();
     for pos in members {
         let lines = signs.get(&pos).copied().unwrap_or_default();
-        match name(lines) {
+        let colour = colour(blocks.get(pos));
+        match sign_name(lines).filter(|_| colour == line) {
             Some(name) => {
                 let mut port = port(blocks, name, vec![pos], lines, levers);
                 port.labelled = true;
                 named.push(port);
             }
-            None => {
-                buses.entry(kind(blocks.get(pos))).or_default().push(pos);
-            }
+            None => buses.entry(colour).or_default().push(pos),
         }
     }
-    // Operands take letters in palette order: lime is A, light blue B.
-    let rank = |kind: &str| match kind {
-        "minecraft:lime_concrete" => 0,
-        "minecraft:light_blue_concrete" => 1,
-        _ => 2,
+    let rank = |colour: &str| {
+        order
+            .iter()
+            .position(|c| *c == colour)
+            .unwrap_or(usize::MAX)
     };
-    let mut kinds: Vec<&str> = buses.keys().copied().collect();
-    kinds.sort_by_key(|kind| rank(kind));
+    let mut colours: Vec<&str> = buses.keys().copied().collect();
+    colours.sort_by_key(|colour| (rank(colour), *colour));
     let mut letters = 'A'..='Z';
-    let output_count = kinds.len();
-    let mut result: Vec<Port> = kinds
+    let output_count = colours.iter().filter(|c| **c != line).count();
+    let mut result: Vec<Port> = colours
         .into_iter()
         .enumerate()
-        .map(|(i, kind)| {
-            let members = buses.remove(kind).unwrap_or_default();
+        .map(|(i, colour)| {
+            let members = buses.remove(colour).unwrap_or_default();
             // A sign on any bit can carry the bus's strength.
             let lines: Vec<String> = members
                 .iter()
                 .filter_map(|pos| signs.get(pos))
                 .flat_map(|lines| lines.iter().cloned())
                 .collect();
-            let name = if levers.is_none() {
-                if output_count == 1 {
-                    "output".to_owned()
+            let given = members
+                .iter()
+                .find_map(|pos| signs.get(pos).and_then(|l| sign_name(l)));
+            let name = if colour == line {
+                let what = if levers.is_some() {
+                    "control"
                 } else {
-                    format!("output {}", i + 1)
-                }
-            } else if kind == "minecraft:magenta_concrete" {
-                "unnamed control".to_owned()
-            } else {
+                    "status"
+                };
+                format!("unnamed {what}")
+            } else if let Some(given) = given {
+                given
+            } else if levers.is_some() {
                 letters.next().map(String::from).unwrap_or_default()
+            } else if output_count == 1 {
+                "output".to_owned()
+            } else {
+                format!("output {}", i + 1)
             };
             port(blocks, name, members, &lines, levers)
         })
@@ -229,19 +234,25 @@ fn port(
     }
 }
 
-/// The block kind a bus groups by. Yellow concrete and yellow stained glass
-/// both mark outputs, so they share one bus.
-fn kind(state: &str) -> &str {
-    match schem::id(state) {
-        "minecraft:yellow_stained_glass" => "minecraft:yellow_concrete",
-        id => id,
-    }
+/// The colour an input or output block marks, such as `yellow` for yellow
+/// stained glass. Any other block is its own kind.
+fn colour(state: &str) -> &str {
+    let block = short(state);
+    lint::output_colour(block)
+        .or_else(|| block.strip_suffix("_concrete"))
+        .unwrap_or(block)
+}
+
+/// A block state's id without its namespace, such as `yellow_concrete`.
+fn short(state: &str) -> &str {
+    let id = schem::id(state);
+    id.strip_prefix("minecraft:").unwrap_or(id)
 }
 
 /// The port a sign names: its first line, unless that is empty or a token.
 /// Older builds marked their least significant bit with an `lsb` sign,
 /// which the corner rule replaces.
-fn name(lines: &[String]) -> Option<String> {
+pub fn sign_name(lines: &[String]) -> Option<String> {
     let first = lines.first()?.trim().to_lowercase();
     (!first.is_empty() && first != "lsb" && strength(&first).is_none())
         .then_some(first)
