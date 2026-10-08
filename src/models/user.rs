@@ -1,6 +1,8 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
+use super::schematic::Schematic;
+
 /// What an account may do. Each role can do everything the ones before it
 /// can.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,6 +43,8 @@ pub struct User {
     pub role: Role,
     /// The in-game name the person gave, if any.
     pub minecraft_name: Option<String>,
+    /// Whether an admin has confirmed the Minecraft name is the person's.
+    pub minecraft_verified: bool,
 }
 
 /// Who Discord says a person is, from its `/users/@me`.
@@ -59,6 +63,7 @@ struct Row {
     avatar: Option<String>,
     role: String,
     minecraft_name: Option<String>,
+    minecraft_verified: bool,
 }
 
 impl From<Row> for User {
@@ -71,6 +76,7 @@ impl From<Row> for User {
             avatar: row.avatar,
             role: Role::parse(&row.role).unwrap_or(Role::User),
             minecraft_name: row.minecraft_name,
+            minecraft_verified: row.minecraft_verified,
         }
     }
 }
@@ -79,6 +85,21 @@ impl User {
     /// Whether the account may edit any build's details and tags.
     pub fn can_edit(&self) -> bool {
         self.role >= Role::Mod
+    }
+
+    /// Whether the account may edit this build: a mod or admin may edit
+    /// any, and a builder the ones crediting their confirmed Minecraft name.
+    pub fn may_edit(&self, s: &Schematic) -> bool {
+        self.can_edit() || self.built(s)
+    }
+
+    /// Whether the build credits the account's confirmed Minecraft name as
+    /// a builder.
+    pub fn built(&self, s: &Schematic) -> bool {
+        self.minecraft_verified
+            && self.minecraft_name.as_deref().is_some_and(|own| {
+                s.builders.iter().any(|name| name.eq_ignore_ascii_case(own))
+            })
     }
 
     pub fn is_admin(&self) -> bool {
@@ -107,7 +128,8 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role, minecraft_name
+                avatar, role, minecraft_name,
+                minecraft_verified as "minecraft_verified: bool"
              FROM user WHERE id = ?"#,
             id
         )
@@ -123,7 +145,8 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role, minecraft_name
+                avatar, role, minecraft_name,
+                minecraft_verified as "minecraft_verified: bool"
              FROM user WHERE username = ?"#,
             username
         )
@@ -139,7 +162,8 @@ impl User {
         let rows = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role, minecraft_name
+                avatar, role, minecraft_name,
+                minecraft_verified as "minecraft_verified: bool"
              FROM user
              ORDER BY role = 'user', role = 'mod', username"#
         )
@@ -183,7 +207,8 @@ impl User {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
-                avatar, role, minecraft_name
+                avatar, role, minecraft_name,
+                minecraft_verified as "minecraft_verified: bool"
              FROM user WHERE discord_id = ?"#,
             profile.id
         )
@@ -193,15 +218,22 @@ impl User {
         Ok(row.into())
     }
 
-    /// Sets or clears the account's Minecraft name. The `Err` is a sentence
-    /// for the person when the name is taken by another account.
+    /// Sets or clears the account's Minecraft name. A different name needs
+    /// confirming again; the same one in other capitals keeps its
+    /// confirmation. The `Err` is a sentence for the person when the name
+    /// is taken by another account.
     pub async fn set_minecraft_name<'e, E: SqliteExecutor<'e>>(
         db: E,
         id: Uuid,
         name: Option<&str>,
     ) -> Result<Result<(), String>, sqlx::Error> {
         let result = sqlx::query!(
-            "UPDATE user SET minecraft_name = ? WHERE id = ?",
+            "UPDATE user SET minecraft_name = ?,
+                minecraft_verified = coalesce(
+                    minecraft_verified AND minecraft_name = ? COLLATE NOCASE,
+                    0)
+             WHERE id = ?",
+            name,
             name,
             id
         )
@@ -217,6 +249,22 @@ impl User {
             }
             Err(err) => Err(err),
         }
+    }
+
+    /// Records whether an admin has confirmed the account's Minecraft name.
+    pub async fn set_minecraft_verified<'e, E: SqliteExecutor<'e>>(
+        db: E,
+        id: Uuid,
+        verified: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE user SET minecraft_verified = ? WHERE id = ?",
+            verified,
+            id
+        )
+        .execute(db)
+        .await?;
+        Ok(())
     }
 
     pub async fn set_role<'e, E: SqliteExecutor<'e>>(

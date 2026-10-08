@@ -30,6 +30,37 @@ pub async fn list(
 }
 
 #[derive(Deserialize)]
+pub struct Verify {
+    /// `yes` to confirm the account's Minecraft name, anything else to
+    /// withdraw the confirmation.
+    verified: String,
+}
+
+/// Confirms, or withdraws the confirmation of, an account's Minecraft name,
+/// then returns to the list. A confirmed name lets its account edit the
+/// builds crediting it as builder.
+pub async fn verify_minecraft(
+    Path(username): Path<String>,
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+    Form(form): Form<Verify>,
+) -> Response {
+    if !user_opt.as_ref().is_some_and(User::is_admin) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let target = match User::get_by_username(&state.db, &username).await {
+        Ok(Some(target)) => target,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal_error(err).into_response(),
+    };
+    let verified = form.verified == "yes" && target.minecraft_name.is_some();
+    match User::set_minecraft_verified(&state.db, target.id, verified).await {
+        Ok(()) => Redirect::to("/users").into_response(),
+        Err(err) => internal_error(err).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
 pub struct SetRole {
     role: String,
 }

@@ -507,7 +507,7 @@ pub fn schematic(
                         button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
                         (delete_dialog(s))
                     }
-                    @if viewer.is_some_and(User::can_edit) {
+                    @if viewer.is_some_and(|v| v.may_edit(s)) {
                         a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
                     }
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
@@ -1464,11 +1464,15 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
             p class="mb-6 max-w-prose text-muted" {
                 "A user uploads builds. A mod also edits any build's details and tags. An admin also deletes builds and sets roles."
             }
+            p class="mb-6 max-w-prose text-muted" {
+                "Anyone can type any Minecraft name on their profile. Confirm one only once you know it is theirs: a confirmed name lets its account edit the builds crediting it as builder."
+            }
             div class="max-w-calm overflow-x-auto" {
                 table class="w-full border-collapse" {
                     thead {
                         tr {
                             th scope="col" class=(TABLE_HEAD) { "Account" }
+                            th scope="col" class=(TABLE_HEAD) { "Minecraft name" }
                             th scope="col" class=(TABLE_HEAD) { "Role" }
                         }
                     }
@@ -1478,6 +1482,7 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
                                 th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                     (account_link(user))
                                 }
+                                td class=(TABLE_CELL) { (minecraft_cell(user)) }
                                 td class=(TABLE_CELL) {
                                     @if user.id == admin.id {
                                         span class="text-muted" { "admin (you)" }
@@ -1502,6 +1507,31 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
             }
         },
     )
+}
+
+/// An account's Minecraft name on the users page, with the button that
+/// confirms it or withdraws the confirmation.
+fn minecraft_cell(user: &User) -> Markup {
+    let Some(name) = &user.minecraft_name else {
+        return html! { span class="text-muted" { "none given" } };
+    };
+    let (value, action) = if user.minecraft_verified {
+        ("no", "Withdraw")
+    } else {
+        ("yes", "Confirm")
+    };
+    html! {
+        form action={ "/users/" (user.username) "/minecraft/verify" } method="post"
+            class="flex flex-wrap items-center gap-x-3 gap-y-1" {
+            span { (name) }
+            span class="text-meta text-muted" {
+                (if user.minecraft_verified { "confirmed" } else { "not confirmed" })
+            }
+            input type="hidden" name="verified" value=(value);
+            button type="submit" class="btn btn-quiet min-h-8 px-3"
+                aria-label={ (action) " " (name) " as " (user.name()) "'s Minecraft name" } { (action) }
+        }
+    }
 }
 
 /// An account's avatar and name, linking to its page.
@@ -1559,6 +1589,9 @@ pub fn profile(
                         p {
                             "Minecraft: "
                             a href=(search_href(&format!("builder:{name}"))) { (name) }
+                            @if !account.minecraft_verified {
+                                span class="text-meta text-muted" { " · not yet confirmed" }
+                            }
                         }
                     }
                 }
@@ -1578,7 +1611,7 @@ pub fn profile(
                     }
                     @if message.is_empty() {
                         p id="minecraft-help" class="text-meta text-muted" {
-                            "Shown on your profile, linked to the builds you built. Leave it empty to remove it."
+                            "Shown on your profile, linked to the builds you built. Once an admin confirms it is yours, you can edit those builds' details. Changing it needs confirming again. Leave it empty to remove it."
                         }
                     } @else {
                         p id="minecraft-help" role="alert" class="text-meta text-danger" { (message) }

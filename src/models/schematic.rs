@@ -1363,6 +1363,27 @@ mod tests {
     }
 
     #[test]
+    fn only_a_mod_or_a_confirmed_builder_may_edit() {
+        use crate::models::user::{Role, User};
+        let user = |name: Option<&str>, verified, role| User {
+            id: uuid::Uuid::nil(),
+            discord_id: String::new(),
+            username: "someone".to_owned(),
+            display_name: None,
+            avatar: None,
+            role,
+            minecraft_name: name.map(str::to_owned),
+            minecraft_verified: verified,
+        };
+        let cla = cla();
+        assert!(user(Some("EmbiZone"), true, Role::User).may_edit(&cla));
+        assert!(!user(Some("embizone"), false, Role::User).may_edit(&cla));
+        assert!(!user(Some("alex_you"), true, Role::User).may_edit(&cla));
+        assert!(!user(None, false, Role::User).may_edit(&cla));
+        assert!(user(None, false, Role::Mod).may_edit(&cla));
+    }
+
+    #[test]
     fn a_design_keeps_its_label() {
         let s = Schematic {
             category: "gate".to_owned(),

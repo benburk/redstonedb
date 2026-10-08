@@ -245,31 +245,51 @@ pub async fn detail(
     pages::schematic(user_opt.as_ref(), &s, &analysis).into_response()
 }
 
-/// The page where a mod edits a build's details and tags.
+/// The page where a mod, or one of the build's confirmed builders, edits
+/// its details and tags.
 pub async fn edit(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
+    let user = match editor(&state.db, user_opt, &id).await {
+        Ok(user) => user,
+        Err(response) => return response,
     };
-    if !user.can_edit() {
-        return StatusCode::FORBIDDEN.into_response();
-    }
     show_edit(&state.db, &user, &id, None, "").await
 }
 
-/// Saves a mod's edit of a build's details and tags, then shows its page;
-/// a refusal shows the edit page again with the values sent.
+/// The account editing build `id`, or the answer when it may not: a login
+/// for no account, a 404 for no build, and a 403 for an account that is
+/// neither a mod nor one of its confirmed builders.
+async fn editor(
+    db: &SqlitePool,
+    user_opt: Option<User>,
+    id: &str,
+) -> Result<User, Response> {
+    let Some(user) = user_opt else {
+        return Err(Redirect::to("/sessions/new").into_response());
+    };
+    match schematic::get(db, id).await {
+        Ok(Some(s)) if user.may_edit(&s) => Ok(user),
+        Ok(Some(_)) => Err(StatusCode::FORBIDDEN.into_response()),
+        Ok(None) => Err(super::not_found(Some(&user))),
+        Err(err) => Err(internal_error(err).into_response()),
+    }
+}
+
+/// Saves an edit of a build's details and tags, by a mod or one of its
+/// builders, then shows its page; a refusal shows the edit page again with
+/// the values sent.
 pub async fn save(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
     body: axum::body::Bytes,
 ) -> Response {
-    let Some(user) = user_opt.filter(User::can_edit) else {
-        return StatusCode::FORBIDDEN.into_response();
+    let user = match editor(&state.db, user_opt, &id).await {
+        Ok(user) => user,
+        Err(response) => return response,
     };
     let form = details::Form::read(&details::pairs(&body));
     let refused = match saved(&state.db, &id, &form).await {
