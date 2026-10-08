@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            carry_in as \"carry_in: bool\", carry_out as \"carry_out: bool\",\n            (SELECT abbreviation FROM design WHERE design.category =\n                schematic.category AND design.name = schematic.design)\n                as \"design_abbreviation?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic WHERE id = ?",
+  "query": "SELECT id, category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            (SELECT abbreviation FROM design WHERE design.category =\n                schematic.category AND design.name = schematic.design)\n                as \"design_abbreviation?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic ORDER BY category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -104,33 +104,23 @@
         "type_info": "Text"
       },
       {
-        "name": "carry_in: bool",
-        "ordinal": 20,
-        "type_info": "Integer"
-      },
-      {
-        "name": "carry_out: bool",
-        "ordinal": 21,
-        "type_info": "Integer"
-      },
-      {
         "name": "design_abbreviation?: String",
-        "ordinal": 22,
+        "ordinal": 20,
         "type_info": "Text"
       },
       {
         "name": "category_label?: String",
-        "ordinal": 23,
+        "ordinal": 21,
         "type_info": "Text"
       },
       {
         "name": "uploader?: String",
-        "ordinal": 24,
+        "ordinal": 22,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -155,10 +145,8 @@
       false,
       true,
       true,
-      true,
-      false,
-      false
+      true
     ]
   },
-  "hash": "fbafde21761164c8db594ad64787bb5d147611c59e26e4712749d899bf4bac56"
+  "hash": "09c44c295da3ce8038719330ab08b3caeee1d2a6ffa6f7ac554aff5e444845b3"
 }

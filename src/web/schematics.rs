@@ -324,11 +324,8 @@ async fn saved(
         return Ok(Err(message));
     }
     let mut details = parsed.as_details();
-    // Carry lines mean nothing for a category without them.
-    if !category.carries {
-        details.carry_in = None;
-        details.carry_out = None;
-    }
+    let flags =
+        schematic::keep_flags(db, &category.name, &parsed.flags).await?;
     // Only a category that names each build keeps a given name.
     if !category.named {
         details.given_name = None;
@@ -336,6 +333,7 @@ async fn saved(
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
     schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
+    schematic::set_flags(&mut tx, id, &flags).await?;
     let credits = [
         (Credit::Builder, &parsed.builders),
         (Credit::Contributor, &parsed.contributors),

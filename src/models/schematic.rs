@@ -166,10 +166,9 @@ pub struct Schematic {
     pub design: String,
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
-    /// Whether it has a carry in and a carry out; `None` when unknown or
-    /// when its category has no carries.
-    pub carry_in: Option<bool>,
-    pub carry_out: Option<bool>,
+    /// The flags it has, such as an adder's carry in, in their category's
+    /// order.
+    pub flags: Vec<Flag>,
     /// Free text about the build, such as how to use it.
     pub description: Option<String>,
     /// The username of the account that uploaded it through the site.
@@ -323,13 +322,38 @@ impl Schematic {
     }
 }
 
+/// Each schematic's flags, by its id, in its category's order.
+async fn flags_by_schematic(
+    db: &SqlitePool,
+) -> Result<HashMap<String, Vec<Flag>>, sqlx::Error> {
+    let mut flags: HashMap<String, Vec<Flag>> = HashMap::new();
+    for row in sqlx::query!(
+        "SELECT schematic_flag.schematic_id, flag.category, flag.name,
+            flag.label
+         FROM schematic_flag
+         JOIN schematic ON schematic.id = schematic_flag.schematic_id
+         JOIN flag ON flag.category = schematic.category
+            AND flag.name = schematic_flag.name
+         ORDER BY flag.position"
+    )
+    .fetch_all(db)
+    .await?
+    {
+        flags.entry(row.schematic_id).or_default().push(Flag {
+            category: row.category,
+            name: row.name,
+            label: row.label,
+        });
+    }
+    Ok(flags)
+}
+
 /// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT id, category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
-            carry_in as "carry_in: bool", carry_out as "carry_out: bool",
             (SELECT abbreviation FROM design WHERE design.category =
                 schematic.category AND design.name = schematic.design)
                 as "design_abbreviation?: String",
@@ -359,6 +383,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
                 max_copies: row.max_copies,
             });
     }
+    let mut flags = flags_by_schematic(db).await?;
     let mut builders: HashMap<String, Vec<String>> = HashMap::new();
     let mut contributors: HashMap<String, Vec<String>> = HashMap::new();
     for row in sqlx::query!(
@@ -394,6 +419,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         .into_iter()
         .map(|row| Schematic {
             tags: tags.remove(&row.id).unwrap_or_default(),
+            flags: flags.remove(&row.id).unwrap_or_default(),
             builders: builders.remove(&row.id).unwrap_or_default(),
             contributors: contributors.remove(&row.id).unwrap_or_default(),
             stacking: stacking.remove(&row.id).unwrap_or_default(),
@@ -411,8 +437,6 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             conventional: row.conventional,
             design: row.design,
             design_abbreviation: row.design_abbreviation,
-            carry_in: row.carry_in,
-            carry_out: row.carry_out,
             description: row.description,
             given_name: row.given_name,
             uploader: row.uploader,
@@ -432,7 +456,6 @@ pub async fn get(
         r#"SELECT id, category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
-            carry_in as "carry_in: bool", carry_out as "carry_out: bool",
             (SELECT abbreviation FROM design WHERE design.category =
                 schematic.category AND design.name = schematic.design)
                 as "design_abbreviation?: String",
@@ -458,6 +481,19 @@ pub async fn get(
     )
     .fetch_all(db)
     .await?;
+    let flags = sqlx::query_as!(
+        Flag,
+        "SELECT flag.category, flag.name, flag.label
+         FROM schematic_flag
+         JOIN schematic ON schematic.id = schematic_flag.schematic_id
+         JOIN flag ON flag.category = schematic.category
+            AND flag.name = schematic_flag.name
+         WHERE schematic_flag.schematic_id = ?
+         ORDER BY flag.position",
+        id
+    )
+    .fetch_all(db)
+    .await?;
     Ok(Some(Schematic {
         id: row.id,
         category: row.category,
@@ -476,8 +512,6 @@ pub async fn get(
         conventional: row.conventional,
         design: row.design,
         design_abbreviation: row.design_abbreviation,
-        carry_in: row.carry_in,
-        carry_out: row.carry_out,
         description: row.description,
         given_name: row.given_name,
         uploader: row.uploader,
@@ -486,6 +520,7 @@ pub async fn get(
         edited_at: row.edited_at,
         downloads: row.downloads,
         tags,
+        flags,
     }))
 }
 
@@ -648,8 +683,6 @@ pub struct New<'a> {
     pub imported_by: Option<&'a str>,
     pub conventional: bool,
     pub design: Option<&'a str>,
-    pub carry_in: Option<bool>,
-    pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
     pub uploaded_by: Option<uuid::Uuid>,
@@ -666,9 +699,9 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     sqlx::query_scalar!(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
-            imported_by, conventional, design, carry_in, carry_out,
-            description, given_name, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            imported_by, conventional, design, description, given_name,
+            uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -683,8 +716,6 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.imported_by,
         new.conventional,
         new.design,
-        new.carry_in,
-        new.carry_out,
         new.description,
         new.given_name,
         new.uploaded_by,
@@ -703,8 +734,6 @@ pub struct Category {
     pub label: String,
     /// The label for many builds, such as `Adders` or `RAM`.
     pub plural: String,
-    /// Whether its builds have carry lines worth recording.
-    pub carries: bool,
     /// Whether each build gives its own name, as bussing does.
     pub named: bool,
 }
@@ -737,7 +766,7 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
         Category,
         r#"SELECT name as "name!", label,
             coalesce(plural, label || 's') as "plural!: String",
-            carries as "carries: bool", named as "named: bool"
+            named as "named: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
@@ -803,7 +832,6 @@ pub async fn check_category(
             name: category.to_owned(),
             label: words(category),
             plural: words(category),
-            carries: false,
             named: false,
         });
     let listed = designs(db)
@@ -829,12 +857,11 @@ pub async fn define_category<'e, E: SqliteExecutor<'e>>(
     let plural = (category.plural != format!("{}s", category.label))
         .then_some(category.plural.as_str());
     sqlx::query!(
-        "INSERT INTO category (name, label, plural, carries, named)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO category (name, label, plural, named)
+         VALUES (?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
-        category.carries,
         category.named
     )
     .execute(db)
@@ -857,21 +884,82 @@ pub async fn define_design<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Stores a schematic's carry lines, as read from its file.
-pub async fn set_carries<'e, E: SqliteExecutor<'e>>(
+/// A yes-or-no fact a category's builds record, such as an adder's carry
+/// in or a shift register being bidirectional.
+#[derive(Debug, Clone)]
+pub struct Flag {
+    pub category: String,
+    /// Such as `carry_in`.
+    pub name: String,
+    /// Such as `Carry in`.
+    pub label: String,
+}
+
+/// Every category's flags, each category's in its order.
+pub async fn flags<'e, E: SqliteExecutor<'e>>(
     db: E,
-    id: &str,
-    carry_in: Option<bool>,
-    carry_out: Option<bool>,
+) -> Result<Vec<Flag>, sqlx::Error> {
+    sqlx::query_as!(
+        Flag,
+        "SELECT category, name, label FROM flag ORDER BY category, position"
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Adds a flag to the end of its category's.
+pub async fn define_flag<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    flag: &Flag,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET carry_in = ?, carry_out = ? WHERE id = ?",
-        carry_in,
-        carry_out,
-        id
+        "INSERT INTO flag (category, name, label, position)
+         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM flag
+            WHERE category = ?))",
+        flag.category,
+        flag.name,
+        flag.label,
+        flag.category
     )
     .execute(db)
     .await?;
+    Ok(())
+}
+
+/// The names among `names` that are flags of `category`, in its order; any
+/// other means nothing for its builds.
+pub async fn keep_flags<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    category: &str,
+    names: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    Ok(flags(db)
+        .await?
+        .into_iter()
+        .filter(|flag| flag.category == category && names.contains(&flag.name))
+        .map(|flag| flag.name)
+        .collect())
+}
+
+/// Replaces the flags a build has with `names`.
+pub async fn set_flags(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    names: &[String],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM schematic_flag WHERE schematic_id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    for name in names {
+        sqlx::query!(
+            "INSERT OR IGNORE INTO schematic_flag (schematic_id, name)
+             VALUES (?, ?)",
+            id,
+            name
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     Ok(())
 }
 
@@ -934,8 +1022,6 @@ pub struct Details<'a> {
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     pub design: Option<&'a str>,
-    pub carry_in: Option<bool>,
-    pub carry_out: Option<bool>,
     pub built_on: Option<&'a str>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
@@ -950,7 +1036,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
     sqlx::query!(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
-            carry_in = ?, carry_out = ?, built_on = ?,
+            built_on = ?,
             description = ?, given_name = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
@@ -961,8 +1047,6 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.latency,
         details.synchronized,
         details.design,
-        details.carry_in,
-        details.carry_out,
         details.built_on,
         details.description,
         details.given_name,
@@ -997,8 +1081,6 @@ pub struct Changes<'a> {
     pub imported_by: Option<&'a str>,
     pub conventional: Option<bool>,
     pub design: Option<&'a str>,
-    pub carry_in: Option<bool>,
-    pub carry_out: Option<bool>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
 }
@@ -1020,8 +1102,6 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             imported_by = coalesce(?, imported_by),
             conventional = coalesce(?, conventional),
             design = coalesce(?, design),
-            carry_in = coalesce(?, carry_in),
-            carry_out = coalesce(?, carry_out),
             description = coalesce(?, description),
             given_name = coalesce(?, given_name),
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
@@ -1036,8 +1116,6 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.imported_by,
         changes.conventional,
         changes.design,
-        changes.carry_in,
-        changes.carry_out,
         changes.description,
         changes.given_name,
         id,
@@ -1057,7 +1135,6 @@ pub enum Optional {
     ImportedBy,
     Description,
     Design,
-    Carries,
     GivenName,
 }
 
@@ -1077,7 +1154,6 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     let imported_by = has(Optional::ImportedBy);
     let description = has(Optional::Description);
     let design = has(Optional::Design);
-    let carries = has(Optional::Carries);
     let given_name = has(Optional::GivenName);
     sqlx::query!(
         "UPDATE schematic SET
@@ -1088,8 +1164,6 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             imported_by = iif(?, NULL, imported_by),
             description = iif(?, NULL, description),
             design = iif(?, 'other', design),
-            carry_in = iif(?, NULL, carry_in),
-            carry_out = iif(?, NULL, carry_out),
             given_name = iif(?, NULL, given_name)
          WHERE id = ?",
         width,
@@ -1099,8 +1173,6 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         imported_by,
         description,
         design,
-        carries,
-        carries,
         given_name,
         id,
     )
@@ -1247,8 +1319,7 @@ mod tests {
             conventional: true,
             design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
-            carry_in: None,
-            carry_out: None,
+            flags: Vec::new(),
             description: None,
             given_name: None,
             uploader: None,

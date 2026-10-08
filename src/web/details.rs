@@ -110,8 +110,8 @@ pub struct Form {
     /// The build's own name, for a category that takes one.
     pub given_name: String,
     pub design: String,
-    pub carry_in: bool,
-    pub carry_out: bool,
+    /// The chosen category's ticked flags, such as `carry_in`.
+    pub flags: Vec<String>,
     /// Whether the stacking toggle is on; the rows count only when it is.
     pub stackable: bool,
     pub stack_rows: Vec<StackRow>,
@@ -135,8 +135,8 @@ pub struct Parsed {
     pub description: Option<String>,
     pub given_name: Option<String>,
     pub design: String,
-    pub carry_in: Option<bool>,
-    pub carry_out: Option<bool>,
+    /// Ticked flags; any not of the category are dropped when stored.
+    pub flags: Vec<String>,
     pub builders: Vec<String>,
     pub contributors: Vec<String>,
     /// Empty for a build that does not stack.
@@ -200,8 +200,9 @@ impl Form {
             description: get("description"),
             given_name: get("given_name"),
             design: get("design"),
-            carry_in: !get("carry_in").is_empty(),
-            carry_out: !get("carry_out").is_empty(),
+            // Each category's flags are sent under its own name, so only
+            // the chosen one's count.
+            flags: each(&format!("flag:{}", get("category"))),
             stackable: !get("stackable").is_empty(),
             stack_rows,
             builders: all("builder", "builder_entry"),
@@ -233,8 +234,7 @@ impl Form {
             description: &self.description,
             given_name: &self.given_name,
             design: &self.design,
-            carry_in: self.carry_in,
-            carry_out: self.carry_out,
+            flags: &self.flags,
             stackable: self.stackable,
             stack_rows: &self.stack_rows,
         }
@@ -351,8 +351,7 @@ impl Form {
             description: text(&self.description),
             given_name: text(&self.given_name),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
-            carry_in: Some(self.carry_in),
-            carry_out: Some(self.carry_out),
+            flags: self.flags.clone(),
             builders: self.builders.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,
@@ -373,8 +372,6 @@ impl Parsed {
             description: self.description.as_deref(),
             given_name: self.given_name.as_deref(),
             design: Some(&self.design),
-            carry_in: self.carry_in,
-            carry_out: self.carry_out,
         }
     }
 }

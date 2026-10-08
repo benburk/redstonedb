@@ -1,14 +1,13 @@
 // Details forms. Without this script every field shows and the server
 // checks them all; with it, fields follow the chosen category.
 
-// Category fields: the name box shows only for other, the carry boxes only
-// for categories with carries, and the design list only once the chosen
+// Category fields: the name box shows only for other, each category's flags
+// only for it, and the design list only once the chosen
 // category has designs, offering just those.
 for (const select of document.querySelectorAll("select[data-category]")) {
   const form = select.closest("form");
   const name = form.querySelector("[data-category-name]");
   const nameInput = name.querySelector("input");
-  const carries = form.querySelector("[data-carries-field]");
   const design = form.querySelector("select[data-design]");
   const designField = form.querySelector("[data-design-field]");
 
@@ -20,7 +19,10 @@ for (const select of document.querySelectorAll("select[data-category]")) {
     for (const field of form.querySelectorAll("[data-standard-only]")) {
       field.hidden = other;
     }
-    carries.hidden = !select.selectedOptions[0]?.hasAttribute("data-carries");
+    // Only the chosen category's flags show.
+    for (const flags of form.querySelectorAll("[data-flags-for]")) {
+      flags.hidden = flags.dataset.flagsFor !== select.value;
+    }
     form.querySelector("[data-named-field]").hidden =
       !select.selectedOptions[0]?.hasAttribute("data-named");
     let designs = false;

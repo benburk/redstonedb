@@ -66,7 +66,8 @@ pub async fn preview(
     };
     let interface = interface::read(&prepared.blocks);
     let (width, orientation) = import::guess(&interface);
-    let (carry_in, carry_out) = import::carries(&interface);
+    // The carry lines the signs show start ticked.
+    let flags = import::sign_flags(&interface);
     let width = width.map(|w| w.to_string()).unwrap_or_default();
     let orientation = orientation.unwrap_or("horz");
     let size = &prepared.size;
@@ -88,8 +89,7 @@ pub async fn preview(
         description: "",
         given_name: "",
         design: "other",
-        carry_in,
-        carry_out,
+        flags: &flags,
         stackable: false,
         stack_rows: &stack_rows,
     };
@@ -202,8 +202,6 @@ async fn publish_checked(
         imported_by: None,
         conventional: !sent.unconventional,
         design: Some(&parsed.design),
-        carry_in: parsed.carry_in,
-        carry_out: parsed.carry_out,
         description: parsed.description.as_deref(),
         given_name: parsed.given_name.as_deref(),
         uploaded_by: Some(user.id),
@@ -217,6 +215,7 @@ async fn publish_checked(
         // Anyone uploading may name a new tag; it starts under other.
         new_tags: true,
         stacking: &parsed.stacking,
+        flags: &parsed.flags,
     };
     import::store(&state.db, &new, &extras)
         .await

@@ -85,6 +85,8 @@ pub struct Extras<'a> {
     /// than refusing them.
     pub new_tags: bool,
     pub stacking: &'a [StackDirection],
+    /// Flags it has; any not of its category are dropped.
+    pub flags: &'a [String],
 }
 
 /// Stores a schematic with its credits, tags, and stacking, and returns
@@ -113,16 +115,9 @@ pub async fn store(
             Ok(category) => category,
             Err(message) => bail!("{message}"),
         };
-    // Carry lines mean nothing for a category without them.
-    let (carry_in, carry_out) = if category.carries {
-        (new.carry_in, new.carry_out)
-    } else {
-        (None, None)
-    };
+    let flags = schematic::keep_flags(db, &category.name, extras.flags).await?;
     let new = &New {
         design: Some(design),
-        carry_in,
-        carry_out,
         // Only a category that names each build keeps a given name.
         given_name: new.given_name.filter(|_| category.named),
         ..*new
@@ -156,22 +151,30 @@ pub async fn store(
         schematic::attach(&mut *tx, &id, &tag).await?;
     }
     schematic::set_stacking(&mut tx, &id, extras.stacking).await?;
+    schematic::set_flags(&mut tx, &id, &flags).await?;
     tx.commit().await?;
     Ok(id)
 }
 
-/// Whether the build has a carry in and a carry out, from lines labelled
-/// `carry in` or `cin`, and `carry out` or `cout`.
-pub fn carries(interface: &Interface) -> (bool, bool) {
+/// The flags the file's signs show: `carry_in` for a line labelled
+/// `carry in` or `cin`, and `carry_out` for `carry out` or `cout`.
+pub fn sign_flags(interface: &Interface) -> Vec<String> {
     let named = |ports: &[Port], names: [&str; 2]| {
         ports
             .iter()
             .any(|port| port.labelled && names.contains(&port.name.as_str()))
     };
-    (
-        named(&interface.inputs, ["carry in", "cin"]),
-        named(&interface.outputs, ["carry out", "cout"]),
-    )
+    [
+        (named(&interface.inputs, ["carry in", "cin"]), "carry_in"),
+        (
+            named(&interface.outputs, ["carry out", "cout"]),
+            "carry_out",
+        ),
+    ]
+    .into_iter()
+    .filter(|(found, _)| *found)
+    .map(|(_, flag)| flag.to_owned())
+    .collect()
 }
 
 /// The width and orientation the inputs suggest: the widest operand's bit

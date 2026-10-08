@@ -39,10 +39,10 @@ enum Command {
     Set(Set),
     /// Delete a schematic
     Remove { id: String },
-    /// Read every stored file again: take out corner markers and fit its
-    /// box, measure it, and fill in its carry lines where they are unknown
+    /// Read every stored file again: take out corner markers, fit its box,
+    /// and measure it
     Reread,
-    /// List the standard categories, with their designs
+    /// List the standard categories, with their designs and flags
     Categories,
     /// Add a standard category to the list
     DefineCategory {
@@ -54,12 +54,19 @@ enum Command {
         /// by default
         #[arg(long)]
         plural: Option<String>,
-        /// Its builds have carry lines worth recording
-        #[arg(long)]
-        carries: bool,
         /// Each of its builds gives its own name, as bussing's do
         #[arg(long)]
         named: bool,
+    },
+    /// Add a yes-or-no flag to a category's builds, such as a shift
+    /// register being bidirectional
+    DefineFlag {
+        category: String,
+        /// Lowercase words joined by underscores, such as `bidirectional`
+        name: String,
+        /// How people read it; the name's words by default
+        #[arg(long)]
+        label: Option<String>,
     },
     /// Add a design to a category
     DefineDesign {
@@ -149,7 +156,7 @@ struct Set {
             "imported-by",
             "description",
             "design",
-            "carries",
+            "flags",
             "name",
         ]
     )]
@@ -222,14 +229,11 @@ struct Details {
     /// `rsdb categories`. Left out, `add` stores `other`
     #[arg(long)]
     design: Option<String>,
-    /// Whether it has a carry in: true or false. `add` reads it from the
-    /// file's `carry in` sign when left out
-    #[arg(long)]
-    carry_in: Option<bool>,
-    /// Whether it has a carry out: true or false. `add` reads it from the
-    /// file's `carry out` sign when left out
-    #[arg(long)]
-    carry_out: Option<bool>,
+    /// A flag of its category it has, such as `carry_in`; repeatable. `add`
+    /// also sets the carry flags the file's signs show. Given to `set`, the
+    /// flags replace the stored ones; see `rsdb categories`
+    #[arg(long = "flag")]
+    flags: Vec<String>,
     /// Whether the build follows the building conventions: true or false.
     /// A build that does not is imported without the lint.
     #[arg(long)]
@@ -273,9 +277,13 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             name,
             label,
             plural,
-            carries,
             named,
-        } => define_category(db, name, label, plural, carries, named).await,
+        } => define_category(db, name, label, plural, named).await,
+        Command::DefineFlag {
+            category,
+            name,
+            label,
+        } => define_flag(db, category, name, label).await,
         Command::DefineDesign {
             category,
             name,
@@ -363,8 +371,6 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         imported_by: imported_by.as_deref(),
         conventional: details.conventional,
         design: details.design.as_deref(),
-        carry_in: details.carry_in,
-        carry_out: details.carry_out,
         description: details.description.as_deref(),
         given_name: details.given_name.as_deref(),
     };
@@ -388,7 +394,6 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "description" => Some(Optional::Description),
             "name" => Some(Optional::GivenName),
             "design" => Some(Optional::Design),
-            "carries" => Some(Optional::Carries),
             _ => None,
         })
         .collect();
@@ -396,6 +401,14 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let mut conn = db.acquire().await?;
     if !details.stacking.is_empty() || unset.iter().any(|f| f == "stacking") {
         schematic::set_stacking(&mut conn, &id, &details.stacking).await?;
+    }
+    if !details.flags.is_empty() || unset.iter().any(|f| f == "flags") {
+        let kept =
+            schematic::keep_flags(&mut *conn, category, &details.flags).await?;
+        if let Some(name) = details.flags.iter().find(|f| !kept.contains(f)) {
+            bail!("{name} is not a flag of {category}; see rsdb categories");
+        }
+        schematic::set_flags(&mut conn, &id, &kept).await?;
     }
     let credits = [
         (Credit::Builder, &details.builders, "builders"),
@@ -437,7 +450,9 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         }
     }
     let size = &prepared.size;
-    let file_carries = import::carries(&interface::read(&prepared.blocks));
+    // The flags given, and the carry lines the signs show.
+    let mut flags = details.flags.clone();
+    flags.extend(import::sign_flags(&interface::read(&prepared.blocks)));
     let imported_by = details.imported_by.clone();
     let id = import::store(
         db,
@@ -453,8 +468,6 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             imported_by: imported_by.as_deref(),
             conventional,
             design: details.design.as_deref(),
-            carry_in: details.carry_in.or(Some(file_carries.0)),
-            carry_out: details.carry_out.or(Some(file_carries.1)),
             description: details.description.as_deref(),
             given_name: details.given_name.as_deref(),
             uploaded_by: None,
@@ -467,6 +480,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             tags: &args.tags,
             new_tags: false,
             stacking: &details.stacking,
+            flags: &flags,
         },
     )
     .await?;
@@ -518,7 +532,6 @@ async fn define_category(
     name: String,
     label: Option<String>,
     plural: Option<String>,
-    carries: bool,
     named: bool,
 ) -> Result<()> {
     let label = label.unwrap_or_else(|| schematic::words(&name));
@@ -527,10 +540,32 @@ async fn define_category(
         name,
         label,
         plural,
-        carries,
         named,
     };
     Ok(schematic::define_category(db, &category).await?)
+}
+
+/// Adds a flag to a category, labelled with its name's words, the first
+/// capitalized, unless given a label.
+async fn define_flag(
+    db: &SqlitePool,
+    category: String,
+    name: String,
+    label: Option<String>,
+) -> Result<()> {
+    let label = label.unwrap_or_else(|| {
+        let words = name.replace('_', " ");
+        let mut chars = words.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        })
+    });
+    let flag = schematic::Flag {
+        category,
+        name,
+        label,
+    };
+    Ok(schematic::define_flag(db, &flag).await?)
 }
 
 /// Sets the role of the account with a Discord username.
@@ -551,27 +586,35 @@ async fn set_role(db: &SqlitePool, username: &str, role: &str) -> Result<()> {
 /// Prints each category with its designs.
 async fn print_categories(db: &SqlitePool) -> Result<()> {
     let designs = schematic::designs(db).await?;
+    let flags = schematic::flags(db).await?;
     for category in schematic::categories(db).await? {
-        let names: Vec<&str> = designs
+        let designs: Vec<&str> = designs
             .iter()
             .filter(|d| d.category == category.name)
             .map(|d| d.name.as_str())
             .collect();
-        println!(
-            "{:<20} {:<20} {}",
-            category.name,
-            category.label,
-            names.join(", ")
-        );
+        let flags: Vec<&str> = flags
+            .iter()
+            .filter(|f| f.category == category.name)
+            .map(|f| f.name.as_str())
+            .collect();
+        let mut parts =
+            vec![format!("{:<20} {:<22}", category.name, category.label)];
+        if !designs.is_empty() {
+            parts.push(format!("designs: {}", designs.join(", ")));
+        }
+        if !flags.is_empty() {
+            parts.push(format!("flags: {}", flags.join(", ")));
+        }
+        println!("{}", parts.join(" ").trim_end());
     }
     Ok(())
 }
 
 /// Reads every stored file again and prints what changed: the file
-/// itself, with any corner markers taken out and its box fitted; its size;
-/// and its carry lines where they are unknown and its category has them.
+/// itself, with any corner markers taken out and its box fitted, and its
+/// size.
 async fn reread(db: &SqlitePool) -> Result<()> {
-    let categories = schematic::categories(db).await?;
     for s in schematic::all(db).await? {
         let stored = schematic::data(db, &s.id)
             .await?
@@ -585,24 +628,6 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             println!("{}  file {w}x{h}x{l} -> {nw}x{nh}x{nl}", &s.id[..8]);
         }
         let blocks = Blocks::read(&data)?;
-        let carries =
-            categories.iter().any(|f| f.name == s.category && f.carries);
-        if carries
-            && s.conventional
-            && (s.carry_in.is_none() || s.carry_out.is_none())
-        {
-            let (carry_in, carry_out) =
-                import::carries(&interface::read(&blocks));
-            let carry_in = s.carry_in.or(Some(carry_in));
-            let carry_out = s.carry_out.or(Some(carry_out));
-            schematic::set_carries(db, &s.id, carry_in, carry_out).await?;
-            println!(
-                "{}  carry in {}, carry out {}",
-                &s.id[..8],
-                carry_in == Some(true),
-                carry_out == Some(true)
-            );
-        }
         let size = import::measure(&blocks, s.conventional)?;
         let size = (size.x.into(), size.y.into(), size.z.into());
         if size != s.size {
@@ -720,13 +745,8 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     );
     println!("synchronized {}", s.synchronized_label());
     println!("design       {}", s.design.replace('_', " "));
-    let yes_no = |v: Option<bool>| match v {
-        Some(true) => "yes",
-        Some(false) => "no",
-        None => "unknown",
-    };
-    println!("carry in     {}", yes_no(s.carry_in));
-    println!("carry out    {}", yes_no(s.carry_out));
+    let flags: Vec<&str> = s.flags.iter().map(|f| f.label.as_str()).collect();
+    println!("flags        {}", flags.join(", "));
     let stacking: Vec<String> =
         s.stacking.iter().map(StackDirection::describe).collect();
     println!(

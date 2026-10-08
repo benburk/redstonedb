@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO flag (category, name, label, position)\n         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM flag\n            WHERE category = ?))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a9c0e7a2a466216daa9c088f2c702ea36e002e20cc4f06dbf6061fcbc1123928"
+}

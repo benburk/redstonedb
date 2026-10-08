@@ -161,11 +161,14 @@ fn facts(s: &Schematic) -> Vec<String> {
     if let Some(short) = &s.design_abbreviation {
         facts.push(short.to_lowercase());
     }
-    if s.carry_in == Some(true) {
-        facts.extend(["cin".to_owned(), "carry in".to_owned()]);
-    }
-    if s.carry_out == Some(true) {
-        facts.extend(["cout".to_owned(), "carry out".to_owned()]);
+    for flag in &s.flags {
+        facts.push(flag.name.replace('_', " "));
+        // The short names a carry line's sign may use.
+        match flag.name.as_str() {
+            "carry_in" => facts.push("cin".to_owned()),
+            "carry_out" => facts.push("cout".to_owned()),
+            _ => {}
+        }
     }
     match s.synchronized {
         Some(true) => {
@@ -207,8 +210,7 @@ mod tests {
             conventional: true,
             design: "other".to_owned(),
             design_abbreviation: None,
-            carry_in: None,
-            carry_out: None,
+            flags: Vec::new(),
             description: None,
             given_name: None,
             uploader: None,

@@ -36,8 +36,6 @@ CREATE TABLE category (
     label TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (label <> ''),
     -- For many builds, such as ALUs; NULL for the label with an s.
     plural TEXT CHECK (plural <> ''),
-    -- Whether its builds have carry lines worth recording.
-    carries INTEGER NOT NULL DEFAULT 0 CHECK (carries IN (0, 1)),
     -- Whether each build gives its own name, as bussing's do.
     named INTEGER NOT NULL DEFAULT 0 CHECK (named IN (0, 1))
 ) STRICT;
@@ -81,9 +79,6 @@ CREATE TABLE schematic (
     encoding TEXT CHECK (encoding IN ('bin', 'hex')),
     latency INTEGER CHECK (latency >= 0),
     synchronized INTEGER CHECK (synchronized IN (0, 1)),
-    -- Set only for a category with carry lines.
-    carry_in INTEGER CHECK (carry_in IN (0, 1)),
-    carry_out INTEGER CHECK (carry_out IN (0, 1)),
     -- The build less any outer layer of nothing but its interface.
     size_x INTEGER NOT NULL CHECK (size_x > 0),
     size_y INTEGER NOT NULL CHECK (size_y > 0),
@@ -105,6 +100,25 @@ CREATE TABLE schematic (
     -- When a person last changed its details; NULL if never.
     edited_at TEXT,
     downloads INTEGER NOT NULL DEFAULT 0 CHECK (downloads >= 0)
+) STRICT;
+
+-- A yes-or-no fact a category's builds record, such as an adder's carry in
+-- or a shift register being bidirectional.
+CREATE TABLE flag (
+    category TEXT NOT NULL REFERENCES category (name) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9_]*'),
+    label TEXT NOT NULL CHECK (label <> ''),
+    -- Its place among its category's flags.
+    position INTEGER NOT NULL,
+    PRIMARY KEY (category, name)
+) STRICT;
+
+-- The flags a build has; a row means yes. A flag that is no longer one of
+-- the build's category's is ignored.
+CREATE TABLE schematic_flag (
+    schematic_id TEXT NOT NULL REFERENCES schematic (id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9_]*'),
+    PRIMARY KEY (schematic_id, name)
 ) STRICT;
 
 CREATE TABLE schematic_tag (
@@ -137,26 +151,34 @@ CREATE TABLE stack_direction (
     PRIMARY KEY (schematic_id, west, up, north)
 ) STRICT;
 
-INSERT INTO category (name, label, plural, carries, named) VALUES
-    ('adder', 'Adder', NULL, 1, 0),
-    ('alu', 'ALU', 'ALUs', 0, 0),
-    ('barrel_shifter', 'Barrel Shifter', NULL, 0, 0),
-    ('bcd_to_binary', 'BCD to Binary', 'BCD to Binary', 0, 0),
-    ('binary_to_bcd', 'Binary to BCD', 'Binary to BCD', 0, 0),
-    ('bussing', 'Bussing', 'Bussing', 0, 1),
-    ('carry_save_adder', 'Carry Save Adder', NULL, 0, 0),
-    ('counter', 'Counter', NULL, 0, 0),
-    ('dataloop', 'Dataloop', NULL, 0, 0),
-    ('decoder', 'Decoder', NULL, 0, 0),
-    ('display', 'Display', NULL, 0, 0),
-    ('divider', 'Divider', NULL, 0, 0),
-    ('line_drawer', 'Line Drawer', NULL, 0, 0),
-    ('multiplier', 'Multiplier', NULL, 0, 0),
-    ('ram', 'RAM', 'RAM', 0, 0),
-    ('register', 'Register', NULL, 0, 0),
-    ('serial_write_memory', 'Serial Write Memory', 'Serial Write Memories', 0, 0),
-    ('shift_register', 'Shift Register', NULL, 0, 0),
-    ('subtractor', 'Subtractor', NULL, 1, 0);
+INSERT INTO category (name, label, plural, named) VALUES
+    ('adder', 'Adder', NULL, 0),
+    ('alu', 'ALU', 'ALUs', 0),
+    ('barrel_shifter', 'Barrel Shifter', NULL, 0),
+    ('bcd_to_binary', 'BCD to Binary', 'BCD to Binary', 0),
+    ('binary_to_bcd', 'Binary to BCD', 'Binary to BCD', 0),
+    ('bussing', 'Bussing', 'Bussing', 1),
+    ('carry_save_adder', 'Carry Save Adder', NULL, 0),
+    ('counter', 'Counter', NULL, 0),
+    ('dataloop', 'Dataloop', NULL, 0),
+    ('decoder', 'Decoder', NULL, 0),
+    ('display', 'Display', NULL, 1),
+    ('divider', 'Divider', NULL, 0),
+    ('line_drawer', 'Line Drawer', NULL, 0),
+    ('multiplier', 'Multiplier', NULL, 0),
+    ('ram', 'RAM', 'RAM', 0),
+    ('register', 'Register', NULL, 0),
+    ('serial_write_memory', 'Serial Write Memory', 'Serial Write Memories', 0),
+    ('shift_register', 'Shift Register', NULL, 0),
+    ('subtractor', 'Subtractor', NULL, 0);
+
+INSERT INTO flag (category, name, label, position) VALUES
+    ('adder', 'carry_in', 'Carry in', 1),
+    ('adder', 'carry_out', 'Carry out', 2),
+    ('subtractor', 'carry_in', 'Carry in', 1),
+    ('subtractor', 'carry_out', 'Carry out', 2),
+    ('shift_register', 'bidirectional', 'Bidirectional', 1),
+    ('shift_register', 'writeable', 'Writeable', 2);
 
 INSERT INTO design (category, name, abbreviation) VALUES
     ('adder', 'ripple_carry', 'RCA'),

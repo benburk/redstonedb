@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic_flag.schematic_id, flag.category, flag.name,\n            flag.label\n         FROM schematic_flag\n         JOIN schematic ON schematic.id = schematic_flag.schematic_id\n         JOIN flag ON flag.category = schematic.category\n            AND flag.name = schematic_flag.name\n         ORDER BY flag.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "schematic_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "01376874a4e1beb032953bd7a3740b4c1f63c12fa2edf4ed72ce5a1021d83757"
+}

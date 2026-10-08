@@ -9,7 +9,9 @@ use crate::{
     interface::{Bit, Interface},
     lint::Violation,
     models::{
-        schematic::{self, Category, Design, Schematic, StackDirection, Tag},
+        schematic::{
+            self, Category, Design, Flag, Schematic, StackDirection, Tag,
+        },
         user::{Role, User},
     },
     search::Term,
@@ -675,6 +677,9 @@ fn schematic_info(s: &Schematic) -> Markup {
                         (field(&plural("Contributor", &s.contributors), name_links(&s.contributors, "contributor")))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
+                    @for flag in &s.flags {
+                        (field(&flag.label, search_link("yes", &flag.name)))
+                    }
                     (field("Uploaded", s.added_at.get(..10).unwrap_or(&s.added_at)))
                     @if let Some(edited) = &s.edited_at {
                         (field("Last edited", edited.get(..10).unwrap_or(edited)))
@@ -721,6 +726,8 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
     let (width, latency) = (number(s.width), number(s.latency));
     let own_tags: Vec<String> =
         s.tags.iter().map(|tag| tag.name.clone()).collect();
+    let own_flags: Vec<String> =
+        s.flags.iter().map(|flag| flag.name.clone()).collect();
     // A build that does not stack yet starts with a likely direction.
     let stack_rows: Vec<StackRow> = if s.stacking.is_empty() {
         vec![StackRow::suggested(&s.orientation, s.size)]
@@ -743,8 +750,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
                 description: s.description.as_deref().unwrap_or(""),
                 given_name: s.given_name.as_deref().unwrap_or(""),
                 design: &s.design,
-                carry_in: s.carry_in == Some(true),
-                carry_out: s.carry_out == Some(true),
+                flags: &own_flags,
                 stackable: !s.stacking.is_empty(),
                 stack_rows: &stack_rows,
             },
@@ -791,8 +797,8 @@ pub struct Fields<'a> {
     /// The build's own name, for a category that takes one.
     pub given_name: &'a str,
     pub design: &'a str,
-    pub carry_in: bool,
-    pub carry_out: bool,
+    /// The ticked flags, such as `carry_in`.
+    pub flags: &'a [String],
     pub stackable: bool,
     /// The stacking directions so far, or a suggested first one.
     pub stack_rows: &'a [StackRow],
@@ -803,6 +809,8 @@ pub struct Choices {
     /// The standard categories.
     pub categories: Vec<Category>,
     pub designs: Vec<Design>,
+    /// Every category's flags.
+    pub flags: Vec<Flag>,
     /// Everyone credited on a stored build, to suggest as builders and
     /// contributors.
     pub people: Vec<String>,
@@ -813,6 +821,7 @@ impl Choices {
         Ok(Choices {
             categories: schematic::categories(db).await?,
             designs: schematic::designs(db).await?,
+            flags: schematic::flags(db).await?,
             people: schematic::all_people(db).await?,
         })
     }
@@ -824,10 +833,6 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
         // A category off the standard list shows as other, with its name.
         @let standard = f.category.is_empty()
             || choices.categories.iter().any(|category| category.name == f.category);
-        @let carries = choices
-            .categories
-            .iter()
-            .any(|category| category.name == f.category && category.carries);
         @let named = choices
             .categories
             .iter()
@@ -844,7 +849,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 }
                 @for category in &choices.categories {
                     option value=(category.name) selected[f.category == category.name]
-                        data-carries[category.carries] data-named[category.named] {
+                        data-named[category.named] {
                         (category.label)
                     }
                 }
@@ -881,17 +886,24 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 }
             }
         }
-        div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-carries-field
-            hidden[!carries && !f.category.is_empty()] {
-            label class="flex items-center gap-2" {
-                input type="checkbox" name="carry_in" value="yes" checked[f.carry_in] class="size-4 appearance-auto";
-                "Has a carry in"
+        // Each category's flags, sent under its own name; form.js shows only
+        // the chosen category's. A flag starts ticked in every group that has
+        // it, as the carry lines a file's signs show do, so it stays ticked
+        // whichever category is chosen.
+        @for category in &choices.categories {
+            @let flags: Vec<&Flag> = choices.flags.iter().filter(|flag| flag.category == category.name).collect();
+            @if !flags.is_empty() {
+                @let chosen = category.name == f.category;
+                div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
+                    @for flag in flags {
+                        label class="flex items-center gap-2" {
+                            input type="checkbox" name={ "flag:" (category.name) } value=(flag.name)
+                                checked[f.flags.contains(&flag.name)] class="size-4 appearance-auto";
+                            (flag.label)
+                        }
+                    }
+                }
             }
-            label class="flex items-center gap-2" {
-                input type="checkbox" name="carry_out" value="yes" checked[f.carry_out] class="size-4 appearance-auto";
-                "Has a carry out"
-            }
-            span class="text-meta text-muted" { "Read from the file's signs." }
         }
     }
 }

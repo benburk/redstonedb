@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            carries as \"carries: bool\", named as \"named: bool\"\n         FROM category ORDER BY label COLLATE NOCASE",
+  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\"\n         FROM category ORDER BY label COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -19,13 +19,8 @@
         "type_info": "Text"
       },
       {
-        "name": "carries: bool",
-        "ordinal": 3,
-        "type_info": "Integer"
-      },
-      {
         "name": "named: bool",
-        "ordinal": 4,
+        "ordinal": 3,
         "type_info": "Integer"
       }
     ],
@@ -36,9 +31,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "61db9dcb9d744266b2558d5bd9969530f2f05104b80db9ad0cfcb8687c5573b7"
+  "hash": "9eb46b63aff178da604ee1c573b193821888f4dba8b439871c1f09939cdb8191"
 }
