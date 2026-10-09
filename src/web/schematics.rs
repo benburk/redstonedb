@@ -295,7 +295,7 @@ pub async fn save(
         Err(response) => return response,
     };
     let form = details::Form::read(&details::pairs(&body));
-    let refused = match saved(&state.db, &id, &form).await {
+    let refused = match saved(&state.db, &id, &form, user.is_admin()).await {
         Ok(Ok(())) => {
             return Redirect::to(&format!("/schematics/{id}")).into_response();
         }
@@ -329,11 +329,17 @@ async fn saved(
     db: &SqlitePool,
     id: &str,
     form: &details::Form,
+    may_create_tags: bool,
 ) -> Result<Result<(), String>, sqlx::Error> {
     let parsed = match form.parse() {
         Ok(parsed) => parsed,
         Err(message) => return Ok(Err(message)),
     };
+    if let Err(message) =
+        schematic::check_new_tags(db, &form.tags, may_create_tags).await?
+    {
+        return Ok(Err(message));
+    }
     let category =
         match schematic::check_category(db, &parsed.category, &parsed.design)
             .await?

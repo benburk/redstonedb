@@ -218,6 +218,14 @@ async fn publish_checked(
         });
     }
     let parsed = sent.form.parse()?;
+    // Only an admin may name a tag not yet on the list.
+    match schematic::check_new_tags(&state.db, &sent.form.tags, user.is_admin())
+        .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(message)) => return Err(message),
+        Err(err) => return Err(format!("Could not check the tags: {err}.")),
+    }
     // Checked here too, so the refusal reads as a sentence of its own.
     let periodic = match schematic::check_category(
         &state.db,
@@ -261,8 +269,8 @@ async fn publish_checked(
         builders: &builders,
         contributors: &contributors,
         tags: &sent.form.tags,
-        // Anyone uploading may name a new tag; it starts under other.
-        new_tags: true,
+        // An admin may name a new tag; it starts under other.
+        new_tags: user.is_admin(),
         stacking: &parsed.stacking,
         flags: &parsed.flags,
     };
@@ -308,6 +316,7 @@ async fn show_preview(
             choices: &choices,
             tags: &tags,
             chosen_tags,
+            may_create_tags: user.is_admin(),
             unconventional,
             message,
         },

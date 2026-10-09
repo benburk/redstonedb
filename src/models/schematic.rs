@@ -1292,6 +1292,47 @@ pub async fn set_tags(
     Ok(())
 }
 
+/// The names in `names` that no tag has, as its name or short token.
+pub async fn unknown_tags(
+    db: &SqlitePool,
+    names: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut unknown = Vec::new();
+    for name in names {
+        if tag_id(db, name).await?.is_none() {
+            unknown.push(name.clone());
+        }
+    }
+    Ok(unknown)
+}
+
+/// Refuses `names` that no tag has unless `may_create`, as only an admin
+/// may: the `Err` says which and why.
+pub async fn check_new_tags(
+    db: &SqlitePool,
+    names: &[String],
+    may_create: bool,
+) -> Result<Result<(), String>, sqlx::Error> {
+    if may_create {
+        return Ok(Ok(()));
+    }
+    let unknown = unknown_tags(db, names).await?;
+    Ok(match unknown.as_slice() {
+        [] => Ok(()),
+        [one] => Err(format!(
+            "There is no tag {}, and only an admin can make a new one.",
+            one.replace('_', " ")
+        )),
+        many => Err(format!(
+            "There are no tags {}, and only an admin can make new ones.",
+            many.iter()
+                .map(|name| name.replace('_', " "))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    })
+}
+
 /// The tag named `name`, which may also be its short token.
 pub async fn tag_id<'e, E: SqliteExecutor<'e>>(
     db: E,

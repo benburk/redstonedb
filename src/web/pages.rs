@@ -882,7 +882,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
             (beside_viewer(&format!("{path}/download?preview=yes"), &html! {
                 form action={ (path) "/edit" } method="post" class="flex flex-col gap-4" {
                     (fields(&values, e.choices))
-                    (tag_picker(e.tags, chosen_tags))
+                    (tag_picker(e.tags, chosen_tags, user.is_admin()))
                     @if !e.message.is_empty() {
                         p role="alert" class="text-danger" { (e.message) }
                     }
@@ -1296,8 +1296,9 @@ fn pill(p: &Pill, name: &str) -> Markup {
     }
 }
 
-/// The tag field of the upload form.
-fn tag_picker(tags: &[Tag], chosen: &[String]) -> Markup {
+/// The tag field of the details forms. Only an admin, `may_create`, may
+/// name a tag not yet on the list.
+fn tag_picker(tags: &[Tag], chosen: &[String], may_create: bool) -> Markup {
     pill_field(&PillField {
         label: "Tags",
         name: "tag",
@@ -1320,8 +1321,17 @@ fn tag_picker(tags: &[Tag], chosen: &[String]) -> Markup {
             )
             .collect(),
         new_class: "badge-other",
-        pattern: "^[A-Za-z0-9 _]+$",
-        hint: "cannot be a tag: use letters, digits, and spaces",
+        // A pattern nothing matches, so only listed tags can be added.
+        pattern: if may_create {
+            "^[A-Za-z0-9 _]+$"
+        } else {
+            "(?!)"
+        },
+        hint: if may_create {
+            "cannot be a tag: use letters, digits, and spaces"
+        } else {
+            "is not a tag; only an admin can make a new one"
+        },
         keep_case: false,
     })
 }
@@ -1910,6 +1920,8 @@ pub struct UploadPreview<'a> {
     pub choices: &'a Choices,
     pub tags: &'a [Tag],
     pub chosen_tags: &'a [String],
+    /// Whether the uploader, an admin, may name a new tag.
+    pub may_create_tags: bool,
     pub unconventional: bool,
     pub message: &'a str,
 }
@@ -1974,7 +1986,7 @@ fn upload_form(p: &UploadPreview) -> Markup {
                 h2 class=(SECTION_TITLE) { "Details" }
                 input type="hidden" name="data" value=(p.data);
                 (fields(p.fields, p.choices))
-                (tag_picker(p.tags, p.chosen_tags))
+                (tag_picker(p.tags, p.chosen_tags, p.may_create_tags))
                 @if !p.analysis.violations.is_empty() || p.unconventional {
                     label class="flex items-start gap-2" {
                         input type="checkbox" name="unconventional" value="yes"
