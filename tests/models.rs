@@ -170,3 +170,67 @@ async fn deleting_a_user_deletes_their_sessions() {
 
     assert!(Session::get_by_id(&db, session.id).await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn an_account_goes_by_its_minecraft_name() {
+    let db = setup_test_db().await;
+    let user = sign_in(&db, "1", "steve").await;
+    User::set_minecraft_name(&db, user.id, Some("Steve_Builds"))
+        .await
+        .unwrap()
+        .unwrap();
+    let user = User::get_by_id(&db, user.id).await.unwrap().unwrap();
+    assert_eq!(user.name(), "Steve_Builds");
+}
+
+#[tokio::test]
+async fn a_confirmed_name_respells_its_credits_and_imports() {
+    let db = setup_test_db().await;
+    sqlx::query(
+        "INSERT INTO schematic (id, category, orientation, size_x, size_y,
+            size_z, sha256, data, imported_by)
+         VALUES ('b', 'adder', 'horz', 1, 1, 1, 'h', x'00', 'PISHLEBACK')",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO credit (schematic_id, role, name, position)
+         VALUES ('b', 'builder', 'Pishleback', 0)",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    let spelled = || async {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT credit.name, imported_by FROM credit
+             JOIN schematic ON schematic.id = credit.schematic_id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap()
+    };
+
+    let user = sign_in(&db, "1", "pishleback").await;
+    User::set_minecraft_name(&db, user.id, Some("pishleback"))
+        .await
+        .unwrap()
+        .unwrap();
+    // Unconfirmed, the name respells nothing.
+    assert_eq!(spelled().await, ("Pishleback".into(), "PISHLEBACK".into()));
+
+    User::set_minecraft_verified(&db, user.id, true)
+        .await
+        .unwrap();
+    assert_eq!(spelled().await, ("pishleback".into(), "pishleback".into()));
+
+    // Confirmed, the same name in new capitals keeps its confirmation and
+    // respells again.
+    User::set_minecraft_name(&db, user.id, Some("PishLeback"))
+        .await
+        .unwrap()
+        .unwrap();
+    let user = User::get_by_id(&db, user.id).await.unwrap().unwrap();
+    assert!(user.minecraft_verified);
+    assert_eq!(spelled().await, ("PishLeback".into(), "PishLeback".into()));
+}

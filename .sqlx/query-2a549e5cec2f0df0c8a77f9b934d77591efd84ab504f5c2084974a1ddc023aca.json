@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)\n                as \"uploader?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -127,6 +127,11 @@
         "name": "uploader?: String",
         "ordinal": 24,
         "type_info": "Text"
+      },
+      {
+        "name": "uploader_name?: String",
+        "ordinal": 25,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -157,8 +162,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "a1c8d9efa780411af8552a107e2bc153f2373c02de1dc5e8a990e07fe7437ca9"
+  "hash": "2a549e5cec2f0df0c8a77f9b934d77591efd84ab504f5c2084974a1ddc023aca"
 }

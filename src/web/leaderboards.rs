@@ -89,23 +89,11 @@ pub async fn people(
         Ok::<_, sqlx::Error>((
             schematic::all(&state.db).await?,
             schematic::categories(&state.db).await?,
-            User::all(&state.db).await?,
         ))
     };
-    let (all, categories, users) = match loaded.await {
+    let (all, categories) = match loaded.await {
         Ok(loaded) => loaded,
         Err(err) => return internal_error(err).into_response(),
-    };
-    // An account goes by its confirmed Minecraft name, so its uploads and
-    // that name's imports count as one person's.
-    let name_of = |username: &str| {
-        users
-            .iter()
-            .find(|u| u.username == username)
-            .and_then(|u| {
-                u.minecraft_name.clone().filter(|_| u.minecraft_verified)
-            })
-            .unwrap_or_else(|| username.to_owned())
     };
     let periodic =
         |name: &str| categories.iter().any(|c| c.name == name && c.periodic);
@@ -113,7 +101,7 @@ pub async fn people(
         user_opt.as_ref(),
         &pages::PeoplePage {
             built: &leaderboard::most_built(&all),
-            added: &leaderboard::most_added(&all, name_of),
+            added: &leaderboard::most_added(&all),
             records: &leaderboard::most_records(&all, periodic),
             facets: &facets(&categories, &all, ""),
         },

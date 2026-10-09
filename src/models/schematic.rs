@@ -178,6 +178,9 @@ pub struct Schematic {
     pub description: Option<String>,
     /// The username of the account that uploaded it through the site.
     pub uploader: Option<String>,
+    /// That account as people know it: its Minecraft name, else its
+    /// username.
+    pub uploader_name: Option<String>,
     /// In-game names, in the order given; empty when unknown.
     pub builders: Vec<String>,
     /// In-game names of people who helped without building it, in order.
@@ -302,12 +305,6 @@ impl Schematic {
         }
     }
 
-    /// Who brought the build in: the uploading account, else whoever ran
-    /// the import.
-    pub fn importer(&self) -> Option<&str> {
-        self.uploader.as_deref().or(self.imported_by.as_deref())
-    }
-
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
         match self.synchronized {
@@ -389,17 +386,19 @@ async fn stacking_by_schematic(
 /// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, schematic.category, width, orientation, encoding, latency,
+        r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
-            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
-                as "uploader?: String"
+            user.username as "uploader?: String",
+            coalesce(user.minecraft_name, user.username)
+                as "uploader_name?: String"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
+         LEFT JOIN user ON user.id = schematic.uploaded_by
          ORDER BY schematic.category, width, added_at"#
     )
     .fetch_all(db)
@@ -464,6 +463,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             description: row.description,
             given_name: row.given_name,
             uploader: row.uploader,
+            uploader_name: row.uploader_name,
             sha256: row.sha256,
             added_at: row.added_at,
             edited_at: row.edited_at,
@@ -477,18 +477,20 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
-        r#"SELECT id, schematic.category, width, orientation, encoding, latency,
+        r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
             synchronized as "synchronized: bool", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
-            (SELECT username FROM user WHERE user.id = schematic.uploaded_by)
-                as "uploader?: String"
+            user.username as "uploader?: String",
+            coalesce(user.minecraft_name, user.username)
+                as "uploader_name?: String"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
-         WHERE id = ?"#,
+         LEFT JOIN user ON user.id = schematic.uploaded_by
+         WHERE schematic.id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -542,6 +544,7 @@ pub async fn get(
         description: row.description,
         given_name: row.given_name,
         uploader: row.uploader,
+        uploader_name: row.uploader_name,
         sha256: row.sha256,
         added_at: row.added_at,
         edited_at: row.edited_at,
@@ -603,11 +606,17 @@ pub async fn set_credits(
     .await?;
     for (position, name) in names.iter().enumerate() {
         let position = i64::try_from(position).unwrap_or(i64::MAX);
+        // A name an admin has confirmed for an account is stored as that
+        // account spells it.
         sqlx::query!(
             "INSERT OR IGNORE INTO credit (schematic_id, role, name, position)
-             VALUES (?, ?, ?, ?)",
+             VALUES (?, ?, coalesce(
+                (SELECT minecraft_name FROM user WHERE minecraft_verified
+                    AND minecraft_name = ? COLLATE NOCASE),
+                ?), ?)",
             id,
             role,
+            name,
             name,
             position
         )
@@ -1396,6 +1405,7 @@ mod tests {
             description: None,
             given_name: None,
             uploader: None,
+            uploader_name: None,
             sha256: String::new(),
             added_at: String::new(),
             edited_at: None,

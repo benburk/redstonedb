@@ -106,9 +106,13 @@ impl User {
         self.role == Role::Admin
     }
 
-    /// The name to show: the Discord display name, else the username.
+    /// The name to show: the Minecraft name, as players know each other,
+    /// else the Discord display name, else the username.
     pub fn name(&self) -> &str {
-        self.display_name.as_deref().unwrap_or(&self.username)
+        self.minecraft_name
+            .as_deref()
+            .or(self.display_name.as_deref())
+            .unwrap_or(&self.username)
     }
 
     /// The Discord avatar's image address, when the account has one.
@@ -220,13 +224,14 @@ impl User {
 
     /// Sets or clears the account's Minecraft name. A different name needs
     /// confirming again; the same one in other capitals keeps its
-    /// confirmation. The `Err` is a sentence for the person when the name
+    /// confirmation, and stored credits take the new spelling. The `Err` is a sentence for the person when the name
     /// is taken by another account.
-    pub async fn set_minecraft_name<'e, E: SqliteExecutor<'e>>(
-        db: E,
+    pub async fn set_minecraft_name(
+        db: &SqlitePool,
         id: Uuid,
         name: Option<&str>,
     ) -> Result<Result<(), String>, sqlx::Error> {
+        let mut tx = db.begin().await?;
         let result = sqlx::query!(
             "UPDATE user SET minecraft_name = ?,
                 minecraft_verified = coalesce(
@@ -237,10 +242,15 @@ impl User {
             name,
             id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await;
         match result {
-            Ok(_) => Ok(Ok(())),
+            // Still confirmed, the name may be newly spelled.
+            Ok(_) => {
+                respell(&mut tx, id).await?;
+                tx.commit().await?;
+                Ok(Ok(()))
+            }
             Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
                 Ok(Err(format!(
                     "{} is already the Minecraft name of another account.",
@@ -252,18 +262,23 @@ impl User {
     }
 
     /// Records whether an admin has confirmed the account's Minecraft name.
-    pub async fn set_minecraft_verified<'e, E: SqliteExecutor<'e>>(
-        db: E,
+    /// A confirmed name's spelling becomes the one stored credits and
+    /// importers use.
+    pub async fn set_minecraft_verified(
+        db: &SqlitePool,
         id: Uuid,
         verified: bool,
     ) -> Result<(), sqlx::Error> {
+        let mut tx = db.begin().await?;
         sqlx::query!(
             "UPDATE user SET minecraft_verified = ? WHERE id = ?",
             verified,
             id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
+        respell(&mut tx, id).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -278,4 +293,31 @@ impl User {
             .await?;
         Ok(())
     }
+}
+
+/// Respells the credits and importers that name account `id`'s confirmed
+/// Minecraft name, whatever their capitals, as the account spells it. An
+/// unconfirmed name changes nothing.
+async fn respell(
+    tx: &mut sqlx::SqliteConnection,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE credit SET name = (SELECT minecraft_name FROM user WHERE id = ?1)
+         WHERE name = (SELECT minecraft_name FROM user
+            WHERE id = ?1 AND minecraft_verified) COLLATE NOCASE",
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE schematic
+         SET imported_by = (SELECT minecraft_name FROM user WHERE id = ?1)
+         WHERE imported_by = (SELECT minecraft_name FROM user
+            WHERE id = ?1 AND minecraft_verified) COLLATE NOCASE",
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
 }

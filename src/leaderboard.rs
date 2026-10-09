@@ -304,23 +304,18 @@ pub fn most_built(builds: &[Schematic]) -> Vec<Standing> {
 }
 
 /// People by how many builds they put on the site: an upload counts for
-/// its account, under the name `name_of` gives it, and an import for the
-/// in-game name of whoever imported it.
-pub fn most_added(
-    builds: &[Schematic],
-    name_of: impl Fn(&str) -> String,
-) -> Vec<Standing> {
-    tally(
-        builds
-            .iter()
-            .filter_map(|s| match (&s.uploader, &s.imported_by) {
-                (Some(account), _) => {
-                    Some((name_of(account), Some(account.clone())))
-                }
-                (None, Some(name)) => Some((name.clone(), None)),
-                (None, None) => None,
-            }),
-    )
+/// its account, under its Minecraft name if it has one, and an import for
+/// the in-game name of whoever imported it.
+pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
+    tally(builds.iter().filter_map(|s| {
+        match (&s.uploader, &s.uploader_name, &s.imported_by) {
+            (Some(account), Some(name), _) => {
+                Some((name.clone(), Some(account.clone())))
+            }
+            (_, _, Some(name)) => Some((name.clone(), None)),
+            _ => None,
+        }
+    }))
 }
 
 /// Builders by records held: first place, as fastest or as smallest, on a
@@ -392,6 +387,7 @@ mod tests {
             description: None,
             given_name: None,
             uploader: None,
+            uploader_name: None,
             sha256: String::new(),
             added_at: id.to_owned(),
             edited_at: None,
@@ -502,6 +498,7 @@ mod tests {
             Schematic {
                 builders: vec!["EmbiZone".to_owned(), "alex".to_owned()],
                 uploader: Some("lookaside".to_owned()),
+                uploader_name: Some("EMBIZONE".to_owned()),
                 ..build("b", 8, "other", None, 1)
             },
         ];
@@ -512,7 +509,7 @@ mod tests {
         assert_eq!(built, [("embizone".to_owned(), 2), ("alex".to_owned(), 1)]);
         // The uploading account goes by its Minecraft name, so it and the
         // import count as one person.
-        let added = most_added(&builds, |_| "EMBIZONE".to_owned());
+        let added = most_added(&builds);
         assert_eq!(added.len(), 1);
         assert_eq!(added[0].count, 2);
     }

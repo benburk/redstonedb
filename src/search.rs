@@ -142,13 +142,23 @@ fn facts(s: &Schematic) -> Vec<String> {
     let person =
         |name: &String| name.to_lowercase().replace('_', " ").trim().to_owned();
     let people = s.builders.iter().chain(&s.contributors);
-    facts.extend(people.chain(&s.imported_by).chain(&s.uploader).map(person));
+    facts.extend(
+        people
+            .chain(&s.imported_by)
+            .chain(&s.uploader)
+            .chain(&s.uploader_name)
+            .map(person),
+    );
     let roles = [
         ("builder", s.builders.iter().collect::<Vec<_>>()),
         ("contributor", s.contributors.iter().collect()),
         (
             "importer",
-            s.imported_by.iter().chain(&s.uploader).collect(),
+            s.imported_by
+                .iter()
+                .chain(&s.uploader)
+                .chain(&s.uploader_name)
+                .collect(),
         ),
     ];
     for (role, names) in roles {
@@ -223,6 +233,7 @@ mod tests {
             description: None,
             given_name: None,
             uploader: None,
+            uploader_name: None,
             sha256: String::new(),
             added_at: String::new(),
             edited_at: None,

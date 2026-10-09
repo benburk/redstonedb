@@ -790,10 +790,19 @@ fn schematic_info(s: &Schematic) -> Markup {
                     }
                     (field("File", html! { code class="break-all" { (s.filename()) } }))
                     (field("Downloads", s.downloads.to_string()))
-                    (field("Imported by", s.importer().map_or_else(
-                        || html! { "unknown" },
-                        |name| search_link(name, &format!("importer:{name}")),
-                    )))
+                    // An upload names its account, by its Minecraft name if
+                    // it has one; an import names whoever ran it.
+                    @match (&s.uploader, &s.uploader_name) {
+                        (Some(username), Some(name)) => {
+                            (field("Uploaded by", html! { a href={ "/users/" (username) } { (name) } }))
+                        }
+                        _ => {
+                            (field("Imported by", s.imported_by.as_deref().map_or_else(
+                                || html! { "unknown" },
+                                |name| search_link(name, &format!("importer:{name}")),
+                            )))
+                        }
+                    }
                     (field("Conventions", if s.conventional {
                         html! { "followed" }
                     } else {
@@ -1605,7 +1614,8 @@ fn account_link(user: &User) -> Markup {
             }
             (user.name())
         }
-        @if user.display_name.is_some() {
+        // The Discord username, which says who it is when its name does not.
+        @if user.name() != user.username {
             span class="ml-2 text-meta text-muted" { "@" (user.username) }
         }
     }
