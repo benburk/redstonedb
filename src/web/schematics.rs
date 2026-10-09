@@ -331,7 +331,8 @@ async fn saved(
     form: &details::Form,
     may_create_tags: bool,
 ) -> Result<Result<(), String>, sqlx::Error> {
-    let parsed = match form.parse() {
+    let categories = schematic::categories(db).await?;
+    let parsed = match form.parse(&categories) {
         Ok(parsed) => parsed,
         Err(message) => return Ok(Err(message)),
     };

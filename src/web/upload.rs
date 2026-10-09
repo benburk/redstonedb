@@ -218,7 +218,10 @@ async fn publish_checked(
             n => format!("It breaks {n} building conventions, listed below."),
         });
     }
-    let parsed = sent.form.parse()?;
+    let categories = schematic::categories(&state.db)
+        .await
+        .map_err(|err| format!("Could not load the categories: {err}."))?;
+    let parsed = sent.form.parse(&categories)?;
     // Only an admin may name a tag not yet on the list.
     match schematic::check_new_tags(&state.db, &sent.form.tags, user.is_admin())
         .await

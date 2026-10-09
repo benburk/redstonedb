@@ -1,38 +1,47 @@
 // Details forms. Without this script every field shows and the server
 // checks them all; with it, fields follow the chosen category.
 
-// Category fields: the name box shows only for other, each category's flags
-// only for it, the period only for a serial category, the capacity only for
-// a memory, and the design list
-// only once the chosen category has designs, offering just those.
-for (const select of document.querySelectorAll("select[data-category]")) {
-  const form = select.closest("form");
-  const name = form.querySelector("[data-category-name]");
-  const nameInput = name.querySelector("input");
+// Category fields: the category is typed, with the standard ones suggested,
+// and the fields follow the one it names, by label or name in any capitals.
+// Each category's flags show only for it, the name box only for a category
+// whose builds are named, the period only for a serial one, the capacity
+// only for a memory, and the design list only once the category has
+// designs, offering just those. Text naming no standard category is one off
+// the list, with no width or encoding; that waits until the box is left, so
+// the fields do not jump while a name is typed.
+for (const input of document.querySelectorAll("input[data-category]")) {
+  const form = input.closest("form");
+  const options = [...input.list.options];
   const design = form.querySelector("select[data-design]");
   const designField = form.querySelector("[data-design-field]");
 
-  const update = () => {
-    const other = select.value === "other";
-    name.hidden = !other;
-    nameInput.required = other;
-    // A category off the list has no width or encoding.
+  // The suggestion the text names, as the server reads it.
+  const chosen = () => {
+    const text = input.value.trim().toLowerCase();
+    return options.find(
+      (option) =>
+        option.value.toLowerCase() === text ||
+        option.dataset.name === text.replaceAll(" ", "_"),
+    );
+  };
+
+  const update = (settled) => {
+    const option = chosen();
+    if (!option && !settled) return;
+    const name = option?.dataset.name ?? "";
     for (const field of form.querySelectorAll("[data-standard-only]")) {
-      field.hidden = other;
+      field.hidden = !option && input.value.trim() !== "";
     }
-    // Only the chosen category's flags show.
     for (const flags of form.querySelectorAll("[data-flags-for]")) {
-      flags.hidden = flags.dataset.flagsFor !== select.value;
+      flags.hidden = flags.dataset.flagsFor !== name;
     }
-    form.querySelector("[data-named-field]").hidden =
-      !select.selectedOptions[0]?.hasAttribute("data-named");
-    form.querySelector("[data-period-field]").hidden =
-      !select.selectedOptions[0]?.hasAttribute("data-periodic");
-    form.querySelector("[data-bytes-field]").hidden =
-      !select.selectedOptions[0]?.hasAttribute("data-holds-bytes");
+    const has = (attribute) => option?.hasAttribute(attribute) ?? false;
+    form.querySelector("[data-named-field]").hidden = !has("data-named");
+    form.querySelector("[data-period-field]").hidden = !has("data-periodic");
+    form.querySelector("[data-bytes-field]").hidden = !has("data-holds-bytes");
     let designs = false;
     for (const group of design.querySelectorAll("optgroup")) {
-      const mine = group.dataset.for === select.value;
+      const mine = group.dataset.for === name;
       group.hidden = !mine;
       group.disabled = !mine;
       designs ||= mine;
@@ -41,8 +50,9 @@ for (const select of document.querySelectorAll("select[data-category]")) {
     designField.hidden = !designs;
   };
 
-  select.addEventListener("change", update);
-  update();
+  input.addEventListener("input", () => update(false));
+  input.addEventListener("change", () => update(true));
+  update(true);
 }
 
 // Stacking: the direction rows show only while Stackable is ticked.

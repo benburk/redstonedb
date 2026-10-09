@@ -1,7 +1,7 @@
 //! Reading a build's details from a form, for editing and uploading.
 
 use super::pages::Fields;
-use crate::models::schematic::{self, Details, StackDirection};
+use crate::models::schematic::{self, Category, Details, StackDirection};
 
 /// The ways the form can stack a build, as `StackDirection::name` gives
 /// them, with their labels.
@@ -94,9 +94,9 @@ impl StackRow {
 /// A details form as sent, every field as text; empty means unknown.
 #[derive(Default)]
 pub struct Form {
-    /// A standard category, or `other` with its name in `category_name`.
+    /// The category as typed: a standard one by its name or label, in any
+    /// capitals, or else a name of the builder's own.
     pub category: String,
-    pub category_name: String,
     pub width: String,
     pub orientation: String,
     pub encoding: String,
@@ -114,8 +114,11 @@ pub struct Form {
     /// How many bytes a memory holds.
     pub bytes: String,
     pub design: String,
-    /// The chosen category's ticked flags, such as `carry_in`.
-    pub flags: Vec<String>,
+    /// The ticked flags of every category's group, each with its category,
+    /// such as `("adder", "carry_in")`; parsing keeps the chosen one's.
+    pub flags: Vec<(String, String)>,
+    /// The ticked flags' names, to show the form again.
+    pub flag_names: Vec<String>,
     /// Whether the stacking toggle is on; the rows count only when it is.
     pub stackable: bool,
     pub stack_rows: Vec<StackRow>,
@@ -190,7 +193,6 @@ impl Form {
         };
         Form {
             category: get("category"),
-            category_name: get("category_name"),
             width: get("width"),
             orientation: get("orientation"),
             encoding: get("encoding"),
@@ -208,9 +210,20 @@ impl Form {
             period: get("period"),
             bytes: get("bytes"),
             design: get("design"),
-            // Each category's flags are sent under its own name, so only
-            // the chosen one's count.
-            flags: each(&format!("flag:{}", get("category"))),
+            // Each category's flags are sent under its own name; parsing
+            // keeps the chosen category's.
+            flags: pairs
+                .iter()
+                .filter_map(|(k, v)| {
+                    let category = k.strip_prefix("flag:")?;
+                    Some((category.to_owned(), v.trim().to_owned()))
+                })
+                .collect(),
+            flag_names: pairs
+                .iter()
+                .filter(|(k, _)| k.starts_with("flag:"))
+                .map(|(_, v)| v.trim().to_owned())
+                .collect(),
             stackable: !get("stackable").is_empty(),
             stack_rows,
             builders: all("builder", "builder_entry"),
@@ -226,11 +239,7 @@ impl Form {
     /// under other shows as that name.
     pub fn fields(&self) -> Fields<'_> {
         Fields {
-            category: if self.category == "other" {
-                &self.category_name
-            } else {
-                &self.category
-            },
+            category: &self.category,
             width: &self.width,
             orientation: &self.orientation,
             encoding: &self.encoding,
@@ -244,7 +253,7 @@ impl Form {
             period: &self.period,
             bytes: &self.bytes,
             design: &self.design,
-            flags: &self.flags,
+            flags: &self.flag_names,
             stackable: self.stackable,
             stack_rows: &self.stack_rows,
         }
@@ -271,8 +280,43 @@ impl Form {
         Ok(directions)
     }
 
-    /// The checked fields, or a sentence saying which field is wrong.
-    pub fn parse(&self) -> Result<Parsed, String> {
+    /// The category's name, and whether it is off the list: a standard one
+    /// by its name or label, whatever the capitals, among `categories`, and
+    /// any other text a category of the builder's own.
+    fn category(
+        &self,
+        categories: &[Category],
+    ) -> Result<(String, bool), String> {
+        let typed = self.category.trim();
+        let standard = categories.iter().find(|c| {
+            c.name.eq_ignore_ascii_case(typed)
+                || c.label.eq_ignore_ascii_case(typed)
+                || c.name == schematic::tag_name(typed)
+        });
+        let (category, other) = match standard {
+            Some(c) => (c.name.clone(), false),
+            None => (schematic::tag_name(typed), true),
+        };
+        if category.is_empty() {
+            return Err(
+                "Choose a category, or type a name of your own.".to_owned()
+            );
+        }
+        Ok((category, other))
+    }
+
+    /// The ticks in `category`'s group of flags.
+    fn flags_of(&self, category: &str) -> Vec<String> {
+        self.flags
+            .iter()
+            .filter(|(of, _)| of == category)
+            .map(|(_, flag)| flag.clone())
+            .collect()
+    }
+
+    /// The checked fields, or a sentence saying which field is wrong. The
+    /// category is matched among the standard `categories`.
+    pub fn parse(&self, categories: &[Category]) -> Result<Parsed, String> {
         let text = |value: &str| {
             let value = value.trim();
             (!value.is_empty()).then(|| value.to_owned())
@@ -285,14 +329,7 @@ impl Form {
                 })
                 .transpose()
         };
-        let category = if self.category == "other" {
-            schematic::tag_name(&self.category_name)
-        } else {
-            self.category.trim().to_lowercase()
-        };
-        if category.is_empty() {
-            return Err("Choose a category, or name it under other.".to_owned());
-        }
+        let (category, other) = self.category(categories)?;
         if !matches!(self.orientation.as_str(), "horz" | "vert" | "diag") {
             return Err(
                 "Orientation must be Horizontal, Vertical, or Diagonal."
@@ -301,7 +338,6 @@ impl Form {
         }
         // A category off the list, such as a piston door, has no width or
         // encoding.
-        let other = self.category == "other";
         let encoding = if other {
             None
         } else if matches!(self.encoding.as_str(), "bin" | "hex") {
@@ -346,6 +382,7 @@ impl Form {
                 "Built on must be a date such as 2024-02-02.".to_owned()
             );
         }
+        let flags = self.flags_of(&category);
         Ok(Parsed {
             category,
             width: if other {
@@ -363,7 +400,7 @@ impl Form {
             period: number(&self.period, "Period")?.filter(|p| *p > 0),
             bytes: number(&self.bytes, "Capacity")?.filter(|b| *b > 0),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
-            flags: self.flags.clone(),
+            flags,
             builders: self.builders.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,
@@ -455,16 +492,46 @@ mod tests {
     #[test]
     fn a_category_off_the_list_has_no_width_or_encoding() {
         let sent = Form {
-            category: "other".to_owned(),
-            category_name: "8-Bit Horizontal Diode".to_owned(),
+            category: "8-Bit Horizontal Diode".to_owned(),
             width: "8".to_owned(),
             orientation: "horz".to_owned(),
             encoding: "bin".to_owned(),
             ..Form::default()
         };
-        let parsed = sent.parse().unwrap();
+        let parsed = sent.parse(&[]).unwrap();
         assert_eq!(parsed.category, "8-bit_horizontal_diode");
         assert_eq!((parsed.width, parsed.encoding), (None, None));
+    }
+
+    #[test]
+    fn a_standard_category_is_typed_by_name_or_label() {
+        let hex = Category {
+            name: "hex_to_binary".to_owned(),
+            label: "Hex to Binary".to_owned(),
+            plural: "Hex to Binary".to_owned(),
+            named: false,
+            designs_interchangeable: true,
+            section: None,
+            periodic: false,
+            holds_bytes: false,
+        };
+        for typed in [
+            "Hex to Binary",
+            "hex to binary",
+            "hex_to_binary",
+            " HEX TO BINARY ",
+        ] {
+            let sent = Form {
+                category: typed.to_owned(),
+                width: "4".to_owned(),
+                orientation: "horz".to_owned(),
+                encoding: "hex".to_owned(),
+                ..Form::default()
+            };
+            let parsed = sent.parse(std::slice::from_ref(&hex)).unwrap();
+            assert_eq!(parsed.category, "hex_to_binary", "{typed}");
+            assert_eq!(parsed.width, Some(4), "{typed}");
+        }
     }
 
     #[test]

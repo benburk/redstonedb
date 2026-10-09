@@ -959,6 +959,31 @@ pub struct Choices {
 }
 
 impl Choices {
+    /// The standard category `typed` names, by its name or label, whatever
+    /// the capitals, as the server reads the form.
+    fn category(&self, typed: &str) -> Option<&Category> {
+        let typed = typed.trim();
+        self.categories.iter().find(|c| {
+            c.name.eq_ignore_ascii_case(typed)
+                || c.label.eq_ignore_ascii_case(typed)
+                || c.name == schematic::tag_name(typed)
+        })
+    }
+
+    /// The standard categories as the sidebar lists them: by section, then
+    /// those in none.
+    fn in_sections(&self) -> Vec<&Category> {
+        let rank = |c: &Category| {
+            schematic::SECTIONS
+                .iter()
+                .position(|(name, _)| c.section.as_deref() == Some(*name))
+                .unwrap_or(usize::MAX)
+        };
+        let mut sorted: Vec<&Category> = self.categories.iter().collect();
+        sorted.sort_by_key(|c| rank(c));
+        sorted
+    }
+
     pub async fn load(db: &sqlx::SqlitePool) -> Result<Self, sqlx::Error> {
         Ok(Choices {
             categories: schematic::categories(db).await?,
@@ -972,47 +997,33 @@ impl Choices {
 /// The category, its name when other, its design, and its carry lines.
 fn category_fields(f: &Fields, choices: &Choices) -> Markup {
     html! {
-        // A category off the standard list shows as other, with its name.
-        @let standard = f.category.is_empty()
-            || choices.categories.iter().any(|category| category.name == f.category);
-        @let named = choices
-            .categories
-            .iter()
-            .any(|category| category.name == f.category && category.named);
-        @let periodic = choices
-            .categories
-            .iter()
-            .any(|category| category.name == f.category && category.periodic);
-        @let holds_bytes = choices
-            .categories
-            .iter()
-            .any(|category| category.name == f.category && category.holds_bytes);
+        @let chosen = choices.category(f.category);
+        @let named = chosen.is_some_and(|c| c.named);
+        @let periodic = chosen.is_some_and(|c| c.periodic);
+        @let holds_bytes = chosen.is_some_and(|c| c.holds_bytes);
+        @let chosen_name = chosen.map_or("", |c| c.name.as_str());
         @let has_designs = choices
             .designs
             .iter()
-            .any(|design| design.category == f.category);
+            .any(|design| design.category == chosen_name);
+        // Typed, with the standard categories suggested in sidebar order; a
+        // name of the builder's own makes a category off the list.
         label class="field" {
             span { "Category" }
-            select name="category" required class="input" data-category {
-                @if f.category.is_empty() {
-                    option value="" selected { "Choose a category" }
-                }
-                @for category in &choices.categories {
-                    option value=(category.name) selected[f.category == category.name]
-                        data-named[category.named] data-periodic[category.periodic]
-                        data-holds-bytes[category.holds_bytes] {
-                        (category.label)
-                    }
-                }
-                option value="other" selected[!standard] { "Other" }
+            input name="category" list="category-options" required autocomplete="off"
+                value=(chosen.map_or_else(|| f.category.replace('_', " "), |c| c.label.clone()))
+                placeholder="Type to search, such as adder" aria-describedby="category-help"
+                class="input" data-category;
+            span id="category-help" class="text-meta font-normal" {
+                "Pick one, or type a name of your own for a build that fits none, such as piston door."
             }
         }
-        label class="field" data-category-name {
-            span { "Category name, if other" }
-            input name="category_name" value=(if standard { "" } else { f.category })
-                placeholder="such as line drawer" pattern="[A-Za-z0-9][A-Za-z0-9_ \\-]*"
-                title="Words, numbers, and hyphens, such as 8-bit horizontal diode"
-                class="input";
+        datalist id="category-options" {
+            @for category in choices.in_sections() {
+                option value=(category.label) data-name=(category.name)
+                    data-named[category.named] data-periodic[category.periodic]
+                    data-holds-bytes[category.holds_bytes] {}
+            }
         }
         // For a category whose builds each have a name, such as bussing.
         label class="field" data-named-field hidden[!named] {
@@ -1060,7 +1071,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
         @for category in &choices.categories {
             @let flags: Vec<&Flag> = choices.flags.iter().filter(|flag| flag.category == category.name).collect();
             @if !flags.is_empty() {
-                @let chosen = category.name == f.category;
+                @let chosen = category.name == chosen_name;
                 div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
                     @for flag in flags {
                         label class="flex items-center gap-2" {
@@ -1078,11 +1089,8 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
 /// The inputs for a build's details, shared by editing and uploading.
 fn fields(f: &Fields, choices: &Choices) -> Markup {
     // A category off the list, such as a piston door, has no width or encoding.
-    let other = !f.category.is_empty()
-        && !choices
-            .categories
-            .iter()
-            .any(|category| category.name == f.category);
+    let other =
+        !f.category.is_empty() && choices.category(f.category).is_none();
     html! {
         (category_fields(f, choices))
         label class="field" data-standard-only hidden[other] {
