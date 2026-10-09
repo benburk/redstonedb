@@ -3,8 +3,10 @@
 //! or for a control line a button, or for a signal-strength input dust on
 //! top; an output is a block of an output colour. Each colour is one bus, named by a sign on any of its blocks,
 //! except magenta control lines and pink status lines, each one line named
-//! by its own sign. Each bus's least significant bit is the one nearest the
-//! south-east-bottom corner of the bounding box.
+//! by its own sign, or a row of them named by one sign on any of the row, as
+//! a memory's read lines are. Each bus's least significant bit, and a row's
+//! first line, is the one nearest the south-east-bottom corner of the
+//! bounding box.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -24,7 +26,8 @@ pub struct Port {
     /// The block marking each bit, such as `lime concrete`.
     pub block: String,
     /// Whether it is a line named on its own, a control line such as `carry
-    /// in` or a status line such as `carry out`, rather than a bus.
+    /// in` or a status line such as `carry out`, or a row of them named by
+    /// one sign, such as a memory's read lines, rather than a bus.
     pub labelled: bool,
     /// Least significant first.
     pub bits: Vec<Bit>,
@@ -201,14 +204,20 @@ fn ports(
     } else {
         (&lint::OUTPUT_COLOURS, lint::STATUS)
     };
+    let members: Vec<Pos> = members.into_iter().collect();
+    let rows = line_rows(blocks, &members, signs, line);
+    let in_row: HashSet<Pos> = rows.values().flatten().copied().collect();
     let mut named = Vec::new();
     let mut buses: BTreeMap<&str, Vec<Pos>> = BTreeMap::new();
-    for pos in members {
+    for pos in members.into_iter().filter(|pos| !in_row.contains(pos)) {
         let lines = signs.get(&pos).copied().unwrap_or_default();
         let colour = colour(blocks.get(pos));
         match sign_name(lines).filter(|_| colour == line) {
             Some(name) => {
-                let mut port = port(blocks, name, vec![pos], lines, feeds);
+                // The line, and any row it names.
+                let mut row = vec![pos];
+                row.extend(rows.get(&pos).into_iter().flatten());
+                let mut port = port(blocks, name, row, lines, feeds);
                 port.labelled = true;
                 named.push(port);
             }
@@ -256,6 +265,82 @@ fn ports(
         .collect();
     result.extend(named);
     result
+}
+
+/// The rows that signs name among the `line` colour's `members`: for each
+/// signed block, the unsigned blocks of that colour that continue it.
+fn line_rows(
+    blocks: &Blocks,
+    members: &[Pos],
+    signs: &HashMap<Pos, &[String]>,
+    line: &str,
+) -> HashMap<Pos, Vec<Pos>> {
+    let named = |pos: &Pos| signs.get(pos).and_then(|l| sign_name(l)).is_some();
+    let of_line: Vec<Pos> = members
+        .iter()
+        .copied()
+        .filter(|&pos| colour(blocks.get(pos)) == line)
+        .collect();
+    let signed: Vec<Pos> = of_line.iter().copied().filter(named).collect();
+    let unsigned: HashSet<Pos> =
+        of_line.into_iter().filter(|pos| !named(pos)).collect();
+    rows(&signed, &unsigned)
+}
+
+/// The farthest apart two lines of a row may be.
+const ROW_GAP: i32 = 16;
+
+/// Rows of lines named by one sign. From each block in `signed`, a row runs
+/// both ways through blocks of `unsigned`, in a straight line and evenly
+/// spaced, the spacing being the nearest such block's; of the three axes,
+/// the one with the longest row wins. Each signed block maps to the
+/// unsigned blocks of its row; one with none is left out.
+fn rows(signed: &[Pos], unsigned: &HashSet<Pos>) -> HashMap<Pos, Vec<Pos>> {
+    let mut sorted = signed.to_vec();
+    sorted.sort_unstable();
+    let mut claimed: HashSet<Pos> = HashSet::new();
+    let mut rows = HashMap::new();
+    for head in sorted {
+        let free = |pos: &Pos| unsigned.contains(pos) && !claimed.contains(pos);
+        let along = |axis: usize, k: i32| {
+            let mut pos = head;
+            pos[axis] += k;
+            pos
+        };
+        let best = (0..3)
+            .filter_map(|axis| {
+                let gap = (1..=ROW_GAP).find(|&d| {
+                    free(&along(axis, d)) || free(&along(axis, -d))
+                })?;
+                let run = |sign: i32| {
+                    (1..)
+                        .map(move |k| along(axis, sign * k * gap))
+                        .take_while(|pos| free(pos))
+                };
+                let row: Vec<Pos> = run(1).chain(run(-1)).collect();
+                Some(row)
+            })
+            .max_by_key(Vec::len);
+        if let Some(row) = best {
+            claimed.extend(&row);
+            rows.insert(head, row);
+        }
+    }
+    rows
+}
+
+/// The blocks of every row a sign names, among control lines and among
+/// status lines, so the lint counts them as named.
+pub fn rowed(blocks: &Blocks) -> HashSet<Pos> {
+    let signs = blocks.sign_texts();
+    let members: Vec<Pos> = blocks.iter().map(|(pos, _)| pos).collect();
+    [lint::CONTROL, lint::STATUS]
+        .into_iter()
+        .flat_map(|line| {
+            line_rows(blocks, &members, &signs, line).into_values()
+        })
+        .flatten()
+        .collect()
 }
 
 /// A port with its bits ordered from the one nearest the south-east-bottom
@@ -384,5 +469,35 @@ mod tests {
         );
         assert_eq!(sign_name(&lines(["", "4ss", "", ""])), None);
         assert_eq!(sign_name(&lines(["", "", "", ""])), None);
+    }
+
+    #[test]
+    fn one_sign_names_an_evenly_spaced_row() {
+        // Read lines every other block along x, signed at x = 0.
+        let unsigned: HashSet<Pos> = (1..8).map(|i| [i * 2, 1, 4]).collect();
+        let rows = rows(&[[0, 1, 4]], &unsigned);
+        let mut row = rows[&[0, 1, 4]].clone();
+        row.sort_unstable();
+        assert_eq!(row, (1..8).map(|i| [i * 2, 1, 4]).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_row_stops_at_a_break_in_its_spacing_and_two_signs_split_it() {
+        // A gap of 3 after x = 2 ends the row; a second sign starts another.
+        let unsigned: HashSet<Pos> =
+            [[1, 0, 0], [2, 0, 0], [5, 0, 0], [7, 0, 0]].into();
+        let rows = rows(&[[0, 0, 0], [6, 0, 0]], &unsigned);
+        let mut first = rows[&[0, 0, 0]].clone();
+        first.sort_unstable();
+        assert_eq!(first, [[1, 0, 0], [2, 0, 0]]);
+        let mut second = rows[&[6, 0, 0]].clone();
+        second.sort_unstable();
+        assert_eq!(second, [[5, 0, 0], [7, 0, 0]]);
+    }
+
+    #[test]
+    fn a_signed_line_alone_has_no_row() {
+        let rows = rows(&[[0, 0, 0]], &HashSet::new());
+        assert!(rows.is_empty());
     }
 }

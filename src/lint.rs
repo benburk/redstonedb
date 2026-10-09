@@ -296,12 +296,14 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
 }
 
 /// Signs name the interface: each control and status line by its own sign,
-/// and each bus colour by a sign on any of its blocks, so a bus colour
+/// or a row of them by one sign on the row, and each bus colour by a sign on any of its blocks, so a bus colour
 /// takes one name. A status name belongs on a pink status line, and a name
 /// on a block that is neither an input nor an output names nothing.
 fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
     let signs = blocks.sign_texts();
     let held = interface::feeds(blocks);
+    // Lines named by one sign on their row.
+    let rowed = interface::rowed(blocks);
     let mut buses: BTreeMap<&str, (Pos, Vec<String>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let block = short(state);
@@ -309,12 +311,15 @@ fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
         let line = block == format!("{CONTROL}_concrete")
             || output_colour(block) == Some(STATUS);
         if line {
-            if name.is_none() {
+            if name.is_none() && !rowed.contains(&pos) {
                 let what = if is_input(block) { "control" } else { "status" };
                 say(
                     found,
                     Some(pos),
-                    format!("{what} line has no sign naming it"),
+                    format!(
+                        "{what} line has no sign naming it: sign it, or sign \
+                         one line of its row to name the row"
+                    ),
                 );
             }
             continue;

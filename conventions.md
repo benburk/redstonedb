@@ -15,7 +15,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 | Outputs 1–3  | yellow, orange, brown concrete or glass |
 | Status line  | pink concrete or glass                  |
 
-- Cool colours are inputs and warm colours outputs. Each family runs lightest first: inputs from green to blue, A to D, and outputs from yellow to brown, first to third. Each colour is one bus. Magenta and pink are the exceptions: each magenta block is its own control line, and each pink block its own status line, named by its own sign.
+- Cool colours are inputs and warm colours outputs. Each family runs lightest first: inputs from green to blue, A to D, and outputs from yellow to brown, first to third. Each colour is one bus. Magenta and pink are the exceptions: each magenta block is its own control line, and each pink block its own status line, named by its own sign, unless one sign names a row of them, below.
 - An output colour may be stained glass where the output needs a transparent block.
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
@@ -29,6 +29,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 
 - Each input bit is a block of concrete with a lever on it: lime for every bit of A, light blue for B, cyan for C, blue for D, and magenta for every control line, such as a clock, enable, carry-in, or ALU op line. A further operand, such as the addend of a fused multiply-add, is C.
 - All of one operand colour is one input. Unnamed, the operands take letters in colour order, so the first present is A. A sign naming any block of an operand's colour, such as `addend`, names that whole input, so a colour takes one name. Each magenta block is its own control line, named by its own sign.
+- A row of control lines, such as a memory's read lines, one per word for a decoder of the builder's own, is named by one sign on any line of the row: the lines run in a straight line, evenly spaced, and are numbered from the one nearest the south-east-bottom corner, as `read 0` to `read 15`. A second sign starts another row, such as the write lines. Pink status lines may form a row the same way. A memory may instead take a binary address, as an operand bus, and decode it itself.
 - An input colour with no lever on it is not allowed, unless it is a signal-strength input; other solid blocks are white. Standardizing keeps an input colour with a lever, as concrete, and input-colour concrete with dust on top, and whitens the rest.
 - A control line may use a button instead of a lever, for a pulse such as a reset or a calculate line. Operand bits always use levers.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
