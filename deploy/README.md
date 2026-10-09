@@ -22,6 +22,8 @@ To roll back, move each `*.previous` binary back over its new one and `systemctl
 | `/var/backups/redstonedb` | Daily copies, kept for 14 days          |
 | `/etc/caddy/Caddyfile`    | `deploy/Caddyfile`, installed on deploy |
 
+Each night crimson fetches a fresh copy of the live database into `/srv/backup/redstone-database`, keeping the newest 30, so the data survives losing the server (`dotfiles/hosts/crimson/redstone-backup.nix`).
+
 On the server, `rsdb` runs against the live database as the site's user, as in `rsdb role <name> admin`. `journalctl -u redstonedb` has the log.
 
 ## One-time setup

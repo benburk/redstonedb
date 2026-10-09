@@ -970,18 +970,22 @@ impl Choices {
         })
     }
 
-    /// The standard categories as the sidebar lists them: by section, then
-    /// those in none.
-    fn in_sections(&self) -> Vec<&Category> {
-        let rank = |c: &Category| {
-            schematic::SECTIONS
+    /// The standard categories as the sidebar lists them: each section,
+    /// by its key and heading, with its categories, then any in none under
+    /// Other. A section with no categories is left out.
+    fn sections(&self) -> Vec<(&str, &str, Vec<&Category>)> {
+        let of = |section: Option<&str>| -> Vec<&Category> {
+            self.categories
                 .iter()
-                .position(|(name, _)| c.section.as_deref() == Some(*name))
-                .unwrap_or(usize::MAX)
+                .filter(|c| c.section.as_deref() == section)
+                .collect()
         };
-        let mut sorted: Vec<&Category> = self.categories.iter().collect();
-        sorted.sort_by_key(|c| rank(c));
-        sorted
+        schematic::SECTIONS
+            .iter()
+            .map(|&(key, heading)| (key, heading, of(Some(key))))
+            .chain([("other", "Other", of(None))])
+            .filter(|(_, _, members)| !members.is_empty())
+            .collect()
     }
 
     pub async fn load(db: &sqlx::SqlitePool) -> Result<Self, sqlx::Error> {
@@ -1006,23 +1010,45 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
             .designs
             .iter()
             .any(|design| design.category == chosen_name);
-        // Typed, with the standard categories suggested in sidebar order; a
-        // name of the builder's own makes a category off the list.
-        label class="field" {
-            span { "Category" }
-            input name="category" list="category-options" required autocomplete="off"
-                value=(chosen.map_or_else(|| f.category.replace('_', " "), |c| c.label.clone()))
-                placeholder="Type to search, such as adder" aria-describedby="category-help"
-                class="input" data-category;
-            span id="category-help" class="text-meta font-normal" {
-                "Pick one, or type a name of your own for a build that fits none, such as piston door."
+        // Typed, with a menu of the standard categories under their
+        // sections, as in the sidebar, which form.js opens and narrows as
+        // the box is typed in; a name of the builder's own makes a category
+        // off the list. Without the script, the box takes typing alone.
+        div class="field" {
+            label for="category" class="text-meta font-semibold text-muted" { "Category" }
+            div class="relative" {
+                input id="category" name="category" required autocomplete="off"
+                    role="combobox" aria-controls="category-menu" aria-expanded="false"
+                    aria-autocomplete="list"
+                    value=(chosen.map_or_else(|| f.category.replace('_', " "), |c| c.label.clone()))
+                    placeholder="Type to search, such as adder" aria-describedby="category-help"
+                    class="input" data-category;
+                div id="category-menu" role="listbox" aria-label="Categories" hidden
+                    class="absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay"
+                    data-category-menu {
+                    @for (key, heading, members) in choices.sections() {
+                        div role="group" aria-labelledby={ "category-group-" (key) } data-group {
+                            div id={ "category-group-" (key) } role="presentation"
+                                class="px-2.5 pt-2 pb-1 text-meta font-semibold text-muted" { (heading) }
+                            @for category in members {
+                                div id={ "category-option-" (category.name) } role="option"
+                                    aria-selected="false" data-value=(category.label)
+                                    data-name=(category.name) data-named[category.named]
+                                    data-periodic[category.periodic]
+                                    data-holds-bytes[category.holds_bytes]
+                                    class="cursor-pointer rounded-control px-2.5 py-1.5 text-nav hover:bg-selection aria-selected:bg-selection" {
+                                    (category.label)
+                                }
+                            }
+                        }
+                    }
+                    p role="presentation" hidden class="px-2.5 py-1.5 text-meta text-muted" data-no-match {
+                        "No category matches; this name makes a new one."
+                    }
+                }
             }
-        }
-        datalist id="category-options" {
-            @for category in choices.in_sections() {
-                option value=(category.label) data-name=(category.name)
-                    data-named[category.named] data-periodic[category.periodic]
-                    data-holds-bytes[category.holds_bytes] {}
+            span id="category-help" class="text-meta font-normal text-muted" {
+                "Pick one, or type a name of your own for a build that fits none, such as piston door."
             }
         }
         // For a category whose builds each have a name, such as bussing.

@@ -1,26 +1,29 @@
 // Details forms. Without this script every field shows and the server
 // checks them all; with it, fields follow the chosen category.
 
-// Category fields: the category is typed, with the standard ones suggested,
-// and the fields follow the one it names, by label or name in any capitals.
-// Each category's flags show only for it, the name box only for a category
-// whose builds are named, the period only for a serial one, the capacity
-// only for a memory, and the design list only once the category has
-// designs, offering just those. Text naming no standard category is one off
-// the list, with no width or encoding; that waits until the box is left, so
-// the fields do not jump while a name is typed.
+// Category fields: the category is typed, with a menu of the standard ones
+// under their sections, and the fields follow the one it names, by label or
+// name in any capitals. Each category's flags show only for it, the name box
+// only for a category whose builds are named, the period only for a serial
+// one, the capacity only for a memory, and the design list only once the
+// category has designs, offering just those. Text naming no standard
+// category is one off the list, with no width or encoding; that waits until
+// the box is left, so the fields do not jump while a name is typed.
 for (const input of document.querySelectorAll("input[data-category]")) {
   const form = input.closest("form");
-  const options = [...input.list.options];
+  const menu = document.getElementById(input.getAttribute("aria-controls"));
+  const options = [...menu.querySelectorAll('[role="option"]')];
+  const groups = [...menu.querySelectorAll("[data-group]")];
+  const noMatch = menu.querySelector("[data-no-match]");
   const design = form.querySelector("select[data-design]");
   const designField = form.querySelector("[data-design-field]");
 
-  // The suggestion the text names, as the server reads it.
+  // The category the text names, as the server reads it.
   const chosen = () => {
     const text = input.value.trim().toLowerCase();
     return options.find(
       (option) =>
-        option.value.toLowerCase() === text ||
+        option.dataset.value.toLowerCase() === text ||
         option.dataset.name === text.replaceAll(" ", "_"),
     );
   };
@@ -50,8 +53,85 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     designField.hidden = !designs;
   };
 
-  input.addEventListener("input", () => update(false));
+  // The menu: the categories whose labels hold the typed text, all of them
+  // for an empty box or one that already names a category, so its
+  // neighbours can be picked instead.
+  const visible = () => options.filter((option) => !option.hidden);
+  let active = null;
+  const highlight = (option) => {
+    active?.setAttribute("aria-selected", "false");
+    active = option;
+    if (option) {
+      option.setAttribute("aria-selected", "true");
+      input.setAttribute("aria-activedescendant", option.id);
+      option.scrollIntoView({ block: "nearest" });
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+  };
+  const filter = () => {
+    const text = input.value.trim().toLowerCase();
+    const all = text === "" || chosen() !== undefined;
+    for (const option of options) {
+      option.hidden = !all && !option.dataset.value.toLowerCase().includes(text);
+    }
+    for (const group of groups) {
+      group.hidden = !group.querySelector('[role="option"]:not([hidden])');
+    }
+    noMatch.hidden = visible().length > 0;
+    if (active?.hidden) highlight(null);
+  };
+  const open = () => {
+    filter();
+    menu.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  };
+  const close = () => {
+    menu.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    highlight(null);
+  };
+  const pick = (option) => {
+    input.value = option.dataset.value;
+    close();
+    update(true);
+  };
+
+  input.addEventListener("focus", open);
+  input.addEventListener("click", open);
+  input.addEventListener("input", () => {
+    open();
+    highlight(null);
+    update(false);
+  });
   input.addEventListener("change", () => update(true));
+  input.addEventListener("blur", close);
+  input.addEventListener("keydown", (event) => {
+    const shown = visible();
+    const at = shown.indexOf(active);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (menu.hidden) open();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next = at === -1 ? (step === 1 ? 0 : shown.length - 1) : at + step;
+      highlight(shown[Math.max(0, Math.min(shown.length - 1, next))] ?? null);
+    } else if (event.key === "Enter" && !menu.hidden && active) {
+      // Picks the highlighted category rather than sending the form.
+      event.preventDefault();
+      pick(active);
+    } else if (event.key === "Escape" && !menu.hidden) {
+      event.preventDefault();
+      close();
+    }
+  });
+  // Pressing, not clicking, so the box keeps its focus and does not close
+  // the menu first.
+  menu.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    const option = event.target.closest('[role="option"]');
+    if (option) pick(option);
+  });
+
   update(true);
 }
 
