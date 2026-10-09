@@ -109,6 +109,8 @@ pub struct Form {
     pub description: String,
     /// The build's own name, for a category that takes one.
     pub given_name: String,
+    /// Ticks from one bit to the next, for a serial category's build.
+    pub period: String,
     pub design: String,
     /// The chosen category's ticked flags, such as `carry_in`.
     pub flags: Vec<String>,
@@ -134,6 +136,7 @@ pub struct Parsed {
     pub built_on: Option<String>,
     pub description: Option<String>,
     pub given_name: Option<String>,
+    pub period: Option<i64>,
     pub design: String,
     /// Ticked flags; any not of the category are dropped when stored.
     pub flags: Vec<String>,
@@ -199,6 +202,7 @@ impl Form {
             },
             description: get("description"),
             given_name: get("given_name"),
+            period: get("period"),
             design: get("design"),
             // Each category's flags are sent under its own name, so only
             // the chosen one's count.
@@ -233,6 +237,7 @@ impl Form {
             built_on: &self.built_on,
             description: &self.description,
             given_name: &self.given_name,
+            period: &self.period,
             design: &self.design,
             flags: &self.flags,
             stackable: self.stackable,
@@ -350,6 +355,7 @@ impl Form {
             built_on,
             description: text(&self.description),
             given_name: text(&self.given_name),
+            period: number(&self.period, "Period")?.filter(|p| *p > 0),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
             flags: self.flags.clone(),
             builders: self.builders.clone(),
@@ -371,6 +377,7 @@ impl Parsed {
             built_on: self.built_on.as_deref(),
             description: self.description.as_deref(),
             given_name: self.given_name.as_deref(),
+            period: self.period,
             design: Some(&self.design),
         }
     }

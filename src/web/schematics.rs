@@ -352,6 +352,10 @@ async fn saved(
     if !category.named {
         details.given_name = None;
     }
+    // Likewise, only a serial category's build keeps a period.
+    if !category.periodic {
+        details.period = None;
+    }
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
     schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;

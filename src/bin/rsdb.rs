@@ -60,6 +60,9 @@ enum Command {
         /// The sidebar section it sits in; left out, it sits under Other
         #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
         section: Option<String>,
+        /// Its builds are serial, each with a period in ticks
+        #[arg(long)]
+        periodic: bool,
     },
     /// Add a yes-or-no flag to a category's builds, such as a shift
     /// register being bidirectional
@@ -164,6 +167,7 @@ struct Set {
             "design",
             "flags",
             "name",
+            "period",
         ]
     )]
     unset: Vec<String>,
@@ -201,6 +205,10 @@ struct Details {
     /// Latency in ticks
     #[arg(long)]
     latency: Option<u32>,
+    /// For a serial build, the ticks from one bit to the next, as in a
+    /// 2-tick serial adder
+    #[arg(long)]
+    period: Option<u32>,
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
@@ -285,7 +293,13 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             plural,
             named,
             section,
-        } => define_category(db, name, label, plural, named, section).await,
+            periodic,
+        } => {
+            let label = label.unwrap_or_else(|| schematic::words(&name));
+            let plural = plural.unwrap_or_else(|| format!("{label}s"));
+            define_category(db, [name, label, plural], named, section, periodic)
+                .await
+        }
         Command::DefineFlag {
             category,
             name,
@@ -382,6 +396,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         design: details.design.as_deref(),
         description: details.description.as_deref(),
         given_name: details.given_name.as_deref(),
+        period: details.period.map(i64::from),
     };
     let current = load(db, &id).await?;
     let category = changes.category.unwrap_or(&current.category);
@@ -402,6 +417,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "imported-by" => Some(Optional::ImportedBy),
             "description" => Some(Optional::Description),
             "name" => Some(Optional::GivenName),
+            "period" => Some(Optional::Period),
             "design" => Some(Optional::Design),
             _ => None,
         })
@@ -479,6 +495,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             design: details.design.as_deref(),
             description: details.description.as_deref(),
             given_name: details.given_name.as_deref(),
+            period: details.period.map(i64::from),
             uploaded_by: None,
             sha256: &prepared.sha256,
             data: &prepared.data,
@@ -534,24 +551,22 @@ async fn export(
     Ok(())
 }
 
-/// Adds a standard category, its label being its name's words and its
-/// plural the label with an s unless given.
+/// Adds a standard category from its name, label, and plural.
 async fn define_category(
     db: &SqlitePool,
-    name: String,
-    label: Option<String>,
-    plural: Option<String>,
+    [name, label, plural]: [String; 3],
     named: bool,
     section: Option<String>,
+    periodic: bool,
 ) -> Result<()> {
-    let label = label.unwrap_or_else(|| schematic::words(&name));
     let category = schematic::Category {
-        plural: plural.unwrap_or_else(|| format!("{label}s")),
         name,
         label,
+        plural,
         named,
         designs_interchangeable: true,
         section,
+        periodic,
     };
     Ok(schematic::define_category(db, &category).await?)
 }
@@ -762,6 +777,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
+    if let Some(period) = s.period {
+        println!("period       {period} ticks");
+    }
     println!("synchronized {}", s.synchronized_label());
     println!("design       {}", s.design.replace('_', " "));
     let flags: Vec<&str> = s.flags.iter().map(|f| f.label.as_str()).collect();

@@ -3,7 +3,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Board, Choice, Placed, SHOWN},
+    leaderboard::{self, Board, Choice, Measure, Placed, SHOWN},
     models::{
         schematic::{Category, Schematic},
         user::User,
@@ -44,10 +44,10 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
                         h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
                         (category_tabs(&category.name, true))
                     }
-                    @if board.widths.is_empty() {
+                    @if board.measures.is_empty() {
                         p class="text-muted" {
                             "No " (category.plural.to_lowercase())
-                            " of known width yet, so none to rank."
+                            " of known " (board.by.name()) " yet, so none to rank."
                         }
                     } @else {
                         (choices(&path, board))
@@ -59,16 +59,17 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
     )
 }
 
-/// The board's address with these choices; `None` leaves one out.
+/// The board's address with these choices; `None` leaves one out. The
+/// measure goes under its own name, `width` or `period`.
 fn board_href(
     path: &str,
-    width: Option<i64>,
+    measure: (Measure, Option<i64>),
     orientation: Option<&str>,
     design: Option<&str>,
 ) -> String {
     let mut params = form_urlencoded::Serializer::new(String::new());
-    if let Some(width) = width {
-        params.append_pair("width", &width.to_string());
+    if let (by, Some(n)) = measure {
+        params.append_pair(by.name(), &n.to_string());
     }
     if let Some(orientation) = orientation {
         params.append_pair("orientation", orientation);
@@ -84,28 +85,34 @@ fn board_href(
     }
 }
 
-/// The width, orientation, and design the board is narrowed to. Changing
-/// one resets those after it, which the new choice may not have.
+/// The width or period, orientation, and design the board is narrowed to.
+/// Changing one resets those after it, which the new choice may not have.
 fn choices(path: &str, board: &Board) -> Markup {
     let orientation = board.orientation.as_deref();
+    let measure = (board.by, board.measure);
+    let heading = if board.by == Measure::Width {
+        "Width"
+    } else {
+        "Period"
+    };
     html! {
         div class="mb-6 flex flex-col gap-2" {
-            (choice_row("Width", &board.widths, |c| {
-                (board.width.map(|w| w.to_string()).as_deref() == Some(c.value.as_str()),
-                    board_href(path, c.value.parse().ok(), None, None))
+            (choice_row(heading, &board.measures, |c| {
+                (board.measure.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
+                    board_href(path, (board.by, c.value.parse().ok()), None, None))
             }, None))
             (choice_row("Orientation", &board.orientations, |c| {
                 (orientation == Some(c.value.as_str()),
-                    board_href(path, board.width, Some(&c.value), None))
+                    board_href(path, measure, Some(&c.value), None))
             }, None))
             @if !board.designs.is_empty() {
                 @let all = board.all_designs.then(|| (
                     board.design.is_none(),
-                    board_href(path, board.width, orientation, None),
+                    board_href(path, measure, orientation, None),
                 ));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        board_href(path, board.width, orientation, Some(&c.value)))
+                        board_href(path, measure, orientation, Some(&c.value)))
                 }, all))
             }
         }
@@ -213,8 +220,8 @@ fn board_name(category: &Category, board: &Board) -> String {
             .map(|c| c.label.clone())
     });
     board
-        .width
-        .map(|w| format!("{w}-bit"))
+        .measure
+        .map(|n| board.by.label(n))
         .into_iter()
         .chain(orientation)
         .chain(design)

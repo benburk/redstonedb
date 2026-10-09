@@ -127,6 +127,7 @@ pub async fn preview(
         built_on: "",
         description: "",
         given_name: "",
+        period: "",
         design: "other",
         flags: &flags,
         stackable: false,
@@ -218,15 +219,20 @@ async fn publish_checked(
     }
     let parsed = sent.form.parse()?;
     // Checked here too, so the refusal reads as a sentence of its own.
-    match schematic::check_category(&state.db, &parsed.category, &parsed.design)
-        .await
+    let periodic = match schematic::check_category(
+        &state.db,
+        &parsed.category,
+        &parsed.design,
+    )
+    .await
     {
-        Ok(Ok(_)) => {}
+        // Only a serial category's build keeps a period.
+        Ok(Ok(category)) => category.periodic,
         Ok(Err(message)) => return Err(message),
         Err(err) => {
             return Err(format!("Could not check the category: {err}."));
         }
-    }
+    };
     stack::check(&prepared.data, &parsed.stacking)?;
     let size = &prepared.size;
     let new = New {
@@ -243,6 +249,7 @@ async fn publish_checked(
         design: Some(&parsed.design),
         description: parsed.description.as_deref(),
         given_name: parsed.given_name.as_deref(),
+        period: parsed.period.filter(|_| periodic),
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,
         data: &prepared.data,

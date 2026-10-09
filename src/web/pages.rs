@@ -734,10 +734,19 @@ fn schematic_info(s: &Schematic) -> Markup {
                     @if let Some(design) = s.design_label() {
                         (field("Design", search_link(&design, &s.design)))
                     }
-                    (field("Width", s.width.map_or_else(
-                        || html! { "unknown" },
-                        |w| search_link(&s.width_label().unwrap_or_default(), &format!("{w}b")),
-                    )))
+                    // A serial build with a period has no width to miss.
+                    @if s.width.is_some() || s.period.is_none() {
+                        (field("Width", s.width.map_or_else(
+                            || html! { "unknown" },
+                            |w| search_link(&s.width_label().unwrap_or_default(), &format!("{w}b")),
+                        )))
+                    }
+                    @if let Some(period) = s.period {
+                        (field("Period", search_link(
+                            &format!("{period} {}", if period == 1 { "tick" } else { "ticks" }),
+                            &format!("{period}t"),
+                        )))
+                    }
                     (field("Orientation", search_link(s.orientation_label(), &s.orientation_label().to_lowercase())))
                     @if let Some(encoding) = s.encoding_label() {
                         (field("Encoding", search_link(encoding, &encoding.to_lowercase())))
@@ -811,7 +820,8 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
     let s = e.s;
     let path = format!("/schematics/{}", s.id);
     let number = |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
-    let (width, latency) = (number(s.width), number(s.latency));
+    let (width, latency, period) =
+        (number(s.width), number(s.latency), number(s.period));
     let own_tags: Vec<String> =
         s.tags.iter().map(|tag| tag.name.clone()).collect();
     let own_flags: Vec<String> =
@@ -837,6 +847,7 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
                 built_on: s.built_on.as_deref().unwrap_or(""),
                 description: s.description.as_deref().unwrap_or(""),
                 given_name: s.given_name.as_deref().unwrap_or(""),
+                period: &period,
                 design: &s.design,
                 flags: &own_flags,
                 stackable: !s.stacking.is_empty(),
@@ -884,6 +895,8 @@ pub struct Fields<'a> {
     pub description: &'a str,
     /// The build's own name, for a category that takes one.
     pub given_name: &'a str,
+    /// Ticks from one bit to the next, for a serial category's build.
+    pub period: &'a str,
     pub design: &'a str,
     /// The ticked flags, such as `carry_in`.
     pub flags: &'a [String],
@@ -925,6 +938,10 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
             .categories
             .iter()
             .any(|category| category.name == f.category && category.named);
+        @let periodic = choices
+            .categories
+            .iter()
+            .any(|category| category.name == f.category && category.periodic);
         @let has_designs = choices
             .designs
             .iter()
@@ -937,7 +954,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 }
                 @for category in &choices.categories {
                     option value=(category.name) selected[f.category == category.name]
-                        data-named[category.named] {
+                        data-named[category.named] data-periodic[category.periodic] {
                         (category.label)
                     }
                 }
@@ -956,6 +973,16 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
             span { "Name" }
             input name="given_name" value=(f.given_name) maxlength="60"
                 placeholder="such as Bus Crossing" class="input";
+        }
+        // For a serial category's build, such as a serial adder.
+        label class="field" data-period-field hidden[!periodic] {
+            span { "Period (ticks)" }
+            input type="number" name="period" value=(f.period) min="1" max="1000"
+                inputmode="numeric" placeholder="such as 2" aria-describedby="period-help"
+                class="input";
+            span id="period-help" class="text-meta font-normal" {
+                "Ticks from one bit to the next: a 2-tick serial adder takes a new bit every 2 ticks."
+            }
         }
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {
@@ -1720,10 +1747,34 @@ pub fn upload(user: &User, message: &str) -> Markup {
                     }
                     div { button type="submit" class="btn btn-primary" { "Preview" } }
                 }
+                (schemati_guide())
                 (marking_guide())
             }
         },
     )
+}
+
+/// How to get a Schemati link for a build on the Open Redstone Engineers
+/// server.
+fn schemati_guide() -> Markup {
+    html! {
+        section aria-labelledby="schemati-heading" class="mb-10 max-w-prose leading-prose" {
+            h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-3" } { "From the Open Redstone Engineers server" }
+            ol class="flex list-decimal flex-col gap-1.5 pl-5" {
+                li {
+                    "Select the whole build with WorldEdit: " code { "//wand" }
+                    ", then left-click one corner and right-click the opposite one."
+                }
+                li { code { "//copy" } }
+                li { code { "//save <name>" } ", which keeps it in Schemati." }
+                li {
+                    code { "//download <name>" } ". Click the link it prints in chat and choose "
+                    strong { "Copy to Clipboard" } "."
+                }
+                li { "Paste the link into the Schemati link box above. It works for seven days." }
+            }
+        }
+    }
 }
 
 /// One role in the marking guide: its colours, as swatch and name, and

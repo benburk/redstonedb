@@ -1,5 +1,6 @@
 //! Leaderboards: a category's builds ranked against the others that match
-//! them in width, orientation, and design, since only those compete.
+//! them in width, orientation, and design, since only those compete. A
+//! serial category's builds match in period instead of width.
 
 use std::collections::BTreeMap;
 
@@ -8,10 +9,44 @@ use crate::models::schematic::Schematic;
 /// How many builds each ranking shows.
 pub const SHOWN: usize = 10;
 
+/// What a category's boards are split by first: width in bits, or for a
+/// serial category, period in ticks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measure {
+    Width,
+    Period,
+}
+
+impl Measure {
+    pub fn of(self, s: &Schematic) -> Option<i64> {
+        match self {
+            Measure::Width => s.width,
+            Measure::Period => s.period,
+        }
+    }
+
+    /// Such as `8-bit` or `2-tick`.
+    pub fn label(self, n: i64) -> String {
+        match self {
+            Measure::Width => format!("{n}-bit"),
+            Measure::Period => format!("{n}-tick"),
+        }
+    }
+
+    /// Its name as a heading, and in a board's address.
+    pub fn name(self) -> &'static str {
+        match self {
+            Measure::Width => "width",
+            Measure::Period => "period",
+        }
+    }
+}
+
 /// What a leaderboard's address asks for; `None` takes the default.
 #[derive(Debug, Default)]
 pub struct Wanted {
-    pub width: Option<i64>,
+    /// The width or period.
+    pub measure: Option<i64>,
     pub orientation: Option<String>,
     /// A design's name; `None` for every design, where they compete.
     pub design: Option<String>,
@@ -29,8 +64,9 @@ pub struct Choice {
 /// builds left.
 #[derive(Debug)]
 pub struct Board<'a> {
-    pub widths: Vec<Choice>,
-    pub width: Option<i64>,
+    pub by: Measure,
+    pub measures: Vec<Choice>,
+    pub measure: Option<i64>,
     pub orientations: Vec<Choice>,
     pub orientation: Option<String>,
     /// Empty when the category has a single design.
@@ -44,28 +80,29 @@ pub struct Board<'a> {
 
 /// The board of `category` that `wanted` asks for. Each choice not asked
 /// for falls to the most common value among the builds the earlier choices
-/// leave, so a board starts where most builds are. A build of unknown width
-/// competes on no board.
+/// leave, so a board starts where most builds are. A build whose width, or
+/// period, is unknown competes on no board.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
+    by: Measure,
     designs_interchangeable: bool,
 ) -> Board<'a> {
     let ranked: Vec<&Schematic> = category
         .iter()
         .copied()
-        .filter(|s| s.width.is_some())
+        .filter(|s| by.of(s).is_some())
         .collect();
 
-    let widths = choices(&ranked, |s| {
-        let width = s.width.unwrap_or_default();
+    let measures = choices(&ranked, |s| {
+        let n = by.of(s).unwrap_or_default();
         // Zero-padded, so the choices sort by number.
-        (format!("{width:08}"), format!("{width}-bit"))
+        (format!("{n:08}"), by.label(n))
     });
-    let width = wanted
-        .width
-        .or_else(|| most_common(&widths).and_then(|value| value.parse().ok()));
-    let widths = widths
+    let measure = wanted.measure.or_else(|| {
+        most_common(&measures).and_then(|value| value.parse().ok())
+    });
+    let measures = measures
         .into_iter()
         .map(|c| Choice {
             value: c.value.trim_start_matches('0').to_owned(),
@@ -73,7 +110,7 @@ pub fn board<'a>(
         })
         .collect();
     let ranked: Vec<&Schematic> =
-        ranked.into_iter().filter(|s| s.width == width).collect();
+        ranked.into_iter().filter(|s| by.of(s) == measure).collect();
 
     let orientations = choices(&ranked, |s| {
         (s.orientation.clone(), s.orientation_label().to_owned())
@@ -107,8 +144,9 @@ pub fn board<'a>(
         .filter(|s| design.as_ref().is_none_or(|d| &s.design == d))
         .collect();
     Board {
-        widths,
-        width,
+        by,
+        measures,
+        measure,
         orientations,
         orientation,
         designs: if designs.len() > 1 {
@@ -232,6 +270,7 @@ mod tests {
             encoding: Some("bin".to_owned()),
             latency,
             synchronized: None,
+            period: None,
             size: (volume, 1, 1),
             stacking: Vec::new(),
             builders: Vec::new(),
@@ -274,11 +313,11 @@ mod tests {
     fn a_board_starts_at_the_most_common_width_with_every_design() {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let board = board(&all, &Wanted::default(), true);
-        assert_eq!(board.width, Some(8));
+        let board = board(&all, &Wanted::default(), Measure::Width, true);
+        assert_eq!(board.measure, Some(8));
         assert_eq!(
             board
-                .widths
+                .measures
                 .iter()
                 .map(|c| c.value.as_str())
                 .collect::<Vec<_>>(),
@@ -294,7 +333,7 @@ mod tests {
     fn designs_that_differ_never_share_a_board() {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let board = board(&all, &Wanted::default(), false);
+        let board = board(&all, &Wanted::default(), Measure::Width, false);
         assert!(!board.all_designs);
         assert_eq!(board.design.as_deref(), Some("carry_cancel"));
         assert_eq!(board.builds.len(), 2);
@@ -304,7 +343,7 @@ mod tests {
     fn rankings_share_a_place_on_a_tie_and_skip_unknown_latency() {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let board = board(&all, &Wanted::default(), true);
+        let board = board(&all, &Wanted::default(), Measure::Width, true);
         assert_eq!(
             ids(&fastest(&board.builds)),
             [(1, "a"), (2, "b"), (3, "d"), (4, "c"), (5, "e")]

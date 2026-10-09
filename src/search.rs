@@ -130,6 +130,13 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{w} bit"),
         ]);
     }
+    if let Some(p) = s.period {
+        facts.extend([
+            format!("{p}t"),
+            format!("{p}-tick"),
+            format!("{p} tick"),
+        ]);
+    }
     // In-game names keep their capitals and underscores, but terms are
     // lowercase, with spaces for underscores.
     let person =
@@ -201,6 +208,7 @@ mod tests {
             encoding: Some("bin".to_owned()),
             latency: None,
             synchronized: None,
+            period: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
             builders: vec!["embizone".to_owned()],
@@ -266,6 +274,17 @@ mod tests {
         assert!(find("08b", &adder));
         assert!(!find("16b", &adder));
         assert!(find("add", &adder), "falls back to the title");
+    }
+
+    #[test]
+    fn a_period_matches_in_ticks() {
+        let serial = Schematic {
+            period: Some(2),
+            ..schematic("serial_adder", "horz", &[])
+        };
+        assert!(find("2t", &serial));
+        assert!(find("2-tick", &serial));
+        assert!(!find("3t", &serial));
     }
 
     #[test]

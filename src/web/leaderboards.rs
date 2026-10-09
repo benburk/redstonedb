@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::{
     app_state::AppState,
     error::internal_error,
-    leaderboard::{self, Wanted},
+    leaderboard::{self, Measure, Wanted},
     models::{
         schematic::{self, Schematic},
         user::User,
@@ -17,10 +17,11 @@ use crate::{
 use super::pages;
 
 /// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel`,
-/// each optional.
+/// each optional, with `period` in place of `width` for a serial category.
 #[derive(Deserialize)]
 pub struct BoardQuery {
     width: Option<String>,
+    period: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
 }
@@ -48,7 +49,9 @@ pub async fn show(
     };
     let ranked = |name: &str| {
         all.iter()
-            .filter(|s| s.category == name && s.width.is_some())
+            .filter(|s| {
+                s.category == name && (s.width.is_some() || s.period.is_some())
+            })
             .count()
     };
     // Only categories with a build to rank, and the one shown.
@@ -63,15 +66,24 @@ pub async fn show(
         .filter(|f| f.count > 0 || f.name == category)
         .collect();
     let given = |value: Option<String>| value.filter(|v| !v.is_empty());
+    let (by, measure) = if chosen.periodic {
+        (Measure::Period, query.period)
+    } else {
+        (Measure::Width, query.width)
+    };
     let wanted = Wanted {
-        width: given(query.width).and_then(|w| w.parse().ok()),
+        measure: given(measure).and_then(|n| n.parse().ok()),
         orientation: given(query.orientation),
         design: given(query.design),
     };
     let builds: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
-    let board =
-        leaderboard::board(&builds, &wanted, chosen.designs_interchangeable);
+    let board = leaderboard::board(
+        &builds,
+        &wanted,
+        by,
+        chosen.designs_interchangeable,
+    );
     pages::leaderboard(
         user_opt.as_ref(),
         &pages::LeaderboardPage {

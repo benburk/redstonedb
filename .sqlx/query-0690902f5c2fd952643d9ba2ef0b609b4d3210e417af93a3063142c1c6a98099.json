@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO category (name, label, plural, named, section,\n            periodic)\n         VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "0690902f5c2fd952643d9ba2ef0b609b4d3210e417af93a3063142c1c6a98099"
+}
