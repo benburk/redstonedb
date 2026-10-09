@@ -45,6 +45,8 @@ pub struct User {
     pub minecraft_name: Option<String>,
     /// Whether an admin has confirmed the Minecraft name is the person's.
     pub minecraft_verified: bool,
+    /// The player behind the Minecraft name, as Mojang knows them.
+    pub minecraft_uuid: Option<String>,
 }
 
 /// Who Discord says a person is, from its `/users/@me`.
@@ -64,6 +66,7 @@ struct Row {
     role: String,
     minecraft_name: Option<String>,
     minecraft_verified: bool,
+    minecraft_uuid: Option<String>,
 }
 
 impl From<Row> for User {
@@ -77,6 +80,7 @@ impl From<Row> for User {
             role: Role::parse(&row.role).unwrap_or(Role::User),
             minecraft_name: row.minecraft_name,
             minecraft_verified: row.minecraft_verified,
+            minecraft_uuid: row.minecraft_uuid,
         }
     }
 }
@@ -133,7 +137,7 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool"
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
              FROM user WHERE id = ?"#,
             id
         )
@@ -150,7 +154,7 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool"
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
              FROM user WHERE username = ?"#,
             username
         )
@@ -167,7 +171,7 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool"
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
              FROM user
              ORDER BY role = 'user', role = 'mod', username"#
         )
@@ -212,7 +216,7 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool"
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
              FROM user WHERE discord_id = ?"#,
             profile.id
         )
@@ -230,15 +234,17 @@ impl User {
         db: &SqlitePool,
         id: Uuid,
         name: Option<&str>,
+        uuid: Option<&str>,
     ) -> Result<Result<(), String>, sqlx::Error> {
         let mut tx = db.begin().await?;
         let result = sqlx::query!(
-            "UPDATE user SET minecraft_name = ?,
+            "UPDATE user SET minecraft_name = ?, minecraft_uuid = ?,
                 minecraft_verified = coalesce(
                     minecraft_verified AND minecraft_name = ? COLLATE NOCASE,
                     0)
              WHERE id = ?",
             name,
+            uuid,
             name,
             id
         )
@@ -292,6 +298,65 @@ impl User {
             .execute(db)
             .await?;
         Ok(())
+    }
+}
+
+impl User {
+    /// Every Minecraft name stored: credited, importing, or an account's.
+    pub async fn player_names(
+        db: &SqlitePool,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"SELECT name as "name!: String" FROM credit
+             UNION SELECT imported_by FROM schematic
+                WHERE imported_by IS NOT NULL
+             UNION SELECT minecraft_name FROM user
+                WHERE minecraft_name IS NOT NULL"#
+        )
+        .fetch_all(db)
+        .await
+    }
+
+    /// Spells `name` as given wherever it is stored in other capitals, and
+    /// records `uuid` for an account with the name. Returns how many places
+    /// changed.
+    pub async fn respell_player(
+        db: &SqlitePool,
+        name: &str,
+        uuid: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let mut tx = db.begin().await?;
+        // The columns compare without capitals, so a change in spelling
+        // alone shows only to a binary comparison.
+        let credits = sqlx::query!(
+            "UPDATE credit SET name = ?1
+             WHERE name = ?1 AND name <> ?1 COLLATE BINARY",
+            name
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        let imports = sqlx::query!(
+            "UPDATE schematic SET imported_by = ?1
+             WHERE imported_by = ?1 COLLATE NOCASE
+                AND imported_by <> ?1 COLLATE BINARY",
+            name
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        let accounts = sqlx::query!(
+            "UPDATE user SET minecraft_name = ?1, minecraft_uuid = ?2
+             WHERE minecraft_name = ?1 AND (minecraft_name <> ?1 COLLATE BINARY
+                OR minecraft_uuid IS NOT ?2)",
+            name,
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        Ok(credits + imports + accounts)
     }
 }
 

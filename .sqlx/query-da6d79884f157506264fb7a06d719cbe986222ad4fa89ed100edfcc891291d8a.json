@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET minecraft_name = ?, minecraft_uuid = ?,\n                minecraft_verified = coalesce(\n                    minecraft_verified AND minecraft_name = ? COLLATE NOCASE,\n                    0)\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "da6d79884f157506264fb7a06d719cbe986222ad4fa89ed100edfcc891291d8a"
+}

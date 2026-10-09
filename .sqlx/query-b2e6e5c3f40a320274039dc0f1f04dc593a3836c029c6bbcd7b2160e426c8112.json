@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET minecraft_name = ?1, minecraft_uuid = ?2\n             WHERE minecraft_name = ?1 AND (minecraft_name <> ?1 COLLATE BINARY\n                OR minecraft_uuid IS NOT ?2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b2e6e5c3f40a320274039dc0f1f04dc593a3836c029c6bbcd7b2160e426c8112"
+}

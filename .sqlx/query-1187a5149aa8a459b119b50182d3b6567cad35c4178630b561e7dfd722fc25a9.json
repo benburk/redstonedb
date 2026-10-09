@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id: Uuid\", discord_id, username, display_name,\n                avatar, role, minecraft_name,\n                minecraft_verified as \"minecraft_verified: bool\"\n             FROM user WHERE discord_id = ?",
+  "query": "SELECT id as \"id: Uuid\", discord_id, username, display_name,\n                avatar, role, minecraft_name,\n                minecraft_verified as \"minecraft_verified: bool\", minecraft_uuid\n             FROM user WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,11 @@
         "name": "minecraft_verified: bool",
         "ordinal": 7,
         "type_info": "Integer"
+      },
+      {
+        "name": "minecraft_uuid",
+        "ordinal": 8,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -55,8 +60,9 @@
       true,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "544e79306b88914eaf54f6e31f0aaab9868358de2fe7cc7e42ad9e17ffd326fb"
+  "hash": "1187a5149aa8a459b119b50182d3b6567cad35c4178630b561e7dfd722fc25a9"
 }

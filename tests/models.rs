@@ -175,7 +175,7 @@ async fn deleting_a_user_deletes_their_sessions() {
 async fn an_account_goes_by_its_minecraft_name() {
     let db = setup_test_db().await;
     let user = sign_in(&db, "1", "steve").await;
-    User::set_minecraft_name(&db, user.id, Some("Steve_Builds"))
+    User::set_minecraft_name(&db, user.id, Some("Steve_Builds"), None)
         .await
         .unwrap()
         .unwrap();
@@ -212,7 +212,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
     };
 
     let user = sign_in(&db, "1", "pishleback").await;
-    User::set_minecraft_name(&db, user.id, Some("pishleback"))
+    User::set_minecraft_name(&db, user.id, Some("pishleback"), None)
         .await
         .unwrap()
         .unwrap();
@@ -226,7 +226,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 
     // Confirmed, the same name in new capitals keeps its confirmation and
     // respells again.
-    User::set_minecraft_name(&db, user.id, Some("PishLeback"))
+    User::set_minecraft_name(&db, user.id, Some("PishLeback"), None)
         .await
         .unwrap()
         .unwrap();

@@ -13,6 +13,7 @@ use crate::{
     interface, lint,
     models::schematic::{self, Category, Credit, Schematic},
     models::user::User,
+    mojang,
     schem::Blocks,
     search, stack, standardize, thumbnail,
 };
@@ -356,13 +357,17 @@ async fn saved(
     if !category.periodic {
         details.period = None;
     }
+    // Credited as their players spell them, asked before the transaction
+    // opens so it is not held across the lookup.
+    let builders = mojang::respell(&parsed.builders).await;
+    let contributors = mojang::respell(&parsed.contributors).await;
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
     schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
     schematic::set_flags(&mut tx, id, &flags).await?;
     let credits = [
-        (Credit::Builder, &parsed.builders),
-        (Credit::Contributor, &parsed.contributors),
+        (Credit::Builder, &builders),
+        (Credit::Contributor, &contributors),
     ];
     for (credit, names) in credits {
         schematic::set_credits(&mut tx, id, credit, names).await?;

@@ -14,6 +14,7 @@ pub mod interface;
 pub mod leaderboard;
 pub mod lint;
 pub mod models;
+pub mod mojang;
 pub mod schem;
 pub mod schemati;
 pub mod search;

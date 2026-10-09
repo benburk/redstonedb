@@ -1436,6 +1436,7 @@ mod tests {
             role,
             minecraft_name: name.map(str::to_owned),
             minecraft_verified: verified,
+            minecraft_uuid: None,
         };
         let cla = cla();
         assert!(user(Some("EmbiZone"), true, Role::User).may_edit(&cla));

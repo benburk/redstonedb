@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name as \"name!: String\" FROM credit\n             UNION SELECT imported_by FROM schematic\n                WHERE imported_by IS NOT NULL\n             UNION SELECT minecraft_name FROM user\n                WHERE minecraft_name IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4597ac3626db38b516d59139827c64b56fe5a848825e1b1d4b8d59f34c6c1f44"
+}

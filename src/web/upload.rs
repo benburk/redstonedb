@@ -19,7 +19,7 @@ use crate::{
         schematic::{self, New, Tag},
         user::User,
     },
-    schemati, stack,
+    mojang, schemati, stack,
 };
 
 use super::{
@@ -254,9 +254,12 @@ async fn publish_checked(
         sha256: &prepared.sha256,
         data: &prepared.data,
     };
+    // Credited as their players spell them.
+    let builders = mojang::respell(&parsed.builders).await;
+    let contributors = mojang::respell(&parsed.contributors).await;
     let extras = import::Extras {
-        builders: &parsed.builders,
-        contributors: &parsed.contributors,
+        builders: &builders,
+        contributors: &contributors,
         tags: &sent.form.tags,
         // Anyone uploading may name a new tag; it starts under other.
         new_tags: true,

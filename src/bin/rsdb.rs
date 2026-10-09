@@ -13,6 +13,7 @@ use app::{
     import, interface,
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
     models::user::{Role, User},
+    mojang,
     schem::Blocks,
     search, stack, standardize,
 };
@@ -42,6 +43,9 @@ enum Command {
     /// Read every stored file again: take out corner markers, fit its box,
     /// turn status lines pink, and measure it
     Reread,
+    /// Respell every stored Minecraft name as its player spells it, asking
+    /// Mojang: credits, importers, and accounts, which also gain the UUID
+    Respell,
     /// List the standard categories, with their designs and flags
     Categories,
     /// Add a standard category to the list
@@ -286,6 +290,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Reread => reread(db).await,
+        Command::Respell => respell(db).await,
         Command::Categories => print_categories(db).await,
         Command::DefineCategory {
             name,
@@ -295,10 +300,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             section,
             periodic,
         } => {
-            let label = label.unwrap_or_else(|| schematic::words(&name));
-            let plural = plural.unwrap_or_else(|| format!("{label}s"));
-            define_category(db, [name, label, plural], named, section, periodic)
-                .await
+            let names = (name, label, plural);
+            define_category(db, names, named, section, periodic).await
         }
         Command::DefineFlag {
             category,
@@ -448,7 +451,8 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         {
             bail!("{name} is not a Minecraft name");
         }
-        schematic::set_credits(&mut conn, &id, credit, names).await?;
+        let names = mojang::respell(names).await;
+        schematic::set_credits(&mut conn, &id, credit, &names).await?;
     }
     println!("{}", load(db, &id).await?.filename());
     Ok(())
@@ -479,6 +483,9 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let mut flags = details.flags.clone();
     flags.extend(import::sign_flags(&interface::read(&prepared.blocks)));
     let imported_by = details.imported_by.clone();
+    // Credited as their players spell them.
+    let builders = mojang::respell(&details.builders).await;
+    let contributors = mojang::respell(&details.contributors).await;
     let id = import::store(
         db,
         &New {
@@ -501,8 +508,8 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             data: &prepared.data,
         },
         &import::Extras {
-            builders: &details.builders,
-            contributors: &details.contributors,
+            builders: &builders,
+            contributors: &contributors,
             tags: &args.tags,
             new_tags: false,
             stacking: &details.stacking,
@@ -551,14 +558,17 @@ async fn export(
     Ok(())
 }
 
-/// Adds a standard category from its name, label, and plural.
+/// Adds a standard category from its name, label, and plural, the label
+/// being the name's words and the plural the label with an s unless given.
 async fn define_category(
     db: &SqlitePool,
-    [name, label, plural]: [String; 3],
+    (name, label, plural): (String, Option<String>, Option<String>),
     named: bool,
     section: Option<String>,
     periodic: bool,
 ) -> Result<()> {
+    let label = label.unwrap_or_else(|| schematic::words(&name));
+    let plural = plural.unwrap_or_else(|| format!("{label}s"));
     let category = schematic::Category {
         name,
         label,
@@ -671,6 +681,22 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
         }
     }
+    Ok(())
+}
+
+/// Asks Mojang how each stored Minecraft name is spelled and respells it
+/// wherever it differs. A name Mojang does not know is left as it is.
+async fn respell(db: &SqlitePool) -> Result<()> {
+    let names = User::player_names(db).await?;
+    let found = mojang::profiles(&names).await.map_err(anyhow::Error::msg)?;
+    for player in &found {
+        let changed =
+            User::respell_player(db, &player.name, &player.uuid).await?;
+        if changed > 0 {
+            println!("{}  {changed} respelled", player.name);
+        }
+    }
+    println!("{} of {} names known to Mojang", found.len(), names.len());
     Ok(())
 }
 
