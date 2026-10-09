@@ -173,6 +173,9 @@ pub struct Schematic {
     /// How people read the design when that is not just its name's words,
     /// such as `XOR`.
     pub design_given_label: Option<String>,
+    /// Whether the design names the build in place of the category, as an
+    /// incrementer's does: `8-bit Decrementer`.
+    pub named_by_design: bool,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,
@@ -245,10 +248,19 @@ impl Schematic {
     /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
         self.measures()
-            .chain(self.design_label())
-            .chain([self.what()])
+            .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// The design and what the build is, as a name ends, such as `Carry
+    /// Lookahead Adder`; a design that names the build stands alone, as
+    /// in `Decrementer`.
+    fn kind(&self) -> Vec<String> {
+        match self.design_label() {
+            Some(design) if self.named_by_design => vec![design],
+            design => design.into_iter().chain([self.what()]).collect(),
+        }
     }
 
     /// A readable name from the most identifying facts, such as
@@ -257,8 +269,7 @@ impl Schematic {
         self.measures()
             .chain(self.tags_in("restriction").map(Tag::label))
             .chain(self.tags_in("other").map(Tag::label))
-            .chain(self.design_label())
-            .chain([self.what()])
+            .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -276,7 +287,7 @@ impl Schematic {
     /// The download filename: the build's name with dashes for spaces,
     /// such as `8-bit-Carry-Lookahead-Adder.schem`.
     pub fn filename(&self) -> String {
-        format!("{}.schem", self.name().replace(' ', "-"))
+        format!("{}.schem", self.name().replace([' ', '/'], "-"))
     }
 
     /// The number of blocks inside the build's bounding box.
@@ -400,6 +411,8 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
+            coalesce((SELECT named_by_design FROM category WHERE category.name =
+                schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
                 as "uploader_name?: String"
@@ -468,6 +481,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             design: row.design,
             design_abbreviation: row.design_abbreviation,
             design_given_label: row.design_given_label,
+            named_by_design: row.named_by_design,
             description: row.description,
             given_name: row.given_name,
             uploader: row.uploader,
@@ -492,6 +506,8 @@ pub async fn get(
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
+            coalesce((SELECT named_by_design FROM category WHERE category.name =
+                schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
                 as "uploader_name?: String"
@@ -552,6 +568,7 @@ pub async fn get(
         design: row.design,
         design_abbreviation: row.design_abbreviation,
         design_given_label: row.design_given_label,
+        named_by_design: row.named_by_design,
         description: row.description,
         given_name: row.given_name,
         uploader: row.uploader,
@@ -801,6 +818,8 @@ pub struct Category {
     pub periodic: bool,
     /// Whether its builds are memories, each holding a number of bytes.
     pub holds_bytes: bool,
+    /// Whether a build's design names it in place of the category.
+    pub named_by_design: bool,
 }
 
 /// The sidebar's sections of standard categories, in order: each stored
@@ -848,7 +867,8 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
             designs_interchangeable as "designs_interchangeable: bool",
             section,
             periodic as "periodic: bool",
-            holds_bytes as "holds_bytes: bool"
+            holds_bytes as "holds_bytes: bool",
+            named_by_design as "named_by_design: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
@@ -919,6 +939,7 @@ pub async fn check_category(
             section: None,
             periodic: false,
             holds_bytes: false,
+            named_by_design: false,
         });
     let listed = designs(db)
         .await?
@@ -1473,6 +1494,7 @@ mod tests {
             design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
             design_given_label: None,
+            named_by_design: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -1541,12 +1563,34 @@ mod tests {
     }
 
     #[test]
+    fn an_incrementer_goes_by_its_design() {
+        let s = Schematic {
+            category: "incrementer".to_owned(),
+            category_label: Some("Incrementer".to_owned()),
+            design: "inc_dec".to_owned(),
+            design_given_label: Some("Inc/Dec".to_owned()),
+            named_by_design: true,
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(s.name(), "8-bit Inc/Dec");
+        assert_eq!(s.filename(), "8-bit-Inc-Dec.schem");
+        let unsure = Schematic {
+            design: "other".to_owned(),
+            design_given_label: None,
+            ..s
+        };
+        assert_eq!(unsure.name(), "8-bit Incrementer");
+    }
+
+    #[test]
     fn a_design_keeps_its_label() {
         let s = Schematic {
             category: "gate".to_owned(),
             category_label: Some("Gate".to_owned()),
             design: "nand_xnor".to_owned(),
             design_given_label: Some("NAND+XNOR".to_owned()),
+            named_by_design: false,
             tags: Vec::new(),
             ..cla()
         };

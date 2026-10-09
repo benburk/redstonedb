@@ -418,6 +418,7 @@ mod tests {
             design: design.to_owned(),
             design_abbreviation: None,
             design_given_label: None,
+            named_by_design: false,
             flags: Vec::new(),
             description: None,
             given_name: None,

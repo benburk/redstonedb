@@ -574,6 +574,7 @@ async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
         section: args.section,
         periodic: args.periodic,
         holds_bytes: args.holds_bytes,
+        named_by_design: false,
     };
     Ok(schematic::define_category(db, &category).await?)
 }

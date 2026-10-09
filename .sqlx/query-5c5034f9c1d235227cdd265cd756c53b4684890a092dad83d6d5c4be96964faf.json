@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -129,13 +129,18 @@
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "named_by_design!: bool",
         "ordinal": 25,
+        "type_info": "Integer"
+      },
+      {
+        "name": "uploader?: String",
+        "ordinal": 26,
         "type_info": "Text"
       },
       {
         "name": "uploader_name?: String",
-        "ordinal": 26,
+        "ordinal": 27,
         "type_info": "Text"
       }
     ],
@@ -168,9 +173,10 @@
       true,
       true,
       true,
+      false,
       true,
       true
     ]
   },
-  "hash": "031a50cb53eb2319d0e078a32e7cd688fcf284e636f1c095b1436f0a13e603cf"
+  "hash": "5c5034f9c1d235227cdd265cd756c53b4684890a092dad83d6d5c4be96964faf"
 }

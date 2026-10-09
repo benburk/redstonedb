@@ -514,6 +514,7 @@ mod tests {
             section: None,
             periodic: false,
             holds_bytes: false,
+            named_by_design: false,
         };
         for typed in [
             "Hex to Binary",
