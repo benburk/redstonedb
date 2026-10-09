@@ -47,27 +47,11 @@ pub async fn set_minecraft_name(
     let name = form.minecraft_name.unwrap_or_default();
     let name = name.trim();
     let refused = if name.is_empty() {
-        saved(&state, &user, None).await
-    } else if !schematic::valid_player_name(name) {
-        Err(format!(
-            "{name} is not a Minecraft name: letters, digits, and \
-             underscores, up to 16."
-        ))
+        saved(&state, user.id, None).await
     } else {
-        // Stored as its player spells it, with their UUID; when Mojang
-        // cannot be asked, as typed.
-        match mojang::profile(name).await {
-            Ok(Some(found)) => saved(&state, &user, Some(&found)).await,
-            Ok(None) => Err(format!(
-                "No Minecraft player is named {name}. Check the spelling."
-            )),
-            Err(_) => {
-                let typed = mojang::Profile {
-                    uuid: String::new(),
-                    name: name.to_owned(),
-                };
-                saved(&state, &user, Some(&typed)).await
-            }
+        match player_named(name).await {
+            Ok(player) => saved(&state, user.id, Some(&player)).await,
+            Err(message) => Err(message),
         }
     };
     let refused = match refused {
@@ -79,17 +63,41 @@ pub async fn set_minecraft_name(
     show(&state, Some(&user), &user, &refused).await
 }
 
-/// Stores `player` as the account's Minecraft name, or clears it for
+/// The player `name` names, spelled as they spell it and with their UUID,
+/// or a sentence saying it names none. When Mojang cannot be asked, the
+/// name as typed, with no UUID.
+pub(super) async fn player_named(
+    name: &str,
+) -> Result<mojang::Profile, String> {
+    if !schematic::valid_player_name(name) {
+        return Err(format!(
+            "{name} is not a Minecraft name: letters, digits, and \
+             underscores, up to 16."
+        ));
+    }
+    match mojang::profile(name).await {
+        Ok(Some(found)) => Ok(found),
+        Ok(None) => Err(format!(
+            "No Minecraft player is named {name}. Check the spelling."
+        )),
+        Err(_) => Ok(mojang::Profile {
+            uuid: String::new(),
+            name: name.to_owned(),
+        }),
+    }
+}
+
+/// Stores `player` as account `id`'s Minecraft name, or clears it for
 /// `None`. The inner `Err` says the name is another account's; the outer
 /// one is any other failure, already logged.
-async fn saved(
+pub(super) async fn saved(
     state: &AppState,
-    user: &User,
+    id: uuid::Uuid,
     player: Option<&mojang::Profile>,
 ) -> Result<Result<(), String>, String> {
     let name = player.map(|p| p.name.as_str());
     let uuid = player.map(|p| p.uuid.as_str()).filter(|u| !u.is_empty());
-    User::set_minecraft_name(&state.db, user.id, name, uuid)
+    User::set_minecraft_name(&state.db, id, name, uuid)
         .await
         .map_err(|err| internal_error(err).1.to_owned())
 }

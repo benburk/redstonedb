@@ -14,7 +14,7 @@ use crate::{
     models::user::{Role, User},
 };
 
-use super::pages;
+use super::{pages, profile};
 
 pub async fn list(
     State(state): State<AppState>,
@@ -23,10 +23,58 @@ pub async fn list(
     let Some(admin) = user_opt.filter(User::is_admin) else {
         return StatusCode::FORBIDDEN.into_response();
     };
+    show(&state, &admin, "").await
+}
+
+/// The users page, with `message` saying why a change was refused.
+async fn show(state: &AppState, admin: &User, message: &str) -> Response {
     match User::all(&state.db).await {
-        Ok(users) => pages::users(&admin, &users).into_response(),
+        Ok(users) => pages::users(admin, &users, message).into_response(),
         Err(err) => internal_error(err).into_response(),
     }
+}
+
+#[derive(Deserialize)]
+pub struct MinecraftName {
+    minecraft_name: String,
+}
+
+/// Gives an account a Minecraft name an admin types, as its player spells
+/// it. An admin typing it confirms it.
+pub async fn name_minecraft(
+    Path(username): Path<String>,
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+    Form(form): Form<MinecraftName>,
+) -> Response {
+    let Some(admin) = user_opt.filter(User::is_admin) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let target = match User::get_by_username(&state.db, &username).await {
+        Ok(Some(target)) => target,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal_error(err).into_response(),
+    };
+    let refused = match profile::player_named(form.minecraft_name.trim()).await
+    {
+        Ok(player) => {
+            match profile::saved(&state, target.id, Some(&player)).await {
+                Ok(Ok(())) => {
+                    return match User::set_minecraft_verified(
+                        &state.db, target.id, true,
+                    )
+                    .await
+                    {
+                        Ok(()) => Redirect::to("/users").into_response(),
+                        Err(err) => internal_error(err).into_response(),
+                    };
+                }
+                Ok(Err(message)) | Err(message) => message,
+            }
+        }
+        Err(message) => message,
+    };
+    show(&state, &admin, &refused).await
 }
 
 #[derive(Deserialize)]

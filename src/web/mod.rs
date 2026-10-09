@@ -119,6 +119,10 @@ pub fn router() -> Router<AppState> {
             post(users::verify_minecraft),
         )
         .route(
+            "/users/{username}/minecraft/name",
+            post(users::name_minecraft),
+        )
+        .route(
             "/users/{username}/minecraft",
             post(profile::set_minecraft_name),
         )

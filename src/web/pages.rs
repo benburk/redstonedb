@@ -1574,7 +1574,8 @@ pub fn login(enabled: bool, message: &str) -> Markup {
 }
 
 /// The admin's list of accounts, each with a form to set its role.
-pub fn users(admin: &User, users: &[User]) -> Markup {
+/// The admin's list of accounts; `message` says why a change was refused.
+pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
     base(
         Some(admin),
         "Users",
@@ -1585,7 +1586,10 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
                 "A user uploads builds. A mod also edits any build's details and tags. An admin also deletes builds and sets roles."
             }
             p class="mb-6 max-w-prose text-muted" {
-                "Anyone can type any Minecraft name on their profile. Confirm one only once you know it is theirs: a confirmed name lets its account edit the builds crediting it as builder."
+                "Anyone can type any Minecraft name on their profile. Confirm one only once you know it is theirs: a confirmed name lets its account edit the builds crediting it as builder. A name you give an account yourself is confirmed."
+            }
+            @if !message.is_empty() {
+                p role="alert" class="mb-6 text-danger" { (message) }
             }
             div class="max-w-calm overflow-x-auto" {
                 table class="w-full border-collapse" {
@@ -1633,7 +1637,18 @@ pub fn users(admin: &User, users: &[User]) -> Markup {
 /// confirms it or withdraws the confirmation.
 fn minecraft_cell(user: &User) -> Markup {
     let Some(name) = &user.minecraft_name else {
-        return html! { span class="text-muted" { "none given" } };
+        // None given yet, so the admin may give one.
+        let id = format!("minecraft-{}", user.username);
+        return html! {
+            form action={ "/users/" (user.username) "/minecraft/name" } method="post"
+                class="flex items-center gap-2" {
+                label for=(id) class="sr-only" { "Minecraft name for " (user.name()) }
+                input id=(id) name="minecraft_name" required
+                    pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
+                    placeholder="None given" class="input min-h-8 w-40";
+                button type="submit" class="btn btn-quiet min-h-8 px-3" { "Set" }
+            }
+        };
     };
     let (value, action) = if user.minecraft_verified {
         ("no", "Withdraw")
