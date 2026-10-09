@@ -165,19 +165,23 @@ pub async fn store(
 }
 
 /// The flags the file's signs show: `carry_in` for a line labelled
-/// `carry in` or `cin`, and `carry_out` for `carry out` or `cout`.
+/// `carry in` or `cin`, `carry_out` for `carry out` or `cout`, and
+/// `overflow` and `zero` for status lines named so. Those a category has no
+/// flag of are dropped when stored.
 pub fn sign_flags(interface: &Interface) -> Vec<String> {
-    let named = |ports: &[Port], names: [&str; 2]| {
+    let named = |ports: &[Port], names: &[&str]| {
         ports
             .iter()
             .any(|port| port.labelled && names.contains(&port.name.as_str()))
     };
     [
-        (named(&interface.inputs, ["carry in", "cin"]), "carry_in"),
+        (named(&interface.inputs, &["carry in", "cin"]), "carry_in"),
         (
-            named(&interface.outputs, ["carry out", "cout"]),
+            named(&interface.outputs, &["carry out", "cout"]),
             "carry_out",
         ),
+        (named(&interface.outputs, &["overflow"]), "overflow"),
+        (named(&interface.outputs, &["zero"]), "zero"),
     ]
     .into_iter()
     .filter(|(found, _)| *found)
@@ -218,5 +222,38 @@ fn orientation(port: &Port) -> Option<&'static str> {
         Some("vert")
     } else {
         Some("diag")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(name: &str) -> Port {
+        Port {
+            name: name.to_owned(),
+            block: "pink concrete".to_owned(),
+            labelled: true,
+            bits: Vec::new(),
+            strength: 1,
+            signal_strength: false,
+        }
+    }
+
+    #[test]
+    fn status_lines_tick_their_flags() {
+        let interface = Interface {
+            inputs: vec![line("cin")],
+            outputs: vec![
+                line("cout"),
+                line("overflow"),
+                line("zero"),
+                line("negative"),
+            ],
+        };
+        assert_eq!(
+            sign_flags(&interface),
+            ["carry_in", "carry_out", "overflow", "zero"]
+        );
     }
 }
