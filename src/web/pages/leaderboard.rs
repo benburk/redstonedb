@@ -3,7 +3,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Board, Choice, Measure, Placed, SHOWN},
+    leaderboard::{self, Board, Choice, Measure, Placed, SHOWN, Standing},
     models::{
         schematic::{Category, Schematic},
         user::User,
@@ -21,6 +21,124 @@ pub struct LeaderboardPage<'a> {
     pub board: &'a Board<'a>,
     /// Categories with builds to rank.
     pub facets: &'a [Facet],
+    /// How many people the people leaderboard ranks.
+    pub people: usize,
+}
+
+/// The people leaderboard: who built, added, and holds the records for
+/// the most builds.
+pub struct PeoplePage<'a> {
+    pub built: &'a [Standing],
+    pub added: &'a [Standing],
+    pub records: &'a [Standing],
+    /// Categories with builds to rank, for the sidebar.
+    pub facets: &'a [Facet],
+}
+
+/// The sidebar's first entry on a leaderboard: the people leaderboard, with
+/// how many people it ranks.
+fn people_link(people: usize) -> (&'static str, &'static str, usize) {
+    ("People", "/leaderboards", people)
+}
+
+pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
+    let PeoplePage {
+        built,
+        added,
+        records,
+        facets,
+    } = *page;
+    let builder = |name: &str| super::search_href(&format!("builder:{name}"));
+    // An upload's account has a profile; an importer is only a name.
+    let adder = |name: &str, account: Option<&str>| match account {
+        Some(username) => format!("/users/{username}"),
+        None => super::search_href(&format!("importer:{name}")),
+    };
+    base(
+        viewer,
+        "People leaderboard",
+        "/leaderboards",
+        &html! {
+            div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
+                (category_sidebar(facets, "", Some(people_link(built.len())), |name| {
+                    format!("/leaderboards/{name}")
+                }))
+                div {
+                    div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                        h1 class={ (PAGE_TITLE) " mr-auto" } { "People" }
+                        (category_tabs("", true))
+                    }
+                    p class="mb-6 max-w-prose text-muted" {
+                        "A record is first place, as fastest or as smallest, on a category's leaderboard "
+                        "with at least two builds; choose a category on the left to see them."
+                    }
+                    div class="grid gap-x-10 gap-y-8 desktop:grid-cols-3" {
+                        (standings("most-built", "Most builds", "Builds", built, |s| builder(&s.name)))
+                        (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
+                        (standings("most-records", "Most records", "Records", records, |s| builder(&s.name)))
+                    }
+                }
+            }
+        },
+    )
+}
+
+/// One people ranking under `heading`: the first [`SHOWN`], each linking
+/// where `href` says, with their count under `unit`.
+fn standings(
+    id: &str,
+    heading: &str,
+    unit: &str,
+    people: &[Standing],
+    href: impl Fn(&Standing) -> String,
+) -> Markup {
+    html! {
+        section aria-labelledby=(id) {
+            h2 id=(id) class={ (SECTION_TITLE) " mb-2" } { (heading) }
+            @if people.is_empty() {
+                p class="text-muted" { "No one yet." }
+            } @else {
+                table class="w-full border-collapse" {
+                    thead {
+                        tr {
+                            th scope="col" class={ (TABLE_HEAD) " w-8" } { "#" }
+                            th scope="col" class=(TABLE_HEAD) { "Name" }
+                            th scope="col" class={ (TABLE_HEAD) " text-right" } { (unit) }
+                        }
+                    }
+                    tbody {
+                        @for (place, person) in places(people).into_iter().take(SHOWN) {
+                            tr class="hover:bg-selection/50" {
+                                td class={ (TABLE_CELL) " tabular-nums text-muted" } { (place) }
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                                    a href=(href(person)) { (person.name) }
+                                }
+                                td class={ (TABLE_CELL) " text-right tabular-nums" } { (person.count) }
+                            }
+                        }
+                    }
+                }
+                @if people.len() > SHOWN {
+                    p class="mt-2 text-meta text-muted" { "And " (people.len() - SHOWN) " more." }
+                }
+            }
+        }
+    }
+}
+
+/// Each person with their place, a tie sharing one.
+fn places(people: &[Standing]) -> Vec<(usize, &Standing)> {
+    let mut place = 0;
+    people
+        .iter()
+        .enumerate()
+        .map(|(i, person)| {
+            if i == 0 || people[i - 1].count != person.count {
+                place = i + 1;
+            }
+            (place, person)
+        })
+        .collect()
 }
 
 pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
@@ -28,6 +146,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         category,
         board,
         facets,
+        people,
     } = *page;
     let path = format!("/leaderboards/{}", category.name);
     base(
@@ -36,7 +155,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         &path,
         &html! {
             div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-                (category_sidebar(facets, &category.name, None, |name| {
+                (category_sidebar(facets, &category.name, Some(people_link(people)), |name| {
                     format!("/leaderboards/{name}")
                 }))
                 div {

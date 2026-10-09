@@ -95,6 +95,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
+        .route("/leaderboards", get(leaderboards::people))
         .route("/leaderboards/{category}", get(leaderboards::show))
         .route("/schematics/{id}/download", get(schematics::download))
         .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))

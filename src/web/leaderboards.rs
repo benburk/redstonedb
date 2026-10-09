@@ -47,24 +47,7 @@ pub async fn show(
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
         return super::not_found(user_opt.as_ref());
     };
-    let ranked = |name: &str| {
-        all.iter()
-            .filter(|s| {
-                s.category == name && (s.width.is_some() || s.period.is_some())
-            })
-            .count()
-    };
-    // Only categories with a build to rank, and the one shown.
-    let facets: Vec<pages::Facet> = categories
-        .iter()
-        .map(|c| pages::Facet {
-            name: c.name.clone(),
-            label: c.plural.clone(),
-            count: ranked(&c.name),
-            section: c.section.clone(),
-        })
-        .filter(|f| f.count > 0 || f.name == category)
-        .collect();
+    let facets = facets(&categories, &all, &category);
     let given = |value: Option<String>| value.filter(|v| !v.is_empty());
     let (by, measure) = if chosen.periodic {
         (Measure::Period, query.period)
@@ -90,7 +73,76 @@ pub async fn show(
             category: chosen,
             board: &board,
             facets: &facets,
+            people: leaderboard::most_built(&all).len(),
         },
     )
     .into_response()
+}
+
+/// The people leaderboard: who built, added, and holds the records for the
+/// most builds.
+pub async fn people(
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+) -> Response {
+    let loaded = async {
+        Ok::<_, sqlx::Error>((
+            schematic::all(&state.db).await?,
+            schematic::categories(&state.db).await?,
+            User::all(&state.db).await?,
+        ))
+    };
+    let (all, categories, users) = match loaded.await {
+        Ok(loaded) => loaded,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    // An account goes by its confirmed Minecraft name, so its uploads and
+    // that name's imports count as one person's.
+    let name_of = |username: &str| {
+        users
+            .iter()
+            .find(|u| u.username == username)
+            .and_then(|u| {
+                u.minecraft_name.clone().filter(|_| u.minecraft_verified)
+            })
+            .unwrap_or_else(|| username.to_owned())
+    };
+    let periodic =
+        |name: &str| categories.iter().any(|c| c.name == name && c.periodic);
+    pages::people(
+        user_opt.as_ref(),
+        &pages::PeoplePage {
+            built: &leaderboard::most_built(&all),
+            added: &leaderboard::most_added(&all, name_of),
+            records: &leaderboard::most_records(&all, periodic),
+            facets: &facets(&categories, &all, ""),
+        },
+    )
+    .into_response()
+}
+
+/// The leaderboard sidebar: the categories with a build to rank, and
+/// `current`, the one shown, whatever it has.
+fn facets(
+    categories: &[schematic::Category],
+    all: &[Schematic],
+    current: &str,
+) -> Vec<pages::Facet> {
+    let ranked = |name: &str| {
+        all.iter()
+            .filter(|s| {
+                s.category == name && (s.width.is_some() || s.period.is_some())
+            })
+            .count()
+    };
+    categories
+        .iter()
+        .map(|c| pages::Facet {
+            name: c.name.clone(),
+            label: c.plural.clone(),
+            count: ranked(&c.name),
+            section: c.section.clone(),
+        })
+        .filter(|f| f.count > 0 || f.name == current)
+        .collect()
 }

@@ -232,6 +232,14 @@ pub fn tradeoffs<'a>(builds: &[&'a Schematic]) -> Vec<&'a Schematic> {
         .collect()
 }
 
+/// The builds in first place, more than one on a tie.
+fn firsts(placed: Vec<Placed<'_>>) -> impl Iterator<Item = &Schematic> {
+    placed
+        .into_iter()
+        .take_while(|(place, _)| *place == 1)
+        .map(|(_, s)| s)
+}
+
 /// `sorted` with each build's place by `key`.
 fn placed<'a, K: PartialEq>(
     sorted: &[&'a Schematic],
@@ -248,6 +256,105 @@ fn placed<'a, K: PartialEq>(
             (place, *s)
         })
         .collect()
+}
+
+/// A person's count in a people ranking, under the spelling first seen.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Standing {
+    pub name: String,
+    /// The account behind the name, for counts of what accounts did.
+    pub account: Option<String>,
+    pub count: usize,
+}
+
+/// Counts each person in `people`, whatever the case of their name, most
+/// first, then by name.
+fn tally(
+    people: impl Iterator<Item = (String, Option<String>)>,
+) -> Vec<Standing> {
+    let mut standings: Vec<Standing> = Vec::new();
+    for (name, account) in people {
+        match standings
+            .iter_mut()
+            .find(|s| s.name.eq_ignore_ascii_case(&name))
+        {
+            Some(standing) => standing.count += 1,
+            None => standings.push(Standing {
+                name,
+                account,
+                count: 1,
+            }),
+        }
+    }
+    standings.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    standings
+}
+
+/// Builders by how many builds credit them.
+pub fn most_built(builds: &[Schematic]) -> Vec<Standing> {
+    tally(
+        builds
+            .iter()
+            .flat_map(|s| s.builders.iter().map(|n| (n.clone(), None))),
+    )
+}
+
+/// People by how many builds they put on the site: an upload counts for
+/// its account, under the name `name_of` gives it, and an import for the
+/// in-game name of whoever imported it.
+pub fn most_added(
+    builds: &[Schematic],
+    name_of: impl Fn(&str) -> String,
+) -> Vec<Standing> {
+    tally(
+        builds
+            .iter()
+            .filter_map(|s| match (&s.uploader, &s.imported_by) {
+                (Some(account), _) => {
+                    Some((name_of(account), Some(account.clone())))
+                }
+                (None, Some(name)) => Some((name.clone(), None)),
+                (None, None) => None,
+            }),
+    )
+}
+
+/// Builders by records held: first place, as fastest or as smallest, on a
+/// board of two or more builds. A board is a standard category's builds of
+/// one width, or period where `periodic` says so, orientation, and design;
+/// each builder of a record holder counts it, and a tie gives every holder
+/// one.
+pub fn most_records(
+    builds: &[Schematic],
+    periodic: impl Fn(&str) -> bool,
+) -> Vec<Standing> {
+    let mut boards: BTreeMap<(&str, i64, &str, &str), Vec<&Schematic>> =
+        BTreeMap::new();
+    for s in builds.iter().filter(|s| s.category_label.is_some()) {
+        let by = if periodic(&s.category) {
+            Measure::Period
+        } else {
+            Measure::Width
+        };
+        if let Some(n) = by.of(s) {
+            boards
+                .entry((&s.category, n, &s.orientation, &s.design))
+                .or_default()
+                .push(s);
+        }
+    }
+    let holders =
+        boards
+            .values()
+            .filter(|board| board.len() >= 2)
+            .flat_map(|board| {
+                firsts(fastest(board)).chain(firsts(smallest(board)))
+            });
+    tally(holders.flat_map(|s| s.builders.iter().map(|n| (n.clone(), None))))
 }
 
 #[cfg(test)]
@@ -359,6 +466,55 @@ mod tests {
         ];
         let tied: Vec<&Schematic> = tied.iter().collect();
         assert_eq!(ids(&fastest(&tied)), [(1, "z"), (2, "x"), (2, "y")]);
+    }
+
+    #[test]
+    fn records_are_first_places_on_boards_of_two_or_more() {
+        let by = |name: &str, s: Schematic| Schematic {
+            builders: vec![name.to_owned()],
+            ..s
+        };
+        let builds = [
+            // 8-bit CCAs: a is fastest and smallest.
+            by("Alex", build("a", 8, "carry_cancel", Some(3), 684)),
+            by("bob", build("b", 8, "carry_cancel", Some(4), 900)),
+            // Alone on its board, so no record.
+            by("bob", build("c", 16, "carry_cancel", Some(4), 1960)),
+            // 8-bit CLAs: d is fastest, e smallest.
+            by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
+            by("Bob", build("e", 8, "carry_lookahead", Some(8), 3762)),
+        ];
+        let counts: Vec<(String, usize)> = most_records(&builds, |_| false)
+            .into_iter()
+            .map(|s| (s.name, s.count))
+            .collect();
+        assert_eq!(counts, [("Alex".to_owned(), 3), ("Bob".to_owned(), 1)]);
+    }
+
+    #[test]
+    fn people_count_whatever_their_case() {
+        let builds = [
+            Schematic {
+                builders: vec!["embizone".to_owned()],
+                imported_by: Some("embizone".to_owned()),
+                ..build("a", 8, "other", None, 1)
+            },
+            Schematic {
+                builders: vec!["EmbiZone".to_owned(), "alex".to_owned()],
+                uploader: Some("lookaside".to_owned()),
+                ..build("b", 8, "other", None, 1)
+            },
+        ];
+        let built: Vec<(String, usize)> = most_built(&builds)
+            .into_iter()
+            .map(|s| (s.name, s.count))
+            .collect();
+        assert_eq!(built, [("embizone".to_owned(), 2), ("alex".to_owned(), 1)]);
+        // The uploading account goes by its Minecraft name, so it and the
+        // import count as one person.
+        let added = most_added(&builds, |_| "EMBIZONE".to_owned());
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].count, 2);
     }
 
     #[test]

@@ -34,7 +34,7 @@ const SWITCHES: &str =
     "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";
 
 mod leaderboard;
-pub use leaderboard::{LeaderboardPage, leaderboard};
+pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -160,7 +160,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
                 (category_sidebar(
                     facets,
                     category,
-                    Some((&Home { category: "", ..here }.href(), matched)),
+                    Some(("All", &Home { category: "", ..here }.href(), matched)),
                     |name| Home { category: name, ..here }.href(),
                 ))
                 div { (listing_body(listing, here, title, &count)) }
@@ -171,12 +171,12 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 
 /// The categories to narrow a page to, each with its count and its
 /// address from `href`, under their sections' headings and then the rest;
-/// `current` is the chosen one, and `all` the link and count for every
-/// category, if the page has one.
+/// `current` is the chosen one, and `all` the label, link, and count of the
+/// first entry, for every category, if the page has one.
 fn category_sidebar(
     facets: &[Facet],
     current: &str,
-    all: Option<(&str, usize)>,
+    all: Option<(&str, &str, usize)>,
     href: impl Fn(&str) -> String,
 ) -> Markup {
     let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1 text-nav text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
@@ -204,8 +204,8 @@ fn category_sidebar(
         nav aria-labelledby="categories-heading"
             class="desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-2rem)] desktop:self-start desktop:overflow-y-auto" {
             h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
-            @if let Some((all_href, matched)) = all {
-                ul class=(list) { (link(all_href, "All", matched, current.is_empty())) }
+            @if let Some((label, all_href, count)) = all {
+                ul class=(list) { (link(all_href, label, count, current.is_empty())) }
             }
             @for (name, heading) in schematic::SECTIONS {
                 @let members = in_section(Some(name));
@@ -238,10 +238,12 @@ fn listing_header(
     count: &str,
 ) -> Markup {
     let Listing { view, category, .. } = *listing;
-    // A single standard category has a leaderboard to switch to.
-    let ranked = !category.contains(',')
-        && category != "other"
-        && listing.facets.iter().any(|f| f.name == category);
+    // Every build, and a single standard category, has a leaderboard to
+    // switch to.
+    let ranked = category.is_empty()
+        || (!category.contains(',')
+            && category != "other"
+            && listing.facets.iter().any(|f| f.name == category));
     html! {
             div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { (title) }
@@ -357,17 +359,23 @@ fn listing_body(
     }
 }
 
-/// A category's builds and its leaderboard, as two tabs; `leaderboard` is
+/// A category's builds and its leaderboard, as two tabs, or for no
+/// category, every build and the people leaderboard; `leaderboard` is
 /// whether that is the one shown.
 fn category_tabs(category: &str, leaderboard: bool) -> Markup {
-    let builds = form_urlencoded::Serializer::new(String::new())
-        .append_pair("category", category)
-        .finish();
+    let (builds, board) = if category.is_empty() {
+        ("/".to_owned(), "/leaderboards".to_owned())
+    } else {
+        let query = form_urlencoded::Serializer::new(String::new())
+            .append_pair("category", category)
+            .finish();
+        (format!("/?{query}"), format!("/leaderboards/{category}"))
+    };
     html! {
         nav aria-label="Builds or leaderboard" class=(SWITCHES) {
-            a href={ "/?" (builds) } class=(SWITCH)
+            a href=(builds) class=(SWITCH)
                 aria-current=[(!leaderboard).then_some("page")] { "Builds" }
-            a href={ "/leaderboards/" (category) } class=(SWITCH)
+            a href=(board) class=(SWITCH)
                 aria-current=[leaderboard.then_some("page")] { "Leaderboard" }
         }
     }
