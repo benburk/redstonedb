@@ -53,6 +53,7 @@ pub async fn preview(
     let mut file = None;
     let mut link = String::new();
     let mut standardize = false;
+    let mut keep_paste = false;
     // A body over the server's limit, 2 MB, breaks off partway.
     let mut broken = false;
     loop {
@@ -63,6 +64,7 @@ pub async fn preview(
                     Err(_) => broken = true,
                 },
                 Some("standardize") => standardize = true,
+                Some("keep_paste") => keep_paste = true,
                 Some("schemati") => match field.text().await {
                     Ok(text) => link = text,
                     Err(_) => broken = true,
@@ -96,7 +98,7 @@ pub async fn preview(
             return pages::upload(&user, message).into_response();
         }
     };
-    let prepared = match import::prepare(&file, standardize, true) {
+    let prepared = match import::prepare(&file, standardize, true, keep_paste) {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -134,14 +136,28 @@ pub async fn preview(
         stackable: false,
         stack_rows: &stack_rows,
     };
-    show_preview(&state, &user, &prepared, &fields, &[], false, "").await
+    let settings = Settings {
+        unconventional: false,
+        keep_paste,
+    };
+    show_preview(&state, &user, &prepared, &fields, &[], settings, "").await
+}
+
+/// What the uploader chose about the file itself, carried from the
+/// preview to publishing.
+#[derive(Clone, Copy)]
+struct Settings {
+    /// The build does not follow the conventions, so is not linted.
+    unconventional: bool,
+    /// The file keeps where its uploader's `//paste` put it.
+    keep_paste: bool,
 }
 
 /// What the details form sends when publishing.
 struct Submission {
     /// The prepared file, base64.
     data: String,
-    unconventional: bool,
+    settings: Settings,
     form: details::Form,
 }
 
@@ -157,7 +173,10 @@ impl Submission {
         };
         Submission {
             data: get("data"),
-            unconventional: !get("unconventional").is_empty(),
+            settings: Settings {
+                unconventional: !get("unconventional").is_empty(),
+                keep_paste: !get("keep_paste").is_empty(),
+            },
             form: details::Form::read(&pairs),
         }
     }
@@ -180,7 +199,13 @@ pub async fn publish(
         )
         .into_response();
     };
-    let prepared = match import::prepare(&data, false, !sent.unconventional) {
+    let settings = sent.settings;
+    let prepared = match import::prepare(
+        &data,
+        false,
+        !settings.unconventional,
+        settings.keep_paste,
+    ) {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -199,7 +224,7 @@ pub async fn publish(
         &prepared,
         &sent.form.fields(),
         &sent.form.tags,
-        sent.unconventional,
+        settings,
         &refused,
     )
     .await
@@ -258,12 +283,13 @@ async fn publish_checked(
         size: (size.x.into(), size.y.into(), size.z.into()),
         built_on: parsed.built_on.as_deref(),
         imported_by: None,
-        conventional: !sent.unconventional,
+        conventional: !sent.settings.unconventional,
         design: Some(&parsed.design),
         description: parsed.description.as_deref(),
         given_name: parsed.given_name.as_deref(),
         period: parsed.period.filter(|_| periodic),
         bytes: parsed.bytes.filter(|_| holds_bytes),
+        keeps_paste: sent.settings.keep_paste,
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,
         data: &prepared.data,
@@ -292,7 +318,7 @@ async fn show_preview(
     prepared: &Prepared,
     fields: &Fields<'_>,
     chosen_tags: &[String],
-    unconventional: bool,
+    settings: Settings,
     message: &str,
 ) -> Response {
     let tags: Vec<Tag> = match schematic::all_tags(&state.db).await {
@@ -323,7 +349,8 @@ async fn show_preview(
             tags: &tags,
             chosen_tags,
             may_create_tags: user.is_admin(),
-            unconventional,
+            unconventional: settings.unconventional,
+            keep_paste: settings.keep_paste,
             message,
         },
     )

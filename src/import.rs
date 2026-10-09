@@ -11,7 +11,7 @@ use crate::{
     interface::{self, Interface, Port},
     lint::{self, Violation},
     models::schematic::{self, Credit, New, StackDirection},
-    schem::{Blocks, Size},
+    schem::{self, Blocks, Size},
     standardize,
 };
 
@@ -26,16 +26,24 @@ pub struct Prepared {
 }
 
 /// Standardizes `data` if asked, and in any case takes out corner markers
-/// and fits its box tightly; then measures, lints, and hashes it.
+/// and fits its box tightly; sets it to paste from one block south of its
+/// south-east-bottom corner unless `keep_paste`, which keeps where its
+/// uploader's `//paste` put it; then measures, lints, and hashes it.
 pub fn prepare(
     data: &[u8],
     standardize: bool,
     conventional: bool,
+    keep_paste: bool,
 ) -> Result<Prepared> {
     let data = if standardize {
         standardize::standardize(data).context("cannot standardize it")?
     } else {
         standardize::tidy(data)?
+    };
+    let data = if keep_paste {
+        data
+    } else {
+        schem::paste_from_corner(&data)?
     };
     let blocks = Blocks::read(&data)?;
     let violations = if conventional {

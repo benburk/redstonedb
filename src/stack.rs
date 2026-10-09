@@ -152,7 +152,10 @@ fn along(
             }
         }
     }
-    nbt.write_blocks(size, &grid, stacked_entities)?;
+    // The first copy stays at the south-east-bottom end and the rest go
+    // west, north, and up, so the box's first block moved by this.
+    let low = [-(last * west), 0, -(last * north)];
+    nbt.write_blocks(low, size, &grid, stacked_entities)?;
     schem::encode(nbt)
 }
 

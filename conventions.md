@@ -102,7 +102,7 @@ Some builds, such as displays, follow their own layout. They are stored with `--
 - The build's size is that box, less any outer layer that holds nothing but its interface: input blocks with their levers, dust, signs, and torches. Such a layer only carries the inputs, so it does not make the build bigger. So input blocks can sit in their own layer, with their levers on the south side, without making the build bigger.
 - Sizes read height × width × depth, as the build looks from the south: up, then west to east, then north to south.
 - Positions count from the box's first block, its north-west-bottom corner.
-- Every file the site stores or hands out pastes the same way: `//paste` puts the build so the player stands one block south of its south-east-bottom corner, just outside it, with the build reaching west and north from in front of them, from their feet up. The position the uploader copied it from is dropped.
+- Every file the site stores or hands out pastes the same way: `//paste` puts the build so the player stands one block south of its south-east-bottom corner, just outside it, with the build reaching west and north from in front of them, from their feet up, and the position the uploader copied it from is dropped. An uploader may instead keep where their file pastes from (Keep where it pastes from on the upload page, `rsdb add --keep-paste`). Either way, cropping, stacking, and corner markers keep the build where it pastes, relative to the player.
 - A download can add a glass block off each corner of the box, diagonally, so WorldEdit can select the build by them without the glass touching it.
 
 ## Layout proposals

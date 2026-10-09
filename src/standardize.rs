@@ -187,7 +187,7 @@ fn rebox(
             inside(pos).then(|| schem::with_pos(entity, pos))
         })
         .collect();
-    nbt.write_blocks(size, &placed, entities)?;
+    nbt.write_blocks(low, size, &placed, entities)?;
     schem::encode(nbt)
 }
 

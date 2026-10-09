@@ -761,6 +761,8 @@ pub struct New<'a> {
     pub given_name: Option<&'a str>,
     pub period: Option<i64>,
     pub bytes: Option<i64>,
+    /// Whether the file keeps where its uploader's `//paste` put it.
+    pub keeps_paste: bool,
     pub uploaded_by: Option<uuid::Uuid>,
     pub sha256: &'a str,
     pub data: &'a [u8],
@@ -776,8 +778,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            period, bytes, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            period, bytes, keeps_paste, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -796,6 +798,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.given_name,
         new.period,
         new.bytes,
+        new.keeps_paste,
         new.uploaded_by,
         new.sha256,
         new.data,
@@ -1116,6 +1119,20 @@ pub async fn count_download<'e, E: SqliteExecutor<'e>>(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// The ids of builds whose files keep where their uploader's `//paste` put
+/// them.
+pub async fn keeping_paste(
+    db: &SqlitePool,
+) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+    Ok(
+        sqlx::query_scalar!("SELECT id FROM schematic WHERE keeps_paste")
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .collect(),
+    )
 }
 
 /// Stores a schematic's size, as `rsdb reread` finds it.

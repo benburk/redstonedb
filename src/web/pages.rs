@@ -1848,6 +1848,14 @@ pub fn upload(user: &User, message: &str) -> Markup {
                         }
                     }
                     label class="flex items-start gap-2" {
+                        input type="checkbox" name="keep_paste" value="yes" class="mt-1 size-4 appearance-auto";
+                        span {
+                            "Keep where it pastes from. Otherwise "
+                            code { "//paste" }
+                            " puts it with you one block south of its south-east-bottom corner, as every build on the site does."
+                        }
+                    }
+                    label class="flex items-start gap-2" {
                         input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
                         span {
                             "Standardize it: every block that isn't redstone, an input, or an output turns white, "
@@ -2011,6 +2019,8 @@ pub struct UploadPreview<'a> {
     /// Whether the uploader, an admin, may name a new tag.
     pub may_create_tags: bool,
     pub unconventional: bool,
+    /// Whether the file keeps where its uploader's `//paste` put it.
+    pub keep_paste: bool,
     pub message: &'a str,
 }
 
@@ -2073,6 +2083,9 @@ fn upload_form(p: &UploadPreview) -> Markup {
             form action="/upload" method="post" class="flex flex-col gap-4" {
                 h2 class=(SECTION_TITLE) { "Details" }
                 input type="hidden" name="data" value=(p.data);
+                @if p.keep_paste {
+                    input type="hidden" name="keep_paste" value="yes";
+                }
                 (fields(p.fields, p.choices))
                 (tag_picker(p.tags, p.chosen_tags, p.may_create_tags))
                 @if !p.analysis.violations.is_empty() || p.unconventional {

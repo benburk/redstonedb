@@ -14,7 +14,7 @@ use app::{
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
     models::user::{Role, User},
     mojang,
-    schem::Blocks,
+    schem::{self, Blocks},
     search, stack, standardize,
 };
 use clap::{Args, Parser, Subcommand};
@@ -41,7 +41,8 @@ enum Command {
     /// Delete a schematic
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
-    /// turn status lines pink, and measure it
+    /// turn status lines pink, paste from its south-east-bottom corner
+    /// unless it keeps its own, and measure it
     Reread,
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
@@ -182,6 +183,10 @@ struct Add {
     /// and turn slabs and glass into white stained glass, before linting
     #[arg(long)]
     standardize: bool,
+    /// Keep where the file's //paste puts the build, rather than with the
+    /// player one block south of its south-east-bottom corner
+    #[arg(long)]
+    keep_paste: bool,
 }
 
 #[derive(Args)]
@@ -466,8 +471,9 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         .with_context(|| format!("cannot read {}", file.display()))?;
     let details = &args.details;
     let conventional = details.conventional.unwrap_or(true);
-    let prepared = import::prepare(&data, args.standardize, conventional)
-        .with_context(|| file.display().to_string())?;
+    let prepared =
+        import::prepare(&data, args.standardize, conventional, args.keep_paste)
+            .with_context(|| file.display().to_string())?;
     if !prepared.violations.is_empty() {
         for violation in &prepared.violations {
             eprintln!("{violation}");
@@ -506,6 +512,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             given_name: details.given_name.as_deref(),
             period: details.period.map(i64::from),
             bytes: details.bytes.map(i64::from),
+            keeps_paste: args.keep_paste,
             uploaded_by: None,
             sha256: &prepared.sha256,
             data: &prepared.data,
@@ -646,14 +653,19 @@ async fn print_categories(db: &SqlitePool) -> Result<()> {
 }
 
 /// Reads every stored file again and prints what changed: the file
-/// itself, with any corner markers taken out, its box fitted, and its
-/// status lines pink, and its size.
+/// itself, with any corner markers taken out, its box fitted, its status
+/// lines pink, and pasting from one block south of its south-east-bottom
+/// corner unless it keeps where its uploader's pasted, and its size.
 async fn reread(db: &SqlitePool) -> Result<()> {
+    let keeping = schematic::keeping_paste(db).await?;
     for s in schematic::all(db).await? {
         let stored = schematic::data(db, &s.id)
             .await?
             .context("schematic vanished")?;
         let mut data = standardize::tidy(&stored)?;
+        if !keeping.contains(&s.id) {
+            data = schem::paste_from_corner(&data)?;
+        }
         // Older builds marked status lines yellow; they are pink now.
         if s.conventional {
             data = standardize::pink_status(&data)?;
@@ -753,7 +765,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
             .await?
             .context("schematic vanished")?
     };
-    let violations = import::prepare(&data, false, true)?.violations;
+    let violations = import::prepare(&data, false, true, true)?.violations;
     for violation in &violations {
         println!("{violation}");
     }

@@ -29,6 +29,15 @@ pub struct Nbt {
     nested: bool,
 }
 
+/// `data` set to paste from one block south of its south-east-bottom
+/// corner; see `Nbt::place_for_paste`.
+pub fn paste_from_corner(data: &[u8]) -> Result<Vec<u8>> {
+    let mut nbt = decode(data)?;
+    let size = Blocks::read(data)?.size;
+    nbt.place_for_paste(size);
+    encode(nbt)
+}
+
 /// The most a schematic may unpack to. Gzip shrinks a uniform file
 /// enormously, so a small upload could otherwise unpack to gigabytes.
 const MAX_UNPACKED: u64 = 16 * 1024 * 1024;
@@ -481,9 +490,13 @@ impl Nbt {
         }
     }
 
-    /// Replaces the size, palette, block data, and block entities.
+    /// Replaces the size, palette, block data, and block entities. `low` is
+    /// where the new box's first block sat in the old one, so the paste
+    /// offset moves with it and `//paste` still puts the build where it
+    /// did, relative to the player.
     pub fn write_blocks<S: BuildHasher>(
         &mut self,
+        low: Pos,
         size: Pos,
         grid: &HashMap<Pos, String, S>,
         entities: Vec<Value>,
@@ -529,8 +542,60 @@ impl Nbt {
         );
         fields.insert("Palette".to_owned(), Value::Compound(palette));
         fields.insert("BlockEntities".to_owned(), Value::List(entities));
-        self.place_for_paste(size);
+        self.shift_paste(low);
         Ok(())
+    }
+
+    /// The `Metadata` compound, made if missing.
+    fn metadata(&mut self) -> &mut HashMap<String, Value> {
+        let entry = self
+            .body
+            .entry("Metadata".to_owned())
+            .or_insert_with(|| Value::Compound(HashMap::new()));
+        if !matches!(entry, Value::Compound(_)) {
+            *entry = Value::Compound(HashMap::new());
+        }
+        let Value::Compound(metadata) = entry else {
+            unreachable!("made a compound above");
+        };
+        metadata
+    }
+
+    /// Moves the paste offset, and the world position, by `low`, as the
+    /// box's first block moved: version 2 keeps the paste offset in its
+    /// metadata and the world position as `Offset`, and version 3 the
+    /// paste offset as `Offset`.
+    fn shift_paste(&mut self, low: Pos) {
+        let shifted = |value: Option<&Value>| -> Value {
+            let old = match value {
+                Some(Value::IntArray(v)) if v.len() == 3 => [v[0], v[1], v[2]],
+                _ => [0, 0, 0],
+            };
+            Value::IntArray(IntArray::new(
+                [0, 1, 2].map(|axis| old[axis] + low[axis]).to_vec(),
+            ))
+        };
+        let offset = shifted(self.body.get("Offset"));
+        self.body.insert("Offset".to_owned(), offset);
+        if self.nested {
+            return;
+        }
+        let metadata = self.metadata();
+        for (axis, key) in ["WEOffsetX", "WEOffsetY", "WEOffsetZ"]
+            .into_iter()
+            .enumerate()
+        {
+            let old = match metadata.get(key) {
+                Some(Value::Int(n)) => *n,
+                _ => 0,
+            };
+            metadata.insert(key.to_owned(), Value::Int(old + low[axis]));
+        }
+        if let Some(Value::Compound(worldedit)) = metadata.get_mut("WorldEdit")
+        {
+            let offset = shifted(worldedit.get("Offset"));
+            worldedit.insert("Offset".to_owned(), offset);
+        }
     }
 
     /// Sets where `//paste` puts the build: the player stands one block
@@ -542,25 +607,13 @@ impl Nbt {
     fn place_for_paste(&mut self, [width, _, length]: Pos) {
         let paste = [-(width - 1), 0, -length];
         let ints = |v: [i32; 3]| Value::IntArray(IntArray::new(v.to_vec()));
-        let metadata = match self
-            .body
-            .entry("Metadata".to_owned())
-            .or_insert_with(|| Value::Compound(HashMap::new()))
-        {
-            Value::Compound(metadata) => metadata,
-            other => {
-                *other = Value::Compound(HashMap::new());
-                let Value::Compound(metadata) = other else {
-                    unreachable!()
-                };
-                metadata
-            }
-        };
+        let nested = self.nested;
+        let metadata = self.metadata();
         let worldedit = match metadata.get_mut("WorldEdit") {
             Some(Value::Compound(worldedit)) => Some(worldedit),
             _ => None,
         };
-        if self.nested {
+        if nested {
             // Version 3: `Offset` is the paste offset, and WorldEdit keeps
             // the world origin.
             if let Some(worldedit) = worldedit {

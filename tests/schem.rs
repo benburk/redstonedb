@@ -303,7 +303,8 @@ fn an_operand_may_not_use_a_button() {
         .collect();
     grid.insert(pos, state);
     let entities = nbt.take_entities();
-    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
     let changed = Blocks::read(&app::schem::encode(nbt).unwrap()).unwrap();
     let messages: Vec<String> = lint::check(&changed)
         .iter()
@@ -332,7 +333,8 @@ fn rebuilt(
         .collect();
     let mut nbt = app::schem::decode(data).unwrap();
     let entities = nbt.take_entities();
-    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
     app::schem::encode(nbt).unwrap()
 }
 
@@ -487,7 +489,8 @@ fn b_levers_on(side: &str) -> Option<Vec<u8>> {
     }
     let mut nbt = app::schem::decode(&data).unwrap();
     let entities = nbt.take_entities();
-    nbt.write_blocks(blocks.size, &grid, entities).unwrap();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
     Some(app::schem::encode(nbt).unwrap())
 }
 
@@ -572,7 +575,10 @@ fn signal_strength_dust_needs_an_open_end() {
 #[test]
 fn a_paste_lands_south_of_the_south_east_bottom_corner() {
     // The uploader's file put the paste wherever they stood when copying.
-    let data = standardize::tidy(&raw("alpha-cla")).unwrap();
+    let data = app::schem::paste_from_corner(
+        &standardize::tidy(&raw("alpha-cla")).unwrap(),
+    )
+    .unwrap();
     let [width, _, length] = Blocks::read(&data).unwrap().size;
     let nbt = app::schem::decode(&data).unwrap();
     let int = |value: Option<&fastnbt::Value>| match value {
@@ -592,4 +598,53 @@ fn a_paste_lands_south_of_the_south_east_bottom_corner() {
         panic!("no offset");
     };
     assert_eq!(world.iter().copied().collect::<Vec<_>>(), [0, 0, 0]);
+}
+
+/// The paste offset a version 2 file keeps: from the player to its box's
+/// north-west-bottom block.
+fn paste_offset(data: &[u8]) -> [i32; 3] {
+    let nbt = app::schem::decode(data).unwrap();
+    let Some(fastnbt::Value::Compound(metadata)) = nbt.body.get("Metadata")
+    else {
+        panic!("no metadata");
+    };
+    ["WEOffsetX", "WEOffsetY", "WEOffsetZ"].map(|key| match metadata.get(key) {
+        Some(fastnbt::Value::Int(n)) => *n,
+        other => panic!("not an int: {other:?}"),
+    })
+}
+
+#[test]
+fn a_stack_pastes_from_its_own_south_east_bottom_corner() {
+    // Copies go west, north, and up from the first, which keeps the
+    // south-east-bottom end, so the player stands as they did.
+    let slice =
+        app::schem::paste_from_corner(&slice("alpha-rca-slice")).unwrap();
+    let plan = [(direction("west=2"), 4)];
+    let (stacked, _) = stack::stack(&slice, &plan).unwrap();
+    let [width, _, length] = Blocks::read(&stacked).unwrap().size;
+    assert_eq!(paste_offset(&stacked), [-(width - 1), 0, -length]);
+}
+
+#[test]
+fn tidying_keeps_where_a_file_pastes_from() {
+    // Taking out corner markers moves the box's first block, and the paste
+    // offset with it, so //paste still lands the build in the same place.
+    let raw = raw("alpha-cla");
+    let tidied = standardize::tidy(&raw).unwrap();
+    let before = Blocks::read(&raw).unwrap();
+    let after = Blocks::read(&tidied).unwrap();
+    // A block's place relative to the player is the same in both files.
+    let first = |blocks: &Blocks, offset: [i32; 3]| {
+        let pos = blocks
+            .iter()
+            .find(|(_, state)| state.contains("lime_concrete"))
+            .map(|(pos, _)| pos)
+            .unwrap();
+        [0, 1, 2].map(|axis| pos[axis] + offset[axis])
+    };
+    assert_eq!(
+        first(&before, paste_offset(&raw)),
+        first(&after, paste_offset(&tidied))
+    );
 }
