@@ -35,6 +35,8 @@ const SWITCHES: &str =
 
 mod leaderboard;
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
+mod player;
+pub use player::{PlayerPage, player};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -436,7 +438,7 @@ fn facts(s: &Schematic) -> Markup {
     html! {
         (measures.join(" · "))
         @if !s.builders.is_empty() {
-            " · " (name_links(s, &s.builders, "builder"))
+            " · " (name_links(&s.builders))
         }
     }
 }
@@ -457,22 +459,20 @@ fn search_link(text: &str, term: &str) -> Markup {
     }
 }
 
-/// In-game names `s` credits, each a link to its account's profile, which
-/// lists what they built, when an admin has confirmed the name as theirs,
-/// and else to the builds crediting it in `role`, such as `builder`. The
-/// links sit above a card's own link.
-fn name_links(s: &Schematic, names: &[String], role: &str) -> Markup {
+/// In-game names, each a link to its player's page, which lists what
+/// they built and helped with. The links sit above a card's own link.
+fn name_links(names: &[String]) -> Markup {
     html! {
         @for (i, name) in names.iter().enumerate() {
             @if i > 0 { ", " }
-            @match s.profile(name) {
-                Some(username) => {
-                    a href={ "/users/" (username) } class="relative z-10" { (name) }
-                }
-                None => (search_link(name, &format!("{role}:{name}"))),
-            }
+            a href=(player_href(name)) class="relative z-10" { (name) }
         }
     }
+}
+
+/// The page of the Minecraft player `name`.
+fn player_href(name: &str) -> String {
+    format!("/players/{name}")
 }
 
 fn table(schematics: &[Schematic]) -> Markup {
@@ -511,7 +511,7 @@ fn table(schematics: &[Schematic]) -> Markup {
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(s, &s.builders, "builder")) }
+                                    td class=(TABLE_CELL) { (name_links(&s.builders)) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
                                     }
@@ -792,10 +792,10 @@ fn schematic_info(s: &Schematic) -> Markup {
                     (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                         html! { "unknown" }
                     } else {
-                        name_links(s, &s.builders, "builder")
+                        name_links(&s.builders)
                     }))
                     @if !s.contributors.is_empty() {
-                        (field(&plural("Contributor", &s.contributors), name_links(s, &s.contributors, "contributor")))
+                        (field(&plural("Contributor", &s.contributors), name_links(&s.contributors)))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
                     @for flag in &s.flags {
@@ -1705,7 +1705,7 @@ pub fn profile(
                     @if let Some(name) = &account.minecraft_name {
                         p {
                             "Minecraft: "
-                            a href=(search_href(&format!("builder:{name}"))) { (name) }
+                            a href=(player_href(name)) { (name) }
                             @if !account.minecraft_verified {
                                 span class="text-meta text-muted" { " · not yet confirmed" }
                             }

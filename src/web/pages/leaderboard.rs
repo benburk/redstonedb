@@ -48,16 +48,11 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         records,
         facets,
     } = *page;
-    // A builder whose name an admin has confirmed has a profile listing
-    // what they built.
-    let builder = |s: &Standing| match &s.account {
-        Some(username) => format!("/users/{username}"),
-        None => super::search_href(&format!("builder:{}", s.name)),
-    };
+    let builder = |s: &Standing| super::player_href(&s.name);
     // An upload's account has a profile; an importer is only a name.
     let adder = |name: &str, account: Option<&str>| match account {
         Some(username) => format!("/users/{username}"),
-        None => super::search_href(&format!("importer:{name}")),
+        None => super::player_href(name),
     };
     base(
         viewer,
@@ -405,7 +400,7 @@ fn ranking(
                                 a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
                                 @if !s.builders.is_empty() {
                                     p class="text-meta text-muted" {
-                                        "by " (name_links(s, &s.builders, "builder"))
+                                        "by " (name_links(&s.builders))
                                     }
                                 }
                             }

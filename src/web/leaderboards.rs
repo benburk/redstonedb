@@ -98,24 +98,12 @@ pub async fn people(
         Ok(loaded) => loaded,
         Err(err) => return internal_error(err).into_response(),
     };
-    // How each category's boards split: by width or period, and for a
-    // memory by capacity too.
-    let split = |name: &str| {
-        let category = categories.iter().find(|c| c.name == name);
-        let periodic = category.is_some_and(|c| c.periodic);
-        let by = if periodic {
-            Measure::Period
-        } else {
-            Measure::Width
-        };
-        (by, category.is_some_and(|c| c.holds_bytes))
-    };
     pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
-            records: &leaderboard::most_records(&all, split),
+            records: &leaderboard::most_records(&all, splits(&categories)),
             facets: &facets(&categories, &all, ""),
         },
     )
@@ -146,4 +134,20 @@ fn facets(
         })
         .filter(|f| f.count > 0 || f.name == current)
         .collect()
+}
+
+/// How each category's boards split: by width or period, and for a memory
+/// by capacity too.
+pub(super) fn splits(
+    categories: &[schematic::Category],
+) -> impl Fn(&str) -> (Measure, bool) + '_ {
+    move |name| {
+        let category = categories.iter().find(|c| c.name == name);
+        let by = if category.is_some_and(|c| c.periodic) {
+            Measure::Period
+        } else {
+            Measure::Width
+        };
+        (by, category.is_some_and(|c| c.holds_bytes))
+    }
 }

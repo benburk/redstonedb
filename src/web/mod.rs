@@ -17,6 +17,7 @@ mod details;
 mod heads;
 mod leaderboards;
 pub mod pages;
+mod players;
 mod profile;
 mod schematics;
 mod session;
@@ -109,6 +110,7 @@ pub fn router() -> Router<AppState> {
         .route("/upload/preview", post(upload::preview))
         .route("/about", get(about))
         .route("/heads/{uuid}", get(heads::show))
+        .route("/players/{name}", get(players::show))
         .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
         .route("/users/{username}/role", post(users::set_role))

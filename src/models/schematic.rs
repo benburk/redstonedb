@@ -187,9 +187,6 @@ pub struct Schematic {
     pub builders: Vec<String>,
     /// In-game names of people who helped without building it, in order.
     pub contributors: Vec<String>,
-    /// The credited names an admin has confirmed as an account's, in
-    /// lowercase, each with that account's username.
-    pub profiles: HashMap<String, String>,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
     pub imported_by: Option<String>,
@@ -315,12 +312,6 @@ impl Schematic {
         }
     }
 
-    /// The username of the account whose confirmed Minecraft name is
-    /// `name`, a name the build credits.
-    pub fn profile(&self, name: &str) -> Option<&str> {
-        self.profiles.get(&name.to_lowercase()).map(String::as_str)
-    }
-
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
         match self.synchronized {
@@ -420,7 +411,6 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     .fetch_all(db)
     .await?;
     let mut stacking = stacking_by_schematic(db).await?;
-    let accounts = confirmed_accounts(db).await?;
     let mut flags = flags_by_schematic(db).await?;
     let mut builders: HashMap<String, Vec<String>> = HashMap::new();
     let mut contributors: HashMap<String, Vec<String>> = HashMap::new();
@@ -458,11 +448,6 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         .map(|row| Schematic {
             tags: tags.remove(&row.id).unwrap_or_default(),
             flags: flags.remove(&row.id).unwrap_or_default(),
-            profiles: profiles(
-                builders.get(&row.id).into_iter().flatten(),
-                contributors.get(&row.id).into_iter().flatten(),
-                &accounts,
-            ),
             builders: builders.remove(&row.id).unwrap_or_default(),
             contributors: contributors.remove(&row.id).unwrap_or_default(),
             stacking: stacking.remove(&row.id).unwrap_or_default(),
@@ -546,9 +531,7 @@ pub async fn get(
     .await?;
     let builders = credits(db, id, Credit::Builder).await?;
     let contributors = credits(db, id, Credit::Contributor).await?;
-    let accounts = confirmed_accounts(db).await?;
     Ok(Some(Schematic {
-        profiles: profiles(&builders, &contributors, &accounts),
         id: row.id,
         category: row.category,
         category_label: row.category_label,
@@ -597,39 +580,6 @@ impl Credit {
             Credit::Contributor => "contributor",
         }
     }
-}
-
-/// The accounts with a confirmed Minecraft name: each name, in lowercase,
-/// with the account's username.
-async fn confirmed_accounts(
-    db: &SqlitePool,
-) -> Result<HashMap<String, String>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT lower(minecraft_name) as "name!: String", username
-         FROM user WHERE minecraft_verified AND minecraft_name IS NOT NULL"#
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.name, row.username))
-        .collect())
-}
-
-/// Of `accounts`, the ones whose names a build credits.
-fn profiles<'a>(
-    builders: impl IntoIterator<Item = &'a String>,
-    contributors: impl IntoIterator<Item = &'a String>,
-    accounts: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    builders
-        .into_iter()
-        .chain(contributors)
-        .filter_map(|name| {
-            let name = name.to_lowercase();
-            accounts.get(&name).map(|username| (name, username.clone()))
-        })
-        .collect()
 }
 
 /// The people a build credits in one role, in the order given.
@@ -1517,7 +1467,6 @@ mod tests {
             stacking: Vec::new(),
             builders: vec!["embizone".to_owned()],
             contributors: Vec::new(),
-            profiles: HashMap::new(),
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
             conventional: true,
