@@ -308,9 +308,9 @@ fn listing_body(
                     button type="submit" class="btn btn-primary" { "Search" }
                 }
                 p id="search-help" class="text-meta text-muted" {
-                    "Every word must match: a category, orientation, tag, width such as 8b, builder such as "
-                    code { "builder:embizone" } ", "
-                    code { "stackable" } ", or part of the name. Put " code { "-" } " or "
+                    "Every word must match: a category, orientation, tag, width such as 8b, latency such as 3t, a builder such as "
+                    code { "embizone" } ", "
+                    code { "stackable" } ", or part of the name or a builder's name. Put " code { "-" } " or "
                     code { "not" } " before a word to leave those builds out, and quotes around a tag with spaces."
                 }
                 @if !terms.is_empty() {
@@ -774,7 +774,7 @@ fn schematic_info(s: &Schematic) -> Markup {
                     (measure_fields(s))
                     (field("Orientation", search_link(s.orientation_label(), &s.orientation_label().to_lowercase())))
                     @if let Some(encoding) = s.encoding_label() {
-                        (field("Encoding", search_link(encoding, &encoding.to_lowercase())))
+                        (field("Encoding", search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default()))))
                     }
                     (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
                     (field("Synchronized", match s.synchronized {

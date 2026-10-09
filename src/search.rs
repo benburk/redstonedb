@@ -3,14 +3,17 @@
 //!
 //! Every term must match, so terms AND together. A term prefixed with `-`
 //! or written after `not` must not match. A term matches a schematic when
-//! it names one of its facts (category, orientation, encoding, a tag, its
-//! width such as `8b`, a builder, contributor, or importer, `stackable`,
-//! `sync` or `unsync`). A name can be tied to its role, as in
-//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`. A
-//! term that is no fact of any schematic matches when it appears in a
-//! schematic's title or description instead, so `add` finds adders while
+//! it names one of its facts (category, orientation, a tag, its width such
+//! as `8b`, its latency such as `3t`, a builder, contributor, or importer,
+//! `stackable`, `sync` or `unsync`). A name can be tied to its role, as in
+//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, and
+//! the encoding is `encoding:bin` or `encoding:hex`. A term that is no fact
+//! of any schematic, nor in the singular, as `adders` is `adder`, matches
+//! when it appears in a schematic's title, description, or credited names
+//! instead, so `add` finds adders, `owen` finds Owenage_'s builds, and
 //! `sync` does not find `unsync`. Quotes keep a multi-word term together,
-//! as in `"carry lookahead"`; underscores work too.
+//! as in `"carry lookahead"`; underscores work too, and a number before a
+//! unit, as in `3 ticks` or `8 bit`, is one term.
 
 use std::collections::HashSet;
 
@@ -61,9 +64,37 @@ pub fn parse(query: &str) -> Vec<Term> {
     terms
 }
 
+/// Units a number may be written before, as in `3 ticks`, so the two read
+/// as one term.
+const UNITS: [&str; 6] = ["bit", "bits", "tick", "ticks", "byte", "bytes"];
+
 /// Splits on spaces, keeping quoted runs together and dropping the quotes;
-/// a `-` before a quote stays with the quoted run.
+/// a `-` before a quote stays with the quoted run, and a number stays with
+/// a unit after it.
 fn words(query: &str) -> Vec<String> {
+    let mut joined: Vec<String> = Vec::new();
+    for word in split(query) {
+        let unit = UNITS.contains(&word.to_lowercase().as_str());
+        match joined.last_mut() {
+            Some(last)
+                if unit
+                    && !last.is_empty()
+                    && last
+                        .trim_start_matches('-')
+                        .chars()
+                        .all(|c| c.is_ascii_digit()) =>
+            {
+                last.push(' ');
+                last.push_str(&word);
+            }
+            _ => joined.push(word),
+        }
+    }
+    joined
+}
+
+/// Splits on spaces, keeping quoted runs together and dropping the quotes.
+fn split(query: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
@@ -87,26 +118,64 @@ fn words(query: &str) -> Vec<String> {
 /// The schematics every term matches, in their order.
 pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
     let known: HashSet<String> = schematics.iter().flat_map(facts).collect();
+    // Each term as a fact any schematic has, itself or in the singular, or
+    // else as text to find.
+    let terms: Vec<(&Term, Option<String>)> = terms
+        .iter()
+        .map(|term| (term, fact_named(&term.text, &known)))
+        .collect();
     schematics
         .into_iter()
         .filter(|s| {
             let facts = facts(s);
-            let text = format!(
-                "{} {}",
-                s.title(),
-                s.description.as_deref().unwrap_or("")
-            )
-            .to_lowercase();
-            terms.iter().all(|term| {
-                let found = if known.contains(&term.text) {
-                    facts.contains(&term.text)
-                } else {
-                    text.contains(&term.text)
+            let text = text(s);
+            terms.iter().all(|(term, fact)| {
+                let found = match fact {
+                    Some(fact) => facts.contains(fact),
+                    None => forms(&term.text).any(|form| text.contains(&form)),
                 };
                 found != term.negated
             })
         })
         .collect()
+}
+
+/// The fact `text` names, as it is or in the singular, if any schematic has
+/// it.
+fn fact_named(text: &str, known: &HashSet<String>) -> Option<String> {
+    forms(text).find(|form| known.contains(form))
+}
+
+/// `text` as it is, then as the singular it may be the plural of, as
+/// `memories` may be `memory`.
+fn forms(text: &str) -> impl Iterator<Item = String> + '_ {
+    let singular = [
+        text.strip_suffix("ies").map(|stem| format!("{stem}y")),
+        text.strip_suffix("es").map(str::to_owned),
+        text.strip_suffix('s').map(str::to_owned),
+    ];
+    std::iter::once(Some(text.to_owned()))
+        .chain(singular)
+        .flatten()
+        .filter(|form| !form.is_empty())
+}
+
+/// What a term that is no fact is looked for in: the title, description,
+/// and credited names, lowercase, names with spaces for underscores.
+fn text(s: &Schematic) -> String {
+    let names = s
+        .builders
+        .iter()
+        .chain(&s.contributors)
+        .map(|name| name.to_lowercase().replace('_', " "))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "{} {} {names}",
+        s.title(),
+        s.description.as_deref().unwrap_or("")
+    )
+    .to_lowercase()
 }
 
 /// Every word a term can name a schematic by.
@@ -116,8 +185,8 @@ fn facts(s: &Schematic) -> Vec<String> {
         s.orientation.clone(),
         s.orientation_label().to_lowercase(),
     ];
-    facts.extend(s.encoding.clone());
-    facts.extend(s.encoding_label().map(str::to_lowercase));
+    // Not the bare words, so `binary` and `hex` find the converters by name.
+    facts.extend(s.encoding.as_ref().map(|e| format!("encoding:{e}")));
     for tag in &s.tags {
         facts.push(tag.label());
         facts.push(tag.token().replace('_', " "));
@@ -128,6 +197,15 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{w:02}b"),
             format!("{w}-bit"),
             format!("{w} bit"),
+            format!("{w} bits"),
+        ]);
+    }
+    if let Some(t) = s.latency {
+        facts.extend([
+            format!("{t}t"),
+            format!("{t}-tick"),
+            format!("{t} tick"),
+            format!("{t} ticks"),
         ]);
     }
     if let Some(b) = s.bytes {
@@ -142,6 +220,7 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{p}t"),
             format!("{p}-tick"),
             format!("{p} tick"),
+            format!("{p} ticks"),
         ]);
     }
     // In-game names keep their capitals and underscores, but terms are
@@ -285,6 +364,51 @@ mod tests {
         assert!(find("\"carry lookahead\"", &adder));
         assert!(find("carry_lookahead", &adder));
         assert!(!find("-\"carry lookahead\"", &adder));
+    }
+
+    #[test]
+    fn part_of_a_credited_name_finds_their_builds() {
+        let s = Schematic {
+            builders: vec!["Don_Manuel_1229".to_owned()],
+            contributors: vec!["Owenage_".to_owned()],
+            ..schematic("adder", "horz", &[])
+        };
+        assert!(find("don manuel", &s));
+        assert!(find("owen", &s));
+        assert!(!find("zebek", &s));
+    }
+
+    #[test]
+    fn a_plural_finds_its_singular() {
+        let s = schematic("multiplier", "horz", &[]);
+        assert!(find("multipliers", &s));
+        let memory = schematic("serial_write_memory", "horz", &[]);
+        assert!(find("memories", &memory));
+    }
+
+    #[test]
+    fn latency_and_a_number_before_its_unit() {
+        let s = Schematic {
+            latency: Some(3),
+            ..schematic("adder", "horz", &[])
+        };
+        assert!(find("3t", &s));
+        assert!(find("3 ticks", &s));
+        assert!(find("adder 3 ticks", &s));
+        assert!(!find("4 ticks", &s));
+        assert!(find("8 bits", &s));
+    }
+
+    #[test]
+    fn encoding_is_named_with_its_role_not_by_the_bare_word() {
+        let converter = schematic("hex_to_binary", "horz", &[]);
+        let adder = schematic("adder", "horz", &[]);
+        assert!(find("encoding:bin", &adder));
+        assert!(find("binary", &converter));
+        assert!(
+            !find("binary", &adder),
+            "an adder's encoding is not its name"
+        );
     }
 
     #[test]
