@@ -59,7 +59,7 @@ Every build has a design: `other`, unless its category lists a better one (`rsdb
 
 Gates have XOR, XNOR, NAND+XNOR, and NAND+NOR; the simpler gates are left out. A design whose label is not just its name's words capitalized, such as XOR for `xor`, stores that label (`rsdb define-design --label`).
 
-The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record: adders and subtractors have Carry in and Carry out, set from signs labelled `carry in` or `cin` and `carry out` or `cout`, shift registers have Bidirectional and Writeable, and multipliers have Upper product, for one that outputs the full product, as 16 bits from 8 by 8, and FMA, for a fused multiply-add, A×B+C.
+The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record: adders and subtractors have Carry in and Carry out, set from signs labelled `carry in` or `cin` and `carry out` or `cout`, shift registers have Bidirectional and Writeable, ALUs have AND, OR, XOR, SHL, and SHR for the operations they offer beyond adding and subtracting, and Invert A and Invert B for inverting an operand first, and multipliers have Upper product, for one that outputs the full product, as 16 bits from 8 by 8, and FMA, for a fused multiply-add, A×B+C.
 
 An incrementer adds 1, subtracts 1, or does either as a control line says. Which it does is its design, Incrementer, Decrementer, or Inc/Dec, and the design names the build in place of the category, as in "8-bit Decrementer"; the three never share a leaderboard.
 
