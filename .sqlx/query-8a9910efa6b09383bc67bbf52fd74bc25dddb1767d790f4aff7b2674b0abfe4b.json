@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\",\n            designs_interchangeable as \"designs_interchangeable: bool\",\n            section,\n            periodic as \"periodic: bool\"\n         FROM category ORDER BY label COLLATE NOCASE",
+  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\",\n            designs_interchangeable as \"designs_interchangeable: bool\",\n            section,\n            periodic as \"periodic: bool\",\n            holds_bytes as \"holds_bytes: bool\"\n         FROM category ORDER BY label COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,11 @@
         "name": "periodic: bool",
         "ordinal": 6,
         "type_info": "Integer"
+      },
+      {
+        "name": "holds_bytes: bool",
+        "ordinal": 7,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -49,8 +54,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "a3b0246ad00aa04c78664edfb5e76a4fab15213d498ce6b3ce297d00fcb7f5fc"
+  "hash": "8a9910efa6b09383bc67bbf52fd74bc25dddb1767d790f4aff7b2674b0abfe4b"
 }

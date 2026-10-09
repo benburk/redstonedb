@@ -49,25 +49,7 @@ enum Command {
     /// List the standard categories, with their designs and flags
     Categories,
     /// Add a standard category to the list
-    DefineCategory {
-        name: String,
-        /// How people read it, such as RAM; words of the name by default
-        #[arg(long)]
-        label: Option<String>,
-        /// How people read many of them, such as ALUs; the label with an s
-        /// by default
-        #[arg(long)]
-        plural: Option<String>,
-        /// Each of its builds gives its own name, as bussing's do
-        #[arg(long)]
-        named: bool,
-        /// The sidebar section it sits in; left out, it sits under Other
-        #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
-        section: Option<String>,
-        /// Its builds are serial, each with a period in ticks
-        #[arg(long)]
-        periodic: bool,
-    },
+    DefineCategory(NewCategory),
     /// Add a yes-or-no flag to a category's builds, such as a shift
     /// register being bidirectional
     DefineFlag {
@@ -172,6 +154,7 @@ struct Set {
             "flags",
             "name",
             "period",
+            "bytes",
         ]
     )]
     unset: Vec<String>,
@@ -202,6 +185,30 @@ struct Add {
 }
 
 #[derive(Args)]
+struct NewCategory {
+    name: String,
+    /// How people read it, such as RAM; words of the name by default
+    #[arg(long)]
+    label: Option<String>,
+    /// How people read many of them, such as ALUs; the label with an s by
+    /// default
+    #[arg(long)]
+    plural: Option<String>,
+    /// Each of its builds gives its own name, as bussing's do
+    #[arg(long)]
+    named: bool,
+    /// The sidebar section it sits in; left out, it sits under Other
+    #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
+    section: Option<String>,
+    /// Its builds are serial, each with a period in ticks
+    #[arg(long)]
+    periodic: bool,
+    /// Its builds are memories, each holding a number of bytes
+    #[arg(long)]
+    holds_bytes: bool,
+}
+
+#[derive(Args)]
 struct Details {
     /// Datapath width in bits
     #[arg(long)]
@@ -213,6 +220,9 @@ struct Details {
     /// 2-tick serial adder
     #[arg(long)]
     period: Option<u32>,
+    /// For a memory, how many bytes it holds, as in a 32-byte RAM
+    #[arg(long)]
+    bytes: Option<u32>,
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
@@ -292,17 +302,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Reread => reread(db).await,
         Command::Respell => respell(db).await,
         Command::Categories => print_categories(db).await,
-        Command::DefineCategory {
-            name,
-            label,
-            plural,
-            named,
-            section,
-            periodic,
-        } => {
-            let names = (name, label, plural);
-            define_category(db, names, named, section, periodic).await
-        }
+        Command::DefineCategory(args) => define_category(db, args).await,
         Command::DefineFlag {
             category,
             name,
@@ -400,6 +400,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         description: details.description.as_deref(),
         given_name: details.given_name.as_deref(),
         period: details.period.map(i64::from),
+        bytes: details.bytes.map(i64::from),
     };
     let current = load(db, &id).await?;
     let category = changes.category.unwrap_or(&current.category);
@@ -421,6 +422,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "description" => Some(Optional::Description),
             "name" => Some(Optional::GivenName),
             "period" => Some(Optional::Period),
+            "bytes" => Some(Optional::Bytes),
             "design" => Some(Optional::Design),
             _ => None,
         })
@@ -503,6 +505,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             description: details.description.as_deref(),
             given_name: details.given_name.as_deref(),
             period: details.period.map(i64::from),
+            bytes: details.bytes.map(i64::from),
             uploaded_by: None,
             sha256: &prepared.sha256,
             data: &prepared.data,
@@ -558,25 +561,19 @@ async fn export(
     Ok(())
 }
 
-/// Adds a standard category from its name, label, and plural, the label
-/// being the name's words and the plural the label with an s unless given.
-async fn define_category(
-    db: &SqlitePool,
-    (name, label, plural): (String, Option<String>, Option<String>),
-    named: bool,
-    section: Option<String>,
-    periodic: bool,
-) -> Result<()> {
-    let label = label.unwrap_or_else(|| schematic::words(&name));
-    let plural = plural.unwrap_or_else(|| format!("{label}s"));
+/// Adds a standard category, its label being its name's words and its
+/// plural the label with an s unless given.
+async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
+    let label = args.label.unwrap_or_else(|| schematic::words(&args.name));
     let category = schematic::Category {
-        name,
+        plural: args.plural.unwrap_or_else(|| format!("{label}s")),
+        name: args.name,
         label,
-        plural,
-        named,
+        named: args.named,
         designs_interchangeable: true,
-        section,
-        periodic,
+        section: args.section,
+        periodic: args.periodic,
+        holds_bytes: args.holds_bytes,
     };
     Ok(schematic::define_category(db, &category).await?)
 }
@@ -805,6 +802,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     );
     if let Some(period) = s.period {
         println!("period       {period} ticks");
+    }
+    if let Some(bytes) = s.bytes {
+        println!("capacity     {bytes} bytes");
     }
     println!("synchronized {}", s.synchronized_label());
     println!("design       {}", s.design.replace('_', " "));

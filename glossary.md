@@ -65,6 +65,8 @@ A threshold turns on when at least *k* of its inputs are on. Its width is its nu
 
 An RNG gives random numbers, its width being the bits of each. Its designs are LFSR, a linear-feedback shift register, and Xorshift, which are pseudo-random and repeat once their state cycles, and Dropper, which reads the game's own randomness from droppers or dispensers. Its flag Seedable marks one that can be given a starting value.
 
+A memory, RAM or Serial Write Memory, records its capacity in bytes, as in "8-bit 32-byte RAM", beside its width in bits; a stack of copies holds every copy's bytes. Its leaderboards split by capacity after width. A category whose builds hold bytes says so (`rsdb define-category --holds-bytes`, and `--bytes` on `rsdb add` and `set`).
+
 A serial build takes its operands a bit at a time. Its period is the ticks from one bit to the next, as in "2-tick Serial Adder", which takes two 1-bit streams and outputs one; a category whose builds are serial records a period for each (`rsdb define-category --periodic`, and `--period` on `rsdb add` and `set`), and its leaderboards split by period where others split by width. Period, not frequency: a 2-tick adder runs at 5 Hz, but nobody calls it that.
 
 Add new standard categories here when adding them to the database.

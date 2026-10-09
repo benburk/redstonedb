@@ -153,6 +153,8 @@ pub struct Schematic {
     pub synchronized: Option<bool>,
     /// For a serial build, the ticks from one bit to the next.
     pub period: Option<i64>,
+    /// For a memory, how many bytes it holds.
+    pub bytes: Option<i64>,
     /// The build's box less any outer layer holding only its interface.
     pub size: (i64, i64, i64),
     /// Empty for a build that does not stack.
@@ -229,12 +231,13 @@ impl Schematic {
             .unwrap_or_else(|| self.category_label())
     }
 
-    /// The width and period that lead a name, such as `8-bit` or
-    /// `2-tick`.
+    /// The width, period, and capacity that lead a name, such as `8-bit`,
+    /// `2-tick`, or `32-byte`.
     fn measures(&self) -> impl Iterator<Item = String> {
         let width = self.width.map(|w| format!("{w}-bit"));
         let period = self.period.map(|p| format!("{p}-tick"));
-        width.into_iter().chain(period)
+        let bytes = self.bytes.map(|b| format!("{b}-byte"));
+        width.into_iter().chain(period).chain(bytes)
     }
 
     /// The width, design, and category, such as `8-bit Carry Lookahead
@@ -283,21 +286,25 @@ impl Schematic {
     }
 
     /// This build stacked into a box of inner `size`, with `copies` along
-    /// each direction. Copies that add bits widen it. A stack's latency and
-    /// timing are not its slice's, so they are unknown.
+    /// each direction. Copies that add bits widen it, and every copy of a
+    /// memory holds its bytes. A stack's latency and timing are not its
+    /// slice's, so they are unknown.
     #[must_use]
     pub fn stacked(
         &self,
         copies: &[(StackDirection, usize)],
         size: [i32; 3],
     ) -> Schematic {
+        let count = |n: &usize| i64::try_from(*n).unwrap_or(i64::MAX);
         let factor: i64 = copies
             .iter()
             .filter(|(direction, _)| direction.adds_bits(&self.orientation))
-            .map(|(_, n)| i64::try_from(*n).unwrap_or(i64::MAX))
+            .map(|(_, n)| count(n))
             .product();
+        let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
         Schematic {
             width: self.width.map(|w| w * factor),
+            bytes: self.bytes.map(|b| b.saturating_mul(all)),
             latency: None,
             synchronized: None,
             size: (size[0].into(), size[1].into(), size[2].into()),
@@ -387,7 +394,7 @@ async fn stacking_by_schematic(
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
@@ -453,6 +460,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             latency: row.latency,
             synchronized: row.synchronized,
             period: row.period,
+            bytes: row.bytes,
             size: (row.size_x, row.size_y, row.size_z),
             built_on: row.built_on,
             imported_by: row.imported_by,
@@ -478,7 +486,7 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
@@ -531,6 +539,7 @@ pub async fn get(
         latency: row.latency,
         synchronized: row.synchronized,
         period: row.period,
+        bytes: row.bytes,
         size: (row.size_x, row.size_y, row.size_z),
         stacking: stacking(db, id).await?,
         builders: credits(db, id, Credit::Builder).await?,
@@ -722,6 +731,7 @@ pub struct New<'a> {
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
     pub period: Option<i64>,
+    pub bytes: Option<i64>,
     pub uploaded_by: Option<uuid::Uuid>,
     pub sha256: &'a str,
     pub data: &'a [u8],
@@ -737,8 +747,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            period, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            period, bytes, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -756,6 +766,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.description,
         new.given_name,
         new.period,
+        new.bytes,
         new.uploaded_by,
         new.sha256,
         new.data,
@@ -765,6 +776,9 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
 }
 
 /// An entry in the list of categories a build may have.
+// Each yes-or-no field is a column of its own, independent of the others,
+// so there is no state machine to fold them into.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct Category {
     pub name: String,
@@ -783,6 +797,8 @@ pub struct Category {
     /// Whether its builds are serial, each with a period: the ticks from
     /// one bit to the next.
     pub periodic: bool,
+    /// Whether its builds are memories, each holding a number of bytes.
+    pub holds_bytes: bool,
 }
 
 /// The sidebar's sections of standard categories, in order: each stored
@@ -829,7 +845,8 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
             named as "named: bool",
             designs_interchangeable as "designs_interchangeable: bool",
             section,
-            periodic as "periodic: bool"
+            periodic as "periodic: bool",
+            holds_bytes as "holds_bytes: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
@@ -899,6 +916,7 @@ pub async fn check_category(
             designs_interchangeable: true,
             section: None,
             periodic: false,
+            holds_bytes: false,
         });
     let listed = designs(db)
         .await?
@@ -924,14 +942,15 @@ pub async fn define_category<'e, E: SqliteExecutor<'e>>(
         .then_some(category.plural.as_str());
     sqlx::query!(
         "INSERT INTO category (name, label, plural, named, section,
-            periodic)
-         VALUES (?, ?, ?, ?, ?, ?)",
+            periodic, holds_bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
         category.named,
         category.section,
-        category.periodic
+        category.periodic,
+        category.holds_bytes
     )
     .execute(db)
     .await?;
@@ -1097,6 +1116,7 @@ pub struct Details<'a> {
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
     pub period: Option<i64>,
+    pub bytes: Option<i64>,
 }
 
 /// Sets every field of a details form, clearing the empty ones.
@@ -1109,7 +1129,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?,
-            description = ?, given_name = ?, period = ?,
+            description = ?, given_name = ?, period = ?, bytes = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -1123,6 +1143,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.description,
         details.given_name,
         details.period,
+        details.bytes,
         id,
     )
     .execute(db)
@@ -1157,6 +1178,7 @@ pub struct Changes<'a> {
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
     pub period: Option<i64>,
+    pub bytes: Option<i64>,
 }
 
 pub async fn update<'e, E: SqliteExecutor<'e>>(
@@ -1179,6 +1201,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             description = coalesce(?, description),
             given_name = coalesce(?, given_name),
             period = coalesce(?, period),
+            bytes = coalesce(?, bytes),
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         changes.category,
@@ -1194,6 +1217,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.description,
         changes.given_name,
         changes.period,
+        changes.bytes,
         id,
     )
     .execute(db)
@@ -1213,6 +1237,7 @@ pub enum Optional {
     Design,
     GivenName,
     Period,
+    Bytes,
 }
 
 /// Makes `fields` unknown.
@@ -1233,6 +1258,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     let design = has(Optional::Design);
     let given_name = has(Optional::GivenName);
     let period = has(Optional::Period);
+    let bytes = has(Optional::Bytes);
     sqlx::query!(
         "UPDATE schematic SET
             width = iif(?, NULL, width),
@@ -1243,7 +1269,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             description = iif(?, NULL, description),
             design = iif(?, 'other', design),
             given_name = iif(?, NULL, given_name),
-            period = iif(?, NULL, period)
+            period = iif(?, NULL, period),
+            bytes = iif(?, NULL, bytes)
          WHERE id = ?",
         width,
         latency,
@@ -1254,6 +1281,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         design,
         given_name,
         period,
+        bytes,
         id,
     )
     .execute(db)
@@ -1432,6 +1460,7 @@ mod tests {
             latency: Some(8),
             synchronized: Some(false),
             period: None,
+            bytes: None,
             size: (19, 11, 18),
             stacking: Vec::new(),
             builders: vec!["embizone".to_owned()],
@@ -1488,6 +1517,28 @@ mod tests {
     }
 
     #[test]
+    fn a_memory_names_its_capacity_and_stacks_multiply_it() {
+        let ram = Schematic {
+            category: "ram".to_owned(),
+            category_label: Some("RAM".to_owned()),
+            design: "other".to_owned(),
+            bytes: Some(32),
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(ram.name(), "8-bit 32-byte RAM");
+        let north = StackDirection {
+            west: 0,
+            up: 0,
+            north: 3,
+            max_copies: None,
+        };
+        let stacked = ram.stacked(&[(north, 4)], [19, 11, 72]);
+        assert_eq!(stacked.bytes, Some(128));
+        assert_eq!(stacked.width, Some(8), "copies north add words, not bits");
+    }
+
+    #[test]
     fn a_design_keeps_its_label() {
         let s = Schematic {
             category: "gate".to_owned(),
@@ -1531,6 +1582,7 @@ mod tests {
             latency: None,
             synchronized: None,
             period: None,
+            bytes: None,
             builders: Vec::new(),
             built_on: None,
             tags: Vec::new(),

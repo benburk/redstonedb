@@ -130,6 +130,13 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{w} bit"),
         ]);
     }
+    if let Some(b) = s.bytes {
+        facts.extend([
+            format!("{b}-byte"),
+            format!("{b} byte"),
+            format!("{b} bytes"),
+        ]);
+    }
     if let Some(p) = s.period {
         facts.extend([
             format!("{p}t"),
@@ -219,6 +226,7 @@ mod tests {
             latency: None,
             synchronized: None,
             period: None,
+            bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
             builders: vec!["embizone".to_owned()],
@@ -285,6 +293,16 @@ mod tests {
         assert!(find("08b", &adder));
         assert!(!find("16b", &adder));
         assert!(find("add", &adder), "falls back to the title");
+    }
+
+    #[test]
+    fn a_capacity_matches_in_bytes_not_bits() {
+        let ram = Schematic {
+            bytes: Some(32),
+            ..schematic("ram", "horz", &[])
+        };
+        assert!(find("32-byte", &ram));
+        assert!(!find("32b", &ram), "32b means 32 bits wide");
     }
 
     #[test]

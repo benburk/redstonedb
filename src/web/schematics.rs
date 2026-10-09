@@ -359,9 +359,13 @@ async fn saved(
     if !category.named {
         details.given_name = None;
     }
-    // Likewise, only a serial category's build keeps a period.
+    // Likewise, only a serial category's build keeps a period, and a
+    // memory's a capacity.
     if !category.periodic {
         details.period = None;
+    }
+    if !category.holds_bytes {
+        details.bytes = None;
     }
     // Credited as their players spell them, asked before the transaction
     // opens so it is not held across the lookup.

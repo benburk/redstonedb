@@ -183,12 +183,16 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
 fn board_href(
     path: &str,
     measure: (Measure, Option<i64>),
+    bytes: Option<i64>,
     orientation: Option<&str>,
     design: Option<&str>,
 ) -> String {
     let mut params = form_urlencoded::Serializer::new(String::new());
     if let (by, Some(n)) = measure {
         params.append_pair(by.name(), &n.to_string());
+    }
+    if let Some(bytes) = bytes {
+        params.append_pair("bytes", &bytes.to_string());
     }
     if let Some(orientation) = orientation {
         params.append_pair("orientation", orientation);
@@ -218,20 +222,26 @@ fn choices(path: &str, board: &Board) -> Markup {
         div class="mb-6 flex flex-col gap-2" {
             (choice_row(heading, &board.measures, |c| {
                 (board.measure.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
-                    board_href(path, (board.by, c.value.parse().ok()), None, None))
+                    board_href(path, (board.by, c.value.parse().ok()), None, None, None))
             }, None))
+            @if !board.capacities.is_empty() {
+                (choice_row("Capacity", &board.capacities, |c| {
+                    (board.capacity.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
+                        board_href(path, measure, c.value.parse().ok(), None, None))
+                }, None))
+            }
             (choice_row("Orientation", &board.orientations, |c| {
                 (orientation == Some(c.value.as_str()),
-                    board_href(path, measure, Some(&c.value), None))
+                    board_href(path, measure, board.capacity, Some(&c.value), None))
             }, None))
             @if !board.designs.is_empty() {
                 @let all = board.all_designs.then(|| (
                     board.design.is_none(),
-                    board_href(path, measure, orientation, None),
+                    board_href(path, measure, board.capacity, orientation, None),
                 ));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        board_href(path, measure, orientation, Some(&c.value)))
+                        board_href(path, measure, board.capacity, orientation, Some(&c.value)))
                 }, all))
             }
         }
@@ -342,6 +352,7 @@ fn board_name(category: &Category, board: &Board) -> String {
         .measure
         .map(|n| board.by.label(n))
         .into_iter()
+        .chain(board.capacity.map(|b| format!("{b}-byte")))
         .chain(orientation)
         .chain(design)
         .chain([category.plural.to_lowercase()])

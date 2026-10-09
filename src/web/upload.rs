@@ -128,6 +128,7 @@ pub async fn preview(
         description: "",
         given_name: "",
         period: "",
+        bytes: "",
         design: "other",
         flags: &flags,
         stackable: false,
@@ -227,15 +228,16 @@ async fn publish_checked(
         Err(err) => return Err(format!("Could not check the tags: {err}.")),
     }
     // Checked here too, so the refusal reads as a sentence of its own.
-    let periodic = match schematic::check_category(
+    let (periodic, holds_bytes) = match schematic::check_category(
         &state.db,
         &parsed.category,
         &parsed.design,
     )
     .await
     {
-        // Only a serial category's build keeps a period.
-        Ok(Ok(category)) => category.periodic,
+        // Only a serial category's build keeps a period, and a memory's a
+        // capacity.
+        Ok(Ok(category)) => (category.periodic, category.holds_bytes),
         Ok(Err(message)) => return Err(message),
         Err(err) => {
             return Err(format!("Could not check the category: {err}."));
@@ -258,6 +260,7 @@ async fn publish_checked(
         description: parsed.description.as_deref(),
         given_name: parsed.given_name.as_deref(),
         period: parsed.period.filter(|_| periodic),
+        bytes: parsed.bytes.filter(|_| holds_bytes),
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,
         data: &prepared.data,

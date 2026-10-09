@@ -2,7 +2,8 @@
 // checks them all; with it, fields follow the chosen category.
 
 // Category fields: the name box shows only for other, each category's flags
-// only for it, the period only for a serial category, and the design list
+// only for it, the period only for a serial category, the capacity only for
+// a memory, and the design list
 // only once the chosen category has designs, offering just those.
 for (const select of document.querySelectorAll("select[data-category]")) {
   const form = select.closest("form");
@@ -27,6 +28,8 @@ for (const select of document.querySelectorAll("select[data-category]")) {
       !select.selectedOptions[0]?.hasAttribute("data-named");
     form.querySelector("[data-period-field]").hidden =
       !select.selectedOptions[0]?.hasAttribute("data-periodic");
+    form.querySelector("[data-bytes-field]").hidden =
+      !select.selectedOptions[0]?.hasAttribute("data-holds-bytes");
     let designs = false;
     for (const group of design.querySelectorAll("optgroup")) {
       const mine = group.dataset.for === select.value;

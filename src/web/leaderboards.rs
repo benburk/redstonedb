@@ -22,6 +22,7 @@ use super::pages;
 pub struct BoardQuery {
     width: Option<String>,
     period: Option<String>,
+    bytes: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
 }
@@ -56,6 +57,7 @@ pub async fn show(
     };
     let wanted = Wanted {
         measure: given(measure).and_then(|n| n.parse().ok()),
+        bytes: given(query.bytes).and_then(|n| n.parse().ok()),
         orientation: given(query.orientation),
         design: given(query.design),
     };
@@ -65,6 +67,7 @@ pub async fn show(
         &builds,
         &wanted,
         by,
+        chosen.holds_bytes,
         chosen.designs_interchangeable,
     );
     pages::leaderboard(
@@ -95,14 +98,24 @@ pub async fn people(
         Ok(loaded) => loaded,
         Err(err) => return internal_error(err).into_response(),
     };
-    let periodic =
-        |name: &str| categories.iter().any(|c| c.name == name && c.periodic);
+    // How each category's boards split: by width or period, and for a
+    // memory by capacity too.
+    let split = |name: &str| {
+        let category = categories.iter().find(|c| c.name == name);
+        let periodic = category.is_some_and(|c| c.periodic);
+        let by = if periodic {
+            Measure::Period
+        } else {
+            Measure::Width
+        };
+        (by, category.is_some_and(|c| c.holds_bytes))
+    };
     pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
-            records: &leaderboard::most_records(&all, periodic),
+            records: &leaderboard::most_records(&all, split),
             facets: &facets(&categories, &all, ""),
         },
     )

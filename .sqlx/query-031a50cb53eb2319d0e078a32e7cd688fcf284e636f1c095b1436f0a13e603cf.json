@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -44,93 +44,98 @@
         "type_info": "Integer"
       },
       {
-        "name": "size_x",
+        "name": "bytes",
         "ordinal": 8,
         "type_info": "Integer"
       },
       {
-        "name": "size_y",
+        "name": "size_x",
         "ordinal": 9,
         "type_info": "Integer"
       },
       {
-        "name": "size_z",
+        "name": "size_y",
         "ordinal": 10,
         "type_info": "Integer"
       },
       {
-        "name": "built_on",
+        "name": "size_z",
         "ordinal": 11,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "imported_by",
+        "name": "built_on",
         "ordinal": 12,
         "type_info": "Text"
       },
       {
-        "name": "sha256",
+        "name": "imported_by",
         "ordinal": 13,
         "type_info": "Text"
       },
       {
-        "name": "added_at",
+        "name": "sha256",
         "ordinal": 14,
         "type_info": "Text"
       },
       {
-        "name": "edited_at",
+        "name": "added_at",
         "ordinal": 15,
         "type_info": "Text"
       },
       {
-        "name": "downloads",
+        "name": "edited_at",
         "ordinal": 16,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "conventional: bool",
+        "name": "downloads",
         "ordinal": 17,
         "type_info": "Integer"
       },
       {
-        "name": "description",
+        "name": "conventional: bool",
         "ordinal": 18,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "given_name",
+        "name": "description",
         "ordinal": 19,
         "type_info": "Text"
       },
       {
-        "name": "design",
+        "name": "given_name",
         "ordinal": 20,
         "type_info": "Text"
       },
       {
-        "name": "design_abbreviation?: String",
+        "name": "design",
         "ordinal": 21,
         "type_info": "Text"
       },
       {
-        "name": "design_given_label?: String",
+        "name": "design_abbreviation?: String",
         "ordinal": 22,
         "type_info": "Text"
       },
       {
-        "name": "category_label?: String",
+        "name": "design_given_label?: String",
         "ordinal": 23,
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "category_label?: String",
         "ordinal": 24,
         "type_info": "Text"
       },
       {
-        "name": "uploader_name?: String",
+        "name": "uploader?: String",
         "ordinal": 25,
+        "type_info": "Text"
+      },
+      {
+        "name": "uploader_name?: String",
+        "ordinal": 26,
         "type_info": "Text"
       }
     ],
@@ -142,6 +147,7 @@
       false,
       true,
       false,
+      true,
       true,
       true,
       true,
@@ -166,5 +172,5 @@
       true
     ]
   },
-  "hash": "2a549e5cec2f0df0c8a77f9b934d77591efd84ab504f5c2084974a1ddc023aca"
+  "hash": "031a50cb53eb2319d0e078a32e7cd688fcf284e636f1c095b1436f0a13e603cf"
 }
