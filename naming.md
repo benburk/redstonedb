@@ -1,11 +1,12 @@
 # Naming
 
-A build's name is its width, design, and category, such as `8-bit Carry Lookahead Adder`. Unknown parts are left out, and so is the design `other`. Its download filename is that name with dashes for spaces:
+A build's name is its width, design, and category, such as `8-bit Carry Lookahead Adder`. Unknown parts are left out, and so is the design `other`. Its download filename is that name with an underscore for each run of anything but letters and digits, since Schemati, the Open Redstone Engineers server's schematic store, takes no other characters:
 
 ```text
-8-bit-Carry-Lookahead-Adder.schem
-16-bit-RAM.schem
-Adder.schem
+8_bit_Carry_Lookahead_Adder.schem
+16_bit_RAM.schem
+1_bit_NAND_XNOR_Gate.schem
+8_bit_Inc_Dec.schem
 ```
 
 A stack is named for what it became: its width is the slice's times the copies that add bits.

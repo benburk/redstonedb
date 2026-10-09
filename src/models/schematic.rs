@@ -284,10 +284,20 @@ impl Schematic {
         })
     }
 
-    /// The download filename: the build's name with dashes for spaces,
-    /// such as `8-bit-Carry-Lookahead-Adder.schem`.
+    /// The download filename: the build's name with an underscore for each
+    /// run of anything but letters and digits, such as
+    /// `8_bit_Carry_Lookahead_Adder.schem`, as Schemati, the Open Redstone
+    /// Engineers server's schematic store, takes no other characters.
     pub fn filename(&self) -> String {
-        format!("{}.schem", self.name().replace([' ', '/'], "-"))
+        let mut stem = String::new();
+        for c in self.name().chars() {
+            if c.is_ascii_alphanumeric() {
+                stem.push(c);
+            } else if !stem.is_empty() && !stem.ends_with('_') {
+                stem.push('_');
+            }
+        }
+        format!("{}.schem", stem.trim_end_matches('_'))
     }
 
     /// The number of blocks inside the build's bounding box.
@@ -1515,7 +1525,7 @@ mod tests {
 
     #[test]
     fn filename_is_the_name() {
-        assert_eq!(cla().filename(), "8-bit-Carry-Lookahead-Adder.schem");
+        assert_eq!(cla().filename(), "8_bit_Carry_Lookahead_Adder.schem");
     }
 
     #[test]
@@ -1574,7 +1584,7 @@ mod tests {
             ..cla()
         };
         assert_eq!(s.name(), "8-bit Inc/Dec");
-        assert_eq!(s.filename(), "8-bit-Inc-Dec.schem");
+        assert_eq!(s.filename(), "8_bit_Inc_Dec.schem");
         let unsure = Schematic {
             design: "other".to_owned(),
             design_given_label: None,
@@ -1595,6 +1605,7 @@ mod tests {
             ..cla()
         };
         assert_eq!(s.name(), "8-bit NAND+XNOR Gate");
+        assert_eq!(s.filename(), "8_bit_NAND_XNOR_Gate.schem");
     }
 
     #[test]
