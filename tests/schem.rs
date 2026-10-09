@@ -568,3 +568,28 @@ fn signal_strength_dust_needs_an_open_end() {
         "{messages:#?}"
     );
 }
+
+#[test]
+fn a_paste_lands_south_of_the_south_east_bottom_corner() {
+    // The uploader's file put the paste wherever they stood when copying.
+    let data = standardize::tidy(&raw("alpha-cla")).unwrap();
+    let [width, _, length] = Blocks::read(&data).unwrap().size;
+    let nbt = app::schem::decode(&data).unwrap();
+    let int = |value: Option<&fastnbt::Value>| match value {
+        Some(fastnbt::Value::Int(n)) => *n,
+        other => panic!("not an int: {other:?}"),
+    };
+    let Some(fastnbt::Value::Compound(metadata)) = nbt.body.get("Metadata")
+    else {
+        panic!("no metadata");
+    };
+    let paste =
+        ["WEOffsetX", "WEOffsetY", "WEOffsetZ"].map(|k| int(metadata.get(k)));
+    // From one block south of the south-east-bottom corner to the
+    // north-west-bottom block.
+    assert_eq!(paste, [-(width - 1), 0, -length]);
+    let Some(fastnbt::Value::IntArray(world)) = nbt.body.get("Offset") else {
+        panic!("no offset");
+    };
+    assert_eq!(world.iter().copied().collect::<Vec<_>>(), [0, 0, 0]);
+}

@@ -529,6 +529,93 @@ impl Nbt {
         );
         fields.insert("Palette".to_owned(), Value::Compound(palette));
         fields.insert("BlockEntities".to_owned(), Value::List(entities));
+        self.place_for_paste(size);
         Ok(())
+    }
+
+    /// Sets where `//paste` puts the build: the player stands one block
+    /// south of its south-east-bottom corner, outside it, and the build
+    /// reaches west and north from in front of them, from their feet up.
+    /// The paste offset is from the player to the box's north-west-bottom
+    /// block. The world position the build was copied from, which only
+    /// says where its uploader built it, becomes zero.
+    fn place_for_paste(&mut self, [width, _, length]: Pos) {
+        let paste = [-(width - 1), 0, -length];
+        let ints = |v: [i32; 3]| Value::IntArray(IntArray::new(v.to_vec()));
+        let metadata = match self
+            .body
+            .entry("Metadata".to_owned())
+            .or_insert_with(|| Value::Compound(HashMap::new()))
+        {
+            Value::Compound(metadata) => metadata,
+            other => {
+                *other = Value::Compound(HashMap::new());
+                let Value::Compound(metadata) = other else {
+                    unreachable!()
+                };
+                metadata
+            }
+        };
+        let worldedit = match metadata.get_mut("WorldEdit") {
+            Some(Value::Compound(worldedit)) => Some(worldedit),
+            _ => None,
+        };
+        if self.nested {
+            // Version 3: `Offset` is the paste offset, and WorldEdit keeps
+            // the world origin.
+            if let Some(worldedit) = worldedit {
+                worldedit.insert("Origin".to_owned(), ints([0, 0, 0]));
+            }
+            self.body.insert("Offset".to_owned(), ints(paste));
+        } else {
+            // Version 2: `Offset` is the world position, and WorldEdit
+            // keeps the paste offset among the metadata.
+            if let Some(worldedit) = worldedit {
+                worldedit.insert("Offset".to_owned(), ints(paste));
+            }
+            for (key, n) in ["WEOffsetX", "WEOffsetY", "WEOffsetZ"]
+                .into_iter()
+                .zip(paste)
+            {
+                metadata.insert(key.to_owned(), Value::Int(n));
+            }
+            self.body.insert("Offset".to_owned(), ints([0, 0, 0]));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_3_keeps_the_paste_offset_as_its_offset() {
+        let worldedit = HashMap::from([(
+            "Origin".to_owned(),
+            Value::IntArray(IntArray::new(vec![300, 64, -80])),
+        )]);
+        let mut nbt = Nbt {
+            body: HashMap::from([(
+                "Metadata".to_owned(),
+                Value::Compound(HashMap::from([(
+                    "WorldEdit".to_owned(),
+                    Value::Compound(worldedit),
+                )])),
+            )]),
+            nested: true,
+        };
+        nbt.place_for_paste([5, 3, 4]);
+        let ints = |value: Option<&Value>| match value {
+            Some(Value::IntArray(v)) => v.iter().copied().collect::<Vec<_>>(),
+            other => panic!("not an int array: {other:?}"),
+        };
+        assert_eq!(ints(nbt.body.get("Offset")), [-4, 0, -4]);
+        let Some(Value::Compound(metadata)) = nbt.body.get("Metadata") else {
+            panic!("no metadata");
+        };
+        let Some(Value::Compound(worldedit)) = metadata.get("WorldEdit") else {
+            panic!("no WorldEdit section");
+        };
+        assert_eq!(ints(worldedit.get("Origin")), [0, 0, 0]);
     }
 }
