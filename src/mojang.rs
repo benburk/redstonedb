@@ -53,12 +53,33 @@ pub async fn profile(name: &str) -> Result<Option<Profile>, String> {
     Ok(profiles(&[name.to_owned()]).await?.into_iter().next())
 }
 
-/// `names` as their players spell them. A name Mojang does not know, such
-/// as one its player has since changed, stays as given, as every name does
-/// when Mojang cannot be reached.
-pub async fn respell(names: &[String]) -> Vec<String> {
-    let found = profiles(names).await.unwrap_or_default();
-    spelled(names, &found)
+/// `names` as their players spell them, or a sentence naming those no
+/// player has, to be checked. When Mojang cannot be reached, the names as
+/// given, so an outage does not stop anyone crediting a build.
+pub async fn respell(names: &[String]) -> Result<Vec<String>, String> {
+    let Ok(found) = profiles(names).await else {
+        return Ok(names.to_vec());
+    };
+    let unknown = unknown(names, &found);
+    match unknown.as_slice() {
+        [] => Ok(spelled(names, &found)),
+        [one] => Err(format!(
+            "No Minecraft player is named {one}. Check the spelling."
+        )),
+        many => Err(format!(
+            "No Minecraft players are named {}. Check the spelling.",
+            many.join(", ")
+        )),
+    }
+}
+
+/// The names in `names` that none of `found` has.
+fn unknown<'a>(names: &'a [String], found: &[Profile]) -> Vec<&'a str> {
+    names
+        .iter()
+        .filter(|name| !found.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
+        .map(String::as_str)
+        .collect()
 }
 
 /// `names` with each one `found` knows in its spelling.
@@ -77,6 +98,16 @@ fn spelled(names: &[String], found: &[Profile]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_no_player_has_are_named() {
+        let found = [Profile {
+            uuid: "1218d0e691294ce09d98fded20551c1c".to_owned(),
+            name: "_zebek".to_owned(),
+        }];
+        let names = ["_ZEBEK".to_owned(), "Zebek__".to_owned()];
+        assert_eq!(unknown(&names, &found), ["Zebek__"]);
+    }
 
     #[test]
     fn known_names_take_their_players_spelling() {

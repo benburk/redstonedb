@@ -370,8 +370,13 @@ async fn saved(
     }
     // Credited as their players spell them, asked before the transaction
     // opens so it is not held across the lookup.
-    let builders = mojang::respell(&parsed.builders).await;
-    let contributors = mojang::respell(&parsed.contributors).await;
+    let (builders, contributors) = match (
+        mojang::respell(&parsed.builders).await,
+        mojang::respell(&parsed.contributors).await,
+    ) {
+        (Ok(builders), Ok(contributors)) => (builders, contributors),
+        (Err(message), _) | (_, Err(message)) => return Ok(Err(message)),
+    };
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
     schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;

@@ -458,7 +458,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         {
             bail!("{name} is not a Minecraft name");
         }
-        let names = mojang::respell(names).await;
+        let names = mojang::respell(names).await.map_err(anyhow::Error::msg)?;
         schematic::set_credits(&mut conn, &id, credit, &names).await?;
     }
     println!("{}", load(db, &id).await?.filename());
@@ -492,8 +492,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     flags.extend(import::sign_flags(&interface::read(&prepared.blocks)));
     let imported_by = details.imported_by.clone();
     // Credited as their players spell them.
-    let builders = mojang::respell(&details.builders).await;
-    let contributors = mojang::respell(&details.contributors).await;
+    let builders = mojang::respell(&details.builders)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let contributors = mojang::respell(&details.contributors)
+        .await
+        .map_err(anyhow::Error::msg)?;
     let id = import::store(
         db,
         &New {

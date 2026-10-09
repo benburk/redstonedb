@@ -294,9 +294,10 @@ async fn publish_checked(
         sha256: &prepared.sha256,
         data: &prepared.data,
     };
-    // Credited as their players spell them.
-    let builders = mojang::respell(&parsed.builders).await;
-    let contributors = mojang::respell(&parsed.contributors).await;
+    // Credited as their players spell them; a name no player has is
+    // refused.
+    let builders = mojang::respell(&parsed.builders).await?;
+    let contributors = mojang::respell(&parsed.contributors).await?;
     let extras = import::Extras {
         builders: &builders,
         contributors: &contributors,
