@@ -9,6 +9,7 @@ pub mod db;
 pub mod discord;
 pub mod error;
 pub mod extractors;
+pub mod head;
 pub mod import;
 pub mod interface;
 pub mod leaderboard;

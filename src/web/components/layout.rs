@@ -75,9 +75,7 @@ pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                         }
                         a href=(profile_path) aria-current=[current(&profile_path)]
                             class={ (link) " flex items-center gap-2" } {
-                            @if let Some(avatar) = user.avatar_url() {
-                                img src=(avatar) alt="" width="20" height="20" class="size-5 rounded-full";
-                            }
+                            @if let Some(picture) = user.picture(20) { (picture) }
                             (user.name())
                         }
                         form action="/logout" method="post" class="contents" {

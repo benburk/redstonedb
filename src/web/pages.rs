@@ -1609,9 +1609,7 @@ fn minecraft_cell(user: &User) -> Markup {
 fn account_link(user: &User) -> Markup {
     html! {
         a href={ "/users/" (user.username) } class="inline-flex items-center gap-2" {
-            @if let Some(avatar) = user.avatar_url() {
-                img src=(avatar) alt="" width="24" height="24" class="size-6 rounded-full";
-            }
+            @if let Some(picture) = user.picture(24) { (picture) }
             (user.name())
         }
         // The Discord username, which says who it is when its name does not.
@@ -1649,9 +1647,7 @@ pub fn profile(
         &path,
         &html! {
             div class="mb-8 flex items-center gap-4" {
-                @if let Some(avatar) = account.avatar_url() {
-                    img src=(avatar) alt="" width="64" height="64" class="size-16 rounded-full";
-                }
+                @if let Some(picture) = account.picture(64) { (picture) }
                 div {
                     h1 class=(PAGE_TITLE) { (account.name()) }
                     p class="text-muted" {

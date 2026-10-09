@@ -52,6 +52,7 @@ async fn main() {
         db,
         discord: discord::Config::from_env(),
         http: reqwest::Client::new(),
+        heads: std::sync::Arc::default(),
     };
 
     let trace_layer = TraceLayer::new_for_http()
