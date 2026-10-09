@@ -329,13 +329,18 @@ fn short(state: &str) -> &str {
     id.strip_prefix("minecraft:").unwrap_or(id)
 }
 
-/// The port a sign names: its first line, unless that is empty or a token.
-/// Older builds marked their least significant bit with an `lsb` sign,
-/// which the corner rule replaces.
+/// The port a sign names: its first line with a name on it, so a name
+/// written on any line counts, as people often centre one word on the
+/// second. A token is no name: older builds marked their least significant
+/// bit with an `lsb` sign, which the corner rule replaces, and `4ss` gives a
+/// strength.
 pub fn sign_name(lines: &[String]) -> Option<String> {
-    let first = lines.first()?.trim().to_lowercase();
-    (!first.is_empty() && first != "lsb" && strength(&first).is_none())
-        .then_some(first)
+    lines
+        .iter()
+        .map(|line| line.trim().to_lowercase())
+        .find(|line| {
+            !line.is_empty() && line != "lsb" && strength(line).is_none()
+        })
 }
 
 /// A strength token such as `4ss`.
@@ -353,4 +358,31 @@ pub fn block_label(state: &str) -> String {
     id.strip_prefix("minecraft:")
         .unwrap_or(id)
         .replace('_', " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(text: [&str; 4]) -> Vec<String> {
+        text.map(str::to_owned).to_vec()
+    }
+
+    #[test]
+    fn a_sign_names_on_whichever_line_has_a_name() {
+        assert_eq!(
+            sign_name(&lines(["Next", "", "", ""])).as_deref(),
+            Some("next")
+        );
+        assert_eq!(
+            sign_name(&lines(["", "next", "", ""])).as_deref(),
+            Some("next")
+        );
+        assert_eq!(
+            sign_name(&lines(["lsb", "addend", "", ""])).as_deref(),
+            Some("addend")
+        );
+        assert_eq!(sign_name(&lines(["", "4ss", "", ""])), None);
+        assert_eq!(sign_name(&lines(["", "", "", ""])), None);
+    }
 }
