@@ -48,7 +48,12 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         records,
         facets,
     } = *page;
-    let builder = |name: &str| super::search_href(&format!("builder:{name}"));
+    // A builder whose name an admin has confirmed has a profile listing
+    // what they built.
+    let builder = |s: &Standing| match &s.account {
+        Some(username) => format!("/users/{username}"),
+        None => super::search_href(&format!("builder:{}", s.name)),
+    };
     // An upload's account has a profile; an importer is only a name.
     let adder = |name: &str, account: Option<&str>| match account {
         Some(username) => format!("/users/{username}"),
@@ -73,9 +78,9 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
                         "with at least two builds; choose a category on the left to see them."
                     }
                     div class="grid gap-x-10 gap-y-8 desktop:grid-cols-3" {
-                        (standings("most-built", "Most builds", "Builds", built, |s| builder(&s.name)))
+                        (standings("most-built", "Most builds", "Builds", built, builder))
                         (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
-                        (standings("most-records", "Most records", "Records", records, |s| builder(&s.name)))
+                        (standings("most-records", "Most records", "Records", records, builder))
                     }
                 }
             }
@@ -400,7 +405,7 @@ fn ranking(
                                 a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
                                 @if !s.builders.is_empty() {
                                     p class="text-meta text-muted" {
-                                        "by " (name_links(&s.builders, "builder"))
+                                        "by " (name_links(s, &s.builders, "builder"))
                                     }
                                 }
                             }

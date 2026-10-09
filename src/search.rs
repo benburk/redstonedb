@@ -231,6 +231,7 @@ mod tests {
             stacking: Vec::new(),
             builders: vec!["embizone".to_owned()],
             contributors: Vec::new(),
+            profiles: std::collections::HashMap::new(),
             built_on: None,
             imported_by: None,
             conventional: true,

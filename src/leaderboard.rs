@@ -328,11 +328,17 @@ fn tally(
 
 /// Builders by how many builds credit them.
 pub fn most_built(builds: &[Schematic]) -> Vec<Standing> {
-    tally(
-        builds
-            .iter()
-            .flat_map(|s| s.builders.iter().map(|n| (n.clone(), None))),
-    )
+    tally(builds.iter().flat_map(credited))
+}
+
+/// A build's builders, each with the account an admin has confirmed the
+/// name as, if any.
+fn credited(
+    s: &Schematic,
+) -> impl Iterator<Item = (String, Option<String>)> + '_ {
+    s.builders
+        .iter()
+        .map(|name| (name.clone(), s.profile(name).map(str::to_owned)))
 }
 
 /// People by how many builds they put on the site: an upload counts for
@@ -380,7 +386,7 @@ pub fn most_records(
             .flat_map(|board| {
                 firsts(fastest(board)).chain(firsts(smallest(board)))
             });
-    tally(holders.flat_map(|s| s.builders.iter().map(|n| (n.clone(), None))))
+    tally(holders.flat_map(credited))
 }
 
 #[cfg(test)]
@@ -409,6 +415,7 @@ mod tests {
             stacking: Vec::new(),
             builders: Vec::new(),
             contributors: Vec::new(),
+            profiles: std::collections::HashMap::new(),
             built_on: None,
             imported_by: None,
             conventional: true,

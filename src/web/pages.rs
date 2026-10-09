@@ -436,7 +436,7 @@ fn facts(s: &Schematic) -> Markup {
     html! {
         (measures.join(" · "))
         @if !s.builders.is_empty() {
-            " · " (name_links(&s.builders, "builder"))
+            " · " (name_links(s, &s.builders, "builder"))
         }
     }
 }
@@ -457,13 +457,20 @@ fn search_link(text: &str, term: &str) -> Markup {
     }
 }
 
-/// In-game names, each a link to the builds crediting it in `role`, such
-/// as `builder`.
-fn name_links(names: &[String], role: &str) -> Markup {
+/// In-game names `s` credits, each a link to its account's profile, which
+/// lists what they built, when an admin has confirmed the name as theirs,
+/// and else to the builds crediting it in `role`, such as `builder`. The
+/// links sit above a card's own link.
+fn name_links(s: &Schematic, names: &[String], role: &str) -> Markup {
     html! {
         @for (i, name) in names.iter().enumerate() {
             @if i > 0 { ", " }
-            (search_link(name, &format!("{role}:{name}")))
+            @match s.profile(name) {
+                Some(username) => {
+                    a href={ "/users/" (username) } class="relative z-10" { (name) }
+                }
+                None => (search_link(name, &format!("{role}:{name}"))),
+            }
         }
     }
 }
@@ -504,7 +511,7 @@ fn table(schematics: &[Schematic]) -> Markup {
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(&s.builders, "builder")) }
+                                    td class=(TABLE_CELL) { (name_links(s, &s.builders, "builder")) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
                                     }
@@ -785,10 +792,10 @@ fn schematic_info(s: &Schematic) -> Markup {
                     (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                         html! { "unknown" }
                     } else {
-                        name_links(&s.builders, "builder")
+                        name_links(s, &s.builders, "builder")
                     }))
                     @if !s.contributors.is_empty() {
-                        (field(&plural("Contributor", &s.contributors), name_links(&s.contributors, "contributor")))
+                        (field(&plural("Contributor", &s.contributors), name_links(s, &s.contributors, "contributor")))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
                     @for flag in &s.flags {
@@ -1310,12 +1317,16 @@ fn pill_field(f: &PillField) -> Markup {
 /// on touch screens always, with the hidden input that sends it.
 fn pill(p: &Pill, name: &str) -> Markup {
     html! {
-        li class="group" {
-            span class={ "badge pr-1 " (p.class) } {
+        li {
+            // Fits its name and its ×, with even space all round: the left
+            // is wider by what the × keeps inside its own box. Names have
+            // capitals, so the text is centred as it is, without the lift
+            // a lowercase badge takes.
+            span data-pill class={ "inline-flex items-center gap-1 rounded-full py-1 pr-1 pl-2 text-meta font-medium whitespace-nowrap " (p.class) } {
                 span data-label { (p.label) }
                 button type="button" data-remove
                     aria-label={ "Remove " (if p.label.is_empty() { "this" } else { &p.label }) }
-                    class="flex size-4.5 cursor-pointer items-center justify-center rounded-full opacity-0 group-hover:opacity-70 hover:bg-current/15 hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-70" {
+                    class="flex size-4 cursor-pointer items-center justify-center rounded-full opacity-60 hover:bg-current/15 hover:opacity-100 focus-visible:opacity-100" {
                     (cross())
                 }
             }

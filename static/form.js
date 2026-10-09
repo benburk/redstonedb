@@ -131,7 +131,7 @@ for (const field of document.querySelectorAll("[data-pill-field]")) {
     const taken = [...chosen.querySelectorAll(`input[name="${name}"]`)];
     if (!taken.some((input) => input.value === pill.value)) {
       const item = template.content.firstElementChild.cloneNode(true);
-      item.querySelector(".badge").classList.add(pill.class);
+      item.querySelector("[data-pill]").classList.add(pill.class);
       item.querySelector("[data-label]").textContent = pill.label;
       item.querySelector("[data-remove]").setAttribute("aria-label", `Remove ${pill.label}`);
       item.querySelector(`input[name="${name}"]`).value = pill.value;
