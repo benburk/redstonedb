@@ -34,23 +34,20 @@ async fn from_schemati(link: &str) -> Result<Bytes, String> {
     Ok(Bytes::from(schemati::fetch(&key).await?))
 }
 
-pub async fn form(user_opt: Option<User>) -> Response {
-    match user_opt {
-        Some(user) => pages::upload(&user, "").into_response(),
-        None => Redirect::to("/sessions/new").into_response(),
-    }
+/// A file sent with the upload form, or a new version's: chosen, or
+/// fetched from a Schemati link.
+pub(super) struct Sent {
+    pub file: Bytes,
+    pub standardize: bool,
+    pub keep_paste: bool,
 }
 
-/// Reads the chosen file, standardizes it if asked, and shows what the
-/// site makes of it with a details form to fill in.
-pub async fn preview(
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-    mut multipart: Multipart,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
+/// Reads a file form: its `file`, or else the file behind its `schemati`
+/// link, and its `standardize` and `keep_paste` ticks. Says what went
+/// wrong when there is no file to read.
+pub(super) async fn received(
+    multipart: &mut Multipart,
+) -> Result<Sent, String> {
     let mut file = None;
     let mut link = String::new();
     let mut standardize = false;
@@ -80,24 +77,52 @@ pub async fn preview(
         }
     }
     if broken {
-        let message = "That file did not arrive whole. Files up to 2 MB are \
-                       accepted; a build's .schem is usually a few kilobytes.";
-        return pages::upload(&user, message).into_response();
+        return Err("That file did not arrive whole. Files up to 2 MB are \
+                    accepted; a build's .schem is usually a few kilobytes."
+            .to_owned());
     }
     // A file chosen wins over a link pasted.
     let file = match file.filter(|bytes| !bytes.is_empty()) {
         Some(file) => file,
-        None if !link.trim().is_empty() => match from_schemati(&link).await {
-            Ok(file) => file,
-            Err(message) => {
-                return pages::upload(&user, &message).into_response();
-            }
-        },
+        None if !link.trim().is_empty() => from_schemati(&link).await?,
         None => {
-            let message =
-                "Choose a .schem file, or paste a link from //download.";
-            return pages::upload(&user, message).into_response();
+            return Err(
+                "Choose a .schem file, or paste a link from //download."
+                    .to_owned(),
+            );
         }
+    };
+    Ok(Sent {
+        file,
+        standardize,
+        keep_paste,
+    })
+}
+
+pub async fn form(user_opt: Option<User>) -> Response {
+    match user_opt {
+        Some(user) => pages::upload(&user, "").into_response(),
+        None => Redirect::to("/sessions/new").into_response(),
+    }
+}
+
+/// Reads the chosen file, standardizes it if asked, and shows what the
+/// site makes of it with a details form to fill in.
+pub async fn preview(
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+    mut multipart: Multipart,
+) -> Response {
+    let Some(user) = user_opt else {
+        return Redirect::to("/sessions/new").into_response();
+    };
+    let Sent {
+        file,
+        standardize,
+        keep_paste,
+    } = match received(&mut multipart).await {
+        Ok(sent) => sent,
+        Err(message) => return pages::upload(&user, &message).into_response(),
     };
     let prepared = match import::prepare(&file, standardize, true, keep_paste) {
         Ok(prepared) => prepared,

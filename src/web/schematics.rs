@@ -12,8 +12,8 @@ use crate::{
     error::internal_error,
     interface, lint,
     models::schematic::{self, Category, Credit, Schematic},
-    models::simulation,
     models::user::User,
+    models::{simulation, version},
     mojang,
     schem::Blocks,
     search, stack, standardize, thumbnail,
@@ -250,8 +250,18 @@ pub async fn detail(
         Ok(simulation) => simulation,
         Err(err) => return internal_error(&*err).into_response(),
     };
-    pages::schematic(user_opt.as_ref(), &s, &analysis, simulation.as_ref())
-        .into_response()
+    let versions = match version::list(&state.db, &id).await {
+        Ok(versions) => versions,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    pages::schematic(
+        user_opt.as_ref(),
+        &s,
+        &analysis,
+        simulation.as_ref(),
+        &versions,
+    )
+    .into_response()
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -271,7 +281,7 @@ pub async fn edit(
 /// The account editing build `id`, or the answer when it may not: a login
 /// for no account, a 404 for no build, and a 403 for an account that is
 /// neither a mod nor one of its confirmed builders.
-async fn editor(
+pub(super) async fn editor(
     db: &SqlitePool,
     user_opt: Option<User>,
     id: &str,

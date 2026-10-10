@@ -210,7 +210,47 @@ fn world(blocks: &Blocks) -> Result<TestWorld> {
             BlockEntity::Comparator { output_strength },
         );
     }
+    settle_world(&mut world, blocks.size)?;
     Ok(world)
+}
+
+/// Brings a world to rest as the game would: updates every block once,
+/// then runs its scheduled ticks until none are left. A file may be saved
+/// unsettled, as when a block was changed by hand and what it drives was
+/// not, and Redpiler starts from the state it is given.
+fn settle_world(world: &mut TestWorld, [x, y, z]: Pos) -> Result<()> {
+    for y in 0..y {
+        for z in 0..z {
+            for x in 0..x {
+                let pos = BlockPos::new(x, y, z);
+                mchprs_redstone::update(world.get_block(pos), world, pos);
+            }
+        }
+    }
+    let mut ticks = 0;
+    while !world.to_be_ticked.is_empty() {
+        if ticks == MAX_TICKS {
+            bail!(
+                "It was still changing {MAX_TICKS} ticks after it was loaded."
+            );
+        }
+        ticks += 1;
+        world
+            .to_be_ticked
+            .sort_by_key(|entry| (entry.ticks_left, entry.tick_priority));
+        for entry in &mut world.to_be_ticked {
+            entry.ticks_left = entry.ticks_left.saturating_sub(1);
+        }
+        while world
+            .to_be_ticked
+            .first()
+            .is_some_and(|e| e.ticks_left == 0)
+        {
+            let entry = world.to_be_ticked.remove(0);
+            mchprs_redstone::tick(world.get_block(entry.pos), world, entry.pos);
+        }
+    }
+    Ok(())
 }
 
 fn at([x, y, z]: Pos) -> BlockPos {

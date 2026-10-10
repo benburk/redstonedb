@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT coalesce(max(version), 0) + 1 as \"version!: i64\"\n         FROM schematic_version WHERE schematic_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "version!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9c286034eda51b4708c795e4a0029f9824d289fe488125327e5ccf6ebe4d2601"
+}

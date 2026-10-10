@@ -12,8 +12,8 @@ use app::{
     db::connect_to_database,
     import, interface,
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
-    models::simulation,
     models::user::{Role, User},
+    models::{simulation, version},
     mojang,
     schem::{self, Blocks},
     search,
@@ -43,6 +43,20 @@ enum Command {
     /// with no id, every stored adder. Up to 20 input bits, every
     /// combination is tried, and beyond that a fixed sample
     Simulate { id: Option<String> },
+    /// Replace a stored build's file with a new version that fixes it, as
+    /// the site's New version page does: as wide and deep, with the same
+    /// inputs and outputs, and keeping 95% of its blocks or changing at
+    /// most 10
+    NewVersion {
+        id: String,
+        file: PathBuf,
+        /// What it fixes
+        #[arg(long)]
+        note: Option<String>,
+        /// Standardize the file first, as `add --standardize` does
+        #[arg(long)]
+        standardize: bool,
+    },
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),
     /// Delete a schematic
@@ -301,6 +315,12 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
+        Command::NewVersion {
+            id,
+            file,
+            note,
+            standardize,
+        } => new_version(db, &id, &file, note.as_deref(), standardize).await,
         Command::Set(args) => set(db, args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
@@ -694,6 +714,7 @@ async fn reread(db: &SqlitePool) -> Result<()> {
         if data != stored {
             let sha256 = import::sha256(&data);
             schematic::set_file(db, &s.id, &data, &sha256).await?;
+            version::rewrite_current(db, &s.id, &data, &sha256).await?;
             let [w, h, l] = Blocks::read(&stored)?.size;
             let [nw, nh, nl] = Blocks::read(&data)?.size;
             if [w, h, l] == [nw, nh, nl] {
@@ -794,6 +815,54 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
     }
     if !violations.is_empty() {
         bail!("{} building conventions broken", violations.len());
+    }
+    Ok(())
+}
+
+/// Replaces build `id`'s file with `file` as its next version, after the
+/// checks the site makes, then simulates it again.
+async fn new_version(
+    db: &SqlitePool,
+    id: &str,
+    file: &Path,
+    note: Option<&str>,
+    standardize: bool,
+) -> Result<()> {
+    let id = resolve(db, id).await?;
+    let s = load(db, &id).await?;
+    let checked =
+        app::version::check(db, &s, &fs::read(file)?, standardize).await?;
+    let comparison = checked.comparison;
+    println!(
+        "changed {} of {} blocks",
+        comparison.changed,
+        comparison.changed + comparison.same
+    );
+    if !checked.refusals.is_empty() {
+        for refusal in &checked.refusals {
+            println!("{refusal}");
+        }
+        bail!("{} cannot replace {}", file.display(), &id[..8]);
+    }
+    let size = &checked.prepared.size;
+    let number = version::publish(
+        db,
+        &id,
+        &version::New {
+            data: &checked.prepared.data,
+            sha256: &checked.prepared.sha256,
+            size: (size.x.into(), size.y.into(), size.z.into()),
+            added_by: None,
+            note: note.map(str::trim).filter(|note| !note.is_empty()),
+        },
+    )
+    .await?;
+    let name = format!("{}  {}", &id[..8], s.filename());
+    println!("{name}: version {number}");
+    if simulation::refresh(db, &id, false).await?.is_some()
+        && let Some(report) = simulation::refresh_timing(db, &id, false).await?
+    {
+        print_report(&name, &report);
     }
     Ok(())
 }
@@ -1033,6 +1102,18 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         println!("edited at    {edited}");
     }
     println!("downloads    {}", s.downloads);
+    let versions = version::list(db, &s.id).await?;
+    if versions.len() > 1 {
+        for v in &versions {
+            println!(
+                "version {:<4} {}  {}  {}",
+                v.version,
+                &v.added_at[..10.min(v.added_at.len())],
+                v.added_by.as_deref().unwrap_or("rsdb"),
+                v.note.as_deref().unwrap_or("")
+            );
+        }
+    }
     if let Some(description) = &s.description {
         println!("\n{description}");
     }

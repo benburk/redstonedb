@@ -13,6 +13,7 @@ use crate::{
             self, Category, Design, Flag, Schematic, StackDirection, Tag,
         },
         user::{Role, User},
+        version::Version,
     },
     search::Term,
     simulate::{Glitch, InputTiming, OutputTiming, Report, Run, Timing},
@@ -38,6 +39,8 @@ mod leaderboard;
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 mod player;
 pub use player::{PlayerPage, player};
+mod version;
+pub use version::{VersionPreview, new_version, version_preview};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -568,6 +571,7 @@ pub fn schematic(
     s: &Schematic,
     analysis: &Result<Analysis, String>,
     simulation: Option<&Report>,
+    versions: &[Version],
 ) -> Markup {
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
@@ -584,6 +588,7 @@ pub fn schematic(
                         (delete_dialog(s))
                     }
                     @if viewer.is_some_and(|v| v.may_edit(s)) {
+                        a href={ (path) "/versions/new" } class="btn btn-quiet" { "New version" }
                         a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
                     }
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
@@ -617,6 +622,7 @@ pub fn schematic(
             @if let Some(report) = simulation {
                 (simulation_section(report, Waiting::Reload))
             }
+            (version::versions_section(s, versions))
         },
     )
 }

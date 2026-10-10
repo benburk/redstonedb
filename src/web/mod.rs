@@ -24,6 +24,7 @@ mod session;
 mod simulation;
 mod upload;
 mod users;
+mod versions;
 
 use about::about;
 use profile::profile;
@@ -107,6 +108,13 @@ pub fn router() -> Router<AppState> {
             get(schematics::edit).post(schematics::save),
         )
         .route("/schematics/{id}/delete", post(schematics::delete))
+        .route("/schematics/{id}/versions/new", get(versions::form))
+        .route("/schematics/{id}/versions/preview", post(versions::preview))
+        .route("/schematics/{id}/versions", post(versions::publish))
+        .route(
+            "/schematics/{id}/versions/{version}/download",
+            get(versions::download),
+        )
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/upload/preview", post(upload::preview))
         .route("/upload/simulation", post(simulation::upload))

@@ -11,6 +11,7 @@ use crate::{
     interface::{self, Interface, Port},
     lint::{self, Violation},
     models::schematic::{self, Credit, New, StackDirection},
+    models::version,
     schem::{self, Blocks, Size},
     standardize,
 };
@@ -132,6 +133,8 @@ pub async fn store(
     };
     let mut tx = db.begin().await?;
     let id = schematic::insert(&mut *tx, new).await?;
+    version::first(&mut *tx, &id, new.data, new.sha256, new.uploaded_by)
+        .await?;
     schematic::set_credits(&mut tx, &id, Credit::Builder, extras.builders)
         .await?;
     schematic::set_credits(

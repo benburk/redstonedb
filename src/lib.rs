@@ -24,4 +24,5 @@ pub mod stack;
 pub mod standardize;
 pub mod thumbnail;
 pub mod util;
+pub mod version;
 pub mod web;

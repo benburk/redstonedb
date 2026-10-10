@@ -292,7 +292,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     note.textContent = text;
     results.append(note);
   };
+  // A new version's form has no latency fields to give way.
   const measured = () => {
+    if (!timingFields) return;
     const measures = results.querySelector("[data-measures-timing]") !== null;
     timingFields.hidden = measures;
     timingNote.hidden = !measures;
