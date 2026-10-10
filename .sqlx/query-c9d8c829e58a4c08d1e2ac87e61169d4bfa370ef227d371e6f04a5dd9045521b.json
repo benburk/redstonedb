@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE schematic.id = ?",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = schematic.sha256\n                    AND (json_extract(simulation.report, '$.wrong') > 0\n                        OR json_extract(simulation.report, '$.outcome')\n                            = 'broken'))\n                as \"fails_simulation!: bool\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE schematic.id = ?",
   "describe": {
     "columns": [
       {
@@ -142,6 +142,11 @@
         "name": "uploader_name?: String",
         "ordinal": 27,
         "type_info": "Null"
+      },
+      {
+        "name": "fails_simulation!: bool",
+        "ordinal": 28,
+        "type_info": "Null"
       }
     ],
     "parameters": {
@@ -175,8 +180,9 @@
       false,
       null,
       false,
+      null,
       null
     ]
   },
-  "hash": "70f11ecfdf1a7ffba19ed1f9b552ddb40632b6bbd6295af69a2714fb03208004"
+  "hash": "c9d8c829e58a4c08d1e2ac87e61169d4bfa370ef227d371e6f04a5dd9045521b"
 }

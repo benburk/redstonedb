@@ -326,6 +326,7 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
+            fails_simulation: false,
             tags: tags
                 .iter()
                 .map(|name| Tag {

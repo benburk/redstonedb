@@ -162,6 +162,10 @@
   .badge-builder {
     @apply bg-selection text-ink;
   }
+
+  .badge-failing {
+    @apply bg-danger text-on-danger;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

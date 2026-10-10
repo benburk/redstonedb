@@ -142,6 +142,8 @@ pub struct Blocks {
     grid: Vec<usize>,
     /// The front text of each sign, one string per line.
     pub signs: HashMap<Pos, Vec<String>>,
+    /// The signal strength each comparator was saved putting out.
+    pub comparators: HashMap<Pos, u8>,
 }
 
 impl Blocks {
@@ -184,17 +186,16 @@ impl Blocks {
         {
             bail!("block data does not match the schematic's size");
         }
-        let signs = match blocks.get("BlockEntities") {
-            Some(Value::List(entities)) => {
-                entities.iter().filter_map(sign).collect()
-            }
-            _ => HashMap::new(),
+        let entities = match blocks.get("BlockEntities") {
+            Some(Value::List(entities)) => entities.as_slice(),
+            _ => &[],
         };
         Ok(Blocks {
             size,
             palette,
             grid,
-            signs,
+            signs: entities.iter().filter_map(sign).collect(),
+            comparators: entities.iter().filter_map(comparator).collect(),
         })
     }
 
@@ -391,25 +392,41 @@ pub fn varints(bytes: &[i8]) -> Vec<usize> {
 /// A sign block entity's position and front text. Version 3 nests an
 /// entity's fields in `Data`; signs before Minecraft 1.20 keep their lines
 /// in `Text1` to `Text4`.
-fn sign(entity: &Value) -> Option<(Pos, Vec<String>)> {
+/// A block entity's position and fields, when its id ends with `kind`.
+/// Version 3 nests the fields in `Data`.
+fn entity<'a>(
+    entity: &'a Value,
+    kind: &str,
+) -> Option<(Pos, &'a HashMap<String, Value>)> {
     let Value::Compound(entity) = entity else {
         return None;
     };
-    // Comparators and other block entities share the list.
     match entity.get("Id") {
-        Some(Value::String(id)) if id.ends_with("sign") => {}
+        Some(Value::String(id)) if id.ends_with(kind) => {}
         _ => return None,
     }
     let fields = match entity.get("Data") {
         Some(Value::Compound(data)) => data,
         _ => entity,
     };
-    let pos = match entity.get("Pos") {
+    match entity.get("Pos") {
         Some(Value::IntArray(pos)) if pos.len() == 3 => {
-            [pos[0], pos[1], pos[2]]
+            Some(([pos[0], pos[1], pos[2]], fields))
         }
-        _ => return None,
-    };
+        _ => None,
+    }
+}
+
+fn comparator(value: &Value) -> Option<(Pos, u8)> {
+    let (pos, fields) = entity(value, "comparator")?;
+    match fields.get("OutputSignal") {
+        Some(Value::Int(n)) => Some((pos, u8::try_from(*n).ok()?)),
+        _ => None,
+    }
+}
+
+fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
+    let (pos, fields) = entity(value, "sign")?;
     let lines = match fields.get("front_text") {
         Some(Value::Compound(front)) => match front.get("messages") {
             Some(Value::List(messages)) => messages.iter().map(text).collect(),

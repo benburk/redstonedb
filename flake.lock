@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "mchprs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790620194,
+        "narHash": "sha256-6HkI1+BPAF2vHqgw2RsKxu3gYE0O6DX8XlNFVYlg34k=",
+        "owner": "MCHPR",
+        "repo": "MCHPRS",
+        "rev": "d492e433f2c7de5fd5c71f165cb60f0d912ebf04",
+        "type": "github"
+      },
+      "original": {
+        "owner": "MCHPR",
+        "repo": "MCHPRS",
+        "rev": "d492e433f2c7de5fd5c71f165cb60f0d912ebf04",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1785734586,
@@ -18,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "mchprs": "mchprs",
         "nixpkgs": "nixpkgs"
       }
     }

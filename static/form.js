@@ -39,6 +39,13 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       flags.hidden = flags.dataset.flagsFor !== name;
     }
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
+    // A category such as adder reads its width from the file, which shows
+    // in place of the typed one.
+    const derived = form.querySelector("[data-derived-width]");
+    if (derived) {
+      derived.hidden = !has("data-derives-width");
+      if (!derived.hidden) form.querySelector("[data-typed-width]").hidden = true;
+    }
     form.querySelector("[data-named-field]").hidden = !has("data-named");
     form.querySelector("[data-period-field]").hidden = !has("data-periodic");
     form.querySelector("[data-bytes-field]").hidden = !has("data-holds-bytes");
@@ -91,10 +98,12 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     input.setAttribute("aria-expanded", "false");
     highlight(null);
   };
+  // Picking is a change like typing and leaving the box, so whatever
+  // follows the category hears of it.
   const pick = (option) => {
     input.value = option.dataset.value;
     close();
-    update(true);
+    input.dispatchEvent(new Event("change"));
   };
 
   input.addEventListener("focus", open);
@@ -257,4 +266,74 @@ for (const field of document.querySelectorAll("[data-pill-field]")) {
   field.closest("form").addEventListener("submit", (event) => {
     if (!add()) event.preventDefault();
   });
+}
+
+// Simulation: the category and width choose a build's test, so the result
+// under the form follows them, asked of the server whenever either
+// changes: first the cases, then, once they pass, the slower timing. The
+// edit page starts with the stored result, so it asks only once one
+// changes. A category with no test answers at once, so the waiting note
+// shows only for a run that takes a while. A passing result means latency
+// and synchronized are measured, so their fields give way to a note.
+for (const form of document.querySelectorAll("form[data-simulate]")) {
+  const results = document.getElementById("simulation-results");
+  const category = form.querySelector('input[name="category"]');
+  const width = form.querySelector('input[name="width"]');
+  const timingFields = form.querySelector("[data-timing-fields]");
+  const timingNote = form.querySelector("[data-timing-note]");
+  const key = () => `${category.value.trim().toLowerCase()}/${width.value}`;
+  let asked = form.hasAttribute("data-simulated") ? key() : null;
+  let controller = null;
+  const say = (text, role) => {
+    results.replaceChildren();
+    const note = document.createElement("p");
+    note.className = "mt-12 text-muted";
+    if (role) note.setAttribute("role", role);
+    note.textContent = text;
+    results.append(note);
+  };
+  const measured = () => {
+    const measures = results.querySelector("[data-measures-timing]") !== null;
+    timingFields.hidden = measures;
+    timingNote.hidden = !measures;
+  };
+  const post = async (url, signal) => {
+    const response = await fetch(url, {
+      method: "POST",
+      body: new URLSearchParams(new FormData(form)),
+      signal,
+    });
+    if (!response.ok) throw new Error(response.statusText);
+    return response.text();
+  };
+  const ask = async () => {
+    if (key() === asked) return;
+    asked = key();
+    controller?.abort();
+    controller = new AbortController();
+    const { signal } = controller;
+    const waiting = setTimeout(() => say("Simulating every case…", "status"), 300);
+    results.setAttribute("aria-busy", "true");
+    try {
+      results.innerHTML = await post(form.dataset.simulate, signal);
+      clearTimeout(waiting);
+      measured();
+      const pending = results.querySelector("[data-timing-pending]");
+      if (pending) pending.outerHTML = await post(`${form.dataset.simulate}/timing`, signal);
+    } catch (error) {
+      if (signal.aborted) return;
+      say("Could not simulate it.");
+    } finally {
+      clearTimeout(waiting);
+      if (!signal.aborted) results.removeAttribute("aria-busy");
+    }
+  };
+  category.addEventListener("change", ask);
+  width.addEventListener("change", ask);
+  measured();
+  // The edit page's stored result may still be waiting for its timing.
+  if (asked !== null && results.querySelector("[data-timing-pending]")) {
+    asked = null;
+  }
+  ask();
 }

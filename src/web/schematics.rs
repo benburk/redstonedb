@@ -12,6 +12,7 @@ use crate::{
     error::internal_error,
     interface, lint,
     models::schematic::{self, Category, Credit, Schematic},
+    models::simulation,
     models::user::User,
     mojang,
     schem::Blocks,
@@ -245,7 +246,12 @@ pub async fn detail(
         Ok(data) => analyse(data.as_deref().unwrap_or_default()),
         Err(err) => return internal_error(err).into_response(),
     };
-    pages::schematic(user_opt.as_ref(), &s, &analysis).into_response()
+    let simulation = match simulation::current(&state.db, &s).await {
+        Ok(simulation) => simulation,
+        Err(err) => return internal_error(&*err).into_response(),
+    };
+    pages::schematic(user_opt.as_ref(), &s, &analysis, simulation.as_ref())
+        .into_response()
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -297,6 +303,8 @@ pub async fn save(
     let form = details::Form::read(&details::pairs(&body));
     let refused = match saved(&state.db, &id, &form, user.is_admin()).await {
         Ok(Ok(())) => {
+            // A new category or width may call for a test, or another.
+            simulation::refresh_soon(&state.db, &id).await;
             return Redirect::to(&format!("/schematics/{id}")).into_response();
         }
         Ok(Err(message)) => message,
@@ -408,17 +416,36 @@ async fn show_edit(
         ))
     };
     match loaded.await {
-        Ok((Some(s), choices, tags)) => pages::edit_schematic(
-            user,
-            &pages::EditSchematic {
-                s: &s,
-                sent,
-                choices: &choices,
-                tags: &tags,
-                message,
-            },
-        )
-        .into_response(),
+        Ok((Some(s), choices, tags)) => {
+            let simulation = match simulation::current(db, &s).await {
+                Ok(simulation) => simulation,
+                Err(err) => return internal_error(&*err).into_response(),
+            };
+            // An adder's width comes from its file, whatever its category
+            // is now, in case it becomes one.
+            let derived_width = match schematic::data(db, id).await {
+                Ok(data) => simulation::derived_width(
+                    "adder",
+                    s.conventional,
+                    data.as_deref().unwrap_or_default(),
+                )
+                .unwrap_or(None),
+                Err(err) => return internal_error(err).into_response(),
+            };
+            pages::edit_schematic(
+                user,
+                &pages::EditSchematic {
+                    s: &s,
+                    sent,
+                    choices: &choices,
+                    tags: &tags,
+                    message,
+                    simulation: simulation.as_ref(),
+                    derived_width,
+                },
+            )
+            .into_response()
+        }
         Ok((None, ..)) => super::not_found(Some(user)),
         Err(err) => internal_error(err).into_response(),
     }

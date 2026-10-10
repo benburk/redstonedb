@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM simulation WHERE schematic_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b8a980027af3e8ad241ace9f5d95b822a93f3734344e4a7fb0cbbd8960dea982"
+}

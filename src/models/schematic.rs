@@ -201,6 +201,9 @@ pub struct Schematic {
     pub edited_at: Option<String>,
     /// How many times it has been downloaded.
     pub downloads: i64,
+    /// Whether simulating its file got some cases wrong; see
+    /// `models::simulation`.
+    pub fails_simulation: bool,
     /// Sorted by kind in glossary order (restriction, timing, other),
     /// then name.
     pub tags: Vec<Tag>,
@@ -425,7 +428,14 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
                 schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
-                as "uploader_name?: String"
+                as "uploader_name?: String",
+            EXISTS (SELECT 1 FROM simulation
+                WHERE simulation.schematic_id = schematic.id
+                    AND simulation.sha256 = schematic.sha256
+                    AND (json_extract(simulation.report, '$.wrong') > 0
+                        OR json_extract(simulation.report, '$.outcome')
+                            = 'broken'))
+                as "fails_simulation!: bool"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
          LEFT JOIN user ON user.id = schematic.uploaded_by
@@ -500,6 +510,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             added_at: row.added_at,
             edited_at: row.edited_at,
             downloads: row.downloads,
+            fails_simulation: row.fails_simulation,
         })
         .collect())
 }
@@ -520,7 +531,14 @@ pub async fn get(
                 schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
-                as "uploader_name?: String"
+                as "uploader_name?: String",
+            EXISTS (SELECT 1 FROM simulation
+                WHERE simulation.schematic_id = schematic.id
+                    AND simulation.sha256 = schematic.sha256
+                    AND (json_extract(simulation.report, '$.wrong') > 0
+                        OR json_extract(simulation.report, '$.outcome')
+                            = 'broken'))
+                as "fails_simulation!: bool"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
          LEFT JOIN user ON user.id = schematic.uploaded_by
@@ -587,6 +605,7 @@ pub async fn get(
         added_at: row.added_at,
         edited_at: row.edited_at,
         downloads: row.downloads,
+        fails_simulation: row.fails_simulation,
         tags,
         flags,
     }))
@@ -1136,6 +1155,37 @@ pub async fn keeping_paste(
 }
 
 /// Stores a schematic's size, as `rsdb reread` finds it.
+/// Sets a width read from the file, which is not a person's edit.
+pub async fn set_width<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    width: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE schematic SET width = ? WHERE id = ?", width, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Sets a latency and whether it is synchronized as simulation measured
+/// them, which is not a person's edit.
+pub async fn set_timing<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    latency: i64,
+    synchronized: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET latency = ?, synchronized = ? WHERE id = ?",
+        latency,
+        synchronized,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn set_size<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
@@ -1531,6 +1581,7 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
+            fails_simulation: false,
             tags: vec![tag("alpha", None, "restriction")],
         }
     }

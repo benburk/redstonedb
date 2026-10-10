@@ -1,10 +1,19 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
+    # The commit Cargo.toml pins the MCHPRS crates to; keep the two equal.
+    mchprs = {
+      url = "github:MCHPR/MCHPRS/d492e433f2c7de5fd5c71f165cb60f0d912ebf04";
+      flake = false;
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      mchprs,
+    }:
     let
       supportedSystems = [
         "x86_64-linux"
@@ -27,9 +36,18 @@
             pname = cargoToml.package.name;
             version = cargoToml.package.version;
             src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              # MCHPRS and its NBT fork come from git, pinned in Cargo.lock.
+              allowBuiltinFetchGit = true;
+            };
             # Queries compile against the metadata in .sqlx/, not a database.
             env.SQLX_OFFLINE = "true";
+            # MCHPRS's block macros read its mc_data/ from two directories
+            # above each crate, which vendoring leaves out.
+            preBuild = ''
+              cp -r ${mchprs}/mc_data "$NIX_BUILD_TOP/mc_data"
+            '';
             meta = {
               mainProgram = cargoToml.package.name;
             };

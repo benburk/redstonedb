@@ -12,10 +12,13 @@ use app::{
     db::connect_to_database,
     import, interface,
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
+    models::simulation,
     models::user::{Role, User},
     mojang,
     schem::{self, Blocks},
-    search, stack, standardize,
+    search,
+    simulate::{Report, Timing},
+    stack, standardize,
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -36,6 +39,10 @@ enum Command {
     /// building conventions, as an upload would: with any corner markers
     /// taken out and the box fitted first
     Lint { file_or_id: String },
+    /// Simulate a stored adder through its inputs and check every sum;
+    /// with no id, every stored adder. Up to 20 input bits, every
+    /// combination is tried, and beyond that a fixed sample
+    Simulate { id: Option<String> },
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),
     /// Delete a schematic
@@ -293,6 +300,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
     match command {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
+        Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::Set(args) => set(db, args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
@@ -461,6 +469,9 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         let names = mojang::respell(names).await.map_err(anyhow::Error::msg)?;
         schematic::set_credits(&mut conn, &id, credit, &names).await?;
     }
+    // A new category or width may bring a test or drop one.
+    simulation::refresh(db, &id, false).await?;
+    simulation::refresh_timing(db, &id, false).await?;
     println!("{}", load(db, &id).await?.filename());
     Ok(())
 }
@@ -531,7 +542,13 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         },
     )
     .await?;
-    println!("{}  {}", &id[..8], load(db, &id).await?.filename());
+    let name = format!("{}  {}", &id[..8], load(db, &id).await?.filename());
+    println!("{name}");
+    if simulation::refresh(db, &id, false).await?.is_some()
+        && let Some(report) = simulation::refresh_timing(db, &id, false).await?
+    {
+        print_report(&name, &report);
+    }
     Ok(())
 }
 
@@ -694,6 +711,8 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             let (nx, ny, nz) = size;
             println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
         }
+        simulation::refresh(db, &s.id, false).await?;
+        simulation::refresh_timing(db, &s.id, false).await?;
     }
     Ok(())
 }
@@ -777,6 +796,155 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
         bail!("{} building conventions broken", violations.len());
     }
     Ok(())
+}
+
+/// Runs the test of build `id`, or of every build with one, again, and
+/// stores what it finds.
+async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
+    let ids = match id {
+        Some(prefix) => vec![resolve(db, prefix).await?],
+        None => schematic::all(db)
+            .await?
+            .into_iter()
+            .map(|s| s.id)
+            .collect(),
+    };
+    let one = id.is_some();
+    let mut failed = 0;
+    for id in &ids {
+        let start = std::time::Instant::now();
+        let report = match simulation::refresh(db, id, true).await? {
+            Some(_) => simulation::refresh_timing(db, id, true).await?,
+            None => None,
+        };
+        let name = format!("{}  {}", &id[..8], load(db, id).await?.filename());
+        match report {
+            Some(report) => {
+                print_report(&name, &report);
+                println!("        in {:.1?}", start.elapsed());
+                failed += usize::from(report.failed());
+            }
+            None if one => {
+                println!("{name}: no test for its category and width");
+            }
+            // Every build is tried; only those with a test say so.
+            None => {}
+        }
+    }
+    if failed > 0 {
+        bail!("{failed} builds fail their tests");
+    }
+    Ok(())
+}
+
+/// One build's simulation result, on a line or a few.
+fn print_report(name: &str, report: &Report) {
+    match report {
+        Report::Ran(run) if run.wrong == 0 => println!(
+            "ok      {name}: {} {} {}, all right",
+            if run.exhaustive {
+                "every"
+            } else {
+                "a sample of"
+            },
+            run.cases,
+            run.pattern
+        ),
+        Report::Ran(run) => {
+            println!(
+                "WRONG   {name}: {} of {} {} wrong",
+                run.wrong, run.cases, run.pattern
+            );
+            if let Some(hint) = &run.hint {
+                println!("        {hint}");
+            }
+            let bits: Vec<String> = run
+                .wrong_bits
+                .iter()
+                .map(|(bit, count)| format!("{bit} ({count})"))
+                .collect();
+            println!("        wrong bits: {}", bits.join(", "));
+            for w in &run.examples {
+                println!(
+                    "        {} + {} + {} = {}, got {}",
+                    w.a,
+                    w.b,
+                    u8::from(w.carry_in),
+                    w.expected,
+                    w.got
+                );
+            }
+        }
+        Report::Skipped { reason } => println!("skipped {name}: {reason}"),
+        Report::Broken { reason } => println!("BROKEN  {name}: {reason}"),
+    }
+    if let Some(timing) = report.timing() {
+        print_timing(timing);
+    }
+}
+
+/// When a build's inputs may change and its outputs settle, from A's
+/// change, and each bit's timing for an output that is not synced.
+fn print_timing(timing: &Timing) {
+    let tick = |tick: i32| match tick {
+        0 => "0".to_owned(),
+        t => format!("{t:+}"),
+    };
+    let inputs: Vec<String> = timing
+        .inputs
+        .iter()
+        .map(|input| {
+            let at = input.tick.map_or_else(|| "unused".to_owned(), tick);
+            format!("{} at {at}", input.name)
+        })
+        .collect();
+    let outputs: Vec<String> = timing
+        .outputs
+        .iter()
+        .map(|output| format!("{} by {}t", output.name, output.latency))
+        .collect();
+    println!(
+        "        timing: {}; {}; {}",
+        inputs.join(", "),
+        outputs.join(", "),
+        if timing.synced {
+            "synced"
+        } else {
+            "not synced"
+        }
+    );
+    println!(
+        "        half settle by {}t, 99% by {}t, slowest {:?} by {}t, over {} changes",
+        timing.median,
+        timing.p99,
+        timing.slowest_case,
+        timing.slowest,
+        timing.changes
+    );
+    for output in timing
+        .outputs
+        .iter()
+        .filter(|o| o.glitches > 0 || o.staggered > 0)
+    {
+        println!(
+            "        {} glitches in {} changes and staggers in {}; by bit, first change, settled, glitches:",
+            output.name, output.glitches, output.staggered
+        );
+        if let Some(glitch) = &output.glitch {
+            println!(
+                "          e.g. from all off to {:?}: from {} to {:?}",
+                glitch.case, glitch.before, glitch.steps
+            );
+        }
+        for (bit, b) in output.bits.iter().enumerate() {
+            println!(
+                "          {bit}: {}, {}, {}",
+                tick(b.first_change),
+                tick(b.latency),
+                b.glitches
+            );
+        }
+    }
 }
 
 /// Resolves a unique prefix of a schematic id to the full id.

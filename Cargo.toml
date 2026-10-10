@@ -19,6 +19,11 @@ fastnbt = "2.6.3"
 flate2 = "1.1.10"
 form_urlencoded = "1.2.2"
 maud = { version = "0.27.0", features = ["axum"] }
+# MCHPRS's redstone compiler, for simulating builds; not on crates.io.
+mchprs_blocks = { git = "https://github.com/MCHPR/MCHPRS", rev = "d492e433f2c7de5fd5c71f165cb60f0d912ebf04" }
+mchprs_redpiler = { git = "https://github.com/MCHPR/MCHPRS", rev = "d492e433f2c7de5fd5c71f165cb60f0d912ebf04" }
+mchprs_redstone = { git = "https://github.com/MCHPR/MCHPRS", rev = "d492e433f2c7de5fd5c71f165cb60f0d912ebf04" }
+mchprs_world = { git = "https://github.com/MCHPR/MCHPRS", rev = "d492e433f2c7de5fd5c71f165cb60f0d912ebf04", features = ["testing"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"

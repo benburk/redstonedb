@@ -19,6 +19,7 @@ pub mod mojang;
 pub mod schem;
 pub mod schemati;
 pub mod search;
+pub mod simulate;
 pub mod stack;
 pub mod standardize;
 pub mod thumbnail;

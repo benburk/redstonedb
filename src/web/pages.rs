@@ -5,7 +5,7 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
-    APP_NAME,
+    APP_NAME, import,
     interface::{Bit, Interface},
     lint::Violation,
     models::{
@@ -15,6 +15,7 @@ use crate::{
         user::{Role, User},
     },
     search::Term,
+    simulate::{Glitch, InputTiming, OutputTiming, Report, Run, Timing},
 };
 
 use super::{
@@ -394,6 +395,28 @@ fn without(terms: &[Term], index: usize) -> String {
         .join(" ")
 }
 
+/// A listed build's badges on one row: first, if its simulation got some
+/// cases wrong, a mark that it fails, so it stands out to be fixed or
+/// removed; then its tags.
+fn badges(s: &Schematic, class: &str) -> Markup {
+    html! {
+        @if s.fails_simulation || !s.tags.is_empty() {
+            div class={ "flex flex-wrap gap-1.5 " (class) } {
+                @if s.fails_simulation {
+                    span class="badge badge-failing" { "fails simulation" }
+                }
+                @if !s.tags.is_empty() {
+                    ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
+                        @for tag in &s.tags {
+                            li { (badge(tag)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn cards(schematics: &[Schematic]) -> Markup {
     html! {
         ul class="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5" {
@@ -409,13 +432,7 @@ fn cards(schematics: &[Schematic]) -> Markup {
                             a href={ "/schematics/" (s.id) }
                                 class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                         }
-                        @if !s.tags.is_empty() {
-                            ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
-                                @for tag in &s.tags {
-                                    li { (badge(tag)) }
-                                }
-                            }
-                        }
+                        (badges(s, ""))
                         p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
                     }
                 }
@@ -498,13 +515,7 @@ fn table(schematics: &[Schematic]) -> Markup {
                                 tr class="hover:bg-selection/50" {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                         a href={ "/schematics/" (s.id) } class="font-semibold" { (s.name()) }
-                                        @if !s.tags.is_empty() {
-                                            ul class="mt-1.5 flex flex-wrap gap-1.5" aria-label="Tags" {
-                                                @for tag in &s.tags {
-                                                    li { (badge(tag)) }
-                                                }
-                                            }
-                                        }
+                                        (badges(s, "mt-1.5"))
                                     }
                                     td class={ (TABLE_CELL) " " (secondary) } { (s.orientation_label()) }
                                     td class={ (TABLE_CELL) " " (secondary) } { (s.encoding_label().unwrap_or_default()) }
@@ -556,6 +567,7 @@ pub fn schematic(
     viewer: Option<&User>,
     s: &Schematic,
     analysis: &Result<Analysis, String>,
+    simulation: Option<&Report>,
 ) -> Markup {
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
@@ -578,6 +590,18 @@ pub fn schematic(
                     (download_dialog(s))
                 }
             }
+            @if let Some(report) = simulation && report.failed() {
+                p class="mb-6 max-w-calm rounded-control border border-danger p-3 text-danger" {
+                    strong { "Fails its simulation. " }
+                    @match report {
+                        Report::Ran(run) => {
+                            (grouped(run.wrong)) " of " (grouped(run.cases)) " cases of " (run.pattern) " are wrong. "
+                            a href="#simulation" class="text-danger underline" { "See which" }
+                        }
+                        Report::Broken { reason } | Report::Skipped { reason } => (reason),
+                    }
+                }
+            }
             (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s)))
             @match analysis {
                 _ if !s.conventional => {
@@ -590,8 +614,344 @@ pub fn schematic(
                     p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
                 }
             }
+            @if let Some(report) = simulation {
+                (simulation_section(report, Waiting::Reload))
+            }
         },
     )
+}
+
+/// What simulating a build found: the cases tried and how many came out
+/// right, then, for a failure, which output bits were wrong and the first
+/// wrong cases.
+/// Where the section sits decides what it says while timing is measured:
+/// a form fetches it, and a build's page asks for a reload.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Waiting {
+    /// On an upload or edit page, whose script fetches the timing.
+    Fetched,
+    /// On a build's page, measured in the background.
+    Reload,
+}
+
+pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
+    html! {
+        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm"
+            data-measures-timing[report.passed()] {
+            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
+            p class="mb-4 text-meta text-muted" {
+                "Run in a redstone simulator: each case flips the input levers, waits until nothing changes, and reads the output blocks."
+            }
+            @match report {
+                Report::Skipped { reason } => p { "Not simulated. " (reason) },
+                Report::Broken { reason } => p class="text-danger" { strong { "Broken. " } (reason) },
+                Report::Ran(run) => {
+                    div class="overflow-x-auto" {
+                        table class="w-full border-collapse" {
+                            caption class="sr-only" { "Cases" }
+                            thead {
+                                tr {
+                                    th scope="col" class=(TABLE_HEAD) { "Cases" }
+                                    th scope="col" class=(TABLE_HEAD) { "Tried" }
+                                    th scope="col" class=(TABLE_HEAD) { "Result" }
+                                }
+                            }
+                            tbody {
+                                tr {
+                                    th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (run.pattern) }
+                                    td class={ (TABLE_CELL) " tabular-nums" } {
+                                        (grouped(run.cases)) @if run.exhaustive { ", every one" } @else { ", a sample" }
+                                    }
+                                    td class={ (TABLE_CELL) " tabular-nums" } {
+                                        @if run.wrong == 0 {
+                                            "All right"
+                                        } @else {
+                                            strong class="text-danger" { (grouped(run.wrong)) " wrong" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @if run.wrong > 0 {
+                        (simulation_failures(run))
+                    } @else if let Some(timing) = &run.timing {
+                        (timing_section(timing))
+                    } @else {
+                        div data-timing-pending class="mt-6" {
+                            p role="status" class="text-muted" {
+                                @match waiting {
+                                    Waiting::Fetched => "Measuring when each output settles…",
+                                    Waiting::Reload => "When each output settles is still being measured. Reload the page in a minute to see it.",
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// When a passing build's inputs may change and its outputs settle, from
+/// input A's change; and, for an output that does not change cleanly, when
+/// each of its bits does.
+pub fn timing_section(timing: &Timing) -> Markup {
+    let case: Vec<String> = timing
+        .inputs
+        .iter()
+        .zip(&timing.slowest_case)
+        .map(|(input, value)| format!("{} = {value}", input.name))
+        .collect();
+    html! {
+        section aria-labelledby="timing-heading" class="mt-6" {
+            h3 id="timing-heading" class="mb-1 font-semibold" { "Timing" }
+            p class="mb-3 text-meta text-muted" {
+                "In ticks from when A changes. Each other input may change as late as its tick without delaying an output; a negative tick is before A."
+            }
+            div class="overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    caption class="sr-only" { "When each input may change" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Input" }
+                            th scope="col" class=(TABLE_HEAD) { "Changes by" }
+                        }
+                    }
+                    tbody {
+                        @for input in &timing.inputs {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (input.name) }
+                                td class={ (TABLE_CELL) " tabular-nums" } {
+                                    @match input.tick {
+                                        Some(tick) => (signed(tick)),
+                                        None => span class="text-muted" { "no output follows it" },
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div class="mt-4 overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    caption class="sr-only" { "When each output settles" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Output" }
+                            th scope="col" class=(TABLE_HEAD) { "First changes" }
+                            th scope="col" class=(TABLE_HEAD) { "Settles by" }
+                            th scope="col" class=(TABLE_HEAD) { "Glitches" }
+                        }
+                    }
+                    tbody {
+                        @for output in &timing.outputs {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (output.name) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (tick(output.first_change)) }
+                                td class={ (TABLE_CELL) " tabular-nums font-semibold" } { (tick(output.latency)) }
+                                td class={ (TABLE_CELL) " tabular-nums" } {
+                                    @if output.glitches == 0 {
+                                        "none"
+                                    } @else {
+                                        strong class="text-danger" { "in " (grouped(output.glitches)) " changes" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            p class="mt-4" {
+                @if timing.synced {
+                    strong { "Synced: " } "every output changes once, all its bits on the same tick."
+                } @else {
+                    strong { "Not synced: " } "an output glitches, or its bits change on different ticks, as below."
+                }
+            }
+            @for output in &timing.outputs {
+                @if let Some(glitch) = &output.glitch {
+                    (glitch_example(&output.name, glitch, &timing.inputs))
+                }
+                @if output.staggered > 0 {
+                    p class="mt-2" {
+                        "The bits of " (output.name) " change on different ticks in " (grouped(output.staggered))
+                        " changes, so it shows a value between the old and the new."
+                    }
+                }
+            }
+            p class="mt-2 text-muted" {
+                "From all inputs off, half the cases settle by tick " (timing.median) ", 99% by " (timing.p99)
+                ", and the slowest, " (case.join(", ")) ", by " (timing.slowest) "."
+            }
+            @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
+                (bit_timing(output))
+            }
+            p class="mt-4 text-meta text-muted" {
+                "Measured over " (grouped(timing.changes)) " changes: each input alone, from 0 to every value and back, and all of them together from all off. A slower change may exist among those not tried."
+            }
+        }
+    }
+}
+
+/// The first change from all off in which `name` glitched, tick by tick,
+/// to try in-game.
+fn glitch_example(
+    name: &str,
+    glitch: &Glitch,
+    inputs: &[InputTiming],
+) -> Markup {
+    let case: Vec<String> = inputs
+        .iter()
+        .zip(&glitch.case)
+        .map(|(input, value)| format!("{} = {value}", input.name))
+        .collect();
+    let steps: Vec<String> = glitch
+        .steps
+        .iter()
+        .map(|&(at, value)| format!("{value} at tick {}", tick(at)))
+        .collect();
+    html! {
+        p class="mt-2" {
+            "For example, from all inputs off to " (case.join(", ")) ", " (name)
+            " starts at " (glitch.before) " and becomes " (steps.join(", then "))
+            @if glitch.pulse() {
+                ": a pulse, where it should stay " (glitch.before) "."
+            } @else {
+                ": it flips back and forth on its way to its new value."
+            }
+        }
+    }
+}
+
+/// When each bit of an output that does not change cleanly first changes
+/// and settles, folded away under its name.
+fn bit_timing(output: &OutputTiming) -> Markup {
+    html! {
+        details class="mt-4" {
+            summary class="cursor-pointer font-semibold" { (output.name) ", bit by bit" }
+            div class="mt-2 overflow-x-auto" {
+                table class="w-full border-collapse" {
+                    caption class="sr-only" { (output.name) ", bit by bit" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Bit" }
+                            th scope="col" class=(TABLE_HEAD) { "First changes" }
+                            th scope="col" class=(TABLE_HEAD) { "Settles by" }
+                            th scope="col" class=(TABLE_HEAD) { "Changes more than once" }
+                        }
+                    }
+                    tbody {
+                        @for (i, bit) in output.bits.iter().enumerate() {
+                            tr {
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal tabular-nums" } { (i) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (tick(bit.first_change)) }
+                                td class={ (TABLE_CELL) " tabular-nums" } { (tick(bit.latency)) }
+                                td class={ (TABLE_CELL) " tabular-nums" } {
+                                    @if bit.glitches == 0 { "never" } @else { "in " (grouped(bit.glitches)) " changes" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// An output's tick counted from A's change, such as `3`; one before A's,
+/// though no build has shown one, as `−2`.
+fn tick(tick: i32) -> String {
+    match tick {
+        t if t < 0 => format!("−{}", t.unsigned_abs()),
+        t => t.to_string(),
+    }
+}
+
+/// An input's tick counted from A's change: `+1`, `−2`, or `0`.
+fn signed(tick: i32) -> String {
+    match tick {
+        0 => "0".to_owned(),
+        t if t > 0 => format!("+{t}"),
+        t => format!("−{}", t.unsigned_abs()),
+    }
+}
+
+/// Which bits a failing build got wrong, and its first wrong cases, with
+/// the wrong bits of each result marked.
+fn simulation_failures(run: &Run) -> Markup {
+    let width = run.result_bits;
+    html! {
+        @if let Some(hint) = &run.hint {
+            p class="mt-4" { strong { "Likely cause: " } (hint) }
+        }
+        h3 class="mt-6 mb-2 font-semibold" { "Wrong bits" }
+        ul class="flex flex-col gap-1" {
+            @for (bit, count) in &run.wrong_bits {
+                li class="tabular-nums" { (bit) ", in " (grouped(*count)) " cases" }
+            }
+        }
+        h3 class="mt-6 mb-2 font-semibold" { "First wrong cases" }
+        div class="overflow-x-auto" {
+            table class="w-full border-collapse" {
+                caption class="sr-only" { "First wrong cases" }
+                thead {
+                    tr {
+                        th scope="col" class=(TABLE_HEAD) { "Case" }
+                        th scope="col" class=(TABLE_HEAD) { "Expected" }
+                        th scope="col" class=(TABLE_HEAD) { "Got" }
+                    }
+                }
+                tbody {
+                    @for wrong in &run.examples {
+                        tr {
+                            th scope="row" class={ (TABLE_CELL) " text-left font-normal tabular-nums" } {
+                                (wrong.a) " + " (wrong.b) " + " (u8::from(wrong.carry_in))
+                            }
+                            td class={ (TABLE_CELL) " tabular-nums" } {
+                                (wrong.expected)
+                                span class="block font-mono text-meta text-muted" { (format!("{:0width$b}", wrong.expected)) }
+                            }
+                            td class={ (TABLE_CELL) " tabular-nums" } {
+                                (wrong.got)
+                                span class="block font-mono text-meta text-muted" {
+                                    (marked_bits(wrong.got, wrong.expected, width))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `value` in binary, `width` digits, with each digit that differs from
+/// `expected` marked.
+fn marked_bits(value: u64, expected: u64, width: usize) -> Markup {
+    html! {
+        @for bit in (0..width).rev() {
+            @let digit = value >> bit & 1;
+            @if digit == expected >> bit & 1 {
+                (digit)
+            } @else {
+                mark class="bg-transparent font-semibold text-danger" { (digit) }
+            }
+        }
+    }
+}
+
+/// `n` with its thousands separated by commas, such as `131,072`.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 /// The build's inputs and outputs, and, with `with_violations`, the
@@ -846,6 +1206,10 @@ pub struct EditSchematic<'a> {
     /// Every tag, to suggest.
     pub tags: &'a [Tag],
     pub message: &'a str,
+    /// The stored simulation result, if its test still applies.
+    pub simulation: Option<&'a Report>,
+    /// The width an adder reads from the build's file; see `fields`.
+    pub derived_width: Option<i64>,
 }
 
 /// A mod's page for changing a build's details and tags: the form on the
@@ -902,8 +1266,8 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
         &html! {
             h1 class={ (PAGE_TITLE) " mb-6" } { "Edit " (s.name()) }
             (beside_viewer(&format!("{path}/download?preview=yes"), &html! {
-                form action={ (path) "/edit" } method="post" class="flex flex-col gap-4" {
-                    (fields(&values, e.choices))
+                form action={ (path) "/edit" } method="post" data-simulate={ (path) "/simulation" } data-simulated class="flex flex-col gap-4" {
+                    (fields(&values, e.choices, e.derived_width))
                     (tag_picker(e.tags, chosen_tags, user.is_admin()))
                     @if !e.message.is_empty() {
                         p role="alert" class="text-danger" { (e.message) }
@@ -914,6 +1278,12 @@ pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
                     }
                 }
             }))
+            // Follows the category and width as they change; see form.js.
+            div id="simulation-results" {
+                @if let Some(report) = e.simulation {
+                    (simulation_section(report, Waiting::Fetched))
+                }
+            }
             script defer src=(super::form_js_url()) {}
         },
     )
@@ -1035,6 +1405,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
                                     data-periodic[category.periodic]
+                                    data-derives-width[import::DERIVES_WIDTH.contains(&category.name.as_str())]
                                     data-holds-bytes[category.holds_bytes]
                                     class="cursor-pointer rounded-control px-2.5 py-1.5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -1113,15 +1484,25 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
 }
 
 /// The inputs for a build's details, shared by editing and uploading.
-fn fields(f: &Fields, choices: &Choices) -> Markup {
+/// The details form's fields. `derived_width` is the width the file gives a
+/// category that reads it from the file, such as an adder's from its lime
+/// inputs, shown in place of the typed width once such a category is
+/// chosen.
+fn fields(f: &Fields, choices: &Choices, derived_width: Option<i64>) -> Markup {
     // A category off the list, such as a piston door, has no width or encoding.
     let other =
         !f.category.is_empty() && choices.category(f.category).is_none();
     html! {
         (category_fields(f, choices))
-        label class="field" data-standard-only hidden[other] {
+        label class="field" data-standard-only data-typed-width hidden[other] {
             span { "Width in bits" }
             input name="width" type="number" min="1" value=(f.width) class="input tabular-nums";
+        }
+        @if let Some(width) = derived_width {
+            div class="field" data-derived-width hidden {
+                span { "Width in bits" }
+                p class="tabular-nums" { (width) span class="text-muted" { ", counted from the lime inputs" } }
+            }
         }
         label class="field" {
             span { "Orientation" }
@@ -1139,6 +1520,11 @@ fn fields(f: &Fields, choices: &Choices) -> Markup {
                 }
             }
         }
+        // Hidden by form.js once a passing simulation measures them.
+        p data-timing-note hidden class="text-muted" {
+            "Latency and whether it is synchronized are measured by the simulation below."
+        }
+        div class="contents" data-timing-fields {
         label class="field" {
             span { "Latency in ticks" }
             input name="latency" type="number" min="0" value=(f.latency) class="input tabular-nums";
@@ -1157,6 +1543,7 @@ fn fields(f: &Fields, choices: &Choices) -> Markup {
             @if f.synchronized.is_none() {
                 input type="hidden" name="synchronized_unknown" value="yes";
             }
+        }
         }
         (stacking_fields(f))
         (person_field("Builders", "builder", "Add a builder's in-game name", f.builders, choices))
@@ -2022,6 +2409,8 @@ pub struct UploadPreview<'a> {
     /// Whether the file keeps where its uploader's `//paste` put it.
     pub keep_paste: bool,
     pub message: &'a str,
+    /// The width an adder reads from this file; see `fields`.
+    pub derived_width: Option<i64>,
 }
 
 /// The upload page's second step: checking what the site read and filling
@@ -2072,6 +2461,8 @@ pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
                 (upload_form(p))
             }))
             (interface_section(p.analysis, false))
+            // Filled by form.js once the category and width call for a test.
+            div id="simulation-results" {}
             script defer src=(super::form_js_url()) {}
         },
     )
@@ -2080,13 +2471,13 @@ pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
 /// The upload page's details form, one field to a line.
 fn upload_form(p: &UploadPreview) -> Markup {
     html! {
-            form action="/upload" method="post" class="flex flex-col gap-4" {
+            form action="/upload" method="post" data-simulate="/upload/simulation" class="flex flex-col gap-4" {
                 h2 class=(SECTION_TITLE) { "Details" }
                 input type="hidden" name="data" value=(p.data);
                 @if p.keep_paste {
                     input type="hidden" name="keep_paste" value="yes";
                 }
-                (fields(p.fields, p.choices))
+                (fields(p.fields, p.choices, p.derived_width))
                 (tag_picker(p.tags, p.chosen_tags, p.may_create_tags))
                 @if !p.analysis.violations.is_empty() || p.unconventional {
                     label class="flex items-start gap-2" {

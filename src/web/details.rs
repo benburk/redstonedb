@@ -283,7 +283,7 @@ impl Form {
     /// The category's name, and whether it is off the list: a standard one
     /// by its name or label, whatever the capitals, among `categories`, and
     /// any other text a category of the builder's own.
-    fn category(
+    pub fn category(
         &self,
         categories: &[Category],
     ) -> Result<(String, bool), String> {

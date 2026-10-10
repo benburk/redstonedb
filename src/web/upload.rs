@@ -17,6 +17,7 @@ use crate::{
     interface,
     models::{
         schematic::{self, New, Tag},
+        simulation,
         user::User,
     },
     mojang, schemati, stack,
@@ -214,6 +215,7 @@ pub async fn publish(
     };
     let refused = match publish_checked(&state, &user, &prepared, &sent).await {
         Ok(id) => {
+            simulation::refresh_soon(&state.db, &id).await;
             return Redirect::to(&format!("/schematics/{id}")).into_response();
         }
         Err(message) => message,
@@ -353,6 +355,10 @@ async fn show_preview(
             unconventional: settings.unconventional,
             keep_paste: settings.keep_paste,
             message,
+            derived_width: import::derived_width(
+                "adder",
+                &interface::read(&prepared.blocks),
+            ),
         },
     )
     .into_response()

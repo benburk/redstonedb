@@ -189,6 +189,25 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
+/// The categories whose width is read from the file; see `derived_width`.
+pub const DERIVES_WIDTH: [&str; 1] = ["adder"];
+
+/// The width a category takes from its builds' files rather than their
+/// details: an adder's is its A input's bit count, four for each block of a
+/// signal-strength input. `None` for other categories, or a build without
+/// an A.
+pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
+    if !DERIVES_WIDTH.contains(&category) {
+        return None;
+    }
+    let a = interface
+        .inputs
+        .iter()
+        .find(|port| !port.labelled && port.block.starts_with("lime"))?;
+    let bits = a.bits.len() * if a.signal_strength { 4 } else { 1 };
+    i64::try_from(bits).ok()
+}
+
 /// The width and orientation the inputs suggest: the widest operand's bit
 /// count, four for each block of a signal-strength input, and which way its
 /// bits run. `None` where the inputs say nothing.

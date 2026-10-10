@@ -21,6 +21,7 @@ mod players;
 mod profile;
 mod schematics;
 mod session;
+mod simulation;
 mod upload;
 mod users;
 
@@ -108,6 +109,13 @@ pub fn router() -> Router<AppState> {
         .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/upload/preview", post(upload::preview))
+        .route("/upload/simulation", post(simulation::upload))
+        .route("/upload/simulation/timing", post(simulation::upload_timing))
+        .route("/schematics/{id}/simulation", post(simulation::stored))
+        .route(
+            "/schematics/{id}/simulation/timing",
+            post(simulation::stored_timing),
+        )
         .route("/about", get(about))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
