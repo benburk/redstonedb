@@ -68,6 +68,7 @@ Import derives this from the build, so nothing in-world marks it.
 
 - Every output bit is yellow, orange, or brown concrete, or the same colour of stained glass where it needs a transparent block. All of one colour is one bus. Unnamed, a lone bus is `output` and several are `output 1`, `output 2`, `output 3` in colour order; a sign naming any block of a colour, such as `low` or `remainder`, names that whole bus. When the buses make one value, as a 16-bit product from two 8-bit halves, yellow holds the lowest bits.
 - A status line, such as `carry out`, `overflow`, or `zero`, is pink concrete or glass, each block its own line named by its own sign. A status name on any other output colour is an error. Standardizing turns a block whose sign names a status output pink, as older builds marked them on yellow; `rsdb reread` did so for the stored builds.
+- An output bit is on while its block is powered, or while a repeater or comparator standing on it is on, as when the block carries the component that leads the output out of the build.
 - Redstone lamps are allowed as ordinary components but do not mark outputs.
 
 ## Signs

@@ -174,3 +174,44 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
     assert!(timing.patterns);
     assert_eq!(timing.latency(), Some(4));
 }
+
+/// Its outputs are read through the repeaters standing on them, which lead
+/// the product out of the build, since nothing powers the yellow blocks.
+#[test]
+fn a_combinational_multiplier_tries_every_product() {
+    let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
+        .expect("fixture is readable");
+    let data =
+        standardize::barrels(&standardize::standardize(&raw).unwrap(), true)
+            .unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let Report::Ran(run) = Test::Multiplier.run(&blocks) else {
+        panic!("the multiplier was not simulated");
+    };
+    assert_eq!(run.pattern, "A × B");
+    assert!(run.exhaustive);
+    assert_eq!(run.cases, 1 << 16);
+    let outputs: Vec<(&str, usize)> = run
+        .outputs
+        .iter()
+        .map(|s| (s.name.as_str(), s.bits))
+        .collect();
+    assert_eq!(outputs, [("output", 16)]);
+    // The low bits of 3 × 5 come out through the repeaters.
+    let mut circuit =
+        simulate::Circuit::new(&blocks, &interface::read(&blocks)).unwrap();
+    circuit.set(0, 3);
+    circuit.set(1, 5);
+    circuit.settle().unwrap();
+    assert_eq!(circuit.get(0) & 0xF, 15);
+}
+
+/// A multiplier with a clock, reset, or calculate line is sequential.
+#[test]
+fn a_sequential_multiplier_is_skipped() {
+    let report = Test::Multiplier.run(&blocks("mult-8-buttons"));
+    let Report::Skipped { reason } = report else {
+        panic!("tested a sequential multiplier");
+    };
+    assert!(reason.contains("not combinational"), "{reason}");
+}

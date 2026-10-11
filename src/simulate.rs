@@ -181,7 +181,10 @@ impl Circuit {
         }
     }
 
-    /// The value output `port` shows, as of the last `settle`.
+    /// The value output `port` shows, as of the last `settle`. A bit is on
+    /// while its block is powered, or while a repeater or comparator
+    /// standing on it is on, as when the block marks the component that
+    /// carries the output out of the build.
     pub fn get(&self, port: usize) -> u64 {
         self.outputs[port]
             .iter()
@@ -189,12 +192,16 @@ impl Circuit {
             .filter(|&(_, &pos)| {
                 let block = self.world.get_block(pos);
                 let face = BlockFace::Top;
-                mchprs_redstone::get_redstone_power(
+                let powered = mchprs_redstone::get_redstone_power(
                     block,
                     &self.world,
                     pos,
                     face,
-                ) > 0
+                ) > 0;
+                let above = self.world.get_block(pos.offset(BlockFace::Top));
+                powered
+                    || matches!(above, Block::Repeater(repeater) if repeater.powered)
+                    || matches!(above, Block::Comparator(comparator) if comparator.powered)
             })
             .fold(0, |value, (i, _)| value | 1 << i)
     }
@@ -339,6 +346,9 @@ fn block(state: &str) -> Result<Block> {
                 | "furnace"
                 | "barrel"
                 | "hopper"
+                // Shapes dust, which joins to it, and with nothing to trip
+                // it gives no power.
+                | "tripwire_hook"
         );
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         bail!(
@@ -359,25 +369,35 @@ fn block(state: &str) -> Result<Block> {
     Ok(block)
 }
 
-/// The test a build gets from its category and width: for now, only adders
-/// of up to 32 bits have one.
+/// The test a build gets from its category and width: for now, adders and
+/// combinational multipliers of up to 32 bits have one. Each tries every
+/// case when they number few enough, else every case of each byte and the
+/// test patterns.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
-    /// The sums of A, B, and any carry in: every one when they number few
-    /// enough, else every case of each byte and the test patterns.
+    /// The sums of A, B, and any carry in.
     Adder,
+    /// The products of A and B, plus C when there is one.
+    Multiplier,
 }
 
 impl Test {
     pub fn of(category: &str, width: Option<i64>) -> Option<Self> {
-        let tested = width.is_some_and(|w| (1..=MAX_WIDTH).contains(&w));
-        (category == "adder" && tested).then_some(Test::Adder)
+        if !width.is_some_and(|w| (1..=MAX_WIDTH).contains(&w)) {
+            return None;
+        }
+        match category {
+            "adder" => Some(Test::Adder),
+            "multiplier" => Some(Test::Multiplier),
+            _ => None,
+        }
     }
 
     /// The name stored with its result.
     pub fn name(self) -> &'static str {
         match self {
             Test::Adder => "adder",
+            Test::Multiplier => "multiplier",
         }
     }
 
@@ -385,6 +405,7 @@ impl Test {
     pub fn run(self, blocks: &Blocks) -> Report {
         let result = match self {
             Test::Adder => check_adder(blocks),
+            Test::Multiplier => check_multiplier(blocks),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -405,12 +426,8 @@ impl Test {
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         let mut interface = interface::read(blocks);
         let inputs = match self {
-            Test::Adder => {
-                let ports = adder_ports(&mut interface)?;
-                let mut inputs = vec![ports.a, ports.b];
-                inputs.extend(ports.carry_in);
-                inputs
-            }
+            Test::Adder => adder_bench(&mut interface)?.inputs,
+            Test::Multiplier => multiplier_bench(&interface)?.inputs,
         };
         timing::measure(blocks, &interface, &inputs, cancel)
     }
@@ -573,10 +590,11 @@ pub(crate) fn patterns(width: usize) -> Vec<u64> {
 /// bits below are all set in A, and carry in, or B's lowest bit when there
 /// is no carry in line, carries through them. Then every pairing of
 /// `patterns`, with carry in each way.
-fn adder_cases(width: usize, carry_in: bool) -> (Vec<(u64, u64, bool)>, u64) {
+fn adder_cases(width: usize, carry_in: bool) -> (Vec<Case>, u64) {
     let mut cases = Vec::new();
     let mut seen = HashSet::new();
     let mut add = |cases: &mut Vec<_>, case: (u64, u64, bool)| {
+        let case = [case.0, case.1, u64::from(case.2)];
         if seen.insert(case) {
             cases.push(case);
         }
@@ -614,13 +632,19 @@ fn adder_cases(width: usize, carry_in: bool) -> (Vec<(u64, u64, bool)>, u64) {
     (cases, paired)
 }
 
-/// The adder's ports, by their place in its interface.
-struct AdderPorts {
-    a: usize,
-    b: usize,
-    carry_in: Option<usize>,
-    sum: usize,
-    carry_out: Option<usize>,
+/// One case's input values, in the order of its bench's inputs; those it
+/// has no input for are 0.
+type Case = [u64; 3];
+
+/// What a test drives and reads.
+struct Bench {
+    /// Input ports, by their place in the interface, in the order of each
+    /// case's values.
+    inputs: Vec<usize>,
+    /// Output ports, least significant first, read together as one number.
+    outputs: Vec<usize>,
+    /// What each case is, such as `A + B + carry in`.
+    pattern: String,
 }
 
 /// Runs an adder through its inputs and checks every sum: two operand buses
@@ -629,11 +653,20 @@ struct AdderPorts {
 /// flipped, since a lever saved the wrong way round does that.
 pub fn check_adder(blocks: &Blocks) -> Result<Run> {
     let mut interface = interface::read(blocks);
-    let ports = adder_ports(&mut interface)?;
-    let mut run = sweep(blocks, &interface, &ports, false)?;
+    let bench = adder_bench(&mut interface)?;
+    let widths = bench.widths(&interface);
+    let carry_in = bench.inputs.get(2).copied();
+    let (cases, exhaustive, patterns) =
+        cases(&widths, || adder_cases(widths[0], carry_in.is_some()));
+    let sum = |case: &Case| case[0] + case[1] + case[2];
+    let sweep = |flip| {
+        sweep(blocks, &interface, &bench, &cases, flip, sum)
+            .map(|run| run.covering(exhaustive, patterns))
+    };
+    let mut run = sweep(None)?;
     if run.wrong == run.cases
-        && let Some(port) = ports.carry_in
-        && sweep(blocks, &interface, &ports, true)?.wrong == 0
+        && let Some(port) = carry_in
+        && sweep(Some(2))?.wrong == 0
     {
         let name = &interface.inputs[port].name;
         run.hint = Some(format!(
@@ -642,6 +675,34 @@ pub fn check_adder(blocks: &Blocks) -> Result<Run> {
         ));
     }
     Ok(run)
+}
+
+/// What an adder's test drives and reads: A, B, and its carry in, if any;
+/// its output, then its carry out, if any.
+fn adder_bench(interface: &mut Interface) -> Result<Bench> {
+    let ports = adder_ports(interface)?;
+    let mut inputs = vec![ports.a, ports.b];
+    inputs.extend(ports.carry_in);
+    let mut outputs = vec![ports.sum];
+    outputs.extend(ports.carry_out);
+    let pattern = match ports.carry_in {
+        Some(port) => format!("A + B + {}", interface.inputs[port].name),
+        None => "A + B".to_owned(),
+    };
+    Ok(Bench {
+        inputs,
+        outputs,
+        pattern,
+    })
+}
+
+/// The adder's ports, by their place in its interface.
+struct AdderPorts {
+    a: usize,
+    b: usize,
+    carry_in: Option<usize>,
+    sum: usize,
+    carry_out: Option<usize>,
 }
 
 /// The adder's ports. Its one magenta control line, if any, is its carry
@@ -730,104 +791,268 @@ fn adder_line(
     Ok(Some(line))
 }
 
-/// Tries the adder's sums, with carry in the other way round when `flip`.
+/// Runs a combinational multiplier through its inputs and checks every
+/// product: A times B, plus C for a fused multiply-add, against as many low
+/// bits as its outputs hold together, the first holding the lowest.
+pub fn check_multiplier(blocks: &Blocks) -> Result<Run> {
+    let interface = interface::read(blocks);
+    let bench = multiplier_bench(&interface)?;
+    let widths = bench.widths(&interface);
+    let (cases, exhaustive, patterns) =
+        cases(&widths, || multiplier_cases(&widths));
+    let product = |case: &Case| {
+        let exact =
+            u128::from(case[0]) * u128::from(case[1]) + u128::from(case[2]);
+        // The low bits are all that is compared.
+        #[allow(clippy::cast_possible_truncation)]
+        let low = exact as u64;
+        low
+    };
+    Ok(sweep(blocks, &interface, &bench, &cases, None, product)?
+        .covering(exhaustive, patterns))
+}
+
+/// What a multiplier's test drives and reads: A, B, and C, if any; its
+/// output buses, status lines left out. A build with control lines, such
+/// as a clock, is sequential, which this test does not cover.
+fn multiplier_bench(interface: &Interface) -> Result<Bench> {
+    let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
+    if let Some(line) = interface.inputs.iter().find(control) {
+        bail!(
+            "It has a control line, {}, so it is not combinational; only a \
+             combinational multiplier is tested.",
+            line.name
+        );
+    }
+    let inputs: Vec<usize> = (0..interface.inputs.len()).collect();
+    let outputs: Vec<usize> = (0..interface.outputs.len())
+        .filter(|&i| !interface.outputs[i].block.starts_with(lint::STATUS))
+        .collect();
+    let widths: Vec<usize> = inputs
+        .iter()
+        .map(|&i| interface.inputs[i].bits.len())
+        .collect();
+    let pattern = match widths.len() {
+        2 => "A × B",
+        3 => "A × B + C",
+        n => broken!(
+            "A multiplier takes two operands, or three for A × B + C, but \
+             this has {n}."
+        ),
+    };
+    let result: usize = outputs
+        .iter()
+        .map(|&i| interface.outputs[i].bits.len())
+        .sum();
+    let (a, b) = (widths[0], widths[1]);
+    if result == 0 || result < a.max(b) || result > a + b {
+        broken!(
+            "A and B have {a} and {b} bits, so the product has from {} to {} \
+             bits, but the outputs have {result}.",
+            a.max(b),
+            a + b
+        );
+    }
+    Ok(Bench {
+        inputs,
+        outputs,
+        pattern: pattern.to_owned(),
+    })
+}
+
+/// The products a multiplier too wide to try every one of is checked on:
+/// every value of each byte of A with every value of each byte of B, the
+/// other bits clear; every value of each byte of C, if any, with A and B
+/// clear or all set; and every pairing of the test patterns.
+fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
+    let mut cases = Vec::new();
+    let mut seen = HashSet::new();
+    let mut add = |cases: &mut Vec<Case>, case: Case| {
+        if seen.insert(case) {
+            cases.push(case);
+        }
+    };
+    let bytes = |width: usize| {
+        (0..width)
+            .step_by(8)
+            .map(move |low| (low, (width - low).min(8)))
+    };
+    for (low_a, bits_a) in bytes(widths[0]) {
+        for (low_b, bits_b) in bytes(widths[1]) {
+            for a in 0..1u64 << bits_a {
+                for b in 0..1u64 << bits_b {
+                    add(&mut cases, [a << low_a, b << low_b, 0]);
+                }
+            }
+        }
+    }
+    let addend = widths.get(2).copied();
+    if let Some(width) = addend {
+        let full = [mask(widths[0]), mask(widths[1])];
+        for (low, bits) in bytes(width) {
+            for c in 0..1u64 << bits {
+                add(&mut cases, [0, 0, c << low]);
+                add(&mut cases, [full[0], full[1], c << low]);
+            }
+        }
+    }
+    let before = cases.len();
+    let addends = addend.map_or_else(|| vec![0], patterns);
+    for &a in &patterns(widths[0]) {
+        for &b in &patterns(widths[1]) {
+            for &c in &addends {
+                add(&mut cases, [a, b, c]);
+            }
+        }
+    }
+    let paired = (cases.len() - before) as u64;
+    (cases, paired)
+}
+
+impl Bench {
+    /// Each input's width, in the order of `inputs`.
+    fn widths(&self, interface: &Interface) -> Vec<usize> {
+        self.inputs
+            .iter()
+            .map(|&i| interface.inputs[i].bits.len())
+            .collect()
+    }
+}
+
+/// Every combination of inputs of `widths` bits when they come to at most
+/// `EXHAUSTIVE_BITS`, else what `structured` gives, with whether they were
+/// every one and how many pair the test patterns.
+fn cases(
+    widths: &[usize],
+    structured: impl FnOnce() -> (Vec<Case>, u64),
+) -> (Vec<Case>, bool, u64) {
+    let bits: usize = widths.iter().sum();
+    if bits > EXHAUSTIVE_BITS {
+        let (cases, patterns) = structured();
+        return (cases, false, patterns);
+    }
+    let every = (0..1u64 << bits)
+        .map(|packed| {
+            let mut case = [0; 3];
+            let mut shift = 0;
+            for (value, &width) in case.iter_mut().zip(widths) {
+                *value = packed >> shift & mask(width);
+                shift += width;
+            }
+            case
+        })
+        .collect();
+    (every, true, 0)
+}
+
+impl Run {
+    fn covering(mut self, exhaustive: bool, patterns: u64) -> Self {
+        self.exhaustive = exhaustive;
+        self.patterns = patterns;
+        self
+    }
+}
+
+/// Runs `cases` through the bench's inputs, driving the input at `flip`,
+/// if given, the other way round, and checks each result against
+/// `expected`, cut to as many bits as the outputs hold.
 fn sweep(
     blocks: &Blocks,
     interface: &Interface,
-    ports: &AdderPorts,
-    flip: bool,
+    bench: &Bench,
+    cases: &[Case],
+    flip: Option<usize>,
+    expected: impl Fn(&Case) -> u64,
 ) -> Result<Run> {
     let mut circuit = Circuit::new(blocks, interface)?;
-    let width = |port: usize| interface.inputs[port].bits.len();
-    let (a_bits, b_bits) = (width(ports.a), width(ports.b));
-    let sum_bits = interface.outputs[ports.sum].bits.len();
-    let result_bits = sum_bits + usize::from(ports.carry_out.is_some());
-    let input_bits = a_bits + b_bits + usize::from(ports.carry_in.is_some());
-    let exhaustive = input_bits <= EXHAUSTIVE_BITS;
-    let (cases, patterns): (Vec<(u64, u64, bool)>, u64) = if exhaustive {
-        let every = (0..1u64 << input_bits).map(|inputs| {
-            let a = inputs & mask(a_bits);
-            let b = inputs >> a_bits & mask(b_bits);
-            let carry = ports.carry_in.is_some()
-                && inputs >> (a_bits + b_bits) & 1 == 1;
-            (a, b, carry)
-        });
-        (every.collect(), 0)
-    } else {
-        adder_cases(a_bits, ports.carry_in.is_some())
+    let widths: Vec<usize> = bench
+        .outputs
+        .iter()
+        .map(|&i| interface.outputs[i].bits.len())
+        .collect();
+    let result_bits: usize = widths.iter().sum();
+    // Each output's value from a result, the first holding the lowest bits.
+    let split = |result: u64| {
+        let mut shift = 0;
+        widths
+            .iter()
+            .map(|&width| {
+                let value = result >> shift & mask(width);
+                shift += width;
+                value
+            })
+            .collect::<Vec<u64>>()
     };
     let mut wrong = 0;
     let mut wrong_by_bit = vec![0; result_bits];
     let mut examples = Vec::new();
-    for &(a, b, carry) in &cases {
-        circuit.set(ports.a, a);
-        circuit.set(ports.b, b);
-        if let Some(port) = ports.carry_in {
-            circuit.set(port, u64::from(carry != flip));
+    for case in cases {
+        for (i, &port) in bench.inputs.iter().enumerate() {
+            let value = case[i];
+            circuit.set(port, if flip == Some(i) { value ^ 1 } else { value });
         }
         circuit.settle()?;
-        let expected = (a + b + u64::from(carry)) & mask(result_bits);
-        let sum = circuit.get(ports.sum);
-        let carry_out = ports.carry_out.map(|port| circuit.get(port));
-        let got = sum | carry_out.unwrap_or(0) << sum_bits;
-        if expected != got {
+        let want = expected(case) & mask(result_bits);
+        let mut got = 0;
+        let mut shift = 0;
+        for (&port, &width) in bench.outputs.iter().zip(&widths) {
+            got |= circuit.get(port) << shift;
+            shift += width;
+        }
+        if want != got {
             wrong += 1;
             for (bit, count) in wrong_by_bit.iter_mut().enumerate() {
-                *count += (expected ^ got) >> bit & 1;
+                *count += (want ^ got) >> bit & 1;
             }
             if examples.len() < 5 {
-                let split = |result: u64| {
-                    let mut values = vec![result & mask(sum_bits)];
-                    values.extend(carry_out.map(|_| result >> sum_bits));
-                    values
-                };
-                let mut inputs = vec![a, b];
-                inputs.extend(ports.carry_in.map(|_| u64::from(carry)));
                 examples.push(Wrong {
-                    inputs,
-                    expected: split(expected),
+                    inputs: case[..bench.inputs.len()].to_vec(),
+                    expected: split(want),
                     got: split(got),
                 });
             }
         }
     }
-    let sum_name = &interface.outputs[ports.sum].name;
-    let label = |bit: usize| match ports.carry_out {
-        Some(port) if bit == sum_bits => interface.outputs[port].name.clone(),
-        _ => format!("{sum_name} bit {bit}"),
-    };
+    // Each result bit as its output's name, and its place in it when it has
+    // more than one.
+    let labels: Vec<String> = bench
+        .outputs
+        .iter()
+        .flat_map(|&i| {
+            let port = &interface.outputs[i];
+            let bits = port.bits.len();
+            (0..bits).map(move |bit| match bits {
+                1 => port.name.clone(),
+                _ => format!("{} bit {bit}", port.name),
+            })
+        })
+        .collect();
     let wrong_bits = wrong_by_bit
         .into_iter()
-        .enumerate()
-        .filter(|&(_, count)| count > 0)
-        .map(|(bit, count)| (label(bit), count))
+        .zip(labels)
+        .filter(|&(count, _)| count > 0)
+        .map(|(count, label)| (label, count))
         .collect();
-    let pattern = match ports.carry_in {
-        Some(port) => format!("A + B + {}", interface.inputs[port].name),
-        None => "A + B".to_owned(),
-    };
     let signal = |port: &Port| Signal {
         name: port.name.clone(),
         bits: port.bits.len(),
     };
-    let inputs = [Some(ports.a), Some(ports.b), ports.carry_in]
-        .into_iter()
-        .flatten()
-        .map(|i| signal(&interface.inputs[i]))
-        .collect();
-    let outputs = [Some(ports.sum), ports.carry_out]
-        .into_iter()
-        .flatten()
-        .map(|i| signal(&interface.outputs[i]))
-        .collect();
     Ok(Run {
-        pattern,
+        pattern: bench.pattern.clone(),
         cases: cases.len() as u64,
-        exhaustive,
-        patterns,
+        exhaustive: true,
+        patterns: 0,
         wrong,
-        inputs,
-        outputs,
+        inputs: bench
+            .inputs
+            .iter()
+            .map(|&i| signal(&interface.inputs[i]))
+            .collect(),
+        outputs: bench
+            .outputs
+            .iter()
+            .map(|&i| signal(&interface.outputs[i]))
+            .collect(),
         wrong_bits,
         examples,
         hint: None,
@@ -849,6 +1074,26 @@ mod tests {
     }
 
     #[test]
+    fn combinational_multipliers_are_tested() {
+        assert_eq!(Test::of("multiplier", Some(8)), Some(Test::Multiplier));
+        assert_eq!(Test::of("multiplier", Some(33)), None);
+    }
+
+    #[test]
+    fn a_wide_multiplier_pairs_every_byte_of_a_with_every_byte_of_b() {
+        let (cases, paired) = multiplier_cases(&[16, 16]);
+        let bytes = cases.len() as u64 - paired;
+        // Four pairs of bytes, less the cases they share, such as 0 × 0.
+        assert!(bytes > 4 * (1 << 16) - 1024 && bytes <= 4 * (1 << 16));
+        assert!(cases.contains(&[0xFF00, 0x00FF, 0]));
+        assert!(cases.contains(&[0xFFFF, 0xFFFF, 0]));
+        // A × B + C: each byte of C, with A and B clear and all set.
+        let (cases, _) = multiplier_cases(&[8, 8, 16]);
+        assert!(cases.contains(&[0, 0, 0xAB00]));
+        assert!(cases.contains(&[0xFF, 0xFF, 0x00CD]));
+    }
+
+    #[test]
     fn the_patterns_take_every_shift_and_each_bit_alone() {
         let found = patterns(16);
         assert_eq!(found.len(), 48);
@@ -867,13 +1112,13 @@ mod tests {
         // repeats: A's low byte all set, with or without carry in.
         assert_eq!(cases.len() as u64 - paired, 4 * (1 << 16) - 2);
         // A carry from carry in through the low byte into the high one.
-        assert!(cases.contains(&(0x00FF, 0x0F00, true)));
+        assert!(cases.contains(&[0x00FF, 0x0F00, 1]));
         // The longest carry: all ones plus one.
-        assert!(cases.contains(&(0xFFFF, 0x0001, false)));
+        assert!(cases.contains(&[0xFFFF, 0x0001, 0]));
         // Without a carry in line, B's lowest bit makes the carry.
         let (cases, _) = adder_cases(16, false);
-        assert!(cases.contains(&(0x00FF, 0x0101, false)));
-        assert!(cases.iter().all(|&(_, _, carry)| !carry));
+        assert!(cases.contains(&[0x00FF, 0x0101, 0]));
+        assert!(cases.iter().all(|case| case[2] == 0));
     }
 
     #[test]
