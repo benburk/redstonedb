@@ -96,7 +96,12 @@ impl Stored {
             period: number(s.period),
             bytes: number(s.bytes),
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
-            tags: s.tags.iter().map(|tag| tag.name.clone()).collect(),
+            tags: s
+                .tags
+                .iter()
+                .filter(|tag| !tag.is_derived())
+                .map(|tag| tag.name.clone())
+                .collect(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
                 vec![StackRow::suggested(&s.orientation, s.size)]

@@ -400,22 +400,14 @@ fn without(terms: &[Term], index: usize) -> String {
         .join(" ")
 }
 
-/// A listed build's badges on one row: first, if its simulation got some
-/// cases wrong, a mark that it fails, so it stands out to be fixed or
-/// removed; then its tags.
+/// A listed build's tags on one row. `fails simulation` comes first, so a
+/// failing build stands out to be fixed or removed.
 fn badges(s: &Schematic, class: &str) -> Markup {
     html! {
-        @if s.fails_simulation || !s.tags.is_empty() {
-            div class={ "flex flex-wrap gap-1.5 " (class) } {
-                @if s.fails_simulation {
-                    span class="badge badge-failing" { "fails simulation" }
-                }
-                @if !s.tags.is_empty() {
-                    ul class="flex flex-wrap gap-1.5" aria-label="Tags" {
-                        @for tag in &s.tags {
-                            li { (badge(tag)) }
-                        }
-                    }
+        @if !s.tags.is_empty() {
+            ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
+                @for tag in &s.tags {
+                    li { (badge(tag)) }
                 }
             }
         }
@@ -1844,6 +1836,7 @@ fn kind_label(kind: &str) -> &str {
     match kind {
         "restriction" => "Restriction",
         "timing" => "Timing",
+        "failing" => "Simulation",
         _ => "Other",
     }
 }
@@ -1965,6 +1958,8 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     dd { "How the build is clocked, when it differs from what the category implies." }
                     dt { span class="badge badge-other" { "Other" } }
                     dd { "Anything else worth searching by." }
+                    dt { span class="badge badge-failing" { "Simulation" } }
+                    dd { "Set by simulating the build: fails simulation means it got some cases wrong. No one can add or remove it; a new version that passes drops it." }
                 }
             }
         },

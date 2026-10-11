@@ -356,6 +356,11 @@ impl Form {
                  underscores, up to 16."
             ));
         }
+        if self.tags.iter().any(|n| n == schematic::FAILS_SIMULATION) {
+            return Err("Simulation sets the fails simulation tag; it \
+                        cannot be added by hand."
+                .to_owned());
+        }
         if let Some(name) =
             self.tags.iter().find(|n| !schematic::valid_tag_name(n))
         {

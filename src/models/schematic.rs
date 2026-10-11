@@ -9,11 +9,29 @@ pub struct Tag {
     pub name: String,
     /// A short form, such as `comb`, that commands and search accept.
     pub token: Option<String>,
-    /// `restriction`, `timing`, or `other`, which colours its badge.
+    /// `restriction`, `timing`, `other`, or `failing`, which colours its
+    /// badge.
     pub kind: String,
 }
 
+/// The name of the tag simulation puts on a build that gets some cases
+/// wrong. It is not stored, so no one can add or remove it.
+pub const FAILS_SIMULATION: &str = "fails_simulation";
+
 impl Tag {
+    fn fails_simulation() -> Self {
+        Tag {
+            name: FAILS_SIMULATION.to_owned(),
+            token: None,
+            kind: "failing".to_owned(),
+        }
+    }
+
+    /// Whether the build's simulation sets it, rather than a person.
+    pub fn is_derived(&self) -> bool {
+        self.name == FAILS_SIMULATION
+    }
+
     /// The name as words, such as `carry lookahead`.
     pub fn label(&self) -> String {
         self.name.replace('_', " ")
@@ -201,11 +219,9 @@ pub struct Schematic {
     pub edited_at: Option<String>,
     /// How many times it has been downloaded.
     pub downloads: i64,
-    /// Whether simulating its file got some cases wrong; see
-    /// `models::simulation`.
-    pub fails_simulation: bool,
     /// Sorted by kind in glossary order (restriction, timing, other),
-    /// then name.
+    /// then name, after `fails_simulation` if simulating its file got some
+    /// cases wrong; see `models::simulation`.
     pub tags: Vec<Tag>,
 }
 
@@ -479,7 +495,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     Ok(rows
         .into_iter()
         .map(|row| Schematic {
-            tags: tags.remove(&row.id).unwrap_or_default(),
+            tags: with_derived(tags.remove(&row.id), row.fails_simulation),
             flags: flags.remove(&row.id).unwrap_or_default(),
             builders: builders.remove(&row.id).unwrap_or_default(),
             contributors: contributors.remove(&row.id).unwrap_or_default(),
@@ -510,9 +526,18 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             added_at: row.added_at,
             edited_at: row.edited_at,
             downloads: row.downloads,
-            fails_simulation: row.fails_simulation,
         })
         .collect())
+}
+
+/// A build's stored `tags`, if any, led by `fails_simulation` when it
+/// fails.
+fn with_derived(tags: Option<Vec<Tag>>, fails_simulation: bool) -> Vec<Tag> {
+    let mut tags = tags.unwrap_or_default();
+    if fails_simulation {
+        tags.insert(0, Tag::fails_simulation());
+    }
+    tags
 }
 
 pub async fn get(
@@ -605,8 +630,7 @@ pub async fn get(
         added_at: row.added_at,
         edited_at: row.edited_at,
         downloads: row.downloads,
-        fails_simulation: row.fails_simulation,
-        tags,
+        tags: with_derived(Some(tags), row.fails_simulation),
         flags,
     }))
 }
@@ -1581,7 +1605,6 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
-            fails_simulation: false,
             tags: vec![tag("alpha", None, "restriction")],
         }
     }
