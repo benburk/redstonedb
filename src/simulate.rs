@@ -359,7 +359,7 @@ impl Test {
             Test::Adder => check_adder(blocks),
         };
         match result {
-            Ok(run) => Report::Ran(run),
+            Ok(run) => Report::Ran(Box::new(run)),
             Err(err) => match err.downcast_ref::<Broken>() {
                 Some(Broken(reason)) => Report::Broken {
                     reason: reason.clone(),
@@ -413,7 +413,7 @@ macro_rules! broken {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Report {
-    Ran(Run),
+    Ran(Box<Run>),
     /// The build could not be simulated, such as for a block the simulator
     /// does not model.
     Skipped {
@@ -461,8 +461,13 @@ pub struct Run {
     pub exhaustive: bool,
     /// How many cases were wrong.
     pub wrong: u64,
-    /// The bits of the result, all outputs together.
-    pub result_bits: usize,
+    /// What each case sets, in order, such as A, B, and carry in. A
+    /// passing result stored before these were kept has none.
+    #[serde(default)]
+    pub inputs: Vec<Signal>,
+    /// What each case reads, in order, such as the output and carry out.
+    #[serde(default)]
+    pub outputs: Vec<Signal>,
     /// Each result bit that was ever wrong, such as `output bit 7` or
     /// `carry out`, with how many cases it was wrong in.
     pub wrong_bits: Vec<(String, u64)>,
@@ -477,14 +482,20 @@ pub struct Run {
     pub timing: Option<Timing>,
 }
 
-/// One sum an adder got wrong.
+/// A port a test sets or reads, by the build's name for it.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Signal {
+    pub name: String,
+    pub bits: usize,
+}
+
+/// One case a build got wrong: each input's value, and each output's
+/// expected and actual value, in the order of `Run`'s.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Wrong {
-    pub a: u64,
-    pub b: u64,
-    pub carry_in: bool,
-    pub expected: u64,
-    pub got: u64,
+    pub inputs: Vec<u64>,
+    pub expected: Vec<u64>,
+    pub got: Vec<u64>,
 }
 
 /// Up to this many input bits, every combination is tried; beyond it, a
@@ -641,22 +652,26 @@ fn sweep(
         }
         circuit.settle()?;
         let expected = (a + b + u64::from(carry)) & mask(result_bits);
-        let mut got = circuit.get(ports.sum);
-        if let Some(port) = ports.carry_out {
-            got |= circuit.get(port) << sum_bits;
-        }
+        let sum = circuit.get(ports.sum);
+        let carry_out = ports.carry_out.map(|port| circuit.get(port));
+        let got = sum | carry_out.unwrap_or(0) << sum_bits;
         if expected != got {
             wrong += 1;
             for (bit, count) in wrong_by_bit.iter_mut().enumerate() {
                 *count += (expected ^ got) >> bit & 1;
             }
             if examples.len() < 5 {
+                let split = |result: u64| {
+                    let mut values = vec![result & mask(sum_bits)];
+                    values.extend(carry_out.map(|_| result >> sum_bits));
+                    values
+                };
+                let mut inputs = vec![a, b];
+                inputs.extend(ports.carry_in.map(|_| u64::from(carry)));
                 examples.push(Wrong {
-                    a,
-                    b,
-                    carry_in: carry,
-                    expected,
-                    got,
+                    inputs,
+                    expected: split(expected),
+                    got: split(got),
                 });
             }
         }
@@ -676,12 +691,27 @@ fn sweep(
         Some(port) => format!("A + B + {}", interface.inputs[port].name),
         None => "A + B".to_owned(),
     };
+    let signal = |port: &Port| Signal {
+        name: port.name.clone(),
+        bits: port.bits.len(),
+    };
+    let inputs = [Some(ports.a), Some(ports.b), ports.carry_in]
+        .into_iter()
+        .flatten()
+        .map(|i| signal(&interface.inputs[i]))
+        .collect();
+    let outputs = [Some(ports.sum), ports.carry_out]
+        .into_iter()
+        .flatten()
+        .map(|i| signal(&interface.outputs[i]))
+        .collect();
     Ok(Run {
         pattern,
         cases,
         exhaustive,
         wrong,
-        result_bits,
+        inputs,
+        outputs,
         wrong_bits,
         examples,
         hint: None,

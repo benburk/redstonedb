@@ -41,11 +41,14 @@ pub async fn get<'e, E: SqliteExecutor<'e>>(
     else {
         return Ok(None);
     };
+    // A report stored in an older form counts as none, so it runs again.
+    let Ok(report) = serde_json::from_str(&row.report) else {
+        return Ok(None);
+    };
     Ok(Some(Simulation {
         test: row.test,
         sha256: row.sha256,
-        report: serde_json::from_str(&row.report)
-            .context("stored simulation report")?,
+        report,
     }))
 }
 

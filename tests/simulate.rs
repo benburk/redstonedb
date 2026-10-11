@@ -45,8 +45,11 @@ fn a_carry_lookahead_adder_carries_into_bit_7_wrongly() {
     let run = simulate::check_adder(&blocks("alpha-cla")).unwrap();
     assert_eq!(run.wrong, 8192);
     let first = &run.examples[0];
-    assert_eq!((first.a, first.b, first.carry_in), (95, 1, false));
-    assert_eq!((first.expected, first.got), (96, 224));
+    assert_eq!(first.inputs, [95, 1, 0]);
+    assert_eq!(
+        (&*first.expected, &*first.got),
+        (&[96, 0][..], &[224, 0][..])
+    );
     let bits: Vec<(&str, u64)> = run
         .wrong_bits
         .iter()
