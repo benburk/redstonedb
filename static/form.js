@@ -163,10 +163,10 @@ for (const toggle of document.querySelectorAll("input[data-unknown]")) {
   toggle.addEventListener("change", () => marker?.remove(), { once: true });
 }
 
-// Build dates: picking a date unticks "Don't know", and ticking it
+// Build dates: typing a date unticks "Don't know", and ticking it
 // clears the date.
 for (const field of document.querySelectorAll("[data-date-field]")) {
-  const date = field.querySelector('input[type="date"]');
+  const date = field.querySelector('input[name="built_on"]');
   const unknown = field.querySelector('input[type="checkbox"]');
   date.addEventListener("input", () => {
     unknown.checked = date.value === "";

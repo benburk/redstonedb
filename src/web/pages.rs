@@ -1582,7 +1582,12 @@ fn fields(f: &Fields, choices: &Choices, derived_width: Option<i64>) -> Markup {
         div class="field" {
             label for="built-on" class="text-meta font-semibold text-muted" { "Built on" }
             div class="flex items-center gap-4" data-date-field {
-                input id="built-on" name="built_on" type="date" value=(f.built_on) class="input flex-1";
+                // Text rather than a date input, which shows the date in
+                // the browser's local order.
+                input id="built-on" name="built_on" type="text" value=(f.built_on)
+                    inputmode="numeric" placeholder="yyyy-mm-dd" maxlength="10"
+                    pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" title="A date such as 2024-02-02"
+                    autocomplete="off" class="input flex-1";
                 label class="flex items-center gap-2 whitespace-nowrap" {
                     input type="checkbox" name="built_on_unknown" value="yes"
                         checked[f.built_on.is_empty()] class="size-4 appearance-auto";

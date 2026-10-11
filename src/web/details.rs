@@ -373,16 +373,7 @@ impl Form {
             return Err("A name is at most 60 characters.".to_owned());
         }
         let built_on = text(&self.built_on);
-        if built_on.as_deref().is_some_and(|d| {
-            d.len() != 10
-                || d.chars().enumerate().any(|(i, c)| {
-                    if i == 4 || i == 7 {
-                        c != '-'
-                    } else {
-                        !c.is_ascii_digit()
-                    }
-                })
-        }) {
+        if built_on.as_deref().is_some_and(|d| !is_date(d)) {
             return Err(
                 "Built on must be a date such as 2024-02-02.".to_owned()
             );
@@ -439,9 +430,41 @@ pub fn pairs(body: &[u8]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Whether `d` is a real day written as `yyyy-mm-dd`, such as `2024-02-29`.
+fn is_date(d: &str) -> bool {
+    let shaped = d.len() == 10
+        && d.bytes().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    // Being all ASCII, it slices anywhere.
+    shaped
+        && match (d[..4].parse(), d[5..7].parse::<u8>(), d[8..].parse()) {
+            (Ok(year), Ok(month), Ok(day)) => time::Month::try_from(month)
+                .and_then(|month| {
+                    time::Date::from_calendar_date(year, month, day)
+                })
+                .is_ok(),
+            _ => false,
+        }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_date_is_a_real_day_as_yyyy_mm_dd() {
+        assert!(is_date("2024-02-29"));
+        assert!(!is_date("2023-02-29"));
+        assert!(!is_date("2024-13-01"));
+        assert!(!is_date("02/29/2024"));
+        assert!(!is_date("2024-2-29"));
+        assert!(!is_date("2024-02-2é"));
+    }
 
     fn form(stackable: bool, rows: &[(&str, &str, &str)]) -> Form {
         Form {
