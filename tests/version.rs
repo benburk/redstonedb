@@ -36,7 +36,14 @@ fn refused(old: &[u8], new: &[u8]) -> Vec<String> {
     let size = |blocks: &Blocks| import::measure(blocks, true).unwrap();
     let old_size = size(&old);
     let old_size = (old_size.x.into(), old_size.y.into(), old_size.z.into());
-    refusals(&old, old_size, &new, &size(&new), compare(&old, &new))
+    refusals(
+        "adder",
+        &old,
+        old_size,
+        &new,
+        &size(&new),
+        compare(&old, &new),
+    )
 }
 
 #[test]
@@ -63,6 +70,25 @@ fn a_different_adder_is_not_a_new_version() {
             .iter()
             .any(|r| r.contains("may change only the height"))
     );
+}
+
+/// An adder's carry lines need no signs, so taking them off keeps it the
+/// same build.
+#[test]
+fn an_adders_signs_may_come_off() {
+    let old = stored("alpha-rca-slice");
+    let blocks = Blocks::read(&old).unwrap();
+    let grid: HashMap<[i32; 3], String> = blocks
+        .iter()
+        .filter(|(_, state)| !state.contains("_sign"))
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(&old).unwrap();
+    nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, Vec::new())
+        .unwrap();
+    let new = schem::encode(nbt).unwrap();
+    assert_eq!(refused(&old, &new), Vec::<String>::new());
 }
 
 #[test]

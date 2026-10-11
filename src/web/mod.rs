@@ -32,6 +32,7 @@ use profile::profile;
 /// Built from `styles/app.css` by `just css`.
 const CSS: &str = include_str!("../../static/app.css");
 const FORM_JS: &str = include_str!("../../static/form.js");
+const SIMULATION_JS: &str = include_str!("../../static/simulation.js");
 
 /// An asset's address with its contents' hash, so browsers may keep it for
 /// good: a changed file gets a new address.
@@ -43,6 +44,8 @@ fn versioned(path: &str, contents: &str) -> String {
 static CSS_URL: LazyLock<String> = LazyLock::new(|| versioned("/app.css", CSS));
 static FORM_JS_URL: LazyLock<String> =
     LazyLock::new(|| versioned("/form.js", FORM_JS));
+static SIMULATION_JS_URL: LazyLock<String> =
+    LazyLock::new(|| versioned("/simulation.js", SIMULATION_JS));
 
 /// Where pages link the stylesheet.
 pub fn css_url() -> &'static str {
@@ -52,6 +55,11 @@ pub fn css_url() -> &'static str {
 /// Where the details forms load their script.
 pub fn form_js_url() -> &'static str {
     &FORM_JS_URL
+}
+
+/// Where a build's page loads the script that waits for its simulation.
+pub fn simulation_js_url() -> &'static str {
+    &SIMULATION_JS_URL
 }
 
 /// Versioned addresses never change, so they are cached for a year.
@@ -64,6 +72,16 @@ async fn get_css() -> impl IntoResponse {
             (header::CACHE_CONTROL, FOREVER),
         ],
         CSS,
+    )
+}
+
+async fn get_simulation_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, FOREVER),
+        ],
+        SIMULATION_JS,
     )
 }
 
@@ -82,6 +100,7 @@ pub fn static_router() -> Router<AppState> {
     Router::new()
         .route("/app.css", get(get_css))
         .route("/form.js", get(get_form_js))
+        .route("/simulation.js", get(get_simulation_js))
 }
 
 /// A 404 with the not-found page, for an address naming no build, person,
@@ -110,7 +129,6 @@ pub fn router() -> Router<AppState> {
         .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/schematics/{id}/versions/new", get(versions::form))
         .route("/schematics/{id}/versions/preview", post(versions::preview))
-        .route("/schematics/{id}/versions", post(versions::publish))
         .route(
             "/schematics/{id}/versions/{version}/download",
             get(versions::download),
@@ -119,7 +137,10 @@ pub fn router() -> Router<AppState> {
         .route("/upload/preview", post(upload::preview))
         .route("/upload/simulation", post(simulation::upload))
         .route("/upload/simulation/timing", post(simulation::upload_timing))
-        .route("/schematics/{id}/simulation", post(simulation::stored))
+        .route(
+            "/schematics/{id}/simulation",
+            get(simulation::poll).post(simulation::stored),
+        )
         .route(
             "/schematics/{id}/simulation/timing",
             post(simulation::stored_timing),

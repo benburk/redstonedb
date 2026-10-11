@@ -117,6 +117,7 @@ fn unpowered(state: &str) -> String {
 /// Why `new` cannot replace `old` as a new version, each as a sentence;
 /// empty when it can. Sizes are as `import::measure` gives them.
 pub fn refusals(
+    category: &str,
     old: &Blocks,
     old_size: (i64, i64, i64),
     new: &Blocks,
@@ -132,7 +133,7 @@ pub fn refusals(
             new_size.x, new_size.z
         ));
     }
-    let (was, now) = (ports(old), ports(new));
+    let (was, now) = (ports(old, category), ports(new, category));
     let gone: Vec<&str> = was
         .iter()
         .filter(|port| !now.contains(port))
@@ -197,6 +198,7 @@ pub async fn check(
     let current = Blocks::read(&current)?;
     let comparison = compare(&current, &prepared.blocks);
     let mut refusals = refusals(
+        &s.category,
         &current,
         s.size,
         &prepared.blocks,
@@ -205,19 +207,18 @@ pub async fn check(
     );
     // Only conventions the current version keeps count against it, so a
     // build from before a rule can still be fixed.
-    let kept: Vec<String> = if s.conventional {
-        lint::check(&current)
-            .into_iter()
-            .map(|v| v.message)
-            .collect()
+    let (kept, now) = if s.conventional {
+        (
+            lint::check_for(&current, &s.category),
+            lint::check_for(&prepared.blocks, &s.category),
+        )
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
-    let broken: Vec<&str> = prepared
-        .violations
+    let broken: Vec<&str> = now
         .iter()
         .map(|v| v.message.as_str())
-        .filter(|message| !kept.iter().any(|k| k == message))
+        .filter(|message| !kept.iter().any(|k| k.message == *message))
         .collect();
     if let Some(first) = broken.first() {
         refusals.push(format!(
@@ -246,12 +247,25 @@ pub async fn check(
 
 /// Each input and output as words, such as `input A, 8 bits of lime
 /// concrete`.
-fn ports(blocks: &Blocks) -> Vec<String> {
+///
+/// An adder's carry lines go by their roles, so signing one, unsigning it,
+/// or signing it `cin` rather than `carry in` keeps it the same line.
+fn ports(blocks: &Blocks, category: &str) -> Vec<String> {
     let interface = interface::read(blocks);
+    let roles = lint::UNSIGNED_LINES.contains(&category);
     let describe = |kind: &str, port: &Port| {
         let bits = port.bits.len();
         let unit = if bits == 1 { "bit" } else { "bits" };
-        format!("{kind} {}, {bits} {unit} of {}", port.name, port.block)
+        let role = |colour: &str, names: &[&'static str; 2]| {
+            (roles
+                && port.block.starts_with(colour)
+                && (!port.labelled || names.contains(&port.name.as_str())))
+            .then_some(names[0])
+        };
+        let name = role(lint::CONTROL, &lint::CARRY_IN)
+            .or_else(|| role(lint::STATUS, &lint::CARRY_OUT))
+            .unwrap_or(&port.name);
+        format!("{kind} {name}, {bits} {unit} of {}", port.block)
     };
     interface
         .inputs

@@ -96,7 +96,7 @@
 @layer components {
   /* `.btn` shapes a control; one of the colour classes paints it. */
   .btn {
-    @apply inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-control px-4 font-semibold no-underline transition-[opacity,background-color] duration-150 ease-calm hover:no-underline aria-busy:opacity-60;
+    @apply inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-control px-4 font-semibold no-underline transition-[opacity,background-color] duration-150 ease-calm hover:no-underline aria-busy:opacity-60 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-primary {

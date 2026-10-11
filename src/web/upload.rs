@@ -14,7 +14,7 @@ use crate::{
     app_state::AppState,
     error::internal_error,
     import::{self, Prepared},
-    interface,
+    interface, lint,
     models::{
         schematic::{self, New, Tag},
         simulation,
@@ -25,7 +25,7 @@ use crate::{
 
 use super::{
     details,
-    pages::{self, Choices, Fields, UploadPreview},
+    pages::{self, Choices, DetailsPage, Fields, File},
 };
 
 /// The file behind a Schemati download link, or why it could not be had.
@@ -240,7 +240,7 @@ pub async fn publish(
     };
     let refused = match publish_checked(&state, &user, &prepared, &sent).await {
         Ok(id) => {
-            simulation::refresh_soon(&state.db, &id).await;
+            simulation::refresh_soon(&state.db, &id);
             return Redirect::to(&format!("/schematics/{id}")).into_response();
         }
         Err(message) => message,
@@ -274,6 +274,18 @@ async fn publish_checked(
         .await
         .map_err(|err| format!("Could not load the categories: {err}."))?;
     let parsed = sent.form.parse(&categories)?;
+    // Only an adder may leave its lone control and status lines unsigned,
+    // which the preview, before the category was known, let pass.
+    if !sent.settings.unconventional
+        && let Some(violation) =
+            lint::check_for(&prepared.blocks, &parsed.category).first()
+    {
+        return Err(format!(
+            "A {} needs every control and status line signed: {}.",
+            parsed.category.replace('_', " "),
+            violation.message
+        ));
+    }
     // Only an admin may name a tag not yet on the list.
     match schematic::check_new_tags(&state.db, &sent.form.tags, user.is_admin())
         .await
@@ -362,28 +374,29 @@ async fn show_preview(
         Ok(choices) => choices,
         Err(err) => return internal_error(err).into_response(),
     };
-    pages::upload_preview(
+    let interface = interface::read(&prepared.blocks);
+    let derived_width = import::derived_width("adder", &interface);
+    pages::details_page(
         user,
-        &UploadPreview {
-            data: &STANDARD.encode(&prepared.data),
+        &DetailsPage {
+            file: File::Upload {
+                data: &STANDARD.encode(&prepared.data),
+                size: [prepared.size.x, prepared.size.y, prepared.size.z],
+                duplicate: duplicate.as_deref(),
+                keep_paste: settings.keep_paste,
+                unconventional: settings.unconventional,
+            },
             analysis: &pages::Analysis {
-                interface: interface::read(&prepared.blocks),
+                interface,
                 violations: prepared.violations.clone(),
             },
-            size: [prepared.size.x, prepared.size.y, prepared.size.z],
-            duplicate: duplicate.as_deref(),
             fields,
+            chosen_tags,
             choices: &choices,
             tags: &tags,
-            chosen_tags,
             may_create_tags: user.is_admin(),
-            unconventional: settings.unconventional,
-            keep_paste: settings.keep_paste,
+            derived_width,
             message,
-            derived_width: import::derived_width(
-                "adder",
-                &interface::read(&prepared.blocks),
-            ),
         },
     )
     .into_response()

@@ -275,15 +275,63 @@ for (const field of document.querySelectorAll("[data-pill-field]")) {
 // changes. A category with no test answers at once, so the waiting note
 // shows only for a run that takes a while. A passing result means latency
 // and synchronized are measured, so their fields give way to a note.
+//
+// The checks panel follows along, and the button waits for the cases'
+// result, though not the timing, which carries on after publishing. It
+// also stays held for anything the server found, such as a duplicate,
+// except broken conventions once “follows its own layout” is ticked.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
   const results = document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
   const width = form.querySelector('input[name="width"]');
   const timingFields = form.querySelector("[data-timing-fields]");
   const timingNote = form.querySelector("[data-timing-note]");
+  const button = form.querySelector("[data-publish]");
+  const reason = form.querySelector("[data-gate-reason]");
+  const unconventional = form.querySelector("[data-unconventional]");
+  const blockedReason = reason.textContent;
   const key = () => `${category.value.trim().toLowerCase()}/${width.value}`;
   let asked = form.hasAttribute("data-simulated") ? key() : null;
   let controller = null;
+  let simulating = false;
+
+  const gate = () => {
+    const kind = button.dataset.blocked;
+    const blocked = kind !== undefined
+      && !(kind === "conventions" && unconventional?.checked);
+    button.disabled = blocked || simulating;
+    reason.textContent = blocked
+      ? blockedReason
+      : simulating
+      ? "Waiting for the simulation…"
+      : "";
+  };
+  unconventional?.addEventListener("change", gate);
+
+  // One line of the checks panel: its state, `pass`, `fail`, `run`, or
+  // `wait`, and its words; no state hides it.
+  const spinner = document.createElement("span");
+  spinner.className =
+    "inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none";
+  const mark = (name, state, text) => {
+    const line = document.querySelector(`[data-check="${name}"]`);
+    if (!line) return;
+    line.hidden = !state;
+    if (!state) return;
+    line.dataset.state = state;
+    line.classList.toggle("text-danger", state === "fail");
+    line.classList.toggle("text-muted", state === "run" || state === "wait");
+    const icon = line.querySelector("[data-icon]");
+    icon.replaceChildren(
+      state === "run" ? spinner.cloneNode() : { pass: "✓", fail: "✗", wait: "○" }[state],
+    );
+    line.querySelector("[data-text]").textContent = text;
+  };
+  const marked = (name, section, label) => {
+    if (section) mark(name, section.dataset.state, `${label}: ${section.dataset.summary}`);
+    else mark(name, null);
+  };
+
   const say = (text, role) => {
     results.replaceChildren();
     const note = document.createElement("p");
@@ -314,16 +362,41 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     controller?.abort();
     controller = new AbortController();
     const { signal } = controller;
+    simulating = true;
+    gate();
+    mark("simulation", "run", "Simulating every case…");
+    mark("timing", null);
     const waiting = setTimeout(() => say("Simulating every case…", "status"), 300);
     results.setAttribute("aria-busy", "true");
     try {
       results.innerHTML = await post(form.dataset.simulate, signal);
       clearTimeout(waiting);
+      simulating = false;
+      gate();
       measured();
+      const section = results.querySelector("#simulation");
+      if (!section) {
+        mark(
+          "simulation",
+          "wait",
+          category.value.trim() === ""
+            ? "Choose a category to simulate it."
+            : "No simulation for this category and width yet.",
+        );
+        return;
+      }
+      marked("simulation", section, "Simulation");
       const pending = results.querySelector("[data-timing-pending]");
-      if (pending) pending.outerHTML = await post(`${form.dataset.simulate}/timing`, signal);
+      if (pending) {
+        mark("timing", "run", "Measuring the timing, which carries on after you publish…");
+        pending.outerHTML = await post(`${form.dataset.simulate}/timing`, signal);
+      }
+      marked("timing", results.querySelector("[data-timing]"), "Timing");
     } catch (error) {
       if (signal.aborted) return;
+      simulating = false;
+      gate();
+      mark("simulation", "fail", "Could not simulate it.");
       say("Could not simulate it.");
     } finally {
       clearTimeout(waiting);
@@ -333,6 +406,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   category.addEventListener("change", ask);
   width.addEventListener("change", ask);
   measured();
+  gate();
   // The edit page's stored result may still be waiting for its timing.
   if (asked !== null && results.querySelector("[data-timing-pending]")) {
     asked = null;

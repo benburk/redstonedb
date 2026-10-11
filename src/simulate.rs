@@ -375,10 +375,10 @@ impl Test {
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-        let interface = interface::read(blocks);
+        let mut interface = interface::read(blocks);
         let inputs = match self {
             Test::Adder => {
-                let ports = adder_ports(&interface)?;
+                let ports = adder_ports(&mut interface)?;
                 let mut inputs = vec![ports.a, ports.b];
                 inputs.extend(ports.carry_in);
                 inputs
@@ -506,8 +506,8 @@ struct AdderPorts {
 /// out` above it. When every sum is wrong, it tries again with carry in
 /// flipped, since a lever saved the wrong way round does that.
 pub fn check_adder(blocks: &Blocks) -> Result<Run> {
-    let interface = interface::read(blocks);
-    let ports = adder_ports(&interface)?;
+    let mut interface = interface::read(blocks);
+    let ports = adder_ports(&mut interface)?;
     let mut run = sweep(blocks, &interface, &ports, false)?;
     if run.wrong == run.cases
         && let Some(port) = ports.carry_in
@@ -522,44 +522,40 @@ pub fn check_adder(blocks: &Blocks) -> Result<Run> {
     Ok(run)
 }
 
-fn adder_ports(interface: &Interface) -> Result<AdderPorts> {
-    let named = |port: &Port, names: &[&str]| {
-        port.labelled && names.contains(&port.name.as_str())
-    };
-    let mut operands = Vec::new();
-    let mut carry_in = None;
-    for (i, port) in interface.inputs.iter().enumerate() {
-        if named(port, &["carry in", "cin"]) {
-            carry_in = Some(i);
-        } else if !port.labelled && !port.block.starts_with(lint::CONTROL) {
-            operands.push(i);
-        } else {
-            broken!("An adder has no input named {}.", port.name);
-        }
-    }
+/// The adder's ports. Its one magenta control line, if any, is its carry
+/// in and its one pink status line its carry out, signed or not; a sign on
+/// either must say so. An unsigned one is named for its role here.
+fn adder_ports(interface: &mut Interface) -> Result<AdderPorts> {
+    let carry_in = adder_line(
+        &mut interface.inputs,
+        lint::CONTROL,
+        &lint::CARRY_IN,
+        "control line is its carry in",
+    )?;
+    let carry_out = adder_line(
+        &mut interface.outputs,
+        lint::STATUS,
+        &lint::CARRY_OUT,
+        "status line is its carry out",
+    )?;
+    let operands: Vec<usize> = (0..interface.inputs.len())
+        .filter(|&i| Some(i) != carry_in)
+        .collect();
     let &[a, b] = operands.as_slice() else {
         broken!(
             "An adder takes two operands, but this has {}.",
             operands.len()
         );
     };
-    let mut sum = None;
-    let mut carry_out = None;
-    for (i, port) in interface.outputs.iter().enumerate() {
-        if named(port, &["carry out", "cout"]) {
-            carry_out = Some(i);
-        } else if sum.is_none() && !port.labelled {
-            sum = Some(i);
-        } else {
-            broken!(
-                "An adder has one output bus and a carry out, but this also \
-                 has {}.",
-                port.name
-            );
-        }
-    }
-    let Some(sum) = sum else {
-        broken!("An adder needs an output bus.");
+    let buses: Vec<usize> = (0..interface.outputs.len())
+        .filter(|&i| Some(i) != carry_out)
+        .collect();
+    let &[sum] = buses.as_slice() else {
+        broken!(
+            "An adder has one output bus and a carry out, but this has {} \
+             output buses.",
+            buses.len()
+        );
     };
     // The output may hold the carry as its top bit when there is no carry
     // out line.
@@ -581,6 +577,35 @@ fn adder_ports(interface: &Interface) -> Result<AdderPorts> {
         sum,
         carry_out,
     })
+}
+
+/// The one line of `colour` among `ports`, if there is one: unsigned, when
+/// it takes its role's first name, or signed with one of `names`. More
+/// than one, or a sign naming something else, is broken; `role` says what
+/// the line is, as in `control line is its carry in`.
+fn adder_line(
+    ports: &mut [Port],
+    colour: &str,
+    names: &[&str],
+    role: &str,
+) -> Result<Option<usize>> {
+    let lines: Vec<usize> = (0..ports.len())
+        .filter(|&i| ports[i].block.starts_with(colour))
+        .collect();
+    let count: usize = lines.iter().map(|&i| ports[i].bits.len()).sum();
+    if count > 1 {
+        broken!("An adder's {role}, but this has {count} such lines.");
+    }
+    let Some(&line) = lines.first() else {
+        return Ok(None);
+    };
+    let port = &mut ports[line];
+    if !port.labelled {
+        names[0].clone_into(&mut port.name);
+    } else if !names.contains(&port.name.as_str()) {
+        broken!("An adder's {role}, but this one is signed {}.", port.name);
+    }
+    Ok(Some(line))
 }
 
 /// Tries the adder's sums, with carry in the other way round when `flip`.
@@ -724,16 +749,60 @@ mod tests {
 
     #[test]
     fn an_adder_whose_operands_and_output_differ_in_width_is_broken() {
-        let broken = |interface: &Interface| {
-            adder_ports(interface)
+        let broken = |mut interface: Interface| {
+            adder_ports(&mut interface)
                 .err()
                 .is_some_and(|err| err.downcast_ref::<Broken>().is_some())
         };
-        assert!(!broken(&adder(8, 8, 8, true)));
-        assert!(broken(&adder(8, 7, 8, true)));
-        assert!(broken(&adder(8, 8, 9, true)));
+        assert!(!broken(adder(8, 8, 8, true)));
+        assert!(broken(adder(8, 7, 8, true)));
+        assert!(broken(adder(8, 8, 9, true)));
         // Without a carry out line, the output holds the carry on top.
-        assert!(!broken(&adder(8, 8, 9, false)));
+        assert!(!broken(adder(8, 8, 9, false)));
+    }
+
+    #[test]
+    fn an_adders_lone_lines_are_its_carries_signed_or_not() {
+        let ports = |mut interface: Interface| {
+            let ports = adder_ports(&mut interface)?;
+            let names = (
+                ports.carry_in.map(|i| interface.inputs[i].name.clone()),
+                ports.carry_out.map(|o| interface.outputs[o].name.clone()),
+            );
+            anyhow::Ok(names)
+        };
+        let carries = |carry_in: Port, carry_out: Port| {
+            let mut interface = adder(8, 8, 8, false);
+            interface.inputs.push(carry_in);
+            interface.outputs.push(carry_out);
+            interface
+        };
+        let unsigned = carries(
+            port("unnamed control", "magenta concrete", false, 1),
+            port("unnamed status", "pink concrete", false, 1),
+        );
+        assert_eq!(
+            ports(unsigned).unwrap(),
+            (Some("carry in".to_owned()), Some("carry out".to_owned()))
+        );
+        let signed = carries(
+            port("cin", "magenta concrete", true, 1),
+            port("cout", "pink concrete", true, 1),
+        );
+        assert_eq!(
+            ports(signed).unwrap(),
+            (Some("cin".to_owned()), Some("cout".to_owned()))
+        );
+        let subtract = carries(
+            port("subtract", "magenta concrete", true, 1),
+            port("cout", "pink concrete", true, 1),
+        );
+        assert!(ports(subtract).is_err());
+        let two = carries(
+            port("unnamed control", "magenta concrete", false, 2),
+            port("cout", "pink concrete", true, 1),
+        );
+        assert!(ports(two).is_err());
     }
 
     #[test]

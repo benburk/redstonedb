@@ -178,11 +178,8 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
             .any(|port| port.labelled && names.contains(&port.name.as_str()))
     };
     [
-        (named(&interface.inputs, &["carry in", "cin"]), "carry_in"),
-        (
-            named(&interface.outputs, &["carry out", "cout"]),
-            "carry_out",
-        ),
+        (named(&interface.inputs, &lint::CARRY_IN), "carry_in"),
+        (named(&interface.outputs, &lint::CARRY_OUT), "carry_out"),
         (named(&interface.outputs, &["overflow"]), "overflow"),
         (named(&interface.outputs, &["zero"]), "zero"),
     ]
@@ -192,7 +189,8 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
-/// The categories whose width is read from the file; see `derived_width`.
+/// The categories whose width and flags are read from the file; see
+/// `derived_width` and `derived_flags`.
 pub const DERIVES_WIDTH: [&str; 1] = ["adder"];
 
 /// The width a category takes from its builds' files rather than their
@@ -209,6 +207,32 @@ pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
         .find(|port| !port.labelled && port.block.starts_with("lime"))?;
     let bits = a.bits.len() * if a.signal_strength { 4 } else { 1 };
     i64::try_from(bits).ok()
+}
+
+/// The flags a category takes from its builds' files rather than their
+/// details: an adder's `carry_in` for a magenta control line and
+/// `carry_out` for a pink status line. `None` for other categories.
+pub fn derived_flags(
+    category: &str,
+    interface: &Interface,
+) -> Option<Vec<String>> {
+    if !DERIVES_WIDTH.contains(&category) {
+        return None;
+    }
+    let has = |ports: &[Port], colour: &str| {
+        ports.iter().any(|port| port.block.starts_with(colour))
+    };
+    let flags = [
+        (has(&interface.inputs, lint::CONTROL), "carry_in"),
+        (has(&interface.outputs, lint::STATUS), "carry_out"),
+    ];
+    Some(
+        flags
+            .into_iter()
+            .filter(|(has, _)| *has)
+            .map(|(_, flag)| flag.to_owned())
+            .collect(),
+    )
 }
 
 /// The width and orientation the inputs suggest: the widest operand's bit

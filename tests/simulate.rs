@@ -1,10 +1,10 @@
 //! Simulating the fixture adders through every sum.
 
-use std::sync::atomic::AtomicBool;
+use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
-    import, interface,
-    schem::Blocks,
+    import, interface, lint,
+    schem::{self, Blocks},
     simulate::{self, Report, Test},
     standardize,
 };
@@ -119,4 +119,41 @@ fn an_adders_width_is_its_lime_bit_count() {
     assert_eq!(width("alpha-rca-slice"), Some(1));
     let multiplier = interface::read(&blocks("alpha-rca"));
     assert_eq!(import::derived_width("multiplier", &multiplier), None);
+}
+
+/// `data` without its signs.
+fn unsigned(data: &[u8]) -> Vec<u8> {
+    let blocks = Blocks::read(data).unwrap();
+    let grid: HashMap<[i32; 3], String> = blocks
+        .iter()
+        .filter(|(_, state)| !state.contains("_sign"))
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(data).unwrap();
+    nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, Vec::new())
+        .unwrap();
+    schem::encode(nbt).unwrap()
+}
+
+/// Its carry in and carry out are its only magenta and pink lines, so
+/// they need no signs.
+#[test]
+fn an_adders_lone_lines_need_no_signs() {
+    let raw = std::fs::read("tests/fixtures/alpha-rca-slice.schem").unwrap();
+    let tidied = standardize::tidy(&raw).unwrap();
+    let stored = standardize::pink_status(&tidied).unwrap();
+    let blocks = Blocks::read(&unsigned(&stored)).unwrap();
+    assert!(blocks.signs.is_empty());
+    let unsigned_line = |violations: &[lint::Violation]| {
+        violations
+            .iter()
+            .any(|v| v.message.contains("no sign naming it"))
+    };
+    assert!(!unsigned_line(&lint::check(&blocks)));
+    assert!(!unsigned_line(&lint::check_for(&blocks, "adder")));
+    assert!(unsigned_line(&lint::check_for(&blocks, "multiplier")));
+    let run = simulate::check_adder(&blocks).unwrap();
+    assert_eq!((run.cases, run.wrong), (8, 0));
+    assert_eq!(run.pattern, "A + B + carry in");
 }

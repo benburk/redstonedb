@@ -5,23 +5,27 @@ use axum::{
     http::{Method, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
     error::internal_error,
-    interface, lint,
+    import,
+    interface::{self, Interface},
+    lint,
     models::schematic::{self, Category, Credit, Schematic},
     models::user::User,
     models::{simulation, version},
     mojang,
     schem::Blocks,
     search, stack, standardize, thumbnail,
+    version::{Checked, check as check_version},
 };
 
 use super::{
     details,
-    pages::{self, Choices},
+    pages::{self, Choices, DetailsPage, File, Stored},
 };
 
 /// What the home page's address asks for. Separate parameters narrow
@@ -246,22 +250,16 @@ pub async fn detail(
         Ok(data) => analyse(data.as_deref().unwrap_or_default()),
         Err(err) => return internal_error(err).into_response(),
     };
-    let simulation = match simulation::current(&state.db, &s).await {
-        Ok(simulation) => simulation,
+    let simulation = match simulation::status(&state.db, &s).await {
+        Ok(status) => status,
         Err(err) => return internal_error(&*err).into_response(),
     };
     let versions = match version::list(&state.db, &id).await {
         Ok(versions) => versions,
         Err(err) => return internal_error(err).into_response(),
     };
-    pages::schematic(
-        user_opt.as_ref(),
-        &s,
-        &analysis,
-        simulation.as_ref(),
-        &versions,
-    )
-    .into_response()
+    pages::schematic(user_opt.as_ref(), &s, &analysis, &simulation, &versions)
+        .into_response()
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -275,7 +273,7 @@ pub async fn edit(
         Ok(user) => user,
         Err(response) => return response,
     };
-    show_edit(&state.db, &user, &id, None, "").await
+    show_edit(&state.db, &user, &id, None, "", None, false).await
 }
 
 /// The account editing build `id`, or the answer when it may not: a login
@@ -310,17 +308,99 @@ pub async fn save(
         Ok(user) => user,
         Err(response) => return response,
     };
-    let form = details::Form::read(&details::pairs(&body));
-    let refused = match saved(&state.db, &id, &form, user.is_admin()).await {
-        Ok(Ok(())) => {
-            // A new category or width may call for a test, or another.
-            simulation::refresh_soon(&state.db, &id).await;
-            return Redirect::to(&format!("/schematics/{id}")).into_response();
-        }
-        Ok(Err(message)) => message,
-        Err(err) => return internal_error(err).into_response(),
+    let db = &state.db;
+    let pairs = details::pairs(&body);
+    let form = details::Form::read(&pairs);
+    let field = |key: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.trim().to_owned())
+            .unwrap_or_default()
     };
-    show_edit(&state.db, &user, &id, Some(&form), &refused).await
+    let note: String = field("note").chars().take(500).collect();
+    // A new version, when the page carried one, is checked again first.
+    let checked = match attached(db, &user, &id, &form, &field("data")).await {
+        Ok(checked) => checked,
+        Err(response) => return response,
+    };
+    let new_file = || {
+        checked.as_ref().map(|checked| NewFile {
+            checked,
+            note: &note,
+        })
+    };
+    let refused = if checked.as_ref().is_some_and(|c| !c.refusals.is_empty()) {
+        Some(
+            "The new version can't replace the build, as the checks say."
+                .to_owned(),
+        )
+    } else {
+        match saved(db, &id, &form, user.is_admin()).await {
+            Ok(Ok(())) => None,
+            Ok(Err(message)) => Some(message),
+            Err(err) => return internal_error(err).into_response(),
+        }
+    };
+    if let Some(message) = refused {
+        return show_edit(
+            db,
+            &user,
+            &id,
+            Some(&form),
+            &message,
+            new_file(),
+            false,
+        )
+        .await;
+    }
+    if let Some(checked) = &checked {
+        let size = &checked.prepared.size;
+        let new = version::New {
+            data: &checked.prepared.data,
+            sha256: &checked.prepared.sha256,
+            size: (size.x.into(), size.y.into(), size.z.into()),
+            added_by: Some(user.id),
+            note: Some(note.as_str()).filter(|note| !note.is_empty()),
+        };
+        if let Err(err) = version::publish(db, &id, &new).await {
+            return internal_error(err).into_response();
+        }
+        tracing::info!(id, by = user.username, "new version");
+    }
+    // A new file, category, or width may call for a test, or another.
+    simulation::refresh_soon(db, &id);
+    Redirect::to(&format!("/schematics/{id}")).into_response()
+}
+
+/// The new version an edit page carried in `data`, base64, checked against
+/// build `id`; none for an empty `data`. A file that cannot be read sends
+/// the page back, with `form` as sent, to choose it again.
+async fn attached(
+    db: &SqlitePool,
+    user: &User,
+    id: &str,
+    form: &details::Form,
+    data: &str,
+) -> Result<Option<Checked>, Response> {
+    if data.is_empty() {
+        return Ok(None);
+    }
+    let checked = match (STANDARD.decode(data), schematic::get(db, id).await) {
+        (Ok(data), Ok(Some(s))) => check_version(db, &s, &data, false).await,
+        (Err(_), _) => Err(anyhow::anyhow!("it did not arrive whole")),
+        (_, Ok(None)) => return Err(super::not_found(Some(user))),
+        (_, Err(err)) => return Err(internal_error(err).into_response()),
+    };
+    match checked {
+        Ok(checked) => Ok(Some(checked)),
+        Err(err) => {
+            let message = format!(
+                "Could not read the new version: {err:#}. Choose its file again."
+            );
+            Err(show_edit(db, user, id, Some(form), &message, None, true).await)
+        }
+    }
 }
 
 /// Deletes a build for good, with its tags, credits, and stacking; admins
@@ -411,54 +491,109 @@ async fn saved(
     Ok(Ok(()))
 }
 
-async fn show_edit(
+/// A new version waiting on the edit page, to save with the details.
+pub(super) struct NewFile<'a> {
+    pub checked: &'a Checked,
+    pub note: &'a str,
+}
+
+/// The edit page for build `id`: its details as `sent`, else as stored,
+/// with `message` saying why a save was refused, and the file a new
+/// version would replace it with, if one is waiting. `choosing` opens the
+/// form for choosing one.
+pub(super) async fn show_edit(
     db: &SqlitePool,
     user: &User,
     id: &str,
     sent: Option<&details::Form>,
     message: &str,
+    new_file: Option<NewFile<'_>>,
+    choosing: bool,
 ) -> Response {
     let loaded = async {
-        Ok::<_, sqlx::Error>((
+        anyhow::Ok((
             schematic::get(db, id).await?,
             Choices::load(db).await?,
             schematic::all_tags(db).await?,
+            schematic::data(db, id).await?.unwrap_or_default(),
+            version::list(db, id).await?,
         ))
     };
-    match loaded.await {
-        Ok((Some(s), choices, tags)) => {
-            let simulation = match simulation::current(db, &s).await {
-                Ok(simulation) => simulation,
-                Err(err) => return internal_error(&*err).into_response(),
-            };
-            // An adder's width comes from its file, whatever its category
-            // is now, in case it becomes one.
-            let derived_width = match schematic::data(db, id).await {
-                Ok(data) => simulation::derived_width(
-                    "adder",
-                    s.conventional,
-                    data.as_deref().unwrap_or_default(),
-                )
-                .unwrap_or(None),
-                Err(err) => return internal_error(err).into_response(),
-            };
-            pages::edit_schematic(
-                user,
-                &pages::EditSchematic {
-                    s: &s,
-                    sent,
-                    choices: &choices,
-                    tags: &tags,
-                    message,
-                    simulation: simulation.as_ref(),
-                    derived_width,
-                },
-            )
-            .into_response()
+    let (s, choices, tags, data, versions) = match loaded.await {
+        Ok((Some(s), choices, tags, data, versions)) => {
+            (s, choices, tags, data, versions)
         }
-        Ok((None, ..)) => super::not_found(Some(user)),
-        Err(err) => internal_error(err).into_response(),
-    }
+        Ok((None, ..)) => return super::not_found(Some(user)),
+        Err(err) => return internal_error(&*err).into_response(),
+    };
+    // What the page shows is the new file's, when one is waiting.
+    let analysis = match &new_file {
+        Some(new) => pages::Analysis {
+            interface: interface::read(&new.checked.prepared.blocks),
+            violations: if s.conventional {
+                lint::check_for(&new.checked.prepared.blocks, &s.category)
+            } else {
+                Vec::new()
+            },
+        },
+        None => analyse(&data).unwrap_or_else(|_| pages::Analysis {
+            interface: Interface {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+            violations: Vec::new(),
+        }),
+    };
+    // An adder's width comes from its file, whatever its category is now,
+    // in case it becomes one.
+    let derived_width = if s.conventional {
+        import::derived_width("adder", &analysis.interface)
+    } else {
+        None
+    };
+    let simulation = match simulation::current(db, &s).await {
+        Ok(simulation) => simulation,
+        Err(err) => return internal_error(&*err).into_response(),
+    };
+    let stored = Stored::of(&s);
+    let (fields, chosen_tags) = match sent {
+        Some(form) => (form.fields(), form.tags.as_slice()),
+        None => (stored.fields(&s), stored.tags.as_slice()),
+    };
+    let encoded;
+    let file = match &new_file {
+        Some(new) => {
+            encoded = STANDARD.encode(&new.checked.prepared.data);
+            File::Version {
+                s: &s,
+                data: &encoded,
+                comparison: new.checked.comparison,
+                refusals: &new.checked.refusals,
+                version: versions.first().map_or(1, |v| v.version) + 1,
+                note: new.note,
+            }
+        }
+        None => File::Stored {
+            s: &s,
+            simulation: simulation.as_ref(),
+            choosing,
+        },
+    };
+    pages::details_page(
+        user,
+        &DetailsPage {
+            file,
+            analysis: &analysis,
+            fields: &fields,
+            chosen_tags,
+            choices: &choices,
+            tags: &tags,
+            may_create_tags: user.is_admin(),
+            derived_width,
+            message,
+        },
+    )
+    .into_response()
 }
 
 /// The build's inputs and outputs and the conventions it breaks, or why

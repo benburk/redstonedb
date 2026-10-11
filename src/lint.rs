@@ -113,13 +113,88 @@ impl fmt::Display for Violation {
     }
 }
 
+///
+/// A control or status line with no sign naming it breaks a convention,
+/// except the only line of its colour, which an adder takes as its carry in
+/// or carry out; whether a build may leave it unsigned depends on its
+/// category, which `check_for` knows.
 pub fn check(blocks: &Blocks) -> Vec<Violation> {
     let mut found = Vec::new();
     palette(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
     names(blocks, &mut found);
+    found.extend(
+        unsigned(blocks)
+            .into_iter()
+            .filter(|(_, lone)| !lone)
+            .map(|(violation, _)| violation),
+    );
     found
+}
+
+/// The categories whose builds' lone control line and lone status line
+/// need no sign, their roles being plain: an adder's carry in and carry
+/// out.
+pub const UNSIGNED_LINES: [&str; 1] = ["adder"];
+
+/// The names an adder's control line, its carry in, may be signed with;
+/// an unsigned one goes by the first.
+pub const CARRY_IN: [&str; 2] = ["carry in", "cin"];
+
+/// The names an adder's status line, its carry out, may be signed with;
+/// an unsigned one goes by the first.
+pub const CARRY_OUT: [&str; 2] = ["carry out", "cout"];
+
+/// As `check`, for a build of `category`: one not in `UNSIGNED_LINES` must
+/// sign even a lone control or status line.
+pub fn check_for(blocks: &Blocks, category: &str) -> Vec<Violation> {
+    let mut found = check(blocks);
+    if !UNSIGNED_LINES.contains(&category) {
+        found.extend(
+            unsigned(blocks)
+                .into_iter()
+                .filter(|(_, lone)| *lone)
+                .map(|(violation, _)| violation),
+        );
+    }
+    found
+}
+
+/// Each control or status line with no sign naming it, and whether it is
+/// the only line of its colour.
+fn unsigned(blocks: &Blocks) -> Vec<(Violation, bool)> {
+    let signs = blocks.sign_texts();
+    // Lines named by one sign on their row.
+    let rowed = interface::rowed(blocks);
+    let mut lines: BTreeMap<bool, Vec<Pos>> = BTreeMap::new();
+    let mut unsigned = Vec::new();
+    for (pos, state) in blocks.iter() {
+        let block = short(state);
+        let control = block == format!("{CONTROL}_concrete");
+        if !control && output_colour(block) != Some(STATUS) {
+            continue;
+        }
+        lines.entry(control).or_default().push(pos);
+        let named = signs.get(&pos).and_then(|l| interface::sign_name(l));
+        if named.is_none() && !rowed.contains(&pos) {
+            unsigned.push((pos, control));
+        }
+    }
+    unsigned
+        .into_iter()
+        .map(|(pos, control)| {
+            let what = if control { "control" } else { "status" };
+            let violation = Violation {
+                pos: Some(pos),
+                message: format!(
+                    "{what} line has no sign naming it: sign it, or sign one \
+                     line of its row to name the row"
+                ),
+            };
+            (violation, lines[&control].len() == 1)
+        })
+        .collect()
 }
 
 fn say(found: &mut Vec<Violation>, pos: Option<Pos>, message: String) {
@@ -302,26 +377,14 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
 fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
     let signs = blocks.sign_texts();
     let held = interface::feeds(blocks);
-    // Lines named by one sign on their row.
-    let rowed = interface::rowed(blocks);
     let mut buses: BTreeMap<&str, (Pos, Vec<String>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let block = short(state);
         let name = signs.get(&pos).and_then(|l| interface::sign_name(l));
         let line = block == format!("{CONTROL}_concrete")
             || output_colour(block) == Some(STATUS);
+        // Unsigned lines are `unsigned`'s to report.
         if line {
-            if name.is_none() && !rowed.contains(&pos) {
-                let what = if is_input(block) { "control" } else { "status" };
-                say(
-                    found,
-                    Some(pos),
-                    format!(
-                        "{what} line has no sign naming it: sign it, or sign \
-                         one line of its row to name the row"
-                    ),
-                );
-            }
             continue;
         }
         let Some(name) = name else { continue };

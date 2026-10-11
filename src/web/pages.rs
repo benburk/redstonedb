@@ -8,6 +8,7 @@ use crate::{
     APP_NAME, import,
     interface::{Bit, Interface},
     lint::Violation,
+    models::simulation::Status,
     models::{
         schematic::{
             self, Category, Design, Flag, Schematic, StackDirection, Tag,
@@ -21,7 +22,7 @@ use crate::{
 
 use super::{
     components::base,
-    details::{self, STACK_DIRECTIONS, StackRow},
+    details::{STACK_DIRECTIONS, StackRow},
 };
 
 const PAGE_TITLE: &str = "text-page font-bold";
@@ -39,8 +40,9 @@ mod leaderboard;
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 mod player;
 pub use player::{PlayerPage, player};
+mod details_page;
 mod version;
-pub use version::{VersionPreview, new_version, version_preview};
+pub use details_page::{DetailsPage, File, Stored, details_page};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -570,9 +572,13 @@ pub fn schematic(
     viewer: Option<&User>,
     s: &Schematic,
     analysis: &Result<Analysis, String>,
-    simulation: Option<&Report>,
+    simulation: &Status,
     versions: &[Version],
 ) -> Markup {
+    let report = match simulation {
+        Status::Done(report) | Status::Pending(Some(report)) => Some(report),
+        Status::Pending(None) | Status::Untested => None,
+    };
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
     base(
@@ -595,7 +601,7 @@ pub fn schematic(
                     (download_dialog(s))
                 }
             }
-            @if let Some(report) = simulation && report.failed() {
+            @if let Some(report) = report && report.failed() {
                 p class="mb-6 max-w-calm rounded-control border border-danger p-3 text-danger" {
                     strong { "Fails its simulation. " }
                     @match report {
@@ -619,31 +625,110 @@ pub fn schematic(
                     p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
                 }
             }
-            @if let Some(report) = simulation {
-                (simulation_section(report, Waiting::Reload))
+            @let poll = format!("{path}/simulation");
+            @match simulation {
+                Status::Done(report) | Status::Pending(Some(report)) => {
+                    (simulation_section(report, Waiting::Polled(&poll)))
+                }
+                Status::Pending(None) => (cases_pending(&poll)),
+                Status::Untested => {}
             }
             (version::versions_section(s, versions))
+            script defer src=(super::simulation_js_url()) {}
         },
     )
 }
 
-/// What simulating a build found: the cases tried and how many came out
-/// right, then, for a failure, which output bits were wrong and the first
-/// wrong cases.
-/// Where the section sits decides what it says while timing is measured:
-/// a form fetches it, and a build's page asks for a reload.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Waiting {
-    /// On an upload or edit page, whose script fetches the timing.
-    Fetched,
-    /// On a build's page, measured in the background.
-    Reload,
+/// A build's simulation section while its cases run in the background,
+/// as just after it is published: `simulation.js` asks `poll` after it,
+/// then reloads the page, since whether it fails shows above too.
+fn cases_pending(poll: &str) -> Markup {
+    html! {
+        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm" {
+            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
+            div data-poll=(poll) data-poll-reload class="mt-3" {
+                p role="status" class="flex items-center gap-2 text-muted" {
+                    (spinner())
+                    "Simulating every case, which takes a few seconds…"
+                }
+                noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
+            }
+        }
+    }
 }
 
+/// A simulation result in a few words, such as `all 131,072 cases right`.
+pub fn simulation_summary(report: &Report) -> String {
+    match report {
+        Report::Ran(run) if run.wrong == 0 => {
+            format!("all {} cases right.", grouped(run.cases))
+        }
+        Report::Ran(run) => format!(
+            "{} of {} cases wrong.",
+            grouped(run.wrong),
+            grouped(run.cases)
+        ),
+        Report::Broken { reason } => format!("broken. {reason}"),
+        Report::Skipped { reason } => format!("not simulated. {reason}"),
+    }
+}
+
+/// A timing in a few words, such as `synced; output settles by tick 3`.
+pub fn timing_summary(timing: &Timing) -> String {
+    // Such as `output settles by tick 3, carry out by tick 4`.
+    let outputs: Vec<String> = timing
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(i, output)| {
+            let verb = if i == 0 { " settles" } else { "" };
+            format!("{}{verb} by tick {}", output.name, tick(output.latency))
+        })
+        .collect();
+    let glitching: Vec<&str> = timing
+        .outputs
+        .iter()
+        .filter(|output| output.glitches > 0)
+        .map(|output| output.name.as_str())
+        .collect();
+    let synced = if timing.synced {
+        "synced".to_owned()
+    } else if glitching.is_empty() {
+        "not synced".to_owned()
+    } else {
+        format!("not synced: {} glitches", glitching.join(" and "))
+    };
+    format!("{synced}; {}.", outputs.join(", "))
+}
+
+/// A small spinning ring, for something under way; still where motion is
+/// reduced.
+pub fn spinner() -> Markup {
+    html! {
+        span aria-hidden="true"
+            class="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" {}
+    }
+}
+
+/// How a section's timing arrives while it is measured.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Waiting<'a> {
+    /// On an upload or edit page, whose script fetches it.
+    Fetched,
+    /// On a build's page, measured in the background: `timing.js` asks
+    /// this address after it until it is ready.
+    Polled(&'a str),
+}
+
+/// What simulating a build found: the cases tried and how many came out
+/// right, then, for a failure, which output bits were wrong and the first
+/// wrong cases, or, for a pass, its timing once measured.
 pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
     html! {
         section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm"
-            data-measures-timing[report.passed()] {
+            data-measures-timing[report.passed()]
+            data-state=(if report.failed() { "fail" } else { "pass" })
+            data-summary=(simulation_summary(report)) {
             h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
             p class="mb-4 text-meta text-muted" {
                 "Run in a redstone simulator: each case flips the input levers, waits until nothing changes, and reads the output blocks."
@@ -684,12 +769,15 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                     } @else if let Some(timing) = &run.timing {
                         (timing_section(timing))
                     } @else {
-                        div data-timing-pending class="mt-6" {
-                            p role="status" class="text-muted" {
-                                @match waiting {
-                                    Waiting::Fetched => "Measuring when each output settles…",
-                                    Waiting::Reload => "When each output settles is still being measured. Reload the page in a minute to see it.",
-                                }
+                        div data-timing-pending
+                            data-poll=[match waiting { Waiting::Polled(url) => Some(url), Waiting::Fetched => None }]
+                            class="mt-6" {
+                            p role="status" class="flex items-center gap-2 text-muted" {
+                                (spinner())
+                                "Measuring when each output settles, which takes up to a minute…"
+                            }
+                            @if let Waiting::Polled(_) = waiting {
+                                noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
                             }
                         }
                     }
@@ -710,7 +798,9 @@ pub fn timing_section(timing: &Timing) -> Markup {
         .map(|(input, value)| format!("{} = {value}", input.name))
         .collect();
     html! {
-        section aria-labelledby="timing-heading" class="mt-6" {
+        section aria-labelledby="timing-heading" class="mt-6"
+            data-timing data-state=(if timing.synced { "pass" } else { "fail" })
+            data-summary=(timing_summary(timing)) {
             h3 id="timing-heading" class="mb-1 font-semibold" { "Timing" }
             p class="mb-3 text-meta text-muted" {
                 "In ticks from when A changes. Each other input may change as late as its tick without delaying an output; a negative tick is before A."
@@ -1203,98 +1293,6 @@ fn schematic_info(s: &Schematic) -> Markup {
     }
 }
 
-/// What the edit page shows.
-pub struct EditSchematic<'a> {
-    pub s: &'a Schematic,
-    /// The values sent, when a save was refused; else the build's own.
-    pub sent: Option<&'a details::Form>,
-    pub choices: &'a Choices,
-    /// Every tag, to suggest.
-    pub tags: &'a [Tag],
-    pub message: &'a str,
-    /// The stored simulation result, if its test still applies.
-    pub simulation: Option<&'a Report>,
-    /// The width an adder reads from the build's file; see `fields`.
-    pub derived_width: Option<i64>,
-}
-
-/// A mod's page for changing a build's details and tags: the form on the
-/// left, the build on the right, as when uploading.
-pub fn edit_schematic(user: &User, e: &EditSchematic) -> Markup {
-    let s = e.s;
-    let path = format!("/schematics/{}", s.id);
-    let number = |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
-    let (width, latency, period, bytes) = (
-        number(s.width),
-        number(s.latency),
-        number(s.period),
-        number(s.bytes),
-    );
-    let own_tags: Vec<String> =
-        s.tags.iter().map(|tag| tag.name.clone()).collect();
-    let own_flags: Vec<String> =
-        s.flags.iter().map(|flag| flag.name.clone()).collect();
-    // A build that does not stack yet starts with a likely direction.
-    let stack_rows: Vec<StackRow> = if s.stacking.is_empty() {
-        vec![StackRow::suggested(&s.orientation, s.size)]
-    } else {
-        s.stacking.iter().map(StackRow::of).collect()
-    };
-    let (values, chosen_tags) = match e.sent {
-        Some(form) => (form.fields(), form.tags.as_slice()),
-        None => (
-            Fields {
-                category: &s.category,
-                width: &width,
-                orientation: &s.orientation,
-                encoding: s.encoding.as_deref().unwrap_or_default(),
-                latency: &latency,
-                synchronized: s.synchronized,
-                builders: &s.builders,
-                contributors: &s.contributors,
-                built_on: s.built_on.as_deref().unwrap_or(""),
-                description: s.description.as_deref().unwrap_or(""),
-                given_name: s.given_name.as_deref().unwrap_or(""),
-                period: &period,
-                bytes: &bytes,
-                design: &s.design,
-                flags: &own_flags,
-                stackable: !s.stacking.is_empty(),
-                stack_rows: &stack_rows,
-            },
-            own_tags.as_slice(),
-        ),
-    };
-    base(
-        Some(user),
-        &format!("Edit {}", s.name()),
-        &path,
-        &html! {
-            h1 class={ (PAGE_TITLE) " mb-6" } { "Edit " (s.name()) }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &html! {
-                form action={ (path) "/edit" } method="post" data-simulate={ (path) "/simulation" } data-simulated class="flex flex-col gap-4" {
-                    (fields(&values, e.choices, e.derived_width))
-                    (tag_picker(e.tags, chosen_tags, user.is_admin()))
-                    @if !e.message.is_empty() {
-                        p role="alert" class="text-danger" { (e.message) }
-                    }
-                    div class="flex items-center gap-4" {
-                        button type="submit" class="btn btn-primary" { "Save" }
-                        a href=(path) { "Cancel" }
-                    }
-                }
-            }))
-            // Follows the category and width as they change; see form.js.
-            div id="simulation-results" {
-                @if let Some(report) = e.simulation {
-                    (simulation_section(report, Waiting::Fetched))
-                }
-            }
-            script defer src=(super::form_js_url()) {}
-        },
-    )
-}
-
 /// The values a details form starts with.
 pub struct Fields<'a> {
     pub category: &'a str,
@@ -1474,14 +1472,33 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
         @for category in &choices.categories {
             @let flags: Vec<&Flag> = choices.flags.iter().filter(|flag| flag.category == category.name).collect();
             @if !flags.is_empty() {
-                @let chosen = category.name == chosen_name;
-                div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
-                    @for flag in flags {
-                        label class="flex items-center gap-2" {
-                            input type="checkbox" name={ "flag:" (category.name) } value=(flag.name)
-                                checked[f.flags.contains(&flag.name)] class="size-4 appearance-auto";
-                            (flag.label)
-                        }
+                (flag_group(category, &flags, f.flags, category.name == chosen_name))
+            }
+        }
+    }
+}
+
+/// `category`'s flags, ticked as `ticked` has them, shown when it is the
+/// chosen category. An adder's are read from its file, so it says so
+/// instead.
+fn flag_group(
+    category: &Category,
+    flags: &[&Flag],
+    ticked: &[String],
+    chosen: bool,
+) -> Markup {
+    html! {
+        div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
+            @if import::DERIVES_WIDTH.contains(&category.name.as_str()) {
+                p class="text-muted" {
+                    "Carry in and carry out are read from the file: a magenta line is its carry in, and a pink line its carry out."
+                }
+            } @else {
+                @for flag in flags {
+                    label class="flex items-center gap-2" {
+                        input type="checkbox" name={ "flag:" (category.name) } value=(flag.name)
+                            checked[ticked.contains(&flag.name)] class="size-4 appearance-auto";
+                        (flag.label)
                     }
                 }
             }
@@ -1490,7 +1507,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
 }
 
 /// The inputs for a build's details, shared by editing and uploading.
-/// The details form's fields. `derived_width` is the width the file gives a
+/// `derived_width` is the width the file gives a
 /// category that reads it from the file, such as an adder's from its lime
 /// inputs, shown in place of the typed width once such a category is
 /// chosen.
@@ -2393,110 +2410,5 @@ fn marking_guide() -> Markup {
                 li { "A build with its own layout, such as a display, can skip all this: tick “follows its own layout” on the next page." }
             }
         }
-    }
-}
-
-/// What the upload preview shows.
-pub struct UploadPreview<'a> {
-    /// The prepared file, base64, carried to publishing.
-    pub data: &'a str,
-    pub analysis: &'a Analysis,
-    /// The build less its interface layers.
-    pub size: [u16; 3],
-    /// The id of a stored build with the same file, if any.
-    pub duplicate: Option<&'a str>,
-    pub fields: &'a Fields<'a>,
-    pub choices: &'a Choices,
-    pub tags: &'a [Tag],
-    pub chosen_tags: &'a [String],
-    /// Whether the uploader, an admin, may name a new tag.
-    pub may_create_tags: bool,
-    pub unconventional: bool,
-    /// Whether the file keeps where its uploader's `//paste` put it.
-    pub keep_paste: bool,
-    pub message: &'a str,
-    /// The width an adder reads from this file; see `fields`.
-    pub derived_width: Option<i64>,
-}
-
-/// The upload page's second step: checking what the site read and filling
-/// in the details.
-pub fn upload_preview(user: &User, p: &UploadPreview) -> Markup {
-    let [x, y, z] = p.size;
-    base(
-        Some(user),
-        "Upload",
-        "/upload",
-        &html! {
-            h1 class={ (PAGE_TITLE) " mb-6" } { "Check and describe it" }
-            // The viewer fetches the file from a data address, since nothing
-            // is stored until publishing.
-            (beside_viewer(&format!("data:application/octet-stream;base64,{}", p.data), &html! {
-                div class="flex flex-col gap-3" {
-                    p { "Size: " span class="tabular-nums" { (y) "×" (x) "×" (z) " (HWD)" } }
-                    @if let Some(id) = p.duplicate {
-                        p role="alert" class="text-danger" {
-                            "This exact file is already on the site: "
-                            a href={ "/schematics/" (id) } { "see it here" } "."
-                        }
-                    }
-                    a href="/upload" { "Choose a different file" }
-                }
-                // A refused publish comes back here, so say why first.
-                @if !p.message.is_empty() {
-                    p id="refusal" role="alert" tabindex="-1" autofocus
-                        class="rounded-control border border-danger p-3 text-danger" {
-                        strong { "Not published. " } (p.message)
-                    }
-                }
-                @if !p.analysis.violations.is_empty() {
-                    section aria-labelledby="lint-heading" class="flex flex-col gap-3" {
-                        h2 id="lint-heading" class={ (SECTION_TITLE) " text-danger" } {
-                            @match p.analysis.violations.len() {
-                                1 => "Breaks a building convention",
-                                count => { "Breaks " (count) " building conventions" }
-                            }
-                        }
-                        p class="text-muted" {
-                            "It can't be published until these are fixed: choose the file again with Standardize ticked, "
-                            "fix them in-game, or tick “follows its own layout” below if it is a display or similar."
-                        }
-                        (violation_list(&p.analysis.violations))
-                    }
-                }
-                (upload_form(p))
-            }))
-            (interface_section(p.analysis, false))
-            // Filled by form.js once the category and width call for a test.
-            div id="simulation-results" {}
-            script defer src=(super::form_js_url()) {}
-        },
-    )
-}
-
-/// The upload page's details form, one field to a line.
-fn upload_form(p: &UploadPreview) -> Markup {
-    html! {
-            form action="/upload" method="post" data-simulate="/upload/simulation" class="flex flex-col gap-4" {
-                h2 class=(SECTION_TITLE) { "Details" }
-                input type="hidden" name="data" value=(p.data);
-                @if p.keep_paste {
-                    input type="hidden" name="keep_paste" value="yes";
-                }
-                (fields(p.fields, p.choices, p.derived_width))
-                (tag_picker(p.tags, p.chosen_tags, p.may_create_tags))
-                @if !p.analysis.violations.is_empty() || p.unconventional {
-                    label class="flex items-start gap-2" {
-                        input type="checkbox" name="unconventional" value="yes"
-                            checked[p.unconventional] class="mt-1 size-4 appearance-auto";
-                        span {
-                            "This build follows its own layout, such as a display, so the building conventions do not apply to it."
-                        }
-                    }
-                }
-                div {
-                    button type="submit" class="btn btn-primary" disabled[p.duplicate.is_some()] { "Publish" }
-                }
-            }
     }
 }

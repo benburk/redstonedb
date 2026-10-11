@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    import, interface,
+    import, interface, lint,
     models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
     models::user::{Role, User},
     models::{simulation, version},
@@ -505,15 +505,22 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let prepared =
         import::prepare(&data, args.standardize, conventional, args.keep_paste)
             .with_context(|| file.display().to_string())?;
-    if !prepared.violations.is_empty() {
-        for violation in &prepared.violations {
+    // As the category has it: only an adder may leave its lone control and
+    // status lines unsigned.
+    let violations = if conventional {
+        lint::check_for(&prepared.blocks, &args.category)
+    } else {
+        Vec::new()
+    };
+    if !violations.is_empty() {
+        for violation in &violations {
             eprintln!("{violation}");
         }
         if !args.force {
             bail!(
                 "{} breaks {} building conventions; fix them or pass --force",
                 file.display(),
-                prepared.violations.len()
+                violations.len()
             );
         }
     }

@@ -19,7 +19,11 @@ use maud::{Markup, html};
 use crate::{
     app_state::AppState,
     error::internal_error,
-    models::{schematic, simulation, user::User},
+    models::{
+        schematic,
+        simulation::{self, Status},
+        user::User,
+    },
     simulate::{Report, Test},
 };
 
@@ -27,6 +31,31 @@ use super::{
     details,
     pages::{self, Waiting},
 };
+
+/// Build `id`'s simulation, for its page to ask after while it runs in the
+/// background: 200 with its section once everything is in; 202 while its
+/// cases or timing are still to come, starting them if nothing is under
+/// way; 204 when it has no test.
+pub async fn poll(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    let s = match schematic::get(&state.db, &id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal_error(err).into_response(),
+    };
+    match simulation::status(&state.db, &s).await {
+        Ok(Status::Done(report)) => {
+            let poll = format!("/schematics/{id}/simulation");
+            pages::simulation_section(&report, Waiting::Polled(&poll))
+                .into_response()
+        }
+        Ok(Status::Pending(_)) => StatusCode::ACCEPTED.into_response(),
+        Ok(Status::Untested) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => internal_error(&*err).into_response(),
+    }
+}
 
 /// The cases, for the file being uploaded, carried in the form's `data`.
 pub async fn upload(

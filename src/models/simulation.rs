@@ -3,7 +3,10 @@
 //! types: an adder's width, and a tested build's latency and whether it is
 //! synchronized.
 
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+};
 
 use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
@@ -88,14 +91,16 @@ pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
     }))
 }
 
-/// One simulation at a time: timing takes every core for a while, and the
-/// server has two.
-static RUNNING: Semaphore = Semaphore::const_new(1);
+/// One run of a test's cases at a time, and one timing: the server has two
+/// cores, and a timing, which takes a while, should not hold up the cases
+/// someone is waiting on.
+static CASES: Semaphore = Semaphore::const_new(1);
+static TIMING: Semaphore = Semaphore::const_new(1);
 
 /// Runs `test`'s cases on `data`, a `.schem` file, away from the async
 /// threads.
 pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
-    let _turn = RUNNING.acquire().await?;
+    let _turn = CASES.acquire().await?;
     tokio::task::spawn_blocking(move || Ok(test.run(&Blocks::read(&data)?)))
         .await?
 }
@@ -108,7 +113,7 @@ pub async fn time(
     data: Vec<u8>,
     cancel: Arc<AtomicBool>,
 ) -> Result<Timing> {
-    let _turn = RUNNING.acquire().await?;
+    let _turn = TIMING.acquire().await?;
     tokio::task::spawn_blocking(move || {
         test.time(&Blocks::read(&data)?, &cancel)
     })
@@ -130,7 +135,7 @@ pub fn derived_width(
 }
 
 /// Brings build `id` up to date with its file, category, and width: sets
-/// the width its category reads from the file, runs its test's cases when
+/// the width and flags its category reads from the file, runs its test's cases when
 /// the stored result is for another file or test, or always when `again`,
 /// and drops the result when it has no test. Timing is left to
 /// `refresh_timing`, being slow. Returns the result.
@@ -143,11 +148,22 @@ pub async fn refresh(
     let data = schematic::data(db, id)
         .await?
         .context("schematic vanished")?;
-    if let Some(width) = derived_width(&s.category, s.conventional, &data)?
-        && s.width != Some(width)
-    {
-        schematic::set_width(db, id, width).await?;
-        s.width = Some(width);
+    if s.conventional {
+        let interface = interface::read(&Blocks::read(&data)?);
+        if let Some(width) = import::derived_width(&s.category, &interface)
+            && s.width != Some(width)
+        {
+            schematic::set_width(db, id, width).await?;
+            s.width = Some(width);
+        }
+        if let Some(flags) = import::derived_flags(&s.category, &interface) {
+            let have: Vec<&str> =
+                s.flags.iter().map(|flag| flag.name.as_str()).collect();
+            if have != flags {
+                let mut conn = db.acquire().await?;
+                schematic::set_flags(&mut conn, id, &flags).await?;
+            }
+        }
     }
     let Some(test) = Test::of(&s.category, s.width) else {
         clear(db, id).await?;
@@ -190,19 +206,57 @@ pub async fn refresh_timing(
     Ok(Some(report))
 }
 
-/// Refreshes build `id`'s result now and its timing in the background, as
-/// the site does once a build is published or edited.
-pub async fn refresh_soon(db: &SqlitePool, id: &str) {
-    if let Err(err) = refresh(db, id, false).await {
-        tracing::error!(id, "simulating a build: {err:#}");
+/// The builds being simulated in the background.
+static REFRESHING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Brings build `id`'s result and timing up to date in the background, as
+/// the site does once a build is published or edited, unless that is
+/// already under way: see `refresh` and `refresh_timing`. Asking again is
+/// how one lost to a restart starts over.
+pub fn refresh_soon(db: &SqlitePool, id: &str) {
+    let mut running = REFRESHING.lock().expect("the list is whole");
+    if !running.insert(id.to_owned()) {
         return;
     }
     let (db, id) = (db.clone(), id.to_owned());
     tokio::spawn(async move {
-        if let Err(err) = refresh_timing(&db, &id, false).await {
-            tracing::error!(id, "timing a build: {err:#}");
+        let refreshed = async {
+            refresh(&db, &id, false).await?;
+            refresh_timing(&db, &id, false).await
+        };
+        if let Err(err) = refreshed.await {
+            tracing::error!(id, "simulating a build: {err:#}");
         }
+        REFRESHING.lock().expect("the list is whole").remove(&id);
     });
+}
+
+/// Where build `s`'s simulation stands.
+pub enum Status {
+    /// Its category and width have no test.
+    Untested,
+    /// Its cases or timing are still to come; asking started them if
+    /// nothing was under way.
+    Pending(Option<Report>),
+    /// Everything there is to know.
+    Done(Report),
+}
+
+/// Where build `s`'s simulation stands, starting it in the background when
+/// something is missing and nothing is under way.
+pub async fn status(db: &SqlitePool, s: &Schematic) -> Result<Status> {
+    if Test::of(&s.category, s.width).is_none() {
+        return Ok(Status::Untested);
+    }
+    match current(db, s).await? {
+        Some(report) if !report.passed() || report.timing().is_some() => {
+            Ok(Status::Done(report))
+        }
+        report => {
+            refresh_soon(db, &s.id);
+            Ok(Status::Pending(report))
+        }
+    }
 }
 
 /// Sets the latency and synchronized of a build whose result measured its
