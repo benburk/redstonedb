@@ -124,6 +124,7 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
     names(blocks, &mut found);
+    order_marks(blocks, &mut found);
     found.extend(
         unsigned(blocks)
             .into_iter()
@@ -382,6 +383,28 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
 /// or a row of them by one sign on the row, and each bus colour by a sign on any of its blocks, so a bus colour
 /// takes one name. A status name belongs on a pink status line, and a name
 /// on a block that is neither an input nor an output names nothing.
+/// An `lsb` or `msb` sign belongs on an end of its bus, where it says which
+/// end is least significant.
+fn order_marks(blocks: &Blocks, found: &mut Vec<Violation>) {
+    let interface::Interface { inputs, outputs } = interface::read(blocks);
+    for port in inputs.iter().chain(&outputs) {
+        let middle = port.bits.iter().skip(1).rev().skip(1);
+        for bit in middle {
+            if let Some(mark) = interface::order_mark(blocks, bit.pos) {
+                say(
+                    found,
+                    Some(bit.pos),
+                    format!(
+                        "an {mark} sign is on a middle bit of {}; it marks an \
+                         end of the bus",
+                        port.name
+                    ),
+                );
+            }
+        }
+    }
+}
+
 fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
     let signs = blocks.sign_texts();
     let held = interface::feeds(blocks);

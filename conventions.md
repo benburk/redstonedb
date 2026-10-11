@@ -80,6 +80,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 | Status line        | its name             |                    |
 | Input colour, any  | bus name or strength | strength, as `4ss` |
 | Output colour, any | bus name, if any     |                    |
+| End of a bus       | `lsb` or `msb`       |                    |
 
 - A status name ends in `out`, as `carry out`, `cout`, or `shift out`, or is `overflow`, `zero`, `negative`, `ready`, or `done`.
 - Each further line is one token, such as `4ss`.
@@ -88,7 +89,8 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 ## Bit order
 
 - Each bus's least significant bit is the bit nearest the south-east-bottom corner of the bounding box. The other bits count up from it by distance.
-- So a horizontal bus counts up from its east end, and a vertical bus from its bottom. No sign marks the LSB.
+- So a horizontal bus counts up from its east end, and a vertical bus from its bottom.
+- A bus that counts the other way says so with a sign reading `lsb` on its least significant end, or `msb` on its most significant one. Either word alone on a line is a mark, not a name, and belongs on an end of the bus.
 
 ## Stacking
 

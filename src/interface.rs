@@ -182,8 +182,12 @@ pub fn read(blocks: &Blocks) -> Interface {
         })
         .map(|(pos, _)| pos)
         .collect();
+    // In a fixed order, so bits as near the corner as each other, and
+    // lines, always come out the same way.
+    let mut inputs: Vec<Pos> = feeds.keys().copied().collect();
+    inputs.sort_unstable();
     Interface {
-        inputs: ports(blocks, feeds.keys().copied(), &signs, Some(&feeds)),
+        inputs: ports(blocks, inputs, &signs, Some(&feeds)),
         outputs: ports(blocks, outputs, &signs, None),
     }
 }
@@ -344,7 +348,8 @@ pub fn rowed(blocks: &Blocks) -> HashSet<Pos> {
 }
 
 /// A port with its bits ordered from the one nearest the south-east-bottom
-/// corner of the bounding box.
+/// corner of the bounding box, unless an `lsb` sign on its far end or an
+/// `msb` sign on its near one turns it round.
 fn port(
     blocks: &Blocks,
     name: String,
@@ -357,6 +362,13 @@ fn port(
     if let Some(&lsb) = members.iter().min_by_key(|&&pos| distance(pos, corner))
     {
         members.sort_by_key(|&pos| distance(pos, lsb));
+    }
+    if let (Some(&near), Some(&far)) = (members.first(), members.last())
+        && near != far
+        && (order_mark(blocks, far) == Some("lsb")
+            || order_mark(blocks, near) == Some("msb"))
+    {
+        members.sort_by_key(|&pos| distance(pos, far));
     }
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
     let feed = |pos: Pos| feeds.and_then(|feeds| feeds.get(&pos));
@@ -416,15 +428,29 @@ fn short(state: &str) -> &str {
 
 /// The port a sign names: its first line with a name on it, so a name
 /// written on any line counts, as people often centre one word on the
-/// second. A token is no name: older builds marked their least significant
-/// bit with an `lsb` sign, which the corner rule replaces, and `4ss` gives a
-/// strength.
+/// second. A token is no name: `lsb` and `msb` mark an end of a bus, and
+/// `4ss` gives a strength.
 pub fn sign_name(lines: &[String]) -> Option<String> {
     lines
         .iter()
         .map(|line| line.trim().to_lowercase())
         .find(|line| {
-            !line.is_empty() && line != "lsb" && strength(line).is_none()
+            !line.is_empty()
+                && !matches!(line.as_str(), "lsb" | "msb")
+                && strength(line).is_none()
+        })
+}
+
+/// `lsb` or `msb` when a sign on the block at `pos` marks it as its bus's
+/// least or most significant bit.
+pub fn order_mark(blocks: &Blocks, pos: Pos) -> Option<&'static str> {
+    let lines = blocks.sign_texts().get(&pos).copied()?;
+    lines
+        .iter()
+        .find_map(|line| match line.trim().to_lowercase().as_str() {
+            "lsb" => Some("lsb"),
+            "msb" => Some("msb"),
+            _ => None,
         })
 }
 

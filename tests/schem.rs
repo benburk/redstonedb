@@ -730,3 +730,42 @@ fn cauldrons_and_cakes_break_the_conventions_until_swapped() {
         );
     }
 }
+
+/// A multiplier whose buses run east as they climb, so every bit is as near
+/// the south-east-bottom corner as any other; `lsb` and `msb` signs on
+/// their ends say which way they count, and name nothing.
+#[test]
+fn lsb_and_msb_signs_say_which_way_a_bus_counts() {
+    let blocks = blocks("mult-8-diag-signed");
+    let interface::Interface { inputs, .. } = interface::read(&blocks);
+    assert_eq!(names(&inputs), [("A", 8), ("B", 8)]);
+    for port in &inputs {
+        let first = port.bits.first().unwrap().pos;
+        let last = port.bits.last().unwrap().pos;
+        assert_ne!(interface::order_mark(&blocks, last), Some("lsb"));
+        assert_ne!(interface::order_mark(&blocks, first), Some("msb"));
+        // Each bit one step further from the least significant.
+        let steps: Vec<i32> = port
+            .bits
+            .windows(2)
+            .map(|pair| (pair[1].pos[1] - pair[0].pos[1]).abs())
+            .collect();
+        assert!(steps.iter().all(|&step| step == 2), "{steps:?}");
+    }
+    assert_eq!(
+        interface::order_mark(&blocks, inputs[0].bits[0].pos),
+        Some("lsb")
+    );
+    assert_eq!(
+        interface::order_mark(&blocks, inputs[1].bits[7].pos),
+        Some("msb")
+    );
+    let messages: Vec<String> = lint::check(&blocks)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        !messages.iter().any(|m| m.contains("sb sign")),
+        "{messages:#?}"
+    );
+}
