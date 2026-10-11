@@ -6,7 +6,7 @@ use app::{
     import, interface, lint,
     schem::{self, Blocks},
     simulate::{self, Report, Test},
-    standardize,
+    stack, standardize,
 };
 
 /// A fixture as the site stores it: markers out, box fitted, and status
@@ -70,22 +70,8 @@ fn a_carry_in_saved_the_wrong_way_round_is_named_as_the_cause() {
 }
 
 #[test]
-fn a_build_with_a_hopper_is_skipped_and_says_why() {
-    let report = Test::Adder.run(&blocks("diag-3t-cca"));
-    let Report::Skipped { reason } = report else {
-        panic!("simulated a build with a hopper");
-    };
-    assert_eq!(
-        reason,
-        "It has a hopper, which the simulator does not model."
-    );
-}
-
-#[test]
-fn only_8_bit_adders_have_a_test_for_now() {
-    assert_eq!(Test::of("adder", Some(8)), Some(Test::Adder));
-    assert_eq!(Test::of("adder", Some(16)), None);
-    assert_eq!(Test::of("multiplier", Some(8)), None);
+fn a_build_with_a_hopper_gets_every_sum_right() {
+    assert!(Test::Adder.run(&blocks("diag-3t-cca")).passed());
 }
 
 /// Its paths from A to the sum take from 4 to 6 ticks, depending on the
@@ -159,4 +145,32 @@ fn an_adders_lone_lines_need_no_signs() {
     let run = simulate::check_adder(&blocks).unwrap();
     assert_eq!((run.cases, run.wrong), (8, 0));
     assert_eq!(run.pattern, "A + B + carry in");
+}
+
+/// An 8-bit adder that repeats every 16 blocks up, as `//rstack up 1 16`
+/// stacks it, overlapping the copy below. Its comparators read barrels and
+/// a furnace; the first copy alone keeps its carry in, the gray logic under
+/// its least significant bit, and the furnace giving that bit's 1ss.
+#[test]
+fn an_8_bit_adder_stacks_into_a_16_bit_one() {
+    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
+        .expect("fixture is readable");
+    assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
+    let up = "up=16".parse().unwrap();
+    let (stacked, _) = stack::stack(&data, &[(up, 2)]).unwrap();
+    let blocks = Blocks::read(&stacked).unwrap();
+    let run = simulate::check_adder(&blocks).unwrap();
+    // Too many to try every sum: each byte's, and the test patterns.
+    assert!(!run.exhaustive && run.patterns > 0);
+    let widths: Vec<(&str, usize)> = run
+        .inputs
+        .iter()
+        .map(|signal| (signal.name.as_str(), signal.bits))
+        .collect();
+    assert_eq!(widths, [("A", 16), ("B", 16), ("carry in", 1)]);
+    assert_eq!(run.wrong, 0);
+    // Timed over the test patterns, as it is too wide to time every value.
+    let timing = Test::Adder.time(&blocks, &AtomicBool::new(false)).unwrap();
+    assert!(timing.patterns);
+    assert_eq!(timing.latency(), Some(4));
 }

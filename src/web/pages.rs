@@ -743,7 +743,10 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                                 tr {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (run.pattern) }
                                     td class={ (TABLE_CELL) " tabular-nums" } {
-                                        (grouped(run.cases)) @if run.exhaustive { ", every one" } @else { ", a sample" }
+                                        (grouped(run.cases)) @if run.exhaustive { ", every one" } @else {
+                                            ": every case of each byte, with a carry into it and without, and "
+                                            (grouped(run.patterns)) " pairings of test patterns, such as all ones or alternate bits set"
+                                        }
                                     }
                                     td class={ (TABLE_CELL) " tabular-nums" } {
                                         @if run.wrong == 0 {
@@ -876,7 +879,9 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 (bit_timing(output))
             }
             p class="mt-4 text-meta text-muted" {
-                "Measured over " (grouped(timing.changes)) " changes: each input alone, from 0 to every value and back, and all of them together from all off. A slower change may exist among those not tried."
+                "Measured over " (grouped(timing.changes)) " changes: each input alone, from 0 to "
+                @if timing.patterns { "each test pattern, such as all ones or alternate bits set," } @else { "every value" }
+                " and back, and all of them together from all off. A slower change may exist among those not tried."
             }
         }
     }

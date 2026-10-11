@@ -41,7 +41,8 @@ enum Command {
     Lint { file_or_id: String },
     /// Simulate a stored adder through its inputs and check every sum;
     /// with no id, every stored adder. Up to 20 input bits, every
-    /// combination is tried, and beyond that a fixed sample
+    /// combination is tried, and beyond that every case of each byte and
+    /// pairings of test patterns
     Simulate { id: Option<String> },
     /// Replace a stored build's file with a new version that fixes it, as
     /// the site's New version page does: as wide and deep, with the same
@@ -507,11 +508,20 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             .with_context(|| file.display().to_string())?;
     // As the category has it: only an adder may leave its lone control and
     // status lines unsigned.
-    let violations = if conventional {
+    let mut violations: Vec<String> = if conventional {
         lint::check_for(&prepared.blocks, &args.category)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     } else {
         Vec::new()
     };
+    if conventional
+        && let Err(message) =
+            stack::check_furnaces(&prepared.blocks, &details.stacking)
+    {
+        violations.push(message);
+    }
     if !violations.is_empty() {
         for violation in &violations {
             eprintln!("{violation}");
@@ -921,7 +931,7 @@ fn print_report(name: &str, report: &Report) {
             if run.exhaustive {
                 "every"
             } else {
-                "a sample of"
+                "each byte's and the patterns'"
             },
             run.cases,
             run.pattern

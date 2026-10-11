@@ -648,3 +648,85 @@ fn tidying_keeps_where_a_file_pastes_from() {
         first(&after, paste_offset(&tidied))
     );
 }
+
+/// The adder that stacks every 16 blocks up keeps a furnace for its first
+/// copy's 1ss; swapping it gives a barrel of the same strength.
+#[test]
+fn a_furnace_swaps_for_a_barrel_of_the_same_strength() {
+    let data = raw("vert-adder-8-stacks");
+    let furnace = [5, 2, 1];
+    let before = Blocks::read(&data).unwrap();
+    assert_eq!(standardize::swappable(&before).furnaces, 1);
+    let up: StackDirection = "up=16".parse().unwrap();
+    assert!(stack::check_furnaces(&before, &[up]).is_ok());
+    assert!(stack::check_furnaces(&before, &[]).is_err());
+    // Standardizing leaves a furnace, which a stackable build may keep.
+    let standardized = Blocks::read(&standardize::standardize(&data).unwrap());
+    assert_eq!(standardize::swappable(&standardized.unwrap()).furnaces, 1);
+
+    let after =
+        Blocks::read(&standardize::barrels(&data, true).unwrap()).unwrap();
+    assert_eq!(standardize::swappable(&after).furnaces, 0);
+    assert!(after.get(furnace).starts_with("minecraft:barrel"));
+    let strength = |blocks: &Blocks| {
+        app::schem::container_strength(
+            &blocks.containers[&furnace],
+            app::schem::slots(blocks.get(furnace)).unwrap(),
+        )
+    };
+    assert_eq!(strength(&after), strength(&before));
+    assert!(stack::check_furnaces(&after, &[]).is_ok());
+}
+
+/// Cauldrons and cakes give a comparator their signal strength, which a
+/// barrel gives instead.
+#[test]
+fn cauldrons_and_cakes_break_the_conventions_until_swapped() {
+    let data = raw("alpha-rca-slice");
+    let blocks = Blocks::read(&data).unwrap();
+    let mut grid: std::collections::HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, state)| *state != app::schem::AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let [w, h, l] = blocks.size;
+    // Each stand-in, at a spot beyond the build, and the strength it gives.
+    let stand_ins = [
+        ("minecraft:water_cauldron[level=2]", [w, h, l], 2),
+        ("minecraft:cake[bites=2]", [w, h, l + 2], 10),
+        ("minecraft:white_candle_cake[lit=false]", [w, h, l + 4], 14),
+    ];
+    for (state, pos, _) in stand_ins {
+        grid.insert(pos, state.to_owned());
+    }
+    let mut nbt = app::schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], [w + 1, h + 1, l + 5], &grid, entities)
+        .unwrap();
+    let with_stand_ins = app::schem::encode(nbt).unwrap();
+    let before = Blocks::read(&with_stand_ins).unwrap();
+    let messages: Vec<String> = lint::check(&before)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    for name in ["water cauldron", "cake", "white candle cake"] {
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains(&format!(": {name} is not"))
+                    && m.contains("barrel")),
+            "{name}: {messages:#?}"
+        );
+    }
+    assert_eq!(standardize::swappable(&before).stand_ins.len(), 3);
+    let swapped =
+        Blocks::read(&standardize::barrels(&with_stand_ins, false).unwrap())
+            .unwrap();
+    for (_, pos, strength) in stand_ins {
+        assert!(swapped.get(pos).starts_with("minecraft:barrel"));
+        assert_eq!(
+            app::schem::container_strength(&swapped.containers[&pos], 27),
+            strength
+        );
+    }
+}

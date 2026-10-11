@@ -2,20 +2,24 @@
 //! computes.
 //!
 //! Redpiler models dust, torches, repeaters, comparators, levers, buttons,
-//! and lamps, but not pistons, observers, or the order in which the game
-//! updates blocks. A build using anything else is refused rather than
-//! simulated wrongly.
+//! and lamps, and the barrels, furnaces, and hoppers a comparator reads a
+//! signal strength from, but not pistons, observers, or
+//! the order in which the game updates blocks. A build using anything else
+//! is refused rather than simulated wrongly.
 
 mod timing;
 
 use std::{
+    collections::HashSet,
     fmt,
     sync::{Arc, atomic::AtomicBool},
 };
 
 use anyhow::{Result, bail};
 use mchprs_blocks::{
-    BlockFace, BlockPos, block_entities::BlockEntity, blocks::Block,
+    BlockFace, BlockPos,
+    block_entities::{BlockEntity, ContainerType},
+    blocks::Block,
 };
 use mchprs_redpiler::{Compiler, CompilerOptions};
 use mchprs_world::{World, testing::TestWorld};
@@ -210,6 +214,25 @@ fn world(blocks: &Blocks) -> Result<TestWorld> {
             BlockEntity::Comparator { output_strength },
         );
     }
+    for (&pos, items) in &blocks.containers {
+        let ty = match world.get_block(at(pos)) {
+            Block::Furnace { .. } => ContainerType::Furnace,
+            Block::Barrel { .. } => ContainerType::Barrel,
+            Block::Hopper { .. } => ContainerType::Hopper,
+            _ => continue,
+        };
+        world.set_block_entity(
+            at(pos),
+            BlockEntity::Container {
+                comparator_override: schem::container_strength(
+                    items,
+                    ty.num_slots().into(),
+                ),
+                inventory: Vec::new(),
+                ty,
+            },
+        );
+    }
     settle_world(&mut world, blocks.size)?;
     Ok(world)
 }
@@ -313,6 +336,9 @@ fn block(state: &str) -> Result<Block> {
                 | "redstone_block"
                 | "redstone_lamp"
                 | "target"
+                | "furnace"
+                | "barrel"
+                | "hopper"
         );
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         bail!(
@@ -333,17 +359,19 @@ fn block(state: &str) -> Result<Block> {
     Ok(block)
 }
 
-/// The test a build gets from its category and width: for now, only 8-bit
-/// adders have one.
+/// The test a build gets from its category and width: for now, only adders
+/// of up to 32 bits have one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
-    /// Every sum of A, B, and any carry in.
+    /// The sums of A, B, and any carry in: every one when they number few
+    /// enough, else every case of each byte and the test patterns.
     Adder,
 }
 
 impl Test {
     pub fn of(category: &str, width: Option<i64>) -> Option<Self> {
-        (category == "adder" && width == Some(8)).then_some(Test::Adder)
+        let tested = width.is_some_and(|w| (1..=MAX_WIDTH).contains(&w));
+        (category == "adder" && tested).then_some(Test::Adder)
     }
 
     /// The name stored with its result.
@@ -457,8 +485,12 @@ pub struct Run {
     pub pattern: String,
     /// The cases tried.
     pub cases: u64,
-    /// Whether those were every combination of inputs.
+    /// Whether those were every combination of inputs. When not, they were
+    /// every case of each byte and every pairing of the test patterns.
     pub exhaustive: bool,
+    /// How many of the cases were pairings of the test patterns.
+    #[serde(default)]
+    pub patterns: u64,
     /// How many cases were wrong.
     pub wrong: u64,
     /// What each case sets, in order, such as A, B, and carry in. A
@@ -498,10 +530,89 @@ pub struct Wrong {
     pub got: Vec<u64>,
 }
 
-/// Up to this many input bits, every combination is tried; beyond it, a
-/// fixed sample of `SAMPLES` is.
+/// Up to this many input bits, every combination is tried; beyond it, every
+/// case of each byte and every pairing of the test patterns.
 const EXHAUSTIVE_BITS: usize = 20;
-const SAMPLES: u64 = 1 << 16;
+
+/// The widest adder tested, whose sum and carry fit one number.
+const MAX_WIDTH: i64 = 32;
+
+/// `bits` ones, the lowest bits.
+fn mask(bits: usize) -> u64 {
+    match bits {
+        0 => 0,
+        bits => u64::MAX >> 64usize.saturating_sub(bits),
+    }
+}
+
+/// Values of `width` bits that make an adder carry far and across its
+/// groups: none and all set; ones and zeros alternating in runs of one,
+/// two, and four, at every shift; and each bit alone set or clear.
+pub(crate) fn patterns(width: usize) -> Vec<u64> {
+    let all = mask(width);
+    let mut found = vec![0, all];
+    for period in [2, 4, 8] {
+        for shift in 0..period {
+            let runs = (0..width)
+                .filter(|bit| (bit + shift) % period < period / 2)
+                .fold(0, |value, bit| value | 1 << bit);
+            found.push(runs);
+        }
+    }
+    for bit in 0..width {
+        found.extend([1 << bit, all & !(1 << bit)]);
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+/// The sums an adder too wide to try every combination of is checked on,
+/// as A, B, and carry in, with how many pair the test patterns. Each byte
+/// takes every value of A and B, with a carry into it and without: the
+/// bits below are all set in A, and carry in, or B's lowest bit when there
+/// is no carry in line, carries through them. Then every pairing of
+/// `patterns`, with carry in each way.
+fn adder_cases(width: usize, carry_in: bool) -> (Vec<(u64, u64, bool)>, u64) {
+    let mut cases = Vec::new();
+    let mut seen = HashSet::new();
+    let mut add = |cases: &mut Vec<_>, case: (u64, u64, bool)| {
+        if seen.insert(case) {
+            cases.push(case);
+        }
+    };
+    for low in (0..width).step_by(8) {
+        let bits = (width - low).min(8);
+        for carry in [false, true] {
+            let below = match (low, carry, carry_in) {
+                (0, true, false) => continue,
+                (0, _, _) => (0, 0, carry),
+                (_, false, _) => (mask(low), 0, false),
+                (_, true, true) => (mask(low), 0, true),
+                (_, true, false) => (mask(low), 1, false),
+            };
+            for a in 0..1 << bits {
+                for b in 0..1 << bits {
+                    let case =
+                        (below.0 | a << low, below.1 | b << low, below.2);
+                    add(&mut cases, case);
+                }
+            }
+        }
+    }
+    let bytes = cases.len();
+    let values = patterns(width);
+    for &a in &values {
+        for &b in &values {
+            add(&mut cases, (a, b, false));
+            if carry_in {
+                add(&mut cases, (a, b, true));
+            }
+        }
+    }
+    let paired = (cases.len() - bytes) as u64;
+    (cases, paired)
+}
 
 /// The adder's ports, by their place in its interface.
 struct AdderPorts {
@@ -633,18 +744,22 @@ fn sweep(
     let result_bits = sum_bits + usize::from(ports.carry_out.is_some());
     let input_bits = a_bits + b_bits + usize::from(ports.carry_in.is_some());
     let exhaustive = input_bits <= EXHAUSTIVE_BITS;
-    let cases = if exhaustive { 1 << input_bits } else { SAMPLES };
-    let mask = |bits: usize| (1u64 << bits) - 1;
-    let mut random = Xorshift(0x9E37_79B9_7F4A_7C15);
+    let (cases, patterns): (Vec<(u64, u64, bool)>, u64) = if exhaustive {
+        let every = (0..1u64 << input_bits).map(|inputs| {
+            let a = inputs & mask(a_bits);
+            let b = inputs >> a_bits & mask(b_bits);
+            let carry = ports.carry_in.is_some()
+                && inputs >> (a_bits + b_bits) & 1 == 1;
+            (a, b, carry)
+        });
+        (every.collect(), 0)
+    } else {
+        adder_cases(a_bits, ports.carry_in.is_some())
+    };
     let mut wrong = 0;
     let mut wrong_by_bit = vec![0; result_bits];
     let mut examples = Vec::new();
-    for case in 0..cases {
-        let inputs = if exhaustive { case } else { random.next() };
-        let a = inputs & mask(a_bits);
-        let b = inputs >> a_bits & mask(b_bits);
-        let carry =
-            ports.carry_in.is_some() && inputs >> (a_bits + b_bits) & 1 == 1;
+    for &(a, b, carry) in &cases {
         circuit.set(ports.a, a);
         circuit.set(ports.b, b);
         if let Some(port) = ports.carry_in {
@@ -707,8 +822,9 @@ fn sweep(
         .collect();
     Ok(Run {
         pattern,
-        cases,
+        cases: cases.len() as u64,
         exhaustive,
+        patterns,
         wrong,
         inputs,
         outputs,
@@ -719,21 +835,56 @@ fn sweep(
     })
 }
 
-/// A small, fixed sequence of numbers, so a sampled check repeats exactly.
-struct Xorshift(u64);
-
-impl Xorshift {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adders_up_to_32_bits_are_tested() {
+        assert_eq!(Test::of("adder", Some(16)), Some(Test::Adder));
+        assert_eq!(Test::of("adder", Some(32)), Some(Test::Adder));
+        assert_eq!(Test::of("adder", Some(33)), None);
+        assert_eq!(Test::of("adder", None), None);
+        assert_eq!(Test::of("register", Some(8)), None);
+    }
+
+    #[test]
+    fn the_patterns_take_every_shift_and_each_bit_alone() {
+        let found = patterns(16);
+        assert_eq!(found.len(), 48);
+        for value in [
+            0, 0xFFFF, 0x5555, 0xAAAA, 0x3333, 0x6666, 0x0F0F, 0xF0F0, 0x8000,
+            0xFFFE,
+        ] {
+            assert!(found.contains(&value), "{value:#x}");
+        }
+    }
+
+    #[test]
+    fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {
+        let (cases, paired) = adder_cases(16, true);
+        // Each byte with and without a carry, less two the high byte
+        // repeats: A's low byte all set, with or without carry in.
+        assert_eq!(cases.len() as u64 - paired, 4 * (1 << 16) - 2);
+        // A carry from carry in through the low byte into the high one.
+        assert!(cases.contains(&(0x00FF, 0x0F00, true)));
+        // The longest carry: all ones plus one.
+        assert!(cases.contains(&(0xFFFF, 0x0001, false)));
+        // Without a carry in line, B's lowest bit makes the carry.
+        let (cases, _) = adder_cases(16, false);
+        assert!(cases.contains(&(0x00FF, 0x0101, false)));
+        assert!(cases.iter().all(|&(_, _, carry)| !carry));
+    }
+
+    #[test]
+    fn a_block_it_does_not_model_is_refused_by_name() {
+        let err =
+            block("minecraft:piston[extended=false,facing=up]").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "It has a piston, which the simulator does not model."
+        );
+    }
 
     #[test]
     fn parses_a_block_state_with_its_properties() {

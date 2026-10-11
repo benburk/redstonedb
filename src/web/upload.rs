@@ -20,7 +20,7 @@ use crate::{
         simulation,
         user::User,
     },
-    mojang, schemati, stack,
+    mojang, schemati, stack, standardize,
 };
 
 use super::{
@@ -183,6 +183,9 @@ struct Settings {
 struct Submission {
     /// The prepared file, base64.
     data: String,
+    /// `furnaces` when the person asked to swap those for barrels rather
+    /// than publish.
+    swap: String,
     settings: Settings,
     form: details::Form,
 }
@@ -199,6 +202,7 @@ impl Submission {
         };
         Submission {
             data: get("data"),
+            swap: get("swap"),
             settings: Settings {
                 unconventional: !get("unconventional").is_empty(),
                 keep_paste: !get("keep_paste").is_empty(),
@@ -226,6 +230,19 @@ pub async fn publish(
         .into_response();
     };
     let settings = sent.settings;
+    // A swap changes the file and shows it again, keeping the details.
+    let swapping = !sent.swap.is_empty();
+    let data = if swapping {
+        match standardize::barrels(&data, true) {
+            Ok(swapped) => swapped,
+            Err(err) => {
+                let message = format!("Could not swap them: {err:#}.");
+                return pages::upload(&user, &message).into_response();
+            }
+        }
+    } else {
+        data
+    };
     let prepared = match import::prepare(
         &data,
         false,
@@ -238,6 +255,18 @@ pub async fn publish(
             return pages::upload(&user, &message).into_response();
         }
     };
+    if swapping {
+        return show_preview(
+            &state,
+            &user,
+            &prepared,
+            &sent.form.fields(),
+            &sent.form.tags,
+            settings,
+            "",
+        )
+        .await;
+    }
     let refused = match publish_checked(&state, &user, &prepared, &sent).await {
         Ok(id) => {
             simulation::refresh_soon(&state.db, &id);
@@ -311,6 +340,9 @@ async fn publish_checked(
         }
     };
     stack::check(&prepared.data, &parsed.stacking)?;
+    if !sent.settings.unconventional {
+        stack::check_furnaces(&prepared.blocks, &parsed.stacking)?;
+    }
     let size = &prepared.size;
     let new = New {
         category: &parsed.category,
@@ -376,6 +408,7 @@ async fn show_preview(
     };
     let interface = interface::read(&prepared.blocks);
     let derived_width = import::derived_width("adder", &interface);
+    let swappable = standardize::swappable(&prepared.blocks);
     pages::details_page(
         user,
         &DetailsPage {
@@ -385,6 +418,8 @@ async fn show_preview(
                 duplicate: duplicate.as_deref(),
                 keep_paste: settings.keep_paste,
                 unconventional: settings.unconventional,
+                swapped: &prepared.swapped,
+                furnaces: swappable.furnaces,
             },
             analysis: &pages::Analysis {
                 interface,

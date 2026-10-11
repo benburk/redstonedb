@@ -35,6 +35,11 @@ pub enum File<'a> {
         /// Whether the file keeps where its uploader's `//paste` put it.
         keep_paste: bool,
         unconventional: bool,
+        /// The cauldrons and cakes swapped for barrels, by kind, with how
+        /// many, and how many furnaces it has, which the page offers to
+        /// swap too.
+        swapped: &'a [(String, usize)],
+        furnaces: usize,
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
@@ -227,6 +232,62 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
     }
 }
 
+/// For an upload, the cauldrons and cakes swapped for barrels, and its
+/// furnaces, with an offer to swap them too.
+fn swap_checks(page: &DetailsPage) -> Markup {
+    html! {
+        @if let File::Upload { swapped, .. } = &page.file {
+            @if !swapped.is_empty() {
+                (check("swapped", State::Pass, &html! {
+                    "Swapped " (counted(swapped)) " for "
+                    @if matches!(swapped, [(_, 1)]) { "a barrel" } @else { "barrels" }
+                    " giving the same signal strength."
+                }, false))
+            }
+        }
+        @if let File::Upload { furnaces, unconventional: false, .. } = &page.file {
+            @if *furnaces > 0 {
+                (check("furnaces", State::Wait, &html! {
+                    @if *furnaces == 1 { "Has a furnace" } @else { "Has " (furnaces) " furnaces" }
+                    ", which only a stackable build's first copy keeps. If it doesn't stack, "
+                    (swap_button(if *furnaces == 1 { "swap it for a barrel" } else { "swap them for barrels" }))
+                }, false))
+            }
+        }
+    }
+}
+
+/// Blocks by kind with how many, as words, such as `a water cauldron and
+/// 2 cakes`.
+fn counted(kinds: &[(String, usize)]) -> String {
+    let each: Vec<String> = kinds
+        .iter()
+        .map(|(name, count)| match count {
+            1 => format!("a {name}"),
+            n => format!("{n} {name}s"),
+        })
+        .collect();
+    match each.as_slice() {
+        [.., last] if each.len() > 1 => {
+            format!("{} and {last}", each[..each.len() - 1].join(", "))
+        }
+        _ => each.concat(),
+    }
+}
+
+/// A button that sends the details form to swap the file's furnaces for
+/// barrels giving the same signal strength, and shows it again rather than
+/// publishing.
+fn swap_button(label: &str) -> Markup {
+    html! {
+        button type="submit" form="details-form" name="swap" value="furnaces" formnovalidate
+            class="cursor-pointer font-medium text-brand underline hover:no-underline" {
+            (label)
+        }
+        " giving the same signal strength."
+    }
+}
+
 /// What holds up publishing, decided here rather than as the page runs:
 /// its kind, for `form.js`, and why. Broken conventions hold it up only
 /// until “follows its own layout” is ticked.
@@ -319,6 +380,7 @@ fn checks(page: &DetailsPage) -> Markup {
                         }
                     }, false))
                 }
+                (swap_checks(page))
                 @match stored {
                     Some(report) => {
                         @let failed = report.failed();
@@ -407,7 +469,7 @@ fn details_form(page: &DetailsPage) -> Markup {
     );
     let blocked = blocked(page);
     html! {
-        form action=(action) method="post" data-simulate=(simulate)
+        form id="details-form" action=(action) method="post" data-simulate=(simulate)
             data-simulated[stored_result] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {

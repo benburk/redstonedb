@@ -1,14 +1,21 @@
 //! Copies of a stackable build joined into one schematic.
 //!
 //! Copy 0 sits at the south-east-bottom corner and each later copy one
-//! step further along. A copy's slice is the part that repeats: its core,
-//! as [`interface::core`] finds it, cut along each stacking axis to as many
-//! layers as the step, at the end away from the previous copy. Its blocks
-//! outside the slice that reach into the previous copy's slice, such as
-//! the magenta block feeding a carry in or a control line, belong to the
-//! edge of the stack and are dropped, along with the levers, signs, and
-//! torches on them. A lever, sign, or torch on a block that stays, stays
-//! too, unless it would land on one of the previous copy's blocks. The previous copy's blocks stand there.
+//! step further along, as `//rstack` places them: copies may overlap, and
+//! where they do, the same block in both stands once. A copy's slice is the
+//! part that repeats: its core, as [`interface::core`] finds it, cut along
+//! each stacking axis to as many layers as the step, at the end away from
+//! the previous copy. Its blocks outside the slice that reach into the
+//! previous copy's slice belong to the edge of the stack, and are dropped,
+//! along with the levers, signs, and torches on them, when they are input
+//! blocks, such as the magenta block feeding a carry in, or would replace a
+//! different block of the previous copy. A lever, sign, or torch on a
+//! block that stays, stays too, unless it would land on one of the previous
+//! copy's blocks. The previous copy's blocks stand there.
+//!
+//! Only the first copy keeps gray blocks, furnaces, and the components
+//! resting on them, such as logic the least significant bit alone needs or
+//! the signal strength it alone takes.
 //! Every copy but the last turns its labelled outputs white and drops their
 //! signs, since the next copy takes them over. Several directions stack one
 //! after another.
@@ -21,7 +28,7 @@ use std::{
 use anyhow::{Result, bail, ensure};
 
 use crate::{
-    interface,
+    interface, lint,
     models::schematic::StackDirection,
     schem::{self, AIR, Blocks, Pos},
 };
@@ -56,6 +63,25 @@ pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
         along(data, direction, 2).map_err(|err| {
             format!("Two copies stacked {} don't fit: {err}.", direction.name())
         })?;
+    }
+    Ok(())
+}
+
+/// Refuses a furnace in a build that does not stack: a furnace gives the
+/// signal strength only a stack's first copy needs, and a barrel gives one
+/// anywhere else. The `Err` is a sentence for the person.
+pub fn check_furnaces(
+    blocks: &Blocks,
+    directions: &[StackDirection],
+) -> Result<(), String> {
+    let furnace =
+        |(_, state): &(Pos, &str)| schem::id(state) == "minecraft:furnace";
+    if directions.is_empty() && blocks.iter().any(|block| furnace(&block)) {
+        return Err("Only a stackable build's first copy keeps a furnace, \
+                    for a signal strength it alone needs. Tick Stackable if \
+                    it stacks, or swap each furnace for a barrel giving the \
+                    same strength."
+            .to_owned());
     }
     Ok(())
 }
@@ -113,7 +139,8 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let edge = edge_blocks(&blocks, step);
+    let mut edge = edge_blocks(&blocks, step);
+    edge.extend(first_copy_only(&blocks));
     let outputs = labelled_outputs(&blocks);
 
     let mut grid: HashMap<Pos, String> = HashMap::new();
@@ -139,16 +166,18 @@ fn along(
     let mut nbt = schem::decode(data)?;
     let entities = nbt.take_entities();
     let mut stacked_entities = Vec::new();
+    // Where copies overlap, the block stands once, and so does its entity.
+    let mut taken = HashSet::new();
     for i in 0..=last {
         for entity in &entities {
             let Some(pos) = schem::entity_pos(entity) else {
                 continue;
             };
+            let to = add(pos, shift(i));
             let dropped = (i != 0 && edge.contains(&pos))
                 || (i != last && outputs.signs.contains(&pos));
-            if !dropped {
-                stacked_entities
-                    .push(schem::with_pos(entity, add(pos, shift(i))));
+            if !dropped && taken.insert(to) {
+                stacked_entities.push(schem::with_pos(entity, to));
             }
         }
     }
@@ -198,10 +227,17 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
             .into_keys()
             .map(|block| (schem::step(block, "up"), block)),
     );
+    // A block of the overlap that matches the previous copy's, or lands
+    // on air, is part of the build, as in a build that repeats every eight
+    // bits and overlaps the copy below.
     let mut edge: HashSet<Pos> = blocks
         .iter()
         .filter(|&(pos, state)| {
-            state != AIR && !support.contains_key(&pos) && lands_inside(pos)
+            state != AIR
+                && !support.contains_key(&pos)
+                && lands_inside(pos)
+                && (lint::is_input(short(state))
+                    || replaces(blocks.get(add(pos, step)), state))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -215,6 +251,43 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
         .collect();
     edge.extend(hanging);
     edge
+}
+
+/// The blocks only the first copy keeps: gray blocks and furnaces, and the
+/// dust, torches, repeaters, comparators, levers, buttons, and signs
+/// resting on them.
+fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
+    let mut only: HashSet<Pos> = blocks
+        .iter()
+        .filter(|&(_, state)| lint::first_copy_only(short(state)))
+        .map(|(pos, _)| pos)
+        .collect();
+    let mut resting: Vec<(Pos, Pos)> = blocks
+        .iter()
+        .filter_map(|(pos, state)| {
+            let on = match short(state) {
+                "redstone_wire" | "repeater" | "comparator" => {
+                    Some(schem::step(pos, "down"))
+                }
+                _ => schem::torch_block(pos, state),
+            };
+            Some((pos, on?))
+        })
+        .collect();
+    resting.extend(blocks.switches().into_iter().map(|s| (s.pos, s.block)));
+    resting.extend(
+        blocks
+            .signs
+            .keys()
+            .filter_map(|&sign| Some((sign, blocks.sign_block(sign)?))),
+    );
+    let on_them: Vec<Pos> = resting
+        .into_iter()
+        .filter(|(_, on)| only.contains(on))
+        .map(|(pos, _)| pos)
+        .collect();
+    only.extend(on_them);
+    only
 }
 
 struct Outputs {
@@ -247,24 +320,115 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
     }
 }
 
-/// Puts `state` at `pos`, refusing to overwrite a different block: copies
-/// that collide mean the stacking step is wrong.
+/// Puts `state` at `pos`, refusing to replace a different block: copies
+/// that collide mean the stacking step is wrong. Where two copies' dust
+/// meets, it joins every way either joined.
 fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) -> Result<()> {
-    match grid.get(&pos) {
-        Some(existing) if existing != state => {
+    let placed = match grid.get(&pos) {
+        Some(existing) if replaces(existing, state) => {
             let [x, y, z] = pos;
             bail!(
                 "copies collide at ({x}, {y}, {z}): {existing} and {state}; \
                  check the stacking step"
             );
         }
-        _ => {
-            grid.insert(pos, state.to_owned());
-            Ok(())
+        Some(existing) if short(existing) == "redstone_wire" => {
+            joined(existing, state)
         }
+        Some(existing) => existing.clone(),
+        None => state.to_owned(),
+    };
+    grid.insert(pos, placed);
+    Ok(())
+}
+
+/// Whether `state` would replace a different block at `existing`: anything
+/// but air or the same block, though in another state of power, which the
+/// game works out again.
+fn replaces(existing: &str, state: &str) -> bool {
+    existing != AIR && unpowered(existing) != unpowered(state)
+}
+
+/// A block state without what depends on its power or neighbours: dust's
+/// strength and joins, and whether a component is powered or lit.
+fn unpowered(state: &str) -> String {
+    if short(state) == "redstone_wire" {
+        return schem::id(state).to_owned();
     }
+    let Some((id, properties)) = state.split_once('[') else {
+        return state.to_owned();
+    };
+    let kept: Vec<&str> = properties
+        .trim_end_matches(']')
+        .split(',')
+        .filter(|p| !p.starts_with("powered=") && !p.starts_with("lit="))
+        .collect();
+    format!("{id}[{}]", kept.join(","))
+}
+
+/// Dust joined every way either `a` or `b` joins, `up` over `side` over
+/// `none`, at the greater strength.
+fn joined(a: &str, b: &str) -> String {
+    let rank = |join: &str| match join {
+        "up" => 2,
+        "side" => 1,
+        _ => 0,
+    };
+    let joins = ["north", "south", "east", "west"].map(|side| {
+        let (x, y) = (
+            schem::property(a, side).unwrap_or("none"),
+            schem::property(b, side).unwrap_or("none"),
+        );
+        format!("{side}={}", if rank(y) > rank(x) { y } else { x })
+    });
+    let power = |s: &str| {
+        schem::property(s, "power").and_then(|p| p.parse::<u8>().ok())
+    };
+    let power = power(a).max(power(b)).unwrap_or(0);
+    let [north, south, east, west] = joins;
+    format!(
+        "minecraft:redstone_wire[{east},{north},power={power},{south},{west}]"
+    )
+}
+
+/// A block's id without its namespace, such as `redstone_wire`.
+fn short(state: &str) -> &str {
+    let id = schem::id(state);
+    id.strip_prefix("minecraft:").unwrap_or(id)
 }
 
 fn add(a: Pos, b: Pos) -> Pos {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dust_where_copies_meet_joins_both_ways() {
+        let below = "minecraft:redstone_wire[east=up,north=none,power=4,\
+                     south=side,west=side]";
+        let above = "minecraft:redstone_wire[east=up,north=none,power=0,\
+                     south=none,west=up]";
+        assert!(!replaces(below, above));
+        assert_eq!(
+            joined(below, above),
+            "minecraft:redstone_wire[east=up,north=none,power=4,south=side,\
+             west=up]"
+        );
+    }
+
+    #[test]
+    fn only_another_block_collides() {
+        let lit = "minecraft:redstone_wall_torch[facing=north,lit=true]";
+        let unlit = "minecraft:redstone_wall_torch[facing=north,lit=false]";
+        assert!(!replaces(lit, unlit));
+        assert!(!replaces(AIR, WHITE));
+        assert!(replaces(WHITE, unlit));
+        assert!(replaces(
+            "minecraft:repeater[delay=1,facing=west]",
+            "minecraft:repeater[delay=1,facing=east]"
+        ));
+    }
 }

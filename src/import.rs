@@ -24,9 +24,12 @@ pub struct Prepared {
     pub violations: Vec<Violation>,
     pub size: Size,
     pub sha256: String,
+    /// The cauldrons and cakes swapped for barrels, by kind, with how many.
+    pub swapped: Vec<(String, usize)>,
 }
 
-/// Standardizes `data` if asked, and in any case takes out corner markers
+/// Swaps cauldrons and cakes for barrels giving the same signal strength,
+/// standardizes `data` if asked, and in any case takes out corner markers
 /// and fits its box tightly; sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
 /// uploader's `//paste` put it; then measures, lints, and hashes it.
@@ -36,10 +39,12 @@ pub fn prepare(
     conventional: bool,
     keep_paste: bool,
 ) -> Result<Prepared> {
+    let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
+    let data = standardize::barrels(data, false)?;
     let data = if standardize {
-        standardize::standardize(data).context("cannot standardize it")?
+        standardize::standardize(&data).context("cannot standardize it")?
     } else {
-        standardize::tidy(data)?
+        standardize::tidy(&data)?
     };
     let data = if keep_paste {
         data
@@ -60,6 +65,7 @@ pub fn prepare(
         violations,
         size,
         sha256,
+        swapped,
     })
 }
 

@@ -8,8 +8,12 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`, besides the input and output
-/// colours: white for everything that is neither.
+/// colours and gray: white for everything that is none of them.
 const PALETTE: [&str; 2] = ["white_concrete", "white_stained_glass"];
+
+/// The colour of logic only a stack's first copy keeps, such as what its
+/// least significant bit alone needs.
+const FIRST_COPY: &str = "gray";
 
 /// The operand colours of concrete, in order: lime for A, light blue for B,
 /// cyan for C, blue for D. Lightest first, going from green to blue.
@@ -30,9 +34,10 @@ pub const STATUS: &str = "pink";
 
 /// Redstone components and the other blocks every build may use. Besides
 /// dust, torches, and the like, this keeps the blocks a comparator reads,
-/// such as furnaces, cauldrons, and cakes, since a build uses them for
-/// their signal. Every kind of button is allowed as well.
-const COMPONENTS: [&str; 49] = [
+/// such as barrels and furnaces, since a build uses them for their signal;
+/// cauldrons and cakes are swapped for barrels. Every kind of button is
+/// allowed as well.
+const COMPONENTS: [&str; 44] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -65,11 +70,6 @@ const COMPONENTS: [&str; 49] = [
     "chest",
     "trapped_chest",
     "barrel",
-    "cauldron",
-    "water_cauldron",
-    "lava_cauldron",
-    "powder_snow_cauldron",
-    "cake",
     "composter",
     "jukebox",
     "lectern",
@@ -206,6 +206,7 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
     for (pos, state) in blocks.iter() {
         let name = short(state);
         if !PALETTE.contains(&name)
+            && !first_copy_only(name)
             && !is_input(name)
             && !is_output(name)
             && !COMPONENTS.contains(&name)
@@ -215,12 +216,19 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
         }
     }
     for (name, (pos, count)) in outside {
+        let swapped = barrel_stands_in(name);
         let name = name.replace('_', " ");
-        let message = if count == 1 {
+        let mut message = if count == 1 {
             format!("{name} is not in the block palette")
         } else {
             format!("{name} is not in the block palette ({count} blocks)")
         };
+        if swapped {
+            message.push_str(
+                "; a barrel gives a signal strength instead, and adding \
+                 the file swaps it for one giving the same",
+            );
+        }
         say(found, Some(pos), message);
     }
 }
@@ -451,9 +459,32 @@ pub fn is_interface(state: &str, support: Option<&str>) -> bool {
 }
 
 /// Whether standardizing keeps `name` as it is: a redstone component, an
-/// input block, or an output block.
+/// output block, or a block only a stack's first copy keeps.
 pub fn keeps(name: &str) -> bool {
-    COMPONENTS.contains(&name) || name.ends_with("_button") || is_output(name)
+    COMPONENTS.contains(&name)
+        || name.ends_with("_button")
+        || is_output(name)
+        || first_copy_only(name)
+}
+
+/// Whether a block id without its namespace is one a barrel stands in for:
+/// a cauldron or cake, which a comparator reads a signal strength from.
+pub fn barrel_stands_in(name: &str) -> bool {
+    name.ends_with("cauldron")
+        || name == "cake"
+        || name.ends_with("candle_cake")
+}
+
+/// Whether a block id without its namespace is one only a stack's first
+/// copy keeps: gray concrete or stained glass, or a furnace, which gives
+/// the signal strength the first copy alone needs. A barrel repeats in
+/// every copy.
+pub fn first_copy_only(name: &str) -> bool {
+    name == "furnace"
+        || name
+            .strip_suffix("_concrete")
+            .or_else(|| name.strip_suffix("_stained_glass"))
+            == Some(FIRST_COPY)
 }
 
 /// Whether a block id without its namespace, such as `lime_concrete`, is

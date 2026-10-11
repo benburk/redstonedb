@@ -19,8 +19,10 @@
 //! - every input together, each at its timing, from all off to every
 //!   combination and back.
 //!
-//! Every pair of input states is far too many to try, so a worse change
-//! may exist than the worst of these.
+//! A build with too many input bits to try every value takes the test
+//! patterns instead, such as all ones or alternate bits set, which make an
+//! adder carry furthest. Every pair of input states is far too many to try
+//! either way, so a worse change may exist than the worst of these.
 
 use std::{
     collections::BTreeMap,
@@ -53,6 +55,9 @@ pub struct Timing {
     pub slowest_case: Vec<u64>,
     /// How many changes were measured.
     pub changes: u64,
+    /// Whether the inputs took the test patterns rather than every value.
+    #[serde(default)]
+    pub patterns: bool,
 }
 
 impl Timing {
@@ -136,13 +141,11 @@ pub(super) fn measure(
     inputs: &[usize],
     cancel: &AtomicBool,
 ) -> Result<Timing> {
-    let widths: Vec<u32> = inputs
+    let widths: Vec<usize> = inputs
         .iter()
-        .map(|&port| u32::try_from(interface.inputs[port].bits.len()))
-        .collect::<Result<_, _>>()?;
-    if usize::try_from(widths.iter().sum::<u32>())? > super::EXHAUSTIVE_BITS {
-        bail!("Too many input bits to time every combination.");
-    }
+        .map(|&port| interface.inputs[port].bits.len())
+        .collect();
+    let (values, patterns) = values_to_try(&widths);
     let outputs: Vec<usize> = interface
         .outputs
         .iter()
@@ -152,7 +155,7 @@ pub(super) fn measure(
         blocks,
         interface,
         inputs,
-        widths: &widths,
+        values: &values,
         outputs: &outputs,
         cancel,
     };
@@ -239,7 +242,25 @@ pub(super) fn measure(
         slowest: together.slowest.0,
         slowest_case: together.slowest.1.clone(),
         changes: together.changes,
+        patterns,
     })
+}
+
+/// The values each input of `widths` bits takes: every one, or the test
+/// patterns when that would be too many, which the `bool` says.
+fn values_to_try(widths: &[usize]) -> (Vec<Vec<u64>>, bool) {
+    let patterns = widths.iter().sum::<usize>() > super::EXHAUSTIVE_BITS;
+    let values = widths
+        .iter()
+        .map(|&width| {
+            if patterns {
+                super::patterns(width)
+            } else {
+                (0..1 << width).collect()
+            }
+        })
+        .collect();
+    (values, patterns)
 }
 
 /// What a measurement needs, shared by its threads.
@@ -247,7 +268,8 @@ struct Rig<'a> {
     blocks: &'a Blocks,
     interface: &'a Interface,
     inputs: &'a [usize],
-    widths: &'a [u32],
+    /// The values each input takes, 0 among them.
+    values: &'a [Vec<u64>],
     /// Each output port's width.
     outputs: &'a [usize],
     cancel: &'a AtomicBool,
@@ -285,9 +307,9 @@ impl Rig<'_> {
         Ok(merged)
     }
 
-    /// Input `input` alone from 0 to each value and back, with the others
-    /// held at each combination: the `part`th of `parts` shares of those
-    /// combinations.
+    /// Input `input` alone from 0 to each of its values and back, with the
+    /// others held at each combination of theirs: the `part`th of `parts`
+    /// shares of those combinations.
     fn alone(
         &self,
         circuit: &mut Circuit,
@@ -299,21 +321,18 @@ impl Rig<'_> {
         let driven = self.inputs[input];
         let others: Vec<usize> =
             (0..self.inputs.len()).filter(|&i| i != input).collect();
-        let other_bits: u32 = others.iter().map(|&i| self.widths[i]).sum();
-        for rest in (part..1 << other_bits).step_by(usize::try_from(parts)?) {
+        let combinations: u64 = others
+            .iter()
+            .map(|&i| self.values[i].len() as u64)
+            .product();
+        for rest in (part..combinations).step_by(usize::try_from(parts)?) {
             self.check_cancel()?;
-            let mut shift = 0;
-            for &other in &others {
-                let width = self.widths[other];
-                circuit.set(
-                    self.inputs[other],
-                    rest >> shift & ((1 << width) - 1),
-                );
-                shift += width;
+            for (&other, value) in others.iter().zip(self.pick(&others, rest)) {
+                circuit.set(self.inputs[other], value);
             }
             circuit.set(driven, 0);
             circuit.settle()?;
-            for value in 1..1u64 << self.widths[input] {
+            for &value in self.values[input].iter().filter(|&&v| v != 0) {
                 transition(circuit, &[(0, driven, value)], None, &mut stats)?;
                 transition(circuit, &[(0, driven, 0)], None, &mut stats)?;
             }
@@ -335,17 +354,14 @@ impl Rig<'_> {
             circuit.set(port, 0);
         }
         circuit.settle()?;
-        let all: u32 = self.widths.iter().sum();
-        for case in (part..1u64 << all).step_by(usize::try_from(parts)?) {
+        let every: Vec<usize> = (0..self.inputs.len()).collect();
+        let combinations: u64 =
+            self.values.iter().map(|v| v.len() as u64).product();
+        for case in (part..combinations).step_by(usize::try_from(parts)?) {
             if case % 256 == 0 {
                 self.check_cancel()?;
             }
-            let mut values = Vec::new();
-            let mut shift = 0;
-            for &width in self.widths {
-                values.push(case >> shift & ((1 << width) - 1));
-                shift += width;
-            }
+            let values = self.pick(&every, case);
             let changes = |off: bool| -> Vec<(i32, usize, u64)> {
                 values
                     .iter()
@@ -375,6 +391,22 @@ impl Rig<'_> {
             transition(circuit, &changes(true), None, &mut stats)?;
         }
         Ok(stats)
+    }
+
+    /// The values of `inputs` in their `index`th combination, the first
+    /// changing fastest.
+    fn pick(&self, inputs: &[usize], mut index: u64) -> Vec<u64> {
+        inputs
+            .iter()
+            .map(|&input| {
+                let choices = &self.values[input];
+                let count = choices.len() as u64;
+                let value =
+                    choices[usize::try_from(index % count).unwrap_or(0)];
+                index /= count;
+                value
+            })
+            .collect()
     }
 
     fn check_cancel(&self) -> Result<()> {

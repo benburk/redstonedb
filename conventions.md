@@ -14,6 +14,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 | Control line | magenta concrete                        |
 | Outputs 1–3  | yellow, orange, brown concrete or glass |
 | Status line  | pink concrete or glass                  |
+| First copy   | gray concrete or stained glass          |
 
 - Cool colours are inputs and warm colours outputs. Each family runs lightest first: inputs from green to blue, A to D, and outputs from yellow to brown, first to third. Each colour is one bus. Magenta and pink are the exceptions: each magenta block is its own control line, and each pink block its own status line, named by its own sign, unless one sign names a row of them, below.
 - An output colour may be stained glass where the output needs a transparent block.
@@ -23,6 +24,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 - A is green and B is blue, which stay apart under red-green colour blindness.
 - Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
 - Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.
+- Gray marks logic only the first copy of a stack keeps, such as what a stackable build's least significant bit alone needs; see Stacking. Gray stands out against white, and dust reads on it both powered and unpowered, which red would not.
 - Colours are semantic, not aesthetic. Because no two roles share a block, export can recolour each role to a user's palette.
 
 ## Inputs
@@ -56,6 +58,12 @@ Import derives this from the build, so nothing in-world marks it.
 - Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value; see Signal-strength inputs.
 - Later, a redstone simulator can derive both facts: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign then becomes a check rather than the source.
 
+### Signal strengths
+
+- A fixed signal strength, such as a 1ss, comes from a barrel of redstone dust read by a comparator. A barrel is a solid block and repeats in every copy of a stack.
+- Cauldrons and cakes are not allowed. The site swaps each for a barrel giving the same strength whenever it takes in a file, and the upload page says so.
+- A furnace is only for a stackable build, as a strength its first copy alone needs. A build that does not stack is refused one, and the upload page offers to swap it for a barrel giving the same strength.
+
 ## Outputs
 
 - Every output bit is yellow, orange, or brown concrete, or the same colour of stained glass where it needs a transparent block. All of one colour is one bus. Unnamed, a lone bus is `output` and several are `output 1`, `output 2`, `output 3` in colour order; a sign naming any block of a colour, such as `low` or `remainder`, names that whole bus. When the buses make one value, as a 16-bit product from two 8-bit halves, yellow holds the lowest bits.
@@ -87,8 +95,10 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - A stackable build is saved as one slice: the fewest bits that repeat, such as one bit of a ripple carry adder or a register, or two or four bits of a staggered design.
 - A slice may stack along several directions, each with its own step and most copies. Copies count up from the south-east-bottom corner, so they go west, up, north, or a mix, such as west and up for a diagonal build. A register might stack 7 times west for more bits and 3 times north for more registers.
 - Copies along the way the build's bits run add bits: west for a horizontal build, up for a vertical one, west and up for a diagonal one. Copies along any other direction are parallel copies and leave the width alone.
-- Stacking keeps every copy's slice: the build less its interface layers (see Bounding box), cut along each stacking direction to as many layers as the step, at the end away from the previous copy. Blocks a copy has outside its slice that reach into the previous copy's slice belong to the edge of the stack, such as the magenta block, lever, sign, and torch feeding a carry in or a shared control line, so only the first copy keeps them, with any lever or sign on them.
+- Stacking keeps every copy's slice: the build less its interface layers (see Bounding box), cut along each stacking direction to as many layers as the step, at the end away from the previous copy. Blocks a copy has outside its slice that reach into the previous copy's slice belong to the edge of the stack when they are input blocks, such as the magenta block feeding a carry in or a shared control line, or would replace a different block of the previous copy. Only the first copy keeps them, with any lever, sign, or torch on them.
 - Every copy but the last turns its labelled outputs, such as a carry out, white and drops their signs, since the next copy takes them over.
+- Copies may overlap, as `//rstack` allows: a build that repeats every eight bits may reach into the copy below. Where they overlap, a block the same in both stands once, a block landing on air stays, and dust that meets joins.
+- Only the first copy keeps gray blocks, furnaces, and the dust, torches, repeaters, comparators, levers, and signs resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a furnace; see Signal strengths. To stack in-game with `//rstack`, delete these and the carry in first, then put them back on the first copy.
 - A copy must not overwrite a different block of the copy before. Export refuses a stack whose copies collide, since that means a step is wrong.
 
 ## Saved state

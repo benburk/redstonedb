@@ -336,7 +336,8 @@ pub async fn save(
                 .to_owned(),
         )
     } else {
-        match saved(db, &id, &form, user.is_admin()).await {
+        let new_data = checked.as_ref().map(|c| c.prepared.data.as_slice());
+        match saved(db, &id, &form, new_data, user.is_admin()).await {
             Ok(Ok(())) => None,
             Ok(Err(message)) => Some(message),
             Err(err) => return internal_error(err).into_response(),
@@ -427,6 +428,7 @@ async fn saved(
     db: &SqlitePool,
     id: &str,
     form: &details::Form,
+    new_data: Option<&[u8]>,
     may_create_tags: bool,
 ) -> Result<Result<(), String>, sqlx::Error> {
     let categories = schematic::categories(db).await?;
@@ -446,10 +448,25 @@ async fn saved(
             Ok(category) => category,
             Err(message) => return Ok(Err(message)),
         };
-    if let Some(data) = schematic::data(db, id).await?
-        && let Err(message) = stack::check(&data, &parsed.stacking)
-    {
-        return Ok(Err(message));
+    // The new version, when there is one, is what the stacking must fit.
+    let data = match new_data {
+        Some(data) => Some(data.to_vec()),
+        None => schematic::data(db, id).await?,
+    };
+    if let Some(data) = data {
+        let conventional = schematic::get(db, id)
+            .await?
+            .is_some_and(|s| s.conventional);
+        let checked = stack::check(&data, &parsed.stacking).and_then(|()| {
+            if !conventional {
+                return Ok(());
+            }
+            let blocks = Blocks::read(&data).map_err(|err| err.to_string())?;
+            stack::check_furnaces(&blocks, &parsed.stacking)
+        });
+        if let Err(message) = checked {
+            return Ok(Err(message));
+        }
     }
     let mut details = parsed.as_details();
     let flags =

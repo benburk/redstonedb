@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use fastnbt::Value;
 use fastnbt::{ByteArray, IntArray};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
+use mchprs_blocks::items::Item;
 
 /// A build's size, in blocks along x, y, z.
 pub struct Size {
@@ -144,6 +145,10 @@ pub struct Blocks {
     pub signs: HashMap<Pos, Vec<String>>,
     /// The signal strength each comparator was saved putting out.
     pub comparators: HashMap<Pos, u8>,
+    /// What each furnace, barrel, and hopper holds: each stack's item id,
+    /// such as `minecraft:redstone`, and count. A comparator reads how full
+    /// it is.
+    pub containers: HashMap<Pos, Vec<(String, u32)>>,
 }
 
 impl Blocks {
@@ -196,6 +201,7 @@ impl Blocks {
             grid,
             signs: entities.iter().filter_map(sign).collect(),
             comparators: entities.iter().filter_map(comparator).collect(),
+            containers: entities.iter().filter_map(container).collect(),
         })
     }
 
@@ -425,6 +431,80 @@ fn comparator(value: &Value) -> Option<(Pos, u8)> {
     }
 }
 
+fn container(value: &Value) -> Option<(Pos, Vec<(String, u32)>)> {
+    let (pos, fields) = ["furnace", "barrel", "hopper"]
+        .into_iter()
+        .find_map(|kind| entity(value, kind))?;
+    let items = match fields.get("Items") {
+        Some(Value::List(items)) => items.iter().filter_map(item).collect(),
+        _ => Vec::new(),
+    };
+    Some((pos, items))
+}
+
+/// How many slots a container a comparator reads has: a furnace 3, a
+/// barrel 27, a hopper 5. `None` for any other block.
+pub fn slots(state: &str) -> Option<u32> {
+    match id(state) {
+        "minecraft:furnace" => Some(3),
+        "minecraft:barrel" => Some(27),
+        "minecraft:hopper" => Some(5),
+        _ => None,
+    }
+}
+
+/// The signal strength a comparator reads from a container of `slots`
+/// slots holding `items`, as the game works it out: 0 when empty, else 1
+/// plus 14 for each container's worth of full stacks, rounded down.
+pub fn container_strength(items: &[(String, u32)], slots: u32) -> u8 {
+    if items.is_empty() {
+        return 0;
+    }
+    let full: f64 = items
+        .iter()
+        .map(|(id, count)| {
+            let stack = Item::from_name(id).map_or(64, Item::max_stack_size);
+            f64::from(*count) / f64::from(stack)
+        })
+        .sum();
+    let strength = 1.0 + full / f64::from(slots) * 14.0;
+    // At most 15, as a container holds at most its slots' worth.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let strength = strength.floor().clamp(0.0, 15.0) as u8;
+    strength
+}
+
+/// The fewest redstone dust that make a barrel give `strength`, in stacks
+/// of up to 64: none for 0, and at least one.
+pub fn barrel_redstone(strength: u8) -> Vec<u32> {
+    let per_strength = 27 * 64;
+    let total = (u32::from(strength.min(15)).saturating_sub(1) * per_strength)
+        .div_ceil(14)
+        .max(u32::from(strength > 0));
+    let mut stacks = vec![64; usize::try_from(total / 64).unwrap_or(0)];
+    if total % 64 > 0 {
+        stacks.push(total % 64);
+    }
+    stacks
+}
+
+/// An item stack's id and count. Since 1.20.5 they are `id` and an int
+/// `count`; before, `id` and a byte `Count`.
+fn item(value: &Value) -> Option<(String, u32)> {
+    let Value::Compound(item) = value else {
+        return None;
+    };
+    let Some(Value::String(id)) = item.get("id") else {
+        return None;
+    };
+    let count = match item.get("count").or_else(|| item.get("Count")) {
+        Some(Value::Int(n)) => u32::try_from(*n).ok()?,
+        Some(Value::Byte(n)) => u32::try_from(*n).ok()?,
+        _ => 1,
+    };
+    Some((id.clone(), count))
+}
+
 fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
     let (pos, fields) = entity(value, "sign")?;
     let lines = match fields.get("front_text") {
@@ -499,6 +579,57 @@ pub fn with_pos(entity: &Value, pos: Pos) -> Value {
 }
 
 impl Nbt {
+    /// A barrel's block entity at `pos` holding redstone dust in `stacks`,
+    /// laid out as this file lays them out: version 3 nests its fields in
+    /// `Data`, and since 1.20.5 an item's count is an int `count`.
+    pub fn barrel_entity(&self, pos: Pos, stacks: &[u32]) -> Value {
+        let int = |key: &str| match self.body.get(key) {
+            Some(Value::Int(n)) => *n,
+            _ => 0,
+        };
+        let modern_items = int("DataVersion") >= 3837;
+        let items = stacks
+            .iter()
+            .zip(0i8..)
+            .map(|(&count, slot)| {
+                let mut item = HashMap::from([
+                    ("Slot".to_owned(), Value::Byte(slot)),
+                    (
+                        "id".to_owned(),
+                        Value::String("minecraft:redstone".to_owned()),
+                    ),
+                ]);
+                let count = if modern_items {
+                    ("count".to_owned(), Value::Int(count.cast_signed()))
+                } else {
+                    (
+                        "Count".to_owned(),
+                        Value::Byte(i8::try_from(count).unwrap_or(64)),
+                    )
+                };
+                item.insert(count.0, count.1);
+                Value::Compound(item)
+            })
+            .collect();
+        let fields = HashMap::from([("Items".to_owned(), Value::List(items))]);
+        let mut entity = HashMap::from([
+            (
+                "Id".to_owned(),
+                Value::String("minecraft:barrel".to_owned()),
+            ),
+            (
+                "Pos".to_owned(),
+                Value::IntArray(IntArray::new(pos.to_vec())),
+            ),
+        ]);
+        if int("Version") >= 3 {
+            entity.insert("Data".to_owned(), Value::Compound(fields));
+        } else {
+            entity.extend(fields);
+        }
+        Value::Compound(entity)
+    }
+
     /// Removes and returns the block entities, such as signs.
     pub fn take_entities(&mut self) -> Vec<Value> {
         match block_fields(&mut self.body).remove("BlockEntities") {
@@ -657,6 +788,30 @@ impl Nbt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_barrel_takes_the_fewest_redstone_for_each_strength() {
+        let items = |stacks: &[u32]| -> Vec<(String, u32)> {
+            stacks
+                .iter()
+                .map(|&n| ("minecraft:redstone".to_owned(), n))
+                .collect()
+        };
+        for strength in 0..=15 {
+            let stacks = barrel_redstone(strength);
+            assert_eq!(container_strength(&items(&stacks), 27), strength);
+            let total: u32 = stacks.iter().sum();
+            if total > 1 {
+                assert!(
+                    container_strength(&items(&[total - 1]), 27) < strength
+                );
+            }
+        }
+        assert_eq!(barrel_redstone(1), [1]);
+        assert_eq!(barrel_redstone(2), [64, 60]);
+        // The adder fixture's furnace: 13 redstone in 3 slots.
+        assert_eq!(container_strength(&items(&[13]), 3), 1);
+    }
 
     #[test]
     fn version_3_keeps_the_paste_offset_as_its_offset() {

@@ -7,6 +7,8 @@
 //!
 //! - Old corner markers are taken out: any group of plain glass that
 //!   touches nothing but air, wherever it sits.
+//! - A cauldron or cake becomes a barrel giving a comparator the same
+//!   signal strength.
 //! - Slabs, stairs, and every kind of glass become white stained glass;
 //!   every other solid block becomes white concrete. Redstone components
 //!   and output blocks are kept, and so is an input: a coloured block with
@@ -16,7 +18,7 @@
 //!   `carry out`, turns pink, as older builds marked them on yellow.
 //! - The box is fitted tightly around what is left.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{Result, ensure};
 
@@ -30,6 +32,8 @@ const WHITE_GLASS: &str = "minecraft:white_stained_glass";
 const GLASS: &str = "minecraft:glass";
 
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
+    let swapped = barrels(data, false)?;
+    let data = swapped.as_slice();
     let blocks = Blocks::read(data)?;
     let old_markers = loose_glass(&blocks, false);
     let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
@@ -139,6 +143,105 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     let high = [0, 1, 2].map(|axis| bound(axis, i32::max));
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
     rebox(data, &grid, low, size)
+}
+
+const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
+
+/// The file with each cauldron and cake, and with `furnaces` each furnace,
+/// swapped
+/// for a barrel holding redstone dust that gives a comparator the same
+/// signal strength. Barrels are how a build takes a fixed strength; a
+/// furnace is only for one a stack's first copy alone needs.
+pub fn barrels(data: &[u8], furnaces: bool) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let swapped: HashMap<Pos, u8> = blocks
+        .iter()
+        .filter_map(|(pos, state)| {
+            let strength = if let Some(strength) = stand_in_strength(state) {
+                strength
+            } else if furnaces && schem::id(state) == "minecraft:furnace" {
+                let items = blocks.containers.get(&pos);
+                schem::container_strength(items.map_or(&[], Vec::as_slice), 3)
+            } else {
+                return None;
+            };
+            Some((pos, strength))
+        })
+        .collect();
+    if swapped.is_empty() {
+        return Ok(data.to_vec());
+    }
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| {
+            let state = if swapped.contains_key(&pos) {
+                BARREL
+            } else {
+                state
+            };
+            (pos, state.to_owned())
+        })
+        .collect();
+    let mut nbt = schem::decode(data)?;
+    let mut entities: Vec<_> = nbt
+        .take_entities()
+        .into_iter()
+        .filter(|entity| {
+            schem::entity_pos(entity)
+                .is_none_or(|pos| !swapped.contains_key(&pos))
+        })
+        .collect();
+    entities.extend(swapped.iter().map(|(&pos, &strength)| {
+        nbt.barrel_entity(pos, &schem::barrel_redstone(strength))
+    }));
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
+    schem::encode(nbt)
+}
+
+/// What `barrels` would swap in a build.
+pub struct Swappable {
+    /// Each kind of block a barrel always stands in for, such as `water
+    /// cauldron`, with how many the build has, in name order.
+    pub stand_ins: Vec<(String, usize)>,
+    /// How many furnaces it has, which a barrel stands in for unless it
+    /// stacks.
+    pub furnaces: usize,
+}
+
+pub fn swappable(blocks: &Blocks) -> Swappable {
+    let mut stand_ins: BTreeMap<String, usize> = BTreeMap::new();
+    let mut furnaces = 0;
+    for (_, state) in blocks.iter() {
+        let id = schem::id(state);
+        let name = id.strip_prefix("minecraft:").unwrap_or(id);
+        if lint::barrel_stands_in(name) {
+            *stand_ins.entry(name.replace('_', " ")).or_default() += 1;
+        } else if name == "furnace" {
+            furnaces += 1;
+        }
+    }
+    Swappable {
+        stand_ins: stand_ins.into_iter().collect(),
+        furnaces,
+    }
+}
+
+/// What a comparator reads from a block a barrel stands in for: a
+/// cauldron's level, or 3 when it holds lava; a cake's 14, less 2 for each
+/// bite taken. `None` for any other block.
+fn stand_in_strength(state: &str) -> Option<u8> {
+    let id = schem::id(state);
+    let number = |key: &str| {
+        schem::property(state, key).and_then(|n| n.parse::<u8>().ok())
+    };
+    Some(match id.strip_prefix("minecraft:").unwrap_or(id) {
+        "lava_cauldron" => 3,
+        "cake" => 14u8.saturating_sub(2 * number("bites").unwrap_or(0)),
+        name if name.ends_with("candle_cake") => 14,
+        name if name.ends_with("cauldron") => number("level").unwrap_or(0),
+        _ => return None,
+    })
 }
 
 /// The build with a plain glass block at each corner of a box one block
