@@ -665,7 +665,8 @@ fn a_furnace_swaps_for_a_barrel_of_the_same_strength() {
     assert_eq!(standardize::swappable(&standardized.unwrap()).furnaces, 1);
 
     let after =
-        Blocks::read(&standardize::barrels(&data, true).unwrap()).unwrap();
+        Blocks::read(&standardize::barrels(&data, &["furnace"]).unwrap())
+            .unwrap();
     assert_eq!(standardize::swappable(&after).furnaces, 0);
     assert!(after.get(furnace).starts_with("minecraft:barrel"));
     let strength = |blocks: &Blocks| {
@@ -720,7 +721,7 @@ fn cauldrons_and_cakes_break_the_conventions_until_swapped() {
     }
     assert_eq!(standardize::swappable(&before).stand_ins.len(), 3);
     let swapped =
-        Blocks::read(&standardize::barrels(&with_stand_ins, false).unwrap())
+        Blocks::read(&standardize::barrels(&with_stand_ins, &[]).unwrap())
             .unwrap();
     for (_, pos, strength) in stand_ins {
         assert!(swapped.get(pos).starts_with("minecraft:barrel"));

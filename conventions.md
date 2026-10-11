@@ -62,6 +62,7 @@ Import derives this from the build, so nothing in-world marks it.
 
 - A fixed signal strength, such as a 1ss, comes from a barrel of redstone dust read by a comparator. A barrel is a solid block and repeats in every copy of a stack.
 - Cauldrons and cakes are not allowed. The site swaps each for a barrel giving the same strength whenever it takes in a file, and the upload page says so.
+- A hopper is allowed, but only as a fixed strength: the simulator reads what it holds and moves no items. The upload page offers to swap it for a barrel giving the same strength.
 - A furnace is only for a stackable build, as a strength its first copy alone needs. A build that does not stack is refused one, and the upload page offers to swap it for a barrel giving the same strength.
 
 ## Outputs

@@ -40,7 +40,7 @@ pub fn prepare(
     keep_paste: bool,
 ) -> Result<Prepared> {
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
-    let data = standardize::barrels(data, false)?;
+    let data = standardize::barrels(data, &[])?;
     let data = if standardize {
         standardize::standardize(&data).context("cannot standardize it")?
     } else {

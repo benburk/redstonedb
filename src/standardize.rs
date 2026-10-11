@@ -32,7 +32,7 @@ const WHITE_GLASS: &str = "minecraft:white_stained_glass";
 const GLASS: &str = "minecraft:glass";
 
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
-    let swapped = barrels(data, false)?;
+    let swapped = barrels(data, &[])?;
     let data = swapped.as_slice();
     let blocks = Blocks::read(data)?;
     let old_markers = loose_glass(&blocks, false);
@@ -147,21 +147,25 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
 
-/// The file with each cauldron and cake, and with `furnaces` each furnace,
-/// swapped
-/// for a barrel holding redstone dust that gives a comparator the same
-/// signal strength. Barrels are how a build takes a fixed strength; a
-/// furnace is only for one a stack's first copy alone needs.
-pub fn barrels(data: &[u8], furnaces: bool) -> Result<Vec<u8>> {
+/// The file with each cauldron and cake, and each container whose id is in
+/// `also`, such as `furnace` or `hopper`, swapped for a barrel holding
+/// redstone dust that gives a comparator the same signal strength. Barrels
+/// are how a build takes a fixed strength; a furnace is only for one a
+/// stack's first copy alone needs, and a hopper stays unless its builder
+/// asks.
+pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let swapped: HashMap<Pos, u8> = blocks
         .iter()
         .filter_map(|(pos, state)| {
             let strength = if let Some(strength) = stand_in_strength(state) {
                 strength
-            } else if furnaces && schem::id(state) == "minecraft:furnace" {
+            } else if also.contains(&short(state)) {
                 let items = blocks.containers.get(&pos);
-                schem::container_strength(items.map_or(&[], Vec::as_slice), 3)
+                schem::container_strength(
+                    items.map_or(&[], Vec::as_slice),
+                    schem::slots(state)?,
+                )
             } else {
                 return None;
             };
@@ -207,23 +211,27 @@ pub struct Swappable {
     /// How many furnaces it has, which a barrel stands in for unless it
     /// stacks.
     pub furnaces: usize,
+    /// How many hoppers it has, which a barrel stands in for when asked.
+    pub hoppers: usize,
 }
 
 pub fn swappable(blocks: &Blocks) -> Swappable {
     let mut stand_ins: BTreeMap<String, usize> = BTreeMap::new();
-    let mut furnaces = 0;
+    let (mut furnaces, mut hoppers) = (0, 0);
     for (_, state) in blocks.iter() {
-        let id = schem::id(state);
-        let name = id.strip_prefix("minecraft:").unwrap_or(id);
-        if lint::barrel_stands_in(name) {
-            *stand_ins.entry(name.replace('_', " ")).or_default() += 1;
-        } else if name == "furnace" {
-            furnaces += 1;
+        match short(state) {
+            name if lint::barrel_stands_in(name) => {
+                *stand_ins.entry(name.replace('_', " ")).or_default() += 1;
+            }
+            "furnace" => furnaces += 1,
+            "hopper" => hoppers += 1,
+            _ => {}
         }
     }
     Swappable {
         stand_ins: stand_ins.into_iter().collect(),
         furnaces,
+        hoppers,
     }
 }
 
@@ -384,4 +392,10 @@ fn restyle(state: &str, input: bool) -> String {
     } else {
         WHITE.to_owned()
     }
+}
+
+/// A block state's id without its namespace, such as `furnace`.
+fn short(state: &str) -> &str {
+    let id = schem::id(state);
+    id.strip_prefix("minecraft:").unwrap_or(id)
 }

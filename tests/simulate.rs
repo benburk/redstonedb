@@ -74,6 +74,37 @@ fn a_build_with_a_hopper_gets_every_sum_right() {
     assert!(Test::Adder.run(&blocks("diag-3t-cca")).passed());
 }
 
+/// Its hopper holds a fixed strength, which a barrel gives too; but dust
+/// lies on the hopper, which does not conduct, and a barrel does, so the
+/// swapped adder breaks. That is why hoppers stay unless asked.
+#[test]
+fn a_hopper_swaps_for_a_barrel_of_the_same_strength() {
+    let raw = std::fs::read("tests/fixtures/diag-3t-cca.schem").unwrap();
+    // As the site stores it, with its carry out pink.
+    let stored =
+        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let before = Blocks::read(&stored).unwrap();
+    let swapped = standardize::barrels(&stored, &["hopper"]).unwrap();
+    let after = Blocks::read(&swapped).unwrap();
+    assert_eq!(standardize::swappable(&before).hoppers, 1);
+    assert_eq!(standardize::swappable(&after).hoppers, 0);
+    let strength = |blocks: &Blocks, block: &str| {
+        let (pos, _) = blocks
+            .iter()
+            .find(|(_, state)| state.starts_with(block))
+            .unwrap();
+        schem::container_strength(
+            blocks.containers.get(&pos).map_or(&[], Vec::as_slice),
+            schem::slots(blocks.get(pos)).unwrap(),
+        )
+    };
+    assert_eq!(
+        strength(&after, "minecraft:barrel"),
+        strength(&before, "minecraft:hopper")
+    );
+    assert!(!Test::Adder.run(&after).passed());
+}
+
 /// Its paths from A to the sum take from 4 to 6 ticks, depending on the
 /// case, so the sum can change twice whenever carry in arrives.
 #[test]
@@ -181,9 +212,11 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
 fn a_combinational_multiplier_tries_every_product() {
     let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
-    let data =
-        standardize::barrels(&standardize::standardize(&raw).unwrap(), true)
-            .unwrap();
+    let data = standardize::barrels(
+        &standardize::standardize(&raw).unwrap(),
+        &["furnace"],
+    )
+    .unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::Multiplier.run(&blocks) else {
         panic!("the multiplier was not simulated");
