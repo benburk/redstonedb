@@ -267,9 +267,16 @@ impl Schematic {
     /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
         self.measures()
+            .chain(self.hex())
             .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// `Hex` for a build that counts in hex, before its design, as in
+    /// `32-bit Hex Carry Cancel Adder`; a binary one says nothing.
+    fn hex(&self) -> Option<String> {
+        (self.encoding.as_deref() == Some("hex")).then(|| "Hex".to_owned())
     }
 
     /// The design and what the build is, as a name ends, such as `Carry
@@ -288,6 +295,7 @@ impl Schematic {
         self.measures()
             .chain(self.tags_in("restriction").map(Tag::label))
             .chain(self.tags_in("other").map(Tag::label))
+            .chain(self.hex())
             .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
@@ -1649,6 +1657,16 @@ mod tests {
     #[test]
     fn filename_is_the_name() {
         assert_eq!(cla().filename(), "8_bit_Carry_Lookahead_Adder.schem");
+    }
+
+    #[test]
+    fn a_hex_build_says_so_before_its_design() {
+        let mut hex = cla();
+        hex.width = Some(32);
+        hex.encoding = Some("hex".to_owned());
+        assert_eq!(hex.name(), "32-bit Hex Carry Lookahead Adder");
+        assert_eq!(hex.title(), "32-bit alpha Hex Carry Lookahead Adder");
+        assert_eq!(hex.filename(), "32_bit_Hex_Carry_Lookahead_Adder.schem");
     }
 
     #[test]
