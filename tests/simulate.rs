@@ -362,7 +362,7 @@ fn a_hex_adder_is_driven_digit_by_digit() {
         .map(|signal| (signal.name.as_str(), signal.bits))
         .collect();
     assert_eq!(widths, [("output", 32), ("carry out", 1)]);
-    assert!(!run.exhaustive && run.cases < 20_000);
+    assert!(!run.exhaustive && run.by_digit && run.cases < 20_000);
     assert_eq!(run.wrong, 0);
     assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }

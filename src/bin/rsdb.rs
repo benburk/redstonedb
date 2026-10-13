@@ -922,10 +922,10 @@ fn print_report(name: &str, report: &Report) {
     match report {
         Report::Ran(run) if run.wrong == 0 => println!(
             "ok      {name}: {} {} {}, all right",
-            if run.exhaustive {
-                "every"
-            } else {
-                "each byte's and the patterns'"
+            match (run.exhaustive, run.by_digit) {
+                (true, _) => "every",
+                (false, true) => "each digit's and the patterns'",
+                (false, false) => "each byte's and the patterns'",
             },
             run.cases,
             run.pattern

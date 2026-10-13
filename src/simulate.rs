@@ -741,6 +741,10 @@ pub struct Run {
     /// How many of the cases were pairings of the test patterns.
     #[serde(default)]
     pub patterns: u64,
+    /// Whether, not trying every combination, each hex digit took its
+    /// every case rather than each byte, as for a hex adder.
+    #[serde(default)]
+    pub by_digit: bool,
     /// How many cases were wrong.
     pub wrong: u64,
     /// What each case sets, in order, such as A, B, and carry in. A
@@ -898,14 +902,14 @@ fn check_adder_on(blocks: &Blocks, quick: bool) -> Result<Run> {
     let bench = adder_bench(&mut interface)?;
     let widths = bench.widths(&interface);
     let carry_in = bench.inputs.get(2).copied();
+    // A hex adder, slower to run, takes each digit's every case, and a
+    // binary one each byte's.
+    let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let (cases, exhaustive, patterns) = if quick {
         let (cases, _) = paired(&widths);
         let count = cases.len() as u64;
         (cases, false, count)
     } else {
-        // A hex adder, slower to run, takes each digit's every case, and a
-        // binary one each byte's.
-        let hex = interface.inputs.iter().any(|port| port.signal_strength);
         let piece = if hex { 4 } else { 8 };
         cases(&widths, || {
             adder_cases(widths[0], carry_in.is_some(), piece)
@@ -927,6 +931,7 @@ fn check_adder_on(blocks: &Blocks, quick: bool) -> Result<Run> {
              the wrong way round."
         ));
     }
+    run.by_digit = hex && !run.exhaustive;
     Ok(run)
 }
 
@@ -1628,6 +1633,7 @@ fn judge(
         hint: None,
         timing: None,
         stacking: None,
+        by_digit: false,
     }
 }
 

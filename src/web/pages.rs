@@ -747,7 +747,7 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (run.pattern) }
                                     td class={ (TABLE_CELL) " tabular-nums" } {
                                         (grouped(run.cases)) @if run.exhaustive { ", every one" } @else {
-                                            ": every case of each byte, with a carry into it and without, and "
+                                            ": every case of each " @if run.by_digit { "hex digit" } @else { "byte" } ", with a carry into it and without, and "
                                             (grouped(run.patterns)) " pairings of test patterns, such as all ones or alternate bits set"
                                         }
                                     }
