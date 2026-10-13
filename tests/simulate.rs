@@ -452,3 +452,19 @@ fn an_output_is_timed_where_it_reaches_its_repeaters() {
     assert_eq!(outputs, [("output", 3, 1), ("carry out", 5, 0)]);
     assert_eq!(timing.latency(), Some(3));
 }
+
+/// Its sum leaves by dust on each yellow block. For 2 + 2, the carry
+/// reaches bit 2 at strength 1, which powers the block beside it but
+/// leaves the dust on top dark, so the bit is off, as in-game.
+#[test]
+fn an_output_is_read_from_the_dust_on_its_block() {
+    let Report::Ran(run) = Test::Adder.run(&blocks("cca-8-dust-out")) else {
+        panic!("the adder was not simulated");
+    };
+    assert!(run.wrong > 0);
+    let wrong = &run.examples[0];
+    assert_eq!(
+        (wrong.inputs.as_slice(), wrong.got[0], wrong.expected[0]),
+        ([2, 2, 0].as_slice(), 0, 4)
+    );
+}

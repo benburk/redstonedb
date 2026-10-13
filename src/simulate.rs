@@ -269,28 +269,38 @@ impl Circuit {
         }
     }
 
-    /// The value output `port` shows, as of the last `settle`. A bit is on
-    /// while its block is powered, or while a repeater or comparator
-    /// standing on it is on, as when the block marks the component that
-    /// carries the output out of the build. A digit is its block's
-    /// strength.
+    /// The value output `port` shows, as of the last `settle`. Where dust,
+    /// a repeater, or a comparator stands on a bit's block, it is the
+    /// output, as the component carrying it out of the build, and the bit
+    /// is on while it is, however the block below is powered; a bare block
+    /// is on while it is powered. A digit is the strength of the dust on
+    /// its block, or of the block when it has none.
     pub fn get(&self, port: usize) -> u64 {
         let (blocks, digits) = &self.outputs[port];
         blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
             let block = self.world.get_block(pos);
-            let strength = mchprs_redstone::get_redstone_power(
-                block,
-                &self.world,
-                pos,
-                BlockFace::Top,
-            );
+            let above = self.world.get_block(pos.offset(BlockFace::Top));
+            let strength = || {
+                mchprs_redstone::get_redstone_power(
+                    block,
+                    &self.world,
+                    pos,
+                    BlockFace::Top,
+                )
+            };
             if *digits {
+                let strength = match above {
+                    Block::RedstoneWire(wire) => wire.power,
+                    _ => strength(),
+                };
                 return value | u64::from(strength) << (4 * i);
             }
-            let above = self.world.get_block(pos.offset(BlockFace::Top));
-            let on = strength > 0
-                || matches!(above, Block::Repeater(repeater) if repeater.powered)
-                || matches!(above, Block::Comparator(comparator) if comparator.powered);
+            let on = match above {
+                Block::RedstoneWire(wire) => wire.power > 0,
+                Block::Repeater(repeater) => repeater.powered,
+                Block::Comparator(comparator) => comparator.powered,
+                _ => strength() > 0,
+            };
             value | u64::from(on) << i
         })
     }
