@@ -188,6 +188,10 @@ fn stacked_slices_form_one_wider_build() {
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
+    // Each copy's carry in hangs a torch on the previous copy's carry out,
+    // which inverts it, so the sums come out right.
+    let run = app::simulate::check_adder(&blocks).unwrap();
+    assert_eq!((run.cases, run.wrong), (1 << 17, 0));
 }
 
 #[test]

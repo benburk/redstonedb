@@ -7,17 +7,21 @@
 //! each stacking axis to as many layers as the step, at the end away from
 //! the previous copy. Its blocks outside the slice that reach into the
 //! previous copy's slice belong to the edge of the stack, and are dropped,
-//! along with the levers, signs, and torches on them, when they are input
-//! blocks, such as the magenta block feeding a carry in, or would replace a
-//! different block of the previous copy. A lever, sign, or torch on a
-//! block that stays, stays too, unless it would land on one of the previous
-//! copy's blocks. The previous copy's blocks stand there.
+//! along with the levers and signs on them, when they are input blocks,
+//! such as the magenta block feeding a carry in, or would replace a
+//! different block of the previous copy. A torch on them stays where the
+//! previous copy has a block in their place to hang on, as a torch
+//! inverting a carry in hangs on the carry out it continues. A lever,
+//! sign, or torch on a block that stays, stays too, unless it would land
+//! on one of the previous copy's blocks. The previous copy's blocks stand
+//! there.
 //!
 //! Only the first copy keeps gray blocks, furnaces, and the components
 //! resting on them, such as logic the least significant bit alone needs or
 //! the signal strength it alone takes.
-//! Every copy but the last turns its labelled outputs white and drops their
-//! signs, since the next copy takes them over. Several directions stack one
+//! Every copy but the last turns its labelled outputs and status lines,
+//! signed or not, white and drops their signs, since the next copy takes
+//! them over. Several directions stack one
 //! after another.
 
 use std::{
@@ -241,11 +245,17 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
         })
         .map(|(pos, _)| pos)
         .collect();
+    let lands_on_a_block =
+        |pos: Pos| lands_inside(pos) && blocks.get(add(pos, step)) != AIR;
     let hanging: Vec<Pos> = support
         .iter()
-        .filter(|&(&pos, on)| {
-            edge.contains(on)
-                || (lands_inside(pos) && blocks.get(add(pos, step)) != AIR)
+        .filter(|&(&pos, &on)| {
+            // A torch is logic, such as one inverting a carry in: where the
+            // previous copy has a block in place of the one it hangs on,
+            // such as the carry out it continues, it hangs on that.
+            let rehung = schem::torch_block(pos, blocks.get(pos)).is_some()
+                && holds_a_torch(blocks.get(add(on, step)));
+            (edge.contains(&on) && !rehung) || lands_on_a_block(pos)
         })
         .map(|(&pos, _)| pos)
         .collect();
@@ -290,18 +300,26 @@ fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
     only
 }
 
+/// Whether a torch can hang on `state`: a block of concrete or stained
+/// glass, the blocks a build is made of.
+fn holds_a_torch(state: &str) -> bool {
+    let name = short(state);
+    name.ends_with("_concrete") || name.ends_with("_stained_glass")
+}
+
 struct Outputs {
     blocks: HashSet<Pos>,
     signs: HashSet<Pos>,
 }
 
-/// The blocks of labelled outputs, such as a carry out, and their signs.
+/// The blocks of labelled outputs and status lines, such as a carry out,
+/// signed or not, and their signs.
 fn labelled_outputs(blocks: &Blocks) -> Outputs {
     let interface = interface::read(blocks);
     let outputs: HashSet<Pos> = interface
         .outputs
         .iter()
-        .filter(|port| port.labelled)
+        .filter(|port| port.labelled || port.block.starts_with(lint::STATUS))
         .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
         .collect();
     let signs = blocks
