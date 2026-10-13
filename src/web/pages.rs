@@ -1664,25 +1664,47 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
         (stacking_fields(f))
         (person_field("Builders", "builder", "Add a builder's in-game name", f.builders, choices))
         (person_field("Contributors", "contributor", "Add someone who helped", f.contributors, choices))
-        div class="field" {
-            label for="built-on" class="text-meta font-semibold text-muted" { "Built on" }
-            div class="flex items-center gap-4" data-date-field {
-                // Text rather than a date input, which shows the date in
-                // the browser's local order.
-                input id="built-on" name="built_on" type="text" value=(f.built_on)
-                    inputmode="numeric" placeholder="yyyy-mm-dd" maxlength="10"
-                    pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" title="A date such as 2024-02-02"
-                    autocomplete="off" class="input flex-1";
-                label class="flex items-center gap-2 whitespace-nowrap" {
-                    input type="checkbox" name="built_on_unknown" value="yes"
-                        checked[f.built_on.is_empty()] class="size-4 appearance-auto";
-                    "Don't know"
-                }
-            }
-        }
+        (date_field(f.built_on))
         label class="field" {
             span { "Description" }
             textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
+        }
+    }
+}
+
+/// The build date, as a year, month, and day box each, in that order
+/// whatever the browser's locale, which `form.js` moves between as they
+/// fill and checks is a real date. The server joins them.
+fn date_field(built_on: &str) -> Markup {
+    let mut parts = built_on.splitn(3, '-');
+    let [year, month, day] = [(); 3].map(|()| parts.next().unwrap_or(""));
+    let part = |name: &str, hint: &str, value: &str, width: &str| {
+        html! {
+            input id={ "built-on-" (name) } name={ "built_on_" (name) } type="text" value=(value)
+                aria-label=(name) aria-describedby="built-on-message"
+                inputmode="numeric" maxlength=(hint.len()) placeholder=(hint)
+                pattern={ "[0-9]{1," (hint.len()) "}" } autocomplete="off"
+                class={ "input px-2 text-center tabular-nums " (width) };
+        }
+    };
+    html! {
+        div class="field" data-date-field {
+            span id="built-on-label" { "Built on" }
+            div class="flex items-center gap-4" {
+                div role="group" aria-labelledby="built-on-label" class="flex items-center gap-1" {
+                    (part("year", "yyyy", year, "w-18"))
+                    span aria-hidden="true" class="text-muted" { "-" }
+                    (part("month", "mm", month, "w-12"))
+                    span aria-hidden="true" class="text-muted" { "-" }
+                    (part("day", "dd", day, "w-12"))
+                }
+                label class="flex items-center gap-2 whitespace-nowrap" {
+                    input type="checkbox" name="built_on_unknown" value="yes"
+                        checked[built_on.is_empty()] class="size-4 appearance-auto";
+                    "Don't know"
+                }
+            }
+            p id="built-on-message" class="message" hidden {}
         }
     }
 }

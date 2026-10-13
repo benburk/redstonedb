@@ -201,7 +201,11 @@ impl Form {
                 .is_empty()
                 .then(|| !get("synchronized").is_empty()),
             built_on: if get("built_on_unknown").is_empty() {
-                get("built_on")
+                joined_date(
+                    &get("built_on_year"),
+                    &get("built_on_month"),
+                    &get("built_on_day"),
+                )
             } else {
                 String::new()
             },
@@ -430,6 +434,18 @@ pub fn pairs(body: &[u8]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The date the form's year, month, and day boxes give, as `2024-02-02`,
+/// a single-digit month or day taking a leading zero; empty when all are.
+/// One left out leaves a date `is_date` refuses.
+fn joined_date(year: &str, month: &str, day: &str) -> String {
+    let [year, month, day] = [year, month, day].map(str::trim);
+    if [year, month, day].iter().all(|part| part.is_empty()) {
+        String::new()
+    } else {
+        format!("{year}-{month:0>2}-{day:0>2}")
+    }
+}
+
 /// Whether `d` is a real day written as `yyyy-mm-dd`, such as `2024-02-29`.
 fn is_date(d: &str) -> bool {
     let shaped = d.len() == 10
@@ -464,6 +480,14 @@ mod tests {
         assert!(!is_date("02/29/2024"));
         assert!(!is_date("2024-2-29"));
         assert!(!is_date("2024-02-2é"));
+    }
+
+    #[test]
+    fn the_date_boxes_join_into_one_date() {
+        assert_eq!(joined_date("2024", "2", " 9 "), "2024-02-09");
+        assert_eq!(joined_date("", "", ""), "");
+        // A part left out leaves no date.
+        assert!(!is_date(&joined_date("2024", "", "09")));
     }
 
     fn form(stackable: bool, rows: &[(&str, &str, &str)]) -> Form {

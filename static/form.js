@@ -176,16 +176,111 @@ for (const toggle of document.querySelectorAll("input[data-unknown]")) {
   toggle.addEventListener("change", () => marker?.remove(), { once: true });
 }
 
-// Build dates: typing a date unticks "Don't know", and ticking it
+// Build dates, a box each for year, month, and day. A box that fills, or
+// takes a dash, slash, dot, or space, moves on to the next; a month of 2 to
+// 9 or a day of 4 to 9 cannot take a second digit, so it is filled out and
+// moves on too. Backspace in an empty box, or an arrow at a box's end,
+// moves back or on. A whole date pasted into any box fills all three.
+// Leaving the boxes with a part missing or a day the calendar lacks says
+// so beneath them. Typing a date unticks "Don't know", and ticking it
 // clears the date.
 for (const field of document.querySelectorAll("[data-date-field]")) {
-  const date = field.querySelector('input[name="built_on"]');
+  const parts = ["year", "month", "day"].map((name) =>
+    field.querySelector(`input[name="built_on_${name}"]`),
+  );
+  const [year, month, day] = parts;
   const unknown = field.querySelector('input[type="checkbox"]');
-  date.addEventListener("input", () => {
-    unknown.checked = date.value === "";
+  const message = field.querySelector("#built-on-message");
+  const filledOut = { month: 1, day: 3 };
+
+  const focus = (box, at) => {
+    box.focus();
+    const end = at === "start" ? 0 : box.value.length;
+    box.setSelectionRange(end, at === "all" ? box.value.length : end);
+  };
+  const padded = (box) => {
+    if (box !== year && /^[1-9]$/.test(box.value)) box.value = `0${box.value}`;
+  };
+  const problem = () => {
+    const values = parts.map((box) => box.value);
+    if (values.every((v) => v === "")) return "";
+    if (values.some((v) => v === "")) return "Give the year, month, and day.";
+    if (year.value.length !== 4) return "Give the year in four digits.";
+    const [y, m, d] = values.map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    const real =
+      date.getUTCFullYear() === y &&
+      date.getUTCMonth() === m - 1 &&
+      date.getUTCDate() === d;
+    if (!real) {
+      return `There is no ${values[0]}-${values[1].padStart(2, "0")}-${values[2].padStart(2, "0")}.`;
+    }
+    if (date > new Date()) return "That date has not come yet.";
+    return "";
+  };
+  const check = () => {
+    const found = problem();
+    message.textContent = found;
+    message.hidden = found === "";
+    message.setAttribute("role", found ? "alert" : "status");
+    for (const box of parts) {
+      box.toggleAttribute("aria-invalid", found !== "");
+      box.setCustomValidity(found);
+    }
+  };
+  const fill = (text) => {
+    const found = text.trim().match(/^(\d{4})\D?(\d{1,2})\D?(\d{1,2})$/);
+    if (!found) return false;
+    [year.value, month.value, day.value] = found.slice(1);
+    padded(month);
+    padded(day);
+    unknown.checked = false;
+    check();
+    focus(day, "end");
+    return true;
+  };
+
+  parts.forEach((box, i) => {
+    const next = parts[i + 1];
+    const previous = parts[i - 1];
+    box.addEventListener("input", (event) => {
+      const moveOn = next && /[-/. ]$/.test(box.value) && box.value.length > 1;
+      box.value = box.value.replace(/\D/g, "").slice(0, box.maxLength);
+      unknown.checked = parts.every((b) => b.value === "");
+      if (message.hidden === false) check();
+      if (!next || event.inputType?.startsWith("delete")) return;
+      const limit = filledOut[box.name.replace("built_on_", "")];
+      if (limit !== undefined && /^\d$/.test(box.value) && Number(box.value) > limit) {
+        padded(box);
+      }
+      if (moveOn || box.value.length === box.maxLength) focus(next, "all");
+    });
+    box.addEventListener("keydown", (event) => {
+      const atStart = box.selectionStart === 0 && box.selectionEnd === 0;
+      const atEnd = box.selectionStart === box.value.length;
+      if (event.key === "Backspace" && previous && box.value === "") {
+        event.preventDefault();
+        focus(previous, "end");
+      } else if (event.key === "ArrowLeft" && previous && atStart) {
+        event.preventDefault();
+        focus(previous, "end");
+      } else if (event.key === "ArrowRight" && next && atEnd) {
+        event.preventDefault();
+        focus(next, "start");
+      }
+    });
+    box.addEventListener("paste", (event) => {
+      if (fill(event.clipboardData.getData("text"))) event.preventDefault();
+    });
+    box.addEventListener("blur", () => padded(box));
+  });
+  field.addEventListener("focusout", (event) => {
+    if (!field.contains(event.relatedTarget)) check();
   });
   unknown.addEventListener("change", () => {
-    if (unknown.checked) date.value = "";
+    if (!unknown.checked) return;
+    for (const box of parts) box.value = "";
+    check();
   });
 }
 
