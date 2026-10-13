@@ -20,7 +20,11 @@ use crate::{
         simulation,
         user::User,
     },
-    mojang, schemati, stack, standardize,
+    mojang,
+    schem::Blocks,
+    schemati,
+    simulate::{self, Guess},
+    stack, standardize,
 };
 
 use super::{
@@ -133,6 +137,15 @@ pub async fn preview(
     };
     let interface = interface::read(&prepared.blocks);
     let (width, orientation) = import::guess(&interface);
+    // What it seems to be, from a quick run of the tests it fits, to start
+    // the category and design with.
+    let data = prepared.data.clone();
+    let guess = tokio::task::spawn_blocking(move || {
+        simulate::guess(&Blocks::read(&data).ok()?)
+    })
+    .await
+    .ok()
+    .flatten();
     // The carry lines the signs show start ticked.
     let flags = import::sign_flags(&interface);
     let width = width.map(|w| w.to_string()).unwrap_or_default();
@@ -143,7 +156,7 @@ pub async fn preview(
         (size.x.into(), size.y.into(), size.z.into()),
     )];
     let fields = Fields {
-        category: "",
+        category: guess.as_ref().map_or("", |guess| guess.category),
         width: &width,
         orientation,
         encoding: "bin",
@@ -157,7 +170,10 @@ pub async fn preview(
         given_name: "",
         period: "",
         bytes: "",
-        design: "other",
+        design: guess
+            .as_ref()
+            .and_then(|guess| guess.design)
+            .unwrap_or("other"),
         flags: &flags,
         stackable: false,
         stack_rows: &stack_rows,
@@ -166,7 +182,11 @@ pub async fn preview(
         unconventional: false,
         keep_paste,
     };
-    show_preview(&state, &user, &prepared, &fields, &[], settings, "").await
+    let said = Said {
+        message: "",
+        guess: guess.as_ref(),
+    };
+    show_preview(&state, &user, &prepared, &fields, &[], settings, said).await
 }
 
 /// What the uploader chose about the file itself, carried from the
@@ -263,7 +283,7 @@ pub async fn publish(
             &sent.form.fields(),
             &sent.form.tags,
             settings,
-            "",
+            Said::default(),
         )
         .await;
     }
@@ -281,7 +301,10 @@ pub async fn publish(
         &sent.form.fields(),
         &sent.form.tags,
         settings,
-        &refused,
+        Said {
+            message: &refused,
+            guess: None,
+        },
     )
     .await
 }
@@ -383,6 +406,14 @@ async fn publish_checked(
         .map_err(|err| format!("Could not publish it: {err:#}."))
 }
 
+/// What the preview says beside the form: why publishing was refused, and
+/// what the file seems to be.
+#[derive(Default)]
+struct Said<'a> {
+    message: &'a str,
+    guess: Option<&'a Guess>,
+}
+
 /// The preview page for a prepared file.
 async fn show_preview(
     state: &AppState,
@@ -391,7 +422,7 @@ async fn show_preview(
     fields: &Fields<'_>,
     chosen_tags: &[String],
     settings: Settings,
-    message: &str,
+    said: Said<'_>,
 ) -> Response {
     let tags: Vec<Tag> = match schematic::all_tags(&state.db).await {
         Ok(tags) => tags,
@@ -419,6 +450,7 @@ async fn show_preview(
                 keep_paste: settings.keep_paste,
                 unconventional: settings.unconventional,
                 swapped: &prepared.swapped,
+                guess: said.guess,
                 furnaces: swappable.furnaces,
                 hoppers: swappable.hoppers,
             },
@@ -432,7 +464,7 @@ async fn show_preview(
             tags: &tags,
             may_create_tags: user.is_admin(),
             derived_width,
-            message,
+            message: said.message,
         },
     )
     .into_response()

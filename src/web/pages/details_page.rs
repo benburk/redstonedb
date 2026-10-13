@@ -11,7 +11,7 @@ use crate::{
         schematic::{Schematic, Tag},
         user::User,
     },
-    simulate::Report,
+    simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
 
@@ -35,6 +35,8 @@ pub enum File<'a> {
         /// Whether the file keeps where its uploader's `//paste` put it.
         keep_paste: bool,
         unconventional: bool,
+        /// What it seems to be, which the category and design start as.
+        guess: Option<&'a Guess>,
         /// The cauldrons and cakes swapped for barrels, by kind, with how
         /// many, and how many furnaces it has, which the page offers to
         /// swap too.
@@ -239,6 +241,14 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
 /// furnaces and hoppers, with an offer to swap them too.
 fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
+        @if let File::Upload { guess: Some(guess), .. } = &page.file {
+            (check("guess", State::Pass, &html! {
+                @if guess.wrong == 0 { "Looks like " } @else { "Looks most like " }
+                (article(&guess.category.replace('_', " "))) ": " (guess.pattern) ", right in "
+                (grouped(guess.cases - guess.wrong)) " of " (grouped(guess.cases))
+                " quick cases, so its category starts as that. Change it if it's something else."
+            }, false))
+        }
         @if let File::Upload { swapped, .. } = &page.file {
             @if !swapped.is_empty() {
                 (check("swapped", State::Pass, &html! {
@@ -266,6 +276,14 @@ fn swap_checks(page: &DetailsPage) -> Markup {
                 }, false))
             }
         }
+    }
+}
+
+/// `word` after `a` or `an`, such as `an adder`.
+fn article(word: &str) -> String {
+    match word.chars().next() {
+        Some('a' | 'e' | 'i' | 'o' | 'u') => format!("an {word}"),
+        _ => format!("a {word}"),
     }
 }
 

@@ -195,9 +195,9 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
-/// The categories whose width and flags are read from the file; see
-/// `derived_width` and `derived_flags`.
-pub const DERIVES_WIDTH: [&str; 1] = ["adder"];
+/// The categories whose width is read from the file, A's bit count; see
+/// `derived_width`. An adder's flags are read too; see `derived_flags`.
+pub const DERIVES_WIDTH: [&str; 2] = ["adder", "incrementer"];
 
 /// The width a category takes from its builds' files rather than their
 /// details: an adder's is its A input's bit count, four for each block of a
@@ -222,7 +222,7 @@ pub fn derived_flags(
     category: &str,
     interface: &Interface,
 ) -> Option<Vec<String>> {
-    if !DERIVES_WIDTH.contains(&category) {
+    if category != "adder" {
         return None;
     }
     let has = |ports: &[Port], colour: &str| {

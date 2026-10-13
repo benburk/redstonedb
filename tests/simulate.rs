@@ -281,3 +281,29 @@ fn an_adder_whose_carry_stops_at_its_edge_does_not_stack() {
     };
     assert!(reason.contains("carry does not pass"), "{reason}");
 }
+
+/// Its control line, `increment`, adds 1 when on.
+#[test]
+fn an_incrementer_gets_every_value_right() {
+    let report = Test::Incrementer.run(&blocks("inc-8"));
+    let Report::Ran(run) = &report else {
+        panic!("the incrementer was not simulated");
+    };
+    assert_eq!(run.pattern, "A + increment");
+    assert_eq!((run.cases, run.wrong), (512, 0));
+}
+
+/// A quick run of the tests a file fits tells what it is.
+#[test]
+fn a_build_is_known_for_what_it_does() {
+    let adder = simulate::guess(&blocks("alpha-rca")).unwrap();
+    assert_eq!((adder.category, adder.wrong), ("adder", 0));
+    let incrementer = simulate::guess(&blocks("inc-8")).unwrap();
+    assert_eq!(
+        (incrementer.category, incrementer.design),
+        ("incrementer", Some("increment"))
+    );
+    // A carry in saved the wrong way round gets every sum wrong, so it is
+    // no adder until fixed.
+    assert!(simulate::guess(&blocks("vert-3t-cca")).is_none());
+}

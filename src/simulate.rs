@@ -16,7 +16,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use mchprs_blocks::{
     BlockFace, BlockPos,
     block_entities::{BlockEntity, ContainerType},
@@ -371,34 +371,37 @@ fn block(state: &str) -> Result<Block> {
     Ok(block)
 }
 
-/// The test a build gets from its category and width: for now, adders and
-/// combinational multipliers of up to 32 bits have one. Each tries every
-/// case when they number few enough, else every case of each byte and the
-/// test patterns.
+/// The test a build gets from its category and width: for now, adders,
+/// incrementers, and combinational multipliers of up to 32 bits have one.
+/// Each tries every case when they number few enough, else every case of
+/// each byte and the test patterns.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
     /// The sums of A, B, and any carry in.
     Adder,
+    /// A plus or minus 1, or plus or minus its control line, whichever of
+    /// those it gets most right.
+    Incrementer,
     /// The products of A and B, plus C when there is one.
     Multiplier,
 }
+
+/// Every test, in the order a guess tries them.
+const TESTS: [Test; 3] = [Test::Adder, Test::Incrementer, Test::Multiplier];
 
 impl Test {
     pub fn of(category: &str, width: Option<i64>) -> Option<Self> {
         if !width.is_some_and(|w| (1..=MAX_WIDTH).contains(&w)) {
             return None;
         }
-        match category {
-            "adder" => Some(Test::Adder),
-            "multiplier" => Some(Test::Multiplier),
-            _ => None,
-        }
+        TESTS.into_iter().find(|test| test.name() == category)
     }
 
-    /// The name stored with its result.
+    /// The name stored with its result, which is its category's.
     pub fn name(self) -> &'static str {
         match self {
             Test::Adder => "adder",
+            Test::Incrementer => "incrementer",
             Test::Multiplier => "multiplier",
         }
     }
@@ -407,6 +410,7 @@ impl Test {
     pub fn run(self, blocks: &Blocks) -> Report {
         let result = match self {
             Test::Adder => check_adder(blocks),
+            Test::Incrementer => check_incrementer(blocks, false),
             Test::Multiplier => check_multiplier(blocks),
         };
         match result {
@@ -427,7 +431,7 @@ impl Test {
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
-            Test::Multiplier => None,
+            Test::Incrementer | Test::Multiplier => None,
         }
     }
 
@@ -438,6 +442,7 @@ impl Test {
         let mut interface = interface::read(blocks);
         let inputs = match self {
             Test::Adder => adder_bench(&mut interface)?.inputs,
+            Test::Incrementer => incrementer_bench(&interface)?.inputs,
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
         };
         timing::measure(blocks, &interface, &inputs, cancel)
@@ -667,12 +672,22 @@ struct Bench {
 /// out` above it. When every sum is wrong, it tries again with carry in
 /// flipped, since a lever saved the wrong way round does that.
 pub fn check_adder(blocks: &Blocks) -> Result<Run> {
+    check_adder_on(blocks, false)
+}
+
+/// `check_adder`, or with `quick` only the pairings of the test patterns.
+fn check_adder_on(blocks: &Blocks, quick: bool) -> Result<Run> {
     let mut interface = interface::read(blocks);
     let bench = adder_bench(&mut interface)?;
     let widths = bench.widths(&interface);
     let carry_in = bench.inputs.get(2).copied();
-    let (cases, exhaustive, patterns) =
-        cases(&widths, || adder_cases(widths[0], carry_in.is_some()));
+    let (cases, exhaustive, patterns) = if quick {
+        let (cases, _) = paired(&widths);
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&widths, || adder_cases(widths[0], carry_in.is_some()))
+    };
     let sum = |case: &Case| case[0] + case[1] + case[2];
     let sweep = |flip| {
         sweep(blocks, &interface, &bench, &cases, flip, sum)
@@ -810,11 +825,22 @@ fn adder_line(
 /// product: A times B, plus C for a fused multiply-add, against as many low
 /// bits as its outputs hold together, the first holding the lowest.
 pub fn check_multiplier(blocks: &Blocks) -> Result<Run> {
+    check_multiplier_on(blocks, false)
+}
+
+/// `check_multiplier`, or with `quick` only the pairings of the test
+/// patterns.
+fn check_multiplier_on(blocks: &Blocks, quick: bool) -> Result<Run> {
     let interface = interface::read(blocks);
     let bench = multiplier_bench(&interface)?;
     let widths = bench.widths(&interface);
-    let (cases, exhaustive, patterns) =
-        cases(&widths, || multiplier_cases(&widths));
+    let (cases, exhaustive, patterns) = if quick {
+        let (cases, _) = paired(&widths);
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&widths, || multiplier_cases(&widths))
+    };
     let product = |case: &Case| {
         let exact =
             u128::from(case[0]) * u128::from(case[1]) + u128::from(case[2]);
@@ -924,12 +950,261 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     (cases, paired)
 }
 
+/// Runs an incrementer through its inputs, every value of A with its
+/// control line each way, and checks the result against what each kind of
+/// incrementer gives: A plus or minus 1, plus or minus its control line,
+/// or plus 1 one way and minus 1 the other. The kind it gets most right
+/// names its cases. With `quick`, only the test patterns are tried.
+fn check_incrementer(blocks: &Blocks, quick: bool) -> Result<Run> {
+    let interface = interface::read(blocks);
+    let bench = incrementer_bench(&interface)?;
+    let widths = bench.widths(&interface);
+    let (cases, exhaustive, patterns) = if quick {
+        let (cases, _) = paired(&widths);
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&widths, || incrementer_cases(&widths))
+    };
+    let got = observe(blocks, &interface, &bench, &cases, None)?;
+    let line = bench
+        .inputs
+        .get(1)
+        .map(|&i| interface.inputs[i].name.clone());
+    let best = changes(line.as_deref())
+        .into_iter()
+        .map(|change| {
+            let mut run = judge(&interface, &bench, &cases, &got, |case| {
+                (change.apply)(case[0], case[1])
+            });
+            run.pattern = change.name;
+            run
+        })
+        .min_by_key(|run| run.wrong)
+        .context("an incrementer has a kind")?;
+    Ok(best.covering(exhaustive, patterns))
+}
+
+/// One kind of incrementer: its cases' name, such as `A + increment`, the
+/// design it is, and what it gives for A and its control line.
+struct Change {
+    name: String,
+    design: &'static str,
+    apply: fn(u64, u64) -> u64,
+}
+
+/// The kinds of incrementer with control line `line`, if any.
+fn changes(line: Option<&str>) -> Vec<Change> {
+    let change = |name: String, design, apply| Change {
+        name,
+        design,
+        apply,
+    };
+    match line {
+        None => vec![
+            change("A + 1".to_owned(), "increment", |a, _| a.wrapping_add(1)),
+            change("A − 1".to_owned(), "decrement", |a, _| a.wrapping_sub(1)),
+        ],
+        Some(line) => vec![
+            change(format!("A + {line}"), "increment", u64::wrapping_add),
+            change(format!("A − {line}"), "decrement", u64::wrapping_sub),
+            change(
+                format!("A + 1, or − 1 with {line} on"),
+                "inc_dec",
+                |a, c| {
+                    if c == 1 {
+                        a.wrapping_sub(1)
+                    } else {
+                        a.wrapping_add(1)
+                    }
+                },
+            ),
+            change(
+                format!("A − 1, or + 1 with {line} on"),
+                "inc_dec",
+                |a, c| {
+                    if c == 1 {
+                        a.wrapping_add(1)
+                    } else {
+                        a.wrapping_sub(1)
+                    }
+                },
+            ),
+        ],
+    }
+}
+
+/// What an incrementer's test drives and reads: A and its control line, if
+/// any; its output buses, then any status line, such as a carry out.
+fn incrementer_bench(interface: &Interface) -> Result<Bench> {
+    let control =
+        |i: &usize| interface.inputs[*i].block.starts_with(lint::CONTROL);
+    let all: Vec<usize> = (0..interface.inputs.len()).collect();
+    let (lines, operands): (Vec<usize>, Vec<usize>) =
+        all.into_iter().partition(control);
+    let &[a] = operands.as_slice() else {
+        broken!(
+            "An incrementer takes one operand, but this has {}.",
+            operands.len()
+        );
+    };
+    if lines.len() > 1 {
+        broken!(
+            "An incrementer has at most one control line, such as \
+             increment, but this has {}.",
+            lines.len()
+        );
+    }
+    let status =
+        |i: &usize| interface.outputs[*i].block.starts_with(lint::STATUS);
+    let (mut status_lines, mut outputs): (Vec<usize>, Vec<usize>) =
+        (0..interface.outputs.len()).partition(status);
+    outputs.append(&mut status_lines);
+    let bits = interface.inputs[a].bits.len();
+    let result: usize = outputs
+        .iter()
+        .map(|&i| interface.outputs[i].bits.len())
+        .sum();
+    if !(bits..=bits + 1).contains(&result) {
+        broken!(
+            "A has {bits} bits, so the result has {bits}, or one more for a \
+             carry, but the outputs have {result}."
+        );
+    }
+    let mut inputs = vec![a];
+    inputs.extend(lines);
+    Ok(Bench {
+        inputs,
+        outputs,
+        pattern: "A".to_owned(),
+    })
+}
+
+/// The values an incrementer too wide to try every one of is checked on:
+/// every value of each byte of A, the bits below it all clear and all set,
+/// so a carry or borrow runs into it, and the test patterns; each with its
+/// control line, if any, each way.
+fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
+    let lines: &[u64] = if widths.len() > 1 { &[0, 1] } else { &[0] };
+    let mut cases = Vec::new();
+    let mut seen = HashSet::new();
+    let mut add = |cases: &mut Vec<Case>, case: Case| {
+        if seen.insert(case) {
+            cases.push(case);
+        }
+    };
+    for low in (0..widths[0]).step_by(8) {
+        let bits = (widths[0] - low).min(8);
+        for below in [0, mask(low)] {
+            for a in 0..1u64 << bits {
+                for &line in lines {
+                    add(&mut cases, [below | a << low, line, 0]);
+                }
+            }
+        }
+    }
+    let before = cases.len();
+    for a in patterns(widths[0]) {
+        for &line in lines {
+            add(&mut cases, [a, line, 0]);
+        }
+    }
+    let paired = (cases.len() - before) as u64;
+    (cases, paired)
+}
+
+/// Every pairing of the test patterns of each input's width, a 1-bit one
+/// taking 0 and 1, with how many there are.
+fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
+    let choices: Vec<Vec<u64>> = widths
+        .iter()
+        .map(|&width| {
+            if width == 1 {
+                vec![0, 1]
+            } else {
+                patterns(width)
+            }
+        })
+        .collect();
+    let mut cases = vec![[0; 3]];
+    for (i, values) in choices.iter().enumerate() {
+        cases = cases
+            .iter()
+            .flat_map(|case| {
+                values.iter().map(move |&value| {
+                    let mut case = *case;
+                    case[i] = value;
+                    case
+                })
+            })
+            .collect();
+    }
+    let count = cases.len() as u64;
+    (cases, count)
+}
+
+/// What a build seems to be, from the test patterns run through each test
+/// its inputs and outputs fit.
+#[derive(Debug, Clone)]
+pub struct Guess {
+    /// Its category, such as `adder`.
+    pub category: &'static str,
+    /// Its design, when the test tells it, as for an incrementer.
+    pub design: Option<&'static str>,
+    /// What its cases are, such as `A + B + carry in`.
+    pub pattern: String,
+    pub cases: u64,
+    pub wrong: u64,
+}
+
+/// What the build in `blocks` seems to be: of the tests its inputs and
+/// outputs fit, the one whose test patterns come out right most often, if
+/// three in four do. Quick enough to run before anyone says what it is.
+pub fn guess(blocks: &Blocks) -> Option<Guess> {
+    TESTS
+        .into_iter()
+        .filter_map(|test| {
+            let run = match test {
+                Test::Adder => check_adder_on(blocks, true),
+                Test::Incrementer => check_incrementer(blocks, true),
+                Test::Multiplier => check_multiplier_on(blocks, true),
+            }
+            .ok()?;
+            let design = (test == Test::Incrementer).then(|| {
+                let line = run.inputs.get(1).map(|signal| signal.name.as_str());
+                changes(line)
+                    .into_iter()
+                    .find(|change| change.name == run.pattern)
+                    .map_or("increment", |change| change.design)
+            });
+            Some(Guess {
+                category: test.name(),
+                design,
+                pattern: run.pattern,
+                cases: run.cases,
+                wrong: run.wrong,
+            })
+        })
+        // Three in four right, so a build with a few wrong bits is still
+        // known for what it is.
+        .filter(|guess| (guess.cases - guess.wrong) * 4 >= guess.cases * 3)
+        .min_by_key(|guess| guess.wrong * 1000 / guess.cases.max(1))
+}
+
 impl Bench {
     /// Each input's width, in the order of `inputs`.
     fn widths(&self, interface: &Interface) -> Vec<usize> {
         self.inputs
             .iter()
             .map(|&i| interface.inputs[i].bits.len())
+            .collect()
+    }
+
+    /// Each output's width, in the order of `outputs`.
+    fn output_widths(&self, interface: &Interface) -> Vec<usize> {
+        self.outputs
+            .iter()
+            .map(|&i| interface.outputs[i].bits.len())
             .collect()
     }
 }
@@ -979,12 +1254,50 @@ fn sweep(
     flip: Option<usize>,
     expected: impl Fn(&Case) -> u64,
 ) -> Result<Run> {
+    let got = observe(blocks, interface, bench, cases, flip)?;
+    Ok(judge(interface, bench, cases, &got, expected))
+}
+
+/// What the bench's outputs show, read together as one number, for each
+/// of `cases` run through its inputs, the input at `flip`, if given, driven
+/// the other way round.
+fn observe(
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &Bench,
+    cases: &[Case],
+    flip: Option<usize>,
+) -> Result<Vec<u64>> {
     let mut circuit = Circuit::new(blocks, interface)?;
-    let widths: Vec<usize> = bench
-        .outputs
-        .iter()
-        .map(|&i| interface.outputs[i].bits.len())
-        .collect();
+    let widths = bench.output_widths(interface);
+    let mut results = Vec::with_capacity(cases.len());
+    for case in cases {
+        for (i, &port) in bench.inputs.iter().enumerate() {
+            let value = case[i];
+            circuit.set(port, if flip == Some(i) { value ^ 1 } else { value });
+        }
+        circuit.settle()?;
+        let mut got = 0;
+        let mut shift = 0;
+        for (&port, &width) in bench.outputs.iter().zip(&widths) {
+            got |= circuit.get(port) << shift;
+            shift += width;
+        }
+        results.push(got);
+    }
+    Ok(results)
+}
+
+/// How `got`, what the outputs showed for each of `cases`, compares with
+/// `expected`, cut to as many bits as the outputs hold.
+fn judge(
+    interface: &Interface,
+    bench: &Bench,
+    cases: &[Case],
+    got: &[u64],
+    expected: impl Fn(&Case) -> u64,
+) -> Run {
+    let widths = bench.output_widths(interface);
     let result_bits: usize = widths.iter().sum();
     // Each output's value from a result, the first holding the lowest bits.
     let split = |result: u64| {
@@ -1001,19 +1314,8 @@ fn sweep(
     let mut wrong = 0;
     let mut wrong_by_bit = vec![0; result_bits];
     let mut examples = Vec::new();
-    for case in cases {
-        for (i, &port) in bench.inputs.iter().enumerate() {
-            let value = case[i];
-            circuit.set(port, if flip == Some(i) { value ^ 1 } else { value });
-        }
-        circuit.settle()?;
+    for (case, &got) in cases.iter().zip(got) {
         let want = expected(case) & mask(result_bits);
-        let mut got = 0;
-        let mut shift = 0;
-        for (&port, &width) in bench.outputs.iter().zip(&widths) {
-            got |= circuit.get(port) << shift;
-            shift += width;
-        }
         if want != got {
             wrong += 1;
             for (bit, count) in wrong_by_bit.iter_mut().enumerate() {
@@ -1052,7 +1354,7 @@ fn sweep(
         name: port.name.clone(),
         bits: port.bits.len(),
     };
-    Ok(Run {
+    Run {
         pattern: bench.pattern.clone(),
         cases: cases.len() as u64,
         exhaustive: true,
@@ -1073,7 +1375,7 @@ fn sweep(
         hint: None,
         timing: None,
         stacking: None,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -1087,6 +1389,20 @@ mod tests {
         assert_eq!(Test::of("adder", Some(33)), None);
         assert_eq!(Test::of("adder", None), None);
         assert_eq!(Test::of("register", Some(8)), None);
+    }
+
+    #[test]
+    fn an_incrementer_names_what_it_does_by_its_control_line() {
+        let kinds: Vec<(String, &str)> = changes(Some("increment"))
+            .into_iter()
+            .map(|change| (change.name, change.design))
+            .collect();
+        assert_eq!(kinds[0], ("A + increment".to_owned(), "increment"));
+        assert_eq!(kinds[1].1, "decrement");
+        // Plus 1 with the line off, minus 1 with it on.
+        let inc_dec = &changes(Some("decrement"))[2];
+        assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (6, 4));
+        assert_eq!(Test::of("incrementer", Some(8)), Some(Test::Incrementer));
     }
 
     #[test]
