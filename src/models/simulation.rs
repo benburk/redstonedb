@@ -100,35 +100,93 @@ pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
 static CASES: Semaphore = Semaphore::const_new(1);
 static TIMING: Semaphore = Semaphore::const_new(1);
 
+/// The results of the latest files run, by the file's hash and the test,
+/// so a file previewed and then published, the same bytes, takes what its
+/// preview found rather than running again. A restart forgets them.
+static RECENT: Mutex<Vec<(String, &'static str, Report)>> =
+    Mutex::new(Vec::new());
+
+/// How many results `RECENT` keeps, the latest.
+const KEPT: usize = 16;
+
+/// The result `RECENT` holds for `sha256` under `test`, if any.
+fn recent(sha256: &str, test: Test) -> Option<Report> {
+    let kept = RECENT.lock().expect("the results are whole");
+    kept.iter()
+        .find(|(sha, name, _)| sha == sha256 && *name == test.name())
+        .map(|(_, _, report)| report.clone())
+}
+
+/// Keeps `report` for `sha256` under `test`, in place of any before, and
+/// forgets the oldest past `KEPT`.
+fn remember(sha256: &str, test: Test, report: &Report) {
+    let mut kept = RECENT.lock().expect("the results are whole");
+    kept.retain(|(sha, name, _)| !(sha == sha256 && *name == test.name()));
+    kept.push((sha256.to_owned(), test.name(), report.clone()));
+    if kept.len() > KEPT {
+        kept.remove(0);
+    }
+}
+
 /// Runs `test`'s cases on `data`, a `.schem` file, away from the async
-/// threads, and, when they all come out right, whether its copies stack.
+/// threads, and, when they all come out right, whether its copies stack;
+/// or takes the result of the same file run lately.
 pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
+    let sha256 = import::sha256(&data);
+    if let Some(report) = recent(&sha256, test) {
+        return Ok(report);
+    }
     let _turn = CASES.acquire().await?;
-    tokio::task::spawn_blocking(move || {
+    // Run while this waited for its turn, as by the preview just before.
+    if let Some(report) = recent(&sha256, test) {
+        return Ok(report);
+    }
+    let report = tokio::task::spawn_blocking(move || {
         let mut report = test.run(&Blocks::read(&data)?);
         if let Report::Ran(run) = &mut report
             && run.wrong == 0
         {
             run.stacking = test.stacking(&data);
         }
-        Ok(report)
+        anyhow::Ok(report)
     })
-    .await?
+    .await??;
+    remember(&sha256, test, &report);
+    Ok(report)
 }
 
 /// Measures when `data`'s outputs settle under `test`, away from the async
-/// threads. Setting `cancel` stops it early, as when nobody waits for it
-/// any more.
+/// threads, or takes the timing of the same file measured lately. Setting
+/// `cancel` stops it early, as when nobody waits for it any more.
 pub async fn time(
     test: Test,
     data: Vec<u8>,
     cancel: Arc<AtomicBool>,
 ) -> Result<Timing> {
+    let sha256 = import::sha256(&data);
+    let measured = |sha256: &str| {
+        recent(sha256, test).and_then(|report| report.timing().cloned())
+    };
+    if let Some(timing) = measured(&sha256) {
+        return Ok(timing);
+    }
     let _turn = TIMING.acquire().await?;
-    tokio::task::spawn_blocking(move || {
+    // Measured while this waited for its turn, as by the preview just
+    // before.
+    if let Some(timing) = measured(&sha256) {
+        return Ok(timing);
+    }
+    let timing = tokio::task::spawn_blocking(move || {
         test.time(&Blocks::read(&data)?, &cancel)
     })
-    .await?
+    .await??;
+    if let Some(mut report) = recent(&sha256, test) {
+        if let Report::Ran(run) = &mut report {
+            run.timing = Some(timing.clone());
+        }
+        remember(&sha256, test, &report);
+    }
+    Ok(timing)
 }
 
 /// The width `category` reads from a conventional build's file, if it reads

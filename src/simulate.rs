@@ -688,7 +688,7 @@ macro_rules! broken {
 }
 
 /// What a test found.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Report {
     Ran(Box<Run>),
@@ -729,7 +729,7 @@ impl Report {
 }
 
 /// A test that ran, case by case.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Run {
     /// What each case is, such as `A + B + carry in`.
     pub pattern: String,
@@ -769,7 +769,7 @@ pub struct Run {
 }
 
 /// A port a test sets or reads, by the build's name for it.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Signal {
     pub name: String,
     pub bits: usize,
@@ -777,7 +777,7 @@ pub struct Signal {
 
 /// One case a build got wrong: each input's value, and each output's
 /// expected and actual value, in the order of `Run`'s.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Wrong {
     pub inputs: Vec<u64>,
     pub expected: Vec<u64>,
