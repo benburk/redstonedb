@@ -203,8 +203,8 @@ struct Settings {
 struct Submission {
     /// The prepared file, base64.
     data: String,
-    /// `furnace` or `hopper` when the person asked to swap those for
-    /// barrels rather than publish.
+    /// `hopper` when the person asked to swap hoppers for barrels rather
+    /// than publish.
     swap: String,
     settings: Settings,
     form: details::Form,
@@ -251,7 +251,7 @@ pub async fn publish(
     };
     let settings = sent.settings;
     // A swap changes the file and shows it again, keeping the details.
-    let swapping = matches!(sent.swap.as_str(), "furnace" | "hopper");
+    let swapping = sent.swap == "hopper";
     let data = if swapping {
         match standardize::barrels(&data, &[sent.swap.as_str()]) {
             Ok(swapped) => swapped,
@@ -369,9 +369,6 @@ async fn publish_checked(
     let stacking: &[StackDirection] =
         if inferred { &[] } else { &parsed.stacking };
     stack::check(&prepared.data, stacking)?;
-    if !sent.settings.unconventional && !inferred {
-        stack::check_furnaces(&prepared.blocks, stacking)?;
-    }
     let size = &prepared.size;
     let new = New {
         category: &parsed.category,
@@ -457,7 +454,6 @@ async fn show_preview(
                 unconventional: settings.unconventional,
                 swapped: &prepared.swapped,
                 guess: said.guess,
-                furnaces: swappable.furnaces,
                 hoppers: swappable.hoppers,
             },
             analysis: &pages::Analysis {

@@ -34,10 +34,10 @@ pub const STATUS: &str = "pink";
 
 /// Redstone components and the other blocks every build may use. Besides
 /// dust, torches, and the like, this keeps the blocks a comparator reads,
-/// such as barrels and furnaces, since a build uses them for their signal;
-/// cauldrons and cakes are swapped for barrels. Every kind of button is
+/// such as barrels, since a build uses them for their signal; furnaces,
+/// cauldrons, and cakes are swapped for barrels. Every kind of button is
 /// allowed as well.
-const COMPONENTS: [&str; 44] = [
+const COMPONENTS: [&str; 43] = [
     "air",
     "redstone_wire",
     "redstone_torch",
@@ -64,7 +64,6 @@ const COMPONENTS: [&str; 44] = [
     "stone_pressure_plate",
     "light_weighted_pressure_plate",
     "heavy_weighted_pressure_plate",
-    "furnace",
     "blast_furnace",
     "smoker",
     "chest",
@@ -491,23 +490,23 @@ pub fn keeps(name: &str) -> bool {
 }
 
 /// Whether a block id without its namespace is one a barrel stands in for:
-/// a cauldron or cake, which a comparator reads a signal strength from.
+/// a furnace, cauldron, or cake, which a comparator reads a signal strength
+/// from.
 pub fn barrel_stands_in(name: &str) -> bool {
-    name.ends_with("cauldron")
+    name == "furnace"
+        || name.ends_with("cauldron")
         || name == "cake"
         || name.ends_with("candle_cake")
 }
 
 /// Whether a block id without its namespace is one only a stack's first
-/// copy keeps: gray concrete or stained glass, or a furnace, which gives
-/// the signal strength the first copy alone needs. A barrel repeats in
-/// every copy.
+/// copy keeps, with what rests on it: gray concrete or stained glass. A
+/// barrel on gray gives a signal strength the first copy alone needs; any
+/// other repeats in every copy.
 pub fn first_copy_only(name: &str) -> bool {
-    name == "furnace"
-        || name
-            .strip_suffix("_concrete")
-            .or_else(|| name.strip_suffix("_stained_glass"))
-            == Some(FIRST_COPY)
+    name.strip_suffix("_concrete")
+        .or_else(|| name.strip_suffix("_stained_glass"))
+        == Some(FIRST_COPY)
 }
 
 /// Whether a block id without its namespace, such as `lime_concrete`, is

@@ -16,9 +16,9 @@
 //! on one of the previous copy's blocks. The previous copy's blocks stand
 //! there.
 //!
-//! Only the first copy keeps gray blocks, furnaces, and the components
-//! resting on them, such as logic the least significant bit alone needs or
-//! the signal strength it alone takes.
+//! Only the first copy keeps gray blocks and what rests on them, such as
+//! logic the least significant bit alone needs, or a barrel giving the
+//! signal strength it alone takes.
 //! Every copy but the last turns its labelled outputs and status lines,
 //! signed or not, white and drops their signs, since the next copy takes
 //! them over. Several directions stack one
@@ -67,25 +67,6 @@ pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
         along(data, direction, 2).map_err(|err| {
             format!("Two copies stacked {} don't fit: {err}.", direction.name())
         })?;
-    }
-    Ok(())
-}
-
-/// Refuses a furnace in a build that does not stack: a furnace gives the
-/// signal strength only a stack's first copy needs, and a barrel gives one
-/// anywhere else. The `Err` is a sentence for the person.
-pub fn check_furnaces(
-    blocks: &Blocks,
-    directions: &[StackDirection],
-) -> Result<(), String> {
-    let furnace =
-        |(_, state): &(Pos, &str)| schem::id(state) == "minecraft:furnace";
-    if directions.is_empty() && blocks.iter().any(|block| furnace(&block)) {
-        return Err("Only a stackable build's first copy keeps a furnace, \
-                    for a signal strength it alone needs. Tick Stackable if \
-                    it stacks, or swap each furnace for a barrel giving the \
-                    same strength."
-            .to_owned());
     }
     Ok(())
 }
@@ -263,9 +244,9 @@ fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     edge
 }
 
-/// The blocks only the first copy keeps: gray blocks and furnaces, and the
-/// dust, torches, repeaters, comparators, levers, buttons, and signs
-/// resting on them.
+/// The blocks only the first copy keeps: gray blocks, and the dust,
+/// torches, repeaters, comparators, levers, buttons, signs, and containers
+/// such as barrels resting on them.
 fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
     let mut only: HashSet<Pos> = blocks
         .iter()
@@ -276,9 +257,8 @@ fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
         .iter()
         .filter_map(|(pos, state)| {
             let on = match short(state) {
-                "redstone_wire" | "repeater" | "comparator" => {
-                    Some(schem::step(pos, "down"))
-                }
+                "redstone_wire" | "repeater" | "comparator" | "barrel"
+                | "hopper" | "furnace" => Some(schem::step(pos, "down")),
                 _ => schem::torch_block(pos, state),
             };
             Some((pos, on?))

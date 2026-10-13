@@ -461,13 +461,7 @@ async fn saved(
     let inferred = conventional
         && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
     if let Some(data) = data.filter(|_| !inferred) {
-        let checked = stack::check(&data, &parsed.stacking).and_then(|()| {
-            if !conventional {
-                return Ok(());
-            }
-            let blocks = Blocks::read(&data).map_err(|err| err.to_string())?;
-            stack::check_furnaces(&blocks, &parsed.stacking)
-        });
+        let checked = stack::check(&data, &parsed.stacking);
         if let Err(message) = checked {
             return Ok(Err(message));
         }

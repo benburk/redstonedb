@@ -508,7 +508,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             .with_context(|| file.display().to_string())?;
     // As the category has it: only an adder may leave its lone control and
     // status lines unsigned.
-    let mut violations: Vec<String> = if conventional {
+    let violations: Vec<String> = if conventional {
         lint::check_for(&prepared.blocks, &args.category)
             .iter()
             .map(ToString::to_string)
@@ -516,12 +516,6 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     } else {
         Vec::new()
     };
-    if conventional
-        && let Err(message) =
-            stack::check_furnaces(&prepared.blocks, &details.stacking)
-    {
-        violations.push(message);
-    }
     if !violations.is_empty() {
         for violation in &violations {
             eprintln!("{violation}");

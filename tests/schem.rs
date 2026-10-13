@@ -653,34 +653,29 @@ fn tidying_keeps_where_a_file_pastes_from() {
     );
 }
 
-/// The adder that stacks every 16 blocks up keeps a furnace for its first
-/// copy's 1ss; swapping it gives a barrel of the same strength.
+/// The multiplier's furnaces each give a comparator 1ss; taking the file
+/// in swaps each for a barrel giving the same.
 #[test]
-fn a_furnace_swaps_for_a_barrel_of_the_same_strength() {
-    let data = raw("vert-adder-8-stacks");
-    let furnace = [5, 2, 1];
+fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
+    let data = standardize::tidy(&raw("mult-8-diag-signed")).unwrap();
     let before = Blocks::read(&data).unwrap();
-    assert_eq!(standardize::swappable(&before).furnaces, 1);
-    let up: StackDirection = "up=16".parse().unwrap();
-    assert!(stack::check_furnaces(&before, &[up]).is_ok());
-    assert!(stack::check_furnaces(&before, &[]).is_err());
-    // Standardizing leaves a furnace, which a stackable build may keep.
-    let standardized = Blocks::read(&standardize::standardize(&data).unwrap());
-    assert_eq!(standardize::swappable(&standardized.unwrap()).furnaces, 1);
-
-    let after =
-        Blocks::read(&standardize::barrels(&data, &["furnace"]).unwrap())
-            .unwrap();
-    assert_eq!(standardize::swappable(&after).furnaces, 0);
-    assert!(after.get(furnace).starts_with("minecraft:barrel"));
-    let strength = |blocks: &Blocks| {
+    let (furnace, _) = before
+        .iter()
+        .find(|(_, state)| state.starts_with("minecraft:furnace"))
+        .unwrap();
+    let prepared = import::prepare(&data, false, true, false).unwrap();
+    assert_eq!(prepared.swapped, [("furnace".to_owned(), 36)]);
+    let after = &prepared.blocks;
+    assert!(after.iter().all(|(_, state)| !state.contains("furnace")));
+    let strength = |blocks: &Blocks, pos| {
         app::schem::container_strength(
-            &blocks.containers[&furnace],
-            app::schem::slots(blocks.get(furnace)).unwrap(),
+            &blocks.containers[&pos],
+            app::schem::slots(blocks.get(pos)).unwrap(),
         )
     };
-    assert_eq!(strength(&after), strength(&before));
-    assert!(stack::check_furnaces(&after, &[]).is_ok());
+    assert_eq!(strength(&before, furnace), 1);
+    // The box is fitted the same, so the barrel sits where the furnace did.
+    assert_eq!(strength(after, furnace), 1);
 }
 
 /// Cauldrons and cakes give a comparator their signal strength, which a

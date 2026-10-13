@@ -179,9 +179,9 @@ fn an_adders_lone_lines_need_no_signs() {
 }
 
 /// An 8-bit adder that repeats every 16 blocks up, as `//rstack up 1 16`
-/// stacks it, overlapping the copy below. Its comparators read barrels and
-/// a furnace; the first copy alone keeps its carry in, the gray logic under
-/// its least significant bit, and the furnace giving that bit's 1ss.
+/// stacks it, overlapping the copy below. Its comparators read barrels; the
+/// first copy alone keeps its carry in, the gray logic under its least
+/// significant bit, and the barrel on gray giving that bit's 1ss.
 #[test]
 fn an_8_bit_adder_stacks_into_a_16_bit_one() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
@@ -216,11 +216,7 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
 fn a_combinational_multiplier_tries_every_product() {
     let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
-    let data = standardize::barrels(
-        &standardize::standardize(&raw).unwrap(),
-        &["furnace"],
-    )
-    .unwrap();
+    let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::Multiplier.run(&blocks) else {
         panic!("the multiplier was not simulated");
@@ -306,4 +302,38 @@ fn a_build_is_known_for_what_it_does() {
     // A carry in saved the wrong way round gets every sum wrong, so it is
     // no adder until fixed.
     assert!(simulate::guess(&blocks("vert-3t-cca")).is_none());
+}
+
+/// The barrel giving its least significant bit's 1ss stands on gray, so
+/// only the first copy keeps it; without the gray block, every copy has
+/// one, and adds 1 at its first bit.
+#[test]
+fn a_barrel_on_gray_belongs_to_the_first_copy() {
+    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
+        .expect("fixture is readable");
+    let blocks = Blocks::read(&data).unwrap();
+    let gray = [5, 1, 1];
+    assert!(
+        blocks
+            .get(schem::step(gray, "up"))
+            .starts_with("minecraft:barrel")
+    );
+    let grid: HashMap<_, _> = blocks
+        .iter()
+        .filter(|(pos, state)| *state != schem::AIR && *pos != gray)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
+    let unmarked = schem::encode(nbt).unwrap();
+    let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&unmarked)
+    else {
+        panic!("it stacks without the gray block");
+    };
+    assert!(
+        reason.contains("A 0 + B 0 + carry in 0 gives 65792"),
+        "{reason}"
+    );
 }

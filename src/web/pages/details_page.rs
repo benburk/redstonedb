@@ -37,11 +37,9 @@ pub enum File<'a> {
         unconventional: bool,
         /// What it seems to be, which the category and design start as.
         guess: Option<&'a Guess>,
-        /// The cauldrons and cakes swapped for barrels, by kind, with how
-        /// many, and how many furnaces it has, which the page offers to
-        /// swap too.
+        /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
+        /// with how many.
         swapped: &'a [(String, usize)],
-        furnaces: usize,
         /// How many hoppers it has, kept unless the uploader asks to swap
         /// them.
         hoppers: usize,
@@ -238,8 +236,8 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
     }
 }
 
-/// For an upload, the cauldrons and cakes swapped for barrels, and its
-/// furnaces and hoppers, with an offer to swap them too.
+/// For an upload, the furnaces, cauldrons, and cakes swapped for barrels,
+/// and its hoppers, with an offer to swap them too.
 fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
         @if let File::Upload { guess: Some(guess), .. } = &page.file {
@@ -256,15 +254,6 @@ fn swap_checks(page: &DetailsPage) -> Markup {
                     "Swapped " (counted(swapped)) " for "
                     @if matches!(swapped, [(_, 1)]) { "a barrel" } @else { "barrels" }
                     " giving the same signal strength."
-                }, false))
-            }
-        }
-        @if let File::Upload { furnaces, unconventional: false, .. } = &page.file {
-            @if *furnaces > 0 {
-                (check("furnaces", State::Wait, &html! {
-                    @if *furnaces == 1 { "Has a furnace" } @else { "Has " (furnaces) " furnaces" }
-                    ", which only a stackable build's first copy keeps. If it doesn't stack, "
-                    (swap_button("furnace", if *furnaces == 1 { "swap it for a barrel" } else { "swap them for barrels" }))
                 }, false))
             }
         }
@@ -306,9 +295,9 @@ fn counted(kinds: &[(String, usize)]) -> String {
     }
 }
 
-/// A button that sends the details form to swap the file's furnaces or
-/// hoppers, as `what` says, for barrels giving the same signal strength,
-/// and shows it again rather than publishing.
+/// A button that sends the details form to swap the file's hoppers, as
+/// `what` says, for barrels giving the same signal strength, and shows it
+/// again rather than publishing.
 fn swap_button(what: &str, label: &str) -> Markup {
     html! {
         button type="submit" form="details-form" name="swap" value=(what) formnovalidate

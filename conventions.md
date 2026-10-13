@@ -61,9 +61,9 @@ Import derives this from the build, so nothing in-world marks it.
 ### Signal strengths
 
 - A fixed signal strength, such as a 1ss, comes from a barrel of redstone dust read by a comparator. A barrel is a solid block and repeats in every copy of a stack.
-- Cauldrons and cakes are not allowed. The site swaps each for a barrel giving the same strength whenever it takes in a file, and the upload page says so.
+- Furnaces, cauldrons, and cakes are not allowed. The site swaps each for a barrel giving the same strength whenever it takes in a file, and the upload page says so. A furnace conducts as a barrel does, so the swap changes nothing else.
 - A hopper is allowed, but only as a fixed strength: the simulator reads what it holds and moves no items. The upload page offers to swap it for a barrel giving the same strength.
-- A furnace is only for a stackable build, as a strength its first copy alone needs. A build that does not stack is refused one, and the upload page offers to swap it for a barrel giving the same strength.
+- A strength only a stack's first copy needs, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Stacking.
 
 ## Outputs
 
@@ -102,7 +102,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - Stacking keeps every copy's slice: the build less its interface layers (see Bounding box), cut along each stacking direction to as many layers as the step, at the end away from the previous copy. Blocks a copy has outside its slice that reach into the previous copy's slice belong to the edge of the stack when they are input blocks, such as the magenta block feeding a carry in or a shared control line, or would replace a different block of the previous copy. Only the first copy keeps them, with any lever or sign on them. A torch on them is logic, such as one inverting a carry in, so it stays where the previous copy has a block in their place, such as the carry out it continues, to hang on.
 - Every copy but the last turns its labelled outputs and status lines, such as a carry out, signed or not, white and drops their signs, since the next copy takes them over.
 - Copies may overlap, as `//rstack` allows: a build that repeats every eight bits may reach into the copy below. Where they overlap, a block the same in both stands once, a block landing on air stays, and dust that meets joins.
-- Only the first copy keeps gray blocks, furnaces, and the dust, torches, repeaters, comparators, levers, and signs resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a furnace; see Signal strengths. To stack in-game with `//rstack`, delete these and the carry in first, then put them back on the first copy.
+- Only the first copy keeps gray blocks and the dust, torches, repeaters, comparators, levers, signs, and barrels resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Signal strengths. To stack in-game with `//rstack`, delete these and the carry in first, then put them back on the first copy.
 - The site tests whether an adder that adds right stacks: the step comes from how its bits are spaced, carried on past the last one, or for a 1-bit adder from its carry in to its carry out, and enough copies must add right together that one sits between two others and the stack reaches a copy past the 15 blocks dust carries a signal, as a 1-bit slice 2 wide takes 9 and an 8-bit adder 16 high takes 3. One that does is taken to stack any number of times, and the site sets an adder's stacking from what it found: that step with no limit on copies, or none, in place of any typed.
 - A copy must not overwrite a different block of the copy before. Export refuses a stack whose copies collide, since that means a step is wrong.
 
