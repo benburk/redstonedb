@@ -416,7 +416,9 @@ fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
                 found,
                 Some(pos),
                 format!(
-                    "a sign names {}, which is neither an input nor an output",
+                    "a sign reading \"{name}\" is on {}, which is neither an \
+                     input nor an output; signs carry only labels, so \
+                     standardizing takes it out",
                     block.replace('_', " ")
                 ),
             );

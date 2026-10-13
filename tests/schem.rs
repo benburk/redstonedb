@@ -791,3 +791,21 @@ fn lsb_and_msb_signs_say_which_way_a_bus_counts() {
         "{messages:#?}"
     );
 }
+
+/// Birch signs noting the day it was built stand on its target blocks.
+/// They label nothing, so standardizing takes them out, as redstone passes
+/// a sign by as it does air, rather than turning them into concrete.
+#[test]
+fn standardizing_takes_out_signs_that_label_nothing() {
+    let raw = std::fs::read("tests/fixtures/adder-8-date-signs.schem").unwrap();
+    let before = Blocks::read(&raw).unwrap();
+    assert!(
+        lint::check(&before)
+            .iter()
+            .any(|v| v.message.contains("2023/6/3"))
+    );
+    let blocks =
+        Blocks::read(&standardize::standardize(&raw).unwrap()).unwrap();
+    assert!(blocks.signs.is_empty());
+    assert!(lint::check(&blocks).is_empty());
+}

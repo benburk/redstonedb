@@ -16,6 +16,10 @@
 //!   concrete with dust on top, a signal-strength input.
 //! - A status line, a block whose sign names a status output such as
 //!   `carry out`, turns pink, as older builds marked them on yellow.
+//! - A sign of any wood becomes an oak one, and a sign on a block that is
+//!   neither an input nor an output, such as a note of the build's date,
+//!   is taken out, as signs carry only labels. Redstone passes a sign by as
+//!   it does air.
 //! - The box is fitted tightly around what is left.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -38,9 +42,12 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let old_markers = loose_glass(&blocks, false);
     let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
     let status = status_lines(&blocks);
+    let notes = notes(&blocks, &inputs, &status);
     let grid: HashMap<Pos, String> = blocks
         .iter()
-        .filter(|(pos, state)| *state != AIR && !old_markers.contains(pos))
+        .filter(|(pos, state)| {
+            *state != AIR && !old_markers.contains(pos) && !notes.contains(pos)
+        })
         .map(|(pos, state)| {
             let state = if status.contains(&pos) {
                 pink(state)
@@ -68,6 +75,27 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
          the whole build"
     );
     Ok(standardized)
+}
+
+/// The signs on a block that is neither an input, one of `inputs`, nor an
+/// output or one of the `status` lines, so label nothing.
+fn notes(
+    blocks: &Blocks,
+    inputs: &HashSet<Pos>,
+    status: &HashSet<Pos>,
+) -> HashSet<Pos> {
+    blocks
+        .signs
+        .keys()
+        .copied()
+        .filter(|&sign| {
+            blocks.sign_block(sign).is_none_or(|on| {
+                !inputs.contains(&on)
+                    && !status.contains(&on)
+                    && !lint::is_output(short(blocks.get(on)))
+            })
+        })
+        .collect()
 }
 
 /// The file with each status line pink: a block with no lever whose sign
@@ -285,12 +313,14 @@ fn rebox(
         .map(|(&pos, state)| (shift(pos), state.clone()))
         .collect();
     let mut nbt = schem::decode(data)?;
+    // A block entity whose block was taken out goes with it.
     let entities = nbt
         .take_entities()
         .iter()
         .filter_map(|entity| {
             let pos = shift(schem::entity_pos(entity)?);
-            inside(pos).then(|| schem::with_pos(entity, pos))
+            (inside(pos) && placed.contains_key(&pos))
+                .then(|| schem::with_pos(entity, pos))
         })
         .collect();
     nbt.write_blocks(low, size, &placed, entities)?;
@@ -378,6 +408,14 @@ fn restyle(state: &str, input: bool) -> String {
         format!("minecraft:{colour}_concrete")
     } else if lint::keeps(name) {
         state.to_owned()
+    } else if name.ends_with("_sign") && !name.contains("hanging") {
+        let wall = if name.ends_with("_wall_sign") {
+            "wall_"
+        } else {
+            ""
+        };
+        let properties = &state[id.len()..];
+        format!("minecraft:oak_{wall}sign{properties}")
     } else if name.contains("glass")
         || name.ends_with("_slab")
         || name.ends_with("_stairs")
