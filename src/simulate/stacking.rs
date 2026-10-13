@@ -9,9 +9,8 @@
 //!
 //! The checks run cheapest first and stop at the first that fails: a carry
 //! in to take the carry from the copy before, the spacing of the bits, then
-//! that no copy would put a block over a different one of the copy before,
-//! as `//rstack` would, then whether the copies fit together and read as
-//! one adder, then whether the
+//! whether the copies, stacked as `//rstack` stacks them, fit together and
+//! read as one adder, then whether the
 //! stack settles, then a few sums whose carry crosses from one copy to the
 //! next, and only then the stack's full test.
 
@@ -23,6 +22,7 @@ use super::{
 };
 use crate::{
     interface::{self, Interface},
+    lint,
     models::schematic::StackDirection,
     schem::{Blocks, Pos},
     stack,
@@ -97,14 +97,15 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         return Some(not(None, reason.to_owned()));
     }
     let width = super::input_bits(&interface.inputs[ports.a]);
+    // A 1-bit adder's carry out need not be where the next copy's carry in
+    // goes, as when the copy above covers it, or it may have none, its carry
+    // leaving by dust that carry in lands on; short steps are tried with
+    // the one from its carry in to its carry out.
+    if width == 1 {
+        return Some(search(data, &blocks, step(&interface, &ports).ok()));
+    }
     let step = match step(&interface, &ports) {
         Ok(step) => step,
-        // A 1-bit adder whose carry leaves without a carry out line, as by
-        // dust the next copy's carry in lands on, says nothing of where
-        // that copy goes, so short steps are tried instead.
-        Err(_) if width == 1 && ports.carry_out.is_none() => {
-            return Some(search(data, &blocks));
-        }
         Err(reason) => return Some(not(None, reason)),
     };
     let copies = copies(step, width)?;
@@ -119,15 +120,17 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
     })
 }
 
-/// The first of the short steps, up, west, or north as far as the build
-/// reaches, the shortest first, whose copies of 1-bit adder `data` add
-/// right. Each wrong one fails a cheap check, so this is quick.
-fn search(data: &[u8], blocks: &Blocks) -> Stacking {
+/// The shortest step whose copies of 1-bit adder `data` add right, of
+/// `first`, if given, which wins a tie, and the steps up, west, or north as
+/// far as the build reaches. The shortest that works packs the bits
+/// closest, and each wrong one mostly fails a cheap check, so this is
+/// quick.
+fn search(data: &[u8], blocks: &Blocks, first: Option<Step>) -> Stacking {
     let (low, high) = interface::core(blocks);
     let reach = |axis: usize| high[axis] - low[axis] + 1;
     let longest = (0..3).map(reach).max().unwrap_or(1);
-    for n in 1..=i64::from(longest) {
-        let ways = [
+    let short = (1..=i64::from(longest)).flat_map(|n| {
+        [
             (
                 1,
                 Step {
@@ -152,28 +155,31 @@ fn search(data: &[u8], blocks: &Blocks) -> Stacking {
                     north: n,
                 },
             ),
-        ];
-        for (axis, step) in ways {
-            if n > i64::from(reach(axis)) {
-                continue;
-            }
-            let Some(copies) = copies(step, 1) else {
-                continue;
+        ]
+        .into_iter()
+        .filter(move |&(axis, _)| n <= i64::from(reach(axis)))
+        .map(|(_, step)| step)
+    });
+    let mut steps: Vec<Step> = first.into_iter().chain(short).collect();
+    steps.sort_by_key(|step| step.west + step.up + step.north);
+    steps.dedup();
+    for step in steps {
+        let Some(copies) = copies(step, 1) else {
+            continue;
+        };
+        if let Ok(cases) = stacked(data, step, copies, 1) {
+            return Stacking::Stacks {
+                step,
+                copies,
+                bits: copies,
+                cases,
             };
-            if let Ok(cases) = stacked(data, step, copies, 1) {
-                return Stacking::Stacks {
-                    step,
-                    copies,
-                    bits: copies,
-                    cases,
-                };
-            }
         }
     }
     Stacking::Not {
         step: None,
-        reason: "It has no carry out line, and no step up, west, or north \
-                 as far as it reaches makes copies that add right."
+        reason: "No step up, west, or north as far as it reaches makes \
+                 copies that add right."
             .to_owned(),
     }
 }
@@ -286,34 +292,21 @@ fn stacked(
     copies: usize,
     width: usize,
 ) -> Result<u64, String> {
-    // A copy must not put a block over a different one of the copy before:
-    // `//rstack` would replace it, though stacking here keeps it.
-    let overwrites = stack::overwrites(data, step.direction())
-        .map_err(|err| err.to_string())?;
-    if let Some(first) = overwrites.first() {
-        let [x, y, z] = first.pos;
-        let name = |state: &str| {
-            let id = crate::schem::id(state);
-            id.strip_prefix("minecraft:")
-                .unwrap_or(id)
-                .replace('_', " ")
-        };
-        return Err(format!(
-            "A copy's {} would land on the {} at ({x}, {y}, {z}) of the copy \
-             before, which //rstack would replace{}. Mark what only the \
-             first copy needs gray, so the others leave it out.",
-            name(&first.by),
-            name(&first.over),
-            match overwrites.len() {
-                1 => String::new(),
-                n => format!(", and {} more like it", n - 1),
-            },
-        ));
-    }
     let (stacked, _) = stack::stack(data, &[(step.direction(), copies)])
         .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
+    let control = format!("{} concrete", lint::CONTROL);
+    let carries_in = interface
+        .inputs
+        .iter()
+        .filter(|port| port.block == control)
+        .count();
+    if carries_in > 1 {
+        return Err("The carry does not pass between copies: each keeps its \
+                    own carry in, which lands past the copy before."
+            .to_owned());
+    }
     let bench = adder_bench(&mut interface).map_err(|err| {
         format!("{copies} copies do not make one adder: {err}")
     })?;

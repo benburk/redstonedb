@@ -1,28 +1,24 @@
-//! Copies of a stackable build joined into one schematic.
+//! Copies of a stackable build joined into one schematic, as `//rstack`
+//! joins them in-game.
 //!
 //! Copy 0 sits at the south-east-bottom corner and each later copy one
-//! step further along, as `//rstack` places them: copies may overlap, and
-//! where they do, the same block in both stands once. A copy's slice is the
-//! part that repeats: its core, as [`interface::core`] finds it, cut along
-//! each stacking axis to as many layers as the step, at the end away from
-//! the previous copy. Its blocks outside the slice that reach into the
-//! previous copy's slice belong to the edge of the stack, and are dropped,
-//! along with the levers and signs on them, when they are input blocks,
-//! such as the magenta block feeding a carry in, or would replace a
-//! different block of the previous copy. A torch on them stays where the
-//! previous copy has a block in their place to hang on, as a torch
-//! inverting a carry in hangs on the carry out it continues. A lever,
-//! sign, or torch on a block that stays, stays too, unless it would land
-//! on one of the previous copy's blocks. The previous copy's blocks stand
-//! there.
+//! step further along, pasted over the copies before it: copies may
+//! overlap, and where they do, the later copy's block stands, though air
+//! never replaces anything and dust that meets joins. A build may rely on
+//! that, as a carry out capping one copy is covered by the next.
 //!
-//! Only the first copy keeps gray blocks and what rests on them, such as
-//! logic the least significant bit alone needs, or a barrel giving the
-//! signal strength it alone takes.
+//! Later copies leave out what only the first copy keeps: gray blocks and
+//! what rests on them, such as logic the least significant bit alone needs,
+//! or a barrel giving the signal strength it alone takes; and the inputs
+//! the copy before feeds, such as a carry in, with their levers and signs;
+//! see `shared_inputs`.
+//!
 //! Every copy but the last turns its labelled outputs and status lines,
 //! signed or not, white and drops their signs, since the next copy takes
-//! them over. Several directions stack one
-//! after another.
+//! them over. A later copy's solid block on a different solid block of the
+//! copy before, one of them an input or output, means the step is wrong,
+//! and is refused. Several directions
+//! stack one after another.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -69,68 +65,6 @@ pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
         })?;
     }
     Ok(())
-}
-
-/// A block a later copy would put over a different one of the copy before,
-/// as `//rstack` does: `pos` in the earlier copy, its block `over`, and the
-/// later copy's `by`.
-pub struct Overwrite {
-    pub pos: Pos,
-    pub over: String,
-    pub by: String,
-}
-
-/// What copies of the file stacked along `direction` would put over the
-/// copy before, leaving out what is removed before stacking in-game: gray
-/// blocks and what rests on them, and input blocks, such as a carry in,
-/// with the levers, signs, and torches on them. Stacking here keeps the
-/// earlier block, but `//rstack` replaces it, so a build that stacks has
-/// none.
-pub fn overwrites(
-    data: &[u8],
-    direction: StackDirection,
-) -> Result<Vec<Overwrite>> {
-    let blocks = Blocks::read(data)?;
-    let [west, up, north] =
-        [direction.west, direction.up, direction.north].map(i32::try_from);
-    let step = [-west?, up?, -north?];
-    let mut removed = first_copy_only(&blocks);
-    let inputs: HashSet<Pos> = blocks
-        .iter()
-        .filter(|(_, state)| lint::is_input(short(state)))
-        .map(|(pos, _)| pos)
-        .collect();
-    let mut on_inputs: Vec<Pos> = blocks
-        .switches()
-        .into_iter()
-        .filter(|switch| inputs.contains(&switch.block))
-        .map(|switch| switch.pos)
-        .collect();
-    on_inputs.extend(blocks.signs.keys().copied().filter(|&sign| {
-        blocks
-            .sign_block(sign)
-            .is_some_and(|on| inputs.contains(&on))
-    }));
-    on_inputs.extend(blocks.iter().filter_map(|(pos, state)| {
-        schem::torch_block(pos, state)
-            .filter(|on| inputs.contains(on))
-            .map(|_| pos)
-    }));
-    removed.extend(inputs);
-    removed.extend(on_inputs);
-    Ok(blocks
-        .iter()
-        .filter(|(pos, state)| *state != AIR && !removed.contains(pos))
-        .filter_map(|(pos, state)| {
-            let landing = add(pos, step);
-            let under = blocks.get(landing);
-            replaces(under, state).then(|| Overwrite {
-                pos: landing,
-                over: under.to_owned(),
-                by: state.to_owned(),
-            })
-        })
-        .collect())
 }
 
 /// Pairs each of `directions` with its count in `wanted`, keyed by
@@ -186,8 +120,8 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let mut edge = edge_blocks(&blocks, step);
-    edge.extend(first_copy_only(&blocks));
+    let mut left_out = first_copy_only(&blocks);
+    left_out.extend(shared_inputs(&blocks, step));
     let outputs = labelled_outputs(&blocks);
 
     let mut grid: HashMap<Pos, String> = HashMap::new();
@@ -196,7 +130,7 @@ fn along(
         let final_copy = i == last;
         for (pos, state) in blocks.iter() {
             if state == AIR
-                || (!first && edge.contains(&pos))
+                || (!first && left_out.contains(&pos))
                 || (!final_copy && outputs.signs.contains(&pos))
             {
                 continue;
@@ -212,22 +146,30 @@ fn along(
 
     let mut nbt = schem::decode(data)?;
     let entities = nbt.take_entities();
-    let mut stacked_entities = Vec::new();
-    // Where copies overlap, the block stands once, and so does its entity.
-    let mut taken = HashSet::new();
+    // Where copies overlap, a later copy's entity stands, as its block
+    // does, and one whose block a later copy covered goes with it.
+    let mut placed: HashMap<Pos, (String, fastnbt::Value)> = HashMap::new();
     for i in 0..=last {
         for entity in &entities {
             let Some(pos) = schem::entity_pos(entity) else {
                 continue;
             };
-            let to = add(pos, shift(i));
-            let dropped = (i != 0 && edge.contains(&pos))
+            let dropped = (i != 0 && left_out.contains(&pos))
                 || (i != last && outputs.signs.contains(&pos));
-            if !dropped && taken.insert(to) {
-                stacked_entities.push(schem::with_pos(entity, to));
+            if !dropped {
+                let to = add(pos, shift(i));
+                let block = schem::id(blocks.get(pos)).to_owned();
+                placed.insert(to, (block, schem::with_pos(entity, to)));
             }
         }
     }
+    let stacked_entities = placed
+        .into_iter()
+        .filter(|(pos, (block, _))| {
+            grid.get(pos).is_some_and(|state| schem::id(state) == block)
+        })
+        .map(|(_, (_, entity))| entity)
+        .collect();
     // The first copy stays at the south-east-bottom end and the rest go
     // west, north, and up, so the box's first block moved by this.
     let low = [-(last * west), 0, -(last * north)];
@@ -235,75 +177,53 @@ fn along(
     schem::encode(nbt)
 }
 
-/// Blocks outside the slice that a step lands inside the slice, so on the
-/// previous copy, and the levers, signs, torches, and input dust on them. A
-/// lever, sign, torch, or input dust on a block that stays, stays too,
-/// unless it lands on one of the previous copy's blocks.
-fn edge_blocks(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
-    let (mut low, mut high) = interface::core(blocks);
-    // The previous copy lies the opposite way from `step`, so the slice is
-    // the `step` layers at the core's far end.
-    for axis in 0..3 {
-        match step[axis] {
-            n if n < 0 => high[axis] = high[axis].min(low[axis] - n - 1),
-            n if n > 0 => low[axis] = low[axis].max(high[axis] - n + 1),
-            _ => {}
-        }
-    }
-    let inside = |pos: Pos| {
+/// The inputs a later copy leaves out, a `step` along, since the copy
+/// before feeds them: a control line that lands within it, such as a carry
+/// in, and an input block of a layer outside the build's core, as
+/// [`interface::core`] finds it, that lands in the core of the copy before,
+/// as a memory's input layer does; with the levers, buttons, and signs on
+/// them. A torch on one stays where the copy before has a solid block in
+/// its place to hang on, as one inverting a carry in hangs on the carry out
+/// it continues. A control line that lands beyond the copy before, as a
+/// register stacked into more registers keeps its own, stays, as does an
+/// adder's next bit, which lands in its own input layer.
+fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
+    let (low, high) = interface::core(blocks);
+    let in_core = |pos: Pos| {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
     };
-    let lands_inside = |pos: Pos| !inside(pos) && inside(add(pos, step));
-    // What each lever, sign, torch, and input's dust hangs on.
-    let mut support: HashMap<Pos, Pos> = blocks
-        .switches()
-        .into_iter()
-        .map(|lever| (lever.pos, lever.block))
-        .collect();
-    support.extend(
-        blocks
-            .signs
-            .keys()
-            .filter_map(|&sign| Some((sign, blocks.sign_block(sign)?))),
-    );
-    support.extend(blocks.iter().filter_map(|(pos, state)| {
-        Some((pos, schem::torch_block(pos, state)?))
-    }));
-    support.extend(
-        interface::dust_inputs(blocks)
-            .into_keys()
-            .map(|block| (schem::step(block, "up"), block)),
-    );
-    // A block of the overlap that matches the previous copy's, or lands
-    // on air, is part of the build, as in a build that repeats every eight
-    // bits and overlaps the copy below.
-    let mut edge: HashSet<Pos> = blocks
+    let within = |pos: Pos| {
+        (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
+    };
+    let inputs: HashSet<Pos> = blocks
         .iter()
         .filter(|&(pos, state)| {
-            state != AIR
-                && !support.contains_key(&pos)
-                && lands_inside(pos)
-                && (lint::is_input(short(state))
-                    || replaces(blocks.get(add(pos, step)), state))
+            let name = short(state);
+            let landing = add(pos, step);
+            (name == format!("{}_concrete", lint::CONTROL) && within(landing))
+                || (lint::is_input(name) && !in_core(pos) && in_core(landing))
         })
         .map(|(pos, _)| pos)
         .collect();
-    let lands_on_a_block =
-        |pos: Pos| lands_inside(pos) && blocks.get(add(pos, step)) != AIR;
-    let hanging: Vec<Pos> = support
-        .iter()
-        .filter(|&(&pos, &on)| {
-            // A torch is logic, such as one inverting a carry in: where the
-            // previous copy has a block in place of the one it hangs on,
-            // such as the carry out it continues, it hangs on that.
-            let rehung = schem::torch_block(pos, blocks.get(pos)).is_some()
-                && holds_a_torch(blocks.get(add(on, step)));
-            (edge.contains(&on) && !rehung) || lands_on_a_block(pos)
-        })
-        .map(|(&pos, _)| pos)
-        .collect();
-    edge.extend(hanging);
-    edge
+    let mut shared = inputs.clone();
+    shared.extend(
+        blocks
+            .switches()
+            .into_iter()
+            .filter(|switch| inputs.contains(&switch.block))
+            .map(|switch| switch.pos),
+    );
+    shared.extend(blocks.signs.keys().copied().filter(|&sign| {
+        blocks
+            .sign_block(sign)
+            .is_some_and(|on| inputs.contains(&on))
+    }));
+    shared.extend(blocks.iter().filter_map(|(pos, state)| {
+        let on = schem::torch_block(pos, state)?;
+        (inputs.contains(&on) && !solid(blocks.get(add(on, step))))
+            .then_some(pos)
+    }));
+    shared
 }
 
 /// The blocks only the first copy keeps: gray blocks, and the dust,
@@ -342,13 +262,6 @@ fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
     only
 }
 
-/// Whether a torch can hang on `state`: a block of concrete or stained
-/// glass, the blocks a build is made of.
-fn holds_a_torch(state: &str) -> bool {
-    let name = short(state);
-    name.ends_with("_concrete") || name.ends_with("_stained_glass")
-}
-
 struct Outputs {
     blocks: HashSet<Pos>,
     signs: HashSet<Pos>,
@@ -380,26 +293,52 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
     }
 }
 
-/// Puts `state` at `pos`, refusing to replace a different block: copies
-/// that collide mean the stacking step is wrong. Where two copies' dust
-/// meets, it joins every way either joined.
+/// Puts `state` at `pos`, over what an earlier copy put there, as
+/// `//rstack` does: dust that meets joins every way either joined. A solid
+/// block on a different solid block, one of them an input or output, is
+/// refused, since copies that collide so mean the stacking step is wrong.
 fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) -> Result<()> {
+    let marks = |state: &str| {
+        lint::is_input(short(state)) || lint::is_output(short(state))
+    };
     let placed = match grid.get(&pos) {
-        Some(existing) if replaces(existing, state) => {
+        Some(existing)
+            if solid(existing)
+                && solid(state)
+                && (marks(existing) || marks(state))
+                && replaces(existing, state) =>
+        {
             let [x, y, z] = pos;
             bail!(
                 "copies collide at ({x}, {y}, {z}): {existing} and {state}; \
                  check the stacking step"
             );
         }
-        Some(existing) if short(existing) == "redstone_wire" => {
+        Some(existing)
+            if short(existing) == "redstone_wire"
+                && short(state) == "redstone_wire" =>
+        {
             joined(existing, state)
         }
-        Some(existing) => existing.clone(),
-        None => state.to_owned(),
+        _ => state.to_owned(),
     };
     grid.insert(pos, placed);
     Ok(())
+}
+
+/// Whether `state` is a solid block rather than a component standing on
+/// or beside one, such as dust, a torch, or a lever.
+fn solid(state: &str) -> bool {
+    let name = short(state);
+    !(name == "air"
+        || name == "redstone_wire"
+        || name == "repeater"
+        || name == "comparator"
+        || name.ends_with("torch")
+        || name == "lever"
+        || name.ends_with("_button")
+        || name.ends_with("sign")
+        || name == "tripwire_hook")
 }
 
 /// Whether `state` would replace a different block at `existing`: anything

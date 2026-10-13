@@ -219,9 +219,13 @@ fn stacking_respects_the_limit() {
     assert!(stack::stack(&slice("alpha-rca-slice"), &[(west, 5)]).is_err());
 }
 
+/// A later copy covers the copy before, as `//rstack` pastes it, but a
+/// solid block landing on an input or output means the step is wrong. A
+/// wrong step that lands none, as 1 west here, stacks into a build whose
+/// simulation fails instead.
 #[test]
 fn a_wrong_step_collides() {
-    let plan = [(direction("west=1"), 2)];
+    let plan = [(direction("north=1"), 2)];
     let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
     assert!(err.to_string().contains("collide"), "{err}");
 }

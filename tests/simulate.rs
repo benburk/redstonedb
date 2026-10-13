@@ -369,8 +369,8 @@ fn a_hex_adder_is_driven_digit_by_digit() {
 
 /// The dust carrying its carry in to its least significant bit stands on
 /// gray glass. Whitened, every copy keeps the glass and dust, and a later
-/// copy's dust lands on a glass block of the copy before, which `//rstack`
-/// would replace, so it does not stack as saved.
+/// copy's dust replaces a glass block of the copy before, as `//rstack`
+/// replaces it, so it does not add right as saved.
 #[test]
 fn a_copy_must_not_overwrite_the_copy_before() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
@@ -402,12 +402,7 @@ fn a_copy_must_not_overwrite_the_copy_before() {
     else {
         panic!("it stacks with the glass whitened");
     };
-    // The fixture is not standardized, so the glass is still light blue.
-    assert!(
-        reason.contains("redstone wire would land on")
-            && reason.contains("glass at (2, 18, 2)"),
-        "{reason}"
-    );
+    assert!(reason.contains("sums wrong"), "{reason}");
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,
@@ -417,6 +412,21 @@ fn a_copy_must_not_overwrite_the_copy_before() {
 #[test]
 fn a_slice_without_a_carry_out_finds_its_step() {
     let data = std::fs::read("tests/fixtures/rca-slice-2-high.schem").unwrap();
+    assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
+    let Some(Stacking::Stacks { step, copies, .. }) =
+        Test::Adder.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), copies), ("2 up", 9));
+}
+
+/// A 1-bit ripple carry slice two blocks high whose carry out is capped by
+/// a block that the copy above replaces, as `//rstack` pastes over it, so
+/// its copies chain only when stacked as in-game.
+#[test]
+fn a_copy_may_cover_the_copy_below() {
+    let data = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
     let Some(Stacking::Stacks { step, copies, .. }) =
         Test::Adder.stacking(&data)
