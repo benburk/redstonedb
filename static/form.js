@@ -168,7 +168,9 @@ for (const field of document.querySelectorAll("[data-stacking]")) {
 // The synchronized toggle of a build where it is unknown shows as neither
 // on nor off, and stays unknown until it is clicked.
 for (const toggle of document.querySelectorAll("input[data-unknown]")) {
-  const marker = toggle.form.querySelector('input[name="synchronized_unknown"]');
+  const marker = toggle.form.querySelector(
+    '[data-timing-fields] input[name="synchronized_unknown"]',
+  );
   toggle.indeterminate = true;
   toggle.addEventListener("change", () => marker?.remove(), { once: true });
 }
@@ -350,12 +352,27 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     note.textContent = text;
     results.append(note);
   };
-  // A new version's form has no latency fields to give way.
-  const measured = () => {
+  // A category with a test has its latency and synchronized measured, so
+  // their fields give way from the start, and are not sent, unless the
+  // simulation could not run the build, as for a block it does not model.
+  // `fresh` is false while a new result is on its way. A new version's form
+  // has no latency fields to give way.
+  const measured = (fresh = true) => {
     if (!timingFields) return;
-    const measures = results.querySelector("[data-measures-timing]") !== null;
+    const typed = category.value.trim().toLowerCase();
+    const option = [...form.querySelectorAll("[data-category-menu] [role=option]")]
+      .find((option) => option.dataset.value.toLowerCase() === typed);
+    const tested = option?.hasAttribute("data-tested") ?? false;
+    const shown = fresh ? results : null;
+    const skipped = shown?.querySelector("[data-skipped]") != null;
+    const passed = shown?.querySelector("[data-measures-timing]") != null;
+    const measures = (tested && !skipped) || passed;
     timingFields.hidden = measures;
     timingNote.hidden = !measures;
+    for (const input of timingFields.querySelectorAll("input")) {
+      input.disabled = measures;
+    }
+    timingNote.querySelector("[data-measured-marker]").disabled = !measures;
   };
   const post = async (url, signal) => {
     const response = await fetch(url, {
@@ -374,6 +391,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     const { signal } = controller;
     simulating = true;
     gate();
+    measured(false);
     mark("simulation", "run", "Simulating every case…");
     mark("timing", null);
     const waiting = setTimeout(() => say("Simulating every case…", "status"), 300);

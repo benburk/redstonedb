@@ -721,6 +721,7 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
     html! {
         section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm"
             data-measures-timing[report.passed()]
+            data-skipped[matches!(report, Report::Skipped { .. })]
             data-state=(if report.failed() { "fail" } else { "pass" })
             data-summary=(simulation_summary(report)) {
             h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
@@ -1457,6 +1458,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     data-periodic[category.periodic]
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
+                                    data-tested[simulate::Test::of(&category.name, Some(1)).is_some()]
                                     data-holds-bytes[category.holds_bytes]
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -1609,7 +1611,9 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
         }
         // Hidden by form.js once a passing simulation measures them.
         p data-timing-note hidden class="text-muted" {
-            "Latency and whether it is synchronized are measured by the simulation below."
+            "Latency and whether it is synchronized are measured by the simulation below, once every case comes out right."
+            // Sent in place of the hidden fields, so nothing typed is kept.
+            input type="hidden" name="synchronized_unknown" value="yes" disabled data-measured-marker;
         }
         div class="contents" data-timing-fields {
         label class="field" {
