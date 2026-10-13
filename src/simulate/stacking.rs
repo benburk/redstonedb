@@ -9,7 +9,9 @@
 //!
 //! The checks run cheapest first and stop at the first that fails: a carry
 //! in to take the carry from the copy before, the spacing of the bits, then
-//! whether the copies fit together and read as one adder, then whether the
+//! that no copy would put a block over a different one of the copy before,
+//! as `//rstack` would, then whether the copies fit together and read as
+//! one adder, then whether the
 //! stack settles, then a few sums whose carry crosses from one copy to the
 //! next, and only then the stack's full test.
 
@@ -219,6 +221,30 @@ fn stacked(
     copies: usize,
     width: usize,
 ) -> Result<u64, String> {
+    // A copy must not put a block over a different one of the copy before:
+    // `//rstack` would replace it, though stacking here keeps it.
+    let overwrites = stack::overwrites(data, step.direction())
+        .map_err(|err| err.to_string())?;
+    if let Some(first) = overwrites.first() {
+        let [x, y, z] = first.pos;
+        let name = |state: &str| {
+            let id = crate::schem::id(state);
+            id.strip_prefix("minecraft:")
+                .unwrap_or(id)
+                .replace('_', " ")
+        };
+        return Err(format!(
+            "A copy's {} would land on the {} at ({x}, {y}, {z}) of the copy \
+             before, which //rstack would replace{}. Mark what only the \
+             first copy needs gray, so the others leave it out.",
+            name(&first.by),
+            name(&first.over),
+            match overwrites.len() {
+                1 => String::new(),
+                n => format!(", and {} more like it", n - 1),
+            },
+        ));
+    }
     let (stacked, _) = stack::stack(data, &[(step.direction(), copies)])
         .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;

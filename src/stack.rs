@@ -71,6 +71,68 @@ pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
     Ok(())
 }
 
+/// A block a later copy would put over a different one of the copy before,
+/// as `//rstack` does: `pos` in the earlier copy, its block `over`, and the
+/// later copy's `by`.
+pub struct Overwrite {
+    pub pos: Pos,
+    pub over: String,
+    pub by: String,
+}
+
+/// What copies of the file stacked along `direction` would put over the
+/// copy before, leaving out what is removed before stacking in-game: gray
+/// blocks and what rests on them, and input blocks, such as a carry in,
+/// with the levers, signs, and torches on them. Stacking here keeps the
+/// earlier block, but `//rstack` replaces it, so a build that stacks has
+/// none.
+pub fn overwrites(
+    data: &[u8],
+    direction: StackDirection,
+) -> Result<Vec<Overwrite>> {
+    let blocks = Blocks::read(data)?;
+    let [west, up, north] =
+        [direction.west, direction.up, direction.north].map(i32::try_from);
+    let step = [-west?, up?, -north?];
+    let mut removed = first_copy_only(&blocks);
+    let inputs: HashSet<Pos> = blocks
+        .iter()
+        .filter(|(_, state)| lint::is_input(short(state)))
+        .map(|(pos, _)| pos)
+        .collect();
+    let mut on_inputs: Vec<Pos> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| inputs.contains(&switch.block))
+        .map(|switch| switch.pos)
+        .collect();
+    on_inputs.extend(blocks.signs.keys().copied().filter(|&sign| {
+        blocks
+            .sign_block(sign)
+            .is_some_and(|on| inputs.contains(&on))
+    }));
+    on_inputs.extend(blocks.iter().filter_map(|(pos, state)| {
+        schem::torch_block(pos, state)
+            .filter(|on| inputs.contains(on))
+            .map(|_| pos)
+    }));
+    removed.extend(inputs);
+    removed.extend(on_inputs);
+    Ok(blocks
+        .iter()
+        .filter(|(pos, state)| *state != AIR && !removed.contains(pos))
+        .filter_map(|(pos, state)| {
+            let landing = add(pos, step);
+            let under = blocks.get(landing);
+            replaces(under, state).then(|| Overwrite {
+                pos: landing,
+                over: under.to_owned(),
+                by: state.to_owned(),
+            })
+        })
+        .collect())
+}
+
 /// Pairs each of `directions` with its count in `wanted`, keyed by
 /// direction name such as `west`. A direction left out gets one copy.
 pub fn plan<S: BuildHasher>(

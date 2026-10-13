@@ -366,3 +366,46 @@ fn a_hex_adder_is_driven_digit_by_digit() {
     assert_eq!(run.wrong, 0);
     assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }
+
+/// The dust carrying its carry in to its least significant bit stands on
+/// gray glass. Whitened, every copy keeps the glass and dust, and a later
+/// copy's dust lands on a glass block of the copy before, which `//rstack`
+/// would replace, so it does not stack as saved.
+#[test]
+fn a_copy_must_not_overwrite_the_copy_before() {
+    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
+        .expect("fixture is readable");
+    let blocks = Blocks::read(&data).unwrap();
+    assert!(
+        blocks
+            .get([2, 1, 2])
+            .starts_with("minecraft:gray_stained_glass")
+    );
+    let grid: HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, state)| *state != schem::AIR)
+        .map(|(pos, state)| {
+            let state = if pos == [2, 1, 2] {
+                "minecraft:white_stained_glass"
+            } else {
+                state
+            };
+            (pos, state.to_owned())
+        })
+        .collect();
+    let mut nbt = schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
+    let whitened = schem::encode(nbt).unwrap();
+    let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&whitened)
+    else {
+        panic!("it stacks with the glass whitened");
+    };
+    // The fixture is not standardized, so the glass is still light blue.
+    assert!(
+        reason.contains("redstone wire would land on")
+            && reason.contains("glass at (2, 18, 2)"),
+        "{reason}"
+    );
+}

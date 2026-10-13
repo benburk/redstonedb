@@ -104,7 +104,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - Copies may overlap, as `//rstack` allows: a build that repeats every eight bits may reach into the copy below. Where they overlap, a block the same in both stands once, a block landing on air stays, and dust that meets joins.
 - Only the first copy keeps gray blocks and the dust, torches, repeaters, comparators, levers, signs, and barrels resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Signal strengths. To stack in-game with `//rstack`, delete these and the carry in first, then put them back on the first copy.
 - The site tests whether an adder that adds right stacks: the step comes from how its bits are spaced, carried on past the last one, or for a 1-bit adder from its carry in to its carry out, and enough copies must add right together that one sits between two others and the stack reaches a copy past the 15 blocks dust carries a signal, as a 1-bit slice 2 wide takes 9 and an 8-bit adder 16 high takes 3. One that does is taken to stack any number of times, and the site sets an adder's stacking from what it found: that step with no limit on copies, or none, in place of any typed.
-- A copy must not overwrite a different block of the copy before. Export refuses a stack whose copies collide, since that means a step is wrong.
+- A copy must not overwrite a different block of the copy before, as `//rstack` would; what only the first copy needs goes on gray, which the others leave out. The site's stack check refuses a stack that would, naming the block, and export refuses one whose copies collide.
 
 ## Saved state
 
