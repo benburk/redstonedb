@@ -409,3 +409,19 @@ fn a_copy_must_not_overwrite_the_copy_before() {
         "{reason}"
     );
 }
+
+/// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,
+/// where the next copy's carry in lands, with no carry out line to say
+/// where that copy goes; the shortest step whose copies add right is
+/// found instead.
+#[test]
+fn a_slice_without_a_carry_out_finds_its_step() {
+    let data = std::fs::read("tests/fixtures/rca-slice-2-high.schem").unwrap();
+    assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
+    let Some(Stacking::Stacks { step, copies, .. }) =
+        Test::Adder.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), copies), ("2 up", 9));
+}

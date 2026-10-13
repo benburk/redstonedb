@@ -99,6 +99,12 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
     let width = super::input_bits(&interface.inputs[ports.a]);
     let step = match step(&interface, &ports) {
         Ok(step) => step,
+        // A 1-bit adder whose carry leaves without a carry out line, as by
+        // dust the next copy's carry in lands on, says nothing of where
+        // that copy goes, so short steps are tried instead.
+        Err(_) if width == 1 && ports.carry_out.is_none() => {
+            return Some(search(data, &blocks));
+        }
         Err(reason) => return Some(not(None, reason)),
     };
     let copies = copies(step, width)?;
@@ -111,6 +117,65 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         },
         Err(reason) => not(Some(step), reason),
     })
+}
+
+/// The first of the short steps, up, west, or north as far as the build
+/// reaches, the shortest first, whose copies of 1-bit adder `data` add
+/// right. Each wrong one fails a cheap check, so this is quick.
+fn search(data: &[u8], blocks: &Blocks) -> Stacking {
+    let (low, high) = interface::core(blocks);
+    let reach = |axis: usize| high[axis] - low[axis] + 1;
+    let longest = (0..3).map(reach).max().unwrap_or(1);
+    for n in 1..=i64::from(longest) {
+        let ways = [
+            (
+                1,
+                Step {
+                    west: 0,
+                    up: n,
+                    north: 0,
+                },
+            ),
+            (
+                0,
+                Step {
+                    west: n,
+                    up: 0,
+                    north: 0,
+                },
+            ),
+            (
+                2,
+                Step {
+                    west: 0,
+                    up: 0,
+                    north: n,
+                },
+            ),
+        ];
+        for (axis, step) in ways {
+            if n > i64::from(reach(axis)) {
+                continue;
+            }
+            let Some(copies) = copies(step, 1) else {
+                continue;
+            };
+            if let Ok(cases) = stacked(data, step, copies, 1) {
+                return Stacking::Stacks {
+                    step,
+                    copies,
+                    bits: copies,
+                    cases,
+                };
+            }
+        }
+    }
+    Stacking::Not {
+        step: None,
+        reason: "It has no carry out line, and no step up, west, or north \
+                 as far as it reaches makes copies that add right."
+            .to_owned(),
+    }
 }
 
 /// How many copies to test: three, so one sits between two others, and
