@@ -27,3 +27,11 @@ for (const pending of document.querySelectorAll("[data-poll]")) {
   };
   setTimeout(poll, 3000);
 }
+
+// The build page's download dialog closes once its download starts, since
+// a download leaves the page where it is.
+for (const dialog of document.querySelectorAll("dialog")) {
+  dialog
+    .querySelector('form[method="get"]')
+    ?.addEventListener("submit", () => dialog.close());
+}

@@ -17,7 +17,7 @@ use app::{
     mojang,
     schem::{self, Blocks},
     search,
-    simulate::{Report, Signal, Timing},
+    simulate::{Report, Signal, Stacking, Timing},
     stack, standardize,
 };
 use clap::{Args, Parser, Subcommand};
@@ -969,6 +969,26 @@ fn print_report(name: &str, report: &Report) {
         }
         Report::Skipped { reason } => println!("skipped {name}: {reason}"),
         Report::Broken { reason } => println!("BROKEN  {name}: {reason}"),
+    }
+    if let Report::Ran(run) = report
+        && let Some(stacking) = &run.stacking
+    {
+        match stacking {
+            Stacking::Stacks {
+                step,
+                copies,
+                bits,
+                cases,
+            } => println!(
+                "        stacks: {copies} copies {} apart make {bits} bits, all {cases} cases right",
+                step.describe()
+            ),
+            Stacking::Not { step, reason } => println!(
+                "        doesn't stack{}: {reason}",
+                step.map(|s| format!(" {} apart", s.describe()))
+                    .unwrap_or_default()
+            ),
+        }
     }
     if let Some(timing) = report.timing() {
         print_timing(timing);

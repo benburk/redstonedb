@@ -17,7 +17,9 @@ use crate::{
         version::Version,
     },
     search::Term,
-    simulate::{Glitch, InputTiming, OutputTiming, Report, Run, Timing},
+    simulate::{
+        Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Timing,
+    },
 };
 
 use super::{
@@ -759,6 +761,9 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                             }
                         }
                     }
+                    @if let Some(stacking) = &run.stacking {
+                        (stacking_note(stacking))
+                    }
                     @if run.wrong > 0 {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {
@@ -778,6 +783,25 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Whether copies of a passing adder stack into a wider one.
+fn stacking_note(stacking: &Stacking) -> Markup {
+    html! {
+        @match stacking {
+            Stacking::Stacks { step, copies, bits, cases } => p class="mt-4" {
+                strong { "Stacks: " }
+                (copies) " copies, " (step.describe()) " apart, make a " (bits) "-bit adder whose "
+                (grouped(*cases)) " cases are all right, so it stacks any number of times."
+            },
+            Stacking::Not { step, reason } => p class="mt-4 text-muted" {
+                strong { "Doesn't stack as saved" }
+                @if let Some(step) = step { ", with copies " (step.describe()) " apart" }
+                ": " (reason)
+                " Logic only the first copy needs goes on gray blocks, which stacking leaves out of the rest."
+            },
         }
     }
 }

@@ -101,11 +101,19 @@ static CASES: Semaphore = Semaphore::const_new(1);
 static TIMING: Semaphore = Semaphore::const_new(1);
 
 /// Runs `test`'s cases on `data`, a `.schem` file, away from the async
-/// threads.
+/// threads, and, when they all come out right, whether its copies stack.
 pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
     let _turn = CASES.acquire().await?;
-    tokio::task::spawn_blocking(move || Ok(test.run(&Blocks::read(&data)?)))
-        .await?
+    tokio::task::spawn_blocking(move || {
+        let mut report = test.run(&Blocks::read(&data)?);
+        if let Report::Ran(run) = &mut report
+            && run.wrong == 0
+        {
+            run.stacking = test.stacking(&data);
+        }
+        Ok(report)
+    })
+    .await?
 }
 
 /// Measures when `data`'s outputs settle under `test`, away from the async

@@ -1,0 +1,295 @@
+//! Whether copies of an adder stack into a wider adder, as stacking would
+//! join them: the step from one copy to the next comes from how its bits
+//! are spaced, and enough copies for 16 bits, at least two, are stacked and
+//! tested. An adder whose copies still add right at 16 bits is taken to
+//! stack any number of times.
+//!
+//! The checks run cheapest first and stop at the first that fails: a carry
+//! in to take the carry from the copy before, the spacing of the bits, then whether the copies fit together and read as
+//! one adder, then whether the stack settles, then a few sums whose carry
+//! crosses from one copy to the next, and only then the stack's full test.
+
+use serde::{Deserialize, Serialize};
+
+use super::{
+    Case, Circuit, MAX_WIDTH, adder_bench, adder_ports, check_adder, mask,
+    sweep,
+};
+use crate::{
+    interface::{self, Interface},
+    models::schematic::StackDirection,
+    schem::{Blocks, Pos},
+    stack,
+};
+
+/// The bits a stack is tested to: one that adds right this wide is taken
+/// to stack any number of times.
+const STACK_BITS: usize = 16;
+
+/// What stacking copies of an adder found.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum Stacking {
+    /// Copies every `step` make an adder of `bits` bits whose every case
+    /// came out right.
+    Stacks {
+        step: Step,
+        copies: usize,
+        bits: usize,
+        cases: u64,
+    },
+    /// They make no working adder, with the step tried when there was one.
+    Not { step: Option<Step>, reason: String },
+}
+
+/// How far each copy sits from the one before.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Step {
+    pub west: i64,
+    pub up: i64,
+    pub north: i64,
+}
+
+impl Step {
+    pub fn direction(self) -> StackDirection {
+        StackDirection {
+            west: self.west,
+            up: self.up,
+            north: self.north,
+            max_copies: None,
+        }
+    }
+
+    /// Such as `16 up` or `2 west and 2 up`.
+    pub fn describe(self) -> String {
+        [(self.west, "west"), (self.up, "up"), (self.north, "north")]
+            .into_iter()
+            .filter(|&(n, _)| n > 0)
+            .map(|(n, way)| format!("{n} {way}"))
+            .collect::<Vec<_>>()
+            .join(" and ")
+    }
+}
+
+/// Stacks copies of the adder in `data`, a file whose own cases came out
+/// right, and tests them; `None` when two copies would be wider than the
+/// simulator tests.
+pub fn check(data: &[u8]) -> Option<Stacking> {
+    let not = |step, reason: String| Stacking::Not { step, reason };
+    let blocks = match Blocks::read(data) {
+        Ok(blocks) => blocks,
+        Err(err) => return Some(not(None, err.to_string())),
+    };
+    let mut interface = interface::read(&blocks);
+    let ports = match adder_ports(&mut interface) {
+        Ok(ports) => ports,
+        Err(err) => return Some(not(None, err.to_string())),
+    };
+    if ports.carry_in.is_none() {
+        let reason = "It has no carry in, so a copy cannot take the carry \
+                      from the one before.";
+        return Some(not(None, reason.to_owned()));
+    }
+    let width = interface.inputs[ports.a].bits.len();
+    let copies = STACK_BITS.div_ceil(width).max(2);
+    if i64::try_from(copies * width).ok()? > MAX_WIDTH {
+        return None;
+    }
+    let step = match step(&interface, &ports) {
+        Ok(step) => step,
+        Err(reason) => return Some(not(None, reason)),
+    };
+    Some(match stacked(data, step, copies, width) {
+        Ok(cases) => Stacking::Stacks {
+            step,
+            copies,
+            bits: copies * width,
+            cases,
+        },
+        Err(reason) => not(Some(step), reason),
+    })
+}
+
+/// The step that puts the next copy's bits where the bus would go on: the
+/// bus's spacing, which may repeat in a pattern, as a staggered bus's
+/// does, carried on past its last bit. A 1-bit adder steps from its carry
+/// in to its carry out, which the next copy's carry in continues.
+fn step(
+    interface: &Interface,
+    ports: &super::AdderPorts,
+) -> Result<Step, String> {
+    let bits = |port: &interface::Port| -> Vec<Pos> {
+        port.bits.iter().map(|bit| bit.pos).collect()
+    };
+    let a = bits(&interface.inputs[ports.a]);
+    let offset = if a.len() >= 2 {
+        let along = |name: &str, positions: &[Pos]| {
+            next_after(positions).ok_or_else(|| {
+                format!("{name}'s bits are not spaced in a repeating pattern")
+            })
+        };
+        let offset = along("A", &a)?;
+        let b = bits(&interface.inputs[ports.b]);
+        let output = bits(&interface.outputs[ports.sum]);
+        let output = &output[..output.len().min(a.len())];
+        if along("B", &b)? != offset || along("The output", output)? != offset {
+            return Err("A, B, and the output are not spaced alike".to_owned());
+        }
+        offset
+    } else {
+        let line = |port: Option<usize>, ports: &[interface::Port]| {
+            Some(ports[port?].bits.first()?.pos)
+        };
+        let (Some(carry_in), Some(carry_out)) = (
+            line(ports.carry_in, &interface.inputs),
+            line(ports.carry_out, &interface.outputs),
+        ) else {
+            return Err(
+                "A 1-bit adder needs a carry in and a carry out to chain."
+                    .to_owned(),
+            );
+        };
+        [0, 1, 2].map(|axis| carry_out[axis] - carry_in[axis])
+    };
+    let step = Step {
+        west: (-offset[0]).into(),
+        up: offset[1].into(),
+        north: (-offset[2]).into(),
+    };
+    if step.west < 0 || step.up < 0 || step.north < 0 {
+        return Err(
+            "Its bits count east, down, or south, but copies go west, up, \
+             or north."
+                .to_owned(),
+        );
+    }
+    if step
+        == (Step {
+            west: 0,
+            up: 0,
+            north: 0,
+        })
+    {
+        return Err("Its copies would sit on each other.".to_owned());
+    }
+    Ok(step)
+}
+
+/// How far the bus at `positions` reaches past its last bit to where the
+/// next copy's first bit goes: its spacing, the shortest pattern of gaps
+/// that repeats along it, carried on. `None` for gaps that do not repeat.
+fn next_after(positions: &[Pos]) -> Option<Pos> {
+    let gaps: Vec<Pos> = positions
+        .windows(2)
+        .map(|pair| [0, 1, 2].map(|axis| pair[1][axis] - pair[0][axis]))
+        .collect();
+    let period = (1..=gaps.len().max(1)).find(|&period| {
+        gaps.iter()
+            .enumerate()
+            .skip(period)
+            .all(|(i, gap)| *gap == gaps[i - period])
+    })?;
+    // A pattern longer than half the bus repeats too little to trust.
+    if period > positions.len() / 2 {
+        return None;
+    }
+    let (first, last) = (positions.first()?, positions.last()?);
+    let next = gaps[(positions.len() - 1) % period];
+    Some([0, 1, 2].map(|axis| last[axis] - first[axis] + next[axis]))
+}
+
+/// Stacks `copies` copies every `step` and tests them, cheapest first; the
+/// number of cases the stack ran, or why it fails.
+fn stacked(
+    data: &[u8],
+    step: Step,
+    copies: usize,
+    width: usize,
+) -> Result<u64, String> {
+    let (stacked, _) = stack::stack(data, &[(step.direction(), copies)])
+        .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
+    let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
+    let mut interface = interface::read(&blocks);
+    let bench = adder_bench(&mut interface).map_err(|err| {
+        format!("{copies} copies do not make one adder: {err}")
+    })?;
+    let bits = copies * width;
+    let widths = bench.widths(&interface);
+    if widths[..2] != [bits, bits] {
+        return Err(format!(
+            "{copies} copies make A and B of {} and {} bits, not {bits}.",
+            widths[0], widths[1]
+        ));
+    }
+    // Loading it settles it, so one that never settles stops here.
+    Circuit::new(&blocks, &interface).map_err(|err| err.to_string())?;
+    let seams = seam_cases(bits, width, widths.len() == 3);
+    let sum = |case: &Case| case[0] + case[1] + case[2];
+    let seam = sweep(&blocks, &interface, &bench, &seams, None, sum)
+        .map_err(|err| err.to_string())?;
+    if let Some(wrong) = seam.examples.first() {
+        return Err(format!(
+            "The carry does not pass between copies: A {} + B {} + carry \
+             in {} gives {}, not {}.",
+            wrong.inputs[0],
+            wrong.inputs[1],
+            wrong.inputs.get(2).copied().unwrap_or(0),
+            joined(&wrong.got, bits),
+            joined(&wrong.expected, bits),
+        ));
+    }
+    let run = check_adder(&blocks).map_err(|err| err.to_string())?;
+    if run.wrong > 0 {
+        return Err(format!(
+            "{copies} copies get {} of {} sums wrong.",
+            run.wrong, run.cases
+        ));
+    }
+    Ok(run.cases)
+}
+
+/// A stack's result from its outputs' values, the sum below its carry out.
+fn joined(values: &[u64], bits: usize) -> u64 {
+    values[0] | values.get(1).copied().unwrap_or(0) << bits
+}
+
+/// Sums whose carry crosses each seam between copies, `width` bits apart:
+/// all ones below it plus one, and its lowest bits each doubled, with
+/// carry in each way; and none and all ones plus one across the whole.
+fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
+    let carries: &[u64] = if carry_in { &[0, 1] } else { &[0] };
+    let mut cases = vec![[0, 0, 0], [mask(bits), 1, 0]];
+    for seam in (width..bits).step_by(width) {
+        let below = 1 << (seam - 1);
+        for &carry in carries {
+            cases.push([mask(seam), 1 - carry, carry]);
+            cases.push([below, below, carry]);
+        }
+    }
+    cases
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_even_bus_goes_on_by_its_spacing() {
+        let bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, 0]).collect();
+        assert_eq!(next_after(&bus), Some([0, 16, 0]));
+    }
+
+    #[test]
+    fn a_staggered_bus_goes_on_by_its_pattern() {
+        // Each other bit a block north: gaps alternate.
+        let bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, -(i % 2)]).collect();
+        assert_eq!(next_after(&bus), Some([0, 16, 0]));
+    }
+
+    #[test]
+    fn a_bus_with_one_bit_out_of_line_has_no_spacing() {
+        let mut bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, 0]).collect();
+        bus[0] = [0, 1, 1];
+        assert_eq!(next_after(&bus), None);
+    }
+}

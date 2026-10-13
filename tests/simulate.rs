@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use app::{
     import, interface, lint,
     schem::{self, Blocks},
-    simulate::{self, Report, Test},
+    simulate::{self, Report, Stacking, Test},
     stack, standardize,
 };
 
@@ -187,19 +187,22 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
         .expect("fixture is readable");
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
-    let up = "up=16".parse().unwrap();
-    let (stacked, _) = stack::stack(&data, &[(up, 2)]).unwrap();
+    // The step comes from its bits, 2 up each, and two copies make 16
+    // bits, too many to try every sum: each byte's, and the patterns.
+    let Some(Stacking::Stacks {
+        step,
+        copies,
+        bits,
+        cases,
+    }) = Test::Adder.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!(step.describe(), "16 up");
+    assert_eq!((copies, bits), (2, 16));
+    assert!(cases > 1 << 18);
+    let (stacked, _) = stack::stack(&data, &[(step.direction(), 2)]).unwrap();
     let blocks = Blocks::read(&stacked).unwrap();
-    let run = simulate::check_adder(&blocks).unwrap();
-    // Too many to try every sum: each byte's, and the test patterns.
-    assert!(!run.exhaustive && run.patterns > 0);
-    let widths: Vec<(&str, usize)> = run
-        .inputs
-        .iter()
-        .map(|signal| (signal.name.as_str(), signal.bits))
-        .collect();
-    assert_eq!(widths, [("A", 16), ("B", 16), ("carry in", 1)]);
-    assert_eq!(run.wrong, 0);
     // Timed over the test patterns, as it is too wide to time every value.
     let timing = Test::Adder.time(&blocks, &AtomicBool::new(false)).unwrap();
     assert!(timing.patterns);
@@ -247,4 +250,32 @@ fn a_sequential_multiplier_is_skipped() {
         panic!("tested a sequential multiplier");
     };
     assert!(reason.contains("not combinational"), "{reason}");
+}
+
+/// A 1-bit slice steps from its carry in to its carry out, which the next
+/// copy's carry in lands on; sixteen copies make a 16-bit adder.
+#[test]
+fn a_ripple_carry_slice_stacks_any_number_of_times() {
+    let raw = std::fs::read("tests/fixtures/alpha-rca-slice.schem").unwrap();
+    let data =
+        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let Some(Stacking::Stacks { step, copies, .. }) =
+        Test::Adder.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), copies), ("2 west", 16));
+}
+
+/// Its copies fit, but a carry out of one never reaches the next, which
+/// the sums across the seam find before the full test.
+#[test]
+fn an_adder_whose_carry_stops_at_its_edge_does_not_stack() {
+    let raw = std::fs::read("tests/fixtures/alpha-rca.schem").unwrap();
+    let data =
+        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&data) else {
+        panic!("it stacks");
+    };
+    assert!(reason.contains("carry does not pass"), "{reason}");
 }

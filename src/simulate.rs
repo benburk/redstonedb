@@ -7,6 +7,7 @@
 //! the order in which the game updates blocks. A build using anything else
 //! is refused rather than simulated wrongly.
 
+mod stacking;
 mod timing;
 
 use std::{
@@ -31,6 +32,7 @@ use crate::{
     schem::{self, Blocks, Pos},
 };
 
+pub use stacking::{Stacking, Step};
 pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Timing};
 
 /// The most ticks a build may take to settle after its inputs change.
@@ -420,6 +422,15 @@ impl Test {
         }
     }
 
+    /// Whether copies of the build in `data` stack into a wider one of its
+    /// kind: for an adder, which this is only tried on, see `stacking`.
+    pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
+        match self {
+            Test::Adder => stacking::check(data),
+            Test::Multiplier => None,
+        }
+    }
+
     /// Measures when `blocks`' outputs settle, on every core, stopping
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
@@ -529,6 +540,10 @@ pub struct Run {
     /// build that gets them all right.
     #[serde(default)]
     pub timing: Option<Timing>,
+    /// Whether copies of an adder that gets them all right stack into a
+    /// wider one; `None` for any other build, or one too wide to try.
+    #[serde(default)]
+    pub stacking: Option<Stacking>,
 }
 
 /// A port a test sets or reads, by the build's name for it.
@@ -1057,6 +1072,7 @@ fn sweep(
         examples,
         hint: None,
         timing: None,
+        stacking: None,
     })
 }
 
