@@ -83,11 +83,10 @@ const COMPONENTS: [&str; 43] = [
     "calibrated_sculk_sensor",
 ];
 
-/// Blocks a lever must not touch, since it would power them directly.
-const POWERABLE: [&str; 9] = [
+/// Blocks a lever must not touch, since it would power them directly. A
+/// torch is not one: only the block it hangs on turns it off.
+const POWERABLE: [&str; 7] = [
     "redstone_wire",
-    "redstone_torch",
-    "redstone_wall_torch",
     "repeater",
     "comparator",
     "redstone_lamp",

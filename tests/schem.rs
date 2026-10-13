@@ -144,6 +144,24 @@ fn comparators_are_not_signs() {
     assert_eq!(texts, ["carry in", "cout"]);
 }
 
+/// The carry in's lever sits under a wall torch hanging on another block,
+/// which only that block turns off, so the lever does not power it.
+#[test]
+fn a_lever_beside_a_torch_does_not_power_it() {
+    let violations = lint::check(&blocks("lever-under-torch"));
+    assert!(
+        violations
+            .iter()
+            .all(|v| !v.message.contains("power directly")),
+        "{}",
+        violations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+}
+
 #[test]
 fn a_lever_on_top_enters_from_above() {
     let interface::Interface { inputs, .. } =
