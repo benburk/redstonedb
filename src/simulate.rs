@@ -38,27 +38,42 @@ pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Timing};
 /// The most ticks a build may take to settle after its inputs change.
 const MAX_TICKS: u32 = 1000;
 
-/// A build compiled for simulation. Each input is driven by its levers, and
-/// each output bit is on while its block is powered.
+/// A build set up for simulation. Each input is driven by its levers, and
+/// each output bit is on while its block is powered; a signal-strength
+/// input takes each digit's strength, and an output of a build with one
+/// shows a digit per block, its strength.
 ///
-/// Redpiler's optimizations stay off: they keep only what drives a lamp or
-/// another component it can read back, and an output block is neither. A
-/// lamp in its place reads differently, lighting from a torch beside it or
-/// a powered block beside it, which do not power the block. So every
+/// A build driven by levers alone is compiled by Redpiler, whose
+/// optimizations stay off: they keep only what drives a lamp or another
+/// component it can read back, and an output block is neither. A lamp in
+/// its place reads differently, lighting from a torch beside it or a
+/// powered block beside it, which do not power the block. So every
 /// component's state is written back to the world after each change, and
 /// each output block's power is worked out from its neighbours.
+///
+/// Redpiler reads a container's strength once, when it compiles, so a
+/// build with a signal-strength input runs in the world itself, block by
+/// block, as the game would: a comparator beside each digit's dust, with a
+/// barrel behind it holding the digit, drives it.
 pub struct Circuit {
     world: TestWorld,
-    compiler: Compiler,
-    /// Each input port's levers, least significant first, in the order of
-    /// `Interface::inputs`.
-    inputs: Vec<Vec<Lever>>,
+    /// Redpiler's circuit, for a build driven by levers alone.
+    compiler: Option<Compiler>,
+    /// How each input port is driven, in the order of `Interface::inputs`.
+    inputs: Vec<Drive>,
     /// Each output port's blocks, least significant first, in the order of
-    /// `Interface::outputs`.
-    outputs: Vec<Vec<BlockPos>>,
+    /// `Interface::outputs`, and whether it shows a digit per block.
+    outputs: Vec<(Vec<BlockPos>, bool)>,
     /// The comparators beside an output block. Redpiler leaves their
     /// strength in the world as it was saved, so `settle` sets it.
     comparators: Vec<BlockPos>,
+}
+
+/// How an input port is driven: by a lever per bit, or by a barrel and
+/// comparator per digit.
+enum Drive {
+    Levers(Vec<Lever>),
+    Strengths(Vec<Driver>),
 }
 
 struct Lever {
@@ -68,20 +83,42 @@ struct Lever {
     on: bool,
 }
 
+/// A comparator pointing into a digit's dust, reading the barrel behind it,
+/// which holds the digit.
+struct Driver {
+    comparator: BlockPos,
+    barrel: BlockPos,
+    value: u8,
+}
+
+/// How far the world reaches past the build on each side, west, east,
+/// north, and south, for the drivers of signal-strength inputs.
+const MARGIN: i32 = 2;
+
 impl Circuit {
-    /// Compiles `blocks`, whose interface is `interface`.
+    /// Sets up `blocks`, whose interface is `interface`.
     pub fn new(blocks: &Blocks, interface: &Interface) -> Result<Self> {
-        let world = world(blocks)?;
+        let mut world = world(blocks)?;
+        let digits = interface.inputs.iter().any(|port| port.signal_strength);
+        let mut taken = HashSet::new();
         let inputs = interface
             .inputs
             .iter()
-            .map(|port| levers(blocks, port))
+            .map(|port| {
+                if port.signal_strength {
+                    drivers(&mut world, port, &mut taken).map(Drive::Strengths)
+                } else {
+                    levers(blocks, port).map(Drive::Levers)
+                }
+            })
             .collect::<Result<_>>()?;
-        let outputs: Vec<Vec<BlockPos>> = interface
+        settle_world(&mut world, world_size(blocks))?;
+        let outputs: Vec<(Vec<BlockPos>, bool)> = interface
             .outputs
             .iter()
             .map(|port| {
-                port.bits
+                let blocks = port
+                    .bits
                     .iter()
                     .map(|bit| {
                         if schem::id(blocks.get(bit.pos)).ends_with("_glass") {
@@ -93,23 +130,26 @@ impl Circuit {
                         }
                         Ok(at(bit.pos))
                     })
-                    .collect()
+                    .collect::<Result<_>>()?;
+                Ok((blocks, digits && shows_digits(port)))
             })
             .collect::<Result<_>>()?;
         let comparators = outputs
             .iter()
-            .flatten()
+            .flat_map(|(blocks, _)| blocks)
             .flat_map(|pos| BlockFace::values().map(|side| pos.offset(side)))
             .filter(|&pos| matches!(world.get_block(pos), Block::Comparator(_)))
             .collect();
-        let mut compiler = Compiler::default();
-        let options = CompilerOptions::default();
-        let [x, y, z] = blocks.size;
-        let bounds =
-            (BlockPos::new(0, 0, 0), BlockPos::new(x - 1, y - 1, z - 1));
-        let ticks = world.to_be_ticked.clone();
-        let monitor = Arc::default();
-        compiler.compile(&world, bounds, options, ticks, monitor);
+        let compiler = (!digits).then(|| {
+            let mut compiler = Compiler::default();
+            let [x, y, z] = world_size(blocks);
+            let bounds =
+                (BlockPos::new(0, 0, 0), BlockPos::new(x - 1, y - 1, z - 1));
+            let ticks = world.to_be_ticked.clone();
+            let options = CompilerOptions::default();
+            compiler.compile(&world, bounds, options, ticks, Arc::default());
+            compiler
+        });
         Ok(Circuit {
             world,
             compiler,
@@ -119,13 +159,44 @@ impl Circuit {
         })
     }
 
-    /// Sets input `port` to `value`, flipping the levers that change.
+    /// Sets input `port` to `value`, flipping the levers that change, or
+    /// filling each digit's barrel.
     pub fn set(&mut self, port: usize, value: u64) {
-        for (i, lever) in self.inputs[port].iter_mut().enumerate() {
-            let on = (value >> i & 1 == 1) != lever.inverted;
-            if lever.on != on {
-                self.compiler.on_use_block(lever.pos);
-                lever.on = on;
+        match &mut self.inputs[port] {
+            Drive::Levers(levers) => {
+                for (i, lever) in levers.iter_mut().enumerate() {
+                    let on = (value >> i & 1 == 1) != lever.inverted;
+                    if lever.on != on {
+                        if let Some(compiler) = &mut self.compiler {
+                            compiler.on_use_block(lever.pos);
+                        } else {
+                            let block = self.world.get_block(lever.pos);
+                            mchprs_redstone::on_use(
+                                block,
+                                &mut self.world,
+                                lever.pos,
+                            );
+                        }
+                        lever.on = on;
+                    }
+                }
+            }
+            Drive::Strengths(drivers) => {
+                for (i, driver) in drivers.iter_mut().enumerate() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let digit = (value >> (4 * i) & 15) as u8;
+                    if driver.value != digit {
+                        self.world
+                            .set_block_entity(driver.barrel, container(digit));
+                        let block = self.world.get_block(driver.comparator);
+                        mchprs_redstone::update(
+                            block,
+                            &mut self.world,
+                            driver.comparator,
+                        );
+                        driver.value = digit;
+                    }
+                }
             }
         }
     }
@@ -133,14 +204,14 @@ impl Circuit {
     /// Runs until nothing is left to update, and returns the ticks taken.
     pub fn settle(&mut self) -> Result<u32> {
         let mut ticks = 0;
-        while self.compiler.has_pending_ticks() {
+        while self.pending() {
             if ticks == MAX_TICKS {
                 bail!(
                     "It was still changing {MAX_TICKS} ticks after its \
                      inputs changed."
                 );
             }
-            self.compiler.tick();
+            self.advance();
             ticks += 1;
         }
         self.show();
@@ -160,18 +231,33 @@ impl Circuit {
     /// Runs one tick, whether or not anything is waiting for it, and shows
     /// its state to `get`.
     pub fn tick(&mut self) {
-        self.compiler.tick();
+        self.advance();
         self.show();
+    }
+
+    /// One tick, without showing it.
+    fn advance(&mut self) {
+        match &mut self.compiler {
+            Some(compiler) => compiler.tick(),
+            None => tick_world(&mut self.world),
+        }
     }
 
     /// Whether anything is left to update.
     pub fn pending(&mut self) -> bool {
-        self.compiler.has_pending_ticks()
+        match &mut self.compiler {
+            Some(compiler) => compiler.has_pending_ticks(),
+            None => !self.world.to_be_ticked.is_empty(),
+        }
     }
 
-    /// Writes Redpiler's state into the world, where `get` reads it.
+    /// Writes Redpiler's state into the world, where `get` reads it; the
+    /// world holds it already when the build runs there.
     pub fn show(&mut self) {
-        self.compiler.flush(&mut self.world);
+        let Some(compiler) = &mut self.compiler else {
+            return;
+        };
+        compiler.flush(&mut self.world);
         for &pos in &self.comparators {
             if let Block::Comparator(comparator) = self.world.get_block(pos) {
                 let output_strength = if comparator.powered { 15 } else { 0 };
@@ -186,33 +272,147 @@ impl Circuit {
     /// The value output `port` shows, as of the last `settle`. A bit is on
     /// while its block is powered, or while a repeater or comparator
     /// standing on it is on, as when the block marks the component that
-    /// carries the output out of the build.
+    /// carries the output out of the build. A digit is its block's
+    /// strength.
     pub fn get(&self, port: usize) -> u64 {
-        self.outputs[port]
-            .iter()
-            .enumerate()
-            .filter(|&(_, &pos)| {
-                let block = self.world.get_block(pos);
-                let face = BlockFace::Top;
-                let powered = mchprs_redstone::get_redstone_power(
-                    block,
-                    &self.world,
-                    pos,
-                    face,
-                ) > 0;
-                let above = self.world.get_block(pos.offset(BlockFace::Top));
-                powered
-                    || matches!(above, Block::Repeater(repeater) if repeater.powered)
-                    || matches!(above, Block::Comparator(comparator) if comparator.powered)
-            })
-            .fold(0, |value, (i, _)| value | 1 << i)
+        let (blocks, digits) = &self.outputs[port];
+        blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
+            let block = self.world.get_block(pos);
+            let strength = mchprs_redstone::get_redstone_power(
+                block,
+                &self.world,
+                pos,
+                BlockFace::Top,
+            );
+            if *digits {
+                return value | u64::from(strength) << (4 * i);
+            }
+            let above = self.world.get_block(pos.offset(BlockFace::Top));
+            let on = strength > 0
+                || matches!(above, Block::Repeater(repeater) if repeater.powered)
+                || matches!(above, Block::Comparator(comparator) if comparator.powered);
+            value | u64::from(on) << i
+        })
     }
 }
 
-/// An MCHPRS world holding `blocks` as they were saved.
+/// Whether an output of a build with a signal-strength input shows a digit
+/// per block: any but a status line, such as a carry out.
+fn shows_digits(port: &Port) -> bool {
+    !port.block.starts_with(lint::STATUS)
+}
+
+/// How many bits input `port` carries: four for each block of a
+/// signal-strength input, a digit per block, else one for each block.
+fn input_bits(port: &Port) -> usize {
+    port.bits.len() * if port.signal_strength { 4 } else { 1 }
+}
+
+/// How many bits output `port` of a build with `interface` carries: four
+/// for each block when the build takes a signal strength and the port
+/// shows digits, else one for each block.
+fn output_bits(interface: &Interface, port: &Port) -> usize {
+    let digits = interface.inputs.iter().any(|input| input.signal_strength)
+        && shows_digits(port);
+    port.bits.len() * if digits { 4 } else { 1 }
+}
+
+/// A barrel's block entity giving a comparator `strength`.
+fn container(strength: u8) -> BlockEntity {
+    BlockEntity::Container {
+        comparator_override: strength,
+        inventory: Vec::new(),
+        ty: ContainerType::Barrel,
+    }
+}
+
+/// A driver for each digit of signal-strength input `port`: a comparator
+/// beside its dust, pointing into it, and a barrel behind, where both are
+/// air and nothing runs into the comparator's sides, which would change
+/// what it puts out. The side the dust is open to comes first. `taken`
+/// holds the places drivers have already used.
+fn drivers(
+    world: &mut TestWorld,
+    port: &Port,
+    taken: &mut HashSet<Pos>,
+) -> Result<Vec<Driver>> {
+    const SIDES: [&str; 4] = ["north", "south", "east", "west"];
+    let air = |world: &TestWorld, pos: Pos| {
+        matches!(world.get_block(at(pos)), Block::Air)
+    };
+    let quiet = |world: &TestWorld, pos: Pos| {
+        !matches!(
+            world.get_block(at(pos)),
+            Block::RedstoneWire { .. }
+                | Block::Repeater { .. }
+                | Block::Comparator { .. }
+                | Block::RedstoneTorch { .. }
+                | Block::RedstoneWallTorch { .. }
+        )
+    };
+    port.bits
+        .iter()
+        .map(|bit| {
+            let dust = schem::step(bit.pos, "up");
+            let entry = bit.entry.as_deref();
+            let mut sides: Vec<&str> = entry.into_iter().collect();
+            sides.extend(SIDES.iter().filter(|side| Some(**side) != entry));
+            let side = sides
+                .into_iter()
+                .find(|&side| {
+                    let comparator = schem::step(dust, side);
+                    let barrel = schem::step(comparator, side);
+                    let across: [&str; 2] = if matches!(side, "north" | "south") {
+                        ["east", "west"]
+                    } else {
+                        ["north", "south"]
+                    };
+                    [comparator, barrel].iter().all(|&pos| {
+                        air(world, pos) && !taken.contains(&pos)
+                    }) && across.iter().all(|&way| {
+                        let beside = schem::step(comparator, way);
+                        quiet(world, beside) && !taken.contains(&beside)
+                    })
+                })
+                .with_context(|| {
+                    format!(
+                        "A digit of input {} has no room beside its dust for \
+                         the simulator to drive it.",
+                        port.name
+                    )
+                })?;
+            let comparator = schem::step(dust, side);
+            let barrel = schem::step(comparator, side);
+            taken.extend([comparator, barrel]);
+            world.set_block(
+                at(comparator),
+                block(&format!(
+                    "minecraft:comparator[facing={side},mode=compare,powered=false]"
+                ))?,
+            );
+            world.set_block_entity(
+                at(comparator),
+                BlockEntity::Comparator { output_strength: 0 },
+            );
+            world.set_block(
+                at(barrel),
+                block("minecraft:barrel[facing=up,open=false]")?,
+            );
+            world.set_block_entity(at(barrel), container(0));
+            Ok(Driver {
+                comparator: at(comparator),
+                barrel: at(barrel),
+                value: 0,
+            })
+        })
+        .collect()
+}
+
+/// An MCHPRS world holding `blocks` as they were saved, `MARGIN` blocks in
+/// from its west and north sides, not yet settled.
 fn world(blocks: &Blocks) -> Result<TestWorld> {
     let chunks = |n: i32| (n + 15) / 16;
-    let [x, y, z] = blocks.size;
+    let [x, y, z] = world_size(blocks);
     let mut world = TestWorld::new(chunks(x), chunks(y), chunks(z));
     for (pos, state) in blocks.iter() {
         world.set_block(at(pos), block(state)?);
@@ -242,8 +442,13 @@ fn world(blocks: &Blocks) -> Result<TestWorld> {
             },
         );
     }
-    settle_world(&mut world, blocks.size)?;
     Ok(world)
+}
+
+/// The world's size: the build's, with `MARGIN` on each side across.
+fn world_size(blocks: &Blocks) -> Pos {
+    let [x, y, z] = blocks.size;
+    [x + 2 * MARGIN, y, z + 2 * MARGIN]
 }
 
 /// Brings a world to rest as the game would: updates every block once,
@@ -267,26 +472,33 @@ fn settle_world(world: &mut TestWorld, [x, y, z]: Pos) -> Result<()> {
             );
         }
         ticks += 1;
-        world
-            .to_be_ticked
-            .sort_by_key(|entry| (entry.ticks_left, entry.tick_priority));
-        for entry in &mut world.to_be_ticked {
-            entry.ticks_left = entry.ticks_left.saturating_sub(1);
-        }
-        while world
-            .to_be_ticked
-            .first()
-            .is_some_and(|e| e.ticks_left == 0)
-        {
-            let entry = world.to_be_ticked.remove(0);
-            mchprs_redstone::tick(world.get_block(entry.pos), world, entry.pos);
-        }
+        tick_world(world);
     }
     Ok(())
 }
 
+/// One game tick of a world: what was scheduled for now runs, in order of
+/// priority.
+fn tick_world(world: &mut TestWorld) {
+    world
+        .to_be_ticked
+        .sort_by_key(|entry| (entry.ticks_left, entry.tick_priority));
+    for entry in &mut world.to_be_ticked {
+        entry.ticks_left = entry.ticks_left.saturating_sub(1);
+    }
+    while world
+        .to_be_ticked
+        .first()
+        .is_some_and(|e| e.ticks_left == 0)
+    {
+        let entry = world.to_be_ticked.remove(0);
+        mchprs_redstone::tick(world.get_block(entry.pos), world, entry.pos);
+    }
+}
+
+/// Where the build's block at `pos` sits in the world.
 fn at([x, y, z]: Pos) -> BlockPos {
-    BlockPos::new(x, y, z)
+    BlockPos::new(x + MARGIN, y, z + MARGIN)
 }
 
 /// A block state's id without its namespace, such as `lever`.
@@ -610,12 +822,12 @@ pub(crate) fn patterns(width: usize) -> Vec<u64> {
 }
 
 /// The sums an adder too wide to try every combination of is checked on,
-/// as A, B, and carry in, with how many pair the test patterns. Each byte
-/// takes every value of A and B, with a carry into it and without: the
-/// bits below are all set in A, and carry in, or B's lowest bit when there
-/// is no carry in line, carries through them. Then every pairing of
-/// `patterns`, with carry in each way.
-fn adder_cases(width: usize, carry_in: bool) -> (Vec<Case>, u64) {
+/// as A, B, and carry in, with how many pair the test patterns. Each piece
+/// of `piece` bits, a byte or a hex digit, takes every value of A and B,
+/// with a carry into it and without: the bits below are all set in A, and
+/// carry in, or B's lowest bit when there is no carry in line, carries
+/// through them. Then every pairing of `patterns`, with carry in each way.
+fn adder_cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
     let mut cases = Vec::new();
     let mut seen = HashSet::new();
     let mut add = |cases: &mut Vec<_>, case: (u64, u64, bool)| {
@@ -624,8 +836,8 @@ fn adder_cases(width: usize, carry_in: bool) -> (Vec<Case>, u64) {
             cases.push(case);
         }
     };
-    for low in (0..width).step_by(8) {
-        let bits = (width - low).min(8);
+    for low in (0..width).step_by(piece) {
+        let bits = (width - low).min(piece);
         for carry in [false, true] {
             let below = match (low, carry, carry_in) {
                 (0, true, false) => continue,
@@ -691,7 +903,13 @@ fn check_adder_on(blocks: &Blocks, quick: bool) -> Result<Run> {
         let count = cases.len() as u64;
         (cases, false, count)
     } else {
-        cases(&widths, || adder_cases(widths[0], carry_in.is_some()))
+        // A hex adder, slower to run, takes each digit's every case, and a
+        // binary one each byte's.
+        let hex = interface.inputs.iter().any(|port| port.signal_strength);
+        let piece = if hex { 4 } else { 8 };
+        cases(&widths, || {
+            adder_cases(widths[0], carry_in.is_some(), piece)
+        })
     };
     let sum = |case: &Case| case[0] + case[1] + case[2];
     let sweep = |flip| {
@@ -1197,19 +1415,19 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
 }
 
 impl Bench {
-    /// Each input's width, in the order of `inputs`.
+    /// Each input's width in bits, in the order of `inputs`.
     fn widths(&self, interface: &Interface) -> Vec<usize> {
         self.inputs
             .iter()
-            .map(|&i| interface.inputs[i].bits.len())
+            .map(|&i| input_bits(&interface.inputs[i]))
             .collect()
     }
 
-    /// Each output's width, in the order of `outputs`.
+    /// Each output's width in bits, in the order of `outputs`.
     fn output_widths(&self, interface: &Interface) -> Vec<usize> {
         self.outputs
             .iter()
-            .map(|&i| interface.outputs[i].bits.len())
+            .map(|&i| output_bits(interface, &interface.outputs[i]))
             .collect()
     }
 }
@@ -1342,7 +1560,7 @@ fn judge(
         .iter()
         .flat_map(|&i| {
             let port = &interface.outputs[i];
-            let bits = port.bits.len();
+            let bits = output_bits(interface, port);
             (0..bits).map(move |bit| match bits {
                 1 => port.name.clone(),
                 _ => format!("{} bit {bit}", port.name),
@@ -1355,10 +1573,6 @@ fn judge(
         .filter(|&(count, _)| count > 0)
         .map(|(count, label)| (label, count))
         .collect();
-    let signal = |port: &Port| Signal {
-        name: port.name.clone(),
-        bits: port.bits.len(),
-    };
     Run {
         pattern: bench.pattern.clone(),
         cases: cases.len() as u64,
@@ -1368,12 +1582,18 @@ fn judge(
         inputs: bench
             .inputs
             .iter()
-            .map(|&i| signal(&interface.inputs[i]))
+            .map(|&i| Signal {
+                name: interface.inputs[i].name.clone(),
+                bits: input_bits(&interface.inputs[i]),
+            })
             .collect(),
         outputs: bench
             .outputs
             .iter()
-            .map(|&i| signal(&interface.outputs[i]))
+            .map(|&i| Signal {
+                name: interface.outputs[i].name.clone(),
+                bits: output_bits(interface, &interface.outputs[i]),
+            })
             .collect(),
         wrong_bits,
         examples,
@@ -1444,7 +1664,7 @@ mod tests {
 
     #[test]
     fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {
-        let (cases, paired) = adder_cases(16, true);
+        let (cases, paired) = adder_cases(16, true, 8);
         // Each byte with and without a carry, less two the high byte
         // repeats: A's low byte all set, with or without carry in.
         assert_eq!(cases.len() as u64 - paired, 4 * (1 << 16) - 2);
@@ -1453,7 +1673,7 @@ mod tests {
         // The longest carry: all ones plus one.
         assert!(cases.contains(&[0xFFFF, 0x0001, 0]));
         // Without a carry in line, B's lowest bit makes the carry.
-        let (cases, _) = adder_cases(16, false);
+        let (cases, _) = adder_cases(16, false, 8);
         assert!(cases.contains(&[0x00FF, 0x0101, 0]));
         assert!(cases.iter().all(|case| case[2] == 0));
     }

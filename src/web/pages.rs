@@ -1601,7 +1601,18 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
                 }
             }
         }
-        label class="field" data-standard-only hidden[other] {
+        @if let Some(encoding) = derived.encoding {
+            div class="field" data-derived-encoding hidden {
+                span { "Encoding" }
+                p {
+                    (if encoding == "hex" { "Hex" } else { "Binary" })
+                    span class="text-muted" {
+                        @if encoding == "hex" { ", as the lime inputs take a signal strength" } @else { ", as the lime inputs take levers" }
+                    }
+                }
+            }
+        }
+        label class="field" data-standard-only data-typed-encoding hidden[other] {
             span { "Encoding" }
             select name="encoding" class="input" {
                 @for (value, label) in [("bin", "Binary"), ("hex", "Hex")] {

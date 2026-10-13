@@ -195,8 +195,8 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
-/// The categories whose width and orientation are read from the file, from
-/// input A; see `derived`. An adder's flags are read too; see
+/// The categories whose width, orientation, and encoding are read from the
+/// file, from input A; see `derived`. An adder's flags are read too; see
 /// `derived_flags`.
 pub const READ_FROM_FILE: [&str; 2] = ["adder", "incrementer"];
 
@@ -208,6 +208,8 @@ pub struct Derived {
     pub width: Option<i64>,
     /// `horz`, `vert`, or `diag`, the way A's bits run.
     pub orientation: Option<&'static str>,
+    /// `hex` when A takes a signal strength, a digit per block, else `bin`.
+    pub encoding: Option<&'static str>,
 }
 
 /// What `category` reads from a build with `interface`: nothing for other
@@ -224,6 +226,7 @@ pub fn derived(category: &str, interface: &Interface) -> Derived {
             )
             .ok(),
             orientation: orientation(a),
+            encoding: Some(if a.signal_strength { "hex" } else { "bin" }),
         },
         None => Derived::default(),
     }

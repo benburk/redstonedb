@@ -46,6 +46,7 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     const decides = {
       width: "data-reads-file",
       orientation: "data-reads-file",
+      encoding: "data-reads-file",
       stacking: "data-infers-stacking",
     };
     for (const [what, attribute] of Object.entries(decides)) {

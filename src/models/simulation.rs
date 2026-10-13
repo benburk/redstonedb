@@ -146,7 +146,8 @@ pub fn derived_width(
 }
 
 /// Brings build `id` up to date with its file, category, and width: sets
-/// the width, orientation, and flags its category reads from the file, runs its test's cases when
+/// the width, orientation, encoding, and flags its category reads from the
+/// file, runs its test's cases when
 /// the stored result is for another file or test, or always when `again`,
 /// and drops the result when it has no test. Timing is left to
 /// `refresh_timing`, being slow. Returns the result.
@@ -173,6 +174,12 @@ pub async fn refresh(
         {
             schematic::set_orientation(db, id, orientation).await?;
             orientation.clone_into(&mut s.orientation);
+        }
+        if let Some(encoding) = found.encoding
+            && s.encoding.as_deref() != Some(encoding)
+        {
+            schematic::set_encoding(db, id, encoding).await?;
+            s.encoding = Some(encoding.to_owned());
         }
         if let Some(flags) = import::derived_flags(&s.category, &interface) {
             let have: Vec<&str> =

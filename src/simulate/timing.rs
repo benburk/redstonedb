@@ -143,13 +143,13 @@ pub(super) fn measure(
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
         .iter()
-        .map(|&port| interface.inputs[port].bits.len())
+        .map(|&port| super::input_bits(&interface.inputs[port]))
         .collect();
     let (values, patterns) = values_to_try(&widths);
     let outputs: Vec<usize> = interface
         .outputs
         .iter()
-        .map(|port| port.bits.len())
+        .map(|port| super::output_bits(interface, port))
         .collect();
     let rig = Rig {
         blocks,

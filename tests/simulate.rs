@@ -337,3 +337,32 @@ fn a_barrel_on_gray_belongs_to_the_first_copy() {
         "{reason}"
     );
 }
+
+/// A carry cancel adder of 8 hex digits: each input block's dust takes a
+/// strength from 0 to 15, so A and B are 32 bits each, too many to try
+/// every sum, and it is slower to run than one of levers. Each digit takes
+/// its every case, with a carry into it and without, and the patterns.
+#[test]
+fn a_hex_adder_is_driven_digit_by_digit() {
+    let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+    let data = standardize::standardize(&raw).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let interface = interface::read(&blocks);
+    let derived = import::derived("adder", &interface);
+    assert_eq!(
+        (derived.width, derived.orientation, derived.encoding),
+        (Some(32), Some("vert"), Some("hex"))
+    );
+    let Report::Ran(run) = Test::Adder.run(&blocks) else {
+        panic!("the hex adder was not simulated");
+    };
+    let widths: Vec<(&str, usize)> = run
+        .outputs
+        .iter()
+        .map(|signal| (signal.name.as_str(), signal.bits))
+        .collect();
+    assert_eq!(widths, [("output", 32), ("carry out", 1)]);
+    assert!(!run.exhaustive && run.cases < 20_000);
+    assert_eq!(run.wrong, 0);
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
+}

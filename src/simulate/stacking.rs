@@ -94,7 +94,7 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
                       from the one before.";
         return Some(not(None, reason.to_owned()));
     }
-    let width = interface.inputs[ports.a].bits.len();
+    let width = super::input_bits(&interface.inputs[ports.a]);
     let step = match step(&interface, &ports) {
         Ok(step) => step,
         Err(reason) => return Some(not(None, reason)),

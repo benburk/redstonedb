@@ -1207,6 +1207,22 @@ pub async fn set_orientation<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Sets an encoding read from the file, which is not a person's edit.
+pub async fn set_encoding<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    encoding: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET encoding = ? WHERE id = ?",
+        encoding,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Sets a latency and whether it is synchronized as simulation measured
 /// them, which is not a person's edit.
 pub async fn set_timing<'e, E: SqliteExecutor<'e>>(
