@@ -1336,8 +1336,9 @@ fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     (cases, paired)
 }
 
-/// Every pairing of the test patterns of each input's width, a 1-bit one
-/// taking 0 and 1, with how many there are.
+/// Every pairing of a few telling values of each input's width, a 1-bit one
+/// taking 0 and 1, with how many there are: a quick look, enough to tell
+/// an adder from a multiplier, even for a build slow to run.
 fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
     let choices: Vec<Vec<u64>> = widths
         .iter()
@@ -1345,7 +1346,7 @@ fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
             if width == 1 {
                 vec![0, 1]
             } else {
-                patterns(width)
+                telling(width)
             }
         })
         .collect();
@@ -1366,8 +1367,34 @@ fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
     (cases, count)
 }
 
-/// What a build seems to be, from the test patterns run through each test
-/// its inputs and outputs fit.
+/// About a dozen values of `width` bits that tell functions apart: none,
+/// one, and all set; alternate bits and pairs of bits, each way; the top
+/// bit alone; the low half set; and two with no pattern.
+fn telling(width: usize) -> Vec<u64> {
+    let all = mask(width);
+    let mut values: Vec<u64> = [
+        0,
+        1,
+        u64::MAX,
+        0x5555_5555_5555_5555,
+        0xAAAA_AAAA_AAAA_AAAA,
+        0x3333_3333_3333_3333,
+        0xCCCC_CCCC_CCCC_CCCC,
+        1 << (width - 1),
+        mask(width / 2),
+        0x9E37_79B9_7F4A_7C15,
+        0x6A09_E667_F3BC_C908,
+    ]
+    .iter()
+    .map(|value| value & all)
+    .collect();
+    values.sort_unstable();
+    values.dedup();
+    values
+}
+
+/// What a build seems to be, from a few telling values run through each
+/// test its inputs and outputs fit.
 #[derive(Debug, Clone)]
 pub struct Guess {
     /// Its category, such as `adder`.
@@ -1381,8 +1408,9 @@ pub struct Guess {
 }
 
 /// What the build in `blocks` seems to be: of the tests its inputs and
-/// outputs fit, the one whose test patterns come out right most often, if
-/// three in four do. Quick enough to run before anyone says what it is.
+/// outputs fit, the one whose telling values come out right most often, if
+/// three in four do. Quick enough to run before anyone says what it is,
+/// even for a hex build, which runs slower.
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
     TESTS
         .into_iter()
