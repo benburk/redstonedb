@@ -386,6 +386,11 @@ pub enum Test {
     Multiplier,
 }
 
+/// The categories whose stacking the simulation decides rather than their
+/// builders: copies that add right as their bits suggest make the build
+/// stackable that way; see `Test::stacking`.
+pub const INFERS_STACKING: [&str; 1] = ["adder"];
+
 /// Every test, in the order a guess tries them.
 const TESTS: [Test; 3] = [Test::Adder, Test::Incrementer, Test::Multiplier];
 

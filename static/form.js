@@ -40,13 +40,19 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     }
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
     // A category such as adder reads its width and orientation from the
-    // file, which show in place of the typed ones. A typed field no
-    // category hides comes back when the category reads nothing.
-    for (const what of ["width", "orientation"]) {
+    // file, and has its stacking worked out by the simulation, which show in
+    // place of the typed ones. A typed field no category hides comes back
+    // when the category reads nothing.
+    const decides = {
+      width: "data-reads-file",
+      orientation: "data-reads-file",
+      stacking: "data-infers-stacking",
+    };
+    for (const [what, attribute] of Object.entries(decides)) {
       const derived = form.querySelector(`[data-derived-${what}]`);
       if (!derived) continue;
       const typed = form.querySelector(`[data-typed-${what}]`);
-      derived.hidden = !has("data-reads-file");
+      derived.hidden = !has(attribute);
       if (!derived.hidden) typed.hidden = true;
       else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
     }

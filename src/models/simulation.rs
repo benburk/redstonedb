@@ -16,7 +16,7 @@ use crate::{
     import, interface,
     models::schematic::{self, Schematic},
     schem::Blocks,
-    simulate::{Report, Test, Timing},
+    simulate::{INFERS_STACKING, Report, Stacking, Test, Timing},
 };
 
 /// A stored result.
@@ -189,11 +189,41 @@ pub async fn refresh(
     };
     if !again && let Some(report) = current(db, &s).await? {
         apply_timing(db, id, &report).await?;
+        apply_stacking(db, &s, &report).await?;
         return Ok(Some(report));
     }
     let report = run(test, data).await?;
     set(db, id, test.name(), &s.sha256, &report).await?;
+    apply_stacking(db, &s, &report).await?;
     Ok(Some(report))
+}
+
+/// Sets how build `s` stacks from what stacking copies of it found, for a
+/// conventional build of a category whose stacking the simulation decides:
+/// the step its copies added right at, with no limit on copies, or none.
+/// A result that did not stack copies, such as one with wrong cases, is
+/// left as it was.
+async fn apply_stacking(
+    db: &SqlitePool,
+    s: &Schematic,
+    report: &Report,
+) -> Result<()> {
+    if !s.conventional || !INFERS_STACKING.contains(&s.category.as_str()) {
+        return Ok(());
+    }
+    let Report::Ran(run) = report else {
+        return Ok(());
+    };
+    let directions = match &run.stacking {
+        Some(Stacking::Stacks { step, .. }) => vec![step.direction()],
+        Some(Stacking::Not { .. }) => Vec::new(),
+        None => return Ok(()),
+    };
+    if s.stacking != directions {
+        let mut conn = db.acquire().await?;
+        schematic::set_stacking(&mut conn, &s.id, &directions).await?;
+    }
+    Ok(())
 }
 
 /// Measures build `id`'s timing when its stored result passed and has none

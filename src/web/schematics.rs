@@ -19,7 +19,7 @@ use crate::{
     models::{simulation, version},
     mojang,
     schem::Blocks,
-    search, stack, standardize, thumbnail,
+    search, simulate, stack, standardize, thumbnail,
     version::{Checked, check as check_version},
 };
 
@@ -453,10 +453,14 @@ async fn saved(
         Some(data) => Some(data.to_vec()),
         None => schematic::data(db, id).await?,
     };
-    if let Some(data) = data {
-        let conventional = schematic::get(db, id)
-            .await?
-            .is_some_and(|s| s.conventional);
+    let conventional = schematic::get(db, id)
+        .await?
+        .is_some_and(|s| s.conventional);
+    // The simulation decides how a recognized build stacks, so its form's
+    // stacking counts for nothing and what it found stays.
+    let inferred = conventional
+        && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
+    if let Some(data) = data.filter(|_| !inferred) {
         let checked = stack::check(&data, &parsed.stacking).and_then(|()| {
             if !conventional {
                 return Ok(());
@@ -494,7 +498,9 @@ async fn saved(
     };
     let mut tx = db.begin().await?;
     schematic::set_details(&mut *tx, id, &details).await?;
-    schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
+    if !inferred {
+        schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
+    }
     schematic::set_flags(&mut tx, id, &flags).await?;
     let credits = [
         (Credit::Builder, &builders),

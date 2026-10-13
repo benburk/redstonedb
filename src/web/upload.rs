@@ -16,7 +16,7 @@ use crate::{
     import::{self, Prepared},
     interface, lint,
     models::{
-        schematic::{self, New, Tag},
+        schematic::{self, New, StackDirection, Tag},
         simulation,
         user::User,
     },
@@ -362,9 +362,15 @@ async fn publish_checked(
             return Err(format!("Could not check the category: {err}."));
         }
     };
-    stack::check(&prepared.data, &parsed.stacking)?;
-    if !sent.settings.unconventional {
-        stack::check_furnaces(&prepared.blocks, &parsed.stacking)?;
+    // The simulation decides how a recognized build stacks once it is
+    // published, so its form's stacking counts for nothing.
+    let inferred = !sent.settings.unconventional
+        && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
+    let stacking: &[StackDirection] =
+        if inferred { &[] } else { &parsed.stacking };
+    stack::check(&prepared.data, stacking)?;
+    if !sent.settings.unconventional && !inferred {
+        stack::check_furnaces(&prepared.blocks, stacking)?;
     }
     let size = &prepared.size;
     let new = New {
@@ -398,7 +404,7 @@ async fn publish_checked(
         tags: &sent.form.tags,
         // An admin may name a new tag; it starts under other.
         new_tags: user.is_admin(),
-        stacking: &parsed.stacking,
+        stacking,
         flags: &parsed.flags,
     };
     import::store(&state.db, &new, &extras)

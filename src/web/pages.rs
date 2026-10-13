@@ -18,7 +18,7 @@ use crate::{
     },
     search::Term,
     simulate::{
-        Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Timing,
+        self, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Timing,
     },
 };
 
@@ -1456,6 +1456,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     data-name=(category.name) data-named[category.named]
                                     data-periodic[category.periodic]
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
+                                    data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
                                     data-holds-bytes[category.holds_bytes]
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -1685,7 +1686,15 @@ fn stacking_fields(f: &Fields) -> Markup {
         .chain(std::iter::repeat(&blank))
         .take(f.stack_rows.len().max(2));
     html! {
-        fieldset class="flex flex-col gap-3" data-stacking {
+        // For a category such as adder, the simulation stacks copies the way
+        // the bits run and decides, so the rows give way to a note.
+        div class="field" data-derived-stacking hidden {
+            span { "Stacking" }
+            p class="text-muted" {
+                "Worked out by the simulation below, which stacks copies the way the bits run and tests them."
+            }
+        }
+        fieldset class="flex flex-col gap-3" data-stacking data-typed-stacking {
             legend class="mb-1.5 text-meta font-semibold text-muted" { "Stacking" }
             label class="flex items-start gap-2" {
                 input type="checkbox" name="stackable" value="yes" checked[f.stackable]
