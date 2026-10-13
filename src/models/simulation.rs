@@ -146,7 +146,7 @@ pub fn derived_width(
 }
 
 /// Brings build `id` up to date with its file, category, and width: sets
-/// the width and flags its category reads from the file, runs its test's cases when
+/// the width, orientation, and flags its category reads from the file, runs its test's cases when
 /// the stored result is for another file or test, or always when `again`,
 /// and drops the result when it has no test. Timing is left to
 /// `refresh_timing`, being slow. Returns the result.
@@ -161,11 +161,18 @@ pub async fn refresh(
         .context("schematic vanished")?;
     if s.conventional {
         let interface = interface::read(&Blocks::read(&data)?);
-        if let Some(width) = import::derived_width(&s.category, &interface)
+        let found = import::derived(&s.category, &interface);
+        if let Some(width) = found.width
             && s.width != Some(width)
         {
             schematic::set_width(db, id, width).await?;
             s.width = Some(width);
+        }
+        if let Some(orientation) = found.orientation
+            && s.orientation != orientation
+        {
+            schematic::set_orientation(db, id, orientation).await?;
+            orientation.clone_into(&mut s.orientation);
         }
         if let Some(flags) = import::derived_flags(&s.category, &interface) {
             let have: Vec<&str> =

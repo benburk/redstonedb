@@ -79,8 +79,9 @@ pub struct DetailsPage<'a> {
     pub tags: &'a [Tag],
     /// Whether the person, an admin, may name a new tag.
     pub may_create_tags: bool,
-    /// The width an adder reads from the file; see `fields`.
-    pub derived_width: Option<i64>,
+    /// The width and orientation an adder reads from the file; see
+    /// `fields`.
+    pub derived: crate::import::Derived,
     /// Why the last attempt to publish or save was refused, if it was.
     pub message: &'a str,
 }
@@ -518,7 +519,7 @@ fn details_form(page: &DetailsPage) -> Markup {
                 }
                 File::Stored { .. } => {}
             }
-            (fields(page.fields, page.choices, page.derived_width))
+            (fields(page.fields, page.choices, &page.derived))
             (tag_picker(page.tags, page.chosen_tags, page.may_create_tags))
             @if let File::Upload { unconventional, .. } = &page.file
                 && (!page.analysis.violations.is_empty() || *unconventional)

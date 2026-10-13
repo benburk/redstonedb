@@ -195,24 +195,44 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
-/// The categories whose width is read from the file, A's bit count; see
-/// `derived_width`. An adder's flags are read too; see `derived_flags`.
-pub const DERIVES_WIDTH: [&str; 2] = ["adder", "incrementer"];
+/// The categories whose width and orientation are read from the file, from
+/// input A; see `derived`. An adder's flags are read too; see
+/// `derived_flags`.
+pub const READ_FROM_FILE: [&str; 2] = ["adder", "incrementer"];
 
-/// The width a category takes from its builds' files rather than their
-/// details: an adder's is its A input's bit count, four for each block of a
-/// signal-strength input. `None` for other categories, or a build without
-/// an A.
-pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
-    if !DERIVES_WIDTH.contains(&category) {
-        return None;
-    }
+/// What a category in `READ_FROM_FILE` takes from its builds' files in
+/// place of typed details.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Derived {
+    /// A's bit count, four for each block of a signal-strength input.
+    pub width: Option<i64>,
+    /// `horz`, `vert`, or `diag`, the way A's bits run.
+    pub orientation: Option<&'static str>,
+}
+
+/// What `category` reads from a build with `interface`: nothing for other
+/// categories, or a build without an A.
+pub fn derived(category: &str, interface: &Interface) -> Derived {
     let a = interface
         .inputs
         .iter()
-        .find(|port| !port.labelled && port.block.starts_with("lime"))?;
-    let bits = a.bits.len() * if a.signal_strength { 4 } else { 1 };
-    i64::try_from(bits).ok()
+        .find(|port| !port.labelled && port.block.starts_with("lime"));
+    match a.filter(|_| READ_FROM_FILE.contains(&category)) {
+        Some(a) => Derived {
+            width: i64::try_from(
+                a.bits.len() * if a.signal_strength { 4 } else { 1 },
+            )
+            .ok(),
+            orientation: orientation(a),
+        },
+        None => Derived::default(),
+    }
+}
+
+/// The width `category` reads from a build with `interface`; see
+/// `derived`.
+pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
+    derived(category, interface).width
 }
 
 /// The flags a category takes from its builds' files rather than their

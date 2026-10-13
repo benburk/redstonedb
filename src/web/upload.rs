@@ -438,7 +438,7 @@ async fn show_preview(
         Err(err) => return internal_error(err).into_response(),
     };
     let interface = interface::read(&prepared.blocks);
-    let derived_width = import::derived_width("adder", &interface);
+    let derived = import::derived("adder", &interface);
     let swappable = standardize::swappable(&prepared.blocks);
     pages::details_page(
         user,
@@ -463,7 +463,7 @@ async fn show_preview(
             choices: &choices,
             tags: &tags,
             may_create_tags: user.is_admin(),
-            derived_width,
+            derived,
             message: said.message,
         },
     )

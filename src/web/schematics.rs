@@ -561,12 +561,12 @@ pub(super) async fn show_edit(
             violations: Vec::new(),
         }),
     };
-    // An adder's width comes from its file, whatever its category is now,
-    // in case it becomes one.
-    let derived_width = if s.conventional {
-        import::derived_width("adder", &analysis.interface)
+    // An adder's width and orientation come from its file, whatever its
+    // category is now, in case it becomes one.
+    let derived = if s.conventional {
+        import::derived("adder", &analysis.interface)
     } else {
-        None
+        import::Derived::default()
     };
     let simulation = match simulation::current(db, &s).await {
         Ok(simulation) => simulation,
@@ -606,7 +606,7 @@ pub(super) async fn show_edit(
             choices: &choices,
             tags: &tags,
             may_create_tags: user.is_admin(),
-            derived_width,
+            derived,
             message,
         },
     )

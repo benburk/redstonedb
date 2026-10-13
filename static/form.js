@@ -39,12 +39,16 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       flags.hidden = flags.dataset.flagsFor !== name;
     }
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
-    // A category such as adder reads its width from the file, which shows
-    // in place of the typed one.
-    const derived = form.querySelector("[data-derived-width]");
-    if (derived) {
-      derived.hidden = !has("data-derives-width");
-      if (!derived.hidden) form.querySelector("[data-typed-width]").hidden = true;
+    // A category such as adder reads its width and orientation from the
+    // file, which show in place of the typed ones. A typed field no
+    // category hides comes back when the category reads nothing.
+    for (const what of ["width", "orientation"]) {
+      const derived = form.querySelector(`[data-derived-${what}]`);
+      if (!derived) continue;
+      const typed = form.querySelector(`[data-typed-${what}]`);
+      derived.hidden = !has("data-reads-file");
+      if (!derived.hidden) typed.hidden = true;
+      else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
     }
     form.querySelector("[data-named-field]").hidden = !has("data-named");
     form.querySelector("[data-period-field]").hidden = !has("data-periodic");

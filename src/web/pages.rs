@@ -1451,7 +1451,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
                                     data-periodic[category.periodic]
-                                    data-derives-width[import::DERIVES_WIDTH.contains(&category.name.as_str())]
+                                    data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-holds-bytes[category.holds_bytes]
                                     class="cursor-pointer rounded-control px-2.5 py-1.5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -1531,7 +1531,7 @@ fn flag_group(
 ) -> Markup {
     html! {
         div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
-            @if import::DERIVES_WIDTH.contains(&category.name.as_str()) {
+            @if import::READ_FROM_FILE.contains(&category.name.as_str()) {
                 p class="text-muted" {
                     "Carry in and carry out are read from the file: a magenta line is its carry in, and a pink line its carry out."
                 }
@@ -1548,12 +1548,20 @@ fn flag_group(
     }
 }
 
+/// An orientation as people read it, such as `Vertical` for `vert`.
+fn orientation_label(orientation: &str) -> &'static str {
+    match orientation {
+        "horz" => "Horizontal",
+        "vert" => "Vertical",
+        _ => "Diagonal",
+    }
+}
+
 /// The inputs for a build's details, shared by editing and uploading.
-/// `derived_width` is the width the file gives a
-/// category that reads it from the file, such as an adder's from its lime
-/// inputs, shown in place of the typed width once such a category is
-/// chosen.
-fn fields(f: &Fields, choices: &Choices, derived_width: Option<i64>) -> Markup {
+/// `derived` is the width and orientation the file gives a category that
+/// reads them from the file, such as an adder's from its lime inputs,
+/// shown in place of the typed ones once such a category is chosen.
+fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
     // A category off the list, such as a piston door, has no width or encoding.
     let other =
         !f.category.is_empty() && choices.category(f.category).is_none();
@@ -1563,13 +1571,22 @@ fn fields(f: &Fields, choices: &Choices, derived_width: Option<i64>) -> Markup {
             span { "Width in bits" }
             input name="width" type="number" min="1" value=(f.width) class="input tabular-nums";
         }
-        @if let Some(width) = derived_width {
+        @if let Some(width) = derived.width {
             div class="field" data-derived-width hidden {
                 span { "Width in bits" }
                 p class="tabular-nums" { (width) span class="text-muted" { ", counted from the lime inputs" } }
             }
         }
-        label class="field" {
+        @if let Some(orientation) = derived.orientation {
+            div class="field" data-derived-orientation hidden {
+                span { "Orientation" }
+                p {
+                    (orientation_label(orientation))
+                    span class="text-muted" { ", from the way the lime inputs run" }
+                }
+            }
+        }
+        label class="field" data-typed-orientation {
             span { "Orientation" }
             select name="orientation" class="input" {
                 @for (value, label) in [("horz", "Horizontal"), ("vert", "Vertical"), ("diag", "Diagonal")] {
