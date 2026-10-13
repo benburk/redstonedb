@@ -147,6 +147,12 @@
     @apply inline-flex min-h-6 items-center gap-1 rounded-full px-2.5 pb-0.5 text-meta font-medium whitespace-nowrap;
   }
 
+  /* A menu's sections after the first shown one have a line above, so a
+     menu narrowed by typing still starts without one. */
+  .menu-section:not([hidden]) ~ .menu-section:not([hidden]) {
+    @apply border-t border-line pt-1;
+  }
+
   .badge-restriction {
     @apply bg-restriction text-on-restriction;
   }

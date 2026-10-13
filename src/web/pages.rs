@@ -1443,9 +1443,13 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                     class="absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay"
                     data-category-menu {
                     @for (key, heading, members) in choices.sections() {
-                        div role="group" aria-labelledby={ "category-group-" (key) } data-group {
+                        // Headings stand apart from the options under them:
+                        // bold, with the options indented and a line between
+                        // sections.
+                        div role="group" aria-labelledby={ "category-group-" (key) } data-group
+                            class="menu-section" {
                             div id={ "category-group-" (key) } role="presentation"
-                                class="px-2.5 pt-2 pb-1 text-meta font-semibold text-muted" { (heading) }
+                                class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
@@ -1453,7 +1457,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     data-periodic[category.periodic]
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-holds-bytes[category.holds_bytes]
-                                    class="cursor-pointer rounded-control px-2.5 py-1.5 text-nav hover:bg-selection aria-selected:bg-selection" {
+                                    class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
                                 }
                             }
