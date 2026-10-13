@@ -340,18 +340,10 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
                      drive it from"
                         .to_owned(),
                 ),
-                Some(Some(entry)) => {
+                // The dust may enter from any side: the simulator drives
+                // it from wherever there is room.
+                Some(Some(_)) => {
                     kind.1.get_or_insert(pos);
-                    if colour == INPUT_COLOURS[0] && entry != "south" {
-                        say(
-                            found,
-                            Some(pos),
-                            format!(
-                                "A's dust enters from the {entry} side of its \
-                                 block, not south"
-                            ),
-                        );
-                    }
                 }
             },
             n => say(

@@ -43,7 +43,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 ### Signal-strength inputs
 
 - A signal-strength input takes a value from 0 to 15 as its strength, which no lever can give. Each bit is a block of its operand's colour with no lever and dust on top, and each block is one hex digit, four bits of the build's width.
-- The dust's one open end, the side that leads nowhere, is where power enters, so it marks where a driver goes, as a lever's face does. A's dust enters from the south.
+- The dust's one open end, the side that leads nowhere, is where power enters, so it marks where a driver goes, as a lever's face does. It may face any side, unlike A's levers; give each input's dust an open end of its own, so a driver there feeds that input alone.
 - One colour is one bus, so an operand's blocks are either all levered or all signal-strength.
 - The derived drive and the `4ss` strength sign do not apply: the strength is the value.
 
