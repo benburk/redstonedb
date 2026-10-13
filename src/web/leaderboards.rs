@@ -23,6 +23,7 @@ pub struct BoardQuery {
     width: Option<String>,
     period: Option<String>,
     bytes: Option<String>,
+    encoding: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
 }
@@ -58,6 +59,7 @@ pub async fn show(
     let wanted = Wanted {
         measure: given(measure).and_then(|n| n.parse().ok()),
         bytes: given(query.bytes).and_then(|n| n.parse().ok()),
+        encoding: given(query.encoding),
         orientation: given(query.orientation),
         design: given(query.design),
     };
