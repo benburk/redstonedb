@@ -794,7 +794,12 @@ fn stacking_note(stacking: &Stacking) -> Markup {
             Stacking::Stacks { step, copies, bits, cases } => p class="mt-4" {
                 strong { "Stacks: " }
                 (copies) " copies, " (step.describe()) " apart, make a " (bits) "-bit adder whose "
-                (grouped(*cases)) " cases are all right, so it stacks any number of times."
+                (grouped(*cases)) " cases are all right"
+                @if *copies >= 3 {
+                    ", with a copy between two others and longer than dust carries a signal, so it stacks any number of times."
+                } @else {
+                    ". Three would be wider than the simulator tests, so no copy sat between two others."
+                }
             },
             Stacking::Not { step, reason } => p class="mt-4 text-muted" {
                 strong { "Doesn't stack as saved" }

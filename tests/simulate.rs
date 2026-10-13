@@ -199,7 +199,8 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
         panic!("it does not stack");
     };
     assert_eq!(step.describe(), "16 up");
-    assert_eq!((copies, bits), (2, 16));
+    // Three, so one sits between two others: 24 bits.
+    assert_eq!((copies, bits), (3, 24));
     assert!(cases > 1 << 18);
     let (stacked, _) = stack::stack(&data, &[(step.direction(), 2)]).unwrap();
     let blocks = Blocks::read(&stacked).unwrap();
@@ -253,7 +254,7 @@ fn a_sequential_multiplier_is_skipped() {
 }
 
 /// A 1-bit slice steps from its carry in to its carry out, which the next
-/// copy's carry in lands on; sixteen copies make a 16-bit adder.
+/// copy's carry in lands on.
 #[test]
 fn a_ripple_carry_slice_stacks_any_number_of_times() {
     let raw = std::fs::read("tests/fixtures/alpha-rca-slice.schem").unwrap();
@@ -264,7 +265,8 @@ fn a_ripple_carry_slice_stacks_any_number_of_times() {
     else {
         panic!("it does not stack");
     };
-    assert_eq!((step.describe().as_str(), copies), ("2 west", 16));
+    // Nine reach a copy past the 15 blocks dust carries.
+    assert_eq!((step.describe().as_str(), copies), ("2 west", 9));
 }
 
 /// Its copies fit, but a carry out of one never reaches the next, which

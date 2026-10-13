@@ -1,13 +1,17 @@
 //! Whether copies of an adder stack into a wider adder, as stacking would
 //! join them: the step from one copy to the next comes from how its bits
-//! are spaced, and enough copies for 16 bits, at least two, are stacked and
-//! tested. An adder whose copies still add right at 16 bits is taken to
-//! stack any number of times.
+//! are spaced. Enough copies are stacked and tested that one sits between
+//! two others, taking a carry and passing one on, and that the stack is
+//! longer than dust carries a signal, 15 blocks, plus a copy, so a path
+//! that runs through copies without a repeater or torch to renew it fails.
+//! An adder whose copies add right then is taken to stack any number of
+//! times.
 //!
 //! The checks run cheapest first and stop at the first that fails: a carry
-//! in to take the carry from the copy before, the spacing of the bits, then whether the copies fit together and read as
-//! one adder, then whether the stack settles, then a few sums whose carry
-//! crosses from one copy to the next, and only then the stack's full test.
+//! in to take the carry from the copy before, the spacing of the bits, then
+//! whether the copies fit together and read as one adder, then whether the
+//! stack settles, then a few sums whose carry crosses from one copy to the
+//! next, and only then the stack's full test.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,9 +26,9 @@ use crate::{
     stack,
 };
 
-/// The bits a stack is tested to: one that adds right this wide is taken
-/// to stack any number of times.
-const STACK_BITS: usize = 16;
+/// The farthest dust carries a signal, which a stack tested must reach
+/// past.
+const DUST_REACH: i64 = 15;
 
 /// What stacking copies of an adder found.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -91,14 +95,11 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         return Some(not(None, reason.to_owned()));
     }
     let width = interface.inputs[ports.a].bits.len();
-    let copies = STACK_BITS.div_ceil(width).max(2);
-    if i64::try_from(copies * width).ok()? > MAX_WIDTH {
-        return None;
-    }
     let step = match step(&interface, &ports) {
         Ok(step) => step,
         Err(reason) => return Some(not(None, reason)),
     };
+    let copies = copies(step, width)?;
     Some(match stacked(data, step, copies, width) {
         Ok(cases) => Stacking::Stacks {
             step,
@@ -108,6 +109,18 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         },
         Err(reason) => not(Some(step), reason),
     })
+}
+
+/// How many copies to test: three, so one sits between two others, and
+/// enough that the stack reaches past what dust carries by a copy; but no
+/// wider than the simulator tests, and `None` when two would be.
+fn copies(step: Step, width: usize) -> Option<usize> {
+    let length = u64::try_from(step.west + step.up + step.north).ok()?;
+    let reach = u64::try_from(DUST_REACH + 1).ok()?;
+    let reaching = usize::try_from(reach.div_ceil(length) + 1).ok()?;
+    let fitting = usize::try_from(MAX_WIDTH).ok()? / width;
+    let copies = reaching.max(3).min(fitting);
+    (copies >= 2).then_some(copies)
 }
 
 /// The step that puts the next copy's bits where the bus would go on: the
@@ -272,6 +285,18 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enough_copies_reach_past_what_dust_carries() {
+        let step = |west, up| Step { west, up, north: 0 };
+        // A 1-bit slice 2 wide: 9 copies, 18 blocks.
+        assert_eq!(copies(step(2, 0), 1), Some(9));
+        // An 8-bit adder 16 high: three, one in the middle.
+        assert_eq!(copies(step(0, 16), 8), Some(3));
+        // A 16-bit one: three would be 48 bits, so two.
+        assert_eq!(copies(step(0, 32), 16), Some(2));
+        assert_eq!(copies(step(0, 64), 32), None);
+    }
 
     #[test]
     fn an_even_bus_goes_on_by_its_spacing() {
