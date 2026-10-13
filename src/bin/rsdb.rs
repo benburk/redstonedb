@@ -1007,7 +1007,13 @@ fn print_timing(timing: &Timing) {
     let outputs: Vec<String> = timing
         .outputs
         .iter()
-        .map(|output| format!("{} by {}t", output.name, output.latency))
+        .map(|output| match output.carried {
+            0 => format!("{} by {}t", output.name, output.latency),
+            carried => format!(
+                "{} by {}t, carried out {carried}t later",
+                output.name, output.latency
+            ),
+        })
         .collect();
     println!(
         "        timing: {}; {}; {}",

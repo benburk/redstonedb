@@ -8,6 +8,9 @@
 //! makes it arrive earlier, at a negative tick. Each output's latency is
 //! the last tick it settles by, and the build is synced when every output
 //! changes only once, with all its bits on the same tick. An output whose
+//! every block has a repeater or comparator standing on it, carrying it
+//! out of the build, is timed from when it reaches them, leaving out their
+//! delay. An output whose
 //! bit changes more than once glitches: it pulses when it should stay put,
 //! or flips back and forth on its way to a new value.
 //!
@@ -89,6 +92,10 @@ pub struct OutputTiming {
     pub latency: i32,
     /// The first tick it changed on.
     pub first_change: i32,
+    /// The ticks the repeaters or comparators standing on its blocks take
+    /// to carry it out of the build, left out of its ticks.
+    #[serde(default)]
+    pub carried: i32,
     /// How many changes it glitched in: a bit of it changed more than once.
     #[serde(default)]
     pub glitches: u64,
@@ -151,6 +158,7 @@ pub(super) fn measure(
         .iter()
         .map(|port| super::output_bits(interface, port))
         .collect();
+    let carried = Circuit::new(blocks, interface)?.carried();
     let rig = Rig {
         blocks,
         interface,
@@ -214,11 +222,13 @@ pub(super) fn measure(
             .outputs
             .iter()
             .zip(&together.outputs)
-            .map(|(port, stats)| OutputTiming {
+            .zip(&carried)
+            .map(|((port, stats), &carried)| OutputTiming {
                 name: port.name.clone(),
                 status: port.block.starts_with(lint::STATUS),
                 latency: stats.latency().unwrap_or(0),
                 first_change: stats.first_change().unwrap_or(0),
+                carried,
                 glitches: stats.glitches,
                 staggered: stats.staggered,
                 glitch: stats.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
@@ -419,9 +429,10 @@ impl Rig<'_> {
 
 /// Makes each change at its tick, given as (tick, input port, value), and
 /// runs until nothing is left to update, recording how each output bit
-/// changed. A change from all off gives its `case`, its number and input
-/// values, to keep as an example of a glitch. Returns the last tick any
-/// output changed on, if one did.
+/// changed, less the ticks the components standing on its blocks take to
+/// carry it out. A change from all off gives its `case`, its number and
+/// input values, to keep as an example of a glitch. Returns the last tick
+/// any output changed on, if one did.
 fn transition(
     circuit: &mut Circuit,
     changes: &[(i32, usize, u64)],
@@ -434,6 +445,7 @@ fn transition(
     let mut shown: Vec<u64> =
         (0..stats.outputs.len()).map(|o| circuit.get(o)).collect();
     let before = shown.clone();
+    let carried = circuit.carried();
     // Per output, each tick it changed on and its value from then.
     let mut steps: Vec<Vec<(i32, u64)>> = vec![Vec::new(); shown.len()];
     // Per output, per bit: how many times it changed, first, and last.
@@ -459,6 +471,7 @@ fn transition(
         for (output, bits) in seen.iter_mut().enumerate() {
             let now = circuit.get(output);
             let flipped = now ^ shown[output];
+            let tick = tick - carried[output];
             if flipped != 0 {
                 steps[output].push((tick, now));
             }

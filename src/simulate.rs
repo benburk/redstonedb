@@ -294,6 +294,31 @@ impl Circuit {
             value | u64::from(on) << i
         })
     }
+
+    /// For each output, the ticks the repeaters or comparators standing on
+    /// its every block take to carry it out of the build, the least of
+    /// them, which its value shows that much later than it arrives; 0 for
+    /// an output with a block bare of one.
+    pub fn carried(&self) -> Vec<i32> {
+        let delay = |pos: BlockPos| match self
+            .world
+            .get_block(pos.offset(BlockFace::Top))
+        {
+            Block::Repeater(repeater) => i32::from(repeater.delay),
+            Block::Comparator(_) => 1,
+            _ => 0,
+        };
+        self.outputs
+            .iter()
+            .map(|(blocks, digits)| {
+                if *digits {
+                    0
+                } else {
+                    blocks.iter().map(|&pos| delay(pos)).min().unwrap_or(0)
+                }
+            })
+            .collect()
+    }
 }
 
 /// Whether an output of a build with a signal-strength input shows a digit

@@ -883,6 +883,7 @@ pub fn timing_section(timing: &Timing) -> Markup {
                     }
                 }
             }
+            (carried_notes(&timing.outputs))
             p class="mt-4" {
                 @if timing.synced {
                     strong { "Synced: " } "every output changes once, all its bits on the same tick."
@@ -912,6 +913,19 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 "Measured over " (grouped(timing.changes)) " changes: each input alone, from 0 to "
                 @if timing.patterns { "each test pattern, such as all ones or alternate bits set," } @else { "every value" }
                 " and back, and all of them together from all off. A slower change may exist among those not tried."
+            }
+        }
+    }
+}
+
+/// What each output timed short of the repeaters or comparators carrying
+/// it out of the build leaves out.
+fn carried_notes(outputs: &[OutputTiming]) -> Markup {
+    html! {
+        @for output in outputs.iter().filter(|o| o.carried > 0) {
+            p class="mt-2 text-muted" {
+                (output.name) " is timed where it reaches the repeaters or comparators standing on its blocks, which carry it out of the build "
+                (output.carried) (if output.carried == 1 { " tick" } else { " ticks" }) " later."
             }
         }
     }

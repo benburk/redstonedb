@@ -435,3 +435,20 @@ fn a_copy_may_cover_the_copy_below() {
     };
     assert_eq!((step.describe().as_str(), copies), ("2 up", 9));
 }
+
+/// Nothing powers its yellow output blocks: the repeaters standing on
+/// them carry the sum out of the build, a tick later, which its latency
+/// leaves out. Its carry out has none.
+#[test]
+fn an_output_is_timed_where_it_reaches_its_repeaters() {
+    let timing = Test::Adder
+        .time(&blocks("cca-8-repeated-out"), &AtomicBool::new(false))
+        .unwrap();
+    let outputs: Vec<(&str, i32, i32)> = timing
+        .outputs
+        .iter()
+        .map(|output| (output.name.as_str(), output.latency, output.carried))
+        .collect();
+    assert_eq!(outputs, [("output", 3, 1), ("carry out", 5, 0)]);
+    assert_eq!(timing.latency(), Some(3));
+}
