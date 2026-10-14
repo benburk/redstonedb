@@ -276,9 +276,18 @@ pub async fn detail(
         Ok(similar) => similar,
         Err(err) => return internal_error(&*err).into_response(),
     };
+    let flags = match schematic::flags(&state.db).await {
+        Ok(flags) => flags,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    let flags: Vec<_> = flags
+        .into_iter()
+        .filter(|flag| flag.category == s.category)
+        .collect();
     pages::schematic(
         user_opt.as_ref(),
         &s,
+        &flags,
         &similar,
         &analysis,
         &simulation,

@@ -529,9 +529,11 @@ fn a_lever_saved_on_by_mistake_is_named() {
 }
 
 /// From Schemati: eleven control lines, seven saved on, each sign naming
-/// the operations its line takes part in. Every result comes out right, but
-/// its carry out is on for an add that does not carry and off for one that
-/// does, so every add is wrong there.
+/// the operations its line takes part in, its status lines signed carry
+/// out, overflow, and lsb shift out. Every result comes out right, and its
+/// overflow and the bit a shift right drops, but its carry out is on for an
+/// add that does not carry and off for one that does, so every add is wrong
+/// there.
 #[test]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
@@ -545,6 +547,12 @@ fn an_alu_runs_each_operation_its_signs_name() {
         "add, sub, and, or, xor, nand, nor, xnor, shr, asr"
     );
     assert_eq!((run.cases, run.wrong), (10 * 65_536, 65_536));
+    let outputs: Vec<&str> =
+        run.outputs.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        outputs,
+        ["output", "carry out", "overflow", "lsb shift out"]
+    );
     assert_eq!(run.wrong_bits, [("carry out".to_owned(), 65_536)]);
     assert_eq!(run.examples[0].op.as_deref(), Some("add"));
     // Standardizing took the commas out of its signs, and the signs name

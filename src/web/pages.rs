@@ -586,6 +586,7 @@ pub struct Analysis {
 pub fn schematic(
     viewer: Option<&User>,
     s: &Schematic,
+    flags: &[Flag],
     similar: &[(Schematic, u32)],
     analysis: &Result<Analysis, String>,
     simulation: &Status,
@@ -629,7 +630,7 @@ pub fn schematic(
                     }
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, similar)))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, flags, similar)))
             @match analysis {
                 _ if !s.conventional => {
                     p class="mt-10 max-w-prose text-muted" {
@@ -1287,7 +1288,11 @@ fn download_dialog(s: &Schematic) -> Markup {
 
 /// A schematic's tags and details, and the builds it is similar to, beside
 /// its viewer.
-fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
+fn schematic_info(
+    s: &Schematic,
+    flags: &[Flag],
+    similar: &[(Schematic, u32)],
+) -> Markup {
     html! {
         div class="flex flex-col gap-8" {
             section aria-labelledby="tags-heading" {
@@ -1354,9 +1359,7 @@ fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
                         (field(&plural("Contributor", &s.contributors), name_links(&s.contributors)))
                     }
                     (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    @for flag in &s.flags {
-                        (field(&flag.label, search_link("yes", &flag.name)))
-                    }
+                    (flag_fields(s, flags))
                     (field("Uploaded", s.added_at.get(..10).unwrap_or(&s.added_at)))
                     @if let Some(edited) = &s.edited_at {
                         (field("Last edited", edited.get(..10).unwrap_or(edited)))
@@ -1391,6 +1394,20 @@ fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
             }
             @if !similar.is_empty() {
                 (similar_section(similar))
+            }
+        }
+    }
+}
+
+/// Every flag of a build's category, yes or no, so one it lacks says so, as
+/// an ALU without SHL does.
+fn flag_fields(s: &Schematic, flags: &[Flag]) -> Markup {
+    html! {
+        @for flag in flags {
+            @if s.flags.iter().any(|has| has.name == flag.name) {
+                (field(&flag.label, search_link("yes", &flag.name)))
+            } @else {
+                (field(&flag.label, "no"))
             }
         }
     }

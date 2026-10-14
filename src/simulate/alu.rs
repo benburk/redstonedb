@@ -11,7 +11,8 @@
 //! A line named `carry in` is no operation: add takes it, as A + B + carry
 //! in, and the rest hold it off. A status line is checked where its meaning
 //! is plain: a carry out for add, an overflow, taken as signed, for add and
-//! subtract, and a zero for every operation.
+//! subtract, an `lsb shift out`, the bit a shift right drops, for shr and
+//! asr, and a zero for every operation.
 
 use std::sync::atomic::AtomicBool;
 
@@ -77,6 +78,8 @@ struct Alu {
     data_bits: usize,
     carry_out: Option<usize>,
     overflow: Option<usize>,
+    /// The bit a shift right drops, as `lsb shift out` names it.
+    shift_out: Option<usize>,
     zero: Option<usize>,
 }
 
@@ -145,6 +148,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
         data_bits,
         carry_out: find(&|i| says(i, &["carry", "out"]) || says(i, &["cout"])),
         overflow: find(&|i| says(i, &["overflow"])),
+        shift_out: find(&|i| says(i, &["shift", "out"])),
         zero: find(&|i| says(i, &["zero"])),
     })
 }
@@ -300,6 +304,7 @@ fn check_one(
             carry_out as fn(&str, u64, u64, u64, usize) -> bool,
         ),
         (alu.overflow, arithmetic, overflow),
+        (alu.shift_out, matches!(op, "shr" | "asr"), shift_out),
         (alu.zero, true, zero),
     ]
     .into_iter()
@@ -361,6 +366,11 @@ fn overflow(op: &str, a: u64, b: u64, carry: u64, width: usize) -> bool {
         "sub" => sa != sb && sr != sa,
         _ => false,
     }
+}
+
+/// Whether a shift right of A drops a 1: A's lowest bit.
+fn shift_out(_: &str, a: u64, _: u64, _: u64, _: usize) -> bool {
+    a & 1 == 1
 }
 
 /// Whether `op`'s result is 0.
