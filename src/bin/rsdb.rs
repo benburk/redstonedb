@@ -68,6 +68,10 @@ enum Command {
     /// unless it keeps its own, measure it, and read its facts, such as its
     /// torches and the oldest release it works in
     Reread,
+    /// Put a file in place of a stored build's, as a fix to the file, such
+    /// as whitening its gray blocks: no version is added and nothing is
+    /// compared. Then read it as `reread` does
+    Replace(Replace),
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
     Respell,
@@ -216,6 +220,14 @@ struct Add {
     /// player one block south of its south-east-bottom corner
     #[arg(long)]
     keep_paste: bool,
+}
+
+#[derive(Args)]
+struct Replace {
+    id: String,
+    file: PathBuf,
+    #[command(flatten)]
+    standardizing: Standardizing,
 }
 
 #[derive(Args)]
@@ -384,6 +396,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Reread => reread(db).await,
+        Command::Replace(args) => replace(db, &args).await,
         Command::Respell => respell(db).await,
         Command::Categories => print_categories(db).await,
         Command::DefineCategory(args) => define_category(db, args).await,
@@ -804,53 +817,84 @@ async fn reread(db: &SqlitePool) -> Result<()> {
         let stored = schematic::data(db, &s.id)
             .await?
             .context("schematic vanished")?;
-        let mut data = standardize::tidy(&stored)?;
-        if !keeping.contains(&s.id) {
-            data = schem::paste_from_corner(&data)?;
-        }
-        // Older builds marked status lines yellow; they are pink now.
-        if s.conventional {
-            data = standardize::pink_status(&data)?;
-        }
-        if data != stored {
-            let sha256 = import::sha256(&data);
-            schematic::set_file(db, &s.id, &data, &sha256).await?;
-            version::rewrite_current(db, &s.id, &data, &sha256).await?;
-            let [w, h, l] = Blocks::read(&stored)?.size;
-            let [nw, nh, nl] = Blocks::read(&data)?.size;
-            if [w, h, l] == [nw, nh, nl] {
-                println!("{}  file rewritten", &s.id[..8]);
-            } else {
-                println!("{}  file {h}x{w}x{l} -> {nh}x{nw}x{nl}", &s.id[..8]);
-            }
-        }
-        let blocks = Blocks::read(&data)?;
-        let facts = import::FileFacts::of(&blocks);
-        let stored = (
-            s.torches,
-            s.works_from.as_deref(),
-            s.works_from_by.as_deref(),
-        );
-        let read = (
-            Some(facts.torches),
-            Some(facts.works_from.release),
-            facts.works_from.because.as_deref(),
-        );
-        if stored != read {
-            schematic::set_file_facts(db, &s.id, &facts).await?;
-        }
-        let size = import::measure(&blocks, s.conventional)?;
-        let size = (size.x.into(), size.y.into(), size.z.into());
-        if size != s.size {
-            schematic::set_size(db, &s.id, size).await?;
-            let (x, y, z) = s.size;
-            let (nx, ny, nz) = size;
-            println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
-        }
-        simulation::refresh(db, &s.id, false).await?;
-        simulation::refresh_timing(db, &s.id, false).await?;
+        reread_one(db, &s, &stored, keeping.contains(&s.id)).await?;
     }
     Ok(())
+}
+
+/// Reads build `s`'s file `stored` again, as `reread` reads every one:
+/// tidies and stores it if that changes it, keeping where it pastes if
+/// `keep_paste`, then its facts and size, and simulates it.
+async fn reread_one(
+    db: &SqlitePool,
+    s: &schematic::Schematic,
+    stored: &[u8],
+    keep_paste: bool,
+) -> Result<()> {
+    let mut data = standardize::tidy(stored)?;
+    if !keep_paste {
+        data = schem::paste_from_corner(&data)?;
+    }
+    // Older builds marked status lines yellow; they are pink now.
+    if s.conventional {
+        data = standardize::pink_status(&data)?;
+    }
+    if data != stored {
+        let sha256 = import::sha256(&data);
+        schematic::set_file(db, &s.id, &data, &sha256).await?;
+        version::rewrite_current(db, &s.id, &data, &sha256).await?;
+        let [w, h, l] = Blocks::read(stored)?.size;
+        let [nw, nh, nl] = Blocks::read(&data)?.size;
+        if [w, h, l] == [nw, nh, nl] {
+            println!("{}  file rewritten", &s.id[..8]);
+        } else {
+            println!("{}  file {h}x{w}x{l} -> {nh}x{nw}x{nl}", &s.id[..8]);
+        }
+    }
+    let blocks = Blocks::read(&data)?;
+    let facts = import::FileFacts::of(&blocks);
+    let stored = (
+        s.torches,
+        s.works_from.as_deref(),
+        s.works_from_by.as_deref(),
+    );
+    let read = (
+        Some(facts.torches),
+        Some(facts.works_from.release),
+        facts.works_from.because.as_deref(),
+    );
+    if stored != read {
+        schematic::set_file_facts(db, &s.id, &facts).await?;
+    }
+    let size = import::measure(&blocks, s.conventional)?;
+    let size = (size.x.into(), size.y.into(), size.z.into());
+    if size != s.size {
+        schematic::set_size(db, &s.id, size).await?;
+        let (x, y, z) = s.size;
+        let (nx, ny, nz) = size;
+        println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
+    }
+    simulation::refresh(db, &s.id, false).await?;
+    simulation::refresh_timing(db, &s.id, false).await?;
+    Ok(())
+}
+
+/// Puts `args.file` in place of build `args.id`'s current file, standardized if
+/// asked, as a fix to the file rather than a new version: no version is
+/// added and nothing is compared. Then reads it as `reread` does.
+async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
+    let id = resolve(db, &args.id).await?;
+    let s = load(db, &id).await?;
+    let mut data = fs::read(&args.file)?;
+    if let Some(gray) = args.standardizing.asked() {
+        data = standardize::standardize(&data, gray)?;
+    }
+    let sha256 = import::sha256(&data);
+    schematic::set_file(db, &id, &data, &sha256).await?;
+    version::rewrite_current(db, &id, &data, &sha256).await?;
+    println!("{}  file replaced", &id[..8]);
+    let keep_paste = schematic::keeping_paste(db).await?.contains(&id);
+    reread_one(db, &s, &data, keep_paste).await
 }
 
 /// Asks Mojang how each stored Minecraft name is spelled and respells it
