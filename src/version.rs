@@ -2,7 +2,7 @@
 //! one as a new version rather than be uploaded as a build of its own.
 //!
 //! A new version keeps the build's width and depth, though its height may
-//! change; keeps its inputs and outputs; and keeps at least 95% of its
+//! change; keeps its inputs and outputs; and keeps at least 90% of its
 //! blocks, or changes at most 10, so a small build can be fixed too. Two
 //! different 8-bit carry-cancel adders share at most 14% of their blocks,
 //! and a fix such as flipping a lever changes one, so the line sits well
@@ -22,7 +22,7 @@ use crate::{
 
 /// The share of blocks, in percent, a new version keeps at least, unless
 /// it changes no more than `MAX_CHANGED`.
-pub const MIN_SAME_PERCENT: usize = 95;
+pub const MIN_SAME_PERCENT: usize = 90;
 
 /// How many blocks a new version may change whatever its share.
 pub const MAX_CHANGED: usize = 10;
@@ -318,9 +318,14 @@ mod tests {
             changed: 40,
         };
         assert!(big.close_enough());
-        let rebuilt = Comparison {
-            same: 400,
+        let reworked = Comparison {
+            same: 900,
             changed: 100,
+        };
+        assert!(reworked.close_enough(), "90% kept is enough");
+        let rebuilt = Comparison {
+            same: 890,
+            changed: 110,
         };
         assert!(!rebuilt.close_enough());
     }

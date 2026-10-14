@@ -64,7 +64,7 @@ fn a_one_block_fix_is_a_new_version() {
 #[test]
 fn a_different_adder_is_not_a_new_version() {
     let refusals = refused(&stored("alpha-rca"), &stored("alpha-cla"));
-    assert!(refusals.iter().any(|r| r.contains("keeps at least 95%")));
+    assert!(refusals.iter().any(|r| r.contains("keeps at least 90%")));
     assert!(
         refusals
             .iter()
