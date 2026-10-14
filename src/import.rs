@@ -265,10 +265,13 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
 }
 
 /// The categories whose width, orientation, and encoding are read from the
-/// file, from input A; see `derived`. An adder's flags are read too; see
-/// `derived_flags`.
-pub const READ_FROM_FILE: [&str; 4] =
-    ["adder", "incrementer", "decrementer", "inc_dec"];
+/// file, from input A; see `derived`.
+pub const READ_FROM_FILE: [&str; 5] =
+    ["adder", "incrementer", "decrementer", "inc_dec", "alu"];
+
+/// The categories whose flags are read from the file too, rather than
+/// ticked: an adder's carry lines; see `derived_flags`.
+pub const FLAGS_FROM_FILE: [&str; 1] = ["adder"];
 
 /// What a category in `READ_FROM_FILE` takes from its builds' files in
 /// place of typed details.
@@ -315,7 +318,7 @@ pub fn derived_flags(
     category: &str,
     interface: &Interface,
 ) -> Option<Vec<String>> {
-    if category != "adder" {
+    if !FLAGS_FROM_FILE.contains(&category) {
         return None;
     }
     let has = |ports: &[Port], colour: &str| {

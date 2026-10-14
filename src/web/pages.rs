@@ -1649,7 +1649,7 @@ fn flag_group(
 ) -> Markup {
     html! {
         div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
-            @if import::READ_FROM_FILE.contains(&category.name.as_str()) {
+            @if import::FLAGS_FROM_FILE.contains(&category.name.as_str()) {
                 p class="text-muted" {
                     "Carry in and carry out are read from the file: a magenta line is its carry in, and a pink line its carry out."
                 }

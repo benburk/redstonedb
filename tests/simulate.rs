@@ -567,6 +567,12 @@ fn an_alu_runs_each_operation_its_signs_name() {
         assert!(flags.contains(&flag.to_owned()), "{flag} in {flags:?}");
     }
     assert!(!flags.contains(&"shl".to_owned()), "it has no shift left");
+    // Its width, orientation, and encoding are read from A, as an adder's.
+    let found = import::derived("alu", &interface::read(&blocks));
+    assert_eq!(
+        (found.width, found.orientation, found.encoding),
+        (Some(8), Some("vert"), Some("bin"))
+    );
 }
 
 /// An earlier version of it, whose carry out was the adder's inverted: on
