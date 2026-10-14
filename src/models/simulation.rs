@@ -288,6 +288,14 @@ async fn apply_stacking(
         let mut conn = db.acquire().await?;
         schematic::set_stacking(&mut conn, &s.id, &directions).await?;
     }
+    // Copies that add up as a wider adder run the way its bits do, which a
+    // 1-bit adder's lone input cannot show.
+    if let Some(Stacking::Stacks { step, .. }) = &run.stacking
+        && let Some(orientation) = step.orientation()
+        && s.orientation != orientation
+    {
+        schematic::set_orientation(db, &s.id, orientation).await?;
+    }
     Ok(())
 }
 

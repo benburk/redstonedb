@@ -1196,6 +1196,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         }
     );
     println!("size         {y}x{x}x{z} (HWD), {} blocks", s.volume());
+    if let Some((x, y, z)) = s.per_copy() {
+        println!("per copy     {y}x{x}x{z} (HWD), {} blocks", x * y * z);
+    }
     println!(
         "built by     {}",
         if s.builders.is_empty() {

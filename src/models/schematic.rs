@@ -453,6 +453,26 @@ impl Schematic {
         x * y * z
     }
 
+    /// The box a stack grows by with each copy: the build's size, but its
+    /// step along each way it stacks, so the parts copies overlap on count
+    /// once. `None` for a build that does not stack, or stacks diagonally,
+    /// whose stack does not grow by a box.
+    pub fn per_copy(&self) -> Option<(i64, i64, i64)> {
+        if self.stacking.is_empty() {
+            return None;
+        }
+        let (mut x, mut y, mut z) = self.size;
+        for d in &self.stacking {
+            match (d.west, d.up, d.north) {
+                (west, 0, 0) => x = west,
+                (0, up, 0) => y = up,
+                (0, 0, north) => z = north,
+                _ => return None,
+            }
+        }
+        Some((x, y, z))
+    }
+
     /// This build stacked into a box of inner `size`, with `copies` along
     /// each direction. Copies that add bits widen it, and every copy of a
     /// memory holds its bytes. A stack's latency and timing are not its
@@ -2139,6 +2159,35 @@ mod tests {
             ..piped
         };
         assert!(!as_slow.pipelined(), "throughput must beat latency");
+    }
+
+    #[test]
+    fn a_stack_grows_by_its_step_however_much_copies_overlap() {
+        let way = |west, up, north| StackDirection {
+            west,
+            up,
+            north,
+            max_copies: None,
+        };
+        // Copies 2 up a box 6 high overlap by 4, so each adds 2 high.
+        let vertical = Schematic {
+            size: (5, 6, 6),
+            stacking: vec![way(0, 2, 0)],
+            ..cla()
+        };
+        assert_eq!(vertical.per_copy(), Some((5, 2, 6)));
+        let horizontal = Schematic {
+            size: (7, 2, 6),
+            stacking: vec![way(5, 0, 0)],
+            ..cla()
+        };
+        assert_eq!(horizontal.per_copy(), Some((5, 2, 6)));
+        let diagonal = Schematic {
+            stacking: vec![way(1, 1, 0)],
+            ..cla()
+        };
+        assert_eq!(diagonal.per_copy(), None);
+        assert_eq!(cla().per_copy(), None);
     }
 
     #[test]

@@ -1318,6 +1318,12 @@ fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
                     }))
                     (field("Size", format!("{} (HWD)", size(s))))
                     (field("Volume", volume(s)))
+                    // What each copy of a stack adds, which compares
+                    // stackable builds whose copies overlap by different
+                    // amounts.
+                    @if let Some((x, y, z)) = s.per_copy() {
+                        (field("Per copy", format!("{y}×{x}×{z} (HWD), {} blocks", x * y * z)))
+                    }
                     (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                         html! { "unknown" }
                     } else {
