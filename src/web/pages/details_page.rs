@@ -472,6 +472,10 @@ fn version_chooser(s: &Schematic, open: bool) -> Markup {
                     input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
                     span { "Standardize it, as when uploading." }
                 }
+                label class="flex items-start gap-2 pl-6" {
+                    input type="checkbox" name="whiten_gray" value="yes" checked class="mt-1 size-4 appearance-auto";
+                    span { "Whiten gray blocks too. Untick this to keep the logic only a stack's first copy needs." }
+                }
                 div { button type="submit" class="btn btn-quiet" { "Check it" } }
             }
         }

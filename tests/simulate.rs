@@ -6,7 +6,8 @@ use app::{
     import, interface, lint,
     schem::{self, Blocks},
     simulate::{self, Report, Stacking, Test},
-    stack, standardize,
+    stack,
+    standardize::{self, Gray},
 };
 
 /// A fixture as the site stores it: markers out, box fitted, and status
@@ -216,7 +217,7 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
 fn a_combinational_multiplier_tries_every_product() {
     let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
-    let data = standardize::standardize(&raw).unwrap();
+    let data = standardize::standardize(&raw, Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::Multiplier.run(&blocks) else {
         panic!("the multiplier was not simulated");
@@ -342,7 +343,7 @@ fn a_barrel_on_gray_belongs_to_the_first_copy() {
 #[test]
 fn a_hex_adder_is_driven_digit_by_digit() {
     let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
-    let data = standardize::standardize(&raw).unwrap();
+    let data = standardize::standardize(&raw, Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
     let derived = import::derived("adder", &interface);
@@ -535,7 +536,9 @@ fn a_lever_saved_on_by_mistake_is_named() {
 #[test]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false).unwrap().blocks;
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .blocks;
     let report = Test::Alu.run(&blocks);
     let Report::Ran(run) = &report else {
         panic!("the ALU was not simulated: {report:?}");
@@ -582,7 +585,9 @@ fn an_alu_runs_each_operation_its_signs_name() {
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
         std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false).unwrap().blocks;
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .blocks;
     let Report::Ran(run) = Test::Alu.run(&blocks) else {
         panic!("the ALU was not simulated");
     };

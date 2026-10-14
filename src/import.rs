@@ -13,7 +13,7 @@ use crate::{
     models::schematic::{self, Credit, New, StackDirection},
     models::version,
     schem::{self, Blocks, Size},
-    standardize,
+    standardize::{self, Gray},
     works_from::{self, WorksFrom},
 };
 
@@ -32,21 +32,22 @@ pub struct Prepared {
 }
 
 /// Swaps cauldrons and cakes for barrels giving the same signal strength,
-/// standardizes `data` if asked, and in any case takes out corner markers
-/// and fits its box tightly; sets it to paste from one block south of its
+/// standardizes `data` if asked, gray as `standardize` says, and in any
+/// case takes out corner markers and fits its box tightly; sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
 /// uploader's `//paste` put it; then measures, lints, reads its facts,
 /// and hashes it.
 pub fn prepare(
     data: &[u8],
-    standardize: bool,
+    standardize: Option<Gray>,
     conventional: bool,
     keep_paste: bool,
 ) -> Result<Prepared> {
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
     let data = standardize::barrels(data, &[])?;
-    let data = if standardize {
-        standardize::standardize(&data).context("cannot standardize it")?
+    let data = if let Some(gray) = standardize {
+        standardize::standardize(&data, gray)
+            .context("cannot standardize it")?
     } else {
         standardize::tidy(&data)?
     };

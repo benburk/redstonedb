@@ -424,7 +424,7 @@ async fn attached(
         return Ok(None);
     }
     let checked = match (STANDARD.decode(data), schematic::get(db, id).await) {
-        (Ok(data), Ok(Some(s))) => check_version(db, &s, &data, false).await,
+        (Ok(data), Ok(Some(s))) => check_version(db, &s, &data, None).await,
         (Err(_), _) => Err(anyhow::anyhow!("it did not arrive whole")),
         (_, Ok(None)) => return Err(super::not_found(Some(user))),
         (_, Err(err)) => return Err(internal_error(err).into_response()),

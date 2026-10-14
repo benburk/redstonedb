@@ -24,7 +24,8 @@ use crate::{
     schem::Blocks,
     schemati,
     simulate::{self, Guess},
-    stack, standardize,
+    stack,
+    standardize::{self, Gray},
 };
 
 use super::{
@@ -42,12 +43,13 @@ async fn from_schemati(link: &str) -> Result<Bytes, String> {
 /// fetched from a Schemati link.
 pub(super) struct Sent {
     pub file: Bytes,
-    pub standardize: bool,
+    /// Standardizing, and what to do with gray blocks, if asked.
+    pub standardize: Option<Gray>,
     pub keep_paste: bool,
 }
 
 /// Reads a file form: its `file`, or else the file behind its `schemati`
-/// link, and its `standardize` and `keep_paste` ticks. Says what went
+/// link, and its `standardize`, `whiten_gray`, and `keep_paste` ticks. Says what went
 /// wrong when there is no file to read.
 pub(super) async fn received(
     multipart: &mut Multipart,
@@ -55,6 +57,7 @@ pub(super) async fn received(
     let mut file = None;
     let mut link = String::new();
     let mut standardize = false;
+    let mut whiten_gray = false;
     let mut keep_paste = false;
     // A body over the server's limit, 2 MB, breaks off partway.
     let mut broken = false;
@@ -66,6 +69,7 @@ pub(super) async fn received(
                     Err(_) => broken = true,
                 },
                 Some("standardize") => standardize = true,
+                Some("whiten_gray") => whiten_gray = true,
                 Some("keep_paste") => keep_paste = true,
                 Some("schemati") => match field.text().await {
                     Ok(text) => link = text,
@@ -96,9 +100,14 @@ pub(super) async fn received(
             );
         }
     };
+    let gray = if whiten_gray {
+        Gray::Whiten
+    } else {
+        Gray::Keep
+    };
     Ok(Sent {
         file,
-        standardize,
+        standardize: standardize.then_some(gray),
         keep_paste,
     })
 }
@@ -277,7 +286,7 @@ pub async fn publish(
     };
     let prepared = match import::prepare(
         &data,
-        false,
+        None,
         !settings.unconventional,
         settings.keep_paste,
     ) {

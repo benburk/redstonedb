@@ -16,6 +16,7 @@ use crate::{
     lint,
     models::schematic::{self, Schematic},
     schem::{Blocks, Pos},
+    standardize::Gray,
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless
@@ -145,7 +146,7 @@ pub async fn check(
     db: &SqlitePool,
     s: &Schematic,
     file: &[u8],
-    standardize: bool,
+    standardize: Option<Gray>,
 ) -> anyhow::Result<Checked> {
     let keep_paste = schematic::keeping_paste(db).await?.contains(&s.id);
     let prepared =

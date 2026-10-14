@@ -829,7 +829,8 @@ fn stacking_note(stacking: &Stacking) -> Markup {
                 strong { "Doesn't stack as saved" }
                 @if let Some(step) = step { ", with copies " (step.describe()) " apart" }
                 ": " (reason)
-                " Logic only the first copy needs goes on gray blocks, which stacking leaves out of the rest."
+                " Logic only the first copy needs goes on gray blocks, which stacking leaves out of the rest; "
+                "standardizing whitens them unless asked not to."
             },
         }
     }
@@ -2529,6 +2530,13 @@ pub fn upload(user: &User, message: &str) -> Markup {
                         span {
                             "Standardize it: every block that isn't redstone, an input, or an output turns white, "
                             "and slabs and glass white stained glass. The inputs and outputs must already be marked, as below."
+                        }
+                    }
+                    label class="flex items-start gap-2 pl-6" {
+                        input type="checkbox" name="whiten_gray" value="yes" checked class="mt-1 size-4 appearance-auto";
+                        span {
+                            "Whiten gray blocks too. Untick this for a stackable build whose gray blocks hold "
+                            "logic only its first copy needs, which stacking leaves out of the rest."
                         }
                     }
                     @if !message.is_empty() {

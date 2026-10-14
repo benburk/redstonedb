@@ -1,8 +1,11 @@
 //! Reading builds from their files, against the two stored adders.
 
 use app::{
-    import, interface, lint, models::schematic::StackDirection, schem::Blocks,
-    stack, standardize,
+    import, interface, lint,
+    models::schematic::StackDirection,
+    schem::Blocks,
+    stack,
+    standardize::{self, Gray},
 };
 
 fn raw(name: &str) -> Vec<u8> {
@@ -250,7 +253,8 @@ fn a_wrong_step_collides() {
 
 #[test]
 fn standardizing_whitens_the_build() {
-    let data = standardize::standardize(&raw("threshold-3-raw")).unwrap();
+    let data = standardize::standardize(&raw("threshold-3-raw"), Gray::Whiten)
+        .unwrap();
     let blocks = Blocks::read(&data).unwrap();
     assert_eq!(glass(&blocks), 0);
     let messages: Vec<String> = lint::check(&blocks)
@@ -268,8 +272,8 @@ fn standardizing_whitens_the_build() {
 #[test]
 fn standardizing_twice_gives_the_same_bytes() {
     let raw = raw("threshold-3-raw");
-    let first = standardize::standardize(&raw).unwrap();
-    let second = standardize::standardize(&raw).unwrap();
+    let first = standardize::standardize(&raw, Gray::Whiten).unwrap();
+    let second = standardize::standardize(&raw, Gray::Whiten).unwrap();
     assert_eq!(first, second);
 }
 
@@ -284,7 +288,8 @@ fn stacks_are_capped() {
 fn a_layer_of_only_inputs_does_not_count_toward_size() {
     // The raw file also has misplaced marker glass, which standardizing
     // drops rather than keeping as part of the build.
-    let data = standardize::standardize(&raw("cca-16-raw")).unwrap();
+    let data =
+        standardize::standardize(&raw("cca-16-raw"), Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     assert!(lint::check(&blocks).is_empty());
     let size = import::measure(&blocks, true).unwrap();
@@ -295,7 +300,8 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
 
 #[test]
 fn a_control_line_may_use_a_button() {
-    let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
+    let data =
+        standardize::standardize(&raw("mult-8-buttons"), Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let messages: Vec<String> = lint::check(&blocks)
         .iter()
@@ -314,7 +320,8 @@ fn a_control_line_may_use_a_button() {
 
 #[test]
 fn an_operand_may_not_use_a_button() {
-    let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
+    let data =
+        standardize::standardize(&raw("mult-8-buttons"), Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let lever = blocks.switches().into_iter().find(|l| !l.button).unwrap();
     let pos = lever.pos;
@@ -365,7 +372,7 @@ fn rebuilt(
 }
 
 fn multiplier() -> Vec<u8> {
-    standardize::standardize(&raw("mult-8-buttons")).unwrap()
+    standardize::standardize(&raw("mult-8-buttons"), Gray::Whiten).unwrap()
 }
 
 #[test]
@@ -416,7 +423,7 @@ fn standardizing_keeps_a_levered_colour_as_concrete() {
         (state == "minecraft:light_blue_concrete")
             .then(|| "minecraft:cyan_terracotta".to_owned())
     });
-    let standardized = standardize::standardize(&data).unwrap();
+    let standardized = standardize::standardize(&data, Gray::Whiten).unwrap();
     let blocks = Blocks::read(&standardized).unwrap();
     let inputs = interface::read(&blocks).inputs;
     let b = inputs.iter().find(|port| port.name == "B").unwrap();
@@ -554,7 +561,8 @@ fn only_a_levers_must_face_south() {
 fn dust_on_an_input_block_is_a_signal_strength_input() {
     // A hex digit to four bits: one lime block with dust on top, its open
     // end south, feeding comparators. No lever could give its value.
-    let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
+    let data =
+        standardize::standardize(&raw("hex2bin-raw"), Gray::Whiten).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let messages: Vec<String> = lint::check(&blocks)
         .iter()
@@ -685,7 +693,7 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
         .iter()
         .find(|(_, state)| state.starts_with("minecraft:furnace"))
         .unwrap();
-    let prepared = import::prepare(&data, false, true, false).unwrap();
+    let prepared = import::prepare(&data, None, true, false).unwrap();
     assert_eq!(prepared.swapped, [("furnace".to_owned(), 36)]);
     let after = &prepared.blocks;
     assert!(after.iter().all(|(_, state)| !state.contains("furnace")));
@@ -805,7 +813,8 @@ fn standardizing_takes_out_signs_that_label_nothing() {
             .any(|v| v.message.contains("2023/6/3"))
     );
     let blocks =
-        Blocks::read(&standardize::standardize(&raw).unwrap()).unwrap();
+        Blocks::read(&standardize::standardize(&raw, Gray::Whiten).unwrap())
+            .unwrap();
     assert!(blocks.signs.is_empty());
     assert!(lint::check(&blocks).is_empty());
 }
@@ -823,4 +832,22 @@ fn an_output_sticking_out_is_not_measured() {
     assert_eq!((size.y, size.x, size.z), (4, 4, 6));
     let (low, high) = app::interface::core(&blocks);
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
+}
+
+/// Standardizing whitens gray blocks as any other building block, unless
+/// asked to keep them for a stack's first copy alone.
+#[test]
+fn standardizing_whitens_gray_unless_asked_to_keep_it() {
+    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
+        .expect("fixture is readable");
+    let grays = |gray| {
+        let data = standardize::standardize(&data, gray).unwrap();
+        Blocks::read(&data)
+            .unwrap()
+            .iter()
+            .filter(|(_, state)| state.starts_with("minecraft:gray_"))
+            .count()
+    };
+    assert_eq!(grays(Gray::Whiten), 0);
+    assert!(grays(Gray::Keep) >= 2);
 }

@@ -20,7 +20,8 @@ use app::{
     schem::{self, Blocks},
     search,
     simulate::{Report, Signal, Stacking, Timing},
-    stack, standardize,
+    stack,
+    standardize::{self, Gray},
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -55,9 +56,8 @@ enum Command {
         /// What it fixes
         #[arg(long)]
         note: Option<String>,
-        /// Standardize the file first, as `add --standardize` does
-        #[arg(long)]
-        standardize: bool,
+        #[command(flatten)]
+        standardizing: Standardizing,
     },
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),
@@ -210,14 +210,36 @@ struct Add {
     /// Import even if the file breaks the building conventions
     #[arg(long)]
     force: bool,
-    /// Whiten every block but redstone components, inputs, and outputs,
-    /// and turn slabs and glass into white stained glass, before linting
-    #[arg(long)]
-    standardize: bool,
+    #[command(flatten)]
+    standardizing: Standardizing,
     /// Keep where the file's //paste puts the build, rather than with the
     /// player one block south of its south-east-bottom corner
     #[arg(long)]
     keep_paste: bool,
+}
+
+#[derive(Args)]
+struct Standardizing {
+    /// Whiten every block but redstone components, inputs, and outputs,
+    /// and turn slabs and glass into white stained glass, before linting
+    #[arg(long)]
+    standardize: bool,
+    /// Keep gray blocks when standardizing, marking logic only a stack's
+    /// first copy keeps, rather than whitening them
+    #[arg(long, requires = "standardize")]
+    keep_gray: bool,
+}
+
+impl Standardizing {
+    /// Whether to standardize, and what to do with gray blocks if so.
+    fn asked(&self) -> Option<Gray> {
+        let gray = if self.keep_gray {
+            Gray::Keep
+        } else {
+            Gray::Whiten
+        };
+        self.standardize.then_some(gray)
+    }
 }
 
 #[derive(Args)]
@@ -348,8 +370,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             id,
             file,
             note,
-            standardize,
-        } => new_version(db, &id, &file, note.as_deref(), standardize).await,
+            standardizing,
+        } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
         Command::Set(args) => set(db, args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
@@ -551,9 +573,13 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         .with_context(|| format!("cannot read {}", file.display()))?;
     let details = &args.details;
     let conventional = details.conventional.unwrap_or(true);
-    let prepared =
-        import::prepare(&data, args.standardize, conventional, args.keep_paste)
-            .with_context(|| file.display().to_string())?;
+    let prepared = import::prepare(
+        &data,
+        args.standardizing.asked(),
+        conventional,
+        args.keep_paste,
+    )
+    .with_context(|| file.display().to_string())?;
     // As the category has it: only an adder may leave its lone control and
     // status lines unsigned.
     let violations: Vec<String> = if conventional {
@@ -898,7 +924,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
             .await?
             .context("schematic vanished")?
     };
-    let violations = import::prepare(&data, false, true, true)?.violations;
+    let violations = import::prepare(&data, None, true, true)?.violations;
     for violation in &violations {
         println!("{violation}");
     }
@@ -915,12 +941,13 @@ async fn new_version(
     id: &str,
     file: &Path,
     note: Option<&str>,
-    standardize: bool,
+    standardizing: &Standardizing,
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
     let checked =
-        app::version::check(db, &s, &fs::read(file)?, standardize).await?;
+        app::version::check(db, &s, &fs::read(file)?, standardizing.asked())
+            .await?;
     let comparison = checked.comparison;
     println!(
         "changed {} of {} blocks",
