@@ -11,6 +11,7 @@ use crate::{
         schematic::{Schematic, Tag},
         user::User,
     },
+    similarity,
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
@@ -32,6 +33,9 @@ pub enum File<'a> {
         size: [u16; 3],
         /// The id of a stored build with the same file, if any.
         duplicate: Option<&'a str>,
+        /// The stored build most like it, with how alike, if any is
+        /// similar.
+        similar: Option<(&'a Schematic, u32)>,
         /// Whether the file keeps where its uploader's `//paste` put it.
         keep_paste: bool,
         unconventional: bool,
@@ -210,6 +214,8 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
 #[derive(Clone, Copy)]
 enum State {
     Pass,
+    /// Worth a look, but holding nothing up.
+    Warn,
     Fail,
     Run,
     Wait,
@@ -220,6 +226,7 @@ enum State {
 fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
     let (key, class) = match state {
         State::Pass => ("pass", ""),
+        State::Warn => ("warn", ""),
         State::Fail => ("fail", "text-danger"),
         State::Run => ("run", "text-muted"),
         State::Wait => ("wait", "text-muted"),
@@ -230,6 +237,7 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
             span data-icon aria-hidden="true" class="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center" {
                 @match state {
                     State::Pass => "✓",
+                    State::Warn => "!",
                     State::Fail => "✗",
                     State::Run => (spinner()),
                     State::Wait => "○",
@@ -361,6 +369,16 @@ fn checks(page: &DetailsPage) -> Markup {
                 @if let File::Upload { duplicate: Some(id), .. } = &page.file {
                     (check("duplicate", State::Fail, &html! {
                         "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
+                    }, false))
+                }
+                @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
+                    (check("similar", State::Warn, &html! {
+                        @if *permille >= similarity::NEAR_COPY { "Nearly the same as " } @else { "Similar to " }
+                        a href={ "/schematics/" (other.id) } { (other.title()) }
+                        @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
+                        ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
+                        a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
+                        " instead; if it builds on it, say so in the description."
                     }, false))
                 }
                 @if let File::Version { s, comparison, refusals, .. } = &page.file {

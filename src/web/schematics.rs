@@ -16,7 +16,7 @@ use crate::{
     lint,
     models::schematic::{self, Category, Credit, Measure, Schematic},
     models::user::User,
-    models::{simulation, version},
+    models::{similarity, simulation, version},
     mojang,
     schem::Blocks,
     search, simulate, stack, standardize, thumbnail,
@@ -236,6 +236,20 @@ pub async fn thumbnail(
     }
 }
 
+/// The builds build `id` is similar to, with how alike.
+async fn similar_to(
+    db: &SqlitePool,
+    id: &str,
+) -> anyhow::Result<Vec<(Schematic, u32)>> {
+    let mut found = Vec::new();
+    for (other, permille) in similarity::similar(db, id).await? {
+        if let Some(s) = schematic::get(db, &other).await? {
+            found.push((s, permille));
+        }
+    }
+    Ok(found)
+}
+
 pub async fn detail(
     Path(id): Path<String>,
     State(state): State<AppState>,
@@ -258,8 +272,19 @@ pub async fn detail(
         Ok(versions) => versions,
         Err(err) => return internal_error(err).into_response(),
     };
-    pages::schematic(user_opt.as_ref(), &s, &analysis, &simulation, &versions)
-        .into_response()
+    let similar = match similar_to(&state.db, &id).await {
+        Ok(similar) => similar,
+        Err(err) => return internal_error(&*err).into_response(),
+    };
+    pages::schematic(
+        user_opt.as_ref(),
+        &s,
+        &similar,
+        &analysis,
+        &simulation,
+        &versions,
+    )
+    .into_response()
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -372,6 +397,7 @@ pub async fn save(
     }
     // A new file, category, or width may call for a test, or another.
     simulation::refresh_soon(db, &id);
+    similarity::refresh_soon(db);
     Redirect::to(&format!("/schematics/{id}")).into_response()
 }
 

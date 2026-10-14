@@ -16,8 +16,8 @@ use crate::{
     import::{self, Prepared},
     interface, lint,
     models::{
-        schematic::{self, Measure, New, StackDirection, Tag},
-        simulation,
+        schematic::{self, Measure, New, Schematic, StackDirection, Tag},
+        similarity, simulation,
         user::User,
     },
     mojang,
@@ -188,6 +188,19 @@ pub async fn preview(
     show_preview(&state, &user, &prepared, &fields, &[], settings, said).await
 }
 
+/// The stored build most like an upload's `blocks`, if any is similar.
+async fn closest(
+    db: &sqlx::SqlitePool,
+    blocks: &Blocks,
+    size: (i64, i64, i64),
+) -> anyhow::Result<Option<(Schematic, u32)>> {
+    let Some((id, permille)) = similarity::closest(db, blocks, size).await?
+    else {
+        return Ok(None);
+    };
+    Ok(schematic::get(db, &id).await?.map(|s| (s, permille)))
+}
+
 /// What the uploader chose about the file itself, carried from the
 /// preview to publishing.
 #[derive(Clone, Copy)]
@@ -289,6 +302,7 @@ pub async fn publish(
     let refused = match publish_checked(&state, &user, &prepared, &sent).await {
         Ok(id) => {
             simulation::refresh_soon(&state.db, &id);
+            similarity::refresh_soon(&state.db);
             return Redirect::to(&format!("/schematics/{id}")).into_response();
         }
         Err(message) => message,
@@ -442,6 +456,12 @@ async fn show_preview(
         Ok(choices) => choices,
         Err(err) => return internal_error(err).into_response(),
     };
+    let size = &prepared.size;
+    let size = (size.x.into(), size.y.into(), size.z.into());
+    let similar = match closest(&state.db, &prepared.blocks, size).await {
+        Ok(similar) => similar,
+        Err(err) => return internal_error(&*err).into_response(),
+    };
     let interface = interface::read(&prepared.blocks);
     let derived = import::derived("adder", &interface);
     let swappable = standardize::swappable(&prepared.blocks);
@@ -452,6 +472,7 @@ async fn show_preview(
                 data: &STANDARD.encode(&prepared.data),
                 size: [prepared.size.x, prepared.size.y, prepared.size.z],
                 duplicate: duplicate.as_deref(),
+                similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
                 keep_paste: settings.keep_paste,
                 unconventional: settings.unconventional,
                 swapped: &prepared.swapped,

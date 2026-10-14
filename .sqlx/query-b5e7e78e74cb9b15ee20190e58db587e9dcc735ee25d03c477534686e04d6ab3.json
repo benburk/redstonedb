@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO similarity (schematic_id, other_id, permille)\n             VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "b5e7e78e74cb9b15ee20190e58db587e9dcc735ee25d03c477534686e04d6ab3"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\", category, category || '/' || sha256 as \"now!: String\",\n            compared_as FROM schematic",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "now!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "compared_as",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "51ed6bea06a0eccf1ed49d2125e7ed8a432a7502395d62de2223424977c91738"
+}

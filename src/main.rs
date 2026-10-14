@@ -51,6 +51,9 @@ async fn main() {
     if let Err(err) = app::import::count_torches(&db).await {
         tracing::error!("could not count torches: {err:#}");
     }
+    // Builds not yet compared with their category's others are, in the
+    // background.
+    app::models::similarity::refresh_soon(&db);
 
     let state = AppState {
         db,

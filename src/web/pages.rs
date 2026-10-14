@@ -584,6 +584,7 @@ pub struct Analysis {
 pub fn schematic(
     viewer: Option<&User>,
     s: &Schematic,
+    similar: &[(Schematic, u32)],
     analysis: &Result<Analysis, String>,
     simulation: &Status,
     versions: &[Version],
@@ -626,7 +627,7 @@ pub fn schematic(
                     }
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s)))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, similar)))
             @match analysis {
                 _ if !s.conventional => {
                     p class="mt-10 max-w-prose text-muted" {
@@ -1273,8 +1274,9 @@ fn download_dialog(s: &Schematic) -> Markup {
     }
 }
 
-/// A schematic's tags and details, beside its viewer.
-fn schematic_info(s: &Schematic) -> Markup {
+/// A schematic's tags and details, and the builds it is similar to, beside
+/// its viewer.
+fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
     html! {
         div class="flex flex-col gap-8" {
             section aria-labelledby="tags-heading" {
@@ -1360,8 +1362,42 @@ fn schematic_info(s: &Schematic) -> Markup {
                     p class="leading-prose whitespace-pre-line" { (description) }
                 }
             }
+            @if !similar.is_empty() {
+                (similar_section(similar))
+            }
         }
     }
+}
+
+/// The builds of its category a build is similar to, the most alike first.
+fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
+    html! {
+        section aria-labelledby="similar-heading" {
+            h2 id="similar-heading" class={ (SECTION_TITLE) " mb-1" } { "Similar builds" }
+            p class="mb-3 text-meta text-muted" {
+                "Share of their redstone that lines up, turned or mirrored as need be."
+            }
+            ul class="flex flex-col gap-1.5" {
+                @for (other, permille) in similar {
+                    li class="flex items-baseline justify-between gap-4" {
+                        span {
+                            a href={ "/schematics/" (other.id) } { (other.title()) }
+                            span class="text-muted" {
+                                @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
+                                ", " (size(other))
+                            }
+                        }
+                        span class="tabular-nums text-muted whitespace-nowrap" { (percent(*permille)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Tenths of a percent as a whole percent, such as `98%`.
+fn percent(permille: u32) -> String {
+    format!("{}%", permille / 10)
 }
 
 /// The values a details form starts with.
