@@ -739,3 +739,29 @@ fn a_register_whose_output_is_inverted_passes() {
     assert_eq!((run.cases, run.wrong), (3 * 256, 0));
     assert_eq!(run.pattern, "each of 2 cells written, then read inverted");
 }
+
+/// A register whose reads show each cell inverted, on a bus resting at all
+/// ones. Its read lines land on air in the copy before, 4 west, so each
+/// copy keeps its own, and three copies make 6 registers.
+#[test]
+fn an_inverted_register_reads_and_stacks() {
+    let (data, blocks) = register("register-8-inverted");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!(run.pattern, "each of 2 cells written, then read inverted");
+    let Some(Stacking::Registers {
+        step,
+        registers,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack");
+    };
+    assert_eq!(
+        (step.describe(), registers, most),
+        ("4 west".to_owned(), 6, Some(3))
+    );
+}

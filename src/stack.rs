@@ -30,7 +30,7 @@ use anyhow::{Result, bail, ensure};
 use crate::{
     interface, lint,
     models::schematic::StackDirection,
-    schem::{self, AIR, Blocks, Pos},
+    schem::{self, AIR, Blocks, DIRECTIONS, Pos},
 };
 
 /// The most copies along one direction.
@@ -178,14 +178,16 @@ fn along(
 }
 
 /// The inputs a later copy leaves out, a `step` along, since the copy
-/// before feeds them: a control line that lands within it, such as a carry
-/// in, and an input block of a layer outside the build's core, as
+/// before feeds them: a control line that lands within it where it could
+/// be fed, on a block or beside redstone, such as a carry in beside the
+/// dust carrying the carry out it continues, and an input block of a layer outside the build's core, as
 /// [`interface::core`] finds it, that lands in the core of the copy before,
 /// as a memory's input layer does; with the levers, buttons, and signs on
 /// them. A torch on one stays where the copy before has a solid block in
 /// its place to hang on, as one inverting a carry in hangs on the carry out
-/// it continues. A control line that lands beyond the copy before, as a
-/// register stacked into more registers keeps its own, stays, as does an
+/// it continues. A control line that lands beyond the copy before, or on
+/// air with no redstone around in it, as a register stacked into more
+/// registers keeps its own, stays, as does an
 /// adder's next bit, which lands in its own input layer.
 ///
 /// So does an input or output block of a bus outside the build as it is
@@ -211,7 +213,9 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
         .filter(|&(pos, state)| {
             let name = short(state);
             let landing = add(pos, step);
-            (name == format!("{}_concrete", lint::CONTROL) && within(landing))
+            (name == format!("{}_concrete", lint::CONTROL)
+                && within(landing)
+                && fed(blocks, landing))
                 || (lint::is_input(name) && !in_core(pos) && in_core(landing))
                 || (bus(name) && !in_measured(pos) && in_measured(landing))
         })
@@ -251,6 +255,28 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
 fn bus(name: &str) -> bool {
     (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
         || lint::is_output(name)
+}
+
+/// Whether something at `pos` in the copy before could feed a later
+/// copy's control line landing there: a block in its place, or redstone
+/// beside it, as the dust carrying a carry out to the next copy's carry
+/// in. A line landing on air with no redstone around is the copy's own.
+fn fed(blocks: &Blocks, pos: Pos) -> bool {
+    let redstone = |state: &str| {
+        matches!(
+            short(state),
+            "redstone_wire"
+                | "repeater"
+                | "comparator"
+                | "redstone_torch"
+                | "redstone_wall_torch"
+                | "observer"
+        )
+    };
+    blocks.get(pos) != AIR
+        || DIRECTIONS
+            .iter()
+            .any(|&side| redstone(blocks.get(schem::step(pos, side))))
 }
 
 /// The blocks only the first copy keeps: gray blocks, and the dust,
