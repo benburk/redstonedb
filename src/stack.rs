@@ -28,7 +28,7 @@ use std::{
     hash::BuildHasher,
 };
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, ensure};
 
 use crate::{
     interface, lint,
@@ -123,8 +123,7 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let mut left_out = first_copy_only(&blocks);
-    left_out.extend(shared_inputs(&blocks, step));
+    let left_out = first_copy(&blocks, step).all;
     let outputs = labelled_outputs(&blocks);
 
     // As in game: the parts only the first copy keeps are broken, the rest
@@ -145,7 +144,7 @@ fn along(
             } else {
                 state
             };
-            place(&mut grid, add(pos, shift(i)), state)?;
+            place(&mut grid, add(pos, shift(i)), state);
         }
     }
     for (pos, state) in blocks.iter() {
@@ -158,7 +157,7 @@ fn along(
             } else {
                 state
             };
-            put_back(&mut grid, add(pos, shift(0)), state);
+            place(&mut grid, add(pos, shift(0)), state);
         }
     }
 
@@ -197,6 +196,213 @@ fn along(
     schem::encode(nbt)
 }
 
+/// The step a copy stacked `direction` sits from the one before, in the
+/// file's coordinates: west and north count down, up counts up.
+fn step_of(direction: StackDirection) -> Result<Pos> {
+    let [west, up, north] =
+        [direction.west, direction.up, direction.north].map(i32::try_from);
+    Ok([-west?, up?, -north?])
+}
+
+/// What stacking a build one way looks like, for its builder to check:
+/// the parts only its first copy keeps, the spots where two copies hold
+/// different blocks, and whether two copies make a bigger build of the
+/// same shape.
+pub struct Review {
+    pub direction: StackDirection,
+    pub first_copy: FirstCopy,
+    pub disagreements: Vec<Disagreement>,
+    /// Why two copies do not make a build of the same shape, if not.
+    pub shape: Option<String>,
+}
+
+/// A spot where two copies overlap with different blocks, in the copy
+/// before's coordinates: its block, and the later copy's, which stands.
+/// Each is named as a player would, such as `barrel of strength 1`.
+pub struct Disagreement {
+    pub pos: Pos,
+    pub earlier: String,
+    pub later: String,
+}
+
+/// Reviews the build in `data`, whose bits run `orientation`, stacked
+/// `direction`.
+pub fn review(
+    data: &[u8],
+    direction: StackDirection,
+    orientation: &str,
+) -> Result<Review> {
+    let blocks = Blocks::read(data)?;
+    let step = step_of(direction)?;
+    let first_copy = first_copy(&blocks, step);
+    let disagreements = disagreements(&blocks, step, &first_copy);
+    let along_bits = matches!(
+        (orientation, direction.name().as_str()),
+        ("horz", "west") | ("vert", "up") | ("diag", "west-up")
+    );
+    let shape = shape(data, &blocks, direction, along_bits)?;
+    Ok(Review {
+        direction,
+        first_copy,
+        disagreements,
+        shape,
+    })
+}
+
+/// The spots where a later copy, a `step` along, puts a block over a
+/// different one of the copy before, each without the parts only the first
+/// copy keeps and with labelled outputs white, as stacking leaves them:
+/// another block, or a container giving another signal strength. Dust
+/// that meets joins, so it is no disagreement.
+fn disagreements(
+    blocks: &Blocks,
+    step: Pos,
+    first_copy: &FirstCopy,
+) -> Vec<Disagreement> {
+    let outputs = labelled_outputs(blocks);
+    let within = |pos: Pos| {
+        (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
+    };
+    let stacked = |pos: Pos| {
+        if outputs.blocks.contains(&pos) {
+            WHITE
+        } else {
+            blocks.get(pos)
+        }
+    };
+    let strength = |pos: Pos, state: &str| {
+        let items = blocks.containers.get(&pos).map_or(&[][..], Vec::as_slice);
+        schem::slots(state).map(|slots| schem::container_strength(items, slots))
+    };
+    let named = |pos: Pos, state: &str| match strength(pos, state) {
+        Some(strength) => {
+            format!("{} of strength {strength}", short(state).replace('_', " "))
+        }
+        None => short(state).replace('_', " "),
+    };
+    blocks
+        .iter()
+        .filter_map(|(pos, _)| {
+            let at = add(pos, step);
+            if first_copy.all.contains(&pos)
+                || first_copy.all.contains(&at)
+                || !within(at)
+            {
+                return None;
+            }
+            let (later, earlier) = (stacked(pos), stacked(at));
+            let dust = |state: &str| short(state) == "redstone_wire";
+            // A container is told by its kind and the strength it gives.
+            let other = match (strength(at, earlier), strength(pos, later)) {
+                (Some(a), Some(b)) => {
+                    schem::id(earlier) != schem::id(later) || a != b
+                }
+                _ => replaces(earlier, later),
+            };
+            let differ = later != AIR
+                && earlier != AIR
+                && !(dust(later) && dust(earlier))
+                && other;
+            differ.then(|| Disagreement {
+                pos: at,
+                earlier: named(at, earlier),
+                later: named(pos, later),
+            })
+        })
+        .collect()
+}
+
+/// Why two copies of `data`, `blocks`, stacked `direction` do not make a
+/// bigger build of its shape, if not: copies the way its bits run should
+/// double each data bus, and copies any other way keep each bus's width,
+/// or each tap it, and, if it has control lines, add their own.
+fn shape(
+    data: &[u8],
+    blocks: &Blocks,
+    direction: StackDirection,
+    along_bits: bool,
+) -> Result<Option<String>> {
+    let control = format!("{} concrete", lint::CONTROL);
+    let buses = |interface: &interface::Interface| -> Vec<(String, usize)> {
+        let inputs = interface
+            .inputs
+            .iter()
+            .filter(|port| !port.labelled && port.block != control);
+        let outputs = interface.outputs.iter().filter(|port| {
+            !port.labelled && !port.block.starts_with(lint::STATUS)
+        });
+        inputs
+            .chain(outputs)
+            .map(|port| (port.name.clone(), port.bits.len()))
+            .collect()
+    };
+    let lines = |interface: &interface::Interface| -> usize {
+        interface
+            .inputs
+            .iter()
+            .filter(|port| port.block == control)
+            .map(|port| port.bits.len())
+            .sum()
+    };
+    let single = interface::read(blocks);
+    let two = interface::read(&Blocks::read(&along(data, direction, 2)?)?);
+    let way = direction.name().replace('-', " and ");
+    for (name, bits) in buses(&single) {
+        let stacked = buses(&two)
+            .into_iter()
+            .find(|(other, _)| *other == name)
+            .map_or(0, |(_, bits)| bits);
+        // Copies another way may share a bus or each tap it.
+        let fits = if along_bits {
+            stacked == 2 * bits
+        } else {
+            stacked == bits || stacked == 2 * bits
+        };
+        let wanted = if along_bits { 2 * bits } else { bits };
+        if !fits {
+            return Ok(Some(format!(
+                "Two copies stacked {way} should give {name} {wanted} bits, \
+                 but it has {stacked}."
+            )));
+        }
+    }
+    if !along_bits && lines(&single) > 0 && lines(&two) <= lines(&single) {
+        return Ok(Some(format!(
+            "Two copies stacked {way} share every control line, so the \
+             second cannot be told apart from the first."
+        )));
+    }
+    Ok(None)
+}
+
+/// The build in `data` without the parts only its first copy keeps when
+/// stacked `direction`, as the stacking procedure's first step leaves it,
+/// or with `parts` those parts alone, to put back after `//rstack`.
+pub fn part(
+    data: &[u8],
+    direction: StackDirection,
+    parts: bool,
+) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let first_copy = first_copy(&blocks, step_of(direction)?);
+    let kept = |pos: &Pos| first_copy.all.contains(pos) == parts;
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(pos, state)| *state != AIR && kept(pos))
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(data)?;
+    let entities = nbt
+        .take_entities()
+        .into_iter()
+        .filter(|entity| {
+            schem::entity_pos(entity).is_some_and(|pos| kept(&pos))
+        })
+        .collect();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
+    schem::encode(nbt)
+}
+
 /// The inputs a later copy leaves out, a `step` along, since the copy
 /// before feeds them: a control line that lands within it where it could
 /// be fed, on a block or beside redstone, such as a carry in beside the
@@ -218,7 +424,7 @@ fn along(
 /// or comparator standing on it: the bus runs on through the copy before,
 /// and is driven and read only at the first copy's end, as a register
 /// file's data buses are.
-fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
+fn shared_inputs(blocks: &Blocks, step: Pos) -> (Vec<Pos>, Vec<Pos>) {
     let (low, high) = interface::core(blocks);
     let in_core = |pos: Pos| {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
@@ -230,22 +436,36 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     let within = |pos: Pos| {
         (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
     };
-    let inputs: HashSet<Pos> = blocks
-        .iter()
-        .filter(|&(pos, state)| {
-            let name = short(state);
-            let landing = add(pos, step);
-            (name == format!("{}_concrete", lint::CONTROL)
-                && within(landing)
-                && fed(blocks, landing))
-                || (lint::is_input(name) && !in_core(pos) && in_core(landing))
-                || (bus(name)
-                    && ((!in_measured(pos) && in_measured(landing))
-                        || (within(landing) && carries(blocks.get(landing)))))
-        })
-        .map(|(pos, _)| pos)
-        .collect();
-    let mut shared = inputs.clone();
+    let (mut inputs, mut buses) = (Vec::new(), Vec::new());
+    for (pos, state) in blocks.iter() {
+        let name = short(state);
+        let landing = add(pos, step);
+        if bus(name)
+            && ((!in_measured(pos) && in_measured(landing))
+                || (within(landing) && carries(blocks.get(landing))))
+        {
+            buses.push(pos);
+        } else if (name == format!("{}_concrete", lint::CONTROL)
+            && within(landing)
+            && fed(blocks, landing))
+            || (lint::is_input(name) && !in_core(pos) && in_core(landing))
+        {
+            inputs.push(pos);
+        }
+    }
+    (inputs, buses)
+}
+
+/// The blocks resting on `marks`, which go with them, a `step` along: the
+/// dust, repeater, or comparator carrying an output out, the levers,
+/// buttons, and signs on them, and a torch on one where the copy before
+/// has no solid block in its place to hang on.
+fn resting_on(
+    blocks: &Blocks,
+    inputs: &HashSet<Pos>,
+    step: Pos,
+) -> HashSet<Pos> {
+    let mut shared = HashSet::new();
     // What carries an output out stands on it, and goes with it.
     shared.extend(blocks.iter().filter_map(|(pos, state)| {
         let below = schem::step(pos, "down");
@@ -272,6 +492,45 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
             .then_some(pos)
     }));
     shared
+}
+
+/// The parts only the first copy keeps when copies stack a `step` along,
+/// which the stacking procedure breaks before `//rstack` and puts back on
+/// the first copy after.
+pub struct FirstCopy {
+    /// How many gray blocks.
+    pub gray: usize,
+    /// The inputs the copy before feeds, such as a carry in.
+    pub inputs: Vec<Pos>,
+    /// The data input and output blocks whose buses run on through the
+    /// copy before.
+    pub buses: Vec<Pos>,
+    /// Every block broken: these, and what rests on them.
+    pub all: HashSet<Pos>,
+}
+
+impl FirstCopy {
+    pub fn is_empty(&self) -> bool {
+        self.all.is_empty()
+    }
+}
+
+fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
+    let gray = first_copy_only(blocks);
+    let (inputs, buses) = shared_inputs(blocks, step);
+    let marks: HashSet<Pos> = inputs.iter().chain(&buses).copied().collect();
+    let mut all = resting_on(blocks, &marks, step);
+    all.extend(&marks);
+    all.extend(&gray);
+    FirstCopy {
+        gray: blocks
+            .iter()
+            .filter(|&(_, state)| lint::first_copy_only(short(state)))
+            .count(),
+        inputs,
+        buses,
+        all,
+    }
 }
 
 /// Whether a block id without its namespace marks a bit of a bus: an
@@ -376,43 +635,12 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
     }
 }
 
-/// Puts back a part only the first copy keeps at `pos`, over whatever a
-/// later copy put there, joining dust that meets, as a player does after
-/// stacking.
-fn put_back(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
-    let placed = match grid.get(&pos) {
-        Some(existing)
-            if short(existing) == "redstone_wire"
-                && short(state) == "redstone_wire" =>
-        {
-            joined(existing, state)
-        }
-        _ => state.to_owned(),
-    };
-    grid.insert(pos, placed);
-}
-
 /// Puts `state` at `pos`, over what an earlier copy put there, as
-/// `//rstack` does: dust that meets joins every way either joined. A solid
-/// block on a different solid block, one of them an input or output, is
-/// refused, since copies that collide so mean the stacking step is wrong.
-fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) -> Result<()> {
-    let marks = |state: &str| {
-        lint::is_input(short(state)) || lint::is_output(short(state))
-    };
+/// `//rstack` does, or a player putting back a part only the first copy
+/// keeps: dust that meets joins every way either joined. Where the two
+/// differ otherwise, `review` says so.
+fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
     let placed = match grid.get(&pos) {
-        Some(existing)
-            if solid(existing)
-                && solid(state)
-                && (marks(existing) || marks(state))
-                && replaces(existing, state) =>
-        {
-            let [x, y, z] = pos;
-            bail!(
-                "copies collide at ({x}, {y}, {z}): {existing} and {state}; \
-                 check the stacking step"
-            );
-        }
         Some(existing)
             if short(existing) == "redstone_wire"
                 && short(state) == "redstone_wire" =>
@@ -422,7 +650,6 @@ fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) -> Result<()> {
         _ => state.to_owned(),
     };
     grid.insert(pos, placed);
-    Ok(())
 }
 
 /// Whether `state` is a solid block rather than a component standing on

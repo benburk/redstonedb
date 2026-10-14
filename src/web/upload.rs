@@ -593,6 +593,7 @@ async fn show_preview(
             analysis: &pages::Analysis {
                 interface,
                 violations: prepared.violations.clone(),
+                stacking: Vec::new(),
             },
             fields,
             chosen_tags,

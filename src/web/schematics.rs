@@ -262,7 +262,19 @@ pub async fn detail(
         Err(err) => return internal_error(err).into_response(),
     };
     let analysis = match schematic::data(&state.db, &id).await {
-        Ok(data) => analyse(data.as_deref().unwrap_or_default()),
+        Ok(data) => {
+            let data = data.unwrap_or_default();
+            analyse(&data).map(|mut analysis| {
+                analysis.stacking = s
+                    .stacking
+                    .iter()
+                    .filter_map(|&direction| {
+                        stack::review(&data, direction, &s.orientation).ok()
+                    })
+                    .collect();
+                analysis
+            })
+        }
         Err(err) => return internal_error(err).into_response(),
     };
     let simulation = match simulation::status(&state.db, &s).await {
@@ -623,6 +635,7 @@ pub(super) async fn show_edit(
             } else {
                 Vec::new()
             },
+            stacking: Vec::new(),
         },
         None => analyse(&data).unwrap_or_else(|_| pages::Analysis {
             interface: Interface {
@@ -630,6 +643,7 @@ pub(super) async fn show_edit(
                 outputs: Vec::new(),
             },
             violations: Vec::new(),
+            stacking: Vec::new(),
         }),
     };
     // An adder's width and orientation come from its file, whatever its
@@ -691,6 +705,7 @@ fn analyse(data: &[u8]) -> Result<pages::Analysis, String> {
     Ok(pages::Analysis {
         interface: interface::read(&blocks),
         violations: lint::check(&blocks),
+        stacking: Vec::new(),
     })
 }
 
@@ -708,6 +723,11 @@ pub async fn download(
     // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
     // request, is no download.
     let counted = query.remove("preview").is_none() && method == Method::GET;
+    // `part=without` or `part=first`, with a `direction` it stacks, is one
+    // of the files the in-game stacking procedure pastes: the build without
+    // the parts only its first copy keeps, or those parts.
+    let part = query.remove("part");
+    let part_direction = query.remove("direction");
     // One copy each way is the build itself.
     query.retain(|_, count| count != "1");
     let found = match schematic::get(&state.db, &id).await {
@@ -722,6 +742,40 @@ pub async fn download(
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => return internal_error(err).into_response(),
     };
+    if let Some(part) = part {
+        let first = part == "first";
+        let direction = s
+            .stacking
+            .iter()
+            .find(|d| part_direction.as_deref() == Some(d.name().as_str()));
+        let (Some(&direction), "first" | "without") =
+            (direction, part.as_str())
+        else {
+            return (StatusCode::BAD_REQUEST, "no such part").into_response();
+        };
+        let data = match stack::part(&data, direction, first) {
+            Ok(data) => data,
+            Err(err) => return internal_error(&*err).into_response(),
+        };
+        let suffix = if first {
+            "_first_copy_parts"
+        } else {
+            "_without_first_copy_parts"
+        };
+        let filename =
+            s.filename().replace(".schem", &format!("{suffix}.schem"));
+        return (
+            [
+                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{filename}\""),
+                ),
+            ],
+            data,
+        )
+            .into_response();
+    }
     let (data, s) = if query.is_empty() {
         (data, s)
     } else {

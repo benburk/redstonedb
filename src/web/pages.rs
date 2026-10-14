@@ -46,6 +46,7 @@ pub use player::{PlayerPage, player};
 mod details_page;
 mod sorting;
 pub use sorting::sorting;
+mod stack_guide;
 mod version;
 pub use details_page::{DetailsPage, File, Stored, details_page};
 
@@ -582,6 +583,24 @@ fn timing_fields(s: &Schematic) -> Markup {
 pub struct Analysis {
     pub interface: Interface,
     pub violations: Vec<Violation>,
+    /// How a stackable build's stacking looks, each way it stacks.
+    pub stacking: Vec<crate::stack::Review>,
+}
+
+/// Whether the simulation found how build `s` stacks, rather than its
+/// builder giving it: an adder's always, and a register's when its copies
+/// stored and read right.
+fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
+    let category = s.category.as_str();
+    let found = report.is_some_and(|report| {
+        matches!(report, Report::Ran(run) if matches!(
+            run.stacking,
+            Some(Stacking::Stacks { .. } | Stacking::Registers { .. })
+        ))
+    });
+    s.conventional
+        && (simulate::INFERS_STACKING.contains(&category)
+            || (simulate::FINDS_STACKING.contains(&category) && found))
 }
 
 /// One schematic's page, with an edit button for a mod.
@@ -643,6 +662,9 @@ pub fn schematic(
                 Err(err) => {
                     p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
                 }
+            }
+            @if let Ok(analysis) = analysis {
+                (stack_guide::stacking_section(s, &analysis.stacking, stacking_found(s, report)))
             }
             @let poll = format!("{path}/simulation");
             @match simulation {
