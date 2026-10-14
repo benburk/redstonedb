@@ -192,10 +192,12 @@ fn along(
 ///
 /// So does an input or output block of a bus outside the build as it is
 /// measured, less its outer layers of interface and outputs, that lands
-/// within the copy before as measured, with the dust, repeater, or
-/// comparator standing on it: the bus runs on through the copy before, and
-/// is driven and read only at the first copy's end, as a register file's
-/// data buses are.
+/// within the copy before as measured, or one that lands on dust or
+/// another component of the copy before, as on the dust carrying its data,
+/// rather than on a solid block, which collides, with the dust, repeater,
+/// or comparator standing on it: the bus runs on through the copy before,
+/// and is driven and read only at the first copy's end, as a register
+/// file's data buses are.
 fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     let (low, high) = interface::core(blocks);
     let in_core = |pos: Pos| {
@@ -217,7 +219,9 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
                 && within(landing)
                 && fed(blocks, landing))
                 || (lint::is_input(name) && !in_core(pos) && in_core(landing))
-                || (bus(name) && !in_measured(pos) && in_measured(landing))
+                || (bus(name)
+                    && ((!in_measured(pos) && in_measured(landing))
+                        || (within(landing) && carries(blocks.get(landing)))))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -255,6 +259,12 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
 fn bus(name: &str) -> bool {
     (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
         || lint::is_output(name)
+}
+
+/// Whether `state` is dust or another component standing in the space a
+/// later copy's block may land in, rather than air or a solid block.
+fn carries(state: &str) -> bool {
+    state != AIR && !solid(state)
 }
 
 /// Whether something at `pos` in the copy before could feed a later

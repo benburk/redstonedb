@@ -765,3 +765,29 @@ fn an_inverted_register_reads_and_stacks() {
         ("4 west".to_owned(), 6, Some(3))
     );
 }
+
+/// A register whose comparators read hoppers, which carry no power, and
+/// whose data levers share a column with its logic. Stacked 4 west, each
+/// later copy's data blocks land on the copy before's data dust and are
+/// left out, the bus running on through it; three copies make 6 registers.
+#[test]
+fn a_register_whose_data_levers_land_on_the_copy_before_stacks() {
+    let (data, blocks) = register("register-8-hoppers");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    let Some(Stacking::Registers {
+        step,
+        registers,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack");
+    };
+    assert_eq!(
+        (step.describe(), registers, most),
+        ("4 west".to_owned(), 6, Some(3))
+    );
+}
