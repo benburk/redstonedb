@@ -213,9 +213,11 @@ fn category_sidebar(
     let rest = in_section(None);
     html! {
         // Its own scroller on a wide screen, since it stays in view and
-        // may be taller than the window.
-        nav aria-labelledby="categories-heading"
-            class="desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-2rem)] desktop:self-start desktop:overflow-y-auto" {
+        // may be taller than the window: sidebar.js fits it to the window
+        // below its top, and without it, it fits below the header.
+        nav aria-labelledby="categories-heading" data-sidebar
+            class="desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-6.5rem)] desktop:self-start desktop:overflow-y-auto" {
+            script defer src=(super::sidebar_js_url()) {}
             h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
             @if let Some((label, all_href, count)) = all {
                 ul class=(list) { (link(all_href, label, count, current.is_empty())) }

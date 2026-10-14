@@ -33,6 +33,7 @@ use profile::profile;
 const CSS: &str = include_str!("../../static/app.css");
 const FORM_JS: &str = include_str!("../../static/form.js");
 const SIMULATION_JS: &str = include_str!("../../static/simulation.js");
+const SIDEBAR_JS: &str = include_str!("../../static/sidebar.js");
 
 /// An asset's address with its contents' hash, so browsers may keep it for
 /// good: a changed file gets a new address.
@@ -46,6 +47,8 @@ static FORM_JS_URL: LazyLock<String> =
     LazyLock::new(|| versioned("/form.js", FORM_JS));
 static SIMULATION_JS_URL: LazyLock<String> =
     LazyLock::new(|| versioned("/simulation.js", SIMULATION_JS));
+static SIDEBAR_JS_URL: LazyLock<String> =
+    LazyLock::new(|| versioned("/sidebar.js", SIDEBAR_JS));
 
 /// Where pages link the stylesheet.
 pub fn css_url() -> &'static str {
@@ -62,6 +65,12 @@ pub fn simulation_js_url() -> &'static str {
     &SIMULATION_JS_URL
 }
 
+/// Where a page with the category sidebar loads the script that fits it to
+/// the window.
+pub fn sidebar_js_url() -> &'static str {
+    &SIDEBAR_JS_URL
+}
+
 /// Versioned addresses never change, so they are cached for a year.
 const FOREVER: &str = "public, max-age=31536000, immutable";
 
@@ -75,24 +84,27 @@ async fn get_css() -> impl IntoResponse {
     )
 }
 
-async fn get_simulation_js() -> impl IntoResponse {
+/// A script, cached for good, since its address names its version.
+fn script(contents: &'static str) -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/javascript"),
             (header::CACHE_CONTROL, FOREVER),
         ],
-        SIMULATION_JS,
+        contents,
     )
 }
 
+async fn get_simulation_js() -> impl IntoResponse {
+    script(SIMULATION_JS)
+}
+
 async fn get_form_js() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "text/javascript"),
-            (header::CACHE_CONTROL, FOREVER),
-        ],
-        FORM_JS,
-    )
+    script(FORM_JS)
+}
+
+async fn get_sidebar_js() -> impl IntoResponse {
+    script(SIDEBAR_JS)
 }
 
 /// Static assets (CSS, JS) - no request logging
@@ -101,6 +113,7 @@ pub fn static_router() -> Router<AppState> {
         .route("/app.css", get(get_css))
         .route("/form.js", get(get_form_js))
         .route("/simulation.js", get(get_simulation_js))
+        .route("/sidebar.js", get(get_sidebar_js))
 }
 
 /// A 404 with the not-found page, for an address naming no build, person,
