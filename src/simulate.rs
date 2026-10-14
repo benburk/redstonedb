@@ -1003,7 +1003,7 @@ fn check_adder_on(blocks: &Blocks, quick: bool) -> Result<Run> {
     let mut run = sweep(None)?;
     if run.wrong == run.cases
         && let Some(port) = carry_in
-        && sweep(Some(2))?.wrong == 0
+        && sweep(Some((2, 1)))?.wrong == 0
     {
         let name = &interface.inputs[port].name;
         run.hint = Some(format!(
@@ -1384,10 +1384,10 @@ fn check_binary_to_bcd(blocks: &Blocks, quick: bool) -> Result<Run> {
     } else {
         cases(&[width], || binary_cases(width))
     };
-    Ok(sweep(blocks, &interface, &bench, &cases, None, |case| {
-        to_bcd(case[0])
-    })?
-    .covering(exhaustive, patterns))
+    let to = |case: &Case| to_bcd(case[0]);
+    let run = sweep(blocks, &interface, &bench, &cases, None, to)?;
+    let run = run.covering(exhaustive, patterns);
+    with_saved_on_hint(run, blocks, &interface, &bench, &cases, to)
 }
 
 /// The values a binary-to-BCD converter too wide to try every one of is
@@ -1436,10 +1436,42 @@ fn check_bcd_to_binary(blocks: &Blocks, quick: bool) -> Result<Run> {
     let (values, every) = bcd_values(width, result, quick);
     let cases: Vec<Case> = values.into_iter().map(|a| [a, 0, 0]).collect();
     let selected = if every { 0 } else { cases.len() as u64 };
-    Ok(sweep(blocks, &interface, &bench, &cases, None, |case| {
-        from_bcd(case[0])
-    })?
-    .covering(every, selected))
+    let from = |case: &Case| from_bcd(case[0]);
+    let run = sweep(blocks, &interface, &bench, &cases, None, from)?;
+    let run = run.covering(every, selected);
+    with_saved_on_hint(run, blocks, &interface, &bench, &cases, from)
+}
+
+/// `run`, saying which lever is saved the wrong way round when some cases
+/// are wrong but every one is right with one of A's bits whose lever is
+/// saved on driven as a plain input: a lever saved on reads as an inverted
+/// input, so one left on by mistake gets most cases wrong.
+fn with_saved_on_hint(
+    mut run: Run,
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &Bench,
+    cases: &[Case],
+    expected: impl Fn(&Case) -> u64,
+) -> Result<Run> {
+    if run.wrong == 0 {
+        return Ok(run);
+    }
+    let port = &interface.inputs[bench.inputs[0]];
+    let saved_on = port.bits.iter().enumerate().filter(|(_, b)| b.inverted);
+    for (bit, _) in saved_on {
+        let flip = Some((0, 1 << bit));
+        if sweep(blocks, interface, bench, cases, flip, &expected)?.wrong == 0 {
+            run.hint = Some(format!(
+                "Every case is right with bit {bit} of {} as a plain input, \
+                 so its lever is saved on by mistake: a lever saved on marks \
+                 an inverted input.",
+                port.name
+            ));
+            break;
+        }
+    }
+    Ok(run)
 }
 
 /// Runs an incrementer, a decrementer, or an inc/dec through its inputs,
@@ -1791,15 +1823,19 @@ impl Run {
     }
 }
 
-/// Runs `cases` through the bench's inputs, driving the input at `flip`,
-/// if given, the other way round, and checks each result against
-/// `expected`, cut to as many bits as the outputs hold.
+/// The bits of one of a bench's inputs, by its place in each case, to
+/// drive the other way round, as a lever saved the wrong way does.
+type Flip = Option<(usize, u64)>;
+
+/// Runs `cases` through the bench's inputs, driving the bits `flip` gives,
+/// if any, the other way round, and checks each result against `expected`,
+/// cut to as many bits as the outputs hold.
 fn sweep(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
-    flip: Option<usize>,
+    flip: Flip,
     expected: impl Fn(&Case) -> u64,
 ) -> Result<Run> {
     let got = observe(blocks, interface, bench, cases, flip)?;
@@ -1807,22 +1843,22 @@ fn sweep(
 }
 
 /// What the bench's outputs show, read together as one number, for each
-/// of `cases` run through its inputs, the input at `flip`, if given, driven
+/// of `cases` run through its inputs, the bits `flip` gives, if any, driven
 /// the other way round.
 fn observe(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
-    flip: Option<usize>,
+    flip: Flip,
 ) -> Result<Vec<u64>> {
     let mut circuit = Circuit::new(blocks, interface)?;
     let widths = bench.output_widths(interface);
     let mut results = Vec::with_capacity(cases.len());
     for case in cases {
         for (i, &port) in bench.inputs.iter().enumerate() {
-            let value = case[i];
-            circuit.set(port, if flip == Some(i) { value ^ 1 } else { value });
+            let flipped = flip.filter(|&(input, _)| input == i);
+            circuit.set(port, case[i] ^ flipped.map_or(0, |(_, bits)| bits));
         }
         circuit.settle()?;
         let mut got = 0;

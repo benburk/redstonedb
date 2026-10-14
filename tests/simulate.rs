@@ -514,3 +514,16 @@ fn a_converter_is_known_for_what_it_does() {
     let guess = simulate::guess(&blocks("bcd2bin-10")).unwrap();
     assert_eq!((guess.category, guess.wrong), ("bcd_to_binary", 0));
 }
+
+/// Saved with bit 2 of A's lever on, which reads as an inverted input, so
+/// nearly every case comes out 4 off; driven plainly, every one is right.
+#[test]
+fn a_lever_saved_on_by_mistake_is_named() {
+    let report = Test::BcdToBinary.run(&blocks("bcd2bin-10-lever-on"));
+    let Report::Ran(run) = &report else {
+        panic!("the converter was not simulated: {report:?}");
+    };
+    assert_eq!(run.wrong, 232);
+    let hint = run.hint.as_deref().unwrap_or_default();
+    assert!(hint.contains("bit 2 of A"), "{hint}");
+}
