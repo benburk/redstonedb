@@ -2067,7 +2067,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_mod_or_a_confirmed_builder_may_edit() {
+    fn only_a_mod_a_confirmed_builder_or_the_uploader_may_edit() {
         use crate::models::user::{Role, User};
         let user = |name: Option<&str>, verified, role| User {
             id: uuid::Uuid::nil(),
@@ -2086,6 +2086,9 @@ mod tests {
         assert!(!user(Some("alex_you"), true, Role::User).may_edit(&cla));
         assert!(!user(None, false, Role::User).may_edit(&cla));
         assert!(user(None, false, Role::Mod).may_edit(&cla));
+        let mut uploaded = cla;
+        uploaded.uploader = Some("someone".to_owned());
+        assert!(user(None, false, Role::User).may_edit(&uploaded));
     }
 
     #[test]

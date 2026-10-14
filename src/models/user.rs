@@ -92,9 +92,15 @@ impl User {
     }
 
     /// Whether the account may edit this build: a mod or admin may edit
-    /// any, and a builder the ones crediting their confirmed Minecraft name.
+    /// any, a builder the ones crediting their confirmed Minecraft name,
+    /// and an uploader the ones they uploaded.
     pub fn may_edit(&self, s: &Schematic) -> bool {
-        self.can_edit() || self.built(s)
+        self.can_edit() || self.built(s) || self.uploaded(s)
+    }
+
+    /// Whether the account uploaded the build through the site.
+    pub fn uploaded(&self, s: &Schematic) -> bool {
+        s.uploader.as_deref() == Some(self.username.as_str())
     }
 
     /// Whether the build credits the account's confirmed Minecraft name as
