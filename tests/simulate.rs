@@ -791,3 +791,30 @@ fn a_register_whose_data_levers_land_on_the_copy_before_stacks() {
         ("4 west".to_owned(), 6, Some(3))
     );
 }
+
+/// An inverted register built on target blocks, whose data levers sit 4
+/// east of the block and dust its data runs through: stacked 4 west, each
+/// later copy's lime block lands on the copy before's data block, and its
+/// lever on that block's dust, so both are left out and the bus runs on
+/// through. Three copies make 6 registers.
+#[test]
+fn a_register_whose_data_levers_land_on_its_data_line_stacks() {
+    let (data, blocks) = register("register-8-targets");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    let Some(Stacking::Registers {
+        step,
+        registers,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack");
+    };
+    assert_eq!(
+        (step.describe(), registers, most),
+        ("4 west".to_owned(), 6, Some(3))
+    );
+}

@@ -418,9 +418,9 @@ pub fn part(
 ///
 /// So does an input or output block of a bus outside the build as it is
 /// measured, less its outer layers of interface and outputs, that lands
-/// within the copy before as measured, or one that lands on dust or
-/// another component of the copy before, as on the dust carrying its data,
-/// rather than on a solid block, which collides, with the dust, repeater,
+/// within the copy before as measured, or one that lands on any block of
+/// the copy before, as on the block or dust carrying its data, with the
+/// lever on it and the dust, repeater,
 /// or comparator standing on it: the bus runs on through the copy before,
 /// and is driven and read only at the first copy's end, as a register
 /// file's data buses are.
@@ -442,7 +442,7 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> (Vec<Pos>, Vec<Pos>) {
         let landing = add(pos, step);
         if bus(name)
             && ((!in_measured(pos) && in_measured(landing))
-                || (within(landing) && carries(blocks.get(landing))))
+                || (within(landing) && blocks.get(landing) != AIR))
         {
             buses.push(pos);
         } else if (name == format!("{}_concrete", lint::CONTROL)
@@ -538,12 +538,6 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
 fn bus(name: &str) -> bool {
     (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
         || lint::is_output(name)
-}
-
-/// Whether `state` is dust or another component standing in the space a
-/// later copy's block may land in, rather than air or a solid block.
-fn carries(state: &str) -> bool {
-    state != AIR && !solid(state)
 }
 
 /// Whether something at `pos` in the copy before could feed a later
