@@ -128,7 +128,6 @@ pub fn router() -> Router<AppState> {
         )
         .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/schematics/{id}/versions/new", get(versions::form))
-        .route("/schematics/{id}/versions/preview", post(versions::preview))
         .route(
             "/schematics/{id}/versions/{version}/download",
             get(versions::download),

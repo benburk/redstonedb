@@ -381,6 +381,14 @@ for (const field of document.querySelectorAll("[data-pill-field]")) {
   });
 }
 
+// A link to the file chooser opens it, folded away as it starts.
+for (const link of document.querySelectorAll("a[data-open-chooser]")) {
+  link.addEventListener("click", () => {
+    const chooser = document.getElementById("file-chooser");
+    if (chooser) chooser.open = true;
+  });
+}
+
 // Simulation: the category and width choose a build's test, so the result
 // under the form follows them, asked of the server whenever either
 // changes: first the cases, then, once they pass, the slower timing. The
@@ -478,7 +486,10 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const post = async (url, signal) => {
     const response = await fetch(url, {
       method: "POST",
-      body: new URLSearchParams(new FormData(form)),
+      // Without a newly chosen file, which only choosing it sends.
+      body: new URLSearchParams(
+        [...new FormData(form)].filter(([, value]) => typeof value === "string"),
+      ),
       signal,
     });
     if (!response.ok) throw new Error(response.statusText);

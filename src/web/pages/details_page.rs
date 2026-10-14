@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     super::details::StackRow, Analysis, Choices, Fields, PAGE_TITLE,
-    SECTION_TITLE, Waiting, base, beside_viewer, fields, grouped,
+    SECTION_TITLE, Waiting, base, beside_viewer, fields, file_fields, grouped,
     interface_section, simulation_section, simulation_summary, spinner,
     tag_picker, timing_summary, violation_list,
 };
@@ -51,8 +51,6 @@ pub enum File<'a> {
     Stored {
         s: &'a Schematic,
         simulation: Option<&'a Report>,
-        /// Whether the form for choosing a new version starts open.
-        choosing: bool,
     },
     /// A stored build's next version, carried in the form until it is
     /// saved.
@@ -85,6 +83,9 @@ pub struct DetailsPage<'a> {
     pub derived: crate::import::Derived,
     /// Why the last attempt to publish or save was refused, if it was.
     pub message: &'a str,
+    /// Whether the fields for choosing another file start open, with why
+    /// the last file chosen could not be read, if it could not.
+    pub choosing: Option<&'a str>,
 }
 
 /// A stored build's details as its form starts with them.
@@ -192,9 +193,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                     }
                 }
                 (checks(page))
-                @if let File::Stored { s, choosing, .. } = &page.file {
-                    (version_chooser(s, *choosing))
-                }
+                (file_chooser(page))
                 (details_form(page))
             }))
             (interface_section(page.analysis, false))
@@ -362,7 +361,7 @@ fn checks(page: &DetailsPage) -> Markup {
                 @if let File::Upload { size: [x, y, z], .. } = &page.file {
                     (check("file", State::Pass, &html! {
                         "Read the file: " span class="tabular-nums" { (y) "×" (x) "×" (z) " (HWD)" } ". "
-                        a href="/upload" { "Choose a different one" }
+                        a href="#file-chooser" data-open-chooser { "Choose a different one" }
                     }, false))
                 }
                 @if let File::Upload { duplicate: Some(id), .. } = &page.file {
@@ -380,13 +379,13 @@ fn checks(page: &DetailsPage) -> Markup {
                         " instead; if it builds on it, say so in the description."
                     }, false))
                 }
-                @if let File::Version { s, comparison, refusals, .. } = &page.file {
+                @if let File::Version { comparison, refusals, .. } = &page.file {
                     @let permille = comparison.same_permille();
                     @let same = html! {
                         "Changes " (grouped(comparison.changed as u64)) " of "
                         (grouped((comparison.same + comparison.changed) as u64)) " blocks, keeping "
                         (permille / 10) "." (permille % 10) "%. "
-                        a href={ "/schematics/" (s.id) "/versions/new" } { "Choose a different file" }
+                        a href="#file-chooser" data-open-chooser { "Choose a different file" }
                     };
                     @if refusals.is_empty() {
                         (check("same", State::Pass, &same, false))
@@ -444,39 +443,47 @@ fn checks(page: &DetailsPage) -> Markup {
     }
 }
 
-/// The form for choosing a stored build's next version, folded away
-/// unless `open`; it comes back to this page with the new file in it.
-fn version_chooser(s: &Schematic, open: bool) -> Markup {
+/// The fields for choosing another file, the same on every details page:
+/// a new upload's in its place, and a stored build's next version, or
+/// another in place of the one waiting. They belong to the details form,
+/// so the details filled in so far come back with the file. Folded away
+/// unless `page.choosing`, which says why the last file chosen could not
+/// be read, if it could not.
+fn file_chooser(page: &DetailsPage) -> Markup {
+    let (summary, button) = match &page.file {
+        File::Upload { .. } => ("Choose a different file", "Check it instead"),
+        File::Stored { .. } => ("Upload a new version", "Check it"),
+        File::Version { .. } => (
+            "Choose a different file for this version",
+            "Check it instead",
+        ),
+    };
     html! {
-        details id="new-version" open[open]
+        details id="file-chooser" open[page.choosing.is_some()]
             class="rounded-overlay border border-line bg-raised p-4 shadow-sm" {
-            summary class="cursor-pointer font-semibold" { "Upload a new version" }
-            p class="mt-2 mb-3 text-meta text-muted" {
-                "For fixing the build: the new file replaces this one, keeping its details, credits, and downloads, "
-                "and the old one stays listed under it. It must keep at least " (MIN_SAME_PERCENT) "% of its blocks, "
-                "or change at most " (MAX_CHANGED) "; within that, its inputs and outputs may move. "
-                "Changes to the details below are kept only once it is chosen."
-            }
-            form action={ "/schematics/" (s.id) "/versions/preview" } method="post"
-                enctype="multipart/form-data" class="flex flex-col gap-3" {
-                label class="field" {
-                    span { "Schematic file" }
-                    input type="file" name="file" accept=".schem" class="input py-1.5";
+            summary class="cursor-pointer font-semibold" { (summary) }
+            div class="mt-2 flex flex-col gap-3" {
+                p class="text-meta text-muted" {
+                    @match &page.file {
+                        File::Upload { .. } => {
+                            "It takes this one's place. The details you have filled in below stay."
+                        }
+                        _ => {
+                            "For fixing the build: the new file replaces this one, keeping its details, credits, and downloads, "
+                            "and the old one stays listed under it. It must keep at least " (MIN_SAME_PERCENT) "% of its blocks, "
+                            "or change at most " (MAX_CHANGED) "; within that, its inputs and outputs may move. "
+                            "The details you have changed below stay."
+                        }
+                    }
                 }
-                label class="field" {
-                    span { "Or a Schemati link" }
-                    input type="url" name="schemati" inputmode="url" autocomplete="off"
-                        placeholder="https://schemati.openredstone.org/download?file=…" class="input";
+                (file_fields(Some("details-form"), matches!(page.file, File::Upload { .. })))
+                @if let Some(message) = page.choosing.filter(|message| !message.is_empty()) {
+                    p role="alert" class="text-danger" { (message) }
                 }
-                label class="flex items-start gap-2" {
-                    input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
-                    span { "Standardize it, as when uploading." }
+                div {
+                    button type="submit" form="details-form" name="action" value="file" formnovalidate
+                        class="btn btn-quiet" { (button) }
                 }
-                label class="flex items-start gap-2 pl-6" {
-                    input type="checkbox" name="whiten_gray" value="yes" checked class="mt-1 size-4 appearance-auto";
-                    span { "Whiten gray blocks too. Untick this to keep the logic only a stack's first copy needs." }
-                }
-                div { button type="submit" class="btn btn-quiet" { "Check it" } }
             }
         }
     }
@@ -514,14 +521,16 @@ fn details_form(page: &DetailsPage) -> Markup {
     );
     let blocked = blocked(page);
     html! {
-        form id="details-form" action=(action) method="post" data-simulate=(simulate)
+        form id="details-form" action=(action) method="post" enctype="multipart/form-data"
+            data-simulate=(simulate)
             data-simulated[stored_result] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
                 File::Upload { data, keep_paste, .. } => {
                     input type="hidden" name="data" value=(data);
+                    // Not `keep_paste`, the box for a file chosen in its place.
                     @if *keep_paste {
-                        input type="hidden" name="keep_paste" value="yes";
+                        input type="hidden" name="file_keeps_paste" value="yes";
                     }
                 }
                 File::Version { data, note, .. } => {

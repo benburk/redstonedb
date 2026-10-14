@@ -48,68 +48,98 @@ pub(super) struct Sent {
     pub keep_paste: bool,
 }
 
-/// Reads a file form: its `file`, or else the file behind its `schemati`
-/// link, and its `standardize`, `whiten_gray`, and `keep_paste` ticks. Says what went
-/// wrong when there is no file to read.
-pub(super) async fn received(
+/// A multipart form as sent: its text fields, in order, and the file
+/// chosen in it, if one was.
+pub(super) struct Posted {
+    pub pairs: Vec<(String, String)>,
+    file: Option<Bytes>,
+}
+
+/// Reads a multipart form, or says it broke off partway, as a body over
+/// the server's limit, 2 MB, does.
+pub(super) async fn posted(
     multipart: &mut Multipart,
-) -> Result<Sent, String> {
-    let mut file = None;
-    let mut link = String::new();
-    let mut standardize = false;
-    let mut whiten_gray = false;
-    let mut keep_paste = false;
-    // A body over the server's limit, 2 MB, breaks off partway.
-    let mut broken = false;
-    loop {
+) -> Result<Posted, String> {
+    let mut posted = Posted {
+        pairs: Vec::new(),
+        file: None,
+    };
+    let broken = loop {
         match multipart.next_field().await {
-            Ok(Some(field)) => match field.name() {
-                Some("file") => match field.bytes().await {
-                    Ok(bytes) => file = Some(bytes),
-                    Err(_) => broken = true,
+            Ok(Some(field)) => match field.name().map(str::to_owned) {
+                Some(name) if name == "file" => match field.bytes().await {
+                    Ok(bytes) => {
+                        posted.file = Some(bytes).filter(|b| !b.is_empty());
+                    }
+                    Err(_) => break true,
                 },
-                Some("standardize") => standardize = true,
-                Some("whiten_gray") => whiten_gray = true,
-                Some("keep_paste") => keep_paste = true,
-                Some("schemati") => match field.text().await {
-                    Ok(text) => link = text,
-                    Err(_) => broken = true,
+                Some(name) => match field.text().await {
+                    Ok(text) => posted.pairs.push((name, text)),
+                    Err(_) => break true,
                 },
-                _ => {}
+                None => {}
             },
-            Ok(None) => break,
-            Err(_) => {
-                broken = true;
-                break;
-            }
+            Ok(None) => break false,
+            Err(_) => break true,
         }
-    }
+    };
     if broken {
         return Err("That file did not arrive whole. Files up to 2 MB are \
                     accepted; a build's .schem is usually a few kilobytes."
             .to_owned());
     }
-    // A file chosen wins over a link pasted.
-    let file = match file.filter(|bytes| !bytes.is_empty()) {
-        Some(file) => file,
-        None if !link.trim().is_empty() => from_schemati(&link).await?,
-        None => {
-            return Err(
-                "Choose a .schem file, or paste a link from //download."
-                    .to_owned(),
-            );
-        }
-    };
-    let gray = if whiten_gray {
-        Gray::Whiten
-    } else {
-        Gray::Keep
-    };
-    Ok(Sent {
-        file,
-        standardize: standardize.then_some(gray),
-        keep_paste,
-    })
+    Ok(posted)
+}
+
+impl Posted {
+    /// The first value sent under `key`, or empty.
+    pub fn get(&self, key: &str) -> &str {
+        self.pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map_or("", |(_, v)| v.as_str())
+    }
+
+    /// The file chosen in the form: its `file`, or else the file behind
+    /// its `schemati` link, with its `standardize`, `whiten_gray`, and
+    /// `keep_paste` ticks. Says what went wrong when there is no file.
+    pub async fn chosen(&self) -> Result<Sent, String> {
+        // A file chosen wins over a link pasted.
+        let link = self.get("schemati").trim();
+        let file = match &self.file {
+            Some(file) => file.clone(),
+            None if !link.is_empty() => from_schemati(link).await?,
+            None => {
+                return Err(
+                    "Choose a .schem file, or paste a link from //download."
+                        .to_owned(),
+                );
+            }
+        };
+        let gray = if self.get("whiten_gray").is_empty() {
+            Gray::Keep
+        } else {
+            Gray::Whiten
+        };
+        Ok(Sent {
+            file,
+            standardize: (!self.get("standardize").is_empty()).then_some(gray),
+            keep_paste: !self.get("keep_paste").is_empty(),
+        })
+    }
+
+    /// Whether the form was sent to check a newly chosen file rather than
+    /// to publish or save.
+    pub fn choosing(&self) -> bool {
+        self.get("action") == "file"
+    }
+}
+
+/// Reads a form for choosing a file, as `Posted::chosen` does.
+pub(super) async fn received(
+    multipart: &mut Multipart,
+) -> Result<Sent, String> {
+    posted(multipart).await?.chosen().await
 }
 
 pub async fn form(user_opt: Option<User>) -> Response {
@@ -146,15 +176,8 @@ pub async fn preview(
     };
     let interface = interface::read(&prepared.blocks);
     let (width, orientation) = import::guess(&interface);
-    // What it seems to be, from a quick run of the tests it fits, to start
-    // the category and design with.
-    let data = prepared.data.clone();
-    let guess = tokio::task::spawn_blocking(move || {
-        simulate::guess(&Blocks::read(&data).ok()?)
-    })
-    .await
-    .ok()
-    .flatten();
+    // What it seems to be starts the category and design.
+    let guess = guessed(&prepared.data).await;
     // The carry lines the signs show start ticked.
     let flags = import::sign_flags(&interface);
     let width = width.map(|w| w.to_string()).unwrap_or_default();
@@ -191,8 +214,8 @@ pub async fn preview(
         keep_paste,
     };
     let said = Said {
-        message: "",
         guess: guess.as_ref(),
+        ..Said::default()
     };
     show_preview(&state, &user, &prepared, &fields, &[], settings, said).await
 }
@@ -232,37 +255,35 @@ struct Submission {
 }
 
 impl Submission {
-    fn read(body: &[u8]) -> Self {
-        let pairs = details::pairs(body);
-        let get = |key: &str| {
-            pairs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-                .unwrap_or_default()
-        };
+    fn read(posted: &Posted) -> Self {
         Submission {
-            data: get("data"),
-            swap: get("swap"),
+            data: posted.get("data").to_owned(),
+            swap: posted.get("swap").to_owned(),
             settings: Settings {
-                unconventional: !get("unconventional").is_empty(),
-                keep_paste: !get("keep_paste").is_empty(),
+                unconventional: !posted.get("unconventional").is_empty(),
+                keep_paste: !posted.get("file_keeps_paste").is_empty(),
             },
-            form: details::Form::read(&pairs),
+            form: details::Form::read(&posted.pairs),
         }
     }
 }
 
-/// Publishes the previewed file with the details filled in.
+/// Publishes the previewed file with the details filled in, or, when the
+/// form asks, swaps its hoppers or takes a newly chosen file in its place
+/// and shows it again with the details as sent.
 pub async fn publish(
     State(state): State<AppState>,
     user_opt: Option<User>,
-    body: Bytes,
+    mut multipart: Multipart,
 ) -> Response {
     let Some(user) = user_opt else {
         return Redirect::to("/sessions/new").into_response();
     };
-    let sent = Submission::read(&body);
+    let posted = match posted(&mut multipart).await {
+        Ok(posted) => posted,
+        Err(message) => return pages::upload(&user, &message).into_response(),
+    };
+    let mut sent = Submission::read(&posted);
     let Ok(data) = STANDARD.decode(&sent.data) else {
         return pages::upload(
             &user,
@@ -270,7 +291,6 @@ pub async fn publish(
         )
         .into_response();
     };
-    let settings = sent.settings;
     // A swap changes the file and shows it again, keeping the details.
     let swapping = sent.swap == "hopper";
     let data = if swapping {
@@ -287,8 +307,8 @@ pub async fn publish(
     let prepared = match import::prepare(
         &data,
         None,
-        !settings.unconventional,
-        settings.keep_paste,
+        !sent.settings.unconventional,
+        sent.settings.keep_paste,
     ) {
         Ok(prepared) => prepared,
         Err(err) => {
@@ -296,6 +316,10 @@ pub async fn publish(
             return pages::upload(&user, &message).into_response();
         }
     };
+    if posted.choosing() {
+        return chosen_instead(&state, &user, &posted, prepared, &mut sent)
+            .await;
+    }
     if swapping {
         return show_preview(
             &state,
@@ -303,7 +327,7 @@ pub async fn publish(
             &prepared,
             &sent.form.fields(),
             &sent.form.tags,
-            settings,
+            sent.settings,
             Said::default(),
         )
         .await;
@@ -316,19 +340,95 @@ pub async fn publish(
         }
         Err(message) => message,
     };
+    let said = Said {
+        message: &refused,
+        ..Said::default()
+    };
     show_preview(
         &state,
         &user,
         &prepared,
         &sent.form.fields(),
         &sent.form.tags,
-        settings,
-        Said {
-            message: &refused,
-            guess: None,
-        },
+        sent.settings,
+        said,
     )
     .await
+}
+
+/// The preview of the file newly chosen on the preview page, in place of
+/// `current`, with the details as sent; or `current` again, with why the
+/// new one could not be read.
+async fn chosen_instead(
+    state: &AppState,
+    user: &User,
+    posted: &Posted,
+    current: Prepared,
+    sent: &mut Submission,
+) -> Response {
+    let read = match posted.chosen().await {
+        Ok(chosen) => import::prepare(
+            &chosen.file,
+            chosen.standardize,
+            !sent.settings.unconventional,
+            chosen.keep_paste,
+        )
+        .map(|prepared| (prepared, chosen.keep_paste))
+        .map_err(|err| format!("Could not read that file: {err:#}.")),
+        Err(message) => Err(message),
+    };
+    let (prepared, keep_paste) = match read {
+        Ok(read) => read,
+        Err(message) => {
+            let said = Said {
+                choosing: Some(&message),
+                ..Said::default()
+            };
+            return show_preview(
+                state,
+                user,
+                &current,
+                &sent.form.fields(),
+                &sent.form.tags,
+                sent.settings,
+                said,
+            )
+            .await;
+        }
+    };
+    sent.settings.keep_paste = keep_paste;
+    // What it seems to be starts the category, if none is chosen yet.
+    let guess = guessed(&prepared.data).await;
+    if sent.form.category.trim().is_empty()
+        && let Some(guess) = &guess
+    {
+        guess.category.clone_into(&mut sent.form.category);
+    }
+    let said = Said {
+        guess: guess.as_ref(),
+        ..Said::default()
+    };
+    show_preview(
+        state,
+        user,
+        &prepared,
+        &sent.form.fields(),
+        &sent.form.tags,
+        sent.settings,
+        said,
+    )
+    .await
+}
+
+/// What a file seems to be, from a quick run of the tests it fits.
+async fn guessed(data: &[u8]) -> Option<Guess> {
+    let data = data.to_vec();
+    tokio::task::spawn_blocking(move || {
+        simulate::guess(&Blocks::read(&data).ok()?)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Stores the upload and returns its id, or says why it was refused.
@@ -434,12 +534,14 @@ async fn publish_checked(
         .map_err(|err| format!("Could not publish it: {err:#}."))
 }
 
-/// What the preview says beside the form: why publishing was refused, and
-/// what the file seems to be.
+/// What the preview says beside the form: why publishing was refused,
+/// what the file seems to be, and why a file chosen in its place could not
+/// be read.
 #[derive(Default)]
 struct Said<'a> {
     message: &'a str,
     guess: Option<&'a Guess>,
+    choosing: Option<&'a str>,
 }
 
 /// The preview page for a prepared file.
@@ -499,6 +601,7 @@ async fn show_preview(
             may_create_tags: user.is_admin(),
             derived,
             message: said.message,
+            choosing: said.choosing,
         },
     )
     .into_response()

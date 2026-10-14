@@ -2,7 +2,7 @@
 //! details there, and its earlier versions' files.
 
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Path, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -11,13 +11,9 @@ use crate::{
     app_state::AppState,
     error::internal_error,
     models::{schematic, user::User, version},
-    version::check,
 };
 
-use super::{
-    schematics::{NewFile, editor, show_edit},
-    upload::{self, Sent},
-};
+use super::schematics::{editor, show_edit};
 
 /// The edit page, its form for choosing a new version open.
 pub async fn form(
@@ -27,50 +23,9 @@ pub async fn form(
 ) -> Response {
     match editor(&state.db, user_opt, &id).await {
         Ok(user) => {
-            show_edit(&state.db, &user, &id, None, "", None, true).await
+            show_edit(&state.db, &user, &id, None, "", None, Some("")).await
         }
         Err(response) => response,
-    }
-}
-
-/// Reads the chosen file and shows it on the edit page as the build's next
-/// version, checked against it, to save with the details.
-pub async fn preview(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-    mut multipart: Multipart,
-) -> Response {
-    let db = &state.db;
-    let user = match editor(db, user_opt, &id).await {
-        Ok(user) => user,
-        Err(response) => return response,
-    };
-    let Sent {
-        file, standardize, ..
-    } = match upload::received(&mut multipart).await {
-        Ok(sent) => sent,
-        Err(message) => {
-            return show_edit(db, &user, &id, None, &message, None, true).await;
-        }
-    };
-    let s = match schematic::get(db, &id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(err) => return internal_error(err).into_response(),
-    };
-    match check(db, &s, &file, standardize).await {
-        Ok(checked) => {
-            let new_file = NewFile {
-                checked: &checked,
-                note: "",
-            };
-            show_edit(db, &user, &id, None, "", Some(new_file), false).await
-        }
-        Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
-            show_edit(db, &user, &id, None, &message, None, true).await
-        }
     }
 }
 

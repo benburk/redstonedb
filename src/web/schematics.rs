@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap};
 
 use axum::{
-    extract::{Path, Query, RawQuery, State},
+    extract::{Multipart, Path, Query, RawQuery, State},
     http::{Method, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
@@ -26,6 +26,7 @@ use crate::{
 use super::{
     details,
     pages::{self, Choices, DetailsPage, File, Stored},
+    upload,
 };
 
 /// What the home page's address asks for. Separate parameters narrow
@@ -307,7 +308,7 @@ pub async fn edit(
         Ok(user) => user,
         Err(response) => return response,
     };
-    show_edit(&state.db, &user, &id, None, "", None, false).await
+    show_edit(&state.db, &user, &id, None, "", None, None).await
 }
 
 /// The account editing build `id`, or the answer when it may not: a login
@@ -336,28 +337,41 @@ pub async fn save(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-    body: axum::body::Bytes,
+    mut multipart: Multipart,
 ) -> Response {
     let user = match editor(&state.db, user_opt, &id).await {
         Ok(user) => user,
         Err(response) => return response,
     };
     let db = &state.db;
-    let pairs = details::pairs(&body);
-    let form = details::Form::read(&pairs);
-    let field = |key: &str| {
-        pairs
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.trim().to_owned())
-            .unwrap_or_default()
+    let posted = match upload::posted(&mut multipart).await {
+        Ok(posted) => posted,
+        Err(message) => {
+            return show_edit(db, &user, &id, None, "", None, Some(&message))
+                .await;
+        }
     };
-    let note: String = field("note").chars().take(500).collect();
+    let form = details::Form::read(&posted.pairs);
+    let note: String = posted.get("note").trim().chars().take(500).collect();
     // A new version, when the page carried one, is checked again first.
-    let checked = match attached(db, &user, &id, &form, &field("data")).await {
-        Ok(checked) => checked,
-        Err(response) => return response,
-    };
+    let checked =
+        match attached(db, &user, &id, &form, posted.get("data")).await {
+            Ok(checked) => checked,
+            Err(response) => return response,
+        };
+    if posted.choosing() {
+        let chosen = chosen_version(db, &id, &posted).await;
+        let (checked, refused) = match &chosen {
+            Ok(chosen) => (Some(chosen), None),
+            Err(message) => (checked.as_ref(), Some(message.as_str())),
+        };
+        let new_file = checked.map(|checked| NewFile {
+            checked,
+            note: &note,
+        });
+        return show_edit(db, &user, &id, Some(&form), "", new_file, refused)
+            .await;
+    }
     let new_file = || {
         checked.as_ref().map(|checked| NewFile {
             checked,
@@ -385,7 +399,7 @@ pub async fn save(
             Some(&form),
             &message,
             new_file(),
-            false,
+            None,
         )
         .await;
     }
@@ -408,6 +422,24 @@ pub async fn save(
     simulation::refresh_soon(db, &id);
     similarity::refresh_soon(db);
     Redirect::to(&format!("/schematics/{id}")).into_response()
+}
+
+/// The file newly chosen on build `id`'s edit page, checked as its next
+/// version, or why it could not be read.
+async fn chosen_version(
+    db: &SqlitePool,
+    id: &str,
+    posted: &upload::Posted,
+) -> Result<Checked, String> {
+    let chosen = posted.chosen().await?;
+    let s = match schematic::get(db, id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return Err("The build is gone.".to_owned()),
+        Err(err) => return Err(format!("Could not load the build: {err}.")),
+    };
+    check_version(db, &s, &chosen.file, chosen.standardize)
+        .await
+        .map_err(|err| format!("Could not read that file: {err:#}."))
 }
 
 /// The new version an edit page carried in `data`, base64, checked against
@@ -435,7 +467,10 @@ async fn attached(
             let message = format!(
                 "Could not read the new version: {err:#}. Choose its file again."
             );
-            Err(show_edit(db, user, id, Some(form), &message, None, true).await)
+            Err(
+                show_edit(db, user, id, Some(form), "", None, Some(&message))
+                    .await,
+            )
         }
     }
 }
@@ -561,7 +596,7 @@ pub(super) async fn show_edit(
     sent: Option<&details::Form>,
     message: &str,
     new_file: Option<NewFile<'_>>,
-    choosing: bool,
+    choosing: Option<&str>,
 ) -> Response {
     let loaded = async {
         anyhow::Ok((
@@ -629,7 +664,6 @@ pub(super) async fn show_edit(
         None => File::Stored {
             s: &s,
             simulation: simulation.as_ref(),
-            choosing,
         },
     };
     pages::details_page(
@@ -644,6 +678,7 @@ pub(super) async fn show_edit(
             may_create_tags: user.is_admin(),
             derived,
             message,
+            choosing,
         },
     )
     .into_response()

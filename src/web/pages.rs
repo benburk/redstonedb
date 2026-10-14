@@ -2488,6 +2488,53 @@ pub fn profile(
 }
 
 /// The upload page's first step: choosing a file.
+/// The fields for choosing a file, the same wherever one is chosen: the
+/// file or a Schemati link, and how to prepare it. `form` names the form
+/// they belong to when they stand outside it; `keep_paste` offers keeping
+/// where the file pastes from, which a new version takes from its build.
+pub fn file_fields(form: Option<&str>, keep_paste: bool) -> Markup {
+    html! {
+        label class="field" {
+            span { "Schematic file" }
+            input type="file" name="file" accept=".schem" form=[form] class="input py-1.5";
+        }
+        label class="field" {
+            span { "Or a Schemati link" }
+            input type="url" name="schemati" inputmode="url" autocomplete="off" form=[form]
+                placeholder="https://schemati.openredstone.org/download?file=…"
+                aria-describedby="schemati-help" class="input";
+            span id="schemati-help" class="text-meta font-normal" {
+                "In game, " code { "//save <name>" } " then " code { "//download <name>" }
+                " gives this link. It lasts seven days."
+            }
+        }
+        @if keep_paste {
+            label class="flex items-start gap-2" {
+                input type="checkbox" name="keep_paste" value="yes" form=[form] class="mt-1 size-4 appearance-auto";
+                span {
+                    "Keep where it pastes from. Otherwise "
+                    code { "//paste" }
+                    " puts it with you one block south of its south-east-bottom corner, as every build on the site does."
+                }
+            }
+        }
+        label class="flex items-start gap-2" {
+            input type="checkbox" name="standardize" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
+            span {
+                "Standardize it: every block that isn't redstone, an input, or an output turns white, "
+                "and slabs and glass white stained glass. The inputs and outputs must already be marked."
+            }
+        }
+        label class="flex items-start gap-2 pl-6" {
+            input type="checkbox" name="whiten_gray" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
+            span {
+                "Whiten gray blocks too. Untick this for a stackable build whose gray blocks hold "
+                "logic only its first copy needs, which stacking leaves out of the rest."
+            }
+        }
+    }
+}
+
 pub fn upload(user: &User, message: &str) -> Markup {
     base(
         Some(user),
@@ -2503,42 +2550,7 @@ pub fn upload(user: &User, message: &str) -> Markup {
                 }
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-                    label class="field" {
-                        span { "Schematic file" }
-                        input type="file" name="file" accept=".schem" class="input py-1.5";
-                    }
-                    label class="field" {
-                        span { "Or a Schemati link" }
-                        input type="url" name="schemati" inputmode="url" autocomplete="off"
-                            placeholder="https://schemati.openredstone.org/download?file=…"
-                            aria-describedby="schemati-help" class="input";
-                        span id="schemati-help" class="text-meta font-normal" {
-                            "In game, " code { "//save <name>" } " then " code { "//download <name>" }
-                            " gives this link. It lasts seven days."
-                        }
-                    }
-                    label class="flex items-start gap-2" {
-                        input type="checkbox" name="keep_paste" value="yes" class="mt-1 size-4 appearance-auto";
-                        span {
-                            "Keep where it pastes from. Otherwise "
-                            code { "//paste" }
-                            " puts it with you one block south of its south-east-bottom corner, as every build on the site does."
-                        }
-                    }
-                    label class="flex items-start gap-2" {
-                        input type="checkbox" name="standardize" value="yes" checked class="mt-1 size-4 appearance-auto";
-                        span {
-                            "Standardize it: every block that isn't redstone, an input, or an output turns white, "
-                            "and slabs and glass white stained glass. The inputs and outputs must already be marked, as below."
-                        }
-                    }
-                    label class="flex items-start gap-2 pl-6" {
-                        input type="checkbox" name="whiten_gray" value="yes" checked class="mt-1 size-4 appearance-auto";
-                        span {
-                            "Whiten gray blocks too. Untick this for a stackable build whose gray blocks hold "
-                            "logic only its first copy needs, which stacking leaves out of the rest."
-                        }
-                    }
+                    (file_fields(None, true))
                     @if !message.is_empty() {
                         p role="alert" class="text-danger" { (message) }
                     }
