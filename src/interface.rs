@@ -59,18 +59,33 @@ pub struct Bit {
 /// inputs, so it does not make the build bigger, and a stack's copies share
 /// it.
 pub fn core(blocks: &Blocks) -> (Pos, Pos) {
+    trimmed(blocks, false)
+}
+
+/// The bounds, inclusive, a build is measured by: its core, less any outer
+/// layer that holds nothing but its interface and its outputs, each output
+/// block with the dust, repeater, or comparator standing on it to carry it
+/// out. An output that sticks out of the build is read there, as an input
+/// sticking out is driven there, so neither makes the build bigger. Stacking
+/// goes by the core, whose outputs a copy's step may need to reach past.
+pub fn measured(blocks: &Blocks) -> (Pos, Pos) {
+    trimmed(blocks, true)
+}
+
+/// The build's box less its outer layers of nothing but interface, and of
+/// outputs too when `outputs`.
+fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
     let fed = dust_inputs(blocks);
+    let only = |axis, at, low, high| {
+        interface_only(blocks, &fed, outputs, axis, at, low, high)
+    };
     let mut low = [0; 3];
     let mut high = blocks.size.map(|n| n - 1);
     for axis in 0..3 {
-        while high[axis] > low[axis]
-            && interface_only(blocks, &fed, axis, low[axis], low, high)
-        {
+        while high[axis] > low[axis] && only(axis, low[axis], low, high) {
             low[axis] += 1;
         }
-        while high[axis] > low[axis]
-            && interface_only(blocks, &fed, axis, high[axis], low, high)
-        {
+        while high[axis] > low[axis] && only(axis, high[axis], low, high) {
             high[axis] -= 1;
         }
     }
@@ -78,11 +93,13 @@ pub fn core(blocks: &Blocks) -> (Pos, Pos) {
 }
 
 /// Whether the layer at `at` along `axis`, within `low` to `high` on the
-/// other axes, holds nothing but the interface. `fed` holds the
+/// other axes, holds nothing but the interface, and with `outputs`, output
+/// blocks and what stands on them to carry them out. `fed` holds the
 /// signal-strength inputs, whose dust is part of the interface.
 fn interface_only(
     blocks: &Blocks,
     fed: &HashMap<Pos, Option<String>>,
+    outputs: bool,
     axis: usize,
     at: i32,
     low: Pos,
@@ -98,16 +115,30 @@ fn interface_only(
                 let state = blocks.get(pos);
                 let support = schem::torch_block(pos, state)
                     .map(|block| blocks.get(block));
+                let below = schem::step(pos, "down");
                 state == schem::AIR
                     || lint::is_interface(state, support)
-                    || (schem::id(state) == DUST
-                        && fed.contains_key(&schem::step(pos, "down")))
+                    || (schem::id(state) == DUST && fed.contains_key(&below))
+                    || (outputs && is_read_out(blocks, state, below))
             })
         })
     })
 }
 
 const DUST: &str = "minecraft:redstone_wire";
+
+/// Whether `state`, above `below`, is an output block, or the dust,
+/// repeater, or comparator standing on one, which carries it out.
+fn is_read_out(blocks: &Blocks, state: &str, below: Pos) -> bool {
+    let output = |state: &str| {
+        lint::is_output(schem::id(state).trim_start_matches("minecraft:"))
+    };
+    output(state)
+        || (matches!(
+            schem::id(state),
+            DUST | "minecraft:repeater" | "minecraft:comparator"
+        ) && output(blocks.get(below)))
+}
 
 /// How an input block takes its signal.
 pub enum Feed {

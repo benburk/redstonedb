@@ -110,13 +110,14 @@ pub fn sha256(data: &[u8]) -> String {
         })
 }
 
-/// A build's size: its core, as [`interface::core`] finds it, for a build
-/// that follows the conventions, and its whole box for one that does not.
+/// A build's size: its box less its outer layers of interface and outputs,
+/// as [`interface::measured`] finds it, for a build that follows the
+/// conventions, and its whole box for one that does not.
 pub fn measure(blocks: &Blocks, conventional: bool) -> Result<Size> {
     if !conventional {
         return Ok(blocks.full_size());
     }
-    let (low, high) = interface::core(blocks);
+    let (low, high) = interface::measured(blocks);
     let [x, y, z] = [0, 1, 2]
         .map(|axis| u16::try_from(high[axis] - low[axis] + 1).unwrap_or(0));
     Ok(Size { x, y, z })

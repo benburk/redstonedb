@@ -41,7 +41,7 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 const WHITE: &str = "minecraft:white_concrete";
 
 /// The stored file stacked with `copies` along each direction, with the
-/// size of the result's core.
+/// result's size, as [`interface::measured`] finds it.
 pub fn stack(
     data: &[u8],
     copies: &[(StackDirection, usize)],
@@ -50,7 +50,7 @@ pub fn stack(
     for &(direction, count) in copies {
         data = along(&data, direction, count)?;
     }
-    let (low, high) = interface::core(&Blocks::read(&data)?);
+    let (low, high) = interface::measured(&Blocks::read(&data)?);
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
     Ok((data, size))
 }

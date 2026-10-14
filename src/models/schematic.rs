@@ -447,8 +447,16 @@ impl Schematic {
         format!("{}.schem", stem.trim_end_matches('_'))
     }
 
-    /// The number of blocks inside the build's bounding box.
+    /// The blocks a build takes, as it is compared: for a stackable build,
+    /// what each copy adds, since its copies may overlap; else its whole
+    /// box.
     pub fn volume(&self) -> i64 {
+        let (x, y, z) = self.per_copy().unwrap_or(self.size);
+        x * y * z
+    }
+
+    /// The number of blocks inside the build's bounding box.
+    pub fn box_volume(&self) -> i64 {
         let (x, y, z) = self.size;
         x * y * z
     }
@@ -2188,6 +2196,9 @@ mod tests {
         };
         assert_eq!(diagonal.per_copy(), None);
         assert_eq!(cla().per_copy(), None);
+        // Compared by what a copy adds, but its box is still all of it.
+        assert_eq!((vertical.volume(), vertical.box_volume()), (60, 180));
+        assert_eq!(cla().volume(), cla().box_volume());
     }
 
     #[test]

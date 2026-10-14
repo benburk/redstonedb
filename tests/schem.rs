@@ -809,3 +809,18 @@ fn standardizing_takes_out_signs_that_label_nothing() {
     assert!(blocks.signs.is_empty());
     assert!(lint::check(&blocks).is_empty());
 }
+
+/// Its yellow output, with the dust on it, sticks out a layer to the east,
+/// and its pink carry out two layers up, as its inputs stick out to the
+/// south; none of those layers counts toward its size. Stacking still goes
+/// by the core, which keeps the outputs.
+#[test]
+fn an_output_sticking_out_is_not_measured() {
+    let data =
+        std::fs::read("tests/fixtures/rca-1-vert-output-out.schem").unwrap();
+    let blocks = app::schem::Blocks::read(&data).unwrap();
+    let size = app::import::measure(&blocks, true).unwrap();
+    assert_eq!((size.y, size.x, size.z), (4, 4, 6));
+    let (low, high) = app::interface::core(&blocks);
+    assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
+}

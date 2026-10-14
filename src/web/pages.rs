@@ -1316,14 +1316,14 @@ fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
                     } else {
                         search_link(&stacking(s), "stackable")
                     }))
-                    (field("Size", format!("{} (HWD)", size(s))))
-                    (field("Volume", volume(s)))
+                    (field("Size", format!("{} (HWD), {} blocks", size(s), s.box_volume())))
                     // What each copy of a stack adds, which compares
                     // stackable builds whose copies overlap by different
-                    // amounts.
+                    // amounts, so it is their volume.
                     @if let Some((x, y, z)) = s.per_copy() {
-                        (field("Per copy", format!("{y}×{x}×{z} (HWD), {} blocks", x * y * z)))
+                        (field("Per copy", format!("{y}×{x}×{z} (HWD)")))
                     }
+                    (field("Volume", volume(s)))
                     (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                         html! { "unknown" }
                     } else {
@@ -2087,8 +2087,15 @@ fn latency(s: &Schematic) -> String {
     s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
 }
 
+/// The blocks a build takes as it is compared, said per copy for a
+/// stackable build, such as `48 blocks per copy`.
 fn volume(s: &Schematic) -> String {
-    format!("{} blocks", s.volume())
+    let per = if s.per_copy().is_some() {
+        " per copy"
+    } else {
+        ""
+    };
+    format!("{} blocks{per}", s.volume())
 }
 
 /// Height × width × depth, as the build looks from the south.

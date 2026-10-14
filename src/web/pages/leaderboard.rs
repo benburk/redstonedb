@@ -411,7 +411,7 @@ fn ticks(s: &Schematic) -> String {
 }
 
 fn blocks(s: &Schematic) -> String {
-    format!("{} blocks", s.volume())
+    super::volume(s)
 }
 
 /// A table of the first [`SHOWN`] of `placed`, with their places unless all
