@@ -46,9 +46,10 @@ fn category_part(categories: &[Category]) -> Markup {
     html! {
         (heading("categories", "Categories"))
         p class="mb-3" {
-            "A category is one function. Two builds share a category only when either could stand in "
-            "for the other, the same inputs giving the same outputs. So a subtractor is no adder, "
-            "a decrementer no incrementer, and an XNOR gate no XOR gate, though each pair is built alike."
+            "A category is one function. Two builds share a category only when they have the same truth "
+            "table, the same outputs for the same inputs, so either could stand in for the other. A subtractor "
+            "is no adder, a decrementer no incrementer, and an XNOR gate no XOR gate, though each pair is "
+            "built alike."
         }
         p class="mb-3" {
             "The sidebar groups the categories into sections. A build that fits none of them names its own "
@@ -135,9 +136,15 @@ fn flag_part() -> Markup {
     html! {
         (heading("flags", "Flags"))
         p class="mb-3" {
-            "Flags are yes-or-no facts that mean something in one category only: an adder's carry in "
-            "and carry out, a shift register being bidirectional, the operations an ALU offers beyond adding. "
-            "They show on the build's page and match in search, but do not split leaderboards."
+            "Flags are yes-or-no facts that mean something in one category only. Most opt a build into "
+            "columns of its category's truth table beyond the ones every build has. An ALU's flags name the "
+            "operations it offers beyond adding and subtracting, such as AND, XOR, and shift left. An "
+            "adder's carry in and carry out add an input and an output, and a multiplier's upper product "
+            "adds the high half of the product."
+        }
+        p class="mb-3" {
+            "Builds with different flags still share their category, since the columns they have in common "
+            "agree. Flags show on the build's page and match in search, but do not split leaderboards."
         }
     }
 }
