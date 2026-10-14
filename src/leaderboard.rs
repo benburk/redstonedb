@@ -1,6 +1,7 @@
 //! Leaderboards: a category's builds ranked against the others that match
-//! them in width, encoding, orientation, and design, since only those
-//! compete: a hex adder never meets a binary one. A serial category's
+//! them in width, logic, encoding, orientation, and design, since only
+//! those compete: a hex adder never meets a binary one, nor a sequential
+//! multiplier a combinational one. A serial category's
 //! builds match in throughput instead of width.
 
 use std::collections::BTreeMap;
@@ -50,6 +51,8 @@ pub struct Wanted {
     pub measure: Option<i64>,
     /// A memory's capacity in bytes.
     pub bytes: Option<i64>,
+    /// `comb`, `seq`, or `unknown`.
+    pub logic: Option<String>,
     /// `bin` or `hex`.
     pub encoding: Option<String>,
     pub orientation: Option<String>,
@@ -75,6 +78,9 @@ pub struct Board<'a> {
     /// A memory's capacities in bytes; empty for any other category.
     pub capacities: Vec<Choice>,
     pub capacity: Option<i64>,
+    /// Combinational and sequential; empty when the builds are all one.
+    pub logics: Vec<Choice>,
+    pub logic: Option<String>,
     /// Binary and hex; empty when the builds count only one way.
     pub encodings: Vec<Choice>,
     pub encoding: Option<String>,
@@ -137,35 +143,27 @@ pub fn board<'a>(
         (Vec::new(), None, ranked)
     };
 
+    // Combinational and sequential builds never compete: a sequential
+    // build's latency is no combinational one's.
+    let (logics, chosen_logic, ranked) =
+        narrow(ranked, wanted.logic.as_deref(), |s| {
+            let label = s.logic_label().unwrap_or("Unknown");
+            (logic(s).to_owned(), label.to_owned())
+        });
     // Hex and binary builds never compete.
-    let encodings = choices(&ranked, |s| {
-        let label = if encoding(s) == "hex" {
-            "Hex"
-        } else {
-            "Binary"
-        };
-        (encoding(s).to_owned(), label.to_owned())
-    });
-    let chosen_encoding = wanted
-        .encoding
-        .clone()
-        .or_else(|| most_common(&encodings).map(str::to_owned));
-    let ranked: Vec<&Schematic> = ranked
-        .into_iter()
-        .filter(|s| Some(encoding(s)) == chosen_encoding.as_deref())
-        .collect();
-
-    let orientations = choices(&ranked, |s| {
-        (s.orientation.clone(), s.orientation_label().to_owned())
-    });
-    let orientation = wanted
-        .orientation
-        .clone()
-        .or_else(|| most_common(&orientations).map(str::to_owned));
-    let ranked: Vec<&Schematic> = ranked
-        .into_iter()
-        .filter(|s| Some(&s.orientation) == orientation.as_ref())
-        .collect();
+    let (encodings, chosen_encoding, ranked) =
+        narrow(ranked, wanted.encoding.as_deref(), |s| {
+            let label = if encoding(s) == "hex" {
+                "Hex"
+            } else {
+                "Binary"
+            };
+            (encoding(s).to_owned(), label.to_owned())
+        });
+    let (orientations, orientation, ranked) =
+        narrow(ranked, wanted.orientation.as_deref(), |s| {
+            (s.orientation.clone(), s.orientation_label().to_owned())
+        });
 
     // By the short name people say, such as CCA, where there is one.
     let designs = choices(&ranked, |s| {
@@ -192,6 +190,8 @@ pub fn board<'a>(
         measure,
         capacities,
         capacity,
+        logics: if logics.len() > 1 { logics } else { Vec::new() },
+        logic: chosen_logic,
         encodings: if encodings.len() > 1 {
             encodings
         } else {
@@ -209,6 +209,28 @@ pub fn board<'a>(
         all_designs,
         builds,
     }
+}
+
+/// Narrows `ranked` to the builds of one `(value, label)` of `key`: the
+/// `wanted` value, else the most common. Returns every value's choice, the
+/// value chosen, and the builds left.
+fn narrow<'a>(
+    ranked: Vec<&'a Schematic>,
+    wanted: Option<&str>,
+    key: impl Fn(&Schematic) -> (String, String),
+) -> (Vec<Choice>, Option<String>, Vec<&'a Schematic>) {
+    let options = choices(&ranked, &key);
+    let chosen = wanted.or_else(|| most_common(&options)).map(str::to_owned);
+    let ranked = ranked
+        .into_iter()
+        .filter(|s| chosen.as_ref() == Some(&key(s).0))
+        .collect();
+    (options, chosen, ranked)
+}
+
+/// A build's logic: `comb`, `seq`, or `unknown`.
+fn logic(s: &Schematic) -> &str {
+    s.logic.as_deref().unwrap_or("unknown")
 }
 
 /// How a build counts: `hex`, or `bin` for binary or unknown.
@@ -390,15 +412,23 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 
 /// Builders by records held: first place, as fastest or as smallest, on a
 /// board of two or more builds. A board is a standard category's builds of
-/// one width, or throughput, capacity where it splits by bytes, encoding,
-/// orientation, and design, `split` saying which for a category;
+/// one width, or throughput, capacity where it splits by bytes, logic,
+/// encoding, orientation, and design, `split` saying which for a category;
 /// each builder of a record holder counts it, and a tie gives every holder
 /// one.
 pub fn most_records(
     builds: &[Schematic],
     split: impl Fn(&str) -> (Measure, bool),
 ) -> Vec<Standing> {
-    type Key<'a> = (&'a str, i64, Option<i64>, &'a str, &'a str, &'a str);
+    type Key<'a> = (
+        &'a str,
+        i64,
+        Option<i64>,
+        &'a str,
+        &'a str,
+        &'a str,
+        &'a str,
+    );
     let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
     for s in builds.iter().filter(|s| s.category_label.is_some()) {
         let (by, by_bytes) = split(&s.category);
@@ -411,6 +441,7 @@ pub fn most_records(
                 &s.category,
                 n,
                 s.bytes,
+                logic(s),
                 encoding(s),
                 &s.orientation,
                 &s.design,
@@ -514,6 +545,30 @@ mod tests {
         let hex = board(&all, &wanted, Measure::Width, false, true);
         let ids: Vec<&str> = hex.builds.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, [hex_id.as_str()]);
+    }
+
+    #[test]
+    fn sequential_and_combinational_builds_never_share_a_board() {
+        let mut adders = adders();
+        for s in &mut adders {
+            s.logic = Some("comb".to_owned());
+        }
+        adders[0].logic = Some("seq".to_owned());
+        let seq_id = adders[0].id.clone();
+        let all: Vec<&Schematic> = adders.iter().collect();
+        let comb = board(&all, &Wanted::default(), Measure::Width, false, true);
+        assert_eq!(comb.logic.as_deref(), Some("comb"));
+        assert!(comb.builds.iter().all(|s| s.id != seq_id));
+        let labels: Vec<&str> =
+            comb.logics.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["Combinational", "Sequential"]);
+        let wanted = Wanted {
+            logic: Some("seq".to_owned()),
+            ..Wanted::default()
+        };
+        let seq = board(&all, &wanted, Measure::Width, false, true);
+        let ids: Vec<&str> = seq.builds.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, [seq_id.as_str()]);
     }
 
     #[test]

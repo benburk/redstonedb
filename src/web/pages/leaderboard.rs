@@ -5,7 +5,7 @@ use maud::{Markup, html};
 use crate::{
     leaderboard::{self, Board, Choice, Measure, Placed, SHOWN, Standing},
     models::{
-        schematic::{Category, Schematic},
+        schematic::{self, Category, Schematic},
         user::User,
     },
 };
@@ -178,47 +178,82 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
     )
 }
 
-/// The board's address with these choices; `None` leaves one out. The
-/// measure goes under its own name, `width` or `throughput`.
-fn board_href(
-    path: &str,
-    measure: (Measure, Option<i64>),
+/// A board's choices as its address gives them; `None` leaves one out.
+#[derive(Clone, Copy)]
+struct Address<'a> {
+    by: Measure,
+    measure: Option<i64>,
     bytes: Option<i64>,
-    encoding: Option<&str>,
-    orientation: Option<&str>,
-    design: Option<&str>,
-) -> String {
-    let mut params = form_urlencoded::Serializer::new(String::new());
-    if let (by, Some(n)) = measure {
-        params.append_pair(by.name(), &n.to_string());
-    }
-    if let Some(bytes) = bytes {
-        params.append_pair("bytes", &bytes.to_string());
-    }
-    if let Some(encoding) = encoding {
-        params.append_pair("encoding", encoding);
-    }
-    if let Some(orientation) = orientation {
-        params.append_pair("orientation", orientation);
-    }
-    if let Some(design) = design {
-        params.append_pair("design", design);
-    }
-    let params = params.finish();
-    if params.is_empty() {
-        path.to_owned()
-    } else {
-        format!("{path}?{params}")
+    logic: Option<&'a str>,
+    encoding: Option<&'a str>,
+    orientation: Option<&'a str>,
+    design: Option<&'a str>,
+}
+
+impl Address<'_> {
+    /// The address under `path`. The measure goes under its own name,
+    /// `width` or `throughput`.
+    fn href(&self, path: &str) -> String {
+        let mut params = form_urlencoded::Serializer::new(String::new());
+        if let Some(n) = self.measure {
+            params.append_pair(self.by.name(), &n.to_string());
+        }
+        if let Some(bytes) = self.bytes {
+            params.append_pair("bytes", &bytes.to_string());
+        }
+        let named = [
+            ("logic", self.logic),
+            ("encoding", self.encoding),
+            ("orientation", self.orientation),
+            ("design", self.design),
+        ];
+        for (name, value) in named {
+            if let Some(value) = value {
+                params.append_pair(name, value);
+            }
+        }
+        let params = params.finish();
+        if params.is_empty() {
+            path.to_owned()
+        } else {
+            format!("{path}?{params}")
+        }
     }
 }
 
-/// The width or throughput, encoding, orientation, and design the board is
-/// narrowed to. Changing one resets those after it, which the new choice
-/// may not have.
+/// The width or throughput, logic, encoding, orientation, and design the
+/// board is narrowed to. Changing one resets those after it, which the new
+/// choice may not have.
 fn choices(path: &str, board: &Board) -> Markup {
-    let orientation = board.orientation.as_deref();
-    let encoding = board.encoding.as_deref();
-    let measure = (board.by, board.measure);
+    let none = Address {
+        by: board.by,
+        measure: None,
+        bytes: None,
+        logic: None,
+        encoding: None,
+        orientation: None,
+        design: None,
+    };
+    let measure = Address {
+        measure: board.measure,
+        ..none
+    };
+    let capacity = Address {
+        bytes: board.capacity,
+        ..measure
+    };
+    let logic = Address {
+        logic: board.logic.as_deref(),
+        ..capacity
+    };
+    let encoding = Address {
+        encoding: board.encoding.as_deref(),
+        ..logic
+    };
+    let orientation = Address {
+        orientation: board.orientation.as_deref(),
+        ..encoding
+    };
     let heading = if board.by == Measure::Width {
         "Width"
     } else {
@@ -228,32 +263,35 @@ fn choices(path: &str, board: &Board) -> Markup {
         div class="mb-6 flex flex-col gap-2" {
             (choice_row(heading, &board.measures, |c| {
                 (board.measure.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
-                    board_href(path, (board.by, c.value.parse().ok()), None, None, None, None))
+                    Address { measure: c.value.parse().ok(), ..none }.href(path))
             }, None))
             @if !board.capacities.is_empty() {
                 (choice_row("Capacity", &board.capacities, |c| {
                     (board.capacity.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
-                        board_href(path, measure, c.value.parse().ok(), None, None, None))
+                        Address { bytes: c.value.parse().ok(), ..measure }.href(path))
+                }, None))
+            }
+            @if !board.logics.is_empty() {
+                (choice_row("Logic", &board.logics, |c| {
+                    (logic.logic == Some(c.value.as_str()),
+                        Address { logic: Some(&c.value), ..capacity }.href(path))
                 }, None))
             }
             @if !board.encodings.is_empty() {
                 (choice_row("Encoding", &board.encodings, |c| {
-                    (encoding == Some(c.value.as_str()),
-                        board_href(path, measure, board.capacity, Some(&c.value), None, None))
+                    (encoding.encoding == Some(c.value.as_str()),
+                        Address { encoding: Some(&c.value), ..logic }.href(path))
                 }, None))
             }
             (choice_row("Orientation", &board.orientations, |c| {
-                (orientation == Some(c.value.as_str()),
-                    board_href(path, measure, board.capacity, encoding, Some(&c.value), None))
+                (orientation.orientation == Some(c.value.as_str()),
+                    Address { orientation: Some(&c.value), ..encoding }.href(path))
             }, None))
             @if !board.designs.is_empty() {
-                @let all = board.all_designs.then(|| (
-                    board.design.is_none(),
-                    board_href(path, measure, board.capacity, encoding, orientation, None),
-                ));
+                @let all = board.all_designs.then(|| (board.design.is_none(), orientation.href(path)));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        board_href(path, measure, board.capacity, encoding, orientation, Some(&c.value)))
+                        Address { design: Some(&c.value), ..orientation }.href(path))
                 }, all))
             }
         }
@@ -365,6 +403,14 @@ fn board_name(category: &Category, board: &Board) -> String {
         .map(|n| board.by.label(n))
         .into_iter()
         .chain(board.capacity.map(|b| format!("{b}-byte")))
+        // Named only where the category has builds of each.
+        .chain(
+            board
+                .logic
+                .as_deref()
+                .filter(|_| !board.logics.is_empty())
+                .map(|logic| schematic::logic_label(logic).to_lowercase()),
+        )
         .chain(
             (board.encoding.as_deref() == Some("hex"))
                 .then(|| "hex".to_owned()),

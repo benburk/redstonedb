@@ -12,5 +12,4 @@ The database is the source of truth for metadata; signs carry only machine-reada
 
 ## Open
 
-- Whether logic should split leaderboards, so a sequential multiplier never meets a combinational one.
 - Which fields are required.
