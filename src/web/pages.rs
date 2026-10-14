@@ -44,6 +44,8 @@ pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 mod player;
 pub use player::{PlayerPage, player};
 mod details_page;
+mod sorting;
+pub use sorting::sorting;
 mod version;
 pub use details_page::{DetailsPage, File, Stored, details_page};
 
@@ -1406,6 +1408,24 @@ fn percent(permille: u32) -> String {
     format!("{}%", permille / 10)
 }
 
+/// The standard `categories` as the sidebar lists them: each section, by
+/// its key and heading, with its categories, then any in none under Other.
+/// A section with no categories is left out.
+fn sections(categories: &[Category]) -> Vec<(&str, &str, Vec<&Category>)> {
+    let of = |section: Option<&str>| -> Vec<&Category> {
+        categories
+            .iter()
+            .filter(|c| c.section.as_deref() == section)
+            .collect()
+    };
+    schematic::SECTIONS
+        .iter()
+        .map(|&(key, heading)| (key, heading, of(Some(key))))
+        .chain([("other", "Other", of(None))])
+        .filter(|(_, _, members)| !members.is_empty())
+        .collect()
+}
+
 /// The values a details form starts with.
 pub struct Fields<'a> {
     pub category: &'a str,
@@ -1461,22 +1481,8 @@ impl Choices {
         })
     }
 
-    /// The standard categories as the sidebar lists them: each section,
-    /// by its key and heading, with its categories, then any in none under
-    /// Other. A section with no categories is left out.
     fn sections(&self) -> Vec<(&str, &str, Vec<&Category>)> {
-        let of = |section: Option<&str>| -> Vec<&Category> {
-            self.categories
-                .iter()
-                .filter(|c| c.section.as_deref() == section)
-                .collect()
-        };
-        schematic::SECTIONS
-            .iter()
-            .map(|&(key, heading)| (key, heading, of(Some(key))))
-            .chain([("other", "Other", of(None))])
-            .filter(|(_, _, members)| !members.is_empty())
-            .collect()
+        sections(&self.categories)
     }
 
     pub async fn load(db: &sqlx::SqlitePool) -> Result<Self, sqlx::Error> {
@@ -2179,15 +2185,9 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     "A collection of Minecraft redstone schematics. Each build is stored with its facts, "
                     "so it can be found, compared, and downloaded under a name that describes it."
                 }
-                h2 class={ (SECTION_TITLE) " mt-8 mb-3" } { "Tags" }
-                p class="mb-3" { "A tag's colour gives its kind." }
-                dl class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2" {
-                    dt { span class="badge badge-restriction" { "Restriction" } }
-                    dd { "Components the build does without." }
-                    dt { span class="badge badge-other" { "Other" } }
-                    dd { "Anything else worth searching by." }
-                    dt { span class="badge badge-failing" { "Simulation" } }
-                    dd { "Set by simulating the build: fails simulation means it got some cases wrong. No one can add or remove it; a new version that passes drops it." }
+                p class="mb-4" {
+                    a href="/about/categories" { "How builds are sorted" }
+                    " explains categories, designs, measures, tags, and what search and the leaderboards go by."
                 }
             }
         },

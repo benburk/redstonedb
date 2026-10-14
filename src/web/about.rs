@@ -1,9 +1,29 @@
-use axum::response::IntoResponse;
+use axum::{
+    extract::State,
+    response::{IntoResponse, Response},
+};
 
-use crate::models::user::User;
+use crate::{
+    app_state::AppState, error::internal_error, models::schematic,
+    models::user::User,
+};
 
 use super::pages;
 
 pub async fn about(user_opt: Option<User>) -> impl IntoResponse {
     pages::about(user_opt.as_ref())
+}
+
+/// How builds are sorted: categories, designs, measures, and the rest,
+/// with the standard categories as they stand.
+pub async fn categories(
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+) -> Response {
+    match schematic::categories(&state.db).await {
+        Ok(categories) => {
+            pages::sorting(user_opt.as_ref(), &categories).into_response()
+        }
+        Err(err) => internal_error(err).into_response(),
+    }
 }

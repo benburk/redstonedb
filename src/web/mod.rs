@@ -146,6 +146,7 @@ pub fn router() -> Router<AppState> {
             post(simulation::stored_timing),
         )
         .route("/about", get(about))
+        .route("/about/categories", get(about::categories))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
         .route("/users", get(users::list))
