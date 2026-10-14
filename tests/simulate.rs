@@ -682,3 +682,60 @@ fn a_register_whose_reads_are_not_gated_fails() {
     assert!(run.wrong > 0);
     assert!(run.hint.unwrap().contains("every read lever off"));
 }
+
+/// The register fixture with the levers on `colour` concrete saved on.
+fn with_levers_on(colour: &str) -> Blocks {
+    let (data, blocks) = register("register-8-2-cells");
+    let on: Vec<_> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| {
+            !switch.button
+                && blocks.get(switch.block)
+                    == format!("minecraft:{colour}_concrete")
+        })
+        .map(|switch| switch.pos)
+        .collect();
+    let grid: HashMap<_, _> = blocks
+        .iter()
+        .filter(|(_, state)| *state != schem::AIR)
+        .map(|(pos, state)| {
+            let state = if on.contains(&pos) {
+                state.replace("powered=false", "powered=true")
+            } else {
+                state.to_owned()
+            };
+            (pos, state)
+        })
+        .collect();
+    let mut nbt = schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
+    Blocks::read(&schem::encode(nbt).unwrap()).unwrap()
+}
+
+/// Its read levers saved on, each cell reads as saved and stops when its
+/// lever is flipped: read inverted, which the test finds and holds each
+/// lever flipped while not reading.
+#[test]
+fn a_register_whose_reads_are_saved_reading_passes() {
+    let blocks = with_levers_on("magenta");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!(run.pattern, "each of 2 cells written, then read");
+}
+
+/// Its data levers saved on, so each cell takes the complement of what the
+/// test writes, and its reads show the complement: an inverted output.
+#[test]
+fn a_register_whose_output_is_inverted_passes() {
+    let blocks = with_levers_on("lime");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!(run.pattern, "each of 2 cells written, then read inverted");
+}

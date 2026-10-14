@@ -48,13 +48,41 @@ struct Line {
     bit: usize,
     pos: Pos,
     button: bool,
+    /// A read that reads as saved, and stops when its lever is flipped:
+    /// inverted, though saved as if not.
+    active_low: bool,
 }
 
-/// A cell: its write button, and each read lever that puts it on a bus,
-/// with that bus's place among the register's.
+impl Line {
+    fn is(&self, other: &Line) -> bool {
+        (self.port, self.bit) == (other.port, other.bit)
+    }
+}
+
+/// A cell: its write button, and each read lever that puts it on a bus.
 struct Cell {
     write: Line,
-    reads: Vec<(Line, usize)>,
+    reads: Vec<Read>,
+}
+
+/// A read lever, the bus it puts its cell on, by its place among the
+/// register's, and whether it puts the cell's value there inverted.
+#[derive(Clone, Copy)]
+struct Read {
+    line: Line,
+    bus: usize,
+    inverted: bool,
+}
+
+impl Read {
+    /// What its bus shows of a cell holding `held`, of `width` bits.
+    fn shows(&self, held: u64, width: usize) -> u64 {
+        if self.inverted {
+            !held & mask(width)
+        } else {
+            held
+        }
+    }
 }
 
 /// A register's ports, set up in its circuit.
@@ -66,7 +94,12 @@ struct Register {
     buses: Vec<usize>,
     /// The control ports, by their place in the interface, set together.
     controls: Vec<usize>,
+    /// Every read line, each held where it does not read.
+    reads: Vec<Line>,
     cells: Vec<Cell>,
+    /// What each bus shows with no read on, which no cell may change: 0,
+    /// or all ones for an inverted bus.
+    idle: Vec<u64>,
 }
 
 /// The offset between the values one round writes into successive cells:
@@ -109,16 +142,16 @@ fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, usize)> {
         // No cell may take the bus without its button.
         circuit.set(register.data, !value & all);
         circuit.settle()?;
-        let none = vec![0; register.buses.len()];
+        let none = register.idle.clone();
         let got = buses(&circuit, &register);
         ungated += u64::from(got != none);
         tally.check(|| "every read off".to_owned(), value, &none, got);
         for (i, (cell, &held)) in register.cells.iter().zip(&stored).enumerate()
         {
-            for &(line, bus) in &cell.reads {
-                read(&mut circuit, &register, &[line])?;
+            for read_line in &cell.reads {
+                read(&mut circuit, &register, &[read_line.line])?;
                 let mut expected = none.clone();
-                expected[bus] = held;
+                expected[read_line.bus] = read_line.shows(held, register.width);
                 let got = buses(&circuit, &register);
                 tally.check(
                     || format!("cell {} read", i + 1),
@@ -129,11 +162,12 @@ fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, usize)> {
             }
             if cell.reads.len() > 1 {
                 let lines: Vec<Line> =
-                    cell.reads.iter().map(|&(line, _)| line).collect();
+                    cell.reads.iter().map(|read| read.line).collect();
                 read(&mut circuit, &register, &lines)?;
                 let mut expected = none.clone();
-                for &(_, bus) in &cell.reads {
-                    expected[bus] = held;
+                for read_line in &cell.reads {
+                    expected[read_line.bus] =
+                        read_line.shows(held, register.width);
                 }
                 let got = buses(&circuit, &register);
                 tally.check(
@@ -243,6 +277,7 @@ fn ports(
                 bit,
                 pos: at.pos,
                 button: circuit.is_button(port, bit),
+                active_low: false,
             };
             if says("write") || (line.button && !says("read")) {
                 writes.push(line);
@@ -268,40 +303,64 @@ fn ports(
         width,
         buses,
         controls,
+        reads,
         cells: Vec::new(),
+        idle: Vec::new(),
     };
-    register.cells = cells(&mut circuit, &register, &writes, &reads)?;
+    register.cells = cells(&mut circuit, &mut register, &writes)?;
+    read(&mut circuit, &register, &[])?;
+    register.idle = self::buses(&circuit, &register);
     Ok((circuit, register))
 }
 
-/// The cells, each write with the reads that show what it wrote. Each cell
-/// is written alone, all ones, with the rest holding 0, and each read
-/// turned on in turn: those showing it belong to it, on the bus that shows
-/// it. When a read shows more than one cell or none, as when reads are not
-/// gated, writes and reads pair in order, if they number the same.
+/// The cells, each write with the reads that show what it wrote, and
+/// how. With every cell holding 0 and then each alone holding all ones,
+/// the buses are read with every read as saved and with each flipped
+/// alone. A read whose flipping changes how the cell shows is the cell's,
+/// on the bus where it does: a plain one when it shows the cell flipped,
+/// and an inverted one, `active_low`, when it shows it as saved. It is
+/// an inverted output when the cell's all ones show as all zeros. When a
+/// read shows more than one cell or none, as when reads are not gated,
+/// writes and reads pair in order, if they number the same.
 fn cells(
     circuit: &mut Circuit,
-    register: &Register,
+    register: &mut Register,
     writes: &[Line],
-    reads: &[Line],
 ) -> Result<Vec<Cell>> {
     for &write_line in writes {
         write(circuit, register, write_line, 0)?;
     }
     let all = mask(register.width);
-    let mut shows: Vec<Vec<(usize, usize)>> = vec![Vec::new(); reads.len()];
+    let (saved_before, flipped_before) = look(circuit, register)?;
+    let mut shows: Vec<Vec<(usize, Read)>> =
+        vec![Vec::new(); register.reads.len()];
     for (w, &write_line) in writes.iter().enumerate() {
         write(circuit, register, write_line, all)?;
         circuit.set(register.data, 0);
         circuit.settle()?;
-        for (r, &read_line) in reads.iter().enumerate() {
-            read(circuit, register, &[read_line])?;
-            let got = buses(circuit, register);
-            if let Some(bus) = got.iter().position(|&value| value != 0) {
-                shows[r].push((w, bus));
-            }
+        let (saved, flipped) = look(circuit, register)?;
+        let changed = |a: &[u64], b: &[u64]| -> Vec<u64> {
+            a.iter().zip(b).map(|(a, b)| a ^ b).collect()
+        };
+        let as_saved = changed(&saved_before, &saved);
+        for (r, &line) in register.reads.iter().enumerate() {
+            let as_flipped = changed(&flipped_before[r], &flipped[r]);
+            let Some(bus) = (0..as_saved.len())
+                .find(|&bus| as_saved[bus] != as_flipped[bus])
+            else {
+                continue;
+            };
+            let active_low = as_saved[bus] != 0;
+            let reading = if active_low { &saved } else { &flipped[r] };
+            shows[r].push((
+                w,
+                Read {
+                    line: Line { active_low, ..line },
+                    bus,
+                    inverted: reading[bus] == 0,
+                },
+            ));
         }
-        read(circuit, register, &[])?;
         write(circuit, register, write_line, 0)?;
     }
     if shows.iter().all(|found| found.len() == 1) {
@@ -313,8 +372,9 @@ fn cells(
             })
             .collect();
         for (r, found) in shows.iter().enumerate() {
-            let (w, bus) = found[0];
-            cells[w].reads.push((reads[r], bus));
+            let (w, read) = found[0];
+            register.reads[r] = read.line;
+            cells[w].reads.push(read);
         }
         if let Some(cell) = cells.iter().find(|cell| cell.reads.is_empty()) {
             let [x, y, z] = cell.write.pos;
@@ -325,22 +385,43 @@ fn cells(
         }
         return Ok(cells);
     }
-    if writes.len() == reads.len() && register.buses.len() == 1 {
+    if writes.len() == register.reads.len() && register.buses.len() == 1 {
         return Ok(writes
             .iter()
-            .zip(reads)
-            .map(|(&write, &read)| Cell {
+            .zip(&register.reads)
+            .map(|(&write, &line)| Cell {
                 write,
-                reads: vec![(read, 0)],
+                reads: vec![Read {
+                    line,
+                    bus: 0,
+                    inverted: false,
+                }],
             })
             .collect());
     }
     broken!(
         "Its {} read levers could not be matched to its {} write buttons: \
          each read should show one cell.",
-        reads.len(),
+        register.reads.len(),
         writes.len()
     );
+}
+
+/// What the buses show with every read as saved, and with each flipped
+/// alone.
+fn look(
+    circuit: &mut Circuit,
+    register: &Register,
+) -> Result<(Vec<u64>, Vec<Vec<u64>>)> {
+    read(circuit, register, &[])?;
+    let saved = buses(circuit, register);
+    let mut flipped = Vec::with_capacity(register.reads.len());
+    for &line in &register.reads {
+        read(circuit, register, &[line])?;
+        flipped.push(buses(circuit, register));
+    }
+    read(circuit, register, &[])?;
+    Ok((saved, flipped))
 }
 
 /// Writes `value` into the cell `line` writes: sets the data bus, presses
@@ -365,12 +446,19 @@ fn write(
 }
 
 /// Turns on the levers `on`, reads or a write, and the rest off, without
-/// settling.
+/// settling. An inverted read is on as saved, so off is flipped.
 fn set_reads(circuit: &mut Circuit, register: &Register, on: &[Line]) {
+    let wanted = |line: &Line| on.iter().any(|other| other.is(line));
     for &port in &register.controls {
-        let value = on
-            .iter()
-            .filter(|line| line.port == port)
+        let reads = register.reads.iter().filter(|line| {
+            line.port == port && wanted(line) != line.active_low
+        });
+        let others = on.iter().filter(|line| {
+            line.port == port
+                && !register.reads.iter().any(|read| read.is(line))
+        });
+        let value = reads
+            .chain(others)
             .fold(0, |value, line| value | 1 << line.bit);
         circuit.set(port, value);
     }
@@ -460,9 +548,16 @@ impl Tally {
     ) -> Run {
         let cells = register.cells.len();
         Run {
-            pattern: match cells {
-                1 => "written, then read".to_owned(),
-                n => format!("each of {n} cells written, then read"),
+            pattern: {
+                let inverted = register
+                    .cells
+                    .iter()
+                    .any(|cell| cell.reads.iter().any(|read| read.inverted));
+                let read = if inverted { "read inverted" } else { "read" };
+                match cells {
+                    1 => format!("written, then {read}"),
+                    n => format!("each of {n} cells written, then {read}"),
+                }
             },
             cases: self.cases,
             exhaustive,
@@ -514,7 +609,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let mut settled: Vec<(i32, u64)> = Vec::new();
     let all = mask(register.width);
     for cell in &register.cells {
-        for &(line, bus) in &cell.reads {
+        for &Read { line, bus, .. } in &cell.reads {
             for &value in &values {
                 if cancel.load(Ordering::Relaxed) {
                     bail!("The timing was cancelled.");
@@ -602,7 +697,7 @@ fn write_latency(circuit: &mut Circuit, register: &Register) -> Result<i32> {
     let all = mask(register.width);
     let mut slowest = 0;
     for cell in &register.cells {
-        let Some(&(line, bus)) = cell.reads.first() else {
+        let Some(&Read { line, bus, .. }) = cell.reads.first() else {
             continue;
         };
         for value in telling(register.width) {
