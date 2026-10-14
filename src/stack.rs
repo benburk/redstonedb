@@ -1,24 +1,27 @@
-//! Copies of a stackable build joined into one schematic, as `//rstack`
-//! joins them in-game.
+//! Copies of a stackable build joined into one schematic, as a player
+//! stacks it in game:
 //!
-//! Copy 0 sits at the south-east-bottom corner and each later copy one
-//! step further along, pasted over the copies before it: copies may
-//! overlap, and where they do, the later copy's block stands, though air
-//! never replaces anything and dust that meets joins. A build may rely on
-//! that, as a carry out capping one copy is covered by the next.
+//! 1. Break the parts only the first copy keeps: gray blocks and what rests
+//!    on them, such as logic the least significant bit alone needs or a
+//!    barrel giving the strength it alone takes; the inputs the copy before
+//!    feeds, such as a carry in; and the data inputs and outputs that would
+//!    land in the copy before, whose buses run on through it; each with its
+//!    levers, signs, and the dust on it. See `first_copy_only` and
+//!    `shared_inputs`.
+//! 2. `//rstack` what is left: copy 0 sits at the south-east-bottom corner
+//!    and each later copy one step further along, pasted over the copies
+//!    before it, so copies may overlap, and where they do, the later
+//!    copy's block stands, though air never replaces anything and dust
+//!    that meets joins. A build may rely on that, as a carry out capping
+//!    one copy is covered by the next.
+//! 3. Put the parts from step 1 back on the first copy.
+//! 4. Turn every copy's labelled outputs and status lines but the last
+//!    copy's white, signed or not, and take off their signs, since the
+//!    next copy takes them over.
 //!
-//! Later copies leave out what only the first copy keeps: gray blocks and
-//! what rests on them, such as logic the least significant bit alone needs,
-//! or a barrel giving the signal strength it alone takes; and the inputs
-//! the copy before feeds, such as a carry in, with their levers and signs;
-//! see `shared_inputs`.
-//!
-//! Every copy but the last turns its labelled outputs and status lines,
-//! signed or not, white and drops their signs, since the next copy takes
-//! them over. A later copy's solid block on a different solid block of the
-//! copy before, one of them an input or output, means the step is wrong,
-//! and is refused. Several directions
-//! stack one after another.
+//! A later copy's solid block on a different solid block of the copy
+//! before, one of them an input or output, means the step is wrong, and is
+//! refused. Several directions stack one after another.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -124,13 +127,15 @@ fn along(
     left_out.extend(shared_inputs(&blocks, step));
     let outputs = labelled_outputs(&blocks);
 
+    // As in game: the parts only the first copy keeps are broken, the rest
+    // stacked as `//rstack` stacks it, and the parts put back on the first
+    // copy, over anything a later copy put there.
     let mut grid: HashMap<Pos, String> = HashMap::new();
     for i in 0..=last {
-        let first = i == 0;
         let final_copy = i == last;
         for (pos, state) in blocks.iter() {
             if state == AIR
-                || (!first && left_out.contains(&pos))
+                || left_out.contains(&pos)
                 || (!final_copy && outputs.signs.contains(&pos))
             {
                 continue;
@@ -143,18 +148,33 @@ fn along(
             place(&mut grid, add(pos, shift(i)), state)?;
         }
     }
+    for (pos, state) in blocks.iter() {
+        if state != AIR
+            && left_out.contains(&pos)
+            && !(last > 0 && outputs.signs.contains(&pos))
+        {
+            let state = if last > 0 && outputs.blocks.contains(&pos) {
+                WHITE
+            } else {
+                state
+            };
+            put_back(&mut grid, add(pos, shift(0)), state);
+        }
+    }
 
     let mut nbt = schem::decode(data)?;
     let entities = nbt.take_entities();
     // Where copies overlap, a later copy's entity stands, as its block
     // does, and one whose block a later copy covered goes with it.
     let mut placed: HashMap<Pos, (String, fastnbt::Value)> = HashMap::new();
-    for i in 0..=last {
+    // Every copy without the first copy's own parts, then those put back.
+    let passes = (0..=last).map(|i| (i, false)).chain([(0, true)]);
+    for (i, restoring) in passes {
         for entity in &entities {
             let Some(pos) = schem::entity_pos(entity) else {
                 continue;
             };
-            let dropped = (i != 0 && left_out.contains(&pos))
+            let dropped = left_out.contains(&pos) != restoring
                 || (i != last && outputs.signs.contains(&pos));
             if !dropped {
                 let to = add(pos, shift(i));
@@ -354,6 +374,22 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
         blocks: outputs,
         signs,
     }
+}
+
+/// Puts back a part only the first copy keeps at `pos`, over whatever a
+/// later copy put there, joining dust that meets, as a player does after
+/// stacking.
+fn put_back(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
+    let placed = match grid.get(&pos) {
+        Some(existing)
+            if short(existing) == "redstone_wire"
+                && short(state) == "redstone_wire" =>
+        {
+            joined(existing, state)
+        }
+        _ => state.to_owned(),
+    };
+    grid.insert(pos, placed);
 }
 
 /// Puts `state` at `pos`, over what an earlier copy put there, as
