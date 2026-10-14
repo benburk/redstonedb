@@ -27,3 +27,4 @@ pub mod thumbnail;
 pub mod util;
 pub mod version;
 pub mod web;
+pub mod works_from;

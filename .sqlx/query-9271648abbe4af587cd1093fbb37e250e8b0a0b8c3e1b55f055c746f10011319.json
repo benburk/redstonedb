@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id FROM schematic WHERE torches IS NULL",
+  "query": "SELECT id FROM schematic WHERE torches IS NULL OR works_from IS NULL",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "7f58336f762d21cb9745932857d74b720e666b95e63c08e3837b0cb0df1cb7ba"
+  "hash": "9271648abbe4af587cd1093fbb37e250e8b0a0b8c3e1b55f055c746f10011319"
 }

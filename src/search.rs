@@ -9,7 +9,8 @@
 //! contributor, or importer, `stackable`, `sync` or `unsync`, `comb` or
 //! `seq`, `pipelined`). A name can be tied to its role, as in
 //! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
-//! encoding is `encoding:bin` or `encoding:hex`, and the throughput is
+//! encoding is `encoding:bin` or `encoding:hex`, a release it works in is
+//! `version:1.12` or `version:beta_1.3`, and the throughput is
 //! `throughput:3`, or `3t` for a serial build, whose throughput leads its
 //! name as its width would. A term that is no fact
 //! of any schematic, nor in the singular, as `adders` is `adder`, matches
@@ -275,6 +276,7 @@ fn facts(s: &Schematic) -> Vec<String> {
         }
     }
     facts.extend(timing(s).iter().map(|&word| word.to_owned()));
+    facts.extend(versions(s));
     facts
 }
 
@@ -307,6 +309,18 @@ fn timing(s: &Schematic) -> Vec<&'static str> {
     words
 }
 
+/// The releases a build works in, as `version:1.12` names them.
+fn versions(s: &Schematic) -> Vec<String> {
+    let Some(from) = &s.works_from else {
+        return Vec::new();
+    };
+    crate::works_from::known()
+        .into_iter()
+        .filter(|release| crate::works_from::works_in(from, release))
+        .map(|release| format!("version:{}", release.to_lowercase()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +347,8 @@ mod tests {
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,
+            works_from: None,
+            works_from_by: None,
             bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
@@ -481,6 +497,18 @@ mod tests {
         assert!(find("\"at least 3\"", &threshold));
         assert!(find("at_least_3", &threshold));
         assert!(!find("\"at least 4\"", &threshold));
+    }
+
+    #[test]
+    fn a_build_is_found_in_every_release_it_works_in() {
+        let s = Schematic {
+            works_from: Some("1.5".to_owned()),
+            ..schematic("adder", "horz", &[])
+        };
+        assert!(find("version:1.5", &s));
+        assert!(find("version:1.12", &s));
+        assert!(!find("version:1.4.2", &s));
+        assert!(!find("version:beta_1.3", &s));
     }
 
     #[test]

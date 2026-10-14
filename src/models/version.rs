@@ -75,8 +75,8 @@ pub struct New<'a> {
     pub data: &'a [u8],
     pub sha256: &'a str,
     pub size: (i64, i64, i64),
-    /// How many redstone torches the file has.
-    pub torches: i64,
+    /// What is read from the file, such as its torches.
+    pub facts: &'a crate::import::FileFacts,
     pub added_by: Option<Uuid>,
     pub note: Option<&'a str>,
 }
@@ -112,7 +112,7 @@ pub async fn publish(
     let (x, y, z) = new.size;
     sqlx::query!(
         "UPDATE schematic SET data = ?, sha256 = ?, size_x = ?, size_y = ?,
-            size_z = ?, torches = ?,
+            size_z = ?, torches = ?, works_from = ?, works_from_by = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         new.data,
@@ -120,7 +120,9 @@ pub async fn publish(
         x,
         y,
         z,
-        new.torches,
+        new.facts.torches,
+        new.facts.works_from.release,
+        new.facts.works_from.because,
         id
     )
     .execute(&mut *tx)

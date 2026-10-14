@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
+use crate::import::FileFacts;
+
 /// A tag's name is written in full words joined by underscores, such as
 /// `carry_lookahead`.
 #[derive(Debug, Clone)]
@@ -21,8 +23,12 @@ pub const FAILS_SIMULATION: &str = "fails_simulation";
 /// It is not stored, so no one can add or remove it.
 pub const TORCHLESS: &str = "torchless";
 
+/// The name of the tag a build carries that works from Alpha, using no
+/// redstone component or mechanic added since. It is not stored either.
+pub const ALPHA: &str = "alpha";
+
 /// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 2] = [FAILS_SIMULATION, TORCHLESS];
+pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];
 
 impl Tag {
     fn derived(name: &str, kind: &str) -> Self {
@@ -293,6 +299,12 @@ pub struct Schematic {
     pub aliases: Vec<String>,
     /// How many redstone torches its file has; `None` until counted.
     pub torches: Option<i64>,
+    /// The oldest Minecraft release it works in, such as `1.5`; `None`
+    /// until its file is read.
+    pub works_from: Option<String>,
+    /// The component or mechanic that sets `works_from`, such as
+    /// `comparator`; `None` for a build of nothing newer than Alpha.
+    pub works_from_by: Option<String>,
     /// For a memory, how many bytes it holds.
     pub bytes: Option<i64>,
     /// The build's box less any outer layer holding only its interface.
@@ -341,7 +353,7 @@ pub struct Schematic {
     /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `fails_simulation` if simulating its file got some
     /// cases wrong, see `models::simulation`; `torchless` when its file has
-    /// no torches.
+    /// no torches, and `alpha` when it works from Alpha.
     pub tags: Vec<Tag>,
 }
 
@@ -673,7 +685,7 @@ async fn tags_by_schematic(
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, works_from, works_from_by, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             schematic.logic as own_logic,
             coalesce(schematic.logic, (SELECT logic FROM category
                 WHERE category.name = schematic.category)) as "logic?: String",
@@ -728,6 +740,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
                 tags.remove(&row.id),
                 row.fails_simulation,
                 row.torches,
+                row.works_from.as_deref(),
             ),
             flags: flags.remove(&row.id).unwrap_or_default(),
             builders: builders.remove(&row.id).unwrap_or_default(),
@@ -746,6 +759,8 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             throughput: row.throughput,
             at_least: row.at_least,
             torches: row.torches,
+            works_from: row.works_from,
+            works_from_by: row.works_from_by,
             bytes: row.bytes,
             size: (row.size_x, row.size_y, row.size_z),
             built_on: row.built_on,
@@ -768,20 +783,25 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
 
 /// A build's stored `tags`, if any, led by `fails_simulation` when it
 /// fails, with `torchless` among its restrictions when its file has no
-/// torches.
+/// torches, and `alpha` when it works from Alpha.
 fn with_derived(
     tags: Option<Vec<Tag>>,
     fails_simulation: bool,
     torches: Option<i64>,
+    works_from: Option<&str>,
 ) -> Vec<Tag> {
     let mut tags = tags.unwrap_or_default();
-    if torches == Some(0) {
+    let alpha = works_from == Some(crate::works_from::RELEASES[0].name);
+    for (has, name) in [(alpha, ALPHA), (torches == Some(0), TORCHLESS)] {
+        if !has {
+            continue;
+        }
         // Restrictions come first, by name.
         let at = tags
             .iter()
-            .position(|tag| tag.kind != "restriction" || *tag.name > *TORCHLESS)
+            .position(|tag| tag.kind != "restriction" || *tag.name > *name)
             .unwrap_or(tags.len());
-        tags.insert(at, Tag::derived(TORCHLESS, "restriction"));
+        tags.insert(at, Tag::derived(name, "restriction"));
     }
     if fails_simulation {
         tags.insert(0, Tag::derived(FAILS_SIMULATION, "failing"));
@@ -795,7 +815,7 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, works_from, works_from_by, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             schematic.logic as own_logic,
             coalesce(schematic.logic, (SELECT logic FROM category
                 WHERE category.name = schematic.category)) as "logic?: String",
@@ -825,29 +845,7 @@ pub async fn get(
     else {
         return Ok(None);
     };
-    let tags = sqlx::query_as!(
-        Tag,
-        "SELECT tag.name, tag.token, tag.kind
-         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         WHERE schematic_tag.schematic_id = ?
-         ORDER BY tag.kind = 'other', tag.kind, tag.name",
-        id
-    )
-    .fetch_all(db)
-    .await?;
-    let flags = sqlx::query_as!(
-        Flag,
-        "SELECT flag.category, flag.name, flag.label
-         FROM schematic_flag
-         JOIN schematic ON schematic.id = schematic_flag.schematic_id
-         JOIN flag ON flag.category = schematic.category
-            AND flag.name = schematic_flag.name
-         WHERE schematic_flag.schematic_id = ?
-         ORDER BY flag.position",
-        id
-    )
-    .fetch_all(db)
-    .await?;
+    let (tags, flags) = (stored_tags(db, id).await?, its_flags(db, id).await?);
     let builders = credits(db, id, Credit::Builder).await?;
     let contributors = credits(db, id, Credit::Contributor).await?;
     let about = Categories::load(db).await?;
@@ -867,6 +865,8 @@ pub async fn get(
         throughput: row.throughput,
         at_least: row.at_least,
         torches: row.torches,
+        works_from: row.works_from.clone(),
+        works_from_by: row.works_from_by,
         bytes: row.bytes,
         size: (row.size_x, row.size_y, row.size_z),
         stacking: stacking(db, id).await?,
@@ -886,9 +886,51 @@ pub async fn get(
         added_at: row.added_at,
         edited_at: row.edited_at,
         downloads: row.downloads,
-        tags: with_derived(Some(tags), row.fails_simulation, row.torches),
+        tags: with_derived(
+            Some(tags),
+            row.fails_simulation,
+            row.torches,
+            row.works_from.as_deref(),
+        ),
         flags,
     }))
+}
+
+/// Build `id`'s stored tags, by kind then name.
+async fn stored_tags(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<Vec<Tag>, sqlx::Error> {
+    sqlx::query_as!(
+        Tag,
+        "SELECT tag.name, tag.token, tag.kind
+         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
+         WHERE schematic_tag.schematic_id = ?
+         ORDER BY tag.kind = 'other', tag.kind, tag.name",
+        id
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Build `id`'s flags, in its category's order.
+async fn its_flags(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<Vec<Flag>, sqlx::Error> {
+    sqlx::query_as!(
+        Flag,
+        "SELECT flag.category, flag.name, flag.label
+         FROM schematic_flag
+         JOIN schematic ON schematic.id = schematic_flag.schematic_id
+         JOIN flag ON flag.category = schematic.category
+            AND flag.name = schematic_flag.name
+         WHERE schematic_flag.schematic_id = ?
+         ORDER BY flag.position",
+        id
+    )
+    .fetch_all(db)
+    .await
 }
 
 /// What a person did for a build.
@@ -1063,8 +1105,8 @@ pub struct New<'a> {
     pub throughput: Option<i64>,
     pub at_least: Option<i64>,
     pub bytes: Option<i64>,
-    /// How many redstone torches the file has.
-    pub torches: i64,
+    /// What is read from the file, such as its torches.
+    pub facts: &'a FileFacts,
     /// Whether the file keeps where its uploader's `//paste` put it.
     pub keeps_paste: bool,
     pub uploaded_by: Option<uuid::Uuid>,
@@ -1082,10 +1124,10 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            logic, throughput, at_least, bytes, torches, keeps_paste,
-            uploaded_by, sha256, data)
+            logic, throughput, at_least, bytes, torches, works_from,
+            works_from_by, keeps_paste, uploaded_by, sha256, data)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?)
+            ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -1106,7 +1148,9 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.throughput,
         new.at_least,
         new.bytes,
-        new.torches,
+        new.facts.torches,
+        new.facts.works_from.release,
+        new.facts.works_from.because,
         new.keeps_paste,
         new.uploaded_by,
         new.sha256,
@@ -1483,25 +1527,32 @@ pub async fn keeping_paste(
     )
 }
 
-/// Sets how many redstone torches a build's file has, as counted from it.
-pub async fn set_torches<'e, E: SqliteExecutor<'e>>(
+/// Sets what is read from a build's file, such as its torches.
+pub async fn set_file_facts<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    torches: i64,
+    facts: &FileFacts,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE schematic SET torches = ? WHERE id = ?", torches, id)
-        .execute(db)
-        .await?;
+    sqlx::query!(
+        "UPDATE schematic SET torches = ?, works_from = ?, works_from_by = ?
+         WHERE id = ?",
+        facts.torches,
+        facts.works_from.release,
+        facts.works_from.because,
+        id
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
-/// The ids of the builds whose torches are not counted yet.
-pub async fn uncounted_torches(
-    db: &SqlitePool,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT id FROM schematic WHERE torches IS NULL")
-        .fetch_all(db)
-        .await
+/// The ids of the builds whose files are not yet read for every fact.
+pub async fn unread_files(db: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT id FROM schematic WHERE torches IS NULL OR works_from IS NULL"
+    )
+    .fetch_all(db)
+    .await
 }
 
 /// Stores a schematic's size, as `rsdb reread` finds it.
@@ -1969,6 +2020,8 @@ mod tests {
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,
+            works_from: None,
+            works_from_by: None,
             bytes: None,
             size: (19, 11, 18),
             stacking: Vec::new(),
@@ -2109,17 +2162,23 @@ mod tests {
             tags.into_iter().map(|tag| tag.name).collect()
         };
         assert_eq!(
-            names(with_derived(Some(stored.clone()), true, Some(0))),
+            names(with_derived(Some(stored.clone()), true, Some(0), None)),
             ["fails_simulation", "alpha", "torchless", "buffer"]
         );
         assert_eq!(
-            names(with_derived(Some(stored.clone()), false, Some(3))),
+            names(with_derived(Some(stored.clone()), false, Some(3), None)),
             ["alpha", "buffer"]
         );
         assert_eq!(
-            names(with_derived(Some(stored), false, None)),
+            names(with_derived(Some(stored), false, None, None)),
             ["alpha", "buffer"],
             "an uncounted build is not torchless yet"
+        );
+        // Alpha is read from the file too, before torchless by name.
+        let other = vec![tag("buffer", None, "other")];
+        assert_eq!(
+            names(with_derived(Some(other), false, Some(0), Some("Alpha"))),
+            ["alpha", "torchless", "buffer"]
         );
     }
 

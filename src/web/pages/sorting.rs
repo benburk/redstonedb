@@ -120,6 +120,13 @@ fn fact_part() -> Markup {
             dd { "Whether every output bit changes once, all on the same tick." }
             dt class="font-semibold" { "Throughput" }
             dd { "The fewest ticks from one input to the next that still give right outputs." }
+            dt class="font-semibold" { "Works from" }
+            dd {
+                "The oldest Minecraft: Java Edition release with every redstone component and mechanic "
+                "the build uses, such as 1.5 for a comparator or 1.16 for a target block. Building blocks "
+                "do not count, since any solid block can stand in for another. Every build here works in "
+                "the latest release."
+            }
             dt class="font-semibold" { "Pipelined" }
             dd { "A combinational, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
         }
@@ -160,8 +167,10 @@ fn tag_part() -> Markup {
         dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2" {
             dt { span class="badge badge-restriction" { "Restriction" } }
             dd {
-                "Components the build does without. The site reads torchless from the file. A build gets it "
-                "when it has no redstone torch, standing or on a wall, and nobody can add or remove it."
+                "Components the build does without. The site reads both from the file, and nobody can add "
+                "or remove them. A build is torchless when it has no redstone torch, standing or on a wall, "
+                "and alpha when it works from Alpha, using nothing newer than dust, torches, levers, buttons, "
+                "and pressure plates."
             }
             dt { span class="badge badge-other" { "Other" } }
             dd { "Anything else worth searching by, such as instant." }
@@ -182,7 +191,8 @@ fn search_part() -> Markup {
             "Search matches each word against these facts: category, design, flag, tag, orientation, "
             "a width such as " code { "8b" } ", a latency such as " code { "3t" } ", "
             code { "comb" } " or " code { "seq" } ", " code { "sync" } ", " code { "pipelined" } ", "
-            code { "throughput:3" } ", " code { "encoding:hex" } ", and the people credited. "
+            code { "throughput:3" } ", " code { "encoding:hex" } ", a release it works in such as "
+            code { "version:1.12" } ", and the people credited. "
             "A category also has aliases, other names people use: " code { "connect4" } " finds the "
             "four-in-a-row detector, " code { "inc" } " the incrementers, and " code { "bcd" }
             " both BCD converters. Every word must match, and " code { "-" } " in front of a word excludes it."

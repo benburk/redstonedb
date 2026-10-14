@@ -8,14 +8,18 @@ A fact every build has, with one of a few values, is a field rather than a tag, 
 
 Optional. Omitted when the build is unrestricted.
 
-| Token       | Meaning                                   |
-| ----------- | ----------------------------------------- |
-| `alpha`     | To be defined precisely.                  |
-| `torchless` | No redstone torch, standing or on a wall. |
+| Token       | Meaning                                                   |
+| ----------- | --------------------------------------------------------- |
+| `alpha`     | Works from Alpha: dust, torches, levers, buttons, plates. |
+| `torchless` | No redstone torch, standing or on a wall.                 |
 
 Restriction terms mean different things to different people. Before naming many builds with them, write down exactly which components each restriction forbids.
 
-A restriction that can be read from the file is worked out from it rather than tagged by hand, so it is never wrong: each build's torches are counted whenever its file is stored, and one with none is torchless. Like `fails simulation`, such a tag cannot be added or removed by hand.
+A restriction that can be read from the file is worked out from it rather than tagged by hand, so it is never wrong: each build's torches are counted whenever its file is stored, and one with none is torchless, and one that works from Alpha is alpha. Like `fails simulation`, such a tag cannot be added or removed by hand.
+
+## Works from
+
+A field read from the file: the oldest Minecraft: Java Edition release with every redstone component and mechanic the build uses, and the one that sets it, as in 1.5 for a comparator or 1.16 for a target block. Every build on the site works in the latest release, so there is no newest. Building blocks do not count, as any solid block stands in for white concrete and any transparent one for white stained glass. The releases, from the Minecraft Wiki's history sections, are in `src/works_from.rs`: Alpha, then dispensers and note blocks in Beta 1.2, repeaters in Beta 1.3, pistons in Beta 1.7, lamps in 1.2.1, tripwire hooks in 1.3.1, wooden buttons and repeater locking in 1.4.2, comparators, blocks of redstone, hoppers, droppers, and daylight detectors in 1.5, cauldrons read by comparators in 1.6.1, slime blocks and cakes read by comparators in 1.8, a block of redstone powering a comparator's side in 1.9, observers in 1.11, lecterns and composters in 1.14, honey blocks in 1.15, target blocks and the dot of dust in 1.16, lightning rods in 1.17, sculk sensors in 1.19, calibrated sculk sensors in 1.20, and the crafter and copper bulb in 1.21. A barrel counts from 1.5, as a container a comparator reads, since uploads swap one in for a furnace, cauldron, or cake. Search finds the builds that work in a release with `version:1.12` or `version:beta_1.3`.
 
 ## Orientation
 

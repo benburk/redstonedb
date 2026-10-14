@@ -401,7 +401,7 @@ async fn publish_checked(
         // its capacity.
         bytes: parsed.bytes.filter(|_| category.has(Measure::Bytes)),
         at_least: parsed.at_least.filter(|_| category.has(Measure::AtLeast)),
-        torches: prepared.torches,
+        facts: &prepared.facts,
         keeps_paste: sent.settings.keep_paste,
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,

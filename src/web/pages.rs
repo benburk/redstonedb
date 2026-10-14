@@ -1313,6 +1313,16 @@ fn schematic_info(s: &Schematic, similar: &[(Schematic, u32)]) -> Markup {
                         (field("Encoding", search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default()))))
                     }
                     (timing_fields(s))
+                    // The oldest release with every redstone component and
+                    // mechanic it uses; it links to the builds that work there.
+                    @if let Some(from) = &s.works_from {
+                        (field("Works from", html! {
+                            (search_link(from, &format!("version:{}", from.to_lowercase())))
+                            @if let Some(by) = &s.works_from_by {
+                                span class="text-muted" { " (" (by) ")" }
+                            }
+                        }))
+                    }
                     (field("Stacks", if s.stacking.is_empty() {
                         html! { "no" }
                     } else {

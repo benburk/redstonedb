@@ -47,9 +47,9 @@ async fn main() {
     configure_logging();
 
     let db = connect_to_database().await;
-    // Builds stored before torches were counted are counted once.
-    if let Err(err) = app::import::count_torches(&db).await {
-        tracing::error!("could not count torches: {err:#}");
+    // Builds stored before a fact was read from files are read once.
+    if let Err(err) = app::import::read_files(&db).await {
+        tracing::error!("could not read files: {err:#}");
     }
     // Builds not yet compared with their category's others are, in the
     // background.

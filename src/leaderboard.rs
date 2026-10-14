@@ -439,6 +439,8 @@ mod tests {
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,
+            works_from: None,
+            works_from_by: None,
             bytes: None,
             size: (volume, 1, 1),
             stacking: Vec::new(),

@@ -14,6 +14,7 @@ use crate::{
     models::version,
     schem::{self, Blocks, Size},
     standardize,
+    works_from::{self, WorksFrom},
 };
 
 /// A file made ready to store.
@@ -24,8 +25,8 @@ pub struct Prepared {
     pub violations: Vec<Violation>,
     pub size: Size,
     pub sha256: String,
-    /// How many redstone torches it has.
-    pub torches: i64,
+    /// What is read from it, such as its torches.
+    pub facts: FileFacts,
     /// The cauldrons and cakes swapped for barrels, by kind, with how many.
     pub swapped: Vec<(String, usize)>,
 }
@@ -34,7 +35,7 @@ pub struct Prepared {
 /// standardizes `data` if asked, and in any case takes out corner markers
 /// and fits its box tightly; sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
-/// uploader's `//paste` put it; then measures, lints, counts its torches,
+/// uploader's `//paste` put it; then measures, lints, reads its facts,
 /// and hashes it.
 pub fn prepare(
     data: &[u8],
@@ -63,7 +64,7 @@ pub fn prepare(
     let size = measure(&blocks, conventional)?;
     let sha256 = sha256(&data);
     Ok(Prepared {
-        torches: torches(&blocks),
+        facts: FileFacts::of(&blocks),
         data,
         blocks,
         violations,
@@ -73,8 +74,25 @@ pub fn prepare(
     })
 }
 
+/// What is read from a build's file rather than typed: its torches and the
+/// oldest release it works in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFacts {
+    pub torches: i64,
+    pub works_from: WorksFrom,
+}
+
+impl FileFacts {
+    pub fn of(blocks: &Blocks) -> Self {
+        FileFacts {
+            torches: torches(blocks),
+            works_from: works_from::of(blocks),
+        }
+    }
+}
+
 /// How many redstone torches `blocks` has, standing or on a wall.
-pub fn torches(blocks: &Blocks) -> i64 {
+fn torches(blocks: &Blocks) -> i64 {
     let count = blocks
         .iter()
         .filter(|(_, state)| {
@@ -87,15 +105,15 @@ pub fn torches(blocks: &Blocks) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// Counts the torches of every build not yet counted, as after the count
-/// began to be kept.
-pub async fn count_torches(db: &SqlitePool) -> Result<()> {
-    for id in schematic::uncounted_torches(db).await? {
+/// Reads the facts of every build whose file has not been read for them
+/// yet, as after one began to be kept.
+pub async fn read_files(db: &SqlitePool) -> Result<()> {
+    for id in schematic::unread_files(db).await? {
         let data = schematic::data(db, &id)
             .await?
             .context("schematic vanished")?;
-        let blocks = Blocks::read(&data)?;
-        schematic::set_torches(db, &id, torches(&blocks)).await?;
+        let facts = FileFacts::of(&Blocks::read(&data)?);
+        schematic::set_file_facts(db, &id, &facts).await?;
     }
     Ok(())
 }

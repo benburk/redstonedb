@@ -65,7 +65,8 @@ enum Command {
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
     /// turn status lines pink, paste from its south-east-bottom corner
-    /// unless it keeps its own, measure it, and count its torches
+    /// unless it keeps its own, measure it, and read its facts, such as its
+    /// torches and the oldest release it works in
     Reread,
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
@@ -323,7 +324,7 @@ struct Details {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
-    import::count_torches(&db).await?;
+    import::read_files(&db).await?;
     let result = run(&db, cli.command).await;
     // Builds whose file or category the command changed are compared again.
     similarity::refresh(&db).await?;
@@ -607,7 +608,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             throughput: details.throughput.map(i64::from),
             bytes: details.bytes.map(i64::from),
             at_least: details.at_least.map(i64::from),
-            torches: prepared.torches,
+            facts: &prepared.facts,
             keeps_paste: args.keep_paste,
             uploaded_by: None,
             sha256: &prepared.sha256,
@@ -798,9 +799,19 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             }
         }
         let blocks = Blocks::read(&data)?;
-        let torches = import::torches(&blocks);
-        if s.torches != Some(torches) {
-            schematic::set_torches(db, &s.id, torches).await?;
+        let facts = import::FileFacts::of(&blocks);
+        let stored = (
+            s.torches,
+            s.works_from.as_deref(),
+            s.works_from_by.as_deref(),
+        );
+        let read = (
+            Some(facts.torches),
+            Some(facts.works_from.release),
+            facts.works_from.because.as_deref(),
+        );
+        if stored != read {
+            schematic::set_file_facts(db, &s.id, &facts).await?;
         }
         let size = import::measure(&blocks, s.conventional)?;
         let size = (size.x.into(), size.y.into(), size.z.into());
@@ -930,7 +941,7 @@ async fn new_version(
             data: &checked.prepared.data,
             sha256: &checked.prepared.sha256,
             size: (size.x.into(), size.y.into(), size.z.into()),
-            torches: checked.prepared.torches,
+            facts: &checked.prepared.facts,
             added_by: None,
             note: note.map(str::trim).filter(|note| !note.is_empty()),
         },
@@ -1181,6 +1192,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         s.logic_label().unwrap_or("unknown").to_lowercase(),
         if s.pipelined() { ", pipelined" } else { "" }
     );
+    let from = s.works_from.as_deref().unwrap_or("unknown");
+    let by = s.works_from_by.as_deref().map(|by| format!(" ({by})"));
+    println!("works from   {from}{}", by.unwrap_or_default());
     println!("design       {}", s.design.replace('_', " "));
     let flags: Vec<&str> = s.flags.iter().map(|f| f.label.as_str()).collect();
     println!("flags        {}", flags.join(", "));
