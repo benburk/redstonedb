@@ -1039,6 +1039,7 @@ fn signed(tick: i32) -> String {
 /// Which bits a failing build got wrong, and its first wrong cases, a
 /// column for each input and output.
 fn simulation_failures(run: &Run) -> Markup {
+    let ops = run.examples.iter().any(|wrong| wrong.op.is_some());
     html! {
         @if let Some(hint) = &run.hint {
             p class="mt-4" { strong { "Likely cause: " } (hint) }
@@ -1055,6 +1056,11 @@ fn simulation_failures(run: &Run) -> Markup {
                 caption class="sr-only" { "First wrong cases" }
                 thead {
                     tr {
+                        // A build of several operations, such as an ALU,
+                        // says which each case was on.
+                        @if ops {
+                            th scope="col" class=(TABLE_HEAD) { "Operation" }
+                        }
                         @for signal in run.inputs.iter().chain(&run.outputs) {
                             th scope="col" class=(TABLE_HEAD) { (signal.name) }
                         }
@@ -1063,6 +1069,9 @@ fn simulation_failures(run: &Run) -> Markup {
                 tbody {
                     @for wrong in &run.examples {
                         tr {
+                            @if ops {
+                                td class=(TABLE_CELL) { (wrong.op.as_deref().unwrap_or("")) }
+                            }
                             @for (signal, &value) in run.inputs.iter().zip(&wrong.inputs) {
                                 td class=(TABLE_CELL) { (value_bits(value, value, signal.bits)) }
                             }

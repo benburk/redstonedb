@@ -141,14 +141,16 @@ pub struct BitTiming {
 }
 
 /// Measures the build whose input ports, by their place in `interface`, are
-/// `inputs`, A first, using every core. Each input takes the values
-/// `chosen` gives, 0 first, with whether they are a selection rather than
-/// every one, as for an input in BCD; else every value, or the test
-/// patterns when that would be too many.
+/// `inputs`, A first, using every core, with the `held` inputs set and
+/// left alone, such as the control lines choosing an ALU's operation. Each
+/// input takes the values `chosen` gives, 0 first, with whether they are a
+/// selection rather than every one, as for an input in BCD; else every
+/// value, or the test patterns when that would be too many.
 pub(super) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
+    held: &[(usize, u64)],
     chosen: Option<(Vec<Vec<u64>>, bool)>,
     cancel: &AtomicBool,
 ) -> Result<Timing> {
@@ -167,6 +169,7 @@ pub(super) fn measure(
         blocks,
         interface,
         inputs,
+        held,
         values: &values,
         outputs: &outputs,
         cancel,
@@ -222,31 +225,7 @@ pub(super) fn measure(
                 tick,
             })
             .collect(),
-        outputs: interface
-            .outputs
-            .iter()
-            .zip(&together.outputs)
-            .zip(&carried)
-            .map(|((port, stats), &carried)| OutputTiming {
-                name: port.name.clone(),
-                status: port.block.starts_with(lint::STATUS),
-                latency: stats.latency().unwrap_or(0),
-                first_change: stats.first_change().unwrap_or(0),
-                carried,
-                glitches: stats.glitches,
-                staggered: stats.staggered,
-                glitch: stats.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
-                bits: stats
-                    .bits
-                    .iter()
-                    .map(|bit| BitTiming {
-                        first_change: bit.first.unwrap_or(0),
-                        latency: bit.last.unwrap_or(0),
-                        glitches: bit.glitches,
-                    })
-                    .collect(),
-            })
-            .collect(),
+        outputs: output_timings(interface, &together, &carried),
         synced: together
             .outputs
             .iter()
@@ -258,6 +237,40 @@ pub(super) fn measure(
         changes: together.changes,
         patterns,
     })
+}
+
+/// Each output's timing, from what every change together found, with the
+/// ticks `carried` its repeaters or comparators take to carry it out.
+fn output_timings(
+    interface: &Interface,
+    together: &Stats,
+    carried: &[i32],
+) -> Vec<OutputTiming> {
+    interface
+        .outputs
+        .iter()
+        .zip(&together.outputs)
+        .zip(carried)
+        .map(|((port, stats), &carried)| OutputTiming {
+            name: port.name.clone(),
+            status: port.block.starts_with(lint::STATUS),
+            latency: stats.latency().unwrap_or(0),
+            first_change: stats.first_change().unwrap_or(0),
+            carried,
+            glitches: stats.glitches,
+            staggered: stats.staggered,
+            glitch: stats.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
+            bits: stats
+                .bits
+                .iter()
+                .map(|bit| BitTiming {
+                    first_change: bit.first.unwrap_or(0),
+                    latency: bit.last.unwrap_or(0),
+                    glitches: bit.glitches,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// The values each input of `widths` bits takes: every one, or the test
@@ -282,6 +295,8 @@ struct Rig<'a> {
     blocks: &'a Blocks,
     interface: &'a Interface,
     inputs: &'a [usize],
+    /// Inputs set before anything is measured and left alone.
+    held: &'a [(usize, u64)],
     /// The values each input takes, 0 among them.
     values: &'a [Vec<u64>],
     /// Each output port's width.
@@ -305,6 +320,9 @@ impl Rig<'_> {
                     scope.spawn(move || {
                         let mut circuit =
                             Circuit::new(self.blocks, self.interface)?;
+                        for &(port, value) in self.held {
+                            circuit.set(port, value);
+                        }
                         work(&mut circuit, part, parts)
                     })
                 })

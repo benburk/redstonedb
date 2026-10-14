@@ -527,3 +527,57 @@ fn a_lever_saved_on_by_mistake_is_named() {
     let hint = run.hint.as_deref().unwrap_or_default();
     assert!(hint.contains("bit 2 of A"), "{hint}");
 }
+
+/// From Schemati: eleven control lines, seven saved on, each sign naming
+/// the operations its line takes part in. Every result comes out right, but
+/// its carry out is on for an add that does not carry and off for one that
+/// does, so every add is wrong there.
+#[test]
+fn an_alu_runs_each_operation_its_signs_name() {
+    let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
+    let blocks = import::prepare(&raw, true, true, false).unwrap().blocks;
+    let report = Test::Alu.run(&blocks);
+    let Report::Ran(run) = &report else {
+        panic!("the ALU was not simulated: {report:?}");
+    };
+    assert_eq!(
+        run.pattern,
+        "add, sub, and, or, xor, nand, nor, xnor, shr, asr"
+    );
+    assert_eq!((run.cases, run.wrong), (10 * 65_536, 65_536));
+    assert_eq!(run.wrong_bits, [("carry out".to_owned(), 65_536)]);
+    assert_eq!(run.examples[0].op.as_deref(), Some("add"));
+    // Standardizing took the commas out of its signs, and the signs name
+    // its operations as flags.
+    assert!(
+        blocks
+            .sign_texts()
+            .values()
+            .flat_map(|l| l.iter())
+            .all(|l| !l.contains(','))
+    );
+    let mut flags = import::sign_flags(&interface::read(&blocks));
+    flags.sort();
+    flags.dedup();
+    for flag in ["and", "or", "xor", "nand", "nor", "xnor", "shr", "asr"] {
+        assert!(flags.contains(&flag.to_owned()), "{flag} in {flags:?}");
+    }
+}
+
+/// Its lines name single operations, and it adds with every line off and
+/// ORs with AND and XOR both on, which no sign says, so those are found by
+/// trying the lines. AND and OR get bit 7 wrong.
+#[test]
+fn an_alu_is_tried_on_operations_no_sign_names() {
+    let report = Test::Alu.run(&blocks("alu-8-lines"));
+    let Report::Ran(run) = &report else {
+        panic!("the ALU was not simulated: {report:?}");
+    };
+    assert_eq!(
+        run.pattern,
+        "add (no lines on), and, or (xor + and on), xor"
+    );
+    // Add takes its carry in too: twice A and B's cases.
+    assert_eq!(run.cases, 2 * 65_536 + 3 * 65_536);
+    assert_eq!(run.wrong_bits, [("output bit 7".to_owned(), 16_384)]);
+}

@@ -520,6 +520,68 @@ fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
     Some((pos, lines))
 }
 
+/// A sign's block entity with the commas taken out of its text, as words on
+/// a sign are separated by spaces and lines alone; any other entity as it
+/// is. A line keeps its form: JSON text stays JSON, a plain string plain.
+pub fn without_commas(entity: &Value) -> Value {
+    let mut entity = entity.clone();
+    let Value::Compound(outer) = &mut entity else {
+        return entity;
+    };
+    if !matches!(outer.get("Id"), Some(Value::String(id)) if id.ends_with("sign"))
+    {
+        return entity;
+    }
+    let fields = if matches!(outer.get("Data"), Some(Value::Compound(_))) {
+        let Some(Value::Compound(data)) = outer.get_mut("Data") else {
+            unreachable!("checked above");
+        };
+        data
+    } else {
+        outer
+    };
+    for side in ["front_text", "back_text"] {
+        if let Some(Value::Compound(text)) = fields.get_mut(side)
+            && let Some(Value::List(lines)) = text.get_mut("messages")
+        {
+            for line in lines.iter_mut() {
+                *line = line_without_commas(line);
+            }
+        }
+    }
+    for key in ["Text1", "Text2", "Text3", "Text4"] {
+        if let Some(line) = fields.get_mut(key) {
+            *line = line_without_commas(line);
+        }
+    }
+    entity
+}
+
+/// One sign line with its commas taken out, each run of commas and spaces
+/// one space.
+fn line_without_commas(line: &Value) -> Value {
+    let plain = text(line);
+    let words: Vec<&str> = plain
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let cleaned = words.join(" ");
+    if cleaned == plain {
+        return line.clone();
+    }
+    match line {
+        Value::String(raw) if raw.trim_start().starts_with(['"', '{']) => {
+            Value::String(serde_json::to_string(&cleaned).unwrap_or_default())
+        }
+        Value::Compound(fields) => {
+            let mut fields = fields.clone();
+            fields.insert("text".to_owned(), Value::String(cleaned));
+            Value::Compound(fields)
+        }
+        _ => Value::String(cleaned),
+    }
+}
+
 /// The plain text of one sign line. Lines are stored as plain strings, as
 /// JSON text such as `"lsb"` or `{"text":"lsb"}`, or since 1.21.5 as an NBT
 /// text compound.

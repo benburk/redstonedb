@@ -34,6 +34,10 @@ pub struct Port {
     /// The weakest signal strength that drives an input correctly, from a
     /// sign token such as `4ss` on any of its bits.
     pub strength: u8,
+    /// The words on its signs, lowercase, split at spaces, line breaks, and
+    /// commas, such as an ALU control line's operations `and nand sub`;
+    /// empty when it has none.
+    pub words: Vec<String>,
     /// A signal-strength input: each block takes a value from 0 to 15 as
     /// its strength, through the dust on top, rather than a bit from a
     /// lever.
@@ -402,6 +406,7 @@ fn port(
         members.sort_by_key(|&pos| distance(pos, far));
     }
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
+    let words = sign_words(lines);
     let feed = |pos: Pos| feeds.and_then(|feeds| feeds.get(&pos));
     let signal_strength = !members.is_empty()
         && members
@@ -438,6 +443,7 @@ fn port(
         labelled: false,
         bits,
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
+        words,
         signal_strength,
     }
 }
@@ -470,6 +476,21 @@ pub fn sign_name(lines: &[String]) -> Option<String> {
                 && !matches!(line.as_str(), "lsb" | "msb")
                 && strength(line).is_none()
         })
+}
+
+/// The words on a sign's `lines`, lowercase, split at spaces, line breaks,
+/// and commas, leaving out tokens such as `lsb` and `4ss`.
+pub fn sign_words(lines: &[String]) -> Vec<String> {
+    lines
+        .iter()
+        .flat_map(|line| line.split(|c: char| c.is_whitespace() || c == ','))
+        .map(str::to_lowercase)
+        .filter(|word| {
+            !word.is_empty()
+                && !matches!(word.as_str(), "lsb" | "msb")
+                && strength(word).is_none()
+        })
+        .collect()
 }
 
 /// `lsb` or `msb` when a sign on the block at `pos` marks it as its bus's

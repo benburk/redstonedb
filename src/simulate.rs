@@ -642,6 +642,8 @@ pub enum Test {
     /// A's number from binary-coded decimal, for each A whose digits are
     /// all decimal and whose number the outputs can hold.
     BcdToBinary,
+    /// Each operation an ALU's control lines name, and any other they give.
+    Alu,
 }
 
 /// The categories whose stacking the simulation decides rather than their
@@ -650,7 +652,7 @@ pub enum Test {
 pub const INFERS_STACKING: [&str; 1] = ["adder"];
 
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 7] = [
+const TESTS: [Test; 8] = [
     Test::Adder,
     Test::Incrementer,
     Test::Decrementer,
@@ -658,6 +660,7 @@ const TESTS: [Test; 7] = [
     Test::Multiplier,
     Test::BinaryToBcd,
     Test::BcdToBinary,
+    Test::Alu,
 ];
 
 impl Test {
@@ -678,6 +681,7 @@ impl Test {
             Test::Multiplier => "multiplier",
             Test::BinaryToBcd => "binary_to_bcd",
             Test::BcdToBinary => "bcd_to_binary",
+            Test::Alu => "alu",
         }
     }
 
@@ -691,6 +695,7 @@ impl Test {
             Test::Multiplier => check_multiplier(blocks),
             Test::BinaryToBcd => check_binary_to_bcd(blocks, false),
             Test::BcdToBinary => check_bcd_to_binary(blocks, false),
+            Test::Alu => alu::check(blocks),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -715,7 +720,8 @@ impl Test {
             | Test::IncDec
             | Test::Multiplier
             | Test::BinaryToBcd
-            | Test::BcdToBinary => None,
+            | Test::BcdToBinary
+            | Test::Alu => None,
         }
     }
 
@@ -723,6 +729,9 @@ impl Test {
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
+        if self == Test::Alu {
+            return alu::time(blocks, cancel);
+        }
         let mut interface = interface::read(blocks);
         // A BCD input takes only its valid values, as its cases do.
         let mut values = None;
@@ -733,6 +742,7 @@ impl Test {
             }
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
             Test::BinaryToBcd => converter_bench(&interface, "")?.inputs,
+            Test::Alu => unreachable!("timed above"),
             Test::BcdToBinary => {
                 let bench = converter_bench(&interface, "")?;
                 let width = bench.widths(&interface)[0];
@@ -742,7 +752,7 @@ impl Test {
                 bench.inputs
             }
         };
-        timing::measure(blocks, &interface, &inputs, values, cancel)
+        timing::measure(blocks, &interface, &inputs, &[], values, cancel)
     }
 }
 
@@ -766,6 +776,10 @@ macro_rules! broken {
         return Err(Broken(format!($($arg)*)).into())
     };
 }
+
+// After `broken!`, which it uses.
+mod alu;
+pub use alu::op as alu_op;
 
 /// What a test found.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -863,6 +877,9 @@ pub struct Signal {
 /// expected and actual value, in the order of `Run`'s.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Wrong {
+    /// The operation it was on, for a build of several, such as an ALU.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
     pub inputs: Vec<u64>,
     pub expected: Vec<u64>,
     pub got: Vec<u64>,
@@ -966,6 +983,13 @@ struct Bench {
     outputs: Vec<usize>,
     /// What each case is, such as `A + B + carry in`.
     pattern: String,
+    /// Inputs set once and held through every case, by their place in the
+    /// interface, such as the control lines choosing an ALU's operation.
+    held: Vec<(usize, u64)>,
+    /// The bits of the outputs read together that the cases decide; the
+    /// rest, such as a status line an operation leaves meaningless, are
+    /// not checked.
+    care: u64,
 }
 
 /// Runs an adder through its inputs and checks every sum: two operand buses
@@ -1031,6 +1055,8 @@ fn adder_bench(interface: &mut Interface) -> Result<Bench> {
         inputs,
         outputs,
         pattern,
+        held: Vec::new(),
+        care: u64::MAX,
     })
 }
 
@@ -1206,6 +1232,8 @@ fn multiplier_bench(interface: &Interface) -> Result<Bench> {
         inputs,
         outputs,
         pattern: pattern.to_owned(),
+        held: Vec::new(),
+        care: u64::MAX,
     })
 }
 
@@ -1354,6 +1382,8 @@ fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
         inputs: vec![0],
         outputs,
         pattern: pattern.to_owned(),
+        held: Vec::new(),
+        care: u64::MAX,
     })
 }
 
@@ -1619,6 +1649,8 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
         inputs,
         outputs,
         pattern: "A".to_owned(),
+        held: Vec::new(),
+        care: u64::MAX,
     })
 }
 
@@ -1816,6 +1848,23 @@ fn cases(
 }
 
 impl Run {
+    /// Takes in `other`'s cases, as another operation of the same build,
+    /// keeping the first five wrong cases of all.
+    fn absorb(&mut self, other: Run) {
+        self.cases += other.cases;
+        self.wrong += other.wrong;
+        self.patterns += other.patterns;
+        self.exhaustive &= other.exhaustive;
+        for (label, count) in other.wrong_bits {
+            match self.wrong_bits.iter_mut().find(|(l, _)| *l == label) {
+                Some(bit) => bit.1 += count,
+                None => self.wrong_bits.push((label, count)),
+            }
+        }
+        let room = 5usize.saturating_sub(self.examples.len());
+        self.examples.extend(other.examples.into_iter().take(room));
+    }
+
     fn covering(mut self, exhaustive: bool, patterns: u64) -> Self {
         self.exhaustive = exhaustive;
         self.patterns = patterns;
@@ -1853,6 +1902,9 @@ fn observe(
     flip: Flip,
 ) -> Result<Vec<u64>> {
     let mut circuit = Circuit::new(blocks, interface)?;
+    for &(port, value) in &bench.held {
+        circuit.set(port, value);
+    }
     let widths = bench.output_widths(interface);
     let mut results = Vec::with_capacity(cases.len());
     for case in cases {
@@ -1899,7 +1951,9 @@ fn judge(
     let mut wrong_by_bit = vec![0; result_bits];
     let mut examples = Vec::new();
     for (case, &got) in cases.iter().zip(got) {
-        let want = expected(case) & mask(result_bits);
+        // The bits the cases leave open are taken as they came out.
+        let want = (expected(case) & bench.care | got & !bench.care)
+            & mask(result_bits);
         if want != got {
             wrong += 1;
             for (bit, count) in wrong_by_bit.iter_mut().enumerate() {
@@ -1907,6 +1961,7 @@ fn judge(
             }
             if examples.len() < 5 {
                 examples.push(Wrong {
+                    op: None,
                     inputs: case[..bench.inputs.len()].to_vec(),
                     expected: split(want),
                     got: split(got),
@@ -2107,6 +2162,7 @@ mod tests {
                 })
                 .collect(),
             strength: 1,
+            words: Vec::new(),
             signal_strength: false,
         }
     }

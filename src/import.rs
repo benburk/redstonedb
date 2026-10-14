@@ -249,6 +249,18 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .into_iter()
     .filter(|(found, _)| *found)
     .map(|(_, flag)| flag.to_owned())
+    // An ALU's operations beyond adding and subtracting, as its control
+    // lines' signs name them, such as `and` or `rsh` for shr.
+    .chain(
+        interface
+            .inputs
+            .iter()
+            .filter(|port| port.block.starts_with(lint::CONTROL))
+            .flat_map(|port| port.words.iter())
+            .filter_map(|word| crate::simulate::alu_op(word))
+            .filter(|op| !matches!(*op, "add" | "sub"))
+            .map(str::to_owned),
+    )
     .collect()
 }
 
@@ -369,6 +381,7 @@ mod tests {
             labelled: true,
             bits: Vec::new(),
             strength: 1,
+            words: Vec::new(),
             signal_strength: false,
         }
     }

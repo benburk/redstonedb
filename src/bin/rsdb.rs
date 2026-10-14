@@ -1032,8 +1032,12 @@ fn print_report(name: &str, report: &Report) {
                     .join(", ")
             };
             for w in &run.examples {
+                let op =
+                    w.op.as_deref()
+                        .map(|op| format!("{op}: "))
+                        .unwrap_or_default();
                 println!(
-                    "        {}: got {}, expected {}",
+                    "        {op}{}: got {}, expected {}",
                     list(&run.inputs, &w.inputs),
                     list(&run.outputs, &w.got),
                     list(&run.outputs, &w.expected)

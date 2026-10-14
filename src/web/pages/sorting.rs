@@ -131,8 +131,8 @@ fn fact_part() -> Markup {
             dd { "A combinational, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
         }
         p class="mb-3" {
-            "Adders, incrementers, decrementers, inc/decs, combinational multipliers, and combinational "
-            "converters between binary and BCD are simulated through their inputs. Once every case of one "
+            "Adders, incrementers, decrementers, inc/decs, combinational multipliers, combinational "
+            "converters between binary and BCD, and ALUs are simulated through their inputs. Once every case of one "
             "comes out right, its latency and synchronized come from the simulation, not from what was typed."
         }
     }

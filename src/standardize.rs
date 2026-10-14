@@ -19,7 +19,8 @@
 //! - A sign of any wood becomes an oak one, and a sign on a block that is
 //!   neither an input nor an output, such as a note of the build's date,
 //!   is taken out, as signs carry only labels. Redstone passes a sign by as
-//!   it does air.
+//!   it does air. A sign's commas are taken out, as its words are separated
+//!   by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -58,7 +59,7 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
         })
         .collect();
     let restyled = rebox(data, &grid, [0, 0, 0], blocks.size)?;
-    let standardized = tidy(&restyled)?;
+    let standardized = tidy(&without_commas(&restyled)?)?;
 
     let found = interface::read(&Blocks::read(&standardized)?);
     ensure!(
@@ -96,6 +97,26 @@ fn notes(
             })
         })
         .collect()
+}
+
+/// The file with the commas taken out of its signs, whose words are
+/// separated by spaces and lines alone, as an ALU's control line names its
+/// operations: `and nand sub`.
+fn without_commas(data: &[u8]) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(data)?;
+    let entities = nbt
+        .take_entities()
+        .iter()
+        .map(schem::without_commas)
+        .collect();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
+    schem::encode(nbt)
 }
 
 /// The file with each status line pink: a block with no lever whose sign
