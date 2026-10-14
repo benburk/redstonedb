@@ -141,18 +141,22 @@ pub struct BitTiming {
 }
 
 /// Measures the build whose input ports, by their place in `interface`, are
-/// `inputs`, A first, using every core.
+/// `inputs`, A first, using every core. Each input takes the values
+/// `chosen` gives, 0 first, with whether they are a selection rather than
+/// every one, as for an input in BCD; else every value, or the test
+/// patterns when that would be too many.
 pub(super) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
+    chosen: Option<(Vec<Vec<u64>>, bool)>,
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
         .iter()
         .map(|&port| super::input_bits(&interface.inputs[port]))
         .collect();
-    let (values, patterns) = values_to_try(&widths);
+    let (values, patterns) = chosen.unwrap_or_else(|| values_to_try(&widths));
     let outputs: Vec<usize> = interface
         .outputs
         .iter()

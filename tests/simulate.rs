@@ -465,3 +465,52 @@ fn an_output_is_read_from_the_dust_on_its_block() {
         ([2, 2, 0].as_slice(), 0, 4)
     );
 }
+
+/// A 10-bit BCD input, from 0 to 255, into eight output bits.
+#[test]
+fn a_bcd_to_binary_converter_gets_every_decimal_value_right() {
+    let report = Test::BcdToBinary.run(&blocks("bcd2bin-10"));
+    let Report::Ran(run) = &report else {
+        panic!("the converter was not simulated: {report:?}");
+    };
+    assert_eq!(run.pattern, "A from BCD");
+    assert_eq!((run.cases, run.wrong), (256, 0));
+    assert!(run.exhaustive);
+}
+
+#[test]
+fn a_binary_to_bcd_converter_gets_every_value_right() {
+    let report = Test::BinaryToBcd.run(&blocks("bin2bcd-8"));
+    let Report::Ran(run) = &report else {
+        panic!("the converter was not simulated: {report:?}");
+    };
+    assert_eq!(run.pattern, "A in BCD");
+    assert_eq!((run.cases, run.wrong), (256, 0));
+}
+
+/// Its timing drives only valid BCD, so the invalid values it was never
+/// built for cannot make it look unsynced.
+#[test]
+fn a_bcd_converter_is_timed_on_valid_values() {
+    let cancel = AtomicBool::new(false);
+    let timing = Test::BcdToBinary
+        .time(&blocks("bcd2bin-10"), &cancel)
+        .unwrap();
+    assert!(timing.latency().is_some_and(|t| t > 0));
+    // A alone from 0 to each of its 255 other values and back, then all
+    // inputs together from all off to each of the 256 and back: every 10-bit
+    // value would make some four thousand.
+    assert_eq!(timing.changes, 510 + 512);
+    let timing = Test::BinaryToBcd
+        .time(&blocks("bin2bcd-8"), &cancel)
+        .unwrap();
+    assert!(timing.latency().is_some_and(|t| t > 0));
+}
+
+#[test]
+fn a_converter_is_known_for_what_it_does() {
+    let guess = simulate::guess(&blocks("bin2bcd-8")).unwrap();
+    assert_eq!((guess.category, guess.wrong), ("binary_to_bcd", 0));
+    let guess = simulate::guess(&blocks("bcd2bin-10")).unwrap();
+    assert_eq!((guess.category, guess.wrong), ("bcd_to_binary", 0));
+}

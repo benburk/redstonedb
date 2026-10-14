@@ -619,8 +619,9 @@ fn block(state: &str) -> Result<Block> {
 }
 
 /// The test a build gets from its category and width: for now, adders,
-/// incrementers, decrementers, inc/decs, and combinational multipliers of
-/// up to 32 bits have one.
+/// incrementers, decrementers, inc/decs, combinational multipliers, and
+/// combinational converters between binary and BCD of up to 32 bits have
+/// one.
 /// Each tries every case when they number few enough, else every case of
 /// each byte and the test patterns.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -635,6 +636,12 @@ pub enum Test {
     IncDec,
     /// The products of A and B, plus C when there is one.
     Multiplier,
+    /// A in binary-coded decimal: each decimal digit in four bits, the
+    /// ones lowest.
+    BinaryToBcd,
+    /// A's number from binary-coded decimal, for each A whose digits are
+    /// all decimal and whose number the outputs can hold.
+    BcdToBinary,
 }
 
 /// The categories whose stacking the simulation decides rather than their
@@ -643,12 +650,14 @@ pub enum Test {
 pub const INFERS_STACKING: [&str; 1] = ["adder"];
 
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 5] = [
+const TESTS: [Test; 7] = [
     Test::Adder,
     Test::Incrementer,
     Test::Decrementer,
     Test::IncDec,
     Test::Multiplier,
+    Test::BinaryToBcd,
+    Test::BcdToBinary,
 ];
 
 impl Test {
@@ -667,6 +676,8 @@ impl Test {
             Test::Decrementer => "decrementer",
             Test::IncDec => "inc_dec",
             Test::Multiplier => "multiplier",
+            Test::BinaryToBcd => "binary_to_bcd",
+            Test::BcdToBinary => "bcd_to_binary",
         }
     }
 
@@ -678,6 +689,8 @@ impl Test {
                 check_incrementer(blocks, false, Some(self.name()))
             }
             Test::Multiplier => check_multiplier(blocks),
+            Test::BinaryToBcd => check_binary_to_bcd(blocks, false),
+            Test::BcdToBinary => check_bcd_to_binary(blocks, false),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -700,7 +713,9 @@ impl Test {
             Test::Incrementer
             | Test::Decrementer
             | Test::IncDec
-            | Test::Multiplier => None,
+            | Test::Multiplier
+            | Test::BinaryToBcd
+            | Test::BcdToBinary => None,
         }
     }
 
@@ -709,14 +724,25 @@ impl Test {
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         let mut interface = interface::read(blocks);
+        // A BCD input takes only its valid values, as its cases do.
+        let mut values = None;
         let inputs = match self {
             Test::Adder => adder_bench(&mut interface)?.inputs,
             Test::Incrementer | Test::Decrementer | Test::IncDec => {
                 incrementer_bench(&interface)?.inputs
             }
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
+            Test::BinaryToBcd => converter_bench(&interface, "")?.inputs,
+            Test::BcdToBinary => {
+                let bench = converter_bench(&interface, "")?;
+                let width = bench.widths(&interface)[0];
+                let result = bench.output_widths(&interface).iter().sum();
+                let (valid, every) = bcd_values(width, result, false);
+                values = Some((vec![valid], !every));
+                bench.inputs
+            }
         };
-        timing::measure(blocks, &interface, &inputs, cancel)
+        timing::measure(blocks, &interface, &inputs, values, cancel)
     }
 }
 
@@ -1232,6 +1258,190 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     (cases, paired)
 }
 
+/// `value` in binary-coded decimal: each decimal digit in four bits, the
+/// ones lowest.
+fn to_bcd(mut value: u64) -> u64 {
+    let mut bcd = 0;
+    let mut shift = 0;
+    while value > 0 && shift < 64 {
+        bcd |= (value % 10) << shift;
+        value /= 10;
+        shift += 4;
+    }
+    bcd
+}
+
+/// The number binary-coded decimal `bcd` holds, its digits being decimal.
+fn from_bcd(bcd: u64) -> u64 {
+    (0..16)
+        .rev()
+        .fold(0, |value, digit| value * 10 + (bcd >> (4 * digit) & 0xf))
+}
+
+/// Whether `value` fits in `bits` bits.
+fn fits(value: u64, bits: usize) -> bool {
+    bits >= 64 || value >> bits == 0
+}
+
+/// The binary-coded decimal values of `width` bits whose numbers fit in
+/// `result` bits, in order, with whether they are every one: every one
+/// when there are few enough and not `quick`, else every number below
+/// 1,000, each digit's every value alone, each run of nines, and the
+/// largest.
+fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<u64>, bool) {
+    let valid = |n: u64| fits(to_bcd(n), width) && fits(n, result);
+    if !quick {
+        // Both tests rise with the number, so the valid ones run from 0.
+        let every: Vec<u64> = (0..=1u64 << EXHAUSTIVE_BITS)
+            .take_while(|&n| valid(n))
+            .map(to_bcd)
+            .collect();
+        if every.len() <= 1 << EXHAUSTIVE_BITS {
+            return (every, true);
+        }
+    }
+    let mut numbers: Vec<u64> = (0..1000).collect();
+    let mut power = 1u64;
+    while let Some(next) = power.checked_mul(10) {
+        numbers.extend((1..10).map(|d| d * power));
+        numbers.push(next - 1);
+        power = next;
+    }
+    // The largest valid number, found digit by digit from the top.
+    let mut largest = 0u64;
+    for digit in (0..16).rev() {
+        for d in (0..10).rev() {
+            let n = largest + d * 10u64.pow(digit);
+            if valid(n) {
+                largest = n;
+                break;
+            }
+        }
+    }
+    numbers.push(largest);
+    numbers.retain(|&n| valid(n));
+    numbers.sort_unstable();
+    numbers.dedup();
+    (numbers.into_iter().map(to_bcd).collect(), false)
+}
+
+/// What a converter's test drives and reads: its one input, A, and its
+/// output buses, status lines left out, the first holding the lowest
+/// digits or bits. One with a control line, such as a clock, is
+/// sequential, which this test does not cover.
+fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
+    let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
+    if let Some(line) = interface.inputs.iter().find(control) {
+        bail!(
+            "It has a control line, {}, so it is not combinational; only a \
+             combinational converter is tested.",
+            line.name
+        );
+    }
+    if interface.inputs.len() != 1 {
+        broken!(
+            "A converter takes one input, A, but this has {}.",
+            interface.inputs.len()
+        );
+    }
+    let outputs: Vec<usize> = (0..interface.outputs.len())
+        .filter(|&i| !interface.outputs[i].block.starts_with(lint::STATUS))
+        .collect();
+    if outputs.is_empty() {
+        broken!("A converter has an output, but this has none.");
+    }
+    Ok(Bench {
+        inputs: vec![0],
+        outputs,
+        pattern: pattern.to_owned(),
+    })
+}
+
+/// Runs a binary-to-BCD converter through its inputs and checks each
+/// result, A in BCD, the ones digit lowest: every value of A when there
+/// are few enough, else every value of each byte, the test patterns, and
+/// each power of ten and the number before it. With `quick`, only the
+/// test patterns are tried. Outputs too few for A's largest value in BCD
+/// make it broken.
+fn check_binary_to_bcd(blocks: &Blocks, quick: bool) -> Result<Run> {
+    let interface = interface::read(blocks);
+    let bench = converter_bench(&interface, "A in BCD")?;
+    let width = bench.widths(&interface)[0];
+    let result: usize = bench.output_widths(&interface).iter().sum();
+    let largest = mask(width);
+    let needed = 64 - to_bcd(largest).leading_zeros() as usize;
+    if result < needed {
+        broken!(
+            "A has {width} bits, so up to {largest}, which takes {needed} \
+             bits in BCD, but the outputs have {result}."
+        );
+    }
+    let (cases, exhaustive, patterns) = if quick {
+        let cases: Vec<Case> =
+            patterns(width).into_iter().map(|a| [a, 0, 0]).collect();
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&[width], || binary_cases(width))
+    };
+    Ok(sweep(blocks, &interface, &bench, &cases, None, |case| {
+        to_bcd(case[0])
+    })?
+    .covering(exhaustive, patterns))
+}
+
+/// The values a binary-to-BCD converter too wide to try every one of is
+/// checked on: every value of each byte, the other bits clear; the test
+/// patterns; and each power of ten and the number before it, as far as A
+/// holds them.
+fn binary_cases(width: usize) -> (Vec<Case>, u64) {
+    let mut cases = Vec::new();
+    let mut seen = HashSet::new();
+    let mut add = |cases: &mut Vec<Case>, a: u64| {
+        if seen.insert(a) {
+            cases.push([a, 0, 0]);
+        }
+    };
+    for low in (0..width).step_by(8) {
+        for v in 0..1u64 << (width - low).min(8) {
+            add(&mut cases, v << low);
+        }
+    }
+    let bytes = cases.len();
+    for a in patterns(width) {
+        add(&mut cases, a);
+    }
+    let mut power = 1u64;
+    while fits(power, width) {
+        add(&mut cases, power);
+        add(&mut cases, power - 1);
+        match power.checked_mul(10) {
+            Some(next) => power = next,
+            None => break,
+        }
+    }
+    let rest = (cases.len() - bytes) as u64;
+    (cases, rest)
+}
+
+/// Runs a BCD-to-binary converter through every value of A whose digits
+/// are all decimal and whose number the outputs can hold, or with too many
+/// of them, or `quick`, a selection, and checks each result, A's number
+/// in binary.
+fn check_bcd_to_binary(blocks: &Blocks, quick: bool) -> Result<Run> {
+    let interface = interface::read(blocks);
+    let bench = converter_bench(&interface, "A from BCD")?;
+    let width = bench.widths(&interface)[0];
+    let result: usize = bench.output_widths(&interface).iter().sum();
+    let (values, every) = bcd_values(width, result, quick);
+    let cases: Vec<Case> = values.into_iter().map(|a| [a, 0, 0]).collect();
+    let selected = if every { 0 } else { cases.len() as u64 };
+    Ok(sweep(blocks, &interface, &bench, &cases, None, |case| {
+        from_bcd(case[0])
+    })?
+    .covering(every, selected))
+}
+
 /// Runs an incrementer, a decrementer, or an inc/dec through its inputs,
 /// every value of A with its control line each way, and checks the result
 /// against what each kind of `category` gives: an incrementer's A plus 1
@@ -1489,13 +1699,21 @@ pub struct Guess {
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
     // One run tries every kind of incrementer, and the kind it gets most
     // right names its category.
-    let tried = [Test::Adder, Test::Incrementer, Test::Multiplier];
+    let tried = [
+        Test::Adder,
+        Test::Incrementer,
+        Test::Multiplier,
+        Test::BinaryToBcd,
+        Test::BcdToBinary,
+    ];
     tried
         .into_iter()
         .filter_map(|test| {
             let run = match test {
                 Test::Adder => check_adder_on(blocks, true),
                 Test::Multiplier => check_multiplier_on(blocks, true),
+                Test::BinaryToBcd => check_binary_to_bcd(blocks, true),
+                Test::BcdToBinary => check_bcd_to_binary(blocks, true),
                 _ => check_incrementer(blocks, true, None),
             }
             .ok()?;
@@ -1737,6 +1955,39 @@ mod tests {
         assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (6, 4));
         assert_eq!(Test::of("incrementer", Some(8)), Some(Test::Incrementer));
         assert_eq!(Test::of("inc_dec", Some(8)), Some(Test::IncDec));
+    }
+
+    #[test]
+    fn bcd_holds_each_decimal_digit_in_four_bits() {
+        assert_eq!(to_bcd(0), 0);
+        assert_eq!(to_bcd(255), 0x255);
+        assert_eq!(from_bcd(0x255), 255);
+        assert_eq!(from_bcd(to_bcd(4_294_967_295)), 4_294_967_295);
+    }
+
+    #[test]
+    fn a_bcd_input_takes_only_decimal_digits_that_its_outputs_hold() {
+        // Ten bits of BCD hold up to 399, but eight output bits only 255.
+        let (values, every) = bcd_values(10, 8, false);
+        assert!(every);
+        assert_eq!(values.len(), 256);
+        assert_eq!((values[0], values[255]), (0, 0x255));
+        assert!(values.contains(&0x199) && !values.contains(&0x1a0));
+        // Too many to try every one: a selection, the largest of the eight
+        // digits among them.
+        let (values, every) = bcd_values(32, 27, false);
+        assert!(!every);
+        assert_eq!(values.last(), Some(&to_bcd(99_999_999)));
+        assert!(values.iter().all(|&v| from_bcd(v) < 1 << 27));
+    }
+
+    #[test]
+    fn converters_between_binary_and_bcd_are_tested() {
+        assert_eq!(Test::of("binary_to_bcd", Some(8)), Some(Test::BinaryToBcd));
+        assert_eq!(
+            Test::of("bcd_to_binary", Some(10)),
+            Some(Test::BcdToBinary)
+        );
     }
 
     #[test]
