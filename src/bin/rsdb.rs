@@ -64,7 +64,7 @@ enum Command {
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
     /// turn status lines pink, paste from its south-east-bottom corner
-    /// unless it keeps its own, and measure it
+    /// unless it keeps its own, measure it, and count its torches
     Reread,
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
@@ -310,6 +310,7 @@ struct Details {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
+    import::count_torches(&db).await?;
     let result = run(&db, cli.command).await;
     // Move the write-ahead log's pages into redstone.db, so the file alone
     // holds every write when it is copied or backed up. Closing alone does
@@ -413,6 +414,10 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::DefineTag { name, kind, token } => {
+            if schematic::DERIVED.contains(&schematic::tag_name(&name).as_str())
+            {
+                bail!("{name} is worked out from the build, not tagged");
+            }
             schematic::define_tag(db, &name, token.as_deref(), &kind).await?;
             Ok(())
         }
@@ -572,6 +577,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             logic: details.logic.as_deref(),
             throughput: details.throughput.map(i64::from),
             bytes: details.bytes.map(i64::from),
+            torches: prepared.torches,
             keeps_paste: args.keep_paste,
             uploaded_by: None,
             sha256: &prepared.sha256,
@@ -750,6 +756,10 @@ async fn reread(db: &SqlitePool) -> Result<()> {
             }
         }
         let blocks = Blocks::read(&data)?;
+        let torches = import::torches(&blocks);
+        if s.torches != Some(torches) {
+            schematic::set_torches(db, &s.id, torches).await?;
+        }
         let size = import::measure(&blocks, s.conventional)?;
         let size = (size.x.into(), size.y.into(), size.z.into());
         if size != s.size {
@@ -878,6 +888,7 @@ async fn new_version(
             data: &checked.prepared.data,
             sha256: &checked.prepared.sha256,
             size: (size.x.into(), size.y.into(), size.z.into()),
+            torches: checked.prepared.torches,
             added_by: None,
             note: note.map(str::trim).filter(|note| !note.is_empty()),
         },

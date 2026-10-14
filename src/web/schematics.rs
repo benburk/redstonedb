@@ -361,6 +361,7 @@ pub async fn save(
             data: &checked.prepared.data,
             sha256: &checked.prepared.sha256,
             size: (size.x.into(), size.y.into(), size.z.into()),
+            torches: checked.prepared.torches,
             added_by: Some(user.id),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
         };

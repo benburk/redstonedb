@@ -75,6 +75,8 @@ pub struct New<'a> {
     pub data: &'a [u8],
     pub sha256: &'a str,
     pub size: (i64, i64, i64),
+    /// How many redstone torches the file has.
+    pub torches: i64,
     pub added_by: Option<Uuid>,
     pub note: Option<&'a str>,
 }
@@ -110,13 +112,15 @@ pub async fn publish(
     let (x, y, z) = new.size;
     sqlx::query!(
         "UPDATE schematic SET data = ?, sha256 = ?, size_x = ?, size_y = ?,
-            size_z = ?, edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+            size_z = ?, torches = ?,
+            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         new.data,
         new.sha256,
         x,
         y,
         z,
+        new.torches,
         id
     )
     .execute(&mut *tx)

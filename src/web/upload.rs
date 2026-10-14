@@ -387,6 +387,7 @@ async fn publish_checked(
         logic: parsed.logic.as_deref(),
         throughput: parsed.throughput,
         bytes: parsed.bytes.filter(|_| holds_bytes),
+        torches: prepared.torches,
         keeps_paste: sent.settings.keep_paste,
         uploaded_by: Some(user.id),
         sha256: &prepared.sha256,

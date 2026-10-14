@@ -47,6 +47,10 @@ async fn main() {
     configure_logging();
 
     let db = connect_to_database().await;
+    // Builds stored before torches were counted are counted once.
+    if let Err(err) = app::import::count_torches(&db).await {
+        tracing::error!("could not count torches: {err:#}");
+    }
 
     let state = AppState {
         db,

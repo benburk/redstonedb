@@ -328,6 +328,7 @@ mod tests {
             own_logic: None,
             throughput: None,
             serial: false,
+            torches: None,
             bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),

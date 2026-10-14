@@ -8,12 +8,14 @@ A fact every build has, with one of a few values, is a field rather than a tag, 
 
 Optional. Omitted when the build is unrestricted.
 
-| Token       | Meaning                  |
-| ----------- | ------------------------ |
-| `alpha`     | To be defined precisely. |
-| `torchless` | To be defined precisely. |
+| Token       | Meaning                                   |
+| ----------- | ----------------------------------------- |
+| `alpha`     | To be defined precisely.                  |
+| `torchless` | No redstone torch, standing or on a wall. |
 
 Restriction terms mean different things to different people. Before naming many builds with them, write down exactly which components each restriction forbids.
+
+A restriction that can be read from the file is worked out from it rather than tagged by hand, so it is never wrong: each build's torches are counted whenever its file is stored, and one with none is torchless. Like `fails simulation`, such a tag cannot be added or removed by hand.
 
 ## Orientation
 

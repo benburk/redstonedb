@@ -24,6 +24,8 @@ pub struct Prepared {
     pub violations: Vec<Violation>,
     pub size: Size,
     pub sha256: String,
+    /// How many redstone torches it has.
+    pub torches: i64,
     /// The cauldrons and cakes swapped for barrels, by kind, with how many.
     pub swapped: Vec<(String, usize)>,
 }
@@ -32,7 +34,8 @@ pub struct Prepared {
 /// standardizes `data` if asked, and in any case takes out corner markers
 /// and fits its box tightly; sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
-/// uploader's `//paste` put it; then measures, lints, and hashes it.
+/// uploader's `//paste` put it; then measures, lints, counts its torches,
+/// and hashes it.
 pub fn prepare(
     data: &[u8],
     standardize: bool,
@@ -60,6 +63,7 @@ pub fn prepare(
     let size = measure(&blocks, conventional)?;
     let sha256 = sha256(&data);
     Ok(Prepared {
+        torches: torches(&blocks),
         data,
         blocks,
         violations,
@@ -67,6 +71,33 @@ pub fn prepare(
         sha256,
         swapped,
     })
+}
+
+/// How many redstone torches `blocks` has, standing or on a wall.
+pub fn torches(blocks: &Blocks) -> i64 {
+    let count = blocks
+        .iter()
+        .filter(|(_, state)| {
+            matches!(
+                schem::id(state),
+                "minecraft:redstone_torch" | "minecraft:redstone_wall_torch"
+            )
+        })
+        .count();
+    i64::try_from(count).unwrap_or(i64::MAX)
+}
+
+/// Counts the torches of every build not yet counted, as after the count
+/// began to be kept.
+pub async fn count_torches(db: &SqlitePool) -> Result<()> {
+    for id in schematic::uncounted_torches(db).await? {
+        let data = schematic::data(db, &id)
+            .await?
+            .context("schematic vanished")?;
+        let blocks = Blocks::read(&data)?;
+        schematic::set_torches(db, &id, torches(&blocks)).await?;
+    }
+    Ok(())
 }
 
 /// The file's SHA-256, in hex.
@@ -120,6 +151,13 @@ pub async fn store(
         bail!(
             "{name} is not a Minecraft name: letters, digits, and underscores"
         );
+    }
+    if let Some(name) = extras
+        .tags
+        .iter()
+        .find(|n| schematic::DERIVED.contains(&schematic::tag_name(n).as_str()))
+    {
+        bail!("{name} is worked out from the build, not tagged");
     }
     if let Some(id) = schematic::id_by_sha256(db, new.sha256).await? {
         bail!("this file is already stored as {}", &id[..8]);
