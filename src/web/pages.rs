@@ -811,7 +811,8 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
     }
 }
 
-/// Whether copies of a passing adder stack into a wider one.
+/// Whether copies of a passing adder stack into a wider one, or of a
+/// register into a bigger register file.
 fn stacking_note(stacking: &Stacking) -> Markup {
     html! {
         @match stacking {
@@ -823,6 +824,16 @@ fn stacking_note(stacking: &Stacking) -> Markup {
                     ", with a copy between two others and longer than dust carries a signal, so it stacks any number of times."
                 } @else {
                     ". Three would be wider than the simulator tests, so no copy sat between two others."
+                }
+            },
+            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-4" {
+                strong { "Stacks: " }
+                (copies) " copies, " (step.describe()) " apart, make a file of " (registers)
+                " registers whose " (grouped(*cases)) " cases are all right, its data buses driven and read at the first copy"
+                @if most.is_some() {
+                    "; one more copy gets some wrong, so it stacks at most " (copies) " times."
+                } @else {
+                    ", so it stacks any number of times."
                 }
             },
             Stacking::Not { step, reason } => p class="mt-4 text-muted" {
@@ -839,6 +850,23 @@ fn stacking_note(stacking: &Stacking) -> Markup {
 /// When a passing build's inputs may change and its outputs settle, from
 /// input A's change; and, for an output that does not change cleanly, when
 /// each of its bits does.
+/// What the timing's ticks count from: input A changing, or for a
+/// register, a read lever turning on, with when a write shows.
+fn timing_intro(timing: &Timing) -> Markup {
+    html! {
+        p class="mb-3 text-meta text-muted" {
+            @if timing.from_read {
+                "In ticks from when a read lever turns on, its cell holding each value in turn."
+                @if let Some(write) = timing.write {
+                    " A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on."
+                }
+            } @else {
+                "In ticks from when A changes. Each other input may change as late as its tick without delaying an output; a negative tick is before A."
+            }
+        }
+    }
+}
+
 pub fn timing_section(timing: &Timing) -> Markup {
     let case: Vec<String> = timing
         .inputs
@@ -851,10 +879,8 @@ pub fn timing_section(timing: &Timing) -> Markup {
             data-timing data-state=(if timing.synced { "pass" } else { "fail" })
             data-summary=(timing_summary(timing)) {
             h3 id="timing-heading" class="mb-1 font-semibold" { "Timing" }
-            p class="mb-3 text-meta text-muted" {
-                "In ticks from when A changes. Each other input may change as late as its tick without delaying an output; a negative tick is before A."
-            }
-            div class="overflow-x-auto" {
+            (timing_intro(timing))
+            div class="overflow-x-auto" hidden[timing.from_read] {
                 table class="w-full border-collapse" {
                     caption class="sr-only" { "When each input may change" }
                     thead {

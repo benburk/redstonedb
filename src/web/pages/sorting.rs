@@ -115,7 +115,7 @@ fn fact_part() -> Markup {
             dt class="font-semibold" { "Logic" }
             dd { "Combinational or sequential. Each category has a usual logic, and a build gives its own only when it differs, as a sequential multiplier does." }
             dt class="font-semibold" { "Latency" }
-            dd { "Ticks from input A changing until the slowest output settles, leaving out status lines such as carry out." }
+            dd { "Ticks from input A changing until the slowest output settles, leaving out status lines such as carry out. A register's is from its read lever turning on." }
             dt class="font-semibold" { "Synchronized" }
             dd { "Whether every output bit changes once, all on the same tick." }
             dt class="font-semibold" { "Throughput" }
@@ -132,7 +132,7 @@ fn fact_part() -> Markup {
         }
         p class="mb-3" {
             "Adders, incrementers, decrementers, inc/decs, combinational multipliers, combinational "
-            "converters between binary and BCD, and ALUs are simulated through their inputs. Once every case of one "
+            "converters between binary and BCD, ALUs, and registers are simulated through their inputs. Once every case of one "
             "comes out right, its latency and synchronized come from the simulation, not from what was typed."
         }
     }

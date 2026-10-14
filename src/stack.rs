@@ -187,10 +187,21 @@ fn along(
 /// it continues. A control line that lands beyond the copy before, as a
 /// register stacked into more registers keeps its own, stays, as does an
 /// adder's next bit, which lands in its own input layer.
+///
+/// So does an input or output block of a bus outside the build as it is
+/// measured, less its outer layers of interface and outputs, that lands
+/// within the copy before as measured, with the dust, repeater, or
+/// comparator standing on it: the bus runs on through the copy before, and
+/// is driven and read only at the first copy's end, as a register file's
+/// data buses are.
 fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
     let (low, high) = interface::core(blocks);
     let in_core = |pos: Pos| {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
+    };
+    let (low_m, high_m) = interface::measured(blocks);
+    let in_measured = |pos: Pos| {
+        (0..3).all(|axis| (low_m[axis]..=high_m[axis]).contains(&pos[axis]))
     };
     let within = |pos: Pos| {
         (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
@@ -202,10 +213,19 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
             let landing = add(pos, step);
             (name == format!("{}_concrete", lint::CONTROL) && within(landing))
                 || (lint::is_input(name) && !in_core(pos) && in_core(landing))
+                || (bus(name) && !in_measured(pos) && in_measured(landing))
         })
         .map(|(pos, _)| pos)
         .collect();
     let mut shared = inputs.clone();
+    // What carries an output out stands on it, and goes with it.
+    shared.extend(blocks.iter().filter_map(|(pos, state)| {
+        let below = schem::step(pos, "down");
+        (matches!(short(state), "redstone_wire" | "repeater" | "comparator")
+            && inputs.contains(&below)
+            && lint::is_output(short(blocks.get(below))))
+        .then_some(pos)
+    }));
     shared.extend(
         blocks
             .switches()
@@ -224,6 +244,13 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> HashSet<Pos> {
             .then_some(pos)
     }));
     shared
+}
+
+/// Whether a block id without its namespace marks a bit of a bus: an
+/// operand's input colour, other than a control line, or an output.
+fn bus(name: &str) -> bool {
+    (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
+        || lint::is_output(name)
 }
 
 /// The blocks only the first copy keeps: gray blocks, and the dust,

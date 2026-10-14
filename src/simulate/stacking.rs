@@ -44,6 +44,18 @@ pub enum Stacking {
         bits: usize,
         cases: u64,
     },
+    /// Copies of a register every `step` make a register file whose every
+    /// cell stores and reads right: `copies` of them, `registers` cells in
+    /// all, in `cases` cases. `most` is how many copies work when one more
+    /// does not, as a shared bus that runs too far fails; `None` when
+    /// every number tried worked.
+    Registers {
+        step: Step,
+        copies: usize,
+        registers: usize,
+        cases: u64,
+        most: Option<usize>,
+    },
     /// They make no working adder, with the step tried when there was one.
     Not { step: Option<Step>, reason: String },
 }

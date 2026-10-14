@@ -14,9 +14,11 @@ use tokio::sync::Semaphore;
 
 use crate::{
     import, interface,
-    models::schematic::{self, Schematic},
+    models::schematic::{self, Schematic, StackDirection},
     schem::Blocks,
-    simulate::{INFERS_STACKING, Report, Stacking, Test, Timing},
+    simulate::{
+        FINDS_STACKING, INFERS_STACKING, Report, Stacking, Test, Timing,
+    },
 };
 
 /// A stored result.
@@ -266,14 +268,18 @@ pub async fn refresh(
 /// Sets how build `s` stacks from what stacking copies of it found, for a
 /// conventional build of a category whose stacking the simulation decides:
 /// the step its copies added right at, with no limit on copies, or none.
-/// A result that did not stack copies, such as one with wrong cases, is
-/// left as it was.
+/// A register takes the step its copies stored and read right at, with
+/// the most copies that did, and keeps its builder's stacking when none
+/// was found. A result that did not stack copies, such as one with wrong
+/// cases, is left as it was.
 async fn apply_stacking(
     db: &SqlitePool,
     s: &Schematic,
     report: &Report,
 ) -> Result<()> {
-    if !s.conventional || !INFERS_STACKING.contains(&s.category.as_str()) {
+    let category = s.category.as_str();
+    let finds = FINDS_STACKING.contains(&category);
+    if !s.conventional || !(INFERS_STACKING.contains(&category) || finds) {
         return Ok(());
     }
     let Report::Ran(run) = report else {
@@ -281,8 +287,14 @@ async fn apply_stacking(
     };
     let directions = match &run.stacking {
         Some(Stacking::Stacks { step, .. }) => vec![step.direction()],
-        Some(Stacking::Not { .. }) => Vec::new(),
-        None => return Ok(()),
+        Some(Stacking::Registers { step, most, .. }) => {
+            vec![StackDirection {
+                max_copies: most.and_then(|n| i64::try_from(n).ok()),
+                ..step.direction()
+            }]
+        }
+        Some(Stacking::Not { .. }) if !finds => Vec::new(),
+        Some(Stacking::Not { .. }) | None => return Ok(()),
     };
     if s.stacking != directions {
         let mut conn = db.acquire().await?;

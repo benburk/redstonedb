@@ -1131,6 +1131,21 @@ fn print_report(name: &str, report: &Report) {
                 "        stacks: {copies} copies {} apart make {bits} bits, all {cases} cases right",
                 step.describe()
             ),
+            Stacking::Registers {
+                step,
+                copies,
+                registers,
+                cases,
+                most,
+            } => println!(
+                "        stacks: {copies} copies {} apart make {registers} registers, all {cases} cases right{}",
+                step.describe(),
+                if most.is_some() {
+                    "; one more copy fails"
+                } else {
+                    ""
+                }
+            ),
             Stacking::Not { step, reason } => println!(
                 "        doesn't stack{}: {reason}",
                 step.map(|s| format!(" {} apart", s.describe()))

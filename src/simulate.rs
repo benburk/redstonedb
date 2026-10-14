@@ -76,11 +76,14 @@ enum Drive {
     Strengths(Vec<Driver>),
 }
 
+/// A lever, or a stone button, which `set` leaves alone and `press`
+/// presses.
 struct Lever {
     pos: BlockPos,
     /// Saved on, so that on means a 0.
     inverted: bool,
     on: bool,
+    button: bool,
 }
 
 /// A comparator pointing into a digit's dust, reading the barrel behind it,
@@ -166,7 +169,7 @@ impl Circuit {
             Drive::Levers(levers) => {
                 for (i, lever) in levers.iter_mut().enumerate() {
                     let on = (value >> i & 1 == 1) != lever.inverted;
-                    if lever.on != on {
+                    if lever.on != on && !lever.button {
                         if let Some(compiler) = &mut self.compiler {
                             compiler.on_use_block(lever.pos);
                         } else {
@@ -199,6 +202,30 @@ impl Circuit {
                 }
             }
         }
+    }
+
+    /// Presses the button on bit `bit` of input `port`, as a player does: it
+    /// powers its block until it springs back, ten ticks on.
+    pub fn press(&mut self, port: usize, bit: usize) {
+        let Drive::Levers(levers) = &self.inputs[port] else {
+            return;
+        };
+        let Some(button) = levers.get(bit).filter(|lever| lever.button) else {
+            return;
+        };
+        let pos = button.pos;
+        if let Some(compiler) = &mut self.compiler {
+            compiler.on_use_block(pos);
+        } else {
+            let block = self.world.get_block(pos);
+            mchprs_redstone::on_use(block, &mut self.world, pos);
+        }
+    }
+
+    /// Whether bit `bit` of input `port` is driven by a button.
+    pub fn is_button(&self, port: usize, bit: usize) -> bool {
+        matches!(&self.inputs[port], Drive::Levers(levers)
+            if levers.get(bit).is_some_and(|lever| lever.button))
     }
 
     /// Runs until nothing is left to update, and returns the ticks taken.
@@ -556,15 +583,17 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
         .map(|bit| {
             let pos =
                 bit.entry.as_deref().map(|side| schem::step(bit.pos, side));
-            let Some(pos) = pos
-                .filter(|&pos| schem::id(blocks.get(pos)) == "minecraft:lever")
-            else {
-                bail!("A bit of input {} has no lever.", port.name);
+            let switch = pos.map(|pos| (pos, schem::id(blocks.get(pos))));
+            let (pos, button) = match switch {
+                Some((pos, "minecraft:lever")) => (pos, false),
+                Some((pos, "minecraft:stone_button")) => (pos, true),
+                _ => bail!("A bit of input {} has no lever.", port.name),
             };
             Ok(Lever {
                 pos: at(pos),
                 inverted: bit.inverted,
                 on: bit.inverted,
+                button,
             })
         })
         .collect()
@@ -644,6 +673,8 @@ pub enum Test {
     BcdToBinary,
     /// Each operation an ALU's control lines name, and any other they give.
     Alu,
+    /// Each value written into every cell, then read.
+    Register,
 }
 
 /// The categories whose stacking the simulation decides rather than their
@@ -651,8 +682,14 @@ pub enum Test {
 /// stackable that way; see `Test::stacking`.
 pub const INFERS_STACKING: [&str; 1] = ["adder"];
 
+/// The categories whose stacking the simulation sets when it finds copies
+/// that work, leaving what their builders gave otherwise: a register,
+/// whose copies may stack in ways the search does not try, as a 1-bit
+/// cell's do into wider registers.
+pub const FINDS_STACKING: [&str; 1] = ["register"];
+
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 8] = [
+const TESTS: [Test; 9] = [
     Test::Adder,
     Test::Incrementer,
     Test::Decrementer,
@@ -661,6 +698,7 @@ const TESTS: [Test; 8] = [
     Test::BinaryToBcd,
     Test::BcdToBinary,
     Test::Alu,
+    Test::Register,
 ];
 
 impl Test {
@@ -682,6 +720,7 @@ impl Test {
             Test::BinaryToBcd => "binary_to_bcd",
             Test::BcdToBinary => "bcd_to_binary",
             Test::Alu => "alu",
+            Test::Register => "register",
         }
     }
 
@@ -696,6 +735,7 @@ impl Test {
             Test::BinaryToBcd => check_binary_to_bcd(blocks, false),
             Test::BcdToBinary => check_bcd_to_binary(blocks, false),
             Test::Alu => alu::check(blocks),
+            Test::Register => register::check(blocks),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -715,6 +755,7 @@ impl Test {
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
+            Test::Register => register::stacking(data),
             Test::Incrementer
             | Test::Decrementer
             | Test::IncDec
@@ -729,8 +770,10 @@ impl Test {
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-        if self == Test::Alu {
-            return alu::time(blocks, cancel);
+        match self {
+            Test::Alu => return alu::time(blocks, cancel),
+            Test::Register => return register::time(blocks, cancel),
+            _ => {}
         }
         let mut interface = interface::read(blocks);
         // A BCD input takes only its valid values, as its cases do.
@@ -742,7 +785,7 @@ impl Test {
             }
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
             Test::BinaryToBcd => converter_bench(&interface, "")?.inputs,
-            Test::Alu => unreachable!("timed above"),
+            Test::Alu | Test::Register => unreachable!("timed above"),
             Test::BcdToBinary => {
                 let bench = converter_bench(&interface, "")?;
                 let width = bench.widths(&interface)[0];
@@ -780,6 +823,7 @@ macro_rules! broken {
 // After `broken!`, which it uses.
 mod alu;
 pub use alu::op as alu_op;
+mod register;
 
 /// What a test found.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1769,6 +1813,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::Multiplier,
         Test::BinaryToBcd,
         Test::BcdToBinary,
+        Test::Register,
     ];
     tried
         .into_iter()
@@ -1778,6 +1823,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                 Test::Multiplier => check_multiplier_on(blocks, true),
                 Test::BinaryToBcd => check_binary_to_bcd(blocks, true),
                 Test::BcdToBinary => check_bcd_to_binary(blocks, true),
+                Test::Register => register::check_quick(blocks),
                 _ => check_incrementer(blocks, true, None),
             }
             .ok()?;
@@ -2030,7 +2076,8 @@ mod tests {
         assert_eq!(Test::of("adder", Some(32)), Some(Test::Adder));
         assert_eq!(Test::of("adder", Some(33)), None);
         assert_eq!(Test::of("adder", None), None);
-        assert_eq!(Test::of("register", Some(8)), None);
+        assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
+        assert_eq!(Test::of("ram", Some(8)), None);
     }
 
     #[test]

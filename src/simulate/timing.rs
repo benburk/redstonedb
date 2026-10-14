@@ -61,6 +61,14 @@ pub struct Timing {
     /// Whether the inputs took the test patterns rather than every value.
     #[serde(default)]
     pub patterns: bool,
+    /// Whether ticks count from a register's read lever turning on rather
+    /// than from input A changing.
+    #[serde(default)]
+    pub from_read: bool,
+    /// For a register, the most ticks from pressing a cell's write button,
+    /// its read held on, until the bus shows the new value.
+    #[serde(default)]
+    pub write: Option<i32>,
 }
 
 impl Timing {
@@ -236,6 +244,8 @@ pub(super) fn measure(
         slowest_case: together.slowest.1.clone(),
         changes: together.changes,
         patterns,
+        from_read: false,
+        write: None,
     })
 }
 

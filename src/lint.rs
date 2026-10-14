@@ -161,7 +161,9 @@ pub fn check_for(blocks: &Blocks, category: &str) -> Vec<Violation> {
 }
 
 /// Each control or status line with no sign naming it, and whether it is
-/// the only line of its colour.
+/// the only line of its colour. Unsigned control lines with buttons and
+/// unsigned ones with levers, together, are a memory's writes and reads,
+/// as a register's cells take them, and need no sign.
 fn unsigned(blocks: &Blocks) -> Vec<(Violation, bool)> {
     let signs = blocks.sign_texts();
     // Lines named by one sign on their row.
@@ -180,8 +182,22 @@ fn unsigned(blocks: &Blocks) -> Vec<(Violation, bool)> {
             unsigned.push((pos, control));
         }
     }
+    let switches: BTreeMap<Pos, bool> = blocks
+        .switches()
+        .into_iter()
+        .map(|switch| (switch.block, switch.button))
+        .collect();
+    let kinds: Vec<Option<bool>> = unsigned
+        .iter()
+        .filter(|(_, control)| *control)
+        .map(|(pos, _)| switches.get(pos).copied())
+        .collect();
+    let writes_and_reads = kinds.contains(&Some(true))
+        && kinds.contains(&Some(false))
+        && !kinds.contains(&None);
     unsigned
         .into_iter()
+        .filter(|&(_, control)| !(control && writes_and_reads))
         .map(|(pos, control)| {
             let what = if control { "control" } else { "status" };
             let violation = Violation {

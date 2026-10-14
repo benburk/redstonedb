@@ -613,3 +613,72 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
     assert_eq!(run.cases, 2 * 65_536 + 3 * 65_536);
     assert_eq!(run.wrong_bits, [("output bit 7".to_owned(), 16_384)]);
 }
+
+/// A register fixture as an upload standardizes it, as its file and its
+/// blocks.
+fn register(name: &str) -> (Vec<u8>, Blocks) {
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .data;
+    let blocks = Blocks::read(&data).unwrap();
+    (data, blocks)
+}
+
+/// Two staggered cells of an 8-bit register, each a write button and a
+/// read lever on unsigned magenta lines, sharing lime data in and yellow
+/// data out. Each cell takes every value, the bus stays empty with every
+/// read off, and each read shows its cell alone, 6 ticks after its lever
+/// and 8 after a write.
+#[test]
+fn a_register_stores_and_reads_each_cell() {
+    let (_, blocks) = register("register-8-2-cells");
+    assert!(lint::check(&blocks).is_empty());
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert_eq!(run.pattern, "each of 2 cells written, then read");
+    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert!(run.exhaustive);
+    let timing = Test::Register
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!((timing.latency(), timing.synced), (Some(6), true));
+    assert_eq!(timing.write, Some(8));
+    assert!(timing.from_read);
+    let guess = simulate::guess(&blocks).unwrap();
+    assert_eq!(guess.category, "register");
+}
+
+/// Copies 4 west share the data buses, driven and read at the first
+/// copy's end, through the copies before: four make 8 registers, and a
+/// fifth is past where the output bus reaches.
+#[test]
+fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
+    let (data, _) = register("register-8-2-cells");
+    let Some(Stacking::Registers {
+        step,
+        copies,
+        registers,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack");
+    };
+    assert_eq!(step.describe(), "4 west");
+    assert_eq!((copies, registers, most), (4, 8, Some(4)));
+}
+
+/// The same register with barrels of 1 signal strength where its read
+/// comparators subtract 15: nothing keeps a cell off the bus, so it shows
+/// with every read off.
+#[test]
+fn a_register_whose_reads_are_not_gated_fails() {
+    let (_, blocks) = register("register-8-weak-barrels");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert!(run.wrong > 0);
+    assert!(run.hint.unwrap().contains("every read lever off"));
+}
