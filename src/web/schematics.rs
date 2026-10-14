@@ -473,11 +473,7 @@ async fn saved(
     if !category.named {
         details.given_name = None;
     }
-    // Likewise, only a serial category's build keeps a period, and a
-    // memory's a capacity.
-    if !category.periodic {
-        details.period = None;
-    }
+    // Likewise, only a memory keeps a capacity.
     if !category.holds_bytes {
         details.bytes = None;
     }

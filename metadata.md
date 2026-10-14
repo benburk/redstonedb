@@ -6,12 +6,11 @@ The database is the source of truth for metadata; signs carry only machine-reada
 
 - Game version and edition, plus any mechanics the build relies on, such as quasi-connectivity or update order.
 - I/O spec: pin locations, LSB end, output polarity, and the meaning of each control line. The corner rule for the LSB and the yellow output blocks give part of this.
-- Throughput or period, for pipelined and sequential builds.
 - Status: working, buggy, or work in progress.
 - Source URL, and permission to use builds by other people.
 - Free-text description.
 
 ## Open
 
-- Which fields become columns and which become tags.
+- Whether logic should split leaderboards, so a sequential multiplier never meets a combinational one.
 - Which fields are required.

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = schematic.sha256\n                    AND (json_extract(simulation.report, '$.wrong') > 0\n                        OR json_extract(simulation.report, '$.outcome')\n                            = 'broken'))\n                as \"fails_simulation!: bool\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE schematic.id = ?",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", throughput, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            schematic.logic as own_logic,\n            coalesce(schematic.logic, (SELECT logic FROM category\n                WHERE category.name = schematic.category)) as \"logic?: String\",\n            coalesce((SELECT serial FROM category WHERE category.name =\n                schematic.category), 0) as \"serial!: bool\",\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = schematic.sha256\n                    AND (json_extract(simulation.report, '$.wrong') > 0\n                        OR json_extract(simulation.report, '$.outcome')\n                            = 'broken'))\n                as \"fails_simulation!: bool\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -39,7 +39,7 @@
         "type_info": "Integer"
       },
       {
-        "name": "period",
+        "name": "throughput",
         "ordinal": 7,
         "type_info": "Integer"
       },
@@ -94,63 +94,78 @@
         "type_info": "Integer"
       },
       {
-        "name": "conventional: bool",
+        "name": "own_logic",
         "ordinal": 18,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "description",
+        "name": "logic?: String",
         "ordinal": 19,
         "type_info": "Text"
       },
       {
-        "name": "given_name",
+        "name": "serial!: bool",
         "ordinal": 20,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "design",
+        "name": "conventional: bool",
         "ordinal": 21,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "design_abbreviation?: String",
+        "name": "description",
         "ordinal": 22,
         "type_info": "Text"
       },
       {
-        "name": "design_given_label?: String",
+        "name": "given_name",
         "ordinal": 23,
         "type_info": "Text"
       },
       {
-        "name": "category_label?: String",
+        "name": "design",
         "ordinal": 24,
         "type_info": "Text"
       },
       {
-        "name": "named_by_design!: bool",
+        "name": "design_abbreviation?: String",
         "ordinal": 25,
-        "type_info": "Null"
+        "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "design_given_label?: String",
         "ordinal": 26,
         "type_info": "Text"
       },
       {
-        "name": "uploader_name?: String",
+        "name": "category_label?: String",
         "ordinal": 27,
-        "type_info": "Null"
+        "type_info": "Text"
+      },
+      {
+        "name": "named_by_design!: bool",
+        "ordinal": 28,
+        "type_info": "Integer"
+      },
+      {
+        "name": "uploader?: String",
+        "ordinal": 29,
+        "type_info": "Text"
+      },
+      {
+        "name": "uploader_name?: String",
+        "ordinal": 30,
+        "type_info": "Text"
       },
       {
         "name": "fails_simulation!: bool",
-        "ordinal": 28,
-        "type_info": "Null"
+        "ordinal": 31,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -171,18 +186,21 @@
       false,
       true,
       false,
+      true,
+      true,
+      false,
       false,
       true,
       true,
       false,
       true,
       true,
+      true,
       false,
-      null,
-      false,
-      null,
-      null
+      true,
+      true,
+      false
     ]
   },
-  "hash": "c9d8c829e58a4c08d1e2ac87e61169d4bfa370ef227d371e6f04a5dd9045521b"
+  "hash": "03738e559610775df4584292f5590c0eb6f7cb2dd3f6748d33cdc5832d1d3ac7"
 }

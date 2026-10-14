@@ -17,11 +17,12 @@ use crate::{
 use super::pages;
 
 /// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel`,
-/// each optional, with `period` in place of `width` for a serial category.
+/// each optional, with `throughput` in place of `width` for a serial
+/// category.
 #[derive(Deserialize)]
 pub struct BoardQuery {
     width: Option<String>,
-    period: Option<String>,
+    throughput: Option<String>,
     bytes: Option<String>,
     encoding: Option<String>,
     orientation: Option<String>,
@@ -51,8 +52,8 @@ pub async fn show(
     };
     let facets = facets(&categories, &all, &category);
     let given = |value: Option<String>| value.filter(|v| !v.is_empty());
-    let (by, measure) = if chosen.periodic {
-        (Measure::Period, query.period)
+    let (by, measure) = if chosen.serial {
+        (Measure::Throughput, query.throughput)
     } else {
         (Measure::Width, query.width)
     };
@@ -119,11 +120,11 @@ fn facets(
     all: &[Schematic],
     current: &str,
 ) -> Vec<pages::Facet> {
+    let split = splits(categories);
     let ranked = |name: &str| {
+        let (by, _) = split(name);
         all.iter()
-            .filter(|s| {
-                s.category == name && (s.width.is_some() || s.period.is_some())
-            })
+            .filter(|s| s.category == name && by.of(s).is_some())
             .count()
     };
     categories
@@ -138,15 +139,15 @@ fn facets(
         .collect()
 }
 
-/// How each category's boards split: by width or period, and for a memory
+/// How each category's boards split: by width or throughput, and for a memory
 /// by capacity too.
 pub(super) fn splits(
     categories: &[schematic::Category],
 ) -> impl Fn(&str) -> (Measure, bool) + '_ {
     move |name| {
         let category = categories.iter().find(|c| c.name == name);
-        let by = if category.is_some_and(|c| c.periodic) {
-            Measure::Period
+        let by = if category.is_some_and(|c| c.serial) {
+            Measure::Throughput
         } else {
             Measure::Width
         };

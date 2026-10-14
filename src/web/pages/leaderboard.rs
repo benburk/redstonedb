@@ -179,7 +179,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
 }
 
 /// The board's address with these choices; `None` leaves one out. The
-/// measure goes under its own name, `width` or `period`.
+/// measure goes under its own name, `width` or `throughput`.
 fn board_href(
     path: &str,
     measure: (Measure, Option<i64>),
@@ -212,7 +212,7 @@ fn board_href(
     }
 }
 
-/// The width or period, encoding, orientation, and design the board is
+/// The width or throughput, encoding, orientation, and design the board is
 /// narrowed to. Changing one resets those after it, which the new choice
 /// may not have.
 fn choices(path: &str, board: &Board) -> Markup {
@@ -222,7 +222,7 @@ fn choices(path: &str, board: &Board) -> Markup {
     let heading = if board.by == Measure::Width {
         "Width"
     } else {
-        "Period"
+        "Throughput"
     };
     html! {
         div class="mb-6 flex flex-col gap-2" {

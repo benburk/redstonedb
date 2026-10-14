@@ -109,8 +109,10 @@ pub struct Form {
     pub description: String,
     /// The build's own name, for a category that takes one.
     pub given_name: String,
-    /// Ticks from one bit to the next, for a serial category's build.
-    pub period: String,
+    /// `comb` or `seq`; empty follows the category.
+    pub logic: String,
+    /// The fewest ticks from one input to the next.
+    pub throughput: String,
     /// How many bytes a memory holds.
     pub bytes: String,
     pub design: String,
@@ -141,7 +143,9 @@ pub struct Parsed {
     pub built_on: Option<String>,
     pub description: Option<String>,
     pub given_name: Option<String>,
-    pub period: Option<i64>,
+    /// `None` follows the category.
+    pub logic: Option<String>,
+    pub throughput: Option<i64>,
     pub bytes: Option<i64>,
     pub design: String,
     /// Ticked flags; any not of the category are dropped when stored.
@@ -211,7 +215,8 @@ impl Form {
             },
             description: get("description"),
             given_name: get("given_name"),
-            period: get("period"),
+            logic: get("logic"),
+            throughput: get("throughput"),
             bytes: get("bytes"),
             design: get("design"),
             // Each category's flags are sent under its own name; parsing
@@ -254,7 +259,8 @@ impl Form {
             built_on: &self.built_on,
             description: &self.description,
             given_name: &self.given_name,
-            period: &self.period,
+            logic: &self.logic,
+            throughput: &self.throughput,
             bytes: &self.bytes,
             design: &self.design,
             flags: &self.flag_names,
@@ -376,6 +382,13 @@ impl Form {
         if self.given_name.trim().chars().count() > 60 {
             return Err("A name is at most 60 characters.".to_owned());
         }
+        let logic = text(&self.logic);
+        if logic
+            .as_deref()
+            .is_some_and(|l| !matches!(l, "comb" | "seq"))
+        {
+            return Err("Logic must be Combinational or Sequential.".to_owned());
+        }
         let built_on = text(&self.built_on);
         if built_on.as_deref().is_some_and(|d| !is_date(d)) {
             return Err(
@@ -397,7 +410,12 @@ impl Form {
             built_on,
             description: text(&self.description),
             given_name: text(&self.given_name),
-            period: number(&self.period, "Period")?.filter(|p| *p > 0),
+            logic,
+            throughput: if other {
+                None
+            } else {
+                number(&self.throughput, "Throughput")?.filter(|t| *t > 0)
+            },
             bytes: number(&self.bytes, "Capacity")?.filter(|b| *b > 0),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
             flags,
@@ -420,7 +438,8 @@ impl Parsed {
             built_on: self.built_on.as_deref(),
             description: self.description.as_deref(),
             given_name: self.given_name.as_deref(),
-            period: self.period,
+            logic: self.logic.as_deref(),
+            throughput: self.throughput,
             bytes: self.bytes,
             design: Some(&self.design),
         }
@@ -564,7 +583,8 @@ mod tests {
             named: false,
             designs_interchangeable: true,
             section: None,
-            periodic: false,
+            serial: false,
+            logic: None,
             holds_bytes: false,
             named_by_design: false,
         };

@@ -88,7 +88,7 @@ pub struct DetailsPage<'a> {
 pub struct Stored {
     width: String,
     latency: String,
-    period: String,
+    throughput: String,
     bytes: String,
     flags: Vec<String>,
     pub tags: Vec<String>,
@@ -102,7 +102,7 @@ impl Stored {
         Stored {
             width: number(s.width),
             latency: number(s.latency),
-            period: number(s.period),
+            throughput: number(s.throughput),
             bytes: number(s.bytes),
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             tags: s
@@ -133,7 +133,8 @@ impl Stored {
             built_on: s.built_on.as_deref().unwrap_or(""),
             description: s.description.as_deref().unwrap_or(""),
             given_name: s.given_name.as_deref().unwrap_or(""),
-            period: &self.period,
+            logic: s.own_logic.as_deref().unwrap_or_default(),
+            throughput: &self.throughput,
             bytes: &self.bytes,
             design: &s.design,
             flags: &self.flags,

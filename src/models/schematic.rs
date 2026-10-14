@@ -9,8 +9,7 @@ pub struct Tag {
     pub name: String,
     /// A short form, such as `comb`, that commands and search accept.
     pub token: Option<String>,
-    /// `restriction`, `timing`, `other`, or `failing`, which colours its
-    /// badge.
+    /// `restriction`, `other`, or `failing`, which colours its badge.
     pub kind: String,
 }
 
@@ -61,6 +60,15 @@ pub fn words(name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// A build's logic as people read it, such as `Sequential` for `seq`.
+pub fn logic_label(logic: &str) -> &str {
+    match logic {
+        "comb" => "Combinational",
+        "seq" => "Sequential",
+        other => other,
+    }
 }
 
 /// One direction a stackable build repeats along. Each copy sits `west`,
@@ -169,8 +177,17 @@ pub struct Schematic {
     pub latency: Option<i64>,
     /// Whether every output bit settles on the same tick.
     pub synchronized: Option<bool>,
-    /// For a serial build, the ticks from one bit to the next.
-    pub period: Option<i64>,
+    /// `comb` or `seq`: the build's own, else its category's usual logic.
+    pub logic: Option<String>,
+    /// The build's own logic, where it says so; `None` follows its
+    /// category's.
+    pub own_logic: Option<String>,
+    /// The fewest ticks from one input to the next that still gives right
+    /// outputs; for a serial build, from one bit to the next.
+    pub throughput: Option<i64>,
+    /// Whether its category's builds are serial, so the throughput leads
+    /// its name.
+    pub serial: bool,
     /// For a memory, how many bytes it holds.
     pub bytes: Option<i64>,
     /// The build's box less any outer layer holding only its interface.
@@ -219,7 +236,7 @@ pub struct Schematic {
     pub edited_at: Option<String>,
     /// How many times it has been downloaded.
     pub downloads: i64,
-    /// Sorted by kind in glossary order (restriction, timing, other),
+    /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `fails_simulation` if simulating its file got some
     /// cases wrong; see `models::simulation`.
     pub tags: Vec<Tag>,
@@ -253,13 +270,16 @@ impl Schematic {
             .unwrap_or_else(|| self.category_label())
     }
 
-    /// The width, period, and capacity that lead a name, such as `8-bit`,
-    /// `2-tick`, or `32-byte`.
+    /// The width, a serial build's throughput, and capacity that lead a
+    /// name, such as `8-bit`, `2-tick`, or `32-byte`.
     fn measures(&self) -> impl Iterator<Item = String> {
         let width = self.width.map(|w| format!("{w}-bit"));
-        let period = self.period.map(|p| format!("{p}-tick"));
+        let throughput = self
+            .throughput
+            .filter(|_| self.serial)
+            .map(|t| format!("{t}-tick"));
         let bytes = self.bytes.map(|b| format!("{b}-byte"));
-        width.into_iter().chain(period).chain(bytes)
+        width.into_iter().chain(throughput).chain(bytes)
     }
 
     /// The width, design, and category, such as `8-bit Carry Lookahead
@@ -336,7 +356,8 @@ impl Schematic {
     /// This build stacked into a box of inner `size`, with `copies` along
     /// each direction. Copies that add bits widen it, and every copy of a
     /// memory holds its bytes. A stack's latency and timing are not its
-    /// slice's, so they are unknown.
+    /// slice's, so they are unknown, as is the throughput of any but a serial
+    /// build.
     #[must_use]
     pub fn stacked(
         &self,
@@ -355,6 +376,7 @@ impl Schematic {
             bytes: self.bytes.map(|b| b.saturating_mul(all)),
             latency: None,
             synchronized: None,
+            throughput: self.throughput.filter(|_| self.serial),
             size: (size[0].into(), size[1].into(), size[2].into()),
             ..self.clone()
         }
@@ -367,6 +389,20 @@ impl Schematic {
             Some(false) => "no",
             None => "unknown",
         }
+    }
+
+    /// `Combinational` or `Sequential`.
+    pub fn logic_label(&self) -> Option<&str> {
+        self.logic.as_deref().map(logic_label)
+    }
+
+    /// Whether a new input goes in before the last one's result comes out:
+    /// a combinational, synchronized build whose throughput is below its
+    /// latency.
+    pub fn pipelined(&self) -> bool {
+        self.logic.as_deref() == Some("comb")
+            && self.synchronized == Some(true)
+            && matches!((self.throughput, self.latency), (Some(t), Some(l)) if t < l)
     }
 
     pub fn orientation_label(&self) -> &str {
@@ -438,11 +474,38 @@ async fn stacking_by_schematic(
     Ok(stacking)
 }
 
+/// Every schematic's stored tags, by its id, by kind then name.
+async fn tags_by_schematic(
+    db: &SqlitePool,
+) -> Result<HashMap<String, Vec<Tag>>, sqlx::Error> {
+    let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    for row in sqlx::query!(
+        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
+         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
+         ORDER BY tag.kind = 'other', tag.kind, tag.name"
+    )
+    .fetch_all(db)
+    .await?
+    {
+        tags.entry(row.schematic_id).or_default().push(Tag {
+            name: row.name,
+            token: row.token,
+            kind: row.kind,
+        });
+    }
+    Ok(tags)
+}
+
 /// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            schematic.logic as own_logic,
+            coalesce(schematic.logic, (SELECT logic FROM category
+                WHERE category.name = schematic.category)) as "logic?: String",
+            coalesce((SELECT serial FROM category WHERE category.name =
+                schematic.category), 0) as "serial!: bool",
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
@@ -485,21 +548,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         };
         people.entry(row.schematic_id).or_default().push(row.name);
     }
-    let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
-    for row in sqlx::query!(
-        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
-         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         ORDER BY tag.kind = 'other', tag.kind, tag.name"
-    )
-    .fetch_all(db)
-    .await?
-    {
-        tags.entry(row.schematic_id).or_default().push(Tag {
-            name: row.name,
-            token: row.token,
-            kind: row.kind,
-        });
-    }
+    let mut tags = tags_by_schematic(db).await?;
     Ok(rows
         .into_iter()
         .map(|row| Schematic {
@@ -516,7 +565,10 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             encoding: row.encoding,
             latency: row.latency,
             synchronized: row.synchronized,
-            period: row.period,
+            logic: row.logic,
+            own_logic: row.own_logic,
+            throughput: row.throughput,
+            serial: row.serial,
             bytes: row.bytes,
             size: (row.size_x, row.size_y, row.size_z),
             built_on: row.built_on,
@@ -554,7 +606,12 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", period, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, bytes, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            schematic.logic as own_logic,
+            coalesce(schematic.logic, (SELECT logic FROM category
+                WHERE category.name = schematic.category)) as "logic?: String",
+            coalesce((SELECT serial FROM category WHERE category.name =
+                schematic.category), 0) as "serial!: bool",
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
@@ -617,7 +674,10 @@ pub async fn get(
         encoding: row.encoding,
         latency: row.latency,
         synchronized: row.synchronized,
-        period: row.period,
+        logic: row.logic,
+        own_logic: row.own_logic,
+        throughput: row.throughput,
+        serial: row.serial,
         bytes: row.bytes,
         size: (row.size_x, row.size_y, row.size_z),
         stacking: stacking(db, id).await?,
@@ -810,7 +870,9 @@ pub struct New<'a> {
     pub design: Option<&'a str>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
-    pub period: Option<i64>,
+    /// `comb` or `seq`; `None` follows the category.
+    pub logic: Option<&'a str>,
+    pub throughput: Option<i64>,
     pub bytes: Option<i64>,
     /// Whether the file keeps where its uploader's `//paste` put it.
     pub keeps_paste: bool,
@@ -829,8 +891,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            period, bytes, keeps_paste, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            logic, throughput, bytes, keeps_paste, uploaded_by, sha256, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -847,7 +909,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.design,
         new.description,
         new.given_name,
-        new.period,
+        new.logic,
+        new.throughput,
         new.bytes,
         new.keeps_paste,
         new.uploaded_by,
@@ -877,9 +940,11 @@ pub struct Category {
     /// The sidebar section it sits in, one of [`SECTIONS`]; `None` for
     /// Other, with the categories off the list.
     pub section: Option<String>,
-    /// Whether its builds are serial, each with a period: the ticks from
-    /// one bit to the next.
-    pub periodic: bool,
+    /// Whether its builds are serial, taking their operands a bit at a
+    /// time, so their throughput leads their names and splits their boards.
+    pub serial: bool,
+    /// `comb` or `seq`, its builds' usual logic; `None` for none.
+    pub logic: Option<String>,
     /// Whether its builds are memories, each holding a number of bytes.
     pub holds_bytes: bool,
     /// Whether a build's design names it in place of the category.
@@ -930,7 +995,8 @@ pub async fn categories<'e, E: SqliteExecutor<'e>>(
             named as "named: bool",
             designs_interchangeable as "designs_interchangeable: bool",
             section,
-            periodic as "periodic: bool",
+            serial as "serial: bool",
+            logic,
             holds_bytes as "holds_bytes: bool",
             named_by_design as "named_by_design: bool"
          FROM category ORDER BY label COLLATE NOCASE"#
@@ -1001,7 +1067,8 @@ pub async fn check_category(
             named: false,
             designs_interchangeable: true,
             section: None,
-            periodic: false,
+            serial: false,
+            logic: None,
             holds_bytes: false,
             named_by_design: false,
         });
@@ -1029,14 +1096,15 @@ pub async fn define_category<'e, E: SqliteExecutor<'e>>(
         .then_some(category.plural.as_str());
     sqlx::query!(
         "INSERT INTO category (name, label, plural, named, section,
-            periodic, holds_bytes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+            serial, logic, holds_bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
         category.named,
         category.section,
-        category.periodic,
+        category.serial,
+        category.logic,
         category.holds_bytes
     )
     .execute(db)
@@ -1279,7 +1347,9 @@ pub struct Details<'a> {
     pub built_on: Option<&'a str>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
-    pub period: Option<i64>,
+    /// `None` follows the category.
+    pub logic: Option<&'a str>,
+    pub throughput: Option<i64>,
     pub bytes: Option<i64>,
 }
 
@@ -1293,7 +1363,8 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?,
-            description = ?, given_name = ?, period = ?, bytes = ?,
+            description = ?, given_name = ?, logic = ?, throughput = ?,
+            bytes = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -1306,7 +1377,8 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.built_on,
         details.description,
         details.given_name,
-        details.period,
+        details.logic,
+        details.throughput,
         details.bytes,
         id,
     )
@@ -1341,7 +1413,8 @@ pub struct Changes<'a> {
     pub design: Option<&'a str>,
     pub description: Option<&'a str>,
     pub given_name: Option<&'a str>,
-    pub period: Option<i64>,
+    pub logic: Option<&'a str>,
+    pub throughput: Option<i64>,
     pub bytes: Option<i64>,
 }
 
@@ -1364,7 +1437,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             design = coalesce(?, design),
             description = coalesce(?, description),
             given_name = coalesce(?, given_name),
-            period = coalesce(?, period),
+            logic = coalesce(?, logic),
+            throughput = coalesce(?, throughput),
             bytes = coalesce(?, bytes),
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
@@ -1380,7 +1454,8 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.design,
         changes.description,
         changes.given_name,
-        changes.period,
+        changes.logic,
+        changes.throughput,
         changes.bytes,
         id,
     )
@@ -1400,7 +1475,9 @@ pub enum Optional {
     Description,
     Design,
     GivenName,
-    Period,
+    /// Unknown logic follows the category's.
+    Logic,
+    Throughput,
     Bytes,
 }
 
@@ -1421,7 +1498,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     let description = has(Optional::Description);
     let design = has(Optional::Design);
     let given_name = has(Optional::GivenName);
-    let period = has(Optional::Period);
+    let logic = has(Optional::Logic);
+    let throughput = has(Optional::Throughput);
     let bytes = has(Optional::Bytes);
     sqlx::query!(
         "UPDATE schematic SET
@@ -1433,7 +1511,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             description = iif(?, NULL, description),
             design = iif(?, 'other', design),
             given_name = iif(?, NULL, given_name),
-            period = iif(?, NULL, period),
+            logic = iif(?, NULL, logic),
+            throughput = iif(?, NULL, throughput),
             bytes = iif(?, NULL, bytes)
          WHERE id = ?",
         width,
@@ -1444,7 +1523,8 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         description,
         design,
         given_name,
-        period,
+        logic,
+        throughput,
         bytes,
         id,
     )
@@ -1623,7 +1703,10 @@ mod tests {
             encoding: Some("bin".to_owned()),
             latency: Some(8),
             synchronized: Some(false),
-            period: None,
+            logic: Some("comb".to_owned()),
+            own_logic: None,
+            throughput: None,
+            serial: false,
             bytes: None,
             size: (19, 11, 18),
             stacking: Vec::new(),
@@ -1750,6 +1833,52 @@ mod tests {
     }
 
     #[test]
+    fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
+        let serial = Schematic {
+            category: "serial_adder".to_owned(),
+            category_label: Some("Serial Adder".to_owned()),
+            design: "other".to_owned(),
+            width: None,
+            throughput: Some(2),
+            serial: true,
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(serial.name(), "2-tick Serial Adder");
+        let adder = Schematic {
+            throughput: Some(3),
+            ..cla()
+        };
+        assert_eq!(adder.name(), "8-bit Carry Lookahead Adder");
+    }
+
+    #[test]
+    fn a_synchronized_combinational_build_faster_than_its_latency_is_pipelined()
+    {
+        let piped = Schematic {
+            synchronized: Some(true),
+            throughput: Some(3),
+            ..cla()
+        };
+        assert!(piped.pipelined());
+        let unsynced = Schematic {
+            synchronized: Some(false),
+            ..piped.clone()
+        };
+        assert!(!unsynced.pipelined(), "pipelining needs synced outputs");
+        let sequential = Schematic {
+            logic: Some("seq".to_owned()),
+            ..piped.clone()
+        };
+        assert!(!sequential.pipelined());
+        let as_slow = Schematic {
+            throughput: Some(8),
+            ..piped
+        };
+        assert!(!as_slow.pipelined(), "throughput must beat latency");
+    }
+
+    #[test]
     fn a_category_keeps_its_label() {
         let s = Schematic {
             category: "ram".to_owned(),
@@ -1779,7 +1908,7 @@ mod tests {
             design: "other".to_owned(),
             latency: None,
             synchronized: None,
-            period: None,
+            throughput: None,
             bytes: None,
             builders: Vec::new(),
             built_on: None,

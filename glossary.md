@@ -1,6 +1,8 @@
 # Glossary
 
-Restrictions and timing are tags in the database. A tag is named in full words, such as `combinational`, and the website and `rsdb show` print that name. A tag may also store a short token of 3 or 4 letters, such as `comb`, which commands and search accept in its place. Each tag has a kind, `restriction`, `timing`, or `other`, which colours its badge; tags a person adds on the site are of the `other` kind.
+Restrictions are tags in the database. A tag is named in full words, such as `torchless`, and the website and `rsdb show` print that name. A tag may also store a short token of 3 or 4 letters, which commands and search accept in its place. Each tag has a kind, `restriction` or `other`, which colours its badge; tags a person adds on the site are of the `other` kind.
+
+A fact every build has, with one of a few values, is a field rather than a tag, as orientation, encoding, and logic are. A yes-or-no fact that means something only within one category, such as an adder's carry in, is a flag of that category. A tag is left for what is optional and crosses categories, where a build without it says nothing.
 
 ## Restrictions
 
@@ -32,17 +34,22 @@ Required.
 | `bin` | binary                  |
 | `hex` | signal-strength encoded |
 
-## Timing
+## Logic
 
-Optional. The default is whatever the category implies: a register is assumed sequential and an adder combinational. Add a token only when the build departs from that.
+A field. Each standard category gives its builds' usual logic: a register is sequential and an adder combinational. A build gives its own only when it departs from that, such as a sequential multiplier (`--logic` on `rsdb add` and `set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual logic.
 
-| Token  | Tag name        |
-| ------ | --------------- |
-| `seq`  | `sequential`    |
-| `comb` | `combinational` |
-| `pipe` | `pipelined`     |
+| Token  | Meaning       |
+| ------ | ------------- |
+| `comb` | combinational |
+| `seq`  | sequential    |
 
-Whether every output bit settles on the same tick is not a tag but a field, `synchronized`, which is yes, no, or unknown. Search finds it with `sync` or `unsync`.
+Whether every output bit settles on the same tick is another field, `synchronized`, which is yes, no, or unknown. Search finds it with `sync` or `unsync`.
+
+## Throughput
+
+A field: the fewest ticks from one input to the next that still give right outputs, as in a 3-tick throughput, whatever the latency. Any build may have one; unknown is left empty rather than guessed. Search finds it with `throughput:3`.
+
+A combinational, synchronized build whose throughput is below its latency is pipelined: a new input goes in before the last one's result comes out. Pipelined is worked out from those fields, not stored, and search finds it with `pipelined` or `pipe`.
 
 ## Categories
 
@@ -69,6 +76,6 @@ An RNG gives random numbers, its width being the bits of each. Its designs are L
 
 A memory, RAM or Serial Write Memory, records its capacity in bytes, as in "8-bit 32-byte RAM", beside its width in bits; a stack of copies holds every copy's bytes. Its leaderboards split by capacity after width. A category whose builds hold bytes says so (`rsdb define-category --holds-bytes`, and `--bytes` on `rsdb add` and `set`).
 
-A serial build takes its operands a bit at a time. Its period is the ticks from one bit to the next, as in "2-tick Serial Adder", which takes two 1-bit streams and outputs one; a category whose builds are serial records a period for each (`rsdb define-category --periodic`, and `--period` on `rsdb add` and `set`), and its leaderboards split by period where others split by width. Period, not frequency: a 2-tick adder runs at 5 Hz, but nobody calls it that.
+A serial build takes its operands a bit at a time, so its input is a bit and its throughput is the ticks from one bit to the next, as in "2-tick Serial Adder", which takes two 1-bit streams and outputs one. A serial category's throughput leads its builds' names, as width leads others', and its leaderboards split by throughput where others split by width (`rsdb define-category --serial`, and `--throughput` on `rsdb add` and `set`), and search finds a serial build's throughput as `2t` too. Ticks, not frequency: a 2-tick adder runs at 5 Hz, but nobody calls it that.
 
 Add new standard categories here when adding them to the database.

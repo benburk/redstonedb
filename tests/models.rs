@@ -239,7 +239,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 async fn only_an_admin_may_name_a_new_tag() {
     use app::models::schematic::check_new_tags;
     let db = setup_test_db().await;
-    let known = vec!["torchless".to_owned(), "comb".to_owned()];
+    let known = vec!["torchless".to_owned(), "alpha".to_owned()];
     let new = vec!["torchless".to_owned(), "made_up".to_owned()];
     assert_eq!(check_new_tags(&db, &known, false).await.unwrap(), Ok(()));
     let refused = check_new_tags(&db, &new, false).await.unwrap().unwrap_err();

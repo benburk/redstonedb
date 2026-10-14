@@ -533,14 +533,14 @@ fn table(schematics: &[Schematic]) -> Markup {
     }
 }
 
-/// A build's width, and a memory's capacity and a serial build's period.
+/// A build's width, and a memory's capacity.
 fn measure_fields(s: &Schematic) -> Markup {
     let count = |n: i64, one: &str, many: &str| {
         format!("{n} {}", if n == 1 { one } else { many })
     };
     html! {
-        // A serial build with a period has no width to miss.
-        @if s.width.is_some() || s.period.is_none() {
+        // A serial build with a throughput has no width to miss.
+        @if s.width.is_some() || !s.serial || s.throughput.is_none() {
             (field("Width", s.width.map_or_else(
                 || html! { "unknown" },
                 |w| search_link(&s.width_label().unwrap_or_default(), &format!("{w}b")),
@@ -549,8 +549,32 @@ fn measure_fields(s: &Schematic) -> Markup {
         @if let Some(bytes) = s.bytes {
             (field("Capacity", search_link(&count(bytes, "byte", "bytes"), &format!("{bytes}-byte"))))
         }
-        @if let Some(period) = s.period {
-            (field("Period", search_link(&count(period, "tick", "ticks"), &format!("{period}t"))))
+    }
+}
+
+/// A build's latency, throughput, logic, and whether it is synchronized
+/// and pipelined.
+fn timing_fields(s: &Schematic) -> Markup {
+    html! {
+        (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
+        (field("Throughput", s.throughput.map_or_else(
+            || html! { "unknown" },
+            |t| search_link(
+                &format!("{t} {}", if t == 1 { "tick" } else { "ticks" }),
+                &format!("throughput:{t}"),
+            ),
+        )))
+        (field("Synchronized", match s.synchronized {
+            Some(true) => search_link("yes", "sync"),
+            Some(false) => search_link("no", "unsync"),
+            None => html! { "unknown" },
+        }))
+        (field("Logic", s.logic.as_deref().map_or_else(
+            || html! { "unknown" },
+            |logic| search_link(schematic::logic_label(logic), logic),
+        )))
+        @if s.pipelined() {
+            (field("Pipelined", search_link("yes", "pipelined")))
         }
     }
 }
@@ -1289,12 +1313,7 @@ fn schematic_info(s: &Schematic) -> Markup {
                     @if let Some(encoding) = s.encoding_label() {
                         (field("Encoding", search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default()))))
                     }
-                    (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
-                    (field("Synchronized", match s.synchronized {
-                        Some(true) => search_link("yes", "sync"),
-                        Some(false) => search_link("no", "unsync"),
-                        None => html! { "unknown" },
-                    }))
+                    (timing_fields(s))
                     (field("Stacks", if s.stacking.is_empty() {
                         html! { "no" }
                     } else {
@@ -1365,8 +1384,10 @@ pub struct Fields<'a> {
     pub description: &'a str,
     /// The build's own name, for a category that takes one.
     pub given_name: &'a str,
-    /// Ticks from one bit to the next, for a serial category's build.
-    pub period: &'a str,
+    /// `comb` or `seq`; empty follows the category.
+    pub logic: &'a str,
+    /// The fewest ticks from one input to the next.
+    pub throughput: &'a str,
     /// How many bytes a memory holds.
     pub bytes: &'a str,
     pub design: &'a str,
@@ -1434,7 +1455,6 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
     html! {
         @let chosen = choices.category(f.category);
         @let named = chosen.is_some_and(|c| c.named);
-        @let periodic = chosen.is_some_and(|c| c.periodic);
         @let holds_bytes = chosen.is_some_and(|c| c.holds_bytes);
         @let chosen_name = chosen.map_or("", |c| c.name.as_str());
         @let has_designs = choices
@@ -1469,7 +1489,8 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
-                                    data-periodic[category.periodic]
+                                    data-serial[category.serial]
+                                    data-logic=(category.logic.as_deref().map_or("unknown", schematic::logic_label).to_lowercase())
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
                                     data-tested[simulate::Test::of(&category.name, Some(1)).is_some()]
@@ -1494,16 +1515,6 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
             span { "Name" }
             input name="given_name" value=(f.given_name) maxlength="60"
                 placeholder="such as Bus Crossing" class="input";
-        }
-        // For a serial category's build, such as a serial adder.
-        label class="field" data-period-field hidden[!periodic] {
-            span { "Period (ticks)" }
-            input type="number" name="period" value=(f.period) min="1" max="1000"
-                inputmode="numeric" placeholder="such as 2" aria-describedby="period-help"
-                class="input";
-            span id="period-help" class="text-meta font-normal" {
-                "Ticks from one bit to the next: a 2-tick serial adder takes a new bit every 2 ticks."
-            }
         }
         // For a memory, such as RAM.
         label class="field" data-bytes-field hidden[!holds_bytes] {
@@ -1661,6 +1672,16 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
             }
         }
         }
+        label class="field" data-standard-only hidden[other] {
+            span { "Throughput in ticks" }
+            input type="number" name="throughput" value=(f.throughput) min="1" max="1000"
+                inputmode="numeric" placeholder="such as 3" aria-describedby="throughput-help"
+                class="input tabular-nums";
+            span id="throughput-help" class="text-meta font-normal" {
+                "The fewest ticks from one input to the next that still give right outputs. A serial build's input is a bit: a 2-tick serial adder takes a new bit every 2 ticks."
+            }
+        }
+        (logic_field(f, choices))
         (stacking_fields(f))
         (person_field("Builders", "builder", "Add a builder's in-game name", f.builders, choices))
         (person_field("Contributors", "contributor", "Add someone who helped", f.contributors, choices))
@@ -1668,6 +1689,29 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
         label class="field" {
             span { "Description" }
             textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
+        }
+    }
+}
+
+/// Combinational or sequential, or as the category usually is, which
+/// `form.js` names as the category changes.
+fn logic_field(f: &Fields, choices: &Choices) -> Markup {
+    let usual = choices
+        .category(f.category)
+        .and_then(|c| c.logic.as_deref())
+        .map_or("unknown", schematic::logic_label)
+        .to_lowercase();
+    html! {
+        label class="field" {
+            span { "Logic" }
+            select name="logic" class="input" {
+                option value="" selected[f.logic.is_empty()] data-usual-logic {
+                    "As the category usually is (" (usual) ")"
+                }
+                @for (value, label) in [("comb", "Combinational"), ("seq", "Sequential")] {
+                    option value=(value) selected[f.logic == value] { (label) }
+                }
+            }
         }
     }
 }
@@ -1971,7 +2015,6 @@ fn badge(tag: &Tag) -> Markup {
 fn kind_label(kind: &str) -> &str {
     match kind {
         "restriction" => "Restriction",
-        "timing" => "Timing",
         "failing" => "Simulation",
         _ => "Other",
     }
@@ -2090,8 +2133,6 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 dl class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2" {
                     dt { span class="badge badge-restriction" { "Restriction" } }
                     dd { "Components the build does without." }
-                    dt { span class="badge badge-timing" { "Timing" } }
-                    dd { "How the build is clocked, when it differs from what the category implies." }
                     dt { span class="badge badge-other" { "Other" } }
                     dd { "Anything else worth searching by." }
                     dt { span class="badge badge-failing" { "Simulation" } }

@@ -1,7 +1,7 @@
 //! Leaderboards: a category's builds ranked against the others that match
 //! them in width, encoding, orientation, and design, since only those
 //! compete: a hex adder never meets a binary one. A serial category's
-//! builds match in period instead of width.
+//! builds match in throughput instead of width.
 
 use std::collections::BTreeMap;
 
@@ -11,18 +11,18 @@ use crate::models::schematic::Schematic;
 pub const SHOWN: usize = 10;
 
 /// What a category's boards are split by first: width in bits, or for a
-/// serial category, period in ticks.
+/// serial category, throughput in ticks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Measure {
     Width,
-    Period,
+    Throughput,
 }
 
 impl Measure {
     pub fn of(self, s: &Schematic) -> Option<i64> {
         match self {
             Measure::Width => s.width,
-            Measure::Period => s.period,
+            Measure::Throughput => s.throughput,
         }
     }
 
@@ -30,7 +30,7 @@ impl Measure {
     pub fn label(self, n: i64) -> String {
         match self {
             Measure::Width => format!("{n}-bit"),
-            Measure::Period => format!("{n}-tick"),
+            Measure::Throughput => format!("{n}-tick"),
         }
     }
 
@@ -38,7 +38,7 @@ impl Measure {
     pub fn name(self) -> &'static str {
         match self {
             Measure::Width => "width",
-            Measure::Period => "period",
+            Measure::Throughput => "throughput",
         }
     }
 }
@@ -46,7 +46,7 @@ impl Measure {
 /// What a leaderboard's address asks for; `None` takes the default.
 #[derive(Debug, Default)]
 pub struct Wanted {
-    /// The width or period.
+    /// The width or throughput.
     pub measure: Option<i64>,
     /// A memory's capacity in bytes.
     pub bytes: Option<i64>,
@@ -92,7 +92,7 @@ pub struct Board<'a> {
 /// The board of `category` that `wanted` asks for. Each choice not asked
 /// for falls to the most common value among the builds the earlier choices
 /// leave, so a board starts where most builds are. A build whose width, or
-/// period, is unknown competes on no board.
+/// throughput, is unknown competes on no board.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
@@ -390,7 +390,7 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 
 /// Builders by records held: first place, as fastest or as smallest, on a
 /// board of two or more builds. A board is a standard category's builds of
-/// one width, or period, capacity where it splits by bytes, encoding,
+/// one width, or throughput, capacity where it splits by bytes, encoding,
 /// orientation, and design, `split` saying which for a category;
 /// each builder of a record holder counts it, and a tie gives every holder
 /// one.
@@ -448,7 +448,10 @@ mod tests {
             encoding: Some("bin".to_owned()),
             latency,
             synchronized: None,
-            period: None,
+            logic: None,
+            own_logic: None,
+            throughput: None,
+            serial: false,
             bytes: None,
             size: (volume, 1, 1),
             stacking: Vec::new(),

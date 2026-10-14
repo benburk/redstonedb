@@ -3,11 +3,14 @@
 //!
 //! Every term must match, so terms AND together. A term prefixed with `-`
 //! or written after `not` must not match. A term matches a schematic when
-//! it names one of its facts (category, orientation, a tag, its width such
-//! as `8b`, its latency such as `3t`, a builder, contributor, or importer,
-//! `stackable`, `sync` or `unsync`). A name can be tied to its role, as in
-//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, and
-//! the encoding is `encoding:bin` or `encoding:hex`. A term that is no fact
+//! it names one of its facts (category, orientation, a tag, its design or
+//! a flag, its width such as `8b`, its latency such as `3t`, a builder,
+//! contributor, or importer, `stackable`, `sync` or `unsync`, `comb` or
+//! `seq`, `pipelined`). A name can be tied to its role, as in
+//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
+//! encoding is `encoding:bin` or `encoding:hex`, and the throughput is
+//! `throughput:3`, or `3t` for a serial build, whose throughput leads its
+//! name as its width would. A term that is no fact
 //! of any schematic, nor in the singular, as `adders` is `adder`, matches
 //! when it appears in a schematic's title, description, or credited names
 //! instead, so `add` finds adders, `owen` finds Owenage_'s builds, and
@@ -200,14 +203,7 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{w} bits"),
         ]);
     }
-    if let Some(t) = s.latency {
-        facts.extend([
-            format!("{t}t"),
-            format!("{t}-tick"),
-            format!("{t} tick"),
-            format!("{t} ticks"),
-        ]);
-    }
+    facts.extend(s.latency.into_iter().flat_map(ticks));
     if let Some(b) = s.bytes {
         facts.extend([
             format!("{b}-byte"),
@@ -215,13 +211,13 @@ fn facts(s: &Schematic) -> Vec<String> {
             format!("{b} bytes"),
         ]);
     }
-    if let Some(p) = s.period {
-        facts.extend([
-            format!("{p}t"),
-            format!("{p}-tick"),
-            format!("{p} tick"),
-            format!("{p} ticks"),
-        ]);
+    if let Some(t) = s.throughput {
+        facts.push(format!("throughput:{t}"));
+        // Only a serial build's throughput goes by its ticks alone, as its
+        // name does; another's `3t` is its latency.
+        if s.serial {
+            facts.extend(ticks(t));
+        }
     }
     // In-game names keep their capitals and underscores, but terms are
     // lowercase, with spaces for underscores.
@@ -264,6 +260,9 @@ fn facts(s: &Schematic) -> Vec<String> {
     if let Some(short) = &s.design_abbreviation {
         facts.push(short.to_lowercase());
     }
+    if let Some(label) = &s.design_given_label {
+        facts.push(label.to_lowercase());
+    }
     for flag in &s.flags {
         facts.push(flag.name.replace('_', " "));
         // The short names a carry line's sign may use.
@@ -273,16 +272,37 @@ fn facts(s: &Schematic) -> Vec<String> {
             _ => {}
         }
     }
-    match s.synchronized {
-        Some(true) => {
-            facts.extend(["sync".to_owned(), "synchronized".to_owned()]);
-        }
-        Some(false) => {
-            facts.extend(["unsync".to_owned(), "unsynchronized".to_owned()]);
-        }
-        None => {}
-    }
+    facts.extend(timing(s).iter().map(|&word| word.to_owned()));
     facts
+}
+
+/// The words for `n` ticks, such as `3t` and `3 ticks`.
+fn ticks(n: i64) -> [String; 4] {
+    [
+        format!("{n}t"),
+        format!("{n}-tick"),
+        format!("{n} tick"),
+        format!("{n} ticks"),
+    ]
+}
+
+/// The words for whether a build is synchronized, combinational or
+/// sequential, and pipelined.
+fn timing(s: &Schematic) -> Vec<&'static str> {
+    let mut words = match s.synchronized {
+        Some(true) => vec!["sync", "synchronized"],
+        Some(false) => vec!["unsync", "unsynchronized"],
+        None => Vec::new(),
+    };
+    match s.logic.as_deref() {
+        Some("comb") => words.extend(["comb", "combinational"]),
+        Some("seq") => words.extend(["seq", "sequential"]),
+        _ => {}
+    }
+    if s.pipelined() {
+        words.extend(["pipe", "pipelined"]);
+    }
+    words
 }
 
 #[cfg(test)]
@@ -304,7 +324,10 @@ mod tests {
             encoding: Some("bin".to_owned()),
             latency: None,
             synchronized: None,
-            period: None,
+            logic: Some("comb".to_owned()),
+            own_logic: None,
+            throughput: None,
+            serial: false,
             bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
@@ -431,14 +454,45 @@ mod tests {
     }
 
     #[test]
-    fn a_period_matches_in_ticks() {
+    fn a_serial_throughput_matches_in_ticks() {
         let serial = Schematic {
-            period: Some(2),
+            throughput: Some(2),
+            serial: true,
             ..schematic("serial_adder", "horz", &[])
         };
         assert!(find("2t", &serial));
         assert!(find("2-tick", &serial));
+        assert!(find("throughput:2", &serial));
         assert!(!find("3t", &serial));
+    }
+
+    #[test]
+    fn another_throughput_is_not_its_latency() {
+        let adder = Schematic {
+            throughput: Some(3),
+            latency: Some(8),
+            ..schematic("adder", "horz", &[])
+        };
+        assert!(find("throughput:3", &adder));
+        assert!(!find("3t", &adder), "3t is a latency");
+    }
+
+    #[test]
+    fn logic_and_pipelining_are_words() {
+        let piped = Schematic {
+            throughput: Some(3),
+            latency: Some(8),
+            synchronized: Some(true),
+            ..schematic("multiplier", "horz", &[])
+        };
+        assert!(find("comb pipelined", &piped));
+        assert!(!find("seq", &piped));
+        let sequential = Schematic {
+            logic: Some("seq".to_owned()),
+            ..piped
+        };
+        assert!(find("sequential", &sequential));
+        assert!(!find("pipe", &sequential));
     }
 
     #[test]

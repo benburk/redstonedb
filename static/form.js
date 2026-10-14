@@ -4,11 +4,12 @@
 // Category fields: the category is typed, with a menu of the standard ones
 // under their sections, and the fields follow the one it names, by label or
 // name in any capitals. Each category's flags show only for it, the name box
-// only for a category whose builds are named, the period only for a serial
-// one, the capacity only for a memory, and the design list only once the
-// category has designs, offering just those. Text naming no standard
-// category is one off the list, with no width or encoding; that waits until
-// the box is left, so the fields do not jump while a name is typed.
+// only for a category whose builds are named, the capacity only for a
+// memory, and the design list only once the category has designs, offering
+// just those; the logic's first choice names the category's usual one. Text
+// naming no standard category is one off the list, with no width, encoding,
+// or throughput; that waits until the box is left, so the fields do not
+// jump while a name is typed.
 for (const input of document.querySelectorAll("input[data-category]")) {
   const form = input.closest("form");
   const menu = document.getElementById(input.getAttribute("aria-controls"));
@@ -58,7 +59,8 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
     }
     form.querySelector("[data-named-field]").hidden = !has("data-named");
-    form.querySelector("[data-period-field]").hidden = !has("data-periodic");
+    form.querySelector("[data-usual-logic]").textContent =
+      `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
     form.querySelector("[data-bytes-field]").hidden = !has("data-holds-bytes");
     let designs = false;
     for (const group of design.querySelectorAll("optgroup")) {

@@ -141,7 +141,7 @@ enum Command {
     /// Create a new tag, named in full words
     DefineTag {
         name: String,
-        #[arg(long, value_parser = ["restriction", "timing", "other"])]
+        #[arg(long, value_parser = ["restriction", "other"])]
         kind: String,
         /// Abbreviation that filenames write instead of the name
         #[arg(long)]
@@ -176,7 +176,8 @@ struct Set {
             "design",
             "flags",
             "name",
-            "period",
+            "logic",
+            "throughput",
             "bytes",
         ]
     )]
@@ -227,9 +228,14 @@ struct NewCategory {
     /// The sidebar section it sits in; left out, it sits under Other
     #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
     section: Option<String>,
-    /// Its builds are serial, each with a period in ticks
+    /// Its builds are serial, taking their operands a bit at a time, so
+    /// their throughput leads their names and splits their leaderboards
     #[arg(long)]
-    periodic: bool,
+    serial: bool,
+    /// Its builds' usual logic, which a build follows unless it gives its
+    /// own
+    #[arg(long, value_parser = ["comb", "seq"])]
+    logic: Option<String>,
     /// Its builds are memories, each holding a number of bytes
     #[arg(long)]
     holds_bytes: bool,
@@ -243,10 +249,15 @@ struct Details {
     /// Latency in ticks
     #[arg(long)]
     latency: Option<u32>,
-    /// For a serial build, the ticks from one bit to the next, as in a
+    /// The fewest ticks from one input to the next that still gives right
+    /// outputs; for a serial build, from one bit to the next, as in a
     /// 2-tick serial adder
     #[arg(long)]
-    period: Option<u32>,
+    throughput: Option<u32>,
+    /// Combinational or sequential, where it differs from what its category
+    /// usually is
+    #[arg(long, value_parser = ["comb", "seq"])]
+    logic: Option<String>,
     /// For a memory, how many bytes it holds, as in a 32-byte RAM
     #[arg(long)]
     bytes: Option<u32>,
@@ -433,7 +444,8 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         design: details.design.as_deref(),
         description: details.description.as_deref(),
         given_name: details.given_name.as_deref(),
-        period: details.period.map(i64::from),
+        logic: details.logic.as_deref(),
+        throughput: details.throughput.map(i64::from),
         bytes: details.bytes.map(i64::from),
     };
     let current = load(db, &id).await?;
@@ -455,7 +467,8 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "imported-by" => Some(Optional::ImportedBy),
             "description" => Some(Optional::Description),
             "name" => Some(Optional::GivenName),
-            "period" => Some(Optional::Period),
+            "logic" => Some(Optional::Logic),
+            "throughput" => Some(Optional::Throughput),
             "bytes" => Some(Optional::Bytes),
             "design" => Some(Optional::Design),
             _ => None,
@@ -556,7 +569,8 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             design: details.design.as_deref(),
             description: details.description.as_deref(),
             given_name: details.given_name.as_deref(),
-            period: details.period.map(i64::from),
+            logic: details.logic.as_deref(),
+            throughput: details.throughput.map(i64::from),
             bytes: details.bytes.map(i64::from),
             keeps_paste: args.keep_paste,
             uploaded_by: None,
@@ -631,7 +645,8 @@ async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
         named: args.named,
         designs_interchangeable: true,
         section: args.section,
-        periodic: args.periodic,
+        serial: args.serial,
+        logic: args.logic,
         holds_bytes: args.holds_bytes,
         named_by_design: false,
     };
@@ -1097,13 +1112,19 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
     );
-    if let Some(period) = s.period {
-        println!("period       {period} ticks");
-    }
+    println!(
+        "throughput   {}",
+        unknown(s.throughput.map(|t| format!("{t} ticks")))
+    );
     if let Some(bytes) = s.bytes {
         println!("capacity     {bytes} bytes");
     }
     println!("synchronized {}", s.synchronized_label());
+    println!(
+        "logic        {}{}",
+        s.logic_label().unwrap_or("unknown").to_lowercase(),
+        if s.pipelined() { ", pipelined" } else { "" }
+    );
     println!("design       {}", s.design.replace('_', " "));
     let flags: Vec<&str> = s.flags.iter().map(|f| f.label.as_str()).collect();
     println!("flags        {}", flags.join(", "));
