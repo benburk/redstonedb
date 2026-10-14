@@ -15,11 +15,9 @@ use std::collections::HashMap;
 use crate::schem::{self, Blocks, Pos};
 
 /// The share, in tenths of a percent, from which a build is listed as
-/// similar to another.
-pub const SIMILAR: u32 = 700;
-
-/// The share from which a build is nearly the same as another.
-pub const NEAR_COPY: u32 = 900;
+/// similar to another: a copy or a small fix of it, not just a build of
+/// the same design.
+pub const SIMILAR: u32 = 900;
 
 /// The way a component faces, or none, as for a standing torch.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

@@ -11,7 +11,6 @@ use crate::{
         schematic::{Schematic, Tag},
         user::User,
     },
-    similarity,
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
@@ -373,7 +372,7 @@ fn checks(page: &DetailsPage) -> Markup {
                 }
                 @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
                     (check("similar", State::Warn, &html! {
-                        @if *permille >= similarity::NEAR_COPY { "Nearly the same as " } @else { "Similar to " }
+                        "Nearly the same as "
                         a href={ "/schematics/" (other.id) } { (other.title()) }
                         @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
                         ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
