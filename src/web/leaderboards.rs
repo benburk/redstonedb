@@ -7,9 +7,9 @@ use serde::Deserialize;
 use crate::{
     app_state::AppState,
     error::internal_error,
-    leaderboard::{self, Measure, Wanted},
+    leaderboard::{self, Wanted},
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Measure, Schematic},
         user::User,
     },
 };
@@ -17,13 +17,14 @@ use crate::{
 use super::pages;
 
 /// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel`,
-/// each optional, with `throughput` in place of `width` for a serial
-/// category.
+/// each optional, with a value of each of the category's measures, such as
+/// `throughput` for a serial one and `at_least` for a threshold.
 #[derive(Deserialize)]
 pub struct BoardQuery {
     width: Option<String>,
     throughput: Option<String>,
     bytes: Option<String>,
+    at_least: Option<String>,
     logic: Option<String>,
     encoding: Option<String>,
     orientation: Option<String>,
@@ -53,14 +54,17 @@ pub async fn show(
     };
     let facets = facets(&categories, &all, &category);
     let given = |value: Option<String>| value.filter(|v| !v.is_empty());
-    let (by, measure) = if chosen.serial {
-        (Measure::Throughput, query.throughput)
-    } else {
-        (Measure::Width, query.width)
-    };
+    let asked = [
+        (Measure::Width, query.width),
+        (Measure::Bytes, query.bytes),
+        (Measure::Throughput, query.throughput),
+        (Measure::AtLeast, query.at_least),
+    ];
     let wanted = Wanted {
-        measure: given(measure).and_then(|n| n.parse().ok()),
-        bytes: given(query.bytes).and_then(|n| n.parse().ok()),
+        measures: asked
+            .into_iter()
+            .filter_map(|(m, n)| Some((m, given(n)?.parse().ok()?)))
+            .collect(),
         logic: given(query.logic),
         encoding: given(query.encoding),
         orientation: given(query.orientation),
@@ -68,13 +72,7 @@ pub async fn show(
     };
     let builds: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
-    let board = leaderboard::board(
-        &builds,
-        &wanted,
-        by,
-        chosen.holds_bytes,
-        chosen.designs_interchangeable,
-    );
+    let board = leaderboard::board(&builds, &wanted, &chosen.measures);
     pages::leaderboard(
         user_opt.as_ref(),
         &pages::LeaderboardPage {
@@ -108,7 +106,7 @@ pub async fn people(
         &pages::PeoplePage {
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
-            records: &leaderboard::most_records(&all, splits(&categories)),
+            records: &leaderboard::most_records(&all),
             facets: &facets(&categories, &all, ""),
         },
     )
@@ -122,11 +120,14 @@ fn facets(
     all: &[Schematic],
     current: &str,
 ) -> Vec<pages::Facet> {
-    let split = splits(categories);
+    // A build missing a measure of its category competes on no board.
     let ranked = |name: &str| {
-        let (by, _) = split(name);
         all.iter()
-            .filter(|s| s.category == name && by.of(s).is_some())
+            .filter(|s| {
+                s.category == name
+                    && !s.measures.is_empty()
+                    && s.measures.iter().all(|m| m.of(s).is_some())
+            })
             .count()
     };
     categories
@@ -139,20 +140,4 @@ fn facets(
         })
         .filter(|f| f.count > 0 || f.name == current)
         .collect()
-}
-
-/// How each category's boards split: by width or throughput, and for a memory
-/// by capacity too.
-pub(super) fn splits(
-    categories: &[schematic::Category],
-) -> impl Fn(&str) -> (Measure, bool) + '_ {
-    move |name| {
-        let category = categories.iter().find(|c| c.name == name);
-        let by = if category.is_some_and(|c| c.serial) {
-            Measure::Throughput
-        } else {
-            Measure::Width
-        };
-        (by, category.is_some_and(|c| c.holds_bytes))
-    }
 }

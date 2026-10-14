@@ -79,6 +79,97 @@ pub fn logic_label(logic: &str) -> &str {
     }
 }
 
+/// A number a category's builds are named and ranked by, as width is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Measure {
+    /// Bits, as in `8-bit`.
+    Width,
+    /// A memory's capacity, as in `32-byte`.
+    Bytes,
+    /// A serial build's ticks from one bit to the next, as in `2-tick`.
+    Throughput,
+    /// A threshold's k, the fewest inputs on that turn it on, as in `At
+    /// Least 3`.
+    AtLeast,
+}
+
+impl Measure {
+    pub const ALL: [Measure; 4] = [
+        Measure::Width,
+        Measure::Bytes,
+        Measure::Throughput,
+        Measure::AtLeast,
+    ];
+
+    /// As stored, and as a leaderboard's address and `rsdb` name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Measure::Width => "width",
+            Measure::Bytes => "bytes",
+            Measure::Throughput => "throughput",
+            Measure::AtLeast => "at_least",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Self> {
+        Measure::ALL.into_iter().find(|m| m.name() == name)
+    }
+
+    /// Its heading, such as `Capacity`.
+    pub fn heading(self) -> &'static str {
+        match self {
+            Measure::Width => "Width",
+            Measure::Bytes => "Capacity",
+            Measure::Throughput => "Throughput",
+            Measure::AtLeast => "At least",
+        }
+    }
+
+    /// The build's value of it.
+    pub fn of(self, s: &Schematic) -> Option<i64> {
+        match self {
+            Measure::Width => s.width,
+            Measure::Bytes => s.bytes,
+            Measure::Throughput => s.throughput,
+            Measure::AtLeast => s.at_least,
+        }
+    }
+
+    /// `n` of it as a name leads with it, such as `8-bit`, `32-byte`,
+    /// `2-tick`, or `At Least 3`.
+    pub fn lead(self, n: i64) -> String {
+        match self {
+            Measure::Width => format!("{n}-bit"),
+            Measure::Bytes => format!("{n}-byte"),
+            Measure::Throughput => format!("{n}-tick"),
+            Measure::AtLeast => format!("At Least {n}"),
+        }
+    }
+
+    /// `n` of it in words, such as `8 bits` or `at least 3 on`.
+    pub fn words(self, n: i64) -> String {
+        let count = |one: &str, many: &str| {
+            format!("{n} {}", if n == 1 { one } else { many })
+        };
+        match self {
+            Measure::Width => count("bit", "bits"),
+            Measure::Bytes => count("byte", "bytes"),
+            Measure::Throughput => count("tick", "ticks"),
+            Measure::AtLeast => format!("at least {n} on"),
+        }
+    }
+
+    /// The search term that finds `n` of it, such as `8b`.
+    pub fn term(self, n: i64) -> String {
+        match self {
+            Measure::Width => format!("{n}b"),
+            Measure::Bytes => format!("{n}-byte"),
+            Measure::Throughput => format!("{n}t"),
+            Measure::AtLeast => format!("at least {n}"),
+        }
+    }
+}
+
 /// One direction a stackable build repeats along. Each copy sits `west`,
 /// `up`, and `north` blocks from the one before, since copies count up from
 /// the south-east-bottom corner.
@@ -193,9 +284,13 @@ pub struct Schematic {
     /// The fewest ticks from one input to the next that still gives right
     /// outputs; for a serial build, from one bit to the next.
     pub throughput: Option<i64>,
-    /// Whether its category's builds are serial, so the throughput leads
-    /// its name.
-    pub serial: bool,
+    /// For a threshold, the fewest inputs on that turn it on.
+    pub at_least: Option<i64>,
+    /// The numbers its category's builds are named and ranked by, in
+    /// order; none for a category off the list.
+    pub measures: Vec<Measure>,
+    /// Other words its category is searched by, such as `connect4`.
+    pub aliases: Vec<String>,
     /// How many redstone torches its file has; `None` until counted.
     pub torches: Option<i64>,
     /// For a memory, how many bytes it holds.
@@ -216,11 +311,8 @@ pub struct Schematic {
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
     /// How people read the design when that is not just its name's words,
-    /// such as `XOR`.
+    /// such as `LFSR`.
     pub design_given_label: Option<String>,
-    /// Whether the design names the build in place of the category, as an
-    /// incrementer's does: `8-bit Decrementer`.
-    pub named_by_design: bool,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,
@@ -281,16 +373,17 @@ impl Schematic {
             .unwrap_or_else(|| self.category_label())
     }
 
-    /// The width, a serial build's throughput, and capacity that lead a
-    /// name, such as `8-bit`, `2-tick`, or `32-byte`.
+    /// Its category's measures that lead a name, such as `8-bit` and
+    /// `32-byte`, or `2-tick`; an unknown one is left out.
     fn measures(&self) -> impl Iterator<Item = String> {
-        let width = self.width.map(|w| format!("{w}-bit"));
-        let throughput = self
-            .throughput
-            .filter(|_| self.serial)
-            .map(|t| format!("{t}-tick"));
-        let bytes = self.bytes.map(|b| format!("{b}-byte"));
-        width.into_iter().chain(throughput).chain(bytes)
+        self.measures
+            .iter()
+            .filter_map(|m| m.of(self).map(|n| m.lead(n)))
+    }
+
+    /// Whether its category is named and ranked by `measure`.
+    pub fn has(&self, measure: Measure) -> bool {
+        self.measures.contains(&measure)
     }
 
     /// The width, design, and category, such as `8-bit Carry Lookahead
@@ -311,13 +404,9 @@ impl Schematic {
     }
 
     /// The design and what the build is, as a name ends, such as `Carry
-    /// Lookahead Adder`; a design that names the build stands alone, as
-    /// in `Decrementer`.
-    fn kind(&self) -> Vec<String> {
-        match self.design_label() {
-            Some(design) if self.named_by_design => vec![design],
-            design => design.into_iter().chain([self.what()]).collect(),
-        }
+    /// Lookahead Adder`.
+    fn kind(&self) -> impl Iterator<Item = String> {
+        self.design_label().into_iter().chain([self.what()])
     }
 
     /// A readable name from the most identifying facts, such as
@@ -387,7 +476,9 @@ impl Schematic {
             bytes: self.bytes.map(|b| b.saturating_mul(all)),
             latency: None,
             synchronized: None,
-            throughput: self.throughput.filter(|_| self.serial),
+            throughput: self
+                .throughput
+                .filter(|_| self.has(Measure::Throughput)),
             size: (size[0].into(), size[1].into(), size[2].into()),
             ..self.clone()
         }
@@ -485,6 +576,49 @@ async fn stacking_by_schematic(
     Ok(stacking)
 }
 
+/// What every category is named and searched by beyond its row: its
+/// measures and its aliases.
+struct Categories {
+    measures: HashMap<String, Vec<Measure>>,
+    aliases: HashMap<String, Vec<String>>,
+}
+
+impl Categories {
+    async fn load(db: &SqlitePool) -> Result<Self, sqlx::Error> {
+        let mut measures: HashMap<String, Vec<Measure>> = HashMap::new();
+        for row in sqlx::query!(
+            "SELECT category, measure FROM category_measure
+             ORDER BY category, position"
+        )
+        .fetch_all(db)
+        .await?
+        {
+            measures
+                .entry(row.category)
+                .or_default()
+                .extend(Measure::named(&row.measure));
+        }
+        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+        for row in sqlx::query!(
+            "SELECT category, alias FROM category_alias ORDER BY alias"
+        )
+        .fetch_all(db)
+        .await?
+        {
+            aliases.entry(row.category).or_default().push(row.alias);
+        }
+        Ok(Categories { measures, aliases })
+    }
+
+    fn measures(&self, category: &str) -> Vec<Measure> {
+        self.measures.get(category).cloned().unwrap_or_default()
+    }
+
+    fn aliases(&self, category: &str) -> Vec<String> {
+        self.aliases.get(category).cloned().unwrap_or_default()
+    }
+}
+
 /// Every schematic's stored tags, by its id, by kind then name.
 async fn tags_by_schematic(
     db: &SqlitePool,
@@ -511,19 +645,15 @@ async fn tags_by_schematic(
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             schematic.logic as own_logic,
             coalesce(schematic.logic, (SELECT logic FROM category
                 WHERE category.name = schematic.category)) as "logic?: String",
-            coalesce((SELECT serial FROM category WHERE category.name =
-                schematic.category), 0) as "serial!: bool",
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
-            coalesce((SELECT named_by_design FROM category WHERE category.name =
-                schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
                 as "uploader_name?: String",
@@ -560,9 +690,12 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
         people.entry(row.schematic_id).or_default().push(row.name);
     }
     let mut tags = tags_by_schematic(db).await?;
+    let about = Categories::load(db).await?;
     Ok(rows
         .into_iter()
         .map(|row| Schematic {
+            measures: about.measures(&row.category),
+            aliases: about.aliases(&row.category),
             tags: with_derived(
                 tags.remove(&row.id),
                 row.fails_simulation,
@@ -583,7 +716,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             logic: row.logic,
             own_logic: row.own_logic,
             throughput: row.throughput,
-            serial: row.serial,
+            at_least: row.at_least,
             torches: row.torches,
             bytes: row.bytes,
             size: (row.size_x, row.size_y, row.size_z),
@@ -593,7 +726,6 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             design: row.design,
             design_abbreviation: row.design_abbreviation,
             design_given_label: row.design_given_label,
-            named_by_design: row.named_by_design,
             description: row.description,
             given_name: row.given_name,
             uploader: row.uploader,
@@ -635,19 +767,15 @@ pub async fn get(
 ) -> Result<Option<Schematic>, sqlx::Error> {
     let Some(row) = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
+            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
             schematic.logic as own_logic,
             coalesce(schematic.logic, (SELECT logic FROM category
                 WHERE category.name = schematic.category)) as "logic?: String",
-            coalesce((SELECT serial FROM category WHERE category.name =
-                schematic.category), 0) as "serial!: bool",
             conventional as "conventional: bool", description, given_name, design,
             design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
             (SELECT label FROM category WHERE category.name =
                 schematic.category) as "category_label?: String",
-            coalesce((SELECT named_by_design FROM category WHERE category.name =
-                schematic.category), 0) as "named_by_design!: bool",
             user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username)
                 as "uploader_name?: String",
@@ -694,7 +822,10 @@ pub async fn get(
     .await?;
     let builders = credits(db, id, Credit::Builder).await?;
     let contributors = credits(db, id, Credit::Contributor).await?;
+    let about = Categories::load(db).await?;
     Ok(Some(Schematic {
+        measures: about.measures(&row.category),
+        aliases: about.aliases(&row.category),
         id: row.id,
         category: row.category,
         category_label: row.category_label,
@@ -706,7 +837,7 @@ pub async fn get(
         logic: row.logic,
         own_logic: row.own_logic,
         throughput: row.throughput,
-        serial: row.serial,
+        at_least: row.at_least,
         torches: row.torches,
         bytes: row.bytes,
         size: (row.size_x, row.size_y, row.size_z),
@@ -719,7 +850,6 @@ pub async fn get(
         design: row.design,
         design_abbreviation: row.design_abbreviation,
         design_given_label: row.design_given_label,
-        named_by_design: row.named_by_design,
         description: row.description,
         given_name: row.given_name,
         uploader: row.uploader,
@@ -903,6 +1033,7 @@ pub struct New<'a> {
     /// `comb` or `seq`; `None` follows the category.
     pub logic: Option<&'a str>,
     pub throughput: Option<i64>,
+    pub at_least: Option<i64>,
     pub bytes: Option<i64>,
     /// How many redstone torches the file has.
     pub torches: i64,
@@ -923,10 +1054,10 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            logic, throughput, bytes, torches, keeps_paste, uploaded_by,
-            sha256, data)
+            logic, throughput, at_least, bytes, torches, keeps_paste,
+            uploaded_by, sha256, data)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?)
+            ?, ?)
          RETURNING id as "id!""#,
         new.category,
         new.width,
@@ -945,6 +1076,7 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
         new.given_name,
         new.logic,
         new.throughput,
+        new.at_least,
         new.bytes,
         new.torches,
         new.keeps_paste,
@@ -956,10 +1088,8 @@ pub async fn insert<'e, E: SqliteExecutor<'e>>(
     .await
 }
 
-/// An entry in the list of categories a build may have.
-// Each yes-or-no field is a column of its own, independent of the others,
-// so there is no state machine to fold them into.
-#[allow(clippy::struct_excessive_bools)]
+/// An entry in the list of categories a build may have: one function, so
+/// any of its builds could stand in for another.
 #[derive(Debug, Clone)]
 pub struct Category {
     pub name: String,
@@ -969,28 +1099,30 @@ pub struct Category {
     pub plural: String,
     /// Whether each build gives its own name, as bussing does.
     pub named: bool,
-    /// Whether its designs all do the same job, so a leaderboard may rank
-    /// them together, as adders' do and gates' do not.
-    pub designs_interchangeable: bool,
     /// The sidebar section it sits in, one of [`SECTIONS`]; `None` for
     /// Other, with the categories off the list.
     pub section: Option<String>,
-    /// Whether its builds are serial, taking their operands a bit at a
-    /// time, so their throughput leads their names and splits their boards.
-    pub serial: bool,
     /// `comb` or `seq`, its builds' usual logic; `None` for none.
     pub logic: Option<String>,
-    /// Whether its builds are memories, each holding a number of bytes.
-    pub holds_bytes: bool,
-    /// Whether a build's design names it in place of the category.
-    pub named_by_design: bool,
+    /// The numbers its builds are named and ranked by, in order, such as
+    /// width then capacity for a memory, or throughput for a serial adder.
+    pub measures: Vec<Measure>,
+    /// Other words it is searched by, such as `inc`.
+    pub aliases: Vec<String>,
+}
+
+impl Category {
+    pub fn has(&self, measure: Measure) -> bool {
+        self.measures.contains(&measure)
+    }
 }
 
 /// The sidebar's sections of standard categories, in order: each stored
 /// name, as `rsdb define-category --section` takes it, with its heading.
-pub const SECTIONS: [(&str, &str); 6] = [
+pub const SECTIONS: [(&str, &str); 7] = [
     ("arithmetic", "Arithmetic"),
     ("logic", "Logic"),
+    ("gates", "Gates"),
     ("conversion", "Conversion"),
     ("memory", "Memory"),
     ("display", "Display"),
@@ -1020,24 +1152,46 @@ impl Design {
 }
 
 /// Every standard category, alphabetically by label.
-pub async fn categories<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Category>, sqlx::Error> {
-    sqlx::query_as!(
-        Category,
+pub async fn categories(db: &SqlitePool) -> Result<Vec<Category>, sqlx::Error> {
+    let about = Categories::load(db).await?;
+    Ok(sqlx::query!(
         r#"SELECT name as "name!", label,
             coalesce(plural, label || 's') as "plural!: String",
-            named as "named: bool",
-            designs_interchangeable as "designs_interchangeable: bool",
-            section,
-            serial as "serial: bool",
-            logic,
-            holds_bytes as "holds_bytes: bool",
-            named_by_design as "named_by_design: bool"
+            named as "named: bool", section, logic
          FROM category ORDER BY label COLLATE NOCASE"#
     )
     .fetch_all(db)
-    .await
+    .await?
+    .into_iter()
+    .map(|row| Category {
+        measures: about.measures(&row.name),
+        aliases: about.aliases(&row.name),
+        name: row.name,
+        label: row.label,
+        plural: row.plural,
+        named: row.named,
+        section: row.section,
+        logic: row.logic,
+    })
+    .collect())
+}
+
+/// Gives `category`, of the list or off it, another word to be searched
+/// by, in the form a search term takes: lowercase, with spaces.
+pub async fn define_alias<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    alias: &str,
+    category: &str,
+) -> Result<(), sqlx::Error> {
+    let alias = alias.trim().to_lowercase().replace('_', " ");
+    sqlx::query!(
+        "INSERT INTO category_alias (alias, category) VALUES (?, ?)",
+        alias,
+        category
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Everyone credited on a stored build, by name.
@@ -1100,12 +1254,10 @@ pub async fn check_category(
             label: words(category),
             plural: words(category),
             named: false,
-            designs_interchangeable: true,
             section: None,
-            serial: false,
             logic: None,
-            holds_bytes: false,
-            named_by_design: false,
+            measures: Vec::new(),
+            aliases: Vec::new(),
         });
     let listed = designs(db)
         .await?
@@ -1123,27 +1275,41 @@ pub async fn check_category(
 
 /// Adds a standard category. A plural that is the label with an `s` is
 /// left for the database to make.
-pub async fn define_category<'e, E: SqliteExecutor<'e>>(
-    db: E,
+pub async fn define_category(
+    db: &SqlitePool,
     category: &Category,
 ) -> Result<(), sqlx::Error> {
     let plural = (category.plural != format!("{}s", category.label))
         .then_some(category.plural.as_str());
+    let mut tx = db.begin().await?;
     sqlx::query!(
-        "INSERT INTO category (name, label, plural, named, section,
-            serial, logic, holds_bytes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO category (name, label, plural, named, section, logic)
+         VALUES (?, ?, ?, ?, ?, ?)",
         category.name,
         category.label,
         plural,
         category.named,
         category.section,
-        category.serial,
-        category.logic,
-        category.holds_bytes
+        category.logic
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    for (position, measure) in (1_i64..).zip(&category.measures) {
+        let measure = measure.name();
+        sqlx::query!(
+            "INSERT INTO category_measure (category, measure, position)
+             VALUES (?, ?, ?)",
+            category.name,
+            measure,
+            position
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    for alias in &category.aliases {
+        define_alias(&mut *tx, alias, &category.name).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1406,6 +1572,7 @@ pub struct Details<'a> {
     /// `None` follows the category.
     pub logic: Option<&'a str>,
     pub throughput: Option<i64>,
+    pub at_least: Option<i64>,
     pub bytes: Option<i64>,
 }
 
@@ -1420,7 +1587,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?,
             description = ?, given_name = ?, logic = ?, throughput = ?,
-            bytes = ?,
+            at_least = ?, bytes = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -1435,6 +1602,7 @@ pub async fn set_details<'e, E: SqliteExecutor<'e>>(
         details.given_name,
         details.logic,
         details.throughput,
+        details.at_least,
         details.bytes,
         id,
     )
@@ -1471,6 +1639,7 @@ pub struct Changes<'a> {
     pub given_name: Option<&'a str>,
     pub logic: Option<&'a str>,
     pub throughput: Option<i64>,
+    pub at_least: Option<i64>,
     pub bytes: Option<i64>,
 }
 
@@ -1495,6 +1664,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
             given_name = coalesce(?, given_name),
             logic = coalesce(?, logic),
             throughput = coalesce(?, throughput),
+            at_least = coalesce(?, at_least),
             bytes = coalesce(?, bytes),
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
@@ -1512,6 +1682,7 @@ pub async fn update<'e, E: SqliteExecutor<'e>>(
         changes.given_name,
         changes.logic,
         changes.throughput,
+        changes.at_least,
         changes.bytes,
         id,
     )
@@ -1534,6 +1705,7 @@ pub enum Optional {
     /// Unknown logic follows the category's.
     Logic,
     Throughput,
+    AtLeast,
     Bytes,
 }
 
@@ -1556,6 +1728,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
     let given_name = has(Optional::GivenName);
     let logic = has(Optional::Logic);
     let throughput = has(Optional::Throughput);
+    let at_least = has(Optional::AtLeast);
     let bytes = has(Optional::Bytes);
     sqlx::query!(
         "UPDATE schematic SET
@@ -1569,6 +1742,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
             given_name = iif(?, NULL, given_name),
             logic = iif(?, NULL, logic),
             throughput = iif(?, NULL, throughput),
+            at_least = iif(?, NULL, at_least),
             bytes = iif(?, NULL, bytes)
          WHERE id = ?",
         width,
@@ -1581,6 +1755,7 @@ pub async fn forget<'e, E: SqliteExecutor<'e>>(
         given_name,
         logic,
         throughput,
+        at_least,
         bytes,
         id,
     )
@@ -1762,7 +1937,9 @@ mod tests {
             logic: Some("comb".to_owned()),
             own_logic: None,
             throughput: None,
-            serial: false,
+            at_least: None,
+            measures: vec![Measure::Width],
+            aliases: Vec::new(),
             torches: None,
             bytes: None,
             size: (19, 11, 18),
@@ -1775,7 +1952,6 @@ mod tests {
             design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
             design_given_label: None,
-            named_by_design: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -1838,6 +2014,7 @@ mod tests {
             category_label: Some("RAM".to_owned()),
             design: "other".to_owned(),
             bytes: Some(32),
+            measures: vec![Measure::Width, Measure::Bytes],
             tags: Vec::new(),
             ..cla()
         };
@@ -1854,39 +2031,44 @@ mod tests {
     }
 
     #[test]
-    fn an_incrementer_goes_by_its_design() {
+    fn a_category_label_keeps_its_symbols_out_of_the_filename() {
         let s = Schematic {
-            category: "incrementer".to_owned(),
-            category_label: Some("Incrementer".to_owned()),
-            design: "inc_dec".to_owned(),
-            design_given_label: Some("Inc/Dec".to_owned()),
-            named_by_design: true,
+            category: "inc_dec".to_owned(),
+            category_label: Some("Inc/Dec".to_owned()),
+            design: "other".to_owned(),
             tags: Vec::new(),
             ..cla()
         };
         assert_eq!(s.name(), "8-bit Inc/Dec");
         assert_eq!(s.filename(), "8_bit_Inc_Dec.schem");
-        let unsure = Schematic {
-            design: "other".to_owned(),
-            design_given_label: None,
-            ..s
-        };
-        assert_eq!(unsure.name(), "8-bit Incrementer");
     }
 
     #[test]
     fn a_design_keeps_its_label() {
         let s = Schematic {
-            category: "gate".to_owned(),
-            category_label: Some("Gate".to_owned()),
-            design: "nand_xnor".to_owned(),
-            design_given_label: Some("NAND+XNOR".to_owned()),
-            named_by_design: false,
+            category: "rng".to_owned(),
+            category_label: Some("RNG".to_owned()),
+            design: "lfsr".to_owned(),
+            design_given_label: Some("LFSR".to_owned()),
             tags: Vec::new(),
             ..cla()
         };
-        assert_eq!(s.name(), "8-bit NAND+XNOR Gate");
-        assert_eq!(s.filename(), "8_bit_NAND_XNOR_Gate.schem");
+        assert_eq!(s.name(), "8-bit LFSR RNG");
+    }
+
+    #[test]
+    fn a_threshold_names_its_k_after_its_width() {
+        let s = Schematic {
+            category: "threshold".to_owned(),
+            category_label: Some("Threshold".to_owned()),
+            design: "other".to_owned(),
+            at_least: Some(3),
+            measures: vec![Measure::Width, Measure::AtLeast],
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(s.name(), "8-bit At Least 3 Threshold");
+        assert_eq!(s.filename(), "8_bit_At_Least_3_Threshold.schem");
     }
 
     #[test]
@@ -1921,7 +2103,7 @@ mod tests {
             design: "other".to_owned(),
             width: None,
             throughput: Some(2),
-            serial: true,
+            measures: vec![Measure::Throughput],
             tags: Vec::new(),
             ..cla()
         };

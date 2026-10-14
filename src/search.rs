@@ -3,8 +3,9 @@
 //!
 //! Every term must match, so terms AND together. A term prefixed with `-`
 //! or written after `not` must not match. A term matches a schematic when
-//! it names one of its facts (category, orientation, a tag, its design or
-//! a flag, its width such as `8b`, its latency such as `3t`, a builder,
+//! it names one of its facts (category or one of its aliases, such as
+//! `connect4`, orientation, a tag, its design or a flag, its width such as
+//! `8b`, a threshold's `at least 3`, its latency such as `3t`, a builder,
 //! contributor, or importer, `stackable`, `sync` or `unsync`, `comb` or
 //! `seq`, `pipelined`). A name can be tied to its role, as in
 //! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
@@ -20,7 +21,7 @@
 
 use std::collections::HashSet;
 
-use crate::models::schematic::Schematic;
+use crate::models::schematic::{Measure, Schematic};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Term {
@@ -183,11 +184,9 @@ fn text(s: &Schematic) -> String {
 
 /// Every word a term can name a schematic by.
 fn facts(s: &Schematic) -> Vec<String> {
-    let mut facts = vec![
-        s.category.replace('_', " "),
-        s.orientation.clone(),
-        s.orientation_label().to_lowercase(),
-    ];
+    let mut facts = vec![s.category.replace('_', " ")];
+    facts.extend(s.aliases.iter().cloned());
+    facts.extend([s.orientation.clone(), s.orientation_label().to_lowercase()]);
     // Not the bare words, so `binary` and `hex` find the converters by name.
     facts.extend(s.encoding.as_ref().map(|e| format!("encoding:{e}")));
     for tag in &s.tags {
@@ -215,9 +214,12 @@ fn facts(s: &Schematic) -> Vec<String> {
         facts.push(format!("throughput:{t}"));
         // Only a serial build's throughput goes by its ticks alone, as its
         // name does; another's `3t` is its latency.
-        if s.serial {
+        if s.has(Measure::Throughput) {
             facts.extend(ticks(t));
         }
+    }
+    if let Some(k) = s.at_least {
+        facts.push(Measure::AtLeast.term(k));
     }
     // In-game names keep their capitals and underscores, but terms are
     // lowercase, with spaces for underscores.
@@ -327,7 +329,9 @@ mod tests {
             logic: Some("comb".to_owned()),
             own_logic: None,
             throughput: None,
-            serial: false,
+            at_least: None,
+            measures: vec![Measure::Width],
+            aliases: Vec::new(),
             torches: None,
             bytes: None,
             size: (1, 1, 1),
@@ -340,7 +344,6 @@ mod tests {
             design: "other".to_owned(),
             design_abbreviation: None,
             design_given_label: None,
-            named_by_design: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -458,13 +461,26 @@ mod tests {
     fn a_serial_throughput_matches_in_ticks() {
         let serial = Schematic {
             throughput: Some(2),
-            serial: true,
+            measures: vec![Measure::Throughput],
             ..schematic("serial_adder", "horz", &[])
         };
         assert!(find("2t", &serial));
         assert!(find("2-tick", &serial));
         assert!(find("throughput:2", &serial));
         assert!(!find("3t", &serial));
+    }
+
+    #[test]
+    fn a_category_is_found_by_its_aliases_and_a_threshold_by_its_k() {
+        let threshold = Schematic {
+            at_least: Some(3),
+            aliases: vec!["majority".to_owned()],
+            ..schematic("threshold", "horz", &[])
+        };
+        assert!(find("majority", &threshold));
+        assert!(find("\"at least 3\"", &threshold));
+        assert!(find("at_least_3", &threshold));
+        assert!(!find("\"at least 4\"", &threshold));
     }
 
     #[test]

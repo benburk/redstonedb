@@ -295,10 +295,7 @@ fn a_build_is_known_for_what_it_does() {
     let adder = simulate::guess(&blocks("alpha-rca")).unwrap();
     assert_eq!((adder.category, adder.wrong), ("adder", 0));
     let incrementer = simulate::guess(&blocks("inc-8")).unwrap();
-    assert_eq!(
-        (incrementer.category, incrementer.design),
-        ("incrementer", Some("increment"))
-    );
+    assert_eq!(incrementer.category, "incrementer");
     // A carry in saved the wrong way round gets every sum wrong, so it is
     // no adder until fixed.
     assert!(simulate::guess(&blocks("vert-3t-cca")).is_none());

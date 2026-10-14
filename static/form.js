@@ -4,8 +4,8 @@
 // Category fields: the category is typed, with a menu of the standard ones
 // under their sections, and the fields follow the one it names, by label or
 // name in any capitals. Each category's flags show only for it, the name box
-// only for a category whose builds are named, the capacity only for a
-// memory, and the design list only once the category has designs, offering
+// only for a category whose builds are named, a measure such as a memory's
+// capacity only for a category ranked by it, and the design list only once the category has designs, offering
 // just those; the logic's first choice names the category's usual one. Text
 // naming no standard category is one off the list, with no width, encoding,
 // or throughput; that waits until the box is left, so the fields do not
@@ -61,7 +61,10 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     form.querySelector("[data-named-field]").hidden = !has("data-named");
     form.querySelector("[data-usual-logic]").textContent =
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
-    form.querySelector("[data-bytes-field]").hidden = !has("data-holds-bytes");
+    const measures = (option?.dataset.measures ?? "").split(" ");
+    for (const field of form.querySelectorAll("[data-measure-field]")) {
+      field.hidden = !measures.includes(field.dataset.measureField);
+    }
     let designs = false;
     for (const group of design.querySelectorAll("optgroup")) {
       const mine = group.dataset.for === name;

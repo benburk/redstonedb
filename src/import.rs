@@ -236,7 +236,8 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
 /// The categories whose width, orientation, and encoding are read from the
 /// file, from input A; see `derived`. An adder's flags are read too; see
 /// `derived_flags`.
-pub const READ_FROM_FILE: [&str; 2] = ["adder", "incrementer"];
+pub const READ_FROM_FILE: [&str; 4] =
+    ["adder", "incrementer", "decrementer", "inc_dec"];
 
 /// What a category in `READ_FROM_FILE` takes from its builds' files in
 /// place of typed details.

@@ -115,6 +115,8 @@ pub struct Form {
     pub throughput: String,
     /// How many bytes a memory holds.
     pub bytes: String,
+    /// A threshold's k.
+    pub at_least: String,
     pub design: String,
     /// The ticked flags of every category's group, each with its category,
     /// such as `("adder", "carry_in")`; parsing keeps the chosen one's.
@@ -147,6 +149,7 @@ pub struct Parsed {
     pub logic: Option<String>,
     pub throughput: Option<i64>,
     pub bytes: Option<i64>,
+    pub at_least: Option<i64>,
     pub design: String,
     /// Ticked flags; any not of the category are dropped when stored.
     pub flags: Vec<String>,
@@ -218,6 +221,7 @@ impl Form {
             logic: get("logic"),
             throughput: get("throughput"),
             bytes: get("bytes"),
+            at_least: get("at_least"),
             design: get("design"),
             // Each category's flags are sent under its own name; parsing
             // keeps the chosen category's.
@@ -262,6 +266,7 @@ impl Form {
             logic: &self.logic,
             throughput: &self.throughput,
             bytes: &self.bytes,
+            at_least: &self.at_least,
             design: &self.design,
             flags: &self.flag_names,
             stackable: self.stackable,
@@ -315,6 +320,30 @@ impl Form {
         Ok((category, other))
     }
 
+    /// Refuses a tag worked out from the build, or a name no tag can have.
+    fn check_tags(&self) -> Result<(), String> {
+        if let Some(name) = self
+            .tags
+            .iter()
+            .find(|n| schematic::DERIVED.contains(&n.as_str()))
+        {
+            return Err(format!(
+                "The {} tag is worked out from the build; it cannot be \
+                 added by hand.",
+                name.replace('_', " ")
+            ));
+        }
+        if let Some(name) =
+            self.tags.iter().find(|n| !schematic::valid_tag_name(n))
+        {
+            return Err(format!(
+                "{} cannot be a tag: use letters, digits, and spaces.",
+                name.replace('_', " ")
+            ));
+        }
+        Ok(())
+    }
+
     /// The ticks in `category`'s group of flags.
     fn flags_of(&self, category: &str) -> Vec<String> {
         self.flags
@@ -366,25 +395,7 @@ impl Form {
                  underscores, up to 16."
             ));
         }
-        if let Some(name) = self
-            .tags
-            .iter()
-            .find(|n| schematic::DERIVED.contains(&n.as_str()))
-        {
-            return Err(format!(
-                "The {} tag is worked out from the build; it cannot be \
-                 added by hand.",
-                name.replace('_', " ")
-            ));
-        }
-        if let Some(name) =
-            self.tags.iter().find(|n| !schematic::valid_tag_name(n))
-        {
-            return Err(format!(
-                "{} cannot be a tag: use letters, digits, and spaces.",
-                name.replace('_', " ")
-            ));
-        }
+        self.check_tags()?;
         if self.given_name.trim().chars().count() > 60 {
             return Err("A name is at most 60 characters.".to_owned());
         }
@@ -423,6 +434,7 @@ impl Form {
                 number(&self.throughput, "Throughput")?.filter(|t| *t > 0)
             },
             bytes: number(&self.bytes, "Capacity")?.filter(|b| *b > 0),
+            at_least: number(&self.at_least, "At least")?.filter(|k| *k > 0),
             design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
             flags,
             builders: self.builders.clone(),
@@ -447,6 +459,7 @@ impl Parsed {
             logic: self.logic.as_deref(),
             throughput: self.throughput,
             bytes: self.bytes,
+            at_least: self.at_least,
             design: Some(&self.design),
         }
     }
@@ -496,6 +509,7 @@ fn is_date(d: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::schematic::Measure;
 
     #[test]
     fn a_date_is_a_real_day_as_yyyy_mm_dd() {
@@ -587,12 +601,10 @@ mod tests {
             label: "Hex to Binary".to_owned(),
             plural: "Hex to Binary".to_owned(),
             named: false,
-            designs_interchangeable: true,
             section: None,
-            serial: false,
             logic: None,
-            holds_bytes: false,
-            named_by_design: false,
+            measures: vec![Measure::Width],
+            aliases: Vec::new(),
         };
         for typed in [
             "Hex to Binary",

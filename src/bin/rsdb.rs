@@ -11,7 +11,9 @@ use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
     import, interface, lint,
-    models::schematic::{self, Changes, Credit, New, Optional, StackDirection},
+    models::schematic::{
+        self, Changes, Credit, Measure, New, Optional, StackDirection,
+    },
     models::user::{Role, User},
     models::{simulation, version},
     mojang,
@@ -69,7 +71,8 @@ enum Command {
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
     Respell,
-    /// List the standard categories, with their designs and flags
+    /// List the standard categories, with their measures, designs, flags,
+    /// and aliases
     Categories,
     /// Add a standard category to the list
     DefineCategory(NewCategory),
@@ -83,14 +86,18 @@ enum Command {
         #[arg(long)]
         label: Option<String>,
     },
-    /// Add a design to a category
+    /// Give a category, of the list or off it, another word to be searched
+    /// by, such as `connect4` for a four-in-a-row detector
+    DefineAlias { category: String, alias: String },
+    /// Add a design to a category: a way of working, as its every design
+    /// does the same job
     DefineDesign {
         category: String,
         name: String,
         /// The usual short name, such as CLA
         #[arg(long)]
         abbreviation: Option<String>,
-        /// How people read it, such as XOR; the name's words by default
+        /// How people read it, such as LFSR; the name's words by default
         #[arg(long)]
         label: Option<String>,
     },
@@ -178,6 +185,7 @@ struct Set {
             "name",
             "logic",
             "throughput",
+            "at-least",
             "bytes",
         ]
     )]
@@ -228,17 +236,19 @@ struct NewCategory {
     /// The sidebar section it sits in; left out, it sits under Other
     #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
     section: Option<String>,
-    /// Its builds are serial, taking their operands a bit at a time, so
-    /// their throughput leads their names and splits their leaderboards
-    #[arg(long)]
-    serial: bool,
+    /// A number its builds are named and ranked by, in order; repeatable,
+    /// and width alone when left out. A memory takes `width` then `bytes`,
+    /// a serial build `throughput`, and a threshold `width` then
+    /// `at_least`
+    #[arg(long = "measure", value_parser = Measure::ALL.map(Measure::name))]
+    measures: Vec<String>,
     /// Its builds' usual logic, which a build follows unless it gives its
     /// own
     #[arg(long, value_parser = ["comb", "seq"])]
     logic: Option<String>,
-    /// Its builds are memories, each holding a number of bytes
-    #[arg(long)]
-    holds_bytes: bool,
+    /// Another word it is searched by; repeatable
+    #[arg(long = "alias")]
+    aliases: Vec<String>,
 }
 
 #[derive(Args)]
@@ -261,6 +271,10 @@ struct Details {
     /// For a memory, how many bytes it holds, as in a 32-byte RAM
     #[arg(long)]
     bytes: Option<u32>,
+    /// For a threshold, the fewest inputs on that turn it on, as in an
+    /// at-least-3 threshold
+    #[arg(long)]
+    at_least: Option<u32>,
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
@@ -349,6 +363,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Respell => respell(db).await,
         Command::Categories => print_categories(db).await,
         Command::DefineCategory(args) => define_category(db, args).await,
+        Command::DefineAlias { category, alias } => {
+            Ok(schematic::define_alias(db, &alias, &category).await?)
+        }
         Command::DefineFlag {
             category,
             name,
@@ -414,14 +431,23 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             Ok(())
         }
         Command::DefineTag { name, kind, token } => {
-            if schematic::DERIVED.contains(&schematic::tag_name(&name).as_str())
-            {
-                bail!("{name} is worked out from the build, not tagged");
-            }
-            schematic::define_tag(db, &name, token.as_deref(), &kind).await?;
-            Ok(())
+            define_tag(db, &name, &kind, token.as_deref()).await
         }
     }
+}
+
+/// Adds a tag, unless the build itself works it out, as it does torchless.
+async fn define_tag(
+    db: &SqlitePool,
+    name: &str,
+    kind: &str,
+    token: Option<&str>,
+) -> Result<()> {
+    if schematic::DERIVED.contains(&schematic::tag_name(name).as_str()) {
+        bail!("{name} is worked out from the build, not tagged");
+    }
+    schematic::define_tag(db, name, token, kind).await?;
+    Ok(())
 }
 
 /// Changes the fields `args` gives and forgets the ones it unsets.
@@ -452,6 +478,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         logic: details.logic.as_deref(),
         throughput: details.throughput.map(i64::from),
         bytes: details.bytes.map(i64::from),
+        at_least: details.at_least.map(i64::from),
     };
     let current = load(db, &id).await?;
     let category = changes.category.unwrap_or(&current.category);
@@ -475,6 +502,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             "logic" => Some(Optional::Logic),
             "throughput" => Some(Optional::Throughput),
             "bytes" => Some(Optional::Bytes),
+            "at-least" => Some(Optional::AtLeast),
             "design" => Some(Optional::Design),
             _ => None,
         })
@@ -577,6 +605,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             logic: details.logic.as_deref(),
             throughput: details.throughput.map(i64::from),
             bytes: details.bytes.map(i64::from),
+            at_least: details.at_least.map(i64::from),
             torches: prepared.torches,
             keeps_paste: args.keep_paste,
             uploaded_by: None,
@@ -649,12 +678,17 @@ async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
         name: args.name,
         label,
         named: args.named,
-        designs_interchangeable: true,
         section: args.section,
-        serial: args.serial,
         logic: args.logic,
-        holds_bytes: args.holds_bytes,
-        named_by_design: false,
+        measures: if args.measures.is_empty() {
+            vec![Measure::Width]
+        } else {
+            args.measures
+                .iter()
+                .filter_map(|name| Measure::named(name))
+                .collect()
+        },
+        aliases: args.aliases,
     };
     Ok(schematic::define_category(db, &category).await?)
 }
@@ -712,13 +746,20 @@ async fn print_categories(db: &SqlitePool) -> Result<()> {
             .filter(|f| f.category == category.name)
             .map(|f| f.name.as_str())
             .collect();
-        let mut parts =
-            vec![format!("{:<20} {:<22}", category.name, category.label)];
+        let measures: Vec<&str> =
+            category.measures.iter().map(|m| m.name()).collect();
+        let mut parts = vec![
+            format!("{:<20} {:<22}", category.name, category.label),
+            format!("by {}", measures.join(", ")),
+        ];
         if !designs.is_empty() {
             parts.push(format!("designs: {}", designs.join(", ")));
         }
         if !flags.is_empty() {
             parts.push(format!("flags: {}", flags.join(", ")));
+        }
+        if !category.aliases.is_empty() {
+            parts.push(format!("aliases: {}", category.aliases.join(", ")));
         }
         println!("{}", parts.join(" ").trim_end());
     }
@@ -1129,6 +1170,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     );
     if let Some(bytes) = s.bytes {
         println!("capacity     {bytes} bytes");
+    }
+    if let Some(k) = s.at_least {
+        println!("at least     {k} on");
     }
     println!("synchronized {}", s.synchronized_label());
     println!(

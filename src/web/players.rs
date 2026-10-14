@@ -19,7 +19,7 @@ use crate::{
     mojang,
 };
 
-use super::{leaderboards::splits, pages};
+use super::pages;
 
 /// How long a player looked up is kept before Mojang is asked again.
 const KEPT: Duration = Duration::from_hours(6);
@@ -38,11 +38,10 @@ pub async fn show(
     let loaded = async {
         Ok::<_, sqlx::Error>((
             schematic::all(&state.db).await?,
-            schematic::categories(&state.db).await?,
             User::all(&state.db).await?,
         ))
     };
-    let (mut all, categories, users) = match loaded.await {
+    let (mut all, users) = match loaded.await {
         Ok(loaded) => loaded,
         Err(err) => return internal_error(err).into_response(),
     };
@@ -67,7 +66,7 @@ pub async fn show(
         return Redirect::permanent(&format!("/players/{spelling}"))
             .into_response();
     }
-    let records = leaderboard::most_records(&all, splits(&categories))
+    let records = leaderboard::most_records(&all)
         .into_iter()
         .find(|s| same(&s.name))
         .map_or(0, |s| s.count);

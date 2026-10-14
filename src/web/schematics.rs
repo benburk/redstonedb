@@ -14,7 +14,7 @@ use crate::{
     import,
     interface::{self, Interface},
     lint,
-    models::schematic::{self, Category, Credit, Schematic},
+    models::schematic::{self, Category, Credit, Measure, Schematic},
     models::user::User,
     models::{simulation, version},
     mojang,
@@ -474,9 +474,13 @@ async fn saved(
     if !category.named {
         details.given_name = None;
     }
-    // Likewise, only a memory keeps a capacity.
-    if !category.holds_bytes {
+    // Likewise, only a category ranked by a measure keeps it, as a memory
+    // does its capacity.
+    if !category.has(Measure::Bytes) {
         details.bytes = None;
+    }
+    if !category.has(Measure::AtLeast) {
+        details.at_least = None;
     }
     // Credited as their players spell them, asked before the transaction
     // opens so it is not held across the lookup.

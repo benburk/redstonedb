@@ -3,9 +3,9 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Board, Choice, Measure, Placed, SHOWN, Standing},
+    leaderboard::{self, Board, Choice, Placed, SHOWN, Standing},
     models::{
-        schematic::{self, Category, Schematic},
+        schematic::{self, Category, Measure, Schematic},
         user::User,
     },
 };
@@ -163,10 +163,11 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
                         h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
                         (category_tabs(&category.name, true))
                     }
-                    @if board.measures.is_empty() {
+                    @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
                         p class="text-muted" {
-                            "No " (category.plural.to_lowercase())
-                            " of known " (board.by.name()) " yet, so none to rank."
+                            "No " (category.plural.to_lowercase()) " of known "
+                            (board.splits.first().map_or("width", |split| split.measure.heading()).to_lowercase())
+                            " yet, so none to rank."
                         }
                     } @else {
                         (choices(&path, board))
@@ -179,11 +180,10 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
 }
 
 /// A board's choices as its address gives them; `None` leaves one out.
-#[derive(Clone, Copy)]
+#[derive(Clone, Default)]
 struct Address<'a> {
-    by: Measure,
-    measure: Option<i64>,
-    bytes: Option<i64>,
+    /// A value of each measure chosen, such as a width of 8.
+    measures: Vec<(Measure, i64)>,
     logic: Option<&'a str>,
     encoding: Option<&'a str>,
     orientation: Option<&'a str>,
@@ -191,15 +191,12 @@ struct Address<'a> {
 }
 
 impl Address<'_> {
-    /// The address under `path`. The measure goes under its own name,
-    /// `width` or `throughput`.
+    /// The address under `path`. Each measure goes under its own name, such
+    /// as `width` or `throughput`.
     fn href(&self, path: &str) -> String {
         let mut params = form_urlencoded::Serializer::new(String::new());
-        if let Some(n) = self.measure {
-            params.append_pair(self.by.name(), &n.to_string());
-        }
-        if let Some(bytes) = self.bytes {
-            params.append_pair("bytes", &bytes.to_string());
+        for (measure, n) in &self.measures {
+            params.append_pair(measure.name(), &n.to_string());
         }
         let named = [
             ("logic", self.logic),
@@ -221,77 +218,65 @@ impl Address<'_> {
     }
 }
 
-/// The width or throughput, logic, encoding, orientation, and design the
-/// board is narrowed to. Changing one resets those after it, which the new
-/// choice may not have.
+/// The values chosen of the board's first `count` measures.
+fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
+    board.splits[..count]
+        .iter()
+        .filter_map(|split| Some((split.measure, split.chosen?)))
+        .collect()
+}
+
+/// The measures, such as width, then the logic, encoding, orientation, and
+/// design the board is narrowed to. Changing one resets those after it,
+/// which the new choice may not have.
 fn choices(path: &str, board: &Board) -> Markup {
-    let none = Address {
-        by: board.by,
-        measure: None,
-        bytes: None,
-        logic: None,
-        encoding: None,
-        orientation: None,
-        design: None,
-    };
-    let measure = Address {
-        measure: board.measure,
-        ..none
-    };
-    let capacity = Address {
-        bytes: board.capacity,
-        ..measure
+    let measured = Address {
+        measures: chosen_measures(board, board.splits.len()),
+        ..Address::default()
     };
     let logic = Address {
         logic: board.logic.as_deref(),
-        ..capacity
+        ..measured.clone()
     };
     let encoding = Address {
         encoding: board.encoding.as_deref(),
-        ..logic
+        ..logic.clone()
     };
     let orientation = Address {
         orientation: board.orientation.as_deref(),
-        ..encoding
-    };
-    let heading = if board.by == Measure::Width {
-        "Width"
-    } else {
-        "Throughput"
+        ..encoding.clone()
     };
     html! {
         div class="mb-6 flex flex-col gap-2" {
-            (choice_row(heading, &board.measures, |c| {
-                (board.measure.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
-                    Address { measure: c.value.parse().ok(), ..none }.href(path))
-            }, None))
-            @if !board.capacities.is_empty() {
-                (choice_row("Capacity", &board.capacities, |c| {
-                    (board.capacity.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
-                        Address { bytes: c.value.parse().ok(), ..measure }.href(path))
+            @for (i, split) in board.splits.iter().enumerate() {
+                (choice_row(split.measure.heading(), &split.choices, |c| {
+                    let mut values = chosen_measures(board, i);
+                    values.extend(c.value.parse().ok().map(|n| (split.measure, n)));
+                    (split.chosen.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
+                        Address { measures: values, ..Address::default() }.href(path))
                 }, None))
             }
             @if !board.logics.is_empty() {
                 (choice_row("Logic", &board.logics, |c| {
                     (logic.logic == Some(c.value.as_str()),
-                        Address { logic: Some(&c.value), ..capacity }.href(path))
+                        Address { logic: Some(&c.value), ..measured.clone() }.href(path))
                 }, None))
             }
             @if !board.encodings.is_empty() {
                 (choice_row("Encoding", &board.encodings, |c| {
                     (encoding.encoding == Some(c.value.as_str()),
-                        Address { encoding: Some(&c.value), ..logic }.href(path))
+                        Address { encoding: Some(&c.value), ..logic.clone() }.href(path))
                 }, None))
             }
             (choice_row("Orientation", &board.orientations, |c| {
                 (orientation.orientation == Some(c.value.as_str()),
-                    Address { orientation: Some(&c.value), ..encoding }.href(path))
+                    Address { orientation: Some(&c.value), ..encoding.clone() }.href(path))
             }, None))
             @if !board.designs.is_empty() {
                 @let all = board.all_designs.then(|| (board.design.is_none(), orientation.href(path)));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        Address { design: Some(&c.value), ..orientation }.href(path))
+                        Address { design: Some(&c.value), ..orientation.clone() }.href(path))
                 }, all))
             }
         }
@@ -399,10 +384,9 @@ fn board_name(category: &Category, board: &Board) -> String {
             .map(|c| c.label.clone())
     });
     board
-        .measure
-        .map(|n| board.by.label(n))
-        .into_iter()
-        .chain(board.capacity.map(|b| format!("{b}-byte")))
+        .splits
+        .iter()
+        .filter_map(|split| split.chosen.map(|n| split.measure.lead(n)))
         // Named only where the category has builds of each.
         .chain(
             board

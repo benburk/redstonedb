@@ -619,16 +619,20 @@ fn block(state: &str) -> Result<Block> {
 }
 
 /// The test a build gets from its category and width: for now, adders,
-/// incrementers, and combinational multipliers of up to 32 bits have one.
+/// incrementers, decrementers, inc/decs, and combinational multipliers of
+/// up to 32 bits have one.
 /// Each tries every case when they number few enough, else every case of
 /// each byte and the test patterns.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
     /// The sums of A, B, and any carry in.
     Adder,
-    /// A plus or minus 1, or plus or minus its control line, whichever of
-    /// those it gets most right.
+    /// A plus 1, or plus its control line.
     Incrementer,
+    /// A minus 1, or minus its control line.
+    Decrementer,
+    /// A plus 1 one way of its control line and minus 1 the other.
+    IncDec,
     /// The products of A and B, plus C when there is one.
     Multiplier,
 }
@@ -639,7 +643,13 @@ pub enum Test {
 pub const INFERS_STACKING: [&str; 1] = ["adder"];
 
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 3] = [Test::Adder, Test::Incrementer, Test::Multiplier];
+const TESTS: [Test; 5] = [
+    Test::Adder,
+    Test::Incrementer,
+    Test::Decrementer,
+    Test::IncDec,
+    Test::Multiplier,
+];
 
 impl Test {
     pub fn of(category: &str, width: Option<i64>) -> Option<Self> {
@@ -654,6 +664,8 @@ impl Test {
         match self {
             Test::Adder => "adder",
             Test::Incrementer => "incrementer",
+            Test::Decrementer => "decrementer",
+            Test::IncDec => "inc_dec",
             Test::Multiplier => "multiplier",
         }
     }
@@ -662,7 +674,9 @@ impl Test {
     pub fn run(self, blocks: &Blocks) -> Report {
         let result = match self {
             Test::Adder => check_adder(blocks),
-            Test::Incrementer => check_incrementer(blocks, false),
+            Test::Incrementer | Test::Decrementer | Test::IncDec => {
+                check_incrementer(blocks, false, Some(self.name()))
+            }
             Test::Multiplier => check_multiplier(blocks),
         };
         match result {
@@ -683,7 +697,10 @@ impl Test {
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
-            Test::Incrementer | Test::Multiplier => None,
+            Test::Incrementer
+            | Test::Decrementer
+            | Test::IncDec
+            | Test::Multiplier => None,
         }
     }
 
@@ -694,7 +711,9 @@ impl Test {
         let mut interface = interface::read(blocks);
         let inputs = match self {
             Test::Adder => adder_bench(&mut interface)?.inputs,
-            Test::Incrementer => incrementer_bench(&interface)?.inputs,
+            Test::Incrementer | Test::Decrementer | Test::IncDec => {
+                incrementer_bench(&interface)?.inputs
+            }
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
         };
         timing::measure(blocks, &interface, &inputs, cancel)
@@ -1213,12 +1232,18 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     (cases, paired)
 }
 
-/// Runs an incrementer through its inputs, every value of A with its
-/// control line each way, and checks the result against what each kind of
-/// incrementer gives: A plus or minus 1, plus or minus its control line,
-/// or plus 1 one way and minus 1 the other. The kind it gets most right
-/// names its cases. With `quick`, only the test patterns are tried.
-fn check_incrementer(blocks: &Blocks, quick: bool) -> Result<Run> {
+/// Runs an incrementer, a decrementer, or an inc/dec through its inputs,
+/// every value of A with its control line each way, and checks the result
+/// against what each kind of `category` gives: an incrementer's A plus 1
+/// or plus its control line, a decrementer's A minus either, and an
+/// inc/dec's plus 1 one way and minus 1 the other. With no category, every
+/// kind is tried, as for a guess. The kind it gets most right names its
+/// cases. With `quick`, only the test patterns are tried.
+fn check_incrementer(
+    blocks: &Blocks,
+    quick: bool,
+    category: Option<&str>,
+) -> Result<Run> {
     let interface = interface::read(blocks);
     let bench = incrementer_bench(&interface)?;
     let widths = bench.widths(&interface);
@@ -1234,7 +1259,17 @@ fn check_incrementer(blocks: &Blocks, quick: bool) -> Result<Run> {
         .inputs
         .get(1)
         .map(|&i| interface.inputs[i].name.clone());
-    let best = changes(line.as_deref())
+    let kinds: Vec<Change> = changes(line.as_deref())
+        .into_iter()
+        .filter(|change| category.is_none_or(|c| change.category == c))
+        .collect();
+    if kinds.is_empty() {
+        broken!(
+            "An inc/dec has a control line to choose between adding and \
+             subtracting 1, but this has none."
+        );
+    }
+    let best = kinds
         .into_iter()
         .map(|change| {
             let mut run = judge(&interface, &bench, &cases, &got, |case| {
@@ -1249,28 +1284,30 @@ fn check_incrementer(blocks: &Blocks, quick: bool) -> Result<Run> {
 }
 
 /// One kind of incrementer: its cases' name, such as `A + increment`, the
-/// design it is, and what it gives for A and its control line.
+/// category it is, and what it gives for A and its control line.
 struct Change {
     name: String,
-    design: &'static str,
+    category: &'static str,
     apply: fn(u64, u64) -> u64,
 }
 
 /// The kinds of incrementer with control line `line`, if any.
 fn changes(line: Option<&str>) -> Vec<Change> {
-    let change = |name: String, design, apply| Change {
+    let change = |name: String, category, apply| Change {
         name,
-        design,
+        category,
         apply,
     };
     match line {
         None => vec![
-            change("A + 1".to_owned(), "increment", |a, _| a.wrapping_add(1)),
-            change("A − 1".to_owned(), "decrement", |a, _| a.wrapping_sub(1)),
+            change("A + 1".to_owned(), "incrementer", |a, _| a.wrapping_add(1)),
+            change("A − 1".to_owned(), "decrementer", |a, _| {
+                a.wrapping_sub(1)
+            }),
         ],
         Some(line) => vec![
-            change(format!("A + {line}"), "increment", u64::wrapping_add),
-            change(format!("A − {line}"), "decrement", u64::wrapping_sub),
+            change(format!("A + {line}"), "incrementer", u64::wrapping_add),
+            change(format!("A − {line}"), "decrementer", u64::wrapping_sub),
             change(
                 format!("A + 1, or − 1 with {line} on"),
                 "inc_dec",
@@ -1439,8 +1476,6 @@ fn telling(width: usize) -> Vec<u64> {
 pub struct Guess {
     /// Its category, such as `adder`.
     pub category: &'static str,
-    /// Its design, when the test tells it, as for an incrementer.
-    pub design: Option<&'static str>,
     /// What its cases are, such as `A + B + carry in`.
     pub pattern: String,
     pub cases: u64,
@@ -1452,25 +1487,29 @@ pub struct Guess {
 /// three in four do. Quick enough to run before anyone says what it is,
 /// even for a hex build, which runs slower.
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
-    TESTS
+    // One run tries every kind of incrementer, and the kind it gets most
+    // right names its category.
+    let tried = [Test::Adder, Test::Incrementer, Test::Multiplier];
+    tried
         .into_iter()
         .filter_map(|test| {
             let run = match test {
                 Test::Adder => check_adder_on(blocks, true),
-                Test::Incrementer => check_incrementer(blocks, true),
                 Test::Multiplier => check_multiplier_on(blocks, true),
+                _ => check_incrementer(blocks, true, None),
             }
             .ok()?;
-            let design = (test == Test::Incrementer).then(|| {
+            let category = if test == Test::Incrementer {
                 let line = run.inputs.get(1).map(|signal| signal.name.as_str());
                 changes(line)
                     .into_iter()
                     .find(|change| change.name == run.pattern)
-                    .map_or("increment", |change| change.design)
-            });
+                    .map_or("incrementer", |change| change.category)
+            } else {
+                test.name()
+            };
             Some(Guess {
-                category: test.name(),
-                design,
+                category,
                 pattern: run.pattern,
                 cases: run.cases,
                 wrong: run.wrong,
@@ -1689,14 +1728,15 @@ mod tests {
     fn an_incrementer_names_what_it_does_by_its_control_line() {
         let kinds: Vec<(String, &str)> = changes(Some("increment"))
             .into_iter()
-            .map(|change| (change.name, change.design))
+            .map(|change| (change.name, change.category))
             .collect();
-        assert_eq!(kinds[0], ("A + increment".to_owned(), "increment"));
-        assert_eq!(kinds[1].1, "decrement");
+        assert_eq!(kinds[0], ("A + increment".to_owned(), "incrementer"));
+        assert_eq!(kinds[1].1, "decrementer");
         // Plus 1 with the line off, minus 1 with it on.
         let inc_dec = &changes(Some("decrement"))[2];
         assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (6, 4));
         assert_eq!(Test::of("incrementer", Some(8)), Some(Test::Incrementer));
+        assert_eq!(Test::of("inc_dec", Some(8)), Some(Test::IncDec));
     }
 
     #[test]

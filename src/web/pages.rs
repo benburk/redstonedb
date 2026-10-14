@@ -11,7 +11,8 @@ use crate::{
     models::simulation::Status,
     models::{
         schematic::{
-            self, Category, Design, Flag, Schematic, StackDirection, Tag,
+            self, Category, Design, Flag, Measure, Schematic, StackDirection,
+            Tag,
         },
         user::{Role, User},
         version::Version,
@@ -533,21 +534,15 @@ fn table(schematics: &[Schematic]) -> Markup {
     }
 }
 
-/// A build's width, and a memory's capacity.
+/// The numbers a build's category names and ranks it by, such as its
+/// width and a memory's capacity.
 fn measure_fields(s: &Schematic) -> Markup {
-    let count = |n: i64, one: &str, many: &str| {
-        format!("{n} {}", if n == 1 { one } else { many })
-    };
     html! {
-        // A serial build with a throughput has no width to miss.
-        @if s.width.is_some() || !s.serial || s.throughput.is_none() {
-            (field("Width", s.width.map_or_else(
+        @for &measure in &s.measures {
+            (field(measure.heading(), measure.of(s).map_or_else(
                 || html! { "unknown" },
-                |w| search_link(&s.width_label().unwrap_or_default(), &format!("{w}b")),
+                |n| search_link(&measure.words(n), &measure.term(n)),
             )))
-        }
-        @if let Some(bytes) = s.bytes {
-            (field("Capacity", search_link(&count(bytes, "byte", "bytes"), &format!("{bytes}-byte"))))
         }
     }
 }
@@ -557,13 +552,13 @@ fn measure_fields(s: &Schematic) -> Markup {
 fn timing_fields(s: &Schematic) -> Markup {
     html! {
         (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
-        (field("Throughput", s.throughput.map_or_else(
-            || html! { "unknown" },
-            |t| search_link(
-                &format!("{t} {}", if t == 1 { "tick" } else { "ticks" }),
-                &format!("throughput:{t}"),
-            ),
-        )))
+        // A serial build's throughput is among its measures.
+        @if !s.has(Measure::Throughput) {
+            (field("Throughput", s.throughput.map_or_else(
+                || html! { "unknown" },
+                |t| search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")),
+            )))
+        }
         (field("Synchronized", match s.synchronized {
             Some(true) => search_link("yes", "sync"),
             Some(false) => search_link("no", "unsync"),
@@ -1390,6 +1385,8 @@ pub struct Fields<'a> {
     pub throughput: &'a str,
     /// How many bytes a memory holds.
     pub bytes: &'a str,
+    /// A threshold's k.
+    pub at_least: &'a str,
     pub design: &'a str,
     /// The ticked flags, such as `carry_in`.
     pub flags: &'a [String],
@@ -1455,7 +1452,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
     html! {
         @let chosen = choices.category(f.category);
         @let named = chosen.is_some_and(|c| c.named);
-        @let holds_bytes = chosen.is_some_and(|c| c.holds_bytes);
+        @let has = |measure| chosen.is_some_and(|c: &Category| c.has(measure));
         @let chosen_name = chosen.map_or("", |c| c.name.as_str());
         @let has_designs = choices
             .designs
@@ -1489,12 +1486,11 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
-                                    data-serial[category.serial]
                                     data-logic=(category.logic.as_deref().map_or("unknown", schematic::logic_label).to_lowercase())
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
                                     data-tested[simulate::Test::of(&category.name, Some(1)).is_some()]
-                                    data-holds-bytes[category.holds_bytes]
+                                    data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
                                 }
@@ -1517,10 +1513,16 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 placeholder="such as Bus Crossing" class="input";
         }
         // For a memory, such as RAM.
-        label class="field" data-bytes-field hidden[!holds_bytes] {
+        label class="field" data-measure-field="bytes" hidden[!has(Measure::Bytes)] {
             span { "Capacity (bytes)" }
             input type="number" name="bytes" value=(f.bytes) min="1"
                 inputmode="numeric" placeholder="such as 32" class="input";
+        }
+        // For a threshold.
+        label class="field" data-measure-field="at_least" hidden[!has(Measure::AtLeast)] {
+            span { "Turns on with at least (inputs)" }
+            input type="number" name="at_least" value=(f.at_least) min="1"
+                inputmode="numeric" placeholder="such as 3" class="input";
         }
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {

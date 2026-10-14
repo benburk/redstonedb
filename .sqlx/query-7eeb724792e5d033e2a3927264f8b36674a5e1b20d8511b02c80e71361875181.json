@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\", section, logic\n         FROM category ORDER BY label COLLATE NOCASE",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "plural!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "named: bool",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "section",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "logic",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7eeb724792e5d033e2a3927264f8b36674a5e1b20d8511b02c80e71361875181"
+}

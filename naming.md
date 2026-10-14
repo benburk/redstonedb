@@ -1,6 +1,6 @@
 # Naming
 
-A build's name is its width, design, and category, such as `8-bit Carry Lookahead Adder`. Unknown parts are left out, and so is the design `other`. Its download filename is that name with an underscore for each run of anything but letters and digits, since Schemati, the Open Redstone Engineers server's schematic store, takes no other characters:
+A build's name is its category's measures, such as its width, then its design and category, such as `8-bit Carry Lookahead Adder` or `8-bit At Least 3 Threshold`. Unknown parts are left out, and so is the design `other`. Its download filename is that name with an underscore for each run of anything but letters and digits, since Schemati, the Open Redstone Engineers server's schematic store, takes no other characters:
 
 ```text
 8_bit_Carry_Lookahead_Adder.schem

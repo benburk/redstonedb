@@ -16,7 +16,7 @@ use crate::{
     import::{self, Prepared},
     interface, lint,
     models::{
-        schematic::{self, New, StackDirection, Tag},
+        schematic::{self, Measure, New, StackDirection, Tag},
         simulation,
         user::User,
     },
@@ -171,10 +171,8 @@ pub async fn preview(
         logic: "",
         throughput: "",
         bytes: "",
-        design: guess
-            .as_ref()
-            .and_then(|guess| guess.design)
-            .unwrap_or("other"),
+        at_least: "",
+        design: "other",
         flags: &flags,
         stackable: false,
         stack_rows: &stack_rows,
@@ -348,15 +346,14 @@ async fn publish_checked(
         Err(err) => return Err(format!("Could not check the tags: {err}.")),
     }
     // Checked here too, so the refusal reads as a sentence of its own.
-    let holds_bytes = match schematic::check_category(
+    let category = match schematic::check_category(
         &state.db,
         &parsed.category,
         &parsed.design,
     )
     .await
     {
-        // Only a memory keeps a capacity.
-        Ok(Ok(category)) => category.holds_bytes,
+        Ok(Ok(category)) => category,
         Ok(Err(message)) => return Err(message),
         Err(err) => {
             return Err(format!("Could not check the category: {err}."));
@@ -386,7 +383,10 @@ async fn publish_checked(
         given_name: parsed.given_name.as_deref(),
         logic: parsed.logic.as_deref(),
         throughput: parsed.throughput,
-        bytes: parsed.bytes.filter(|_| holds_bytes),
+        // Only a category ranked by a measure keeps it, as a memory does
+        // its capacity.
+        bytes: parsed.bytes.filter(|_| category.has(Measure::Bytes)),
+        at_least: parsed.at_least.filter(|_| category.has(Measure::AtLeast)),
         torches: prepared.torches,
         keeps_paste: sent.settings.keep_paste,
         uploaded_by: Some(user.id),

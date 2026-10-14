@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT category, measure FROM category_measure\n             ORDER BY category, position",
+  "describe": {
+    "columns": [
+      {
+        "name": "category",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "measure",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e41217cf5c310ca8f231d5792f54ffe4e19a21186bd23e1468c1ba9a9f3f8544"
+}

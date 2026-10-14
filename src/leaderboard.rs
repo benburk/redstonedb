@@ -1,56 +1,20 @@
 //! Leaderboards: a category's builds ranked against the others that match
-//! them in width, logic, encoding, orientation, and design, since only
-//! those compete: a hex adder never meets a binary one, nor a sequential
-//! multiplier a combinational one. A serial category's
-//! builds match in throughput instead of width.
+//! them in its measures, such as width, then logic, encoding, orientation,
+//! and design, since only those compete: a hex adder never meets a binary
+//! one, nor a sequential multiplier a combinational one.
 
 use std::collections::BTreeMap;
 
-use crate::models::schematic::Schematic;
+use crate::models::schematic::{Measure, Schematic};
 
 /// How many builds each ranking shows.
 pub const SHOWN: usize = 10;
 
-/// What a category's boards are split by first: width in bits, or for a
-/// serial category, throughput in ticks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Measure {
-    Width,
-    Throughput,
-}
-
-impl Measure {
-    pub fn of(self, s: &Schematic) -> Option<i64> {
-        match self {
-            Measure::Width => s.width,
-            Measure::Throughput => s.throughput,
-        }
-    }
-
-    /// Such as `8-bit` or `2-tick`.
-    pub fn label(self, n: i64) -> String {
-        match self {
-            Measure::Width => format!("{n}-bit"),
-            Measure::Throughput => format!("{n}-tick"),
-        }
-    }
-
-    /// Its name as a heading, and in a board's address.
-    pub fn name(self) -> &'static str {
-        match self {
-            Measure::Width => "width",
-            Measure::Throughput => "throughput",
-        }
-    }
-}
-
 /// What a leaderboard's address asks for; `None` takes the default.
 #[derive(Debug, Default)]
 pub struct Wanted {
-    /// The width or throughput.
-    pub measure: Option<i64>,
-    /// A memory's capacity in bytes.
-    pub bytes: Option<i64>,
+    /// A value of each measure asked for, such as a width of 8.
+    pub measures: Vec<(Measure, i64)>,
     /// `comb`, `seq`, or `unknown`.
     pub logic: Option<String>,
     /// `bin` or `hex`.
@@ -58,6 +22,15 @@ pub struct Wanted {
     pub orientation: Option<String>,
     /// A design's name; `None` for every design, where they compete.
     pub design: Option<String>,
+}
+
+impl Wanted {
+    fn measure(&self, measure: Measure) -> Option<i64> {
+        self.measures
+            .iter()
+            .find(|(m, _)| *m == measure)
+            .map(|(_, n)| *n)
+    }
 }
 
 /// One value a board can be narrowed to, with how many builds have it.
@@ -68,16 +41,21 @@ pub struct Choice {
     pub count: usize,
 }
 
+/// One measure a board is narrowed by: each value its builds have, and
+/// the one chosen.
+#[derive(Debug)]
+pub struct Split {
+    pub measure: Measure,
+    pub choices: Vec<Choice>,
+    pub chosen: Option<i64>,
+}
+
 /// One board: the choices that narrowed it, the ones chosen, and the
 /// builds left.
 #[derive(Debug)]
 pub struct Board<'a> {
-    pub by: Measure,
-    pub measures: Vec<Choice>,
-    pub measure: Option<i64>,
-    /// A memory's capacities in bytes; empty for any other category.
-    pub capacities: Vec<Choice>,
-    pub capacity: Option<i64>,
+    /// Its category's measures, in order.
+    pub splits: Vec<Split>,
     /// Combinational and sequential; empty when the builds are all one.
     pub logics: Vec<Choice>,
     pub logic: Option<String>,
@@ -95,53 +73,41 @@ pub struct Board<'a> {
     pub builds: Vec<&'a Schematic>,
 }
 
-/// The board of `category` that `wanted` asks for. Each choice not asked
-/// for falls to the most common value among the builds the earlier choices
-/// leave, so a board starts where most builds are. A build whose width, or
-/// throughput, is unknown competes on no board.
+/// The board of `category`, whose measures are `measures`, that `wanted`
+/// asks for. Each choice not asked for falls to the most common value
+/// among the builds the earlier choices leave, so a board starts where
+/// most builds are. A build missing a measure, such as one of unknown
+/// width, competes on no board.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
-    by: Measure,
-    by_bytes: bool,
-    designs_interchangeable: bool,
+    measures: &[Measure],
 ) -> Board<'a> {
-    let ranked: Vec<&Schematic> = category
-        .iter()
-        .copied()
-        .filter(|s| by.of(s).is_some())
-        .collect();
-
-    let measures = choices(&ranked, |s| {
-        let n = by.of(s).unwrap_or_default();
-        // Zero-padded, so the choices sort by number.
-        (format!("{n:08}"), by.label(n))
-    });
-    let measure = wanted.measure.or_else(|| {
-        most_common(&measures).and_then(|value| value.parse().ok())
-    });
-    let measures = unpadded(measures);
-    let ranked: Vec<&Schematic> =
-        ranked.into_iter().filter(|s| by.of(s) == measure).collect();
-
-    // A memory's boards split by capacity too, and one of unknown capacity
-    // competes on none.
-    let (capacities, capacity, ranked) = if by_bytes {
-        let ranked: Vec<&Schematic> =
-            ranked.into_iter().filter(|s| s.bytes.is_some()).collect();
-        let capacities = choices(&ranked, |s| {
-            let b = s.bytes.unwrap_or_default();
-            (format!("{b:012}"), format!("{b} bytes"))
+    let mut ranked: Vec<&Schematic> = category.to_vec();
+    let mut splits = Vec::new();
+    for &measure in measures {
+        let known: Vec<&Schematic> = ranked
+            .into_iter()
+            .filter(|s| measure.of(s).is_some())
+            .collect();
+        let options = choices(&known, |s| {
+            let n = measure.of(s).unwrap_or_default();
+            // Zero-padded, so the choices sort by number.
+            (format!("{n:012}"), measure.lead(n))
         });
-        let capacity = wanted.bytes.or_else(|| {
-            most_common(&capacities).and_then(|value| value.parse().ok())
+        let chosen = wanted.measure(measure).or_else(|| {
+            most_common(&options).and_then(|value| value.parse().ok())
         });
-        let ranked =
-            ranked.into_iter().filter(|s| s.bytes == capacity).collect();
-        (unpadded(capacities), capacity, ranked)
-    } else {
-        (Vec::new(), None, ranked)
-    };
+        ranked = known
+            .into_iter()
+            .filter(|s| measure.of(s) == chosen)
+            .collect();
+        splits.push(Split {
+            measure,
+            choices: unpadded(options),
+            chosen,
+        });
+    }
 
     // Combinational and sequential builds never compete: a sequential
     // build's latency is no combinational one's.
@@ -174,7 +140,7 @@ pub fn board<'a>(
             .unwrap_or_else(|| "Other".to_owned());
         (s.design.clone(), label)
     });
-    let all_designs = designs_interchangeable && designs.len() > 1;
+    let all_designs = designs.len() > 1;
     let design = wanted.design.clone().or_else(|| {
         (!all_designs)
             .then(|| most_common(&designs).map(str::to_owned))
@@ -185,11 +151,7 @@ pub fn board<'a>(
         .filter(|s| design.as_ref().is_none_or(|d| &s.design == d))
         .collect();
     Board {
-        by,
-        measures,
-        measure,
-        capacities,
-        capacity,
+        splits,
         logics: if logics.len() > 1 { logics } else { Vec::new() },
         logic: chosen_logic,
         encodings: if encodings.len() > 1 {
@@ -412,35 +374,26 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 
 /// Builders by records held: first place, as fastest or as smallest, on a
 /// board of two or more builds. A board is a standard category's builds of
-/// one width, or throughput, capacity where it splits by bytes, logic,
-/// encoding, orientation, and design, `split` saying which for a category;
-/// each builder of a record holder counts it, and a tie gives every holder
-/// one.
-pub fn most_records(
-    builds: &[Schematic],
-    split: impl Fn(&str) -> (Measure, bool),
-) -> Vec<Standing> {
-    type Key<'a> = (
-        &'a str,
-        i64,
-        Option<i64>,
-        &'a str,
-        &'a str,
-        &'a str,
-        &'a str,
-    );
+/// one value of each of its measures, logic, encoding, orientation, and
+/// design; each builder of a record holder counts it, and a tie gives every
+/// holder one.
+pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
+    type Key<'a> = (&'a str, Vec<i64>, &'a str, &'a str, &'a str, &'a str);
     let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
     for s in builds.iter().filter(|s| s.category_label.is_some()) {
-        let (by, by_bytes) = split(&s.category);
-        let Some(n) = by.of(s) else { continue };
-        if by_bytes && s.bytes.is_none() {
+        let Some(values) = s
+            .measures
+            .iter()
+            .map(|m| m.of(s))
+            .collect::<Option<Vec<i64>>>()
+            .filter(|values| !values.is_empty())
+        else {
             continue;
-        }
+        };
         boards
             .entry((
                 &s.category,
-                n,
-                s.bytes,
+                values,
                 logic(s),
                 encoding(s),
                 &s.orientation,
@@ -482,7 +435,9 @@ mod tests {
             logic: None,
             own_logic: None,
             throughput: None,
-            serial: false,
+            at_least: None,
+            measures: vec![Measure::Width],
+            aliases: Vec::new(),
             torches: None,
             bytes: None,
             size: (volume, 1, 1),
@@ -495,7 +450,6 @@ mod tests {
             design: design.to_owned(),
             design_abbreviation: None,
             design_given_label: None,
-            named_by_design: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -531,8 +485,7 @@ mod tests {
         adders[0].encoding = Some("hex".to_owned());
         let hex_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let binary =
-            board(&all, &Wanted::default(), Measure::Width, false, true);
+        let binary = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(binary.encoding.as_deref(), Some("bin"));
         assert!(binary.builds.iter().all(|s| s.id != hex_id));
         let labels: Vec<&str> =
@@ -542,7 +495,7 @@ mod tests {
             encoding: Some("hex".to_owned()),
             ..Wanted::default()
         };
-        let hex = board(&all, &wanted, Measure::Width, false, true);
+        let hex = board(&all, &wanted, &[Measure::Width]);
         let ids: Vec<&str> = hex.builds.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, [hex_id.as_str()]);
     }
@@ -556,7 +509,7 @@ mod tests {
         adders[0].logic = Some("seq".to_owned());
         let seq_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let comb = board(&all, &Wanted::default(), Measure::Width, false, true);
+        let comb = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(comb.logic.as_deref(), Some("comb"));
         assert!(comb.builds.iter().all(|s| s.id != seq_id));
         let labels: Vec<&str> =
@@ -566,7 +519,7 @@ mod tests {
             logic: Some("seq".to_owned()),
             ..Wanted::default()
         };
-        let seq = board(&all, &wanted, Measure::Width, false, true);
+        let seq = board(&all, &wanted, &[Measure::Width]);
         let ids: Vec<&str> = seq.builds.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, [seq_id.as_str()]);
     }
@@ -575,12 +528,11 @@ mod tests {
     fn a_board_starts_at_the_most_common_width_with_every_design() {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let board =
-            board(&all, &Wanted::default(), Measure::Width, false, true);
-        assert_eq!(board.measure, Some(8));
+        let board = board(&all, &Wanted::default(), &[Measure::Width]);
+        assert_eq!(board.splits[0].chosen, Some(8));
         assert_eq!(
-            board
-                .measures
+            board.splits[0]
+                .choices
                 .iter()
                 .map(|c| c.value.as_str())
                 .collect::<Vec<_>>(),
@@ -605,11 +557,12 @@ mod tests {
             ram("d", None),
         ];
         let all: Vec<&Schematic> = rams.iter().collect();
-        let board = board(&all, &Wanted::default(), Measure::Width, true, true);
-        assert_eq!(board.capacity, Some(32));
+        let board =
+            board(&all, &Wanted::default(), &[Measure::Width, Measure::Bytes]);
+        assert_eq!(board.splits[1].chosen, Some(32));
         assert_eq!(
-            board
-                .capacities
+            board.splits[1]
+                .choices
                 .iter()
                 .map(|c| c.value.as_str())
                 .collect::<Vec<_>>(),
@@ -619,22 +572,30 @@ mod tests {
     }
 
     #[test]
-    fn designs_that_differ_never_share_a_board() {
-        let adders = adders();
-        let all: Vec<&Schematic> = adders.iter().collect();
-        let board =
-            board(&all, &Wanted::default(), Measure::Width, false, false);
-        assert!(!board.all_designs);
-        assert_eq!(board.design.as_deref(), Some("carry_cancel"));
-        assert_eq!(board.builds.len(), 2);
+    fn a_threshold_competes_only_at_one_k() {
+        let threshold = |id: &str, at_least: i64| Schematic {
+            at_least: Some(at_least),
+            ..build(id, 8, "other", Some(4), 100)
+        };
+        let all = [threshold("a", 3), threshold("b", 5), threshold("c", 5)];
+        let all: Vec<&Schematic> = all.iter().collect();
+        let measures = [Measure::Width, Measure::AtLeast];
+        let wanted = Wanted {
+            measures: vec![(Measure::AtLeast, 3)],
+            ..Wanted::default()
+        };
+        let board = board(&all, &wanted, &measures);
+        assert_eq!(board.splits[0].chosen, Some(8));
+        let ids: Vec<&str> =
+            board.builds.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["a"]);
     }
 
     #[test]
     fn rankings_share_a_place_on_a_tie_and_skip_unknown_latency() {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let board =
-            board(&all, &Wanted::default(), Measure::Width, false, true);
+        let board = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(
             ids(&fastest(&board.builds)),
             [(1, "a"), (2, "b"), (3, "d"), (4, "c"), (5, "e")]
@@ -668,11 +629,10 @@ mod tests {
             by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
             by("Bob", build("e", 8, "carry_lookahead", Some(8), 3762)),
         ];
-        let counts: Vec<(String, usize)> =
-            most_records(&builds, |_| (Measure::Width, false))
-                .into_iter()
-                .map(|s| (s.name, s.count))
-                .collect();
+        let counts: Vec<(String, usize)> = most_records(&builds)
+            .into_iter()
+            .map(|s| (s.name, s.count))
+            .collect();
         assert_eq!(counts, [("Alex".to_owned(), 3), ("Bob".to_owned(), 1)]);
     }
 

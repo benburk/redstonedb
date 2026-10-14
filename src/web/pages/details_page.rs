@@ -90,6 +90,7 @@ pub struct Stored {
     latency: String,
     throughput: String,
     bytes: String,
+    at_least: String,
     flags: Vec<String>,
     pub tags: Vec<String>,
     stack_rows: Vec<StackRow>,
@@ -104,6 +105,7 @@ impl Stored {
             latency: number(s.latency),
             throughput: number(s.throughput),
             bytes: number(s.bytes),
+            at_least: number(s.at_least),
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             tags: s
                 .tags
@@ -136,6 +138,7 @@ impl Stored {
             logic: s.own_logic.as_deref().unwrap_or_default(),
             throughput: &self.throughput,
             bytes: &self.bytes,
+            at_least: &self.at_least,
             design: &s.design,
             flags: &self.flags,
             stackable: !s.stacking.is_empty(),

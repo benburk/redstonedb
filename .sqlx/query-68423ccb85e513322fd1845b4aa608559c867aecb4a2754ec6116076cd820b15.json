@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", throughput, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            schematic.logic as own_logic,\n            coalesce(schematic.logic, (SELECT logic FROM category\n                WHERE category.name = schematic.category)) as \"logic?: String\",\n            coalesce((SELECT serial FROM category WHERE category.name =\n                schematic.category), 0) as \"serial!: bool\",\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            coalesce((SELECT named_by_design FROM category WHERE category.name =\n                schematic.category), 0) as \"named_by_design!: bool\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = schematic.sha256\n                    AND (json_extract(simulation.report, '$.wrong') > 0\n                        OR json_extract(simulation.report, '$.outcome')\n                            = 'broken'))\n                as \"fails_simulation!: bool\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width, orientation, encoding, latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, bytes, torches, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,\n            schematic.logic as own_logic,\n            coalesce(schematic.logic, (SELECT logic FROM category\n                WHERE category.name = schematic.category)) as \"logic?: String\",\n            conventional as \"conventional: bool\", description, given_name, design,\n            design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            (SELECT label FROM category WHERE category.name =\n                schematic.category) as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = schematic.sha256\n                    AND (json_extract(simulation.report, '$.wrong') > 0\n                        OR json_extract(simulation.report, '$.outcome')\n                            = 'broken'))\n                as \"fails_simulation!: bool\"\n         FROM schematic LEFT JOIN design ON design.category =\n             schematic.category AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE schematic.id = ?",
   "describe": {
     "columns": [
       {
@@ -44,74 +44,74 @@
         "type_info": "Integer"
       },
       {
-        "name": "bytes",
+        "name": "at_least",
         "ordinal": 8,
         "type_info": "Integer"
       },
       {
-        "name": "torches",
+        "name": "bytes",
         "ordinal": 9,
         "type_info": "Integer"
       },
       {
-        "name": "size_x",
+        "name": "torches",
         "ordinal": 10,
         "type_info": "Integer"
       },
       {
-        "name": "size_y",
+        "name": "size_x",
         "ordinal": 11,
         "type_info": "Integer"
       },
       {
-        "name": "size_z",
+        "name": "size_y",
         "ordinal": 12,
         "type_info": "Integer"
       },
       {
-        "name": "built_on",
+        "name": "size_z",
         "ordinal": 13,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "imported_by",
+        "name": "built_on",
         "ordinal": 14,
         "type_info": "Text"
       },
       {
-        "name": "sha256",
+        "name": "imported_by",
         "ordinal": 15,
         "type_info": "Text"
       },
       {
-        "name": "added_at",
+        "name": "sha256",
         "ordinal": 16,
         "type_info": "Text"
       },
       {
-        "name": "edited_at",
+        "name": "added_at",
         "ordinal": 17,
         "type_info": "Text"
       },
       {
-        "name": "downloads",
+        "name": "edited_at",
         "ordinal": 18,
+        "type_info": "Text"
+      },
+      {
+        "name": "downloads",
+        "ordinal": 19,
         "type_info": "Integer"
       },
       {
         "name": "own_logic",
-        "ordinal": 19,
-        "type_info": "Text"
-      },
-      {
-        "name": "logic?: String",
         "ordinal": 20,
         "type_info": "Text"
       },
       {
-        "name": "serial!: bool",
+        "name": "logic?: String",
         "ordinal": 21,
-        "type_info": "Integer"
+        "type_info": "Null"
       },
       {
         "name": "conventional: bool",
@@ -149,28 +149,23 @@
         "type_info": "Text"
       },
       {
-        "name": "named_by_design!: bool",
-        "ordinal": 29,
-        "type_info": "Integer"
-      },
-      {
         "name": "uploader?: String",
-        "ordinal": 30,
+        "ordinal": 29,
         "type_info": "Text"
       },
       {
         "name": "uploader_name?: String",
-        "ordinal": 31,
-        "type_info": "Text"
+        "ordinal": 30,
+        "type_info": "Null"
       },
       {
         "name": "fails_simulation!: bool",
-        "ordinal": 32,
-        "type_info": "Integer"
+        "ordinal": 31,
+        "type_info": "Null"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -183,30 +178,29 @@
       true,
       true,
       true,
-      false,
-      false,
-      false,
-      true,
       true,
       false,
       false,
-      true,
       false,
       true,
       true,
       false,
       false,
       true,
+      false,
+      true,
+      null,
+      false,
+      true,
       true,
       false,
       true,
       true,
-      true,
       false,
-      true,
-      true,
-      false
+      false,
+      null,
+      null
     ]
   },
-  "hash": "bbc0bfcbc6a0dea6d2d4e9430731f9aa92428d488914b385a4f8af7bcd03d914"
+  "hash": "68423ccb85e513322fd1845b4aa608559c867aecb4a2754ec6116076cd820b15"
 }
