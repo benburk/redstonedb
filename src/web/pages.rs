@@ -828,7 +828,7 @@ fn stacking_note(stacking: &Stacking) -> Markup {
                     ". Three would be wider than the simulator tests, so no copy sat between two others."
                 }
             },
-            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-4" {
+            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-4" data-found-stacking {
                 strong { "Stacks: " }
                 (copies) " copies, " (step.describe()) " apart, make a file of " (registers)
                 " registers whose " (grouped(*cases)) " cases are all right, its data buses driven and read at the first copy"
@@ -1602,6 +1602,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                                     data-logic=(category.logic.as_deref().map_or("unknown", schematic::logic_label).to_lowercase())
                                     data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
                                     data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
+                                    data-finds-stacking[simulate::FINDS_STACKING.contains(&category.name.as_str())]
                                     data-tested[simulate::Test::of(&category.name, Some(1)).is_some()]
                                     data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
@@ -1897,11 +1898,12 @@ fn stacking_fields(f: &Fields) -> Markup {
         .take(f.stack_rows.len().max(2));
     html! {
         // For a category such as adder, the simulation stacks copies the way
-        // the bits run and decides, so the rows give way to a note.
+        // the bits run and decides, so the rows give way to a note; for a
+        // register, once it finds copies that work.
         div class="field" data-derived-stacking hidden {
             span { "Stacking" }
             p class="text-muted" {
-                "Worked out by the simulation below, which stacks copies the way the bits run and tests them."
+                "Worked out by the simulation below, which stacks copies and tests them."
             }
         }
         fieldset class="flex flex-col gap-3" data-stacking data-typed-stacking {

@@ -466,11 +466,15 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   // simulation could not run the build, as for a block it does not model.
   // `fresh` is false while a new result is on its way. A new version's form
   // has no latency fields to give way.
-  const measured = (fresh = true) => {
-    if (!timingFields) return;
+  const chosenOption = () => {
     const typed = category.value.trim().toLowerCase();
-    const option = [...form.querySelectorAll("[data-category-menu] [role=option]")]
+    return [...form.querySelectorAll("[data-category-menu] [role=option]")]
       .find((option) => option.dataset.value.toLowerCase() === typed);
+  };
+  const measured = (fresh = true) => {
+    found(fresh);
+    if (!timingFields) return;
+    const option = chosenOption();
     const tested = option?.hasAttribute("data-tested") ?? false;
     const shown = fresh ? results : null;
     const skipped = shown?.querySelector("[data-skipped]") != null;
@@ -482,6 +486,22 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       input.disabled = measures;
     }
     timingNote.querySelector("[data-measured-marker]").disabled = !measures;
+  };
+  // A register's stacking is the simulation's once it finds copies that
+  // work, so its rows give way to the note then, and are not sent; until
+  // then, and when it finds none, they are the builder's.
+  const typedStacking = form.querySelector("[data-typed-stacking]");
+  const derivedStacking = form.querySelector("[data-derived-stacking]");
+  const found = (fresh) => {
+    if (!typedStacking || !derivedStacking) return;
+    if (!chosenOption()?.hasAttribute("data-finds-stacking")) {
+      typedStacking.disabled = false;
+      return;
+    }
+    const stacks = fresh && results.querySelector("[data-found-stacking]") != null;
+    derivedStacking.hidden = !stacks;
+    typedStacking.hidden = stacks;
+    typedStacking.disabled = stacks;
   };
   const post = async (url, signal) => {
     const response = await fetch(url, {
