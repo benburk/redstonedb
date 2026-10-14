@@ -530,10 +530,8 @@ fn a_lever_saved_on_by_mistake_is_named() {
 
 /// From Schemati: eleven control lines, seven saved on, each sign naming
 /// the operations its line takes part in, its status lines signed carry
-/// out, overflow, and lsb shift out. Every result comes out right, and its
-/// overflow and the bit a shift right drops, but its carry out is on for an
-/// add that does not carry and off for one that does, so every add is wrong
-/// there.
+/// out, overflow, and lsb shift out. Every result and status comes out
+/// right, its carry out the adder's for add and subtract alike.
 #[test]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
@@ -546,15 +544,13 @@ fn an_alu_runs_each_operation_its_signs_name() {
         run.pattern,
         "add, sub, and, or, xor, nand, nor, xnor, shr, asr"
     );
-    assert_eq!((run.cases, run.wrong), (10 * 65_536, 65_536));
+    assert_eq!((run.cases, run.wrong), (10 * 65_536, 0));
     let outputs: Vec<&str> =
         run.outputs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         outputs,
         ["output", "carry out", "overflow", "lsb shift out"]
     );
-    assert_eq!(run.wrong_bits, [("carry out".to_owned(), 65_536)]);
-    assert_eq!(run.examples[0].op.as_deref(), Some("add"));
     // Standardizing took the commas out of its signs, and the signs name
     // its operations as flags.
     assert!(
@@ -570,6 +566,23 @@ fn an_alu_runs_each_operation_its_signs_name() {
     for flag in ["and", "or", "xor", "nand", "nor", "xnor", "shr", "asr"] {
         assert!(flags.contains(&flag.to_owned()), "{flag} in {flags:?}");
     }
+    assert!(!flags.contains(&"shl".to_owned()), "it has no shift left");
+}
+
+/// An earlier version of it, whose carry out was the adder's inverted: on
+/// for an add that does not carry and off for one that does, as for a
+/// subtract that borrows, so every add and subtract is wrong there.
+#[test]
+fn an_alus_inverted_carry_out_is_wrong() {
+    let raw =
+        std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
+    let blocks = import::prepare(&raw, true, true, false).unwrap().blocks;
+    let Report::Ran(run) = Test::Alu.run(&blocks) else {
+        panic!("the ALU was not simulated");
+    };
+    assert_eq!(run.wrong, 2 * 65_536);
+    assert_eq!(run.wrong_bits, [("carry out".to_owned(), 2 * 65_536)]);
+    assert_eq!(run.examples[0].op.as_deref(), Some("add"));
 }
 
 /// Its lines name single operations, and it adds with every line off and

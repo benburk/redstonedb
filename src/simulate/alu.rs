@@ -10,9 +10,10 @@
 //!
 //! A line named `carry in` is no operation: add takes it, as A + B + carry
 //! in, and the rest hold it off. A status line is checked where its meaning
-//! is plain: a carry out for add, an overflow, taken as signed, for add and
-//! subtract, an `lsb shift out`, the bit a shift right drops, for shr and
-//! asr, and a zero for every operation.
+//! is plain: a carry out for add and subtract, as the adder gives it, so a
+//! subtract, A + ~B + 1, carries when nothing is borrowed; an overflow, taken
+//! as signed, for add and subtract; an `lsb shift out`, the bit a shift
+//! right drops, for shr and asr; and a zero for every operation.
 
 use std::sync::atomic::AtomicBool;
 
@@ -300,7 +301,7 @@ fn check_one(
     let statuses: Vec<Status> = [
         (
             alu.carry_out,
-            op == "add",
+            arithmetic,
             carry_out as fn(&str, u64, u64, u64, usize) -> bool,
         ),
         (alu.overflow, arithmetic, overflow),
@@ -351,8 +352,13 @@ fn check_one(
     Ok(run)
 }
 
-/// Whether an add of A, B, and `carry` carries out of `width` bits.
-fn carry_out(_: &str, a: u64, b: u64, carry: u64, width: usize) -> bool {
+/// Whether the adder carries out of `width` bits: an add of A, B, and
+/// `carry`, or a subtract, A + ~B + 1, which carries when A is at least B,
+/// borrowing nothing.
+fn carry_out(op: &str, a: u64, b: u64, carry: u64, width: usize) -> bool {
+    if op == "sub" {
+        return a >= b;
+    }
     (a + b + carry) >> width & 1 == 1
 }
 
@@ -434,6 +440,7 @@ mod tests {
         assert_eq!(eight("asr", 0b1000_0010, 0), 0b1100_0001);
         assert_eq!(eight("shr", 0b1000_0010, 0), 0b0100_0001);
         assert!(carry_out("add", 200, 100, 0, 8));
+        assert!(carry_out("sub", 5, 3, 0, 8) && !carry_out("sub", 3, 5, 0, 8));
         assert!(overflow("add", 100, 100, 0, 8));
         assert!(overflow("sub", 0x80, 1, 0, 8));
         assert!(!overflow("and", 0xff, 0xff, 0, 8));
