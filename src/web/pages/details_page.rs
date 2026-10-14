@@ -453,9 +453,9 @@ fn version_chooser(s: &Schematic, open: bool) -> Markup {
             summary class="cursor-pointer font-semibold" { "Upload a new version" }
             p class="mt-2 mb-3 text-meta text-muted" {
                 "For fixing the build: the new file replaces this one, keeping its details, credits, and downloads, "
-                "and the old one stays listed under it. It must be as wide and deep, though it may be taller; "
-                "have the same inputs and outputs; and keep at least " (MIN_SAME_PERCENT) "% of its blocks, "
-                "or change at most " (MAX_CHANGED) ". Changes to the details below are kept only once it is chosen."
+                "and the old one stays listed under it. It must keep at least " (MIN_SAME_PERCENT) "% of its blocks, "
+                "or change at most " (MAX_CHANGED) "; within that, its inputs and outputs may move. "
+                "Changes to the details below are kept only once it is chosen."
             }
             form action={ "/schematics/" (s.id) "/versions/preview" } method="post"
                 enctype="multipart/form-data" class="flex flex-col gap-3" {

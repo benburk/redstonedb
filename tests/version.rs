@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use app::{
-    import,
     schem::{self, Blocks},
     standardize,
     version::{compare, refusals},
@@ -33,17 +32,7 @@ fn edited(data: &[u8], pos: [i32; 3], state: &str) -> Vec<u8> {
 /// Why `new` cannot replace `old`, both as stored.
 fn refused(old: &[u8], new: &[u8]) -> Vec<String> {
     let (old, new) = (Blocks::read(old).unwrap(), Blocks::read(new).unwrap());
-    let size = |blocks: &Blocks| import::measure(blocks, true).unwrap();
-    let old_size = size(&old);
-    let old_size = (old_size.x.into(), old_size.y.into(), old_size.z.into());
-    refusals(
-        "adder",
-        &old,
-        old_size,
-        &new,
-        &size(&new),
-        compare(&old, &new),
-    )
+    refusals(compare(&old, &new))
 }
 
 #[test]
@@ -65,11 +54,27 @@ fn a_one_block_fix_is_a_new_version() {
 fn a_different_adder_is_not_a_new_version() {
     let refusals = refused(&stored("alpha-rca"), &stored("alpha-cla"));
     assert!(refusals.iter().any(|r| r.contains("keeps at least 90%")));
-    assert!(
-        refusals
-            .iter()
-            .any(|r| r.contains("may change only the height"))
-    );
+}
+
+/// A block more to the east makes it wider, which no longer stops it being
+/// the same build: its blocks are all it is judged by.
+#[test]
+fn a_new_version_may_change_its_size() {
+    let old = stored("alpha-rca");
+    let blocks = Blocks::read(&old).unwrap();
+    let mut grid: HashMap<[i32; 3], String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != schem::AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let [x, y, z] = blocks.size;
+    grid.insert([x, 0, 0], "minecraft:white_concrete".to_owned());
+    let mut nbt = schem::decode(&old).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], [x + 1, y, z], &grid, entities)
+        .unwrap();
+    let new = schem::encode(nbt).unwrap();
+    assert_eq!(refused(&old, &new), Vec::<String>::new());
 }
 
 /// An adder's carry lines need no signs, so taking them off keeps it the

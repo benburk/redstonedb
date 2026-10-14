@@ -1,12 +1,11 @@
 //! Whether a new file is the same build, fixed, so it may replace the old
 //! one as a new version rather than be uploaded as a build of its own.
 //!
-//! A new version keeps the build's width and depth, though its height may
-//! change; keeps its inputs and outputs; and keeps at least 90% of its
-//! blocks, or changes at most 10, so a small build can be fixed too. Two
-//! different 8-bit carry-cancel adders share at most 14% of their blocks,
-//! and a fix such as flipping a lever changes one, so the line sits well
-//! between.
+//! A new version keeps at least 90% of the build's blocks, or changes at
+//! most 10, so a small build can be fixed too; its inputs and outputs may
+//! move, and its size change, within that. Two different 8-bit
+//! carry-cancel adders share at most 14% of their blocks, and a fix such as
+//! flipping a lever changes one, so the line sits well between.
 
 use std::collections::HashMap;
 
@@ -14,10 +13,9 @@ use sqlx::SqlitePool;
 
 use crate::{
     import::{self, Prepared},
-    interface::{self, Port},
     lint,
     models::schematic::{self, Schematic},
-    schem::{Blocks, Pos, Size},
+    schem::{Blocks, Pos},
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless
@@ -114,65 +112,23 @@ fn unpowered(state: &str) -> String {
     format!("{id}[{}]", kept.join(","))
 }
 
-/// Why `new` cannot replace `old` as a new version, each as a sentence;
-/// empty when it can. Sizes are as `import::measure` gives them.
-pub fn refusals(
-    category: &str,
-    old: &Blocks,
-    old_size: (i64, i64, i64),
-    new: &Blocks,
-    new_size: &Size,
-    comparison: Comparison,
-) -> Vec<String> {
-    let mut refusals = Vec::new();
-    let (x, _, z) = old_size;
-    if (i64::from(new_size.x), i64::from(new_size.z)) != (x, z) {
-        refusals.push(format!(
-            "It is {} wide and {} deep, but the build is {x} wide and {z} \
-             deep; a new version may change only the height.",
-            new_size.x, new_size.z
-        ));
+/// Why a file whose blocks compare with the current version's as
+/// `comparison` cannot replace it as a new version, as a sentence; empty
+/// when it can. Its inputs and outputs may move, and its size change, as
+/// long as it keeps enough of the build's blocks.
+pub fn refusals(comparison: Comparison) -> Vec<String> {
+    if comparison.close_enough() {
+        return Vec::new();
     }
-    let (was, now) = (ports(old, category), ports(new, category));
-    let gone: Vec<&str> = was
-        .iter()
-        .filter(|port| !now.contains(port))
-        .map(String::as_str)
-        .collect();
-    let added: Vec<&str> = now
-        .iter()
-        .filter(|port| !was.contains(port))
-        .map(String::as_str)
-        .collect();
-    match (gone.is_empty(), added.is_empty()) {
-        (true, true) => {}
-        (false, true) => refusals.push(format!(
-            "It must keep the same inputs and outputs, but no longer has {}.",
-            gone.join("; ")
-        )),
-        (true, false) => refusals.push(format!(
-            "It must keep the same inputs and outputs, but also has {}.",
-            added.join("; ")
-        )),
-        (false, false) => refusals.push(format!(
-            "It must keep the same inputs and outputs, but has {} in place \
-             of {}.",
-            added.join("; "),
-            gone.join("; ")
-        )),
-    }
-    if !comparison.close_enough() {
-        let permille = comparison.same_permille();
-        refusals.push(format!(
-            "It changes {} blocks, keeping {}.{}% of them; a new version \
-             keeps at least {MIN_SAME_PERCENT}%, or changes at most \
-             {MAX_CHANGED}. Upload it as a build of its own instead.",
-            comparison.changed,
-            permille / 10,
-            permille % 10
-        ));
-    }
-    refusals
+    let permille = comparison.same_permille();
+    vec![format!(
+        "It changes {} blocks, keeping {}.{}% of them; a new version keeps at \
+         least {MIN_SAME_PERCENT}%, or changes at most {MAX_CHANGED}. Upload \
+         it as a build of its own instead.",
+        comparison.changed,
+        permille / 10,
+        permille % 10
+    )]
 }
 
 /// A file prepared as the build's next version, how it compares with the
@@ -197,14 +153,7 @@ pub async fn check(
     let current = schematic::data(db, &s.id).await?.unwrap_or_default();
     let current = Blocks::read(&current)?;
     let comparison = compare(&current, &prepared.blocks);
-    let mut refusals = refusals(
-        &s.category,
-        &current,
-        s.size,
-        &prepared.blocks,
-        &prepared.size,
-        comparison,
-    );
+    let mut refusals = refusals(comparison);
     // Only conventions the current version keeps count against it, so a
     // build from before a rule can still be fixed.
     let (kept, now) = if s.conventional {
@@ -243,41 +192,6 @@ pub async fn check(
         comparison,
         refusals,
     })
-}
-
-/// Each input and output as words, such as `input A, 8 bits of lime
-/// concrete`.
-///
-/// An adder's carry lines go by their roles, so signing one, unsigning it,
-/// or signing it `cin` rather than `carry in` keeps it the same line.
-fn ports(blocks: &Blocks, category: &str) -> Vec<String> {
-    let interface = interface::read(blocks);
-    let roles = lint::UNSIGNED_LINES.contains(&category);
-    let describe = |kind: &str, port: &Port| {
-        let bits = port.bits.len();
-        let unit = if bits == 1 { "bit" } else { "bits" };
-        let role = |colour: &str, names: &[&'static str; 2]| {
-            (roles
-                && port.block.starts_with(colour)
-                && (!port.labelled || names.contains(&port.name.as_str())))
-            .then_some(names[0])
-        };
-        let name = role(lint::CONTROL, &lint::CARRY_IN)
-            .or_else(|| role(lint::STATUS, &lint::CARRY_OUT))
-            .unwrap_or(&port.name);
-        format!("{kind} {name}, {bits} {unit} of {}", port.block)
-    };
-    interface
-        .inputs
-        .iter()
-        .map(|port| describe("input", port))
-        .chain(
-            interface
-                .outputs
-                .iter()
-                .map(|port| describe("output", port)),
-        )
-        .collect()
 }
 
 #[cfg(test)]

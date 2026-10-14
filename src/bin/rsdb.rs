@@ -47,9 +47,8 @@ enum Command {
     /// pairings of test patterns
     Simulate { id: Option<String> },
     /// Replace a stored build's file with a new version that fixes it, as
-    /// the site's New version page does: as wide and deep, with the same
-    /// inputs and outputs, and keeping 90% of its blocks or changing at
-    /// most 10
+    /// the site's New version page does: keeping 90% of its blocks or
+    /// changing at most 10, its inputs and outputs free to move
     NewVersion {
         id: String,
         file: PathBuf,
