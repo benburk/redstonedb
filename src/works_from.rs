@@ -15,10 +15,12 @@ pub struct Release {
 }
 
 /// Each release that added redstone components, oldest first, as the
-/// Minecraft Wiki's history sections give them. A barrel counts as a
-/// container a comparator reads, as furnaces were from 1.5, since uploads
-/// swap one in for a furnace, cauldron, or cake. Buttons and pressure plates
-/// go by what they do, a wooden button from 1.4.2 and any other from Alpha.
+/// Minecraft Wiki's history sections give them. A barrel or furnace is left
+/// out: it matters only when a comparator reads it, which sets 1.5 already,
+/// and in an older release a chest or furnace stands in for a barrel, as a
+/// barrel stands in for the furnaces, cauldrons, and cakes uploads swap.
+/// Buttons and pressure plates go by what they do, a wooden button from
+/// 1.4.2 and any other from Alpha.
 pub const RELEASES: &[Release] = &[
     Release {
         name: "Alpha",
@@ -67,8 +69,6 @@ pub const RELEASES: &[Release] = &[
             "trapped_chest",
             "light_weighted_pressure_plate",
             "heavy_weighted_pressure_plate",
-            "barrel",
-            "furnace",
         ],
     },
     Release {
