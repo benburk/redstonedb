@@ -66,15 +66,33 @@ pub struct Timing {
     #[serde(default)]
     pub from_read: bool,
     /// For a register, the most ticks from pressing a cell's write button,
-    /// its read held on, until the bus shows the new value.
+    /// its read held on, until the bus shows the new value; or, for a cell
+    /// that takes its data as its write closes, from its lever turning off.
     #[serde(default)]
     pub write: Option<i32>,
     /// For a register, the most ticks for data to pass through a cell, its
-    /// write held open and its read on: from its data in changing until the
-    /// bus shows it. `None` for one that takes its data only as its write
-    /// opens.
+    /// read on: from its data in changing, with its write held open, or for
+    /// a cell that takes its data as its write closes, as its lever turns
+    /// off, until the bus shows it. `None` for one that takes its data only
+    /// as its write opens.
     #[serde(default)]
     pub data: Option<i32>,
+    /// When a register's cells take their data.
+    #[serde(default)]
+    pub takes: Takes,
+}
+
+/// When a register's cells take their data from their data in.
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Takes {
+    /// While their writes are open, or as they open.
+    #[default]
+    Open,
+    /// As their write levers turn off, their buses empty while they write.
+    Closing,
 }
 
 impl Timing {
@@ -266,6 +284,7 @@ pub(super) fn measure(
         changes: together.changes,
         patterns,
         from_read: false,
+        takes: Takes::Open,
         write: None,
         data: None,
     })

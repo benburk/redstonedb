@@ -19,7 +19,8 @@ use crate::{
     },
     search::Term,
     simulate::{
-        self, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Timing,
+        self, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Takes,
+        Timing,
     },
 };
 
@@ -543,12 +544,13 @@ fn table(schematics: &[Schematic]) -> Markup {
 
 /// The numbers a build's category names and ranks it by, such as its
 /// width and a memory's capacity.
-fn measure_fields(s: &Schematic) -> Markup {
+fn measure_fields(s: &Schematic, sources: &Sources) -> Markup {
     html! {
         @for &measure in &s.measures {
+            @let source = if measure == Measure::Width { sources.width } else { Source::Given };
             (field(measure.heading(), measure.of(s).map_or_else(
                 || html! { "unknown" },
-                |n| search_link(&measure.words(n), &measure.term(n)),
+                |n| sourced(search_link(&measure.words(n), &measure.term(n)), source),
             )))
         }
     }
@@ -556,19 +558,22 @@ fn measure_fields(s: &Schematic) -> Markup {
 
 /// A build's latency, throughput, logic, and whether it is synchronized
 /// and pipelined.
-fn timing_fields(s: &Schematic) -> Markup {
+fn timing_fields(s: &Schematic, sources: &Sources) -> Markup {
     html! {
-        (field("Latency", s.latency.map_or_else(|| "unknown".to_owned(), |t| format!("{t} ticks"))))
+        (field("Latency", s.latency.map_or_else(
+            || html! { "unknown" },
+            |t| sourced(format!("{t} ticks"), sources.timing),
+        )))
         // A serial build's throughput is among its measures.
         @if !s.has(Measure::Throughput) {
             (field("Throughput", s.throughput.map_or_else(
                 || html! { "unknown" },
-                |t| search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")),
+                |t| sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), Source::Given),
             )))
         }
         (field("Synchronized", match s.synchronized {
-            Some(true) => search_link("yes", "sync"),
-            Some(false) => search_link("no", "unsync"),
+            Some(true) => sourced(search_link("yes", "sync"), sources.timing),
+            Some(false) => sourced(search_link("no", "unsync"), sources.timing),
             None => html! { "unknown" },
         }))
         (field("Stateless", match s.logic.as_deref() {
@@ -598,12 +603,131 @@ fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
     let found = report.is_some_and(|report| {
         matches!(report, Report::Ran(run) if matches!(
             run.stacking,
-            Some(Stacking::Stacks { .. } | Stacking::Registers { .. })
+            Some(
+                Stacking::Stacks { .. }
+                    | Stacking::Registers { .. }
+                    | Stacking::Wider { .. }
+            )
         ))
     });
     s.conventional
         && (simulate::INFERS_STACKING.contains(&category)
             || (simulate::FINDS_STACKING.contains(&category) && found))
+}
+
+/// Where a spec on a build's page comes from, said beside it, so a reader
+/// can tell what the site checked from what its uploader typed.
+#[derive(Clone, Copy)]
+enum Source {
+    /// Measured or confirmed by the simulation.
+    Simulated,
+    /// Read from the file.
+    File,
+    /// As typed, unchecked.
+    Given,
+    /// Typed, and the simulation did not bear it out, as it says.
+    Unconfirmed(&'static str),
+}
+
+/// Where each spec that can be checked on build `s`'s page comes from.
+struct Sources {
+    category: Source,
+    width: Source,
+    orientation: Source,
+    encoding: Source,
+    /// Latency and whether it is synchronized, measured together.
+    timing: Source,
+    stacking: Source,
+}
+
+impl Sources {
+    /// Build `s`'s sources, with its file's `interface` if it could be
+    /// read and its simulation's `report` if it has one.
+    fn of(
+        s: &Schematic,
+        interface: Option<&Interface>,
+        report: Option<&Report>,
+    ) -> Self {
+        let passed = report.is_some_and(Report::passed);
+        // A conventional build's file sets these over what was typed.
+        let derived = interface
+            .filter(|_| s.conventional)
+            .map(|interface| import::derived(&s.category, interface))
+            .unwrap_or_default();
+        let checked = |from_file: bool, simulated: bool| {
+            if from_file {
+                Source::File
+            } else if simulated {
+                Source::Simulated
+            } else {
+                Source::Given
+            }
+        };
+        let run = match report {
+            Some(Report::Ran(run)) => Some(run),
+            _ => None,
+        };
+        let stacking = if stacking_found(s, report)
+            && run.is_some_and(|run| run.stacking.is_some())
+        {
+            Source::Simulated
+        } else if !s.stacking.is_empty()
+            && simulate::FINDS_STACKING.contains(&s.category.as_str())
+            && run.is_some_and(|run| {
+                matches!(run.stacking, Some(Stacking::Not { .. }))
+            })
+        {
+            Source::Unconfirmed("not found by simulation")
+        } else {
+            Source::Given
+        };
+        Sources {
+            category: if report.is_some_and(Report::failed) {
+                Source::Unconfirmed("fails simulation")
+            } else {
+                checked(false, passed)
+            },
+            width: checked(
+                derived.width == s.width && s.width.is_some(),
+                passed,
+            ),
+            orientation: checked(
+                derived.orientation == Some(s.orientation.as_str()),
+                false,
+            ),
+            encoding: checked(
+                derived.encoding.is_some()
+                    && derived.encoding == s.encoding.as_deref(),
+                false,
+            ),
+            timing: checked(
+                false,
+                report
+                    .and_then(Report::timing)
+                    .and_then(Timing::latency)
+                    .is_some(),
+            ),
+            stacking,
+        }
+    }
+}
+
+/// `value`, with where it comes from beside it.
+fn sourced(value: impl maud::Render, source: Source) -> Markup {
+    let note = "text-meta whitespace-nowrap";
+    html! {
+        (value) " "
+        @match source {
+            Source::Simulated => span class={ (note) " text-muted" } {
+                span aria-hidden="true" { "✓ " } "simulated"
+            },
+            Source::File => span class={ (note) " text-muted" } {
+                span aria-hidden="true" { "✓ " } "read from the file"
+            },
+            Source::Given => span class={ (note) " text-faint" } { "unchecked" },
+            Source::Unconfirmed(why) => a href="#simulation" class={ (note) " text-danger" } { (why) },
+        }
+    }
 }
 
 /// One schematic's page, with an edit button for a mod.
@@ -654,7 +778,9 @@ pub fn schematic(
                     }
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, flags, similar)))
+            @let interface = analysis.as_ref().ok().map(|analysis| &analysis.interface);
+            @let sources = Sources::of(s, interface, report);
+            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, flags, similar, &sources)))
             @match analysis {
                 _ if !s.conventional => {
                     p class="mt-10 max-w-prose text-muted" {
@@ -863,6 +989,16 @@ fn stacking_note(stacking: &Stacking) -> Markup {
                     ", so it stacks any number of times."
                 }
             },
+            Stacking::Wider { step, copies, bits, cases, most } => p class="mt-4" data-found-stacking {
+                strong { "Stacks: " }
+                (copies) " copies, " (step.describe()) " apart, make a " (bits)
+                "-bit register whose " (grouped(*cases)) " cases are all right, its control lines driven at the first copy"
+                @if most.is_some() {
+                    "; one more copy gets some wrong, so it stacks at most " (copies) " times."
+                } @else {
+                    ", so it stacks any number of times."
+                }
+            },
             Stacking::Not { step, reason } => p class="mt-4 text-muted" {
                 strong { "Doesn't stack as saved" }
                 @if let Some(step) = step { ", with copies " (step.describe()) " apart" }
@@ -884,13 +1020,22 @@ fn timing_intro(timing: &Timing) -> Markup {
         p class="mb-3 text-meta text-muted" {
             @if timing.from_read {
                 @if let Some(data) = timing.data {
-                    "Its latency, data in to data out, is " (data) " ticks: with a cell's write held open and its read on, "
-                    "from its data in changing until the bus shows it. "
+                    @if timing.takes == Takes::Closing {
+                        "Its latency, data in to data out, is " (data) " ticks: a cell takes its data as its write lever turns off, "
+                        "its bus empty while it writes, so from its data in changing as the lever does, its read on, until the bus shows it. "
+                    } @else {
+                        "Its latency, data in to data out, is " (data) " ticks: with a cell's write held open and its read on, "
+                        "from its data in changing until the bus shows it. "
+                    }
                 }
                 @if let Some(write) = timing.write {
-                    "A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on"
-                    @if timing.data.is_none() { ", which is its latency, as it takes its data only as its write opens" }
-                    ". "
+                    @if timing.takes == Takes::Closing {
+                        "A write shows on the bus " (write) " ticks after its lever turns off, its data set before, the cell's read held on. "
+                    } @else {
+                        "A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on"
+                        @if timing.data.is_none() { ", which is its latency, as it takes its data only as its write opens" }
+                        ". "
+                    }
                 }
                 "Below, in ticks from when a read lever turns on, its cell holding each value in turn."
             } @else {
@@ -1361,6 +1506,7 @@ fn schematic_info(
     s: &Schematic,
     flags: &[Flag],
     similar: &[(Schematic, u32)],
+    sources: &Sources,
 ) -> Markup {
     html! {
         div class="flex flex-col gap-8" {
@@ -1380,37 +1526,37 @@ fn schematic_info(
                 h2 id="details-heading" class={ (SECTION_TITLE) " mb-3" } { "Details" }
                 dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2" {
                     // A category off the list has no list of its own to link to.
-                    (field("Category", html! {
+                    (field("Category", sourced(html! {
                         @if s.category_label.is_some() {
                             a href={ "/?category=" (s.category) } { (s.category_label()) }
                         } @else {
                             (s.category_label())
                         }
-                    }))
+                    }, sources.category)))
                     @if let Some(design) = s.design_label() {
                         (field("Design", search_link(&design, &s.design)))
                     }
-                    (measure_fields(s))
-                    (field("Orientation", search_link(s.orientation_label(), &s.orientation_label().to_lowercase())))
+                    (measure_fields(s, sources))
+                    (field("Orientation", sourced(search_link(s.orientation_label(), &s.orientation_label().to_lowercase()), sources.orientation)))
                     @if let Some(encoding) = s.encoding_label() {
-                        (field("Encoding", search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default()))))
+                        (field("Encoding", sourced(search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default())), sources.encoding)))
                     }
-                    (timing_fields(s))
+                    (timing_fields(s, sources))
                     // The oldest release with every redstone component and
                     // mechanic it uses; it links to the builds that work there.
                     @if let Some(from) = &s.works_from {
-                        (field("Works from", html! {
+                        (field("Works from", sourced(html! {
                             (search_link(from, &format!("version:{}", from.to_lowercase())))
                             @if let Some(by) = &s.works_from_by {
                                 span class="text-muted" { " (" (by) ")" }
                             }
-                        }))
+                        }, Source::File)))
                     }
-                    (field("Stacks", if s.stacking.is_empty() {
+                    (field("Stacks", sourced(if s.stacking.is_empty() {
                         html! { "no" }
                     } else {
                         search_link(&stacking(s), "stackable")
-                    }))
+                    }, sources.stacking)))
                     (field("Size", format!("{} (HWD), {} blocks", size(s), s.box_volume())))
                     // What each copy of a stack adds, which compares
                     // stackable builds whose copies overlap by different
@@ -2565,7 +2711,11 @@ pub fn profile(
 /// file or a Schemati link, and how to prepare it. `form` names the form
 /// they belong to when they stand outside it; `keep_paste` offers keeping
 /// where the file pastes from, which a new version takes from its build.
-pub fn file_fields(form: Option<&str>, keep_paste: bool) -> Markup {
+pub fn file_fields(
+    form: Option<&str>,
+    keep_paste: bool,
+    schemati: &Connection,
+) -> Markup {
     html! {
         label class="field" {
             span { "Schematic file" }
@@ -2581,6 +2731,7 @@ pub fn file_fields(form: Option<&str>, keep_paste: bool) -> Markup {
                 " gives this link. It lasts seven days."
             }
         }
+        (schemati::own_file_field(schemati, form))
         @if keep_paste {
             label class="flex items-start gap-2" {
                 input type="checkbox" name="keep_paste" value="yes" form=[form] class="mt-1 size-4 appearance-auto";
@@ -2608,7 +2759,7 @@ pub fn file_fields(form: Option<&str>, keep_paste: bool) -> Markup {
     }
 }
 
-pub fn upload(user: &User, message: &str) -> Markup {
+pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
     base(
         Some(user),
         "Upload",
@@ -2617,13 +2768,13 @@ pub fn upload(user: &User, message: &str) -> Markup {
             div class="max-w-calm" {
                 h1 class={ (PAGE_TITLE) " mb-2" } { "Upload a build" }
                 p class="mb-6 max-w-prose text-muted" {
-                    "A Sponge " code { ".schem" } " file, yours or someone else's, or a link from "
-                    code { "//download" } " on OpenRedstone. "
+                    "A Sponge " code { ".schem" } " file, yours or someone else's, a link from "
+                    code { "//download" } " on OpenRedstone, or a file from your Schemati. "
                     "Next you'll see what the site reads from it, and describe it."
                 }
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-                    (file_fields(None, true))
+                    (file_fields(None, true, connection))
                     @if !message.is_empty() {
                         p role="alert" class="text-danger" { (message) }
                     }

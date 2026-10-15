@@ -2,7 +2,7 @@
 //! they give: its files to download, publish, rename, and delete, files to
 //! add, and builds sent from their pages.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use axum::{
     Form,
@@ -11,12 +11,13 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
+use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
     error::internal_error,
     models::user::User,
-    schemati::{self, Refusal},
+    schemati::{self, Folder, Refusal},
 };
 
 use super::{
@@ -43,21 +44,53 @@ async fn page(
     done: &str,
     refused: &str,
 ) -> Response {
-    let session = match User::schemati_session(&state.db, user.id).await {
-        Ok(session) => session,
+    let folder = match own_folder(&state.db, user).await {
+        Ok(folder) => folder,
         Err(err) => return internal_error(err).into_response(),
     };
-    let folder = match &session {
-        Some(session) => Some(schemati::folder(session).await),
+    pages::schemati(user, &connection(folder.as_ref()), done, refused)
+        .into_response()
+}
+
+/// `user`'s Schemati folder as Schemati has it now, or why not; `None`
+/// when they have given no session.
+async fn own_folder(
+    db: &SqlitePool,
+    user: &User,
+) -> Result<Option<Result<Folder, Refusal>>, sqlx::Error> {
+    let session = User::schemati_session(db, user.id).await?;
+    Ok(match session {
+        Some(session) => Some(schemati::folder(&session).await),
         None => None,
-    };
-    let connection = match &folder {
+    })
+}
+
+/// `own_folder`, for a form that offers its files beside others: waiting
+/// on Schemati only so long, then saying it is slow.
+pub(super) async fn own_folder_quickly(
+    db: &SqlitePool,
+    user: &User,
+) -> Result<Option<Result<Folder, Refusal>>, sqlx::Error> {
+    let asked =
+        tokio::time::timeout(Duration::from_secs(5), own_folder(db, user));
+    match asked.await {
+        Ok(folder) => folder,
+        Err(_) => Ok(Some(Err(Refusal::Said(
+            "Schemati is slow to answer; try again shortly.".to_owned(),
+        )))),
+    }
+}
+
+/// How a folder `own_folder` gave stands, for a page.
+pub(super) fn connection(
+    folder: Option<&Result<Folder, Refusal>>,
+) -> Connection<'_> {
+    match folder {
         None => Connection::Unset,
         Some(Ok(folder)) => Connection::Open(folder),
         Some(Err(Refusal::LoggedOut)) => Connection::Forgotten,
         Some(Err(Refusal::Said(why))) => Connection::Unreachable(why),
-    };
-    pages::schemati(user, &connection, done, refused).into_response()
+    }
 }
 
 /// The viewer and the Schemati session they gave, or the page to send
@@ -139,11 +172,11 @@ pub async fn disconnect(
 /// The file `name` in `user`'s folder, or a sentence saying why it could
 /// not be had, for publishing it.
 pub(super) async fn own_file(
-    state: &AppState,
+    db: &SqlitePool,
     user: &User,
     name: &str,
 ) -> Result<Vec<u8>, String> {
-    let session = User::schemati_session(&state.db, user.id)
+    let session = User::schemati_session(db, user.id)
         .await
         .map_err(|err| internal_error(err).1.to_owned())?
         .ok_or_else(|| "Connect your Schemati on its page first.".to_owned())?;

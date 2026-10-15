@@ -361,7 +361,7 @@ pub async fn save(
         Err(response) => return response,
     };
     let db = &state.db;
-    let posted = match upload::posted(&mut multipart).await {
+    let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
         Err(message) => {
             return show_edit(db, &user, &id, None, "", None, Some(&message))
@@ -377,7 +377,10 @@ pub async fn save(
             Err(response) => return response,
         };
     if posted.choosing() {
-        let chosen = chosen_version(db, &id, &posted).await;
+        let chosen = match posted.fetch_own(db, &user).await {
+            Ok(()) => chosen_version(db, &id, &posted).await,
+            Err(message) => Err(message),
+        };
         let (checked, refused) = match &chosen {
             Ok(chosen) => (Some(chosen), None),
             Err(message) => (checked.as_ref(), Some(message.as_str())),
@@ -663,6 +666,10 @@ pub(super) async fn show_edit(
         Ok(simulation) => simulation,
         Err(err) => return internal_error(&*err).into_response(),
     };
+    let folder = match super::schemati::own_folder_quickly(db, user).await {
+        Ok(folder) => folder,
+        Err(err) => return internal_error(err).into_response(),
+    };
     let stored = Stored::of(&s);
     let (fields, chosen_tags) = match sent {
         Some(form) => (form.fields(), form.tags.as_slice()),
@@ -699,6 +706,7 @@ pub(super) async fn show_edit(
             derived,
             message,
             choosing,
+            schemati: &super::schemati::connection(folder.as_ref()),
         },
     )
     .into_response()

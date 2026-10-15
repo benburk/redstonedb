@@ -269,6 +269,12 @@ pub struct Disagreement {
     pub pos: Pos,
     pub earlier: String,
     pub later: String,
+    /// Where the later copy's block is in its own copy, as in the file.
+    pub from: Pos,
+    /// The block the later copy's block rests on, in its own copy, when it
+    /// is a torch, dust, repeater, or comparator: graying it would leave
+    /// both out of later copies, if only the first copy needs them.
+    pub on: Option<Pos>,
 }
 
 /// Reviews the build in `data` stacked `direction`.
@@ -389,10 +395,18 @@ fn disagreements(
                 && earlier != AIR
                 && !(dust(later) && dust(earlier))
                 && other;
+            let on = match short(later) {
+                "redstone_wire" | "repeater" | "comparator" => {
+                    Some(schem::step(pos, "down"))
+                }
+                _ => schem::torch_block(pos, later),
+            };
             differ.then(|| Disagreement {
                 pos: at,
                 earlier: named(at, earlier),
                 later: named(pos, later),
+                from: pos,
+                on: on.filter(|&on| blocks.get(on) != AIR),
             })
         })
         .collect()

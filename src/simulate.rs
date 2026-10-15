@@ -34,7 +34,7 @@ use crate::{
 };
 
 pub use stacking::{Stacking, Step};
-pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Timing};
+pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Takes, Timing};
 
 /// The most ticks a build may take to settle after its inputs change.
 const MAX_TICKS: u32 = 1000;

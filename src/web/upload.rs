@@ -128,6 +128,26 @@ impl Posted {
         })
     }
 
+    /// Takes as the form's file the one its `schemati_file` names in
+    /// `user`'s own Schemati folder, as the Schemati page's Publish button
+    /// and the file choosers' Schemati list send, unless a file was chosen
+    /// or a link pasted, which win over it.
+    pub async fn fetch_own(
+        &mut self,
+        db: &sqlx::SqlitePool,
+        user: &User,
+    ) -> Result<(), String> {
+        let own = self.get("schemati_file").to_owned();
+        if self.file.is_none()
+            && self.get("schemati").trim().is_empty()
+            && !own.is_empty()
+        {
+            let data = super::schemati::own_file(db, user, &own).await?;
+            self.file = Some(Bytes::from(data));
+        }
+        Ok(())
+    }
+
     /// Whether the form was sent to check a newly chosen file rather than
     /// to publish or save.
     pub fn choosing(&self) -> bool {
@@ -135,28 +155,39 @@ impl Posted {
     }
 }
 
-/// Reads a form for choosing a file, as `Posted::chosen` does, or for
-/// publishing a file in `user`'s own Schemati folder, named in its
-/// `schemati_file`, as the Schemati page's Publish button sends.
+/// Reads a form for choosing a file, as `Posted::chosen` does, or a file
+/// from `user`'s own Schemati folder; see `Posted::fetch_own`.
 async fn received(
     state: &AppState,
     user: &User,
     multipart: &mut Multipart,
 ) -> Result<Sent, String> {
     let mut posted = posted(multipart).await?;
-    let own = posted.get("schemati_file").to_owned();
-    if posted.file.is_none() && !own.is_empty() {
-        let data = super::schemati::own_file(state, user, &own).await?;
-        posted.file = Some(Bytes::from(data));
-    }
+    posted.fetch_own(&state.db, user).await?;
     posted.chosen().await
 }
 
-pub async fn form(user_opt: Option<User>) -> Response {
+pub async fn form(
+    State(state): State<AppState>,
+    user_opt: Option<User>,
+) -> Response {
     match user_opt {
-        Some(user) => pages::upload(&user, "").into_response(),
+        Some(user) => upload_page(&state, &user, "").await,
         None => Redirect::to("/sessions/new").into_response(),
     }
+}
+
+/// The upload page for `user`, with their Schemati folder's files to
+/// choose from if they gave a session, and `message` saying why the last
+/// try was refused.
+async fn upload_page(state: &AppState, user: &User, message: &str) -> Response {
+    let folder =
+        match super::schemati::own_folder_quickly(&state.db, user).await {
+            Ok(folder) => folder,
+            Err(err) => return internal_error(err).into_response(),
+        };
+    let connection = super::schemati::connection(folder.as_ref());
+    pages::upload(user, message, &connection).into_response()
 }
 
 /// Reads the chosen file, standardizes it if asked, and shows what the
@@ -175,13 +206,13 @@ pub async fn preview(
         keep_paste,
     } = match received(&state, &user, &mut multipart).await {
         Ok(sent) => sent,
-        Err(message) => return pages::upload(&user, &message).into_response(),
+        Err(message) => return upload_page(&state, &user, &message).await,
     };
     let prepared = match import::prepare(&file, standardize, true, keep_paste) {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
-            return pages::upload(&user, &message).into_response();
+            return upload_page(&state, &user, &message).await;
         }
     };
     let interface = interface::read(&prepared.blocks);
@@ -289,17 +320,18 @@ pub async fn publish(
     let Some(user) = user_opt else {
         return Redirect::to("/sessions/new").into_response();
     };
-    let posted = match posted(&mut multipart).await {
+    let mut posted = match posted(&mut multipart).await {
         Ok(posted) => posted,
-        Err(message) => return pages::upload(&user, &message).into_response(),
+        Err(message) => return upload_page(&state, &user, &message).await,
     };
     let mut sent = Submission::read(&posted);
     let Ok(data) = STANDARD.decode(&sent.data) else {
-        return pages::upload(
+        return upload_page(
+            &state,
             &user,
             "The upload expired. Choose the file again.",
         )
-        .into_response();
+        .await;
     };
     // A swap changes the file and shows it again, keeping the details.
     let swapping = sent.swap == "hopper";
@@ -308,7 +340,7 @@ pub async fn publish(
             Ok(swapped) => swapped,
             Err(err) => {
                 let message = format!("Could not swap them: {err:#}.");
-                return pages::upload(&user, &message).into_response();
+                return upload_page(&state, &user, &message).await;
             }
         }
     } else {
@@ -323,11 +355,11 @@ pub async fn publish(
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
-            return pages::upload(&user, &message).into_response();
+            return upload_page(&state, &user, &message).await;
         }
     };
     if posted.choosing() {
-        return chosen_instead(&state, &user, &posted, prepared, &mut sent)
+        return chosen_instead(&state, &user, &mut posted, prepared, &mut sent)
             .await;
     }
     if swapping {
@@ -372,11 +404,15 @@ pub async fn publish(
 async fn chosen_instead(
     state: &AppState,
     user: &User,
-    posted: &Posted,
+    posted: &mut Posted,
     current: Prepared,
     sent: &mut Submission,
 ) -> Response {
-    let read = match posted.chosen().await {
+    let chosen = match posted.fetch_own(&state.db, user).await {
+        Ok(()) => posted.chosen().await,
+        Err(message) => Err(message),
+    };
+    let read = match chosen {
         Ok(chosen) => import::prepare(
             &chosen.file,
             chosen.standardize,
@@ -587,6 +623,11 @@ async fn show_preview(
         Ok(similar) => similar,
         Err(err) => return internal_error(&*err).into_response(),
     };
+    let folder =
+        match super::schemati::own_folder_quickly(&state.db, user).await {
+            Ok(folder) => folder,
+            Err(err) => return internal_error(err).into_response(),
+        };
     let interface = interface::read(&prepared.blocks);
     let derived = import::derived("adder", &interface);
     let swappable = standardize::swappable(&prepared.blocks);
@@ -617,6 +658,7 @@ async fn show_preview(
             derived,
             message: said.message,
             choosing: said.choosing,
+            schemati: &super::schemati::connection(folder.as_ref()),
         },
     )
     .into_response()

@@ -56,6 +56,17 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
+    /// Copies of a register every `step` make a wider register, of `bits`
+    /// bits, whose every cell stores and reads right, sharing its control
+    /// lines: `copies` of them, in `cases` cases. `most` is as for
+    /// `Registers`.
+    Wider {
+        step: Step,
+        copies: usize,
+        bits: usize,
+        cases: u64,
+        most: Option<usize>,
+    },
     /// They make no working adder, with the step tried when there was one.
     Not { step: Option<Step>, reason: String },
 }

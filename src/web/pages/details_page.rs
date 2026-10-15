@@ -86,6 +86,8 @@ pub struct DetailsPage<'a> {
     /// Whether the fields for choosing another file start open, with why
     /// the last file chosen could not be read, if it could not.
     pub choosing: Option<&'a str>,
+    /// The viewer's Schemati folder, its files to choose from.
+    pub schemati: &'a super::Connection<'a>,
 }
 
 /// A stored build's details as its form starts with them.
@@ -476,7 +478,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
                         }
                     }
                 }
-                (file_fields(Some("details-form"), matches!(page.file, File::Upload { .. })))
+                (file_fields(Some("details-form"), matches!(page.file, File::Upload { .. }), page.schemati))
                 @if let Some(message) = page.choosing.filter(|message| !message.is_empty()) {
                     p role="alert" class="text-danger" { (message) }
                 }

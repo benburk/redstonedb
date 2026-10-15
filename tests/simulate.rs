@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use app::{
     import, interface, lint,
     schem::{self, Blocks},
-    simulate::{self, Report, Stacking, Test},
+    simulate::{self, Report, Stacking, Takes, Test},
     stack,
     standardize::{self, Gray},
 };
@@ -674,6 +674,59 @@ fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
     };
     assert_eq!(step.describe(), "4 west");
     assert_eq!((copies, registers, most), (4, 8, Some(4)));
+}
+
+/// A 1-bit cell whose write line's driver, a torch on a block on a torch
+/// on its input, stands on a gray block, which later copies leave out:
+/// copies 2 west share its read and write lines and make a wider register,
+/// up to 7 bits, past which the write line's dust runs out.
+#[test]
+fn a_register_cell_stacks_west_into_more_bits() {
+    let data =
+        std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
+    let Some(Stacking::Wider {
+        step,
+        copies,
+        bits,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack into more bits");
+    };
+    assert_eq!(step.describe(), "2 west");
+    assert_eq!((copies, bits, most), (7, 7, Some(7)));
+}
+
+/// The same cell's timing: its bus is empty while its write lever is on,
+/// and it takes its data as the lever turns off, showing it 3 ticks later.
+/// Data changing as the lever turns off shows 4 ticks later, its latency.
+#[test]
+fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
+    let data =
+        std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let timing = Test::Register
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(timing.takes, Takes::Closing);
+    assert_eq!(
+        (timing.read(), timing.write, timing.data),
+        (Some(2), Some(3), Some(4))
+    );
+    assert_eq!(timing.latency(), Some(4));
+}
+
+/// The same cell with its driver's block whitened: every copy keeps a
+/// driver, whose torch lands on the copy before's write line, so no step
+/// stacks.
+#[test]
+fn a_register_cell_whose_driver_is_white_does_not_stack() {
+    let (data, _) = register("register-1-gray-driver");
+    assert!(matches!(
+        Test::Register.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
 }
 
 /// The same register with barrels of 1 signal strength where its read

@@ -153,12 +153,23 @@ fn warnings(review: &Review) -> Markup {
                         n => { "at " (n) " spots" }
                     }
                     ", where the next copy, " (way(review.direction)) ", puts another block over this one's. "
-                    "If the step is right, look at these; a barrel replaced, or dust cut, may stop a copy working."
+                    "If the step is right, look at these; a barrel replaced, or dust cut, may stop a copy working. "
+                    "Logic only the first copy needs, such as an input's driver, goes on gray blocks, which later copies leave out with what rests on them."
                 }
                 ul class="mt-2 flex list-disc flex-col gap-0.5 pl-5 text-meta" {
                     @for spot in spots.iter().take(LISTED) {
                         @let [x, y, z] = spot.pos;
-                        li { "(" (x) ", " (y) ", " (z) "): " (spot.earlier) " replaced by " (spot.later) }
+                        @let [fx, fy, fz] = spot.from;
+                        li {
+                            "(" (x) ", " (y) ", " (z) "): " (spot.earlier) " replaced by the next copy's " (spot.later)
+                            ", from (" (fx) ", " (fy) ", " (fz) ")"
+                            @if let Some([ox, oy, oz]) = spot.on {
+                                " on (" (ox) ", " (oy) ", " (oz) "). If only the first copy needs it, make ("
+                                (ox) ", " (oy) ", " (oz) ") gray."
+                            } @else {
+                                "."
+                            }
+                        }
                     }
                     @if spots.len() > LISTED {
                         li class="text-muted" { "and " (spots.len() - LISTED) " more" }

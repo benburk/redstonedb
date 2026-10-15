@@ -57,6 +57,43 @@ pub fn schemati(
     )
 }
 
+/// A file chooser's choice of a file from the viewer's Schemati folder,
+/// sent as `schemati_file` with `form`, or a link to connect it.
+pub(super) fn own_file_field(
+    connection: &Connection,
+    form: Option<&str>,
+) -> Markup {
+    let help = "text-meta font-normal text-muted";
+    html! {
+        @match connection {
+            Connection::Open(folder) if !folder.files.is_empty() => {
+                label class="field" {
+                    span { "Or a file from your Schemati" }
+                    select name="schemati_file" form=[form] aria-describedby="own-schemati-help" class="input" {
+                        option value="" { "None" }
+                        @for name in &folder.files {
+                            option value=(name) { (name) }
+                        }
+                    }
+                    span id="own-schemati-help" class=(help) {
+                        "The folder of " (folder.player) ", as " code { "//save" } " left it. A file or link above is taken first."
+                    }
+                }
+            }
+            Connection::Open(_) => p class=(help) {
+                "Your Schemati folder is empty. In game, " code { "//save <name>" } " adds to it."
+            },
+            Connection::Unset => p class=(help) {
+                a href="/schemati" { "Connect your Schemati" } " to choose from its files here."
+            },
+            Connection::Forgotten => p class=(help) {
+                "Schemati has forgotten your session. " a href="/schemati" { "Give it a new one" } " to choose from its files here."
+            },
+            Connection::Unreachable(why) => p class=(help) { "Your Schemati files: " (why) },
+        }
+    }
+}
+
 /// How sending a build to the viewer's Schemati went, for the build's
 /// download dialog to show: the sentence saying it was saved, or why not
 /// with a link to the Schemati page, where a session is given.

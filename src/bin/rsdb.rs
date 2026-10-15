@@ -1125,40 +1125,60 @@ fn print_report(name: &str, report: &Report) {
     if let Report::Ran(run) = report
         && let Some(stacking) = &run.stacking
     {
-        match stacking {
-            Stacking::Stacks {
-                step,
-                copies,
-                bits,
-                cases,
-            } => println!(
-                "        stacks: {copies} copies {} apart make {bits} bits, all {cases} cases right",
-                step.describe()
-            ),
-            Stacking::Registers {
-                step,
-                copies,
-                registers,
-                cases,
-                most,
-            } => println!(
-                "        stacks: {copies} copies {} apart make {registers} registers, all {cases} cases right{}",
-                step.describe(),
-                if most.is_some() {
-                    "; one more copy fails"
-                } else {
-                    ""
-                }
-            ),
-            Stacking::Not { step, reason } => println!(
-                "        doesn't stack{}: {reason}",
-                step.map(|s| format!(" {} apart", s.describe()))
-                    .unwrap_or_default()
-            ),
-        }
+        print_stacking(stacking);
     }
     if let Some(timing) = report.timing() {
         print_timing(timing);
+    }
+}
+
+/// What stacking copies of a simulated build found.
+fn print_stacking(stacking: &Stacking) {
+    match stacking {
+        Stacking::Stacks {
+            step,
+            copies,
+            bits,
+            cases,
+        } => println!(
+            "        stacks: {copies} copies {} apart make {bits} bits, all {cases} cases right",
+            step.describe()
+        ),
+        Stacking::Registers {
+            step,
+            copies,
+            registers,
+            cases,
+            most,
+        } => println!(
+            "        stacks: {copies} copies {} apart make {registers} registers, all {cases} cases right{}",
+            step.describe(),
+            if most.is_some() {
+                "; one more copy fails"
+            } else {
+                ""
+            }
+        ),
+        Stacking::Wider {
+            step,
+            copies,
+            bits,
+            cases,
+            most,
+        } => println!(
+            "        stacks: {copies} copies {} apart make a {bits}-bit register, all {cases} cases right{}",
+            step.describe(),
+            if most.is_some() {
+                "; one more copy fails"
+            } else {
+                ""
+            }
+        ),
+        Stacking::Not { step, reason } => println!(
+            "        doesn't stack{}: {reason}",
+            step.map(|s| format!(" {} apart", s.describe()))
+                .unwrap_or_default()
+        ),
     }
 }
 

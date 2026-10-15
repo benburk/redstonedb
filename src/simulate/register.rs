@@ -18,7 +18,8 @@
 //! bus and nothing on any other.
 //!
 //! Copies stack west into a bigger register file, sharing the data buses,
-//! which are driven and read at the first copy's end; see `stacking`.
+//! which are driven and read at the first copy's end, or into a wider
+//! register, sharing the control lines; see `stacking`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -28,7 +29,7 @@ use super::{
     Broken, Circuit, MAX_TICKS, Run, Signal, Wrong, mask, output_bits,
     patterns,
     stacking::{Stacking, Step},
-    timing::{BitTiming, InputTiming, OutputTiming, Timing},
+    timing::{BitTiming, InputTiming, OutputTiming, Takes, Timing},
 };
 use crate::{
     interface::{self, Interface},
@@ -117,8 +118,15 @@ pub fn check_quick(blocks: &Blocks) -> Result<Run> {
     Ok(check_on(blocks, true)?.0)
 }
 
-/// The run, and how many cells it found.
-fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, usize)> {
+/// How many cells a register has, and of how many bits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Shape {
+    cells: usize,
+    width: usize,
+}
+
+/// The run, and the shape of the register it found.
+fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, Shape)> {
     let interface = interface::read(blocks);
     let (mut circuit, register) = ports(blocks, &interface)?;
     let (values, exhaustive) = if quick {
@@ -177,7 +185,10 @@ fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, usize)> {
             read(&mut circuit, &register, &[])?;
         }
     }
-    let cells = register.cells.len();
+    let shape = Shape {
+        cells: register.cells.len(),
+        width: register.width,
+    };
     let mut run = tally.run(&interface, &register, exhaustive);
     if !exhaustive {
         run.patterns = patterns(register.width).len() as u64;
@@ -189,7 +200,7 @@ fn check_on(blocks: &Blocks, quick: bool) -> Result<(Run, usize)> {
                 .to_owned(),
         );
     }
-    Ok((run, cells))
+    Ok((run, shape))
 }
 
 /// Every value of `width` bits up to 8, with whether that is all of them;
@@ -623,8 +634,14 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
             }
         }
     }
-    let write_ticks = write_latency(&mut circuit, &register)?;
-    let data_ticks = data_latency(&mut circuit, &register, &carried)?;
+    let takes = if takes_data_closing(&mut circuit, &register)? {
+        Takes::Closing
+    } else {
+        Takes::Open
+    };
+    let closing = takes == Takes::Closing;
+    let write_ticks = write_latency(&mut circuit, &register, closing)?;
+    let data_ticks = data_latency(&mut circuit, &register, &carried, closing)?;
     let synced = stats
         .iter()
         .all(|bus| bus.glitches == 0 && bus.staggered == 0);
@@ -659,6 +676,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         from_read: true,
         write: Some(write_ticks),
         data: data_ticks,
+        takes,
     })
 }
 
@@ -690,16 +708,58 @@ fn watch(
     Ok(changes)
 }
 
-/// The most ticks for data to pass through a cell, its write held open and
-/// its read on: from its data in changing until its bus shows the new
-/// value, as when a data loop's ALU feeds it, the control lines no part of
-/// it. `None` when a cell takes its data only as its write opens, so data
-/// changed while it is held does not pass.
+/// Whether the register's cells take their data as their write levers
+/// turn off: some cell, its read on and its write held open, keeps a value
+/// it was not given off its bus, as a cell whose read is cut while it
+/// writes does, and shows it once its lever turns off.
+fn takes_data_closing(
+    circuit: &mut Circuit,
+    register: &Register,
+) -> Result<bool> {
+    let all = mask(register.width);
+    for cell in &register.cells {
+        let Some(&read_line) = cell.reads.first() else {
+            continue;
+        };
+        if cell.write.button {
+            continue;
+        }
+        for value in telling(register.width) {
+            write(circuit, register, cell.write, !value & all)?;
+            circuit.set(register.data, value);
+            read(circuit, register, &[read_line.line, cell.write])?;
+            let shows = |circuit: &Circuit| {
+                buses(circuit, register)[read_line.bus]
+                    == read_line.shows(value, register.width)
+            };
+            let held = shows(circuit);
+            read(circuit, register, &[read_line.line])?;
+            let closed = shows(circuit);
+            read(circuit, register, &[])?;
+            if !held && closed {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// The most ticks for data to pass through a cell, its read on: from its
+/// data in changing until its bus shows the new value, as when a data
+/// loop's ALU feeds it, the control lines no part of it. With its write
+/// held open; or, for a cell `closing`, which takes its data as its write
+/// lever turns off, changing as the lever does, the latest it can. `None`
+/// when a cell takes its data only as its write opens, so data changed
+/// while it is held does not pass.
 fn data_latency(
     circuit: &mut Circuit,
     register: &Register,
     carried: &[i32],
+    closing: bool,
 ) -> Result<Option<i32>> {
+    if closing {
+        return closing_data_latency(circuit, register, carried);
+    }
     let all = mask(register.width);
     let mut slowest = None;
     for cell in &register.cells {
@@ -750,9 +810,58 @@ fn data_latency(
     Ok(slowest)
 }
 
+/// `data_latency` for cells that take their data as their write levers
+/// turn off: from the data and the lever changing on the same tick, the
+/// write held open before with the old value, until the bus shows the new
+/// one and keeps it.
+fn closing_data_latency(
+    circuit: &mut Circuit,
+    register: &Register,
+    carried: &[i32],
+) -> Result<Option<i32>> {
+    let all = mask(register.width);
+    let mut slowest = None;
+    for cell in &register.cells {
+        let Some(&read_line) = cell.reads.first() else {
+            continue;
+        };
+        let port = register.buses[read_line.bus];
+        for value in telling(register.width) {
+            let old = !value & all;
+            write(circuit, register, cell.write, old)?;
+            circuit.set(register.data, old);
+            read(circuit, register, &[read_line.line, cell.write])?;
+            circuit.set(register.data, value);
+            set_reads(circuit, register, &[read_line.line]);
+            let changes = watch(circuit, register)?;
+            if buses(circuit, register)[read_line.bus]
+                != read_line.shows(value, register.width)
+            {
+                return Ok(None);
+            }
+            let last = changes[read_line.bus]
+                .iter()
+                .flatten()
+                .max()
+                .copied()
+                .unwrap_or(0);
+            let ticks = last - carried[port];
+            slowest = Some(slowest.map_or(ticks, |s: i32| s.max(ticks)));
+            read(circuit, register, &[])?;
+        }
+    }
+    Ok(slowest)
+}
+
 /// The most ticks from pressing a cell's write button, its read held on,
-/// until its bus shows the value written and keeps it.
-fn write_latency(circuit: &mut Circuit, register: &Register) -> Result<i32> {
+/// until its bus shows the value written and keeps it; for a lever, from
+/// turning it on, or for cells `closing`, from turning it off, their data
+/// set while it was on.
+fn write_latency(
+    circuit: &mut Circuit,
+    register: &Register,
+    closing: bool,
+) -> Result<i32> {
     let all = mask(register.width);
     let mut slowest = 0;
     for cell in &register.cells {
@@ -764,9 +873,11 @@ fn write_latency(circuit: &mut Circuit, register: &Register) -> Result<i32> {
             read(circuit, register, &[line])?;
             circuit.set(register.data, value);
             circuit.settle()?;
-            // A lever write is timed from turning it on.
             if cell.write.button {
                 circuit.press(cell.write.port, cell.write.bit);
+            } else if closing {
+                read(circuit, register, &[line, cell.write])?;
+                set_reads(circuit, register, &[line]);
             } else {
                 set_reads(circuit, register, &[line, cell.write]);
             }
@@ -865,50 +976,63 @@ impl BusStats {
 }
 
 /// Whether copies of the register in `data`, a file whose own cases came
-/// out right, stack west into a bigger register file: the shortest step
-/// west, up to its width, at which two copies' cells all store and read
-/// right, then the most copies that do, up to `MOST_COPIES`, as a shared
-/// bus that runs too far fails. `None` when it is not a register.
+/// out right, stack west into a bigger register: the shortest step west,
+/// up to its width, at which two copies all store and read right, either
+/// as more cells sharing the data buses, driven and read at the first
+/// copy's end, or as more bits sharing the control lines, driven at the
+/// first copy's end; then the most copies that do, up to `MOST_COPIES`, as
+/// a shared line that runs too far fails. `None` when it is not a
+/// register.
 pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let blocks = Blocks::read(data).ok()?;
     let (_, single) = check_on(&blocks, true).ok()?;
-    // Copies across its bits share its data buses, driven and read at the
-    // first copy's end.
-    let orientation =
-        crate::import::derived("register", &interface::read(&blocks))
-            .orientation
-            .unwrap_or("vert");
-    let buses = stack::Buses::of("register", orientation);
     let (low, high) = interface::measured(&blocks);
     let reach = i64::from(high[0] - low[0] + 1);
-    let works = |step: Step, copies: usize, quick: bool| -> Option<u64> {
+    let works = |step: Step, copies: usize, bits: bool, quick: bool| {
+        // Copies along a register's bits share its control lines; across
+        // them, its data buses.
+        let orientation = if bits { "horz" } else { "vert" };
+        let buses = stack::Buses::of("register", orientation);
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         let blocks = Blocks::read(&stacked).ok()?;
-        let (run, cells) = check_on(&blocks, quick).ok()?;
-        (run.wrong == 0 && cells == single * copies).then_some(run.cases)
+        let (run, shape) = check_on(&blocks, quick).ok()?;
+        let made = if bits {
+            Shape {
+                width: single.width * copies,
+                ..single
+            }
+        } else {
+            Shape {
+                cells: single.cells * copies,
+                ..single
+            }
+        };
+        (run.wrong == 0 && shape == made).then_some(run.cases)
     };
-    let Some(step) = (1..=reach)
+    let found = (1..=reach)
         .map(|west| Step {
             west,
             up: 0,
             north: 0,
         })
-        .find(|&step| {
-            works(step, 2, true).is_some() && works(step, 2, false).is_some()
-        })
-    else {
+        .flat_map(|step| [(step, false), (step, true)])
+        .find(|&(step, bits)| {
+            works(step, 2, bits, true).is_some()
+                && works(step, 2, bits, false).is_some()
+        });
+    let Some((step, bits)) = found else {
         return Some(Stacking::Not {
             step: None,
             reason: "No step west, up to its width, makes copies whose every \
-                     cell stores and reads right."
+                     cell stores and reads right, as more cells or more bits."
                 .to_owned(),
         });
     };
     let mut most = None;
     let mut copies = 2;
     while copies < MOST_COPIES {
-        if works(step, copies + 1, true).is_none() {
+        if works(step, copies + 1, bits, true).is_none() {
             most = Some(copies);
             break;
         }
@@ -916,17 +1040,27 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
     }
     // The most that pass quickly may yet get a case wrong.
     let cases = loop {
-        if let Some(cases) = works(step, copies, false) {
+        if let Some(cases) = works(step, copies, bits, false) {
             break cases;
         }
         copies -= 1;
         most = Some(copies);
     };
-    Some(Stacking::Registers {
-        step,
-        copies,
-        registers: single * copies,
-        cases,
-        most,
+    Some(if bits {
+        Stacking::Wider {
+            step,
+            copies,
+            bits: single.width * copies,
+            cases,
+            most,
+        }
+    } else {
+        Stacking::Registers {
+            step,
+            copies,
+            registers: single.cells * copies,
+            cases,
+            most,
+        }
     })
 }

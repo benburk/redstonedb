@@ -280,10 +280,11 @@ pub async fn refresh(
 /// Sets how build `s` stacks from what stacking copies of it found, for a
 /// conventional build of a category whose stacking the simulation decides:
 /// the step its copies added right at, with no limit on copies, or none.
-/// A register takes the step its copies stored and read right at, with
-/// the most copies that did, and keeps its builder's stacking when none
-/// was found. A result that did not stack copies, such as one with wrong
-/// cases, is left as it was.
+/// A register takes the step west its copies stored and read right at,
+/// with the most copies that did, in place of its builder's west step and
+/// beside their others, which the search does not try; it keeps its
+/// builder's stacking when none was found. A result that did not stack
+/// copies, such as one with wrong cases, is left as it was.
 async fn apply_stacking(
     db: &SqlitePool,
     s: &Schematic,
@@ -299,11 +300,20 @@ async fn apply_stacking(
     };
     let directions = match &run.stacking {
         Some(Stacking::Stacks { step, .. }) => vec![step.direction()],
-        Some(Stacking::Registers { step, most, .. }) => {
-            vec![StackDirection {
+        Some(
+            Stacking::Registers { step, most, .. }
+            | Stacking::Wider { step, most, .. },
+        ) => {
+            let found = StackDirection {
                 max_copies: most.and_then(|n| i64::try_from(n).ok()),
                 ..step.direction()
-            }]
+            };
+            s.stacking
+                .iter()
+                .filter(|typed| typed.west == 0)
+                .copied()
+                .chain([found])
+                .collect()
         }
         Some(Stacking::Not { .. }) if !finds => Vec::new(),
         Some(Stacking::Not { .. }) | None => return Ok(()),
@@ -312,9 +322,11 @@ async fn apply_stacking(
         let mut conn = db.acquire().await?;
         schematic::set_stacking(&mut conn, &s.id, &directions).await?;
     }
-    // Copies that add up as a wider adder run the way its bits do, which a
-    // 1-bit adder's lone input cannot show.
-    if let Some(Stacking::Stacks { step, .. }) = &run.stacking
+    // Copies that add up as a wider adder, or store as a wider register,
+    // run the way its bits do, which a 1-bit build's lone input cannot
+    // show.
+    if let Some(Stacking::Stacks { step, .. } | Stacking::Wider { step, .. }) =
+        &run.stacking
         && let Some(orientation) = step.orientation()
         && s.orientation != orientation
     {
