@@ -252,6 +252,23 @@ impl Circuit {
             let block = self.world.get_block(pos);
             mchprs_redstone::on_use(block, &mut self.world, pos);
         }
+        // So `pressed` sees it down before the next tick.
+        self.show();
+    }
+
+    /// Whether the button on bit `bit` of input `port` is still down, as of
+    /// the last `step` or `settle`; false for a lever.
+    pub fn pressed(&self, port: usize, bit: usize) -> bool {
+        let Drive::Levers(levers) = &self.inputs[port] else {
+            return false;
+        };
+        let Some(button) = levers.get(bit).filter(|lever| lever.button) else {
+            return false;
+        };
+        matches!(
+            self.world.get_block(button.pos),
+            Block::StoneButton { powered: true, .. }
+        )
     }
 
     /// Whether bit `bit` of input `port` is driven by a button.

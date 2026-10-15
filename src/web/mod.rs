@@ -1,5 +1,5 @@
 //! Web routes.
-use std::sync::LazyLock;
+use std::{fmt::Write as _, sync::LazyLock};
 
 use axum::{
     Router,
@@ -33,8 +33,9 @@ use profile::profile;
 /// Built from `styles/app.css` by `just css`.
 const CSS: &str = include_str!("../../static/app.css");
 const FORM_JS: &str = include_str!("../../static/form.js");
-const SIMULATION_JS: &str = include_str!("../../static/simulation.js");
 const SIDEBAR_JS: &str = include_str!("../../static/sidebar.js");
+const FIXI_JS: &str = include_str!("../../static/fixi.js");
+const APP_JS: &str = include_str!("../../static/app.js");
 
 /// An asset's address with its contents' hash, so browsers may keep it for
 /// good: a changed file gets a new address.
@@ -46,10 +47,12 @@ fn versioned(path: &str, contents: &str) -> String {
 static CSS_URL: LazyLock<String> = LazyLock::new(|| versioned("/app.css", CSS));
 static FORM_JS_URL: LazyLock<String> =
     LazyLock::new(|| versioned("/form.js", FORM_JS));
-static SIMULATION_JS_URL: LazyLock<String> =
-    LazyLock::new(|| versioned("/simulation.js", SIMULATION_JS));
 static SIDEBAR_JS_URL: LazyLock<String> =
     LazyLock::new(|| versioned("/sidebar.js", SIDEBAR_JS));
+static FIXI_JS_URL: LazyLock<String> =
+    LazyLock::new(|| versioned("/fixi.js", FIXI_JS));
+static APP_JS_URL: LazyLock<String> =
+    LazyLock::new(|| versioned("/app.js", APP_JS));
 
 /// Where pages link the stylesheet.
 pub fn css_url() -> &'static str {
@@ -61,15 +64,21 @@ pub fn form_js_url() -> &'static str {
     &FORM_JS_URL
 }
 
-/// Where a build's page loads the script that waits for its simulation.
-pub fn simulation_js_url() -> &'static str {
-    &SIMULATION_JS_URL
-}
-
 /// Where a page with the category sidebar loads the script that fits it to
 /// the window.
 pub fn sidebar_js_url() -> &'static str {
     &SIDEBAR_JS_URL
+}
+
+/// Where every page loads fixi.
+pub fn fixi_js_url() -> &'static str {
+    &FIXI_JS_URL
+}
+
+/// Where every page loads the script that sets fixi's policies; see
+/// `static/app.js`.
+pub fn app_js_url() -> &'static str {
+    &APP_JS_URL
 }
 
 /// Versioned addresses never change, so they are cached for a year.
@@ -96,10 +105,6 @@ fn script(contents: &'static str) -> impl IntoResponse {
     )
 }
 
-async fn get_simulation_js() -> impl IntoResponse {
-    script(SIMULATION_JS)
-}
-
 async fn get_form_js() -> impl IntoResponse {
     script(FORM_JS)
 }
@@ -108,13 +113,37 @@ async fn get_sidebar_js() -> impl IntoResponse {
     script(SIDEBAR_JS)
 }
 
+async fn get_fixi_js() -> impl IntoResponse {
+    script(FIXI_JS)
+}
+
+async fn get_app_js() -> impl IntoResponse {
+    script(APP_JS)
+}
+
 /// Static assets (CSS, JS) - no request logging
 pub fn static_router() -> Router<AppState> {
     Router::new()
         .route("/app.css", get(get_css))
         .route("/form.js", get(get_form_js))
-        .route("/simulation.js", get(get_simulation_js))
         .route("/sidebar.js", get(get_sidebar_js))
+        .route("/fixi.js", get(get_fixi_js))
+        .route("/app.js", get(get_app_js))
+}
+
+/// `text` for an `FX-Notice` header, which `static/app.js` shows: percent-
+/// encoded, since a header value is only ASCII.
+fn notice(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b" .,;:!?'()-_/".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            // Writing to a String cannot fail.
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 /// A 404 with the not-found page, for an address naming no build, person,

@@ -1,6 +1,7 @@
 //! A picture of a build for its card: an isometric view from the south-east
 //! and above, with a flat colour for each block. Full blocks are shaded
-//! cubes; dust, torches, repeaters, comparators, and levers are small boxes.
+//! cubes, a target block with its rings; dust, torches, repeaters,
+//! comparators, and levers are small boxes.
 
 use anyhow::{Context, Result};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
@@ -23,6 +24,9 @@ struct Part {
     min: [f32; 3],
     max: [f32; 3],
     color: Rgba,
+    /// Its faces to draw, top, south, and east: all of a box, one of a
+    /// marking on a block's face.
+    faces: [bool; 3],
 }
 
 /// One block to draw, with the faces another opaque block does not cover.
@@ -53,7 +57,8 @@ pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
                 };
                 to_screen([pick(0, dx), pick(1, dy), pick(2, dz)])
             };
-            let [top, south, east] = d.faces;
+            let [top, south, east] =
+                [0, 1, 2].map(|face| d.faces[face] && part.faces[face]);
             if top {
                 face(
                     &mut pixmap,
@@ -86,8 +91,11 @@ pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
 /// paint over them.
 fn visible(blocks: &Blocks) -> Vec<Drawn> {
     let shape = |pos: Pos| shape(blocks.get(pos));
-    let opaque =
-        |pos: Pos| matches!(shape(pos), Shape::Cube(color) if color[3] == 255);
+    let opaque = |pos: Pos| match shape(pos) {
+        Shape::Cube(color) => color[3] == 255,
+        Shape::Target => true,
+        Shape::Empty | Shape::Parts(_) => false,
+    };
     let mut drawn: Vec<Drawn> = blocks
         .iter()
         .filter_map(|(pos, _)| {
@@ -98,9 +106,11 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
                         min: [0.0; 3],
                         max: [1.0; 3],
                         color,
+                        faces: [true; 3],
                     }],
                     true,
                 ),
+                Shape::Target => (target(), true),
                 Shape::Parts(parts) => (parts, false),
             };
             let faces = if cube {
@@ -215,7 +225,46 @@ fn shade([r, g, b, a]: Rgba, light: f32) -> Rgba {
 enum Shape {
     Empty,
     Cube(Rgba),
+    /// A target block: a cube with rings on its faces.
+    Target,
     Parts(Vec<Part>),
+}
+
+const TARGET_PALE: Rgba = [226, 216, 200, 255];
+const TARGET_RED: Rgba = [196, 44, 40, 255];
+
+/// A target block's cube, and on each face it shows, red and pale rings
+/// stepping in to a red centre, each a hair above the one before so it
+/// paints over it.
+fn target() -> Vec<Part> {
+    let mut parts = vec![Part {
+        min: [0.0; 3],
+        max: [1.0; 3],
+        color: TARGET_PALE,
+        faces: [true; 3],
+    }];
+    let rings = [(0.1, TARGET_RED), (0.22, TARGET_PALE), (0.34, TARGET_RED)];
+    for face in 0..3 {
+        for (step, &(inset, color)) in rings.iter().enumerate() {
+            let lift =
+                1.0 + 0.002 * f32::from(u8::try_from(step + 1).unwrap_or(1));
+            let (lo, hi) = (inset, 1.0 - inset);
+            let (min, max) = match face {
+                0 => ([lo, 1.0, lo], [hi, lift, hi]),
+                1 => ([lo, lo, 1.0], [hi, hi, lift]),
+                _ => ([1.0, lo, lo], [lift, hi, hi]),
+            };
+            let mut faces = [false; 3];
+            faces[face] = true;
+            parts.push(Part {
+                min,
+                max,
+                color,
+                faces,
+            });
+        }
+    }
+    parts
 }
 
 fn shape(state: &str) -> Shape {
@@ -230,8 +279,12 @@ fn shape(state: &str) -> Shape {
     } else {
         [110, 16, 10, 255]
     };
-    let part =
-        |min: [f32; 3], max: [f32; 3], color: Rgba| Part { min, max, color };
+    let part = |min: [f32; 3], max: [f32; 3], color: Rgba| Part {
+        min,
+        max,
+        color,
+        faces: [true; 3],
+    };
     // Toward the block a wall torch or lever hangs on.
     let wall = |reach: f32| {
         let [dx, _, dz] = direction(property("facing").unwrap_or(""));
@@ -302,23 +355,28 @@ fn shape(state: &str) -> Shape {
             [120, 76, 46, 255]
         }),
         "glass" => Shape::Cube([200, 225, 235, 80]),
-        _ => {
-            if let Some(dye) = name.strip_suffix("_stained_glass") {
-                let [r, g, b, _] = dye_color(dye);
-                Shape::Cube([r, g, b, 110])
-            } else if let Some(dye) = name.strip_suffix("_concrete") {
-                Shape::Cube(dye_color(dye))
-            } else {
-                Shape::Cube(match name {
-                    "redstone_block" => [175, 25, 5, 255],
-                    "observer" => [95, 95, 95, 255],
-                    "piston" | "sticky_piston" | "piston_head" => {
-                        [160, 140, 100, 255]
-                    }
-                    _ => [150, 150, 150, 255],
-                })
-            }
-        }
+        "target" => Shape::Target,
+        _ => Shape::Cube(cube_color(name)),
+    }
+}
+
+/// A full block's colour, by its name without `minecraft:`: stained glass
+/// see-through in its dye's colour, concrete in its own, and a few others.
+fn cube_color(name: &str) -> Rgba {
+    if let Some(dye) = name.strip_suffix("_stained_glass") {
+        let [r, g, b, _] = dye_color(dye);
+        return [r, g, b, 110];
+    }
+    if let Some(dye) = name.strip_suffix("_concrete") {
+        return dye_color(dye);
+    }
+    match name {
+        "redstone_block" => [175, 25, 5, 255],
+        "observer" => [95, 95, 95, 255],
+        "barrel" => [134, 98, 58, 255],
+        "hopper" => [62, 62, 66, 255],
+        "piston" | "sticky_piston" | "piston_head" => [160, 140, 100, 255],
+        _ => [150, 150, 150, 255],
     }
 }
 

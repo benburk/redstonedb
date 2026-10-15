@@ -4,6 +4,7 @@
 //! checks says what is being checked and what holds up publishing; the
 //! simulation runs in the page as the category and width are chosen.
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
 
 use crate::{
@@ -172,9 +173,18 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
         ),
     };
     let viewer = match &page.file {
-        // A file not yet stored is shown from a data address.
+        // A file not yet stored is shown from a data address, as the
+        // viewer should be given it.
         File::Upload { data, .. } | File::Version { data, .. } => {
-            format!("data:application/octet-stream;base64,{data}")
+            let shown = STANDARD
+                .decode(data)
+                .ok()
+                .and_then(|file| crate::standardize::for_viewer(&file).ok())
+                .map_or_else(
+                    || (*data).to_owned(),
+                    |file| STANDARD.encode(file),
+                );
+            format!("data:application/octet-stream;base64,{shown}")
         }
         File::Stored { s, .. } => {
             format!("/schematics/{}/download?preview=yes", s.id)
@@ -199,15 +209,27 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (details_form(page))
             }))
             (interface_section(page.analysis, false))
-            // Filled by form.js as the category and width call for a test.
-            div id="simulation-results" {
+            // Redrawn as the category and width call for a test.
+            @let simulate = simulate_url(page);
+            @let timing = format!("{simulate}/timing");
+            (super::simulation_results(&simulate, &html! {
                 @if let File::Stored { simulation: Some(report), .. } = &page.file {
-                    (simulation_section(report, Waiting::Fetched))
+                    (simulation_section(report, Waiting::Posted(&timing)))
                 }
-            }
+            }))
             script defer src=(super::super::form_js_url()) {}
         },
     )
+}
+
+/// Where the details form asks for its simulation result.
+fn simulate_url(page: &DetailsPage) -> String {
+    match &page.file {
+        File::Stored { s, .. } => format!("/schematics/{}/simulation", s.id),
+        File::Upload { .. } | File::Version { .. } => {
+            "/upload/simulation".to_owned()
+        }
+    }
 }
 
 /// Whether a check passed, failed, is under way, or waits on something.
@@ -494,22 +516,18 @@ fn file_chooser(page: &DetailsPage) -> Markup {
 /// The details, the file a new upload or version carries, and the button
 /// that publishes or saves them, disabled while something holds it up.
 fn details_form(page: &DetailsPage) -> Markup {
-    let (action, simulate, label, cancel) = match &page.file {
-        File::Upload { .. } => (
-            "/upload".to_owned(),
-            "/upload/simulation".to_owned(),
-            "Publish".to_owned(),
-            None,
-        ),
+    let simulate = simulate_url(page);
+    let (action, label, cancel) = match &page.file {
+        File::Upload { .. } => {
+            ("/upload".to_owned(), "Publish".to_owned(), None)
+        }
         File::Stored { s, .. } => (
             format!("/schematics/{}/edit", s.id),
-            format!("/schematics/{}/simulation", s.id),
             "Save".to_owned(),
             Some(format!("/schematics/{}", s.id)),
         ),
         File::Version { s, version, .. } => (
             format!("/schematics/{}/edit", s.id),
-            "/upload/simulation".to_owned(),
             format!("Save and publish version {version}"),
             Some(format!("/schematics/{}", s.id)),
         ),

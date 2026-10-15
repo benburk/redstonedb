@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use crate::{
     app_state::AppState,
     error::internal_error,
+    extractors::fixi::Fixi,
     models::user::User,
     schemati::{self, Folder, Refusal},
 };
@@ -49,6 +50,31 @@ async fn page(
         Err(err) => return internal_error(err).into_response(),
     };
     pages::schemati(user, &connection(folder.as_ref()), done, refused)
+        .into_response()
+}
+
+/// The answer to a change made on the Schemati page: for fixi, the folder
+/// as it is now, with `done` or `refused` in it and announced; for a plain
+/// form, the page again.
+async fn answer(
+    state: &AppState,
+    user: &User,
+    fixi: bool,
+    done: &str,
+    refused: &str,
+) -> Response {
+    if !fixi {
+        return Redirect::to("/schemati").into_response();
+    }
+    let folder = match own_folder(&state.db, user).await {
+        Ok(folder) => folder,
+        Err(err) => return internal_error(err).into_response(),
+    };
+    let said = if refused.is_empty() { done } else { refused };
+    (
+        [("FX-Notice", super::notice(said))],
+        pages::schemati_folder(&connection(folder.as_ref()), done, refused),
+    )
         .into_response()
 }
 
@@ -218,14 +244,19 @@ pub async fn delete(
     Path(name): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
 ) -> Response {
     let (user, session) = match connected(&state, user_opt).await {
         Ok(connected) => connected,
         Err(response) => return response,
     };
     match schemati::delete(&session, &name).await {
-        Ok(()) => page(&state, &user, &format!("Deleted {name}."), "").await,
-        Err(refusal) => page(&state, &user, "", &sentence(refusal)).await,
+        Ok(()) => {
+            answer(&state, &user, fixi, &format!("Deleted {name}."), "").await
+        }
+        Err(refusal) => {
+            answer(&state, &user, fixi, "", &sentence(refusal)).await
+        }
     }
 }
 
@@ -240,6 +271,7 @@ pub async fn rename(
     Path(name): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     Form(form): Form<Rename>,
 ) -> Response {
     let (user, session) = match connected(&state, user_opt).await {
@@ -254,7 +286,7 @@ pub async fn rename(
         format!("{typed}.{extension}")
     };
     if new_name == name {
-        return page(&state, &user, "", "").await;
+        return answer(&state, &user, fixi, "", "").await;
     }
     let renamed = match schemati::folder(&session).await {
         // Schemati would put it in place of the other.
@@ -268,10 +300,18 @@ pub async fn rename(
     };
     match renamed {
         Ok(()) => {
-            page(&state, &user, &format!("Renamed {name} to {new_name}."), "")
-                .await
+            answer(
+                &state,
+                &user,
+                fixi,
+                &format!("Renamed {name} to {new_name}."),
+                "",
+            )
+            .await
         }
-        Err(refusal) => page(&state, &user, "", &sentence(refusal)).await,
+        Err(refusal) => {
+            answer(&state, &user, fixi, "", &sentence(refusal)).await
+        }
     }
 }
 
@@ -280,6 +320,7 @@ pub async fn rename(
 pub async fn add(
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     mut multipart: Multipart,
 ) -> Response {
     let (user, session) = match connected(&state, user_opt).await {
@@ -297,16 +338,19 @@ pub async fn add(
                         files.push((name, data.to_vec()));
                     }
                     Ok(_) => {}
-                    Err(_) => return page(&state, &user, "", TOO_LARGE).await,
+                    Err(_) => {
+                        return answer(&state, &user, fixi, "", TOO_LARGE)
+                            .await;
+                    }
                 }
             }
             Ok(Some(_)) => {}
             Ok(None) => break,
-            Err(_) => return page(&state, &user, "", TOO_LARGE).await,
+            Err(_) => return answer(&state, &user, fixi, "", TOO_LARGE).await,
         }
     }
     if files.is_empty() {
-        return page(&state, &user, "", "Choose a file to add.").await;
+        return answer(&state, &user, fixi, "", "Choose a file to add.").await;
     }
     // Schemati keeps whatever it is sent, but a schematic is gzipped NBT.
     if let Some((name, _)) = files
@@ -314,7 +358,7 @@ pub async fn add(
         .find(|(_, data)| !data.starts_with(&[0x1f, 0x8b]))
     {
         let refused = format!("{name} is not a schematic file.");
-        return page(&state, &user, "", &refused).await;
+        return answer(&state, &user, fixi, "", &refused).await;
     }
     let mut saved = Vec::new();
     for (name, data) in files {
@@ -323,11 +367,12 @@ pub async fn add(
             Err(refusal) => {
                 let refused =
                     format!("Could not add {name}. {}", sentence(refusal));
-                return page(&state, &user, &saved.join(" "), &refused).await;
+                return answer(&state, &user, fixi, &saved.join(" "), &refused)
+                    .await;
             }
         }
     }
-    page(&state, &user, &saved.join(" "), "").await
+    answer(&state, &user, fixi, &saved.join(" "), "").await
 }
 
 const TOO_LARGE: &str =
@@ -356,16 +401,16 @@ async fn put(
 }
 
 /// Sends a build's file, as the download dialog's choices make it, to the
-/// viewer's folder, under the name it downloads with. The dialog's script
-/// asks with `fragment=yes` and gets only the sentence saying how it went,
-/// to show in the dialog; a form sent without it opens the Schemati page.
+/// viewer's folder, under the name it downloads with. Its button, through
+/// fixi, gets only the sentence saying how it went, to show in the dialog;
+/// the form sent without it goes on to the Schemati page.
 pub async fn send(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-    Form(mut choices): Form<HashMap<String, String>>,
+    Fixi(fixi): Fixi,
+    Form(choices): Form<HashMap<String, String>>,
 ) -> Response {
-    let fragment = choices.remove("fragment").is_some();
     let Some(user) = user_opt else {
         return Redirect::to("/sessions/new").into_response();
     };
@@ -385,9 +430,9 @@ pub async fn send(
         }
         None => Err("Connect your Schemati first.".to_owned()),
     };
-    match (fragment, sent) {
-        (true, sent) => pages::schemati_sent(&sent).into_response(),
-        (false, Ok(done)) => page(&state, &user, &done, "").await,
-        (false, Err(refused)) => page(&state, &user, "", &refused).await,
+    if fixi {
+        pages::schemati_sent(&sent).into_response()
+    } else {
+        Redirect::to("/schemati").into_response()
     }
 }

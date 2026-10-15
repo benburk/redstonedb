@@ -717,6 +717,21 @@ fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
     assert_eq!(timing.latency(), Some(4));
 }
 
+/// A cell like it written by a button, which holds its write open for ten
+/// ticks: it takes its data as the button springs back, so it is timed
+/// from then, as the lever's is from turning off, not from the press.
+#[test]
+fn a_register_cell_written_by_a_button_is_timed_from_its_release() {
+    let data = std::fs::read("tests/fixtures/register-1-button.schem").unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let timing = Test::Register
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(timing.takes, Takes::Closing);
+    assert_eq!((timing.write, timing.data), (Some(3), Some(4)));
+    assert_eq!(timing.latency(), Some(4));
+}
+
 /// The same cell with its driver's block whitened: every copy keeps a
 /// driver, whose torch lands on the copy before's write line, so no step
 /// stacks.

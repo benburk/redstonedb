@@ -390,19 +390,20 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 }
 
 // Simulation: the category and width choose a build's test, so the result
-// under the form follows them, asked of the server whenever either
-// changes: first the cases, then, once they pass, the slower timing. The
-// edit page starts with the stored result, so it asks only once one
-// changes. A category with no test answers at once, so the waiting note
-// shows only for a run that takes a while. A passing result means latency
-// and synchronized are measured, so their fields give way to a note.
+// under the form, a live panel, is redrawn whenever either changes: first
+// the cases, then, once they pass, the slower timing, which the cases'
+// section loads by itself. The edit page starts with the stored result, so
+// it redraws only once one changes. A category with no test answers at
+// once, so the waiting note shows only for a run that takes a while. A
+// passing result means latency and synchronized are measured, so their
+// fields give way to a note.
 //
 // The checks panel follows along, and the button waits for the cases'
 // result, though not the timing, which carries on after publishing. It
 // also stays held for anything the server found, such as a duplicate,
 // except broken conventions once “follows its own layout” is ticked.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
-  const results = document.getElementById("simulation-results");
+  const results = () => document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
   const width = form.querySelector('input[name="width"]');
   const timingFields = form.querySelector("[data-timing-fields]");
@@ -413,17 +414,17 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const blockedReason = reason.textContent;
   const key = () => `${category.value.trim().toLowerCase()}/${width.value}`;
   let asked = form.hasAttribute("data-simulated") ? key() : null;
-  let controller = null;
-  let simulating = false;
+  // Requests for the cases under way; the button waits on them.
+  let running = 0;
 
   const gate = () => {
     const kind = button.dataset.blocked;
     const blocked = kind !== undefined
       && !(kind === "conventions" && unconventional?.checked);
-    button.disabled = blocked || simulating;
+    button.disabled = blocked || running > 0;
     reason.textContent = blocked
       ? blockedReason
-      : simulating
+      : running > 0
       ? "Waiting for the simulation…"
       : "";
   };
@@ -453,14 +454,6 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     else mark(name, null);
   };
 
-  const say = (text, role) => {
-    results.replaceChildren();
-    const note = document.createElement("p");
-    note.className = "mt-12 text-muted";
-    if (role) note.setAttribute("role", role);
-    note.textContent = text;
-    results.append(note);
-  };
   // A category with a test has its latency and synchronized measured, so
   // their fields give way from the start, and are not sent, unless the
   // simulation could not run the build, as for a block it does not model.
@@ -476,7 +469,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     if (!timingFields) return;
     const option = chosenOption();
     const tested = option?.hasAttribute("data-tested") ?? false;
-    const shown = fresh ? results : null;
+    const shown = fresh ? results() : null;
     const skipped = shown?.querySelector("[data-skipped]") != null;
     const passed = shown?.querySelector("[data-measures-timing]") != null;
     const measures = (tested && !skipped) || passed;
@@ -498,78 +491,85 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       typedStacking.disabled = false;
       return;
     }
-    const stacks = fresh && results.querySelector("[data-found-stacking]") != null;
+    const stacks = fresh && results().querySelector("[data-found-stacking]") != null;
     derivedStacking.hidden = !stacks;
     typedStacking.hidden = stacks;
     typedStacking.disabled = stacks;
   };
-  const post = async (url, signal) => {
-    const response = await fetch(url, {
-      method: "POST",
-      // Without a newly chosen file, which only choosing it sends.
-      body: new URLSearchParams(
-        [...new FormData(form)].filter(([, value]) => typeof value === "string"),
-      ),
-      signal,
-    });
-    if (!response.ok) throw new Error(response.statusText);
-    return response.text();
+
+  // The checks once a result is in.
+  const settled = () => {
+    measured();
+    const section = results().querySelector("#simulation");
+    if (!section) {
+      mark(
+        "simulation",
+        "wait",
+        category.value.trim() === ""
+          ? "Choose a category to simulate it."
+          : "No simulation for this category and width yet.",
+      );
+      mark("timing", null);
+      return;
+    }
+    marked("simulation", section, "Simulation");
+    if (!section.querySelector("[data-timing-pending]")) {
+      marked("timing", section.querySelector("[data-timing]"), "Timing");
+    }
   };
-  const ask = async () => {
+
+  let waiting = null;
+  document.addEventListener("fx:before", (event) => {
+    if (event.target.id === "simulation-results") {
+      running += 1;
+      gate();
+      measured(false);
+      mark("simulation", "run", "Simulating every case…");
+      mark("timing", null);
+      clearTimeout(waiting);
+      waiting = setTimeout(() => {
+        const note = document.createElement("p");
+        note.className = "mt-12 text-muted";
+        note.textContent = "Simulating every case…";
+        results().replaceChildren(note);
+      }, 300);
+    } else if (event.target.matches("[data-timing-pending]")) {
+      mark("timing", "run", "Measuring the timing, which carries on after you publish…");
+    }
+  });
+  document.addEventListener("fx:finally", (event) => {
+    if (event.target.id !== "simulation-results") return;
+    running -= 1;
+    if (running === 0) clearTimeout(waiting);
+    gate();
+  });
+  document.addEventListener("fx:error", (event) => {
+    if (event.detail.error?.name === "AbortError") return;
+    if (event.target.id === "simulation-results") {
+      mark("simulation", "fail", "Could not simulate it.");
+    } else if (event.target.matches("[data-timing-pending]")) {
+      mark("timing", "fail", "Could not measure the timing.");
+    }
+  });
+  // A swap replaces its target, so fixi tells the document, with the
+  // target it replaced.
+  document.addEventListener("fx:swapped", (event) => {
+    const { cfg } = event.detail;
+    if (cfg.target.id === "simulation-results") settled();
+    else if (cfg.target.matches?.("[data-timing-pending]")) {
+      marked("timing", results().querySelector("[data-timing]"), "Timing");
+    }
+  });
+
+  const ask = () => {
     if (key() === asked) return;
     asked = key();
-    controller?.abort();
-    controller = new AbortController();
-    const { signal } = controller;
-    simulating = true;
-    gate();
-    measured(false);
-    mark("simulation", "run", "Simulating every case…");
-    mark("timing", null);
-    const waiting = setTimeout(() => say("Simulating every case…", "status"), 300);
-    results.setAttribute("aria-busy", "true");
-    try {
-      results.innerHTML = await post(form.dataset.simulate, signal);
-      clearTimeout(waiting);
-      simulating = false;
-      gate();
-      measured();
-      const section = results.querySelector("#simulation");
-      if (!section) {
-        mark(
-          "simulation",
-          "wait",
-          category.value.trim() === ""
-            ? "Choose a category to simulate it."
-            : "No simulation for this category and width yet.",
-        );
-        return;
-      }
-      marked("simulation", section, "Simulation");
-      const pending = results.querySelector("[data-timing-pending]");
-      if (pending) {
-        mark("timing", "run", "Measuring the timing, which carries on after you publish…");
-        pending.outerHTML = await post(`${form.dataset.simulate}/timing`, signal);
-      }
-      marked("timing", results.querySelector("[data-timing]"), "Timing");
-    } catch (error) {
-      if (signal.aborted) return;
-      simulating = false;
-      gate();
-      mark("simulation", "fail", "Could not simulate it.");
-      say("Could not simulate it.");
-    } finally {
-      clearTimeout(waiting);
-      if (!signal.aborted) results.removeAttribute("aria-busy");
-    }
+    results().dispatchEvent(new Event("redraw"));
   };
   category.addEventListener("change", ask);
   width.addEventListener("change", ask);
   measured();
   gate();
-  // The edit page's stored result may still be waiting for its timing.
-  if (asked !== null && results.querySelector("[data-timing-pending]")) {
-    asked = null;
-  }
-  ask();
+  // fixi takes up the panel on DOMContentLoaded, after this script runs.
+  document.addEventListener("DOMContentLoaded", ask);
 }

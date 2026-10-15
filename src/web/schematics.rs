@@ -6,11 +6,13 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
     error::internal_error,
+    extractors::fixi::Fixi,
     import,
     interface::{self, Interface},
     lint,
@@ -251,10 +253,18 @@ async fn similar_to(
     Ok(found)
 }
 
+/// Which part of a build's page fixi asks for, to redraw it.
+#[derive(Deserialize)]
+pub struct Panel {
+    panel: Option<String>,
+}
+
 pub async fn detail(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
+    Query(Panel { panel }): Query<Panel>,
 ) -> Response {
     let s = match schematic::get(&state.db, &id).await {
         Ok(Some(s)) => s,
@@ -302,16 +312,30 @@ pub async fn detail(
         .into_iter()
         .filter(|flag| flag.category == s.category)
         .collect();
-    pages::schematic(
-        user_opt.as_ref(),
-        &s,
-        &flags,
-        &similar,
-        &analysis,
-        &simulation,
-        &versions,
-    )
-    .into_response()
+    let report = match &simulation {
+        simulation::Status::Done(report)
+        | simulation::Status::Pending(Some(report)) => Some(report),
+        simulation::Status::Pending(None) | simulation::Status::Untested => {
+            None
+        }
+    };
+    match panel.as_deref().filter(|_| fixi) {
+        Some("banner") => pages::build_banner(&s, report).into_response(),
+        Some("info") => {
+            pages::build_info(&s, &flags, &similar, &analysis, report)
+                .into_response()
+        }
+        _ => pages::schematic(
+            user_opt.as_ref(),
+            &s,
+            &flags,
+            &similar,
+            &analysis,
+            &simulation,
+            &versions,
+        )
+        .into_response(),
+    }
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -733,21 +757,30 @@ pub async fn download(
 ) -> Response {
     // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
     // request, is no download.
-    let counted = query.remove("preview").is_none() && method == Method::GET;
-    match export(&state.db, &id, query, counted).await {
-        Ok((filename, data)) => (
-            [
-                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{filename}\""),
-                ),
-            ],
-            data,
-        )
-            .into_response(),
-        Err(response) => response,
-    }
+    let preview = query.remove("preview").is_some();
+    let counted = !preview && method == Method::GET;
+    let (filename, data) = match export(&state.db, &id, query, counted).await {
+        Ok(exported) => exported,
+        Err(response) => return response,
+    };
+    // Only readable files are stored, so the viewer's copy falls back to
+    // the file as it is only if that changes.
+    let data = if preview {
+        standardize::for_viewer(&data).unwrap_or(data)
+    } else {
+        data
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        data,
+    )
+        .into_response()
 }
 
 /// Build `id`'s file as the download dialog's `query` asks, with its name,

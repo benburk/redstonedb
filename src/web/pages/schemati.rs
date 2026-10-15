@@ -37,24 +37,39 @@ pub fn schemati(
                     "Here you can download those files, publish them, rename and delete them, and add files, "
                     "such as a build sent from its page here, to load in game with " code { "//load <file>" } "."
                 }
-                @if !done.is_empty() {
-                    p role="status" class="mb-6 rounded-control border border-line bg-raised p-3" { (done) }
-                }
-                @if !refused.is_empty() {
-                    p role="alert" class="mb-6 text-danger" { (refused) }
-                }
-                @match connection {
-                    Connection::Unset => (session_form(false)),
-                    Connection::Forgotten => (session_form(true)),
-                    Connection::Unreachable(why) => {
-                        p role="alert" class="mb-6 text-danger" { (why) }
-                        (disconnect())
-                    }
-                    Connection::Open(folder) => (open(folder)),
-                }
+                (schemati_folder(connection, done, refused))
             }
         },
     )
+}
+
+/// The part of the Schemati page its forms change, which fixi redraws:
+/// what was just `done` or `refused`, and the folder, or the form for
+/// connecting it.
+pub fn schemati_folder(
+    connection: &Connection,
+    done: &str,
+    refused: &str,
+) -> Markup {
+    html! {
+        div id="schemati-folder" {
+            @if !done.is_empty() {
+                p class="mb-6 rounded-control border border-line bg-raised p-3" { (done) }
+            }
+            @if !refused.is_empty() {
+                p class="mb-6 text-danger" { (refused) }
+            }
+            @match connection {
+                Connection::Unset => (session_form(false)),
+                Connection::Forgotten => (session_form(true)),
+                Connection::Unreachable(why) => {
+                    p class="mb-6 text-danger" { (why) }
+                    (disconnect())
+                }
+                Connection::Open(folder) => (open(folder)),
+            }
+        }
+    }
 }
 
 /// A file chooser's choice of a file from the viewer's Schemati folder,
@@ -100,8 +115,8 @@ pub(super) fn own_file_field(
 pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
     html! {
         @match sent {
-            Ok(done) => p role="status" { (done) },
-            Err(why) => p role="alert" class="text-danger" {
+            Ok(done) => p { (done) },
+            Err(why) => p class="text-danger" {
                 (why) " " a href="/schemati" { "Open your Schemati" }
             },
         }
@@ -167,6 +182,7 @@ fn open(folder: &Folder) -> Markup {
             (disconnect())
         }
         form action="/schemati/files" method="post" enctype="multipart/form-data"
+            fx-action="/schemati/files" fx-method="post" fx-target="#schemati-folder"
             class="mb-8 flex flex-wrap items-end gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
             label class="field flex-1" {
                 span { "Add files" }
@@ -202,12 +218,11 @@ fn open(folder: &Folder) -> Markup {
 }
 
 /// What can be done to the file `name`, the `index`th listed: download it,
-/// publish it, or rename or delete it, each of those in a dialog.
+/// publish it, rename it in a dialog, or delete it once asked.
 fn file_actions(index: usize, name: &str) -> Markup {
     let path = format!("/schemati/files/{name}");
     let (stem, extension) = name.rsplit_once('.').unwrap_or((name, "schem"));
     let rename = format!("rename-{index}");
-    let delete = format!("delete-{index}");
     let dialog = "m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30";
     html! {
         div class="flex flex-wrap justify-end gap-2" {
@@ -220,10 +235,16 @@ fn file_actions(index: usize, name: &str) -> Markup {
                 button type="submit" class="btn btn-quiet" { "Publish" }
             }
             button type="button" commandfor=(rename) command="show-modal" class="btn btn-quiet" { "Rename" }
-            button type="button" commandfor=(delete) command="show-modal" class="btn btn-quiet" { "Delete" }
+            form action={ (path) "/delete" } method="post"
+                fx-action={ (path) "/delete" } fx-method="post" fx-target="#schemati-folder" class="contents" {
+                button type="submit" data-confirm={ "Delete " (name) " from your Schemati folder for good?" }
+                    class="btn btn-quiet" { "Delete" }
+            }
         }
         dialog id=(rename) aria-labelledby={ (rename) "-heading" } class=(dialog) {
-            form action={ (path) "/rename" } method="post" class="flex flex-col gap-4" {
+            form action={ (path) "/rename" } method="post"
+                fx-action={ (path) "/rename" } fx-method="post" fx-target="#schemati-folder"
+                class="flex flex-col gap-4" {
                 h2 id={ (rename) "-heading" } class=(SECTION_TITLE) { "Rename " (name) }
                 label class="field" {
                     span { "New name" }
@@ -237,16 +258,6 @@ fn file_actions(index: usize, name: &str) -> Markup {
                 div class="flex items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Rename" }
                     button type="button" commandfor=(rename) command="close" class="btn btn-quiet" { "Cancel" }
-                }
-            }
-        }
-        dialog id=(delete) aria-labelledby={ (delete) "-heading" } class=(dialog) {
-            form action={ (path) "/delete" } method="post" class="flex flex-col gap-4" {
-                h2 id={ (delete) "-heading" } class=(SECTION_TITLE) { "Delete " (name) "?" }
-                p { "It is removed from your Schemati folder for good." }
-                div class="flex items-center gap-4" {
-                    button type="submit" class="btn btn-danger" { "Delete" }
-                    button type="button" commandfor=(delete) command="close" class="btn btn-quiet" { "Cancel" }
                 }
             }
         }

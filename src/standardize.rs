@@ -368,6 +368,38 @@ pub fn with_corner_markers(data: &[u8]) -> Result<Vec<u8>> {
     rebox(data, &grid, [-1, -1, -1], [w + 2, h + 2, l + 2])
 }
 
+/// `data` as the 3D viewer, schematic-renderer, should be given it: it
+/// turns a wall sign facing east or west the wrong way round, onto the far
+/// side of its own space, a block from what it hangs on, so each such sign
+/// is given facing the other way.
+pub fn for_viewer(data: &[u8]) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let mut swapped = false;
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| {
+            let wall_sign = schem::id(state).ends_with("_wall_sign");
+            let facing = schem::property(state, "facing");
+            let turned = match facing {
+                Some("east") if wall_sign => {
+                    state.replace("facing=east", "facing=west")
+                }
+                Some("west") if wall_sign => {
+                    state.replace("facing=west", "facing=east")
+                }
+                _ => return (pos, state.to_owned()),
+            };
+            swapped = true;
+            (pos, turned)
+        })
+        .collect();
+    if !swapped {
+        return Ok(data.to_vec());
+    }
+    rebox(data, &grid, [0, 0, 0], blocks.size)
+}
+
 /// Writes `grid`, in the file's own positions, into a box of `size` whose
 /// first block is at `low`, moving signs and other block entities along.
 /// Entities left outside the box are dropped.

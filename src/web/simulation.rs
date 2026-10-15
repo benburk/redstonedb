@@ -9,12 +9,13 @@ use std::sync::{
 
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
+use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
@@ -32,29 +33,47 @@ use super::{
     pages::{self, Waiting},
 };
 
+/// What a build's page already shows of its simulation, as it asks after
+/// the rest: `none` while its cases run, `cases` while its timing does.
+#[derive(Deserialize)]
+pub struct Have {
+    have: Option<String>,
+}
+
 /// Build `id`'s simulation, for its page to ask after while it runs in the
-/// background: 200 with its section once everything is in; 202 while its
-/// cases or timing are still to come, starting them if nothing is under
-/// way; 204 when it has no test.
+/// background: its section once there is more than the page `have`s,
+/// naming the panels it changes for the page to redraw; 204 until then,
+/// starting what is missing if nothing is under way; and nothing in its
+/// place once it has no test.
 pub async fn poll(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    Query(Have { have }): Query<Have>,
 ) -> Response {
     let s = match schematic::get(&state.db, &id).await {
         Ok(Some(s)) => s,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => return internal_error(err).into_response(),
     };
-    match simulation::status(&state.db, &s).await {
-        Ok(Status::Done(report)) => {
-            let poll = format!("/schematics/{id}/simulation");
-            pages::simulation_section(&report, Waiting::Polled(&poll))
-                .into_response()
+    let report = match simulation::status(&state.db, &s).await {
+        Ok(Status::Done(report)) => report,
+        Ok(Status::Pending(Some(report)))
+            if have.as_deref() == Some("none") =>
+        {
+            report
         }
-        Ok(Status::Pending(_)) => StatusCode::ACCEPTED.into_response(),
-        Ok(Status::Untested) => StatusCode::NO_CONTENT.into_response(),
-        Err(err) => internal_error(&*err).into_response(),
-    }
+        Ok(Status::Pending(_)) => {
+            return StatusCode::NO_CONTENT.into_response();
+        }
+        Ok(Status::Untested) => return nothing(),
+        Err(err) => return internal_error(&*err).into_response(),
+    };
+    let poll = format!("/schematics/{id}/simulation");
+    (
+        [("FX-Redraw", "build-banner build-info")],
+        pages::simulation_section(&report, Waiting::Polled(&poll)),
+    )
+        .into_response()
 }
 
 /// The cases, for the file being uploaded, carried in the form's `data`.
@@ -193,28 +212,45 @@ async fn stored_result(
         .map(|stored| stored.report))
 }
 
-/// The simulation section for the cases, with the timing to follow when
-/// they pass; nothing for a category and width with no test.
+/// The details form's simulation panel: the section for the cases, with
+/// the timing to follow when they pass; empty for a category and width
+/// with no test.
 async fn cases(
     state: &AppState,
     pairs: &[(String, String)],
     data: Vec<u8>,
     s: Option<&schematic::Schematic>,
 ) -> Response {
+    let simulate = match s {
+        Some(s) => format!("/schematics/{}/simulation", s.id),
+        None => "/upload/simulation".to_owned(),
+    };
+    let panel = |content: &Markup| {
+        pages::simulation_results(&simulate, content).into_response()
+    };
     let test = match test(state, pairs, &data).await {
         Ok(Some(test)) => test,
-        Ok(None) => return html! {}.into_response(),
+        Ok(None) => return panel(&html! {}),
         Err(response) => return response,
     };
     let report = match stored_result(state, s, test).await {
         Ok(Some(report)) => report,
         Ok(None) => match simulation::run(test, data).await {
             Ok(report) => report,
-            Err(err) => return could_not(&err.to_string()).into_response(),
+            Err(err) => return panel(&could_not(&err.to_string())),
         },
         Err(response) => return response,
     };
-    pages::simulation_section(&report, Waiting::Fetched).into_response()
+    let timing = format!("{simulate}/timing");
+    panel(&pages::simulation_section(
+        &report,
+        Waiting::Posted(&timing),
+    ))
+}
+
+/// What takes the timing's place when there is none to show: nothing.
+fn nothing() -> Response {
+    html! { template {} }.into_response()
 }
 
 /// The timing section, once the cases pass.
@@ -226,7 +262,7 @@ async fn timing(
 ) -> Response {
     let test = match test(state, pairs, &data).await {
         Ok(Some(test)) => test,
-        Ok(None) => return html! {}.into_response(),
+        Ok(None) => return nothing(),
         Err(response) => return response,
     };
     if let Ok(Some(report)) = stored_result(state, s, test).await
@@ -241,9 +277,9 @@ async fn timing(
         return match simulation::refresh_timing(&state.db, &s.id, false).await {
             Ok(Some(report)) => match report.timing() {
                 Some(timing) => pages::timing_section(timing).into_response(),
-                None => html! {}.into_response(),
+                None => nothing(),
             },
-            Ok(None) => html! {}.into_response(),
+            Ok(None) => nothing(),
             Err(err) => could_not(&err.to_string()).into_response(),
         };
     }

@@ -3,7 +3,7 @@
 use app::{
     import, interface, lint,
     models::schematic::StackDirection,
-    schem::Blocks,
+    schem::{self, Blocks},
     stack,
     standardize::{self, Gray},
 };
@@ -905,4 +905,34 @@ fn tidying_faces_barrels_up_and_hoppers_down() {
         "barrel" => facing == Some("up"),
         _ => facing == Some("down"),
     }));
+}
+
+/// The 3D viewer's copy of a file turns its wall signs facing east or west
+/// the other way, which the viewer turns back, and keeps every other block.
+#[test]
+fn the_viewers_copy_turns_east_and_west_wall_signs() {
+    let mut turned = 0;
+    for entry in std::fs::read_dir("tests/fixtures").unwrap() {
+        let data = std::fs::read(entry.unwrap().path()).unwrap();
+        let before = Blocks::read(&data).unwrap();
+        let after =
+            Blocks::read(&standardize::for_viewer(&data).unwrap()).unwrap();
+        for (pos, state) in before.iter() {
+            let wall_sign = schem::id(state).ends_with("_wall_sign");
+            let expected = match schem::property(state, "facing") {
+                Some("east") if wall_sign => {
+                    turned += 1;
+                    state.replace("facing=east", "facing=west")
+                }
+                Some("west") if wall_sign => {
+                    turned += 1;
+                    state.replace("facing=west", "facing=east")
+                }
+                _ => state.to_owned(),
+            };
+            assert_eq!(after.get(pos), expected, "{pos:?}");
+        }
+        assert_eq!(after.signs.len(), before.signs.len());
+    }
+    assert!(turned > 0, "no fixture has an east or west wall sign");
 }

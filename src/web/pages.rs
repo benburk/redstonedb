@@ -49,7 +49,7 @@ mod sorting;
 pub use sorting::sorting;
 mod schemati;
 mod stack_guide;
-pub use schemati::{Connection, schemati, schemati_sent};
+pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
 mod version;
 pub use details_page::{DetailsPage, File, Stored, details_page};
 
@@ -766,21 +766,8 @@ pub fn schematic(
                     (download_dialog(s, viewer.is_some()))
                 }
             }
-            @if let Some(report) = report && report.failed() {
-                p class="mb-6 max-w-calm rounded-control border border-danger p-3 text-danger" {
-                    strong { "Fails its simulation. " }
-                    @match report {
-                        Report::Ran(run) => {
-                            (grouped(run.wrong)) " of " (grouped(run.cases)) " cases of " (run.pattern) " are wrong. "
-                            a href="#simulation" class="text-danger underline" { "See which" }
-                        }
-                        Report::Broken { reason } | Report::Skipped { reason } => (reason),
-                    }
-                }
-            }
-            @let interface = analysis.as_ref().ok().map(|analysis| &analysis.interface);
-            @let sources = Sources::of(s, interface, report);
-            (beside_viewer(&format!("{path}/download?preview=yes"), &schematic_info(s, flags, similar, &sources)))
+            (build_banner(s, report))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, analysis, report)))
             @match analysis {
                 _ if !s.conventional => {
                     p class="mt-10 max-w-prose text-muted" {
@@ -804,9 +791,60 @@ pub fn schematic(
                 Status::Untested => {}
             }
             (version::versions_section(s, versions))
-            script defer src=(super::simulation_js_url()) {}
         },
     )
+}
+
+/// The details form's simulation result, a live panel the form redraws
+/// whenever its category or width changes: `content`, the section for the
+/// form's test or why there is none, posted for to `simulate`.
+pub fn simulation_results(simulate: &str, content: &Markup) -> Markup {
+    html! {
+        div id="simulation-results" fx-action=(simulate) fx-method="post" fx-trigger="redraw"
+            data-form="details-form" {
+            (content)
+        }
+    }
+}
+
+/// Under a build's title, that it fails its simulation, if it does: a live
+/// panel, redrawn when its simulation comes in.
+pub fn build_banner(s: &Schematic, report: Option<&Report>) -> Markup {
+    html! {
+        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
+            @if let Some(report) = report && report.failed() {
+                p class="mb-6 max-w-calm rounded-control border border-danger p-3 text-danger" {
+                    strong { "Fails its simulation. " }
+                    @match report {
+                        Report::Ran(run) => {
+                            (grouped(run.wrong)) " of " (grouped(run.cases)) " cases of " (run.pattern) " are wrong. "
+                            a href="#simulation" class="text-danger underline" { "See which" }
+                        }
+                        Report::Broken { reason } | Report::Skipped { reason } => (reason),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A build's tags, details, and the builds like it, beside its viewer: a
+/// live panel, redrawn when its simulation comes in, since that checks
+/// and measures some of its details.
+pub fn build_info(
+    s: &Schematic,
+    flags: &[Flag],
+    similar: &[(Schematic, u32)],
+    analysis: &Result<Analysis, String>,
+    report: Option<&Report>,
+) -> Markup {
+    let interface = analysis.as_ref().ok().map(|analysis| &analysis.interface);
+    let sources = Sources::of(s, interface, report);
+    html! {
+        div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw" {
+            (schematic_info(s, flags, similar, &sources))
+        }
+    }
 }
 
 /// A build's simulation section while its cases run in the background,
@@ -816,8 +854,9 @@ fn cases_pending(poll: &str) -> Markup {
     html! {
         section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm" {
             h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
-            div data-poll=(poll) data-poll-reload class="mt-3" {
-                p role="status" class="flex items-center gap-2 text-muted" {
+            div fx-action={ (poll) "?have=none" } fx-trigger="poll" data-every="3000"
+                fx-target="#simulation" class="mt-3" {
+                p class="flex items-center gap-2 text-muted" {
                     (spinner())
                     "Simulating every case, which takes a few seconds…"
                 }
@@ -883,10 +922,11 @@ pub fn spinner() -> Markup {
 /// How a section's timing arrives while it is measured.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Waiting<'a> {
-    /// On an upload or edit page, whose script fetches it.
-    Fetched,
-    /// On a build's page, measured in the background: `timing.js` asks
-    /// this address after it until it is ready.
+    /// On an upload or edit page: posted the details form to this address
+    /// once on the page.
+    Posted(&'a str),
+    /// On a build's page, measured in the background: asked of this
+    /// address every few seconds until it is ready.
     Polled(&'a str),
 }
 
@@ -946,10 +986,13 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                     } @else if let Some(timing) = &run.timing {
                         (timing_section(timing))
                     } @else {
-                        div data-timing-pending
-                            data-poll=[match waiting { Waiting::Polled(url) => Some(url), Waiting::Fetched => None }]
-                            class="mt-6" {
-                            p role="status" class="flex items-center gap-2 text-muted" {
+                        @let (action, method, trigger, target, form) = match waiting {
+                            Waiting::Posted(url) => (url.to_owned(), "post", "load", None, Some("details-form")),
+                            Waiting::Polled(url) => (format!("{url}?have=cases"), "get", "poll", Some("#simulation"), None),
+                        };
+                        div data-timing-pending fx-action=(action) fx-method=(method) fx-trigger=(trigger)
+                            fx-target=[target] data-form=[form] data-every="3000" class="mt-6" {
+                            p class="flex items-center gap-2 text-muted" {
                                 (spinner())
                                 "Measuring when each output settles, which takes up to a minute…"
                             }
@@ -1021,8 +1064,8 @@ fn timing_intro(timing: &Timing) -> Markup {
             @if timing.from_read {
                 @if let Some(data) = timing.data {
                     @if timing.takes == Takes::Closing {
-                        "Its latency, data in to data out, is " (data) " ticks: a cell takes its data as its write lever turns off, "
-                        "its bus empty while it writes, so from its data in changing as the lever does, its read on, until the bus shows it. "
+                        "Its latency, data in to data out, is " (data) " ticks: a cell takes its data as its write ends, its lever turning off or its button springing back, "
+                        "its bus empty while it writes, so from its data in changing as the write ends, its read on, until the bus shows it. "
                     } @else {
                         "Its latency, data in to data out, is " (data) " ticks: with a cell's write held open and its read on, "
                         "from its data in changing until the bus shows it. "
@@ -1030,7 +1073,7 @@ fn timing_intro(timing: &Timing) -> Markup {
                 }
                 @if let Some(write) = timing.write {
                     @if timing.takes == Takes::Closing {
-                        "A write shows on the bus " (write) " ticks after its lever turns off, its data set before, the cell's read held on. "
+                        "A write shows on the bus " (write) " ticks after it ends, its data set before, the cell's read held on. "
                     } @else {
                         "A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on"
                         @if timing.data.is_none() { ", which is its latency, as it takes its data only as its write opens" }
@@ -1486,14 +1529,16 @@ fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
                 div class="flex flex-wrap items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Download" }
                     @if signed_in {
-                        button type="submit" formaction={ (path) "/schemati" } formmethod="post" data-send class="btn btn-quiet" {
+                        button type="submit" formaction={ (path) "/schemati" } formmethod="post"
+                            fx-action={ (path) "/schemati" } fx-method="post" fx-target="#sent" fx-swap="innerHTML"
+                            class="btn btn-quiet" {
                             "Send to Schemati"
                         }
                     }
                     button type="button" commandfor="download" command="close" class="btn btn-quiet" { "Cancel" }
                 }
                 @if signed_in {
-                    div data-sent aria-live="polite" class="text-meta empty:hidden" {}
+                    div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
                 }
             }
         }
@@ -2525,29 +2570,7 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
                     }
                     tbody {
                         @for user in users {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    (account_link(user))
-                                }
-                                td class=(TABLE_CELL) { (minecraft_cell(user)) }
-                                td class=(TABLE_CELL) {
-                                    @if user.id == admin.id {
-                                        span class="text-muted" { "admin (you)" }
-                                    } @else {
-                                        form action={ "/users/" (user.username) "/role" } method="post" class="flex gap-2" {
-                                            label for={ "role-" (user.username) } class="sr-only" {
-                                                "Role for " (user.name())
-                                            }
-                                            select id={ "role-" (user.username) } name="role" class="input min-h-9 w-auto" {
-                                                @for role in Role::ALL {
-                                                    option value=(role.as_str()) selected[role == user.role] { (role.as_str()) }
-                                                }
-                                            }
-                                            button type="submit" class="btn btn-quiet" { "Set" }
-                                        }
-                                    }
-                                }
-                            }
+                            (user_row(admin, user))
                         }
                     }
                 }
@@ -2556,14 +2579,50 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
     )
 }
 
+/// One account's row on the users page, redrawn by fixi when one of its
+/// forms changes it.
+pub fn user_row(admin: &User, user: &User) -> Markup {
+    let row = format!("user-{}", user.username);
+    let target = format!("#{row}");
+    html! {
+        tr id=(row) {
+            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                (account_link(user))
+            }
+            td class=(TABLE_CELL) { (minecraft_cell(user, &target)) }
+            td class=(TABLE_CELL) {
+                @if user.id == admin.id {
+                    span class="text-muted" { "admin (you)" }
+                } @else {
+                    @let action = format!("/users/{}/role", user.username);
+                    form action=(action) method="post"
+                        fx-action=(action) fx-method="post" fx-target=(target) class="flex gap-2" {
+                        label for={ "role-" (user.username) } class="sr-only" {
+                            "Role for " (user.name())
+                        }
+                        select id={ "role-" (user.username) } name="role" class="input min-h-9 w-auto" {
+                            @for role in Role::ALL {
+                                option value=(role.as_str()) selected[role == user.role] { (role.as_str()) }
+                            }
+                        }
+                        button type="submit" class="btn btn-quiet" { "Set" }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// An account's Minecraft name on the users page, with the button that
 /// confirms it or withdraws the confirmation.
-fn minecraft_cell(user: &User) -> Markup {
+fn minecraft_cell(user: &User, target: &str) -> Markup {
     let Some(name) = &user.minecraft_name else {
         // None given yet, so the admin may give one.
         let id = format!("minecraft-{}", user.username);
+        let action = format!("/users/{}/minecraft/name", user.username);
         return html! {
-            form action={ "/users/" (user.username) "/minecraft/name" } method="post"
+            form action=(action) method="post"
+                fx-action=(action) fx-method="post" fx-target=(target)
                 class="flex items-center gap-2" {
                 label for=(id) class="sr-only" { "Minecraft name for " (user.name()) }
                 input id=(id) name="minecraft_name" required
@@ -2578,8 +2637,10 @@ fn minecraft_cell(user: &User) -> Markup {
     } else {
         ("yes", "Confirm")
     };
+    let verify = format!("/users/{}/minecraft/verify", user.username);
     html! {
-        form action={ "/users/" (user.username) "/minecraft/verify" } method="post"
+        form action=(verify) method="post"
+            fx-action=(verify) fx-method="post" fx-target=(target)
             class="flex flex-wrap items-center gap-x-3 gap-y-1" {
             span { (name) }
             span class="text-meta text-muted" {

@@ -67,13 +67,13 @@ pub struct Timing {
     pub from_read: bool,
     /// For a register, the most ticks from pressing a cell's write button,
     /// its read held on, until the bus shows the new value; or, for a cell
-    /// that takes its data as its write closes, from its lever turning off.
+    /// that takes its data as its write closes, from it closing.
     #[serde(default)]
     pub write: Option<i32>,
     /// For a register, the most ticks for data to pass through a cell, its
     /// read on: from its data in changing, with its write held open, or for
-    /// a cell that takes its data as its write closes, as its lever turns
-    /// off, until the bus shows it. `None` for one that takes its data only
+    /// a cell that takes its data as its write closes, as it closes, until
+    /// the bus shows it. `None` for one that takes its data only
     /// as its write opens.
     #[serde(default)]
     pub data: Option<i32>,
@@ -91,7 +91,8 @@ pub enum Takes {
     /// While their writes are open, or as they open.
     #[default]
     Open,
-    /// As their write levers turn off, their buses empty while they write.
+    /// As their writes close, their levers turning off or their buttons
+    /// springing back, their buses empty while they write.
     Closing,
 }
 

@@ -4,7 +4,7 @@
 
 SPAs split every feature across two codebases communicating over JSON APIs. Adding a feature requires updating the backend serializer, API schema, TypeScript interfaces, and frontend deserializer. Frontend and backend deploy independently, requiring API versioning and backwards compatibility layers.
 
-Here every page is HTML rendered by the server, and every change is a form the server answers with the next page. Features live in one place and deploy as one artifact. No JSON serialization, no API versioning, no coordinating changes across deployments. The server owns all state, so there is no client-side cache to keep in step with it. A little script only enhances a form, such as turning typed names into pills, and the page works without it.
+Here every page is HTML rendered by the server, and every change is a form the server answers with the next page. Features live in one place and deploy as one artifact. No JSON serialization, no API versioning, no coordinating changes across deployments. The server owns all state, so there is no client-side cache to keep in step with it. Where a change touches only part of a page, fixi sends the form and swaps in the fragment the server renders for it, so the server still owns the HTML; a little script only enhances a form, such as turning typed names into pills, and the page works without either.
 
 ## Why SQLite instead of Postgres
 

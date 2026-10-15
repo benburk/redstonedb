@@ -34,6 +34,9 @@ pub fn base(
                 // The brand mark, inline, so there is no icon file to fetch.
                 link rel="icon" href=(ICON);
                 link rel="stylesheet" href=(crate::web::css_url());
+                // fixi first, so the app's policies hear its every event.
+                script defer src=(crate::web::fixi_js_url()) {}
+                script defer src=(crate::web::app_js_url()) {}
             }
             body class="flex min-h-screen flex-col" {
                 a href="#main"
@@ -44,6 +47,10 @@ pub fn base(
                 main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
                     (content)
                 }
+                // The one place a script says what happened, outside every
+                // swap, so it is announced and stays put.
+                p id="notice" role="status"
+                    class="fixed right-4 bottom-4 max-w-sm rounded-control bg-ink px-3 py-2 text-canvas shadow-overlay empty:hidden" {}
             }
         }
     }

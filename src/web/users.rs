@@ -11,6 +11,7 @@ use serde::Deserialize;
 use crate::{
     app_state::AppState,
     error::internal_error,
+    extractors::fixi::Fixi,
     models::user::{Role, User},
 };
 
@@ -27,6 +28,34 @@ pub async fn list(
 }
 
 /// The users page, with `message` saying why a change was refused.
+/// The answer to a change of account `username`: for fixi, its row as it
+/// is now, with `refused` announced if the change was refused; for a plain
+/// form, the page, saying why a refused change was.
+async fn changed(
+    state: &AppState,
+    admin: &User,
+    fixi: bool,
+    username: &str,
+    refused: &str,
+) -> Response {
+    if !fixi {
+        return if refused.is_empty() {
+            Redirect::to("/users").into_response()
+        } else {
+            show(state, admin, refused).await
+        };
+    }
+    match User::get_by_username(&state.db, username).await {
+        Ok(Some(user)) => (
+            [("FX-Notice", super::notice(refused))],
+            pages::user_row(admin, &user),
+        )
+            .into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(err) => internal_error(err).into_response(),
+    }
+}
+
 async fn show(state: &AppState, admin: &User, message: &str) -> Response {
     match User::all(&state.db).await {
         Ok(users) => pages::users(admin, &users, message).into_response(),
@@ -45,6 +74,7 @@ pub async fn name_minecraft(
     Path(username): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     Form(form): Form<MinecraftName>,
 ) -> Response {
     let Some(admin) = user_opt.filter(User::is_admin) else {
@@ -65,7 +95,9 @@ pub async fn name_minecraft(
                     )
                     .await
                     {
-                        Ok(()) => Redirect::to("/users").into_response(),
+                        Ok(()) => {
+                            changed(&state, &admin, fixi, &username, "").await
+                        }
                         Err(err) => internal_error(err).into_response(),
                     };
                 }
@@ -74,7 +106,7 @@ pub async fn name_minecraft(
         }
         Err(message) => message,
     };
-    show(&state, &admin, &refused).await
+    changed(&state, &admin, fixi, &username, &refused).await
 }
 
 #[derive(Deserialize)]
@@ -91,11 +123,12 @@ pub async fn verify_minecraft(
     Path(username): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     Form(form): Form<Verify>,
 ) -> Response {
-    if !user_opt.as_ref().is_some_and(User::is_admin) {
+    let Some(admin) = user_opt.filter(User::is_admin) else {
         return StatusCode::FORBIDDEN.into_response();
-    }
+    };
     let target = match User::get_by_username(&state.db, &username).await {
         Ok(Some(target)) => target,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
@@ -103,7 +136,7 @@ pub async fn verify_minecraft(
     };
     let verified = form.verified == "yes" && target.minecraft_name.is_some();
     match User::set_minecraft_verified(&state.db, target.id, verified).await {
-        Ok(()) => Redirect::to("/users").into_response(),
+        Ok(()) => changed(&state, &admin, fixi, &username, "").await,
         Err(err) => internal_error(err).into_response(),
     }
 }
@@ -119,6 +152,7 @@ pub async fn set_role(
     Path(username): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     Form(form): Form<SetRole>,
 ) -> Response {
     let Some(admin) = user_opt.filter(User::is_admin) else {
@@ -133,11 +167,17 @@ pub async fn set_role(
         Err(err) => return internal_error(err).into_response(),
     };
     if target.id == admin.id && role != Role::Admin {
-        return (StatusCode::BAD_REQUEST, "You cannot demote yourself.")
-            .into_response();
+        return changed(
+            &state,
+            &admin,
+            fixi,
+            &username,
+            "You cannot demote yourself.",
+        )
+        .await;
     }
     match User::set_role(&state.db, target.id, role).await {
-        Ok(()) => Redirect::to("/users").into_response(),
+        Ok(()) => changed(&state, &admin, fixi, &username, "").await,
         Err(err) => internal_error(err).into_response(),
     }
 }
