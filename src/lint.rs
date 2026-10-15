@@ -114,8 +114,9 @@ impl fmt::Display for Violation {
 ///
 /// A control or status line with no sign naming it breaks a convention,
 /// except the only line of its colour, which an adder takes as its carry in
-/// or carry out; whether a build may leave it unsigned depends on its
-/// category, which `check_for` knows.
+/// or carry out, and an incrementer or decrementer as its own; whether a
+/// build may leave it unsigned depends on its category, which `check_for`
+/// knows.
 pub fn check(blocks: &Blocks) -> Vec<Violation> {
     let mut found = Vec::new();
     palette(blocks, &mut found);
@@ -134,8 +135,10 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
 
 /// The categories whose builds' lone control line and lone status line
 /// need no sign, their roles being plain: an adder's, or a carry out's,
-/// carry in and carry out.
-pub const UNSIGNED_LINES: [&str; 2] = ["adder", "carry_out"];
+/// carry in and carry out; an incrementer's increment and carry out; a
+/// decrementer's decrement and borrow out. See `simulate::name_lines`.
+pub const UNSIGNED_LINES: [&str; 4] =
+    ["adder", "carry_out", "incrementer", "decrementer"];
 
 /// The names an adder's control line, its carry in, may be signed with;
 /// an unsigned one goes by the first.

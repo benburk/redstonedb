@@ -4,7 +4,7 @@ use app::{
     import, interface, lint,
     models::schematic::StackDirection,
     schem::{self, Blocks},
-    stack,
+    simulate, stack,
     standardize::{self, Gray},
 };
 
@@ -954,9 +954,9 @@ fn an_adders_unsigned_carry_lines_are_named() {
         };
         let before = unnamed(&read.inputs) + unnamed(&read.outputs);
         let mut adder = interface::read(&blocks);
-        import::name_carry_lines("adder", &mut adder);
+        simulate::name_lines("adder", &blocks, &mut adder);
         let mut other = interface::read(&blocks);
-        import::name_carry_lines("register", &mut other);
+        simulate::name_lines("multiplier", &blocks, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,
@@ -978,4 +978,69 @@ fn an_adders_unsigned_carry_lines_are_named() {
         }
     }
     assert!(renamed > 0, "no fixture has an unsigned carry line");
+}
+
+/// A register's data buses show as data in and data out, and its unsigned
+/// magenta lines as writes, each on a button, and reads, each on a lever,
+/// as its test takes them.
+#[test]
+fn a_registers_lines_are_named_by_their_roles() {
+    let blocks = Blocks::read(&raw("register-8-2-cells")).unwrap();
+    let mut read = interface::read(&blocks);
+    simulate::name_lines("register", &blocks, &mut read);
+    let inputs: Vec<&str> =
+        read.inputs.iter().map(|p| p.name.as_str()).collect();
+    let outputs: Vec<&str> =
+        read.outputs.iter().map(|p| p.name.as_str()).collect();
+    println!("{inputs:?} {outputs:?}");
+    assert!(inputs.contains(&"data in"), "{inputs:?}");
+    assert_eq!(outputs, ["data out"]);
+    assert_eq!(
+        inputs.iter().filter(|n| n.starts_with("write")).count(),
+        2,
+        "{inputs:?}"
+    );
+    assert_eq!(
+        inputs.iter().filter(|n| n.starts_with("read")).count(),
+        2,
+        "{inputs:?}"
+    );
+}
+
+/// `name` with its signs taken off: their blocks turned to air and their
+/// text dropped.
+fn unsigned(name: &str) -> Vec<u8> {
+    let data = raw(name);
+    let blocks = Blocks::read(&data).unwrap();
+    let grid: std::collections::HashMap<schem::Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| !schem::id(state).ends_with("sign"))
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let mut nbt = schem::decode(&data).unwrap();
+    nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, Vec::new())
+        .unwrap();
+    schem::encode(nbt).unwrap()
+}
+
+/// An incrementer's lone control line needs no sign: the conventions let
+/// it pass, the page names it increment, and the simulation takes it so.
+#[test]
+fn an_incrementers_unsigned_line_is_its_increment() {
+    let data = unsigned("inc-8");
+    let blocks = Blocks::read(&data).unwrap();
+    let read = interface::read(&blocks);
+    assert!(read.inputs.iter().any(|p| p.name == "unnamed control"));
+    assert!(lint::check_for(&blocks, "incrementer").is_empty());
+    assert!(lint::check_for(&blocks, "decrementer").is_empty());
+    assert!(!lint::check_for(&blocks, "multiplier").is_empty());
+    let mut named = interface::read(&blocks);
+    simulate::name_lines("incrementer", &blocks, &mut named);
+    assert!(named.inputs.iter().any(|p| p.name == "increment"));
+    let simulate::Report::Ran(run) = simulate::Test::Incrementer.run(&blocks)
+    else {
+        panic!("the incrementer was not simulated");
+    };
+    assert_eq!((run.pattern.as_str(), run.wrong), ("A + increment", 0));
 }

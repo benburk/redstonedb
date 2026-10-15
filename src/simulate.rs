@@ -36,6 +36,103 @@ use crate::{
 pub use stacking::{Stacking, Step};
 pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Takes, Timing};
 
+/// Names a build's unsigned ports for what its `category`'s test takes
+/// them to be, so a page shows what the simulator reads: an adder's lone
+/// magenta and pink lines are its carry in and carry out, as are a carry
+/// out's line and lone output; an incrementer's are its increment and
+/// carry out, and a decrementer's its decrement and borrow out; a
+/// register's data bus in and out are its data in and data out, and each
+/// of its magenta lines a write, driven by a button, or a read, by a
+/// lever. A sign's name always stands, and an inc/dec's line, which may
+/// mean either way, keeps its own.
+pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
+    let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
+        let mut lines =
+            ports.iter_mut().filter(|p| p.block.starts_with(colour));
+        if let (Some(line), None) = (lines.next(), lines.next())
+            && !line.labelled
+            && line.bits.len() == 1
+        {
+            name.clone_into(&mut line.name);
+        }
+    };
+    let (control, status) = match category {
+        "adder" | "carry_out" => (lint::CARRY_IN[0], lint::CARRY_OUT[0]),
+        "incrementer" => ("increment", lint::CARRY_OUT[0]),
+        "decrementer" => ("decrement", "borrow out"),
+        "register" => return name_register(blocks, interface),
+        _ => return,
+    };
+    lone(&mut interface.inputs, lint::CONTROL, control);
+    lone(&mut interface.outputs, lint::STATUS, status);
+    // A carry out's one output is its carry, whatever its colour.
+    if category == "carry_out"
+        && let [out] = interface.outputs.as_mut_slice()
+        && !out.labelled
+        && out.bits.len() == 1
+    {
+        lint::CARRY_OUT[0].clone_into(&mut out.name);
+    }
+}
+
+/// `name_lines` for a register: its data bus in and out by their roles,
+/// and its unsigned magenta lines split into writes, each driven by a
+/// button, and reads, by a lever, numbered in order when there are more.
+fn name_register(blocks: &Blocks, interface: &mut Interface) {
+    let control = |port: &Port| port.block.starts_with(lint::CONTROL);
+    let data: Vec<&mut Port> = interface
+        .inputs
+        .iter_mut()
+        .filter(|p| !control(p))
+        .collect();
+    if let [only] = data.as_slice()
+        && only.name == "A"
+    {
+        let only = interface
+            .inputs
+            .iter_mut()
+            .find(|p| !control(p))
+            .expect("just found");
+        "data in".clone_into(&mut only.name);
+    }
+    if let [out] = interface.outputs.as_mut_slice()
+        && out.name == "output"
+    {
+        "data out".clone_into(&mut out.name);
+    }
+    let button = |bit: &interface::Bit| {
+        bit.entry.as_deref().is_some_and(|side| {
+            schem::id(blocks.get(schem::step(bit.pos, side)))
+                .ends_with("_button")
+        })
+    };
+    let mut split = Vec::new();
+    for port in std::mem::take(&mut interface.inputs) {
+        if !control(&port) || port.labelled {
+            split.push(port);
+            continue;
+        }
+        let (writes, reads): (Vec<_>, Vec<_>) =
+            port.bits.iter().cloned().partition(|bit| button(bit));
+        for (bits, word) in [(writes, "write"), (reads, "read")] {
+            let count = bits.len();
+            for (i, bit) in bits.into_iter().enumerate() {
+                let name = if count > 1 {
+                    format!("{word} {}", i + 1)
+                } else {
+                    word.to_owned()
+                };
+                split.push(Port {
+                    name,
+                    bits: vec![bit],
+                    ..port.clone()
+                });
+            }
+        }
+    }
+    interface.inputs = split;
+}
+
 /// The most ticks a build may take to settle after its inputs change.
 const MAX_TICKS: u32 = 1000;
 
@@ -1774,7 +1871,12 @@ fn check_incrementer(
     quick: bool,
     category: Option<&str>,
 ) -> Result<Run> {
-    let interface = interface::read(blocks);
+    let mut interface = interface::read(blocks);
+    // An unsigned line is named for its role, such as increment, so the
+    // cases read `A + increment`.
+    if let Some(category) = category {
+        name_lines(category, blocks, &mut interface);
+    }
     let bench = incrementer_bench(&interface)?;
     let widths = bench.widths(&interface);
     let (cases, exhaustive, patterns) = if quick {

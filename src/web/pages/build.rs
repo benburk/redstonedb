@@ -348,7 +348,14 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
                 (fact("Latency", s.latency.map_or_else(unknown, |t| {
                     sourced(format!("{t} ticks"), sources.timing)
                 })))
-                (fact(if s.per_copy().is_some() { "Blocks per copy" } else { "Blocks" }, html! { (s.volume()) }))
+                @match s.per_copy() {
+                    // A copy's own shape, beside what it adds.
+                    Some((x, y, z)) => (fact("Blocks per copy", html! {
+                        (s.volume())
+                        span class="block text-meta font-normal text-muted" { (y) "×" (x) "×" (z) " H×W×D" }
+                    })),
+                    None => (fact("Blocks", html! { (s.volume()) })),
+                }
                 (fact("Size, H×W×D", html! { (size(s)) }))
                 @if let Some(from) = &s.works_from {
                     // Why that release, on hover: the newest part it uses.
@@ -494,6 +501,39 @@ fn flag(on: bool, term: Option<&str>) -> Markup {
     }
 }
 
+/// A date such as `2022-07-01`, or a time starting with one, as `July 1,
+/// 2022`; anything else as it is.
+fn long_date(date: &str) -> String {
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let mut parts = date.get(..10).unwrap_or(date).split('-');
+    let (Some(year), Some(month), Some(day), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return date.to_owned();
+    };
+    let month = month
+        .parse::<usize>()
+        .ok()
+        .and_then(|m| MONTHS.get(m.checked_sub(1)?));
+    match (month, day.parse::<u32>()) {
+        (Some(month), Ok(day)) => format!("{month} {day}, {year}"),
+        _ => date.to_owned(),
+    }
+}
+
 /// Who built it and when, and its file's history, folded away.
 fn credits(s: &Schematic) -> Markup {
     html! {
@@ -509,7 +549,7 @@ fn credits(s: &Schematic) -> Markup {
                     (field(&plural("Contributor", &s.contributors), name_badges(&s.contributors)))
                 }
                 @if let Some(built) = &s.built_on {
-                    (field("Built", built.as_str()))
+                    (field("Built", long_date(built)))
                 }
                 // An upload names its account, by its Minecraft name if it
                 // has one; an import names whoever ran it.
@@ -526,9 +566,9 @@ fn credits(s: &Schematic) -> Markup {
                 summary class="cursor-pointer text-meta text-muted" { "File" }
                 dl class="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
                     (field("Name", html! { code class="break-all" { (s.filename()) } }))
-                    (field("Uploaded", s.added_at.get(..10).unwrap_or(&s.added_at)))
+                    (field("Uploaded", long_date(&s.added_at)))
                     @if let Some(edited) = &s.edited_at {
-                        (field("Last edited", edited.get(..10).unwrap_or(edited)))
+                        (field("Last edited", long_date(edited)))
                     }
                     (field("Downloads", s.downloads.to_string()))
                     (field("Conventions", if s.conventional {

@@ -21,6 +21,7 @@ pub struct Interface {
 }
 
 /// A bus, or one named line such as `carry in`.
+#[derive(Clone)]
 pub struct Port {
     pub name: String,
     /// The block marking each bit, such as `lime concrete`.
@@ -44,6 +45,7 @@ pub struct Port {
     pub signal_strength: bool,
 }
 
+#[derive(Clone)]
 pub struct Bit {
     /// Position in the file.
     pub pos: Pos,

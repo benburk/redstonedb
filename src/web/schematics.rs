@@ -668,7 +668,11 @@ pub(super) async fn show_edit(
         Some(new) => pages::Analysis {
             interface: {
                 let mut read = interface::read(&new.checked.prepared.blocks);
-                import::name_carry_lines(&s.category, &mut read);
+                simulate::name_lines(
+                    &s.category,
+                    &new.checked.prepared.blocks,
+                    &mut read,
+                );
                 read
             },
             violations: if s.conventional {
@@ -751,7 +755,7 @@ pub(super) async fn show_edit(
 fn analyse(data: &[u8], category: &str) -> Result<pages::Analysis, String> {
     let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
-    import::name_carry_lines(category, &mut interface);
+    simulate::name_lines(category, &blocks, &mut interface);
     Ok(pages::Analysis {
         interface,
         violations: lint::check(&blocks),

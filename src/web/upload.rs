@@ -494,7 +494,8 @@ async fn publish_checked(
         .await
         .map_err(|err| format!("Could not load the categories: {err}."))?;
     let parsed = sent.form.parse(&categories)?;
-    // Only an adder may leave its lone control and status lines unsigned,
+    // Only an adder, carry out, incrementer, or decrementer may leave its
+    // lone control and status lines unsigned,
     // which the preview, before the category was known, let pass.
     if !sent.settings.unconventional
         && let Some(violation) =
@@ -633,8 +634,9 @@ async fn show_preview(
     // Its lines are named for the category chosen so far, as the
     // simulation names them.
     let mut shown = interface;
-    import::name_carry_lines(
-        &fields.category.trim().to_lowercase(),
+    simulate::name_lines(
+        &fields.category.trim().to_lowercase().replace(' ', "_"),
+        &prepared.blocks,
         &mut shown,
     );
     let swappable = standardize::swappable(&prepared.blocks);
