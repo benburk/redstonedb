@@ -152,6 +152,49 @@ pub async fn similar(db: &SqlitePool, id: &str) -> Result<Vec<(String, u32)>> {
     .collect())
 }
 
+/// The stored builds most like `blocks`, any category, with how alike, the
+/// most alike first: at most `limit`, and none nothing alike. Every build
+/// is compared, so this takes a moment for a large file.
+pub async fn ranked(
+    db: &SqlitePool,
+    blocks: &Blocks,
+    limit: usize,
+) -> Result<Vec<(String, u32)>> {
+    let candidates = sqlx::query!(r#"SELECT id as "id!", data FROM schematic"#)
+        .fetch_all(db)
+        .await?;
+    let mine = Skeleton::of(blocks);
+    let found = tokio::task::spawn_blocking(move || {
+        // From the most a build could be alike down, so the comparing stops
+        // once none left could make the list.
+        let mut theirs: Vec<(String, Skeleton, u32)> = candidates
+            .into_iter()
+            .filter_map(|row| {
+                let skeleton = Skeleton::of(&Blocks::read(&row.data).ok()?);
+                let bound = mine.bound(&skeleton);
+                Some((row.id, skeleton, bound))
+            })
+            .collect();
+        theirs.sort_by_key(|(_, _, bound)| std::cmp::Reverse(*bound));
+        let mut found: Vec<(String, u32)> = Vec::new();
+        for (id, skeleton, bound) in theirs {
+            let last = found.get(limit.saturating_sub(1)).map(|(_, p)| *p);
+            if bound == 0 || (found.len() >= limit && last >= Some(bound)) {
+                break;
+            }
+            let permille = similarity::permille(&mine, &skeleton);
+            if permille > 0 {
+                let at = found.partition_point(|(_, p)| *p >= permille);
+                found.insert(at, (id, permille));
+                found.truncate(limit);
+            }
+        }
+        found
+    })
+    .await?;
+    Ok(found)
+}
+
 /// The stored build most like `blocks`, with how alike, if any is similar:
 /// as an upload is checked before its category is known, any build of a
 /// size within half again of `size` is tried.

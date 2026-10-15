@@ -45,6 +45,8 @@ pub use sorting::sorting;
 mod build;
 pub use build::{build_banner, build_info, schematic_page};
 mod schemati;
+mod similar;
+pub use similar::{Found, similar_results, similar_search};
 mod stack_guide;
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
 mod version;

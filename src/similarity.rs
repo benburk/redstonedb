@@ -107,6 +107,26 @@ impl Skeleton {
         )
     }
 
+    /// How many components it has.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether it has no components.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The most `permille` could give for it and `other`: all of the
+    /// smaller one's components lining up.
+    pub fn bound(&self, other: &Skeleton) -> u32 {
+        let (a, b) = (self.len(), other.len());
+        if a == 0 || b == 0 {
+            return 0;
+        }
+        u32::try_from(2000 * a.min(b) / (a + b)).unwrap_or(1000)
+    }
+
     /// Its components turned a quarter clockwise `turns` times about the
     /// vertical, mirrored first if `mirror`.
     fn oriented(&self, turns: usize, mirror: bool) -> Vec<(Pos, Part)> {
@@ -164,6 +184,30 @@ mod tests {
 
     fn part(kind: &'static str, facing: Facing) -> Part {
         Part { kind, facing }
+    }
+
+    /// The bound a search prunes by is never below the share it bounds,
+    /// however two builds differ in size or turn.
+    #[test]
+    fn the_bound_is_never_below_the_share() {
+        let small = build();
+        let mut bigger = build().0;
+        bigger.extend([
+            ([5, 0, 0], part("redstone_wire", Facing::None)),
+            ([5, 0, 1], part("repeater", Facing::South)),
+        ]);
+        let bigger = Skeleton(bigger);
+        let turned = Skeleton(build().oriented(1, true));
+        for (a, b) in [(&small, &bigger), (&bigger, &small), (&small, &turned)]
+        {
+            assert!(
+                permille(a, b) <= a.bound(b),
+                "{} > {}",
+                permille(a, b),
+                a.bound(b)
+            );
+        }
+        assert_eq!(small.bound(&Skeleton(Vec::new())), 0);
     }
 
     /// A small L of dust ending in a repeater facing east.

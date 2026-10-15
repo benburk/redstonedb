@@ -22,6 +22,7 @@ mod profile;
 mod schemati;
 mod schematics;
 mod session;
+mod similar;
 mod simulation;
 mod upload;
 mod users;
@@ -177,6 +178,7 @@ pub fn router() -> Router<AppState> {
             get(versions::download),
         )
         .route("/upload", get(upload::form).post(upload::publish))
+        .route("/similar", get(similar::form).post(similar::search))
         .route("/upload/preview", post(upload::preview))
         .route("/upload/simulation", post(simulation::upload))
         .route("/upload/simulation/timing", post(simulation::upload_timing))

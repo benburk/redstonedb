@@ -53,6 +53,8 @@ pub(super) struct Sent {
 pub(super) struct Posted {
     pub pairs: Vec<(String, String)>,
     file: Option<Bytes>,
+    /// The chosen file's name, as the browser sent it.
+    file_name: Option<String>,
 }
 
 /// Reads a multipart form, or says it broke off partway, as a body over
@@ -63,16 +65,23 @@ pub(super) async fn posted(
     let mut posted = Posted {
         pairs: Vec::new(),
         file: None,
+        file_name: None,
     };
     let broken = loop {
         match multipart.next_field().await {
             Ok(Some(field)) => match field.name().map(str::to_owned) {
-                Some(name) if name == "file" => match field.bytes().await {
-                    Ok(bytes) => {
-                        posted.file = Some(bytes).filter(|b| !b.is_empty());
+                Some(name) if name == "file" => {
+                    let file_name = field.file_name().map(str::to_owned);
+                    match field.bytes().await {
+                        Ok(bytes) => {
+                            posted.file = Some(bytes).filter(|b| !b.is_empty());
+                            if posted.file.is_some() {
+                                posted.file_name = file_name;
+                            }
+                        }
+                        Err(_) => break true,
                     }
-                    Err(_) => break true,
-                },
+                }
                 Some(name) => match field.text().await {
                     Ok(text) => posted.pairs.push((name, text)),
                     Err(_) => break true,
@@ -146,6 +155,19 @@ impl Posted {
             self.file = Some(Bytes::from(data));
         }
         Ok(())
+    }
+
+    /// What to call the file chosen: its name, the Schemati file named,
+    /// or the link pasted, in the order `chosen` takes them.
+    pub fn chosen_name(&self) -> String {
+        let link = self.get("schemati").trim();
+        let own = self.get("schemati_file");
+        match &self.file_name {
+            Some(name) if self.file.is_some() => name.clone(),
+            _ if !link.is_empty() => link.to_owned(),
+            _ if !own.is_empty() => own.to_owned(),
+            _ => "the file".to_owned(),
+        }
     }
 
     /// Whether the form was sent to check a newly chosen file rather than
