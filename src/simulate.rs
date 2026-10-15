@@ -680,8 +680,8 @@ fn block(state: &str) -> Result<Block> {
 }
 
 /// The test a build gets from its category and width: for now, adders,
-/// incrementers, decrementers, inc/decs, combinational multipliers, and
-/// combinational converters between binary and BCD of up to 32 bits have
+/// incrementers, decrementers, inc/decs, stateless multipliers, and
+/// stateless converters between binary and BCD of up to 32 bits have
 /// one.
 /// Each tries every case when they number few enough, else every case of
 /// each byte and the test patterns.
@@ -1231,7 +1231,7 @@ fn adder_line(
     Ok(Some(line))
 }
 
-/// Runs a combinational multiplier through its inputs and checks every
+/// Runs a stateless multiplier through its inputs and checks every
 /// product: A times B, plus C for a fused multiply-add, against as many low
 /// bits as its outputs hold together, the first holding the lowest.
 pub fn check_multiplier(blocks: &Blocks) -> Result<Run> {
@@ -1270,8 +1270,8 @@ fn multiplier_bench(interface: &Interface) -> Result<Bench> {
     let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
     if let Some(line) = interface.inputs.iter().find(control) {
         bail!(
-            "It has a control line, {}, so it is not combinational; only a \
-             combinational multiplier is tested.",
+            "It has a control line, {}, so it is stateful; only a stateless \
+             multiplier is tested.",
             line.name
         );
     }
@@ -1437,8 +1437,8 @@ fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
     let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
     if let Some(line) = interface.inputs.iter().find(control) {
         bail!(
-            "It has a control line, {}, so it is not combinational; only a \
-             combinational converter is tested.",
+            "It has a control line, {}, so it is stateful; only a stateless \
+             converter is tested.",
             line.name
         );
     }
