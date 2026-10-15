@@ -693,7 +693,8 @@ async fn export(
         Some(copies) => {
             let wanted = copy_counts(&s.stacking, copies)?;
             let plan = stack::plan(&s.stacking, &wanted)?;
-            let (data, size) = stack::stack(&data, &plan)?;
+            let buses = stack::Buses::of(&s.category, &s.orientation);
+            let (data, size) = stack::stack(&data, &plan, buses)?;
             (data, s.stacked(&plan, size))
         }
     };

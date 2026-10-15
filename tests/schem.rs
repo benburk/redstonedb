@@ -198,7 +198,9 @@ fn direction(text: &str) -> StackDirection {
 #[test]
 fn stacked_slices_form_one_wider_build() {
     let plan = [(direction("west=2"), 8)];
-    let (data, size) = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap();
+    let (data, size) =
+        stack::stack(&slice("alpha-rca-slice"), &plan, stack::Buses::own())
+            .unwrap();
     assert_eq!(size, [16, 6, 9]);
     let blocks = Blocks::read(&data).unwrap();
     let messages: Vec<String> = lint::check(&blocks)
@@ -221,7 +223,12 @@ fn a_register_stacks_two_ways() {
         (direction("west=2,max=7"), 7),
         (direction("north=4,max=3"), 3),
     ];
-    let (data, size) = stack::stack(&slice("alpha-register"), &plan).unwrap();
+    let (data, size) = stack::stack(
+        &slice("alpha-register"),
+        &plan,
+        stack::Buses::of("register", "horz"),
+    )
+    .unwrap();
     // Seven 2-wide copies, and the first copy's feed for the control lines.
     assert_eq!(size, [15, 12, 12]);
     let interface::Interface { inputs, .. } =
@@ -236,8 +243,22 @@ fn a_register_stacks_two_ways() {
 #[test]
 fn stacking_respects_the_limit() {
     let west = direction("west=2,max=4");
-    assert!(stack::stack(&slice("alpha-rca-slice"), &[(west, 4)]).is_ok());
-    assert!(stack::stack(&slice("alpha-rca-slice"), &[(west, 5)]).is_err());
+    assert!(
+        stack::stack(
+            &slice("alpha-rca-slice"),
+            &[(west, 4)],
+            stack::Buses::own()
+        )
+        .is_ok()
+    );
+    assert!(
+        stack::stack(
+            &slice("alpha-rca-slice"),
+            &[(west, 5)],
+            stack::Buses::own()
+        )
+        .is_err()
+    );
 }
 
 /// A later copy covers the copy before, as `//rstack` pastes it, even
@@ -247,10 +268,16 @@ fn stacking_respects_the_limit() {
 #[test]
 fn a_wrong_step_shows_where_copies_disagree() {
     let plan = [(direction("north=1"), 2)];
-    assert!(stack::stack(&slice("alpha-rca-slice"), &plan).is_ok());
-    let review =
-        stack::review(&slice("alpha-rca-slice"), direction("north=1"), "horz")
-            .unwrap();
+    assert!(
+        stack::stack(&slice("alpha-rca-slice"), &plan, stack::Buses::own())
+            .is_ok()
+    );
+    let review = stack::review(
+        &slice("alpha-rca-slice"),
+        direction("north=1"),
+        stack::Buses::own(),
+    )
+    .unwrap();
     assert!(!review.disagreements.is_empty());
 }
 
@@ -283,7 +310,9 @@ fn standardizing_twice_gives_the_same_bytes() {
 #[test]
 fn stacks_are_capped() {
     let plan = [(direction("west=2"), 65)];
-    let err = stack::stack(&slice("alpha-rca-slice"), &plan).unwrap_err();
+    let err =
+        stack::stack(&slice("alpha-rca-slice"), &plan, stack::Buses::own())
+            .unwrap_err();
     assert!(err.to_string().contains("at most 64"), "{err}");
 }
 
@@ -658,7 +687,8 @@ fn a_stack_pastes_from_its_own_south_east_bottom_corner() {
     let slice =
         app::schem::paste_from_corner(&slice("alpha-rca-slice")).unwrap();
     let plan = [(direction("west=2"), 4)];
-    let (stacked, _) = stack::stack(&slice, &plan).unwrap();
+    let (stacked, _) =
+        stack::stack(&slice, &plan, stack::Buses::own()).unwrap();
     let [width, _, length] = Blocks::read(&stacked).unwrap().size;
     assert_eq!(paste_offset(&stacked), [-(width - 1), 0, -length]);
 }

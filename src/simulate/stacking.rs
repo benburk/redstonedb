@@ -317,8 +317,11 @@ fn stacked(
     copies: usize,
     width: usize,
 ) -> Result<u64, String> {
-    let (stacked, _) = stack::stack(data, &[(step.direction(), copies)])
-        .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
+    let (stacked, _) =
+        stack::stack(data, &[(step.direction(), copies)], stack::Buses::own())
+            .map_err(|err| {
+                format!("Its copies do not fit together: {err:#}.")
+            })?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
     let control = format!("{} concrete", lint::CONTROL);

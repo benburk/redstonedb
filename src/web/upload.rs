@@ -488,7 +488,11 @@ async fn publish_checked(
         && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
     let stacking: &[StackDirection] =
         if inferred { &[] } else { &parsed.stacking };
-    stack::check(&prepared.data, stacking)?;
+    stack::check(
+        &prepared.data,
+        stacking,
+        stack::Buses::of(&parsed.category, &parsed.orientation),
+    )?;
     let size = &prepared.size;
     let new = New {
         category: &parsed.category,

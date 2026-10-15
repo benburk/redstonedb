@@ -20,10 +20,7 @@
 //! Copies stack west into a bigger register file, sharing the data buses,
 //! which are driven and read at the first copy's end; see `stacking`.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
 
@@ -36,7 +33,7 @@ use super::{
 use crate::{
     interface::{self, Interface},
     lint,
-    schem::{self, Blocks, Pos},
+    schem::{Blocks, Pos},
     stack,
 };
 
@@ -805,70 +802,6 @@ impl BusStats {
     }
 }
 
-/// `stacked`, `copies` of `single` every `step`, with its data buses
-/// marked only at the first copy's end, where they are driven and read:
-/// every later copy's data input and output blocks, which the buses run
-/// through, turned white, and the levers on them taken off.
-fn at_first_end(
-    stacked: &[u8],
-    single: &Blocks,
-    step: Step,
-    copies: usize,
-) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(stacked)?;
-    let last = i32::try_from(copies - 1)?;
-    let shift = [
-        last * i32::try_from(step.west)?,
-        0,
-        last * i32::try_from(step.north)?,
-    ];
-    let marks = |state: &str| {
-        let name = schem::id(state).trim_start_matches("minecraft:");
-        lint::is_output(name)
-            || (lint::is_input(name)
-                && name != format!("{}_concrete", lint::CONTROL))
-    };
-    let first: HashSet<Pos> = single
-        .iter()
-        .filter(|&(_, state)| marks(state))
-        .map(|(pos, _)| [0, 1, 2].map(|axis| pos[axis] + shift[axis]))
-        .collect();
-    let whitened: HashSet<Pos> = blocks
-        .iter()
-        .filter(|&(pos, state)| marks(state) && !first.contains(&pos))
-        .map(|(pos, _)| pos)
-        .collect();
-    if whitened.is_empty() {
-        return Ok(stacked.to_vec());
-    }
-    let unlevered: HashSet<Pos> = blocks
-        .switches()
-        .into_iter()
-        .filter(|switch| whitened.contains(&switch.block))
-        .map(|switch| switch.pos)
-        .collect();
-    let grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|&(pos, state)| {
-            state != schem::AIR && !unlevered.contains(&pos)
-        })
-        .map(|(pos, state)| {
-            let state = if whitened.contains(&pos) {
-                WHITE
-            } else {
-                state
-            };
-            (pos, state.to_owned())
-        })
-        .collect();
-    let mut nbt = schem::decode(stacked)?;
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
-    schem::encode(nbt)
-}
-
-const WHITE: &str = "minecraft:white_concrete";
-
 /// Whether copies of the register in `data`, a file whose own cases came
 /// out right, stack west into a bigger register file: the shortest step
 /// west, up to its width, at which two copies' cells all store and read
@@ -877,12 +810,18 @@ const WHITE: &str = "minecraft:white_concrete";
 pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let blocks = Blocks::read(data).ok()?;
     let (_, single) = check_on(&blocks, true).ok()?;
+    // Copies across its bits share its data buses, driven and read at the
+    // first copy's end.
+    let orientation =
+        crate::import::derived("register", &interface::read(&blocks))
+            .orientation
+            .unwrap_or("vert");
+    let buses = stack::Buses::of("register", orientation);
     let (low, high) = interface::measured(&blocks);
     let reach = i64::from(high[0] - low[0] + 1);
     let works = |step: Step, copies: usize, quick: bool| -> Option<u64> {
         let (stacked, _) =
-            stack::stack(data, &[(step.direction(), copies)]).ok()?;
-        let stacked = at_first_end(&stacked, &blocks, step, copies).ok()?;
+            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         let blocks = Blocks::read(&stacked).ok()?;
         let (run, cells) = check_on(&blocks, quick).ok()?;
         (run.wrong == 0 && cells == single * copies).then_some(run.cases)

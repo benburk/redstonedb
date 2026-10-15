@@ -113,6 +113,15 @@ fn parts(first_copy: &FirstCopy) -> String {
         1 => parts.push("a data input or output block, whose bus runs on through the copy before".to_owned()),
         n => parts.push(format!("{n} data input and output blocks, whose buses run on through the copy before")),
     }
+    match first_copy.levers {
+        0 => {}
+        1 => parts.push(
+            "its data lever, as the copies share the data bus".to_owned(),
+        ),
+        n => parts.push(format!(
+            "its {n} data levers, as the copies share the data buses"
+        )),
+    }
     match first_copy.gray {
         0 => {}
         1 => parts.push("a gray block".to_owned()),

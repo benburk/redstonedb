@@ -43,15 +43,63 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
 
+/// The categories whose copies, stacked across their bits, share their
+/// data buses: more registers on one data bus, rather than more bits.
+pub const SHARED_BUSES: [&str; 1] = ["register"];
+
+/// What a build's copies do with its data buses, from its category and the
+/// way its bits run. Copies along the bits are new bits, each with its own
+/// data inputs and outputs; copies across a register's bits share its
+/// buses, which only the first copy drives and reads.
+#[derive(Clone, Copy)]
+pub struct Buses<'a> {
+    category: &'a str,
+    orientation: &'a str,
+}
+
+impl<'a> Buses<'a> {
+    pub fn of(category: &'a str, orientation: &'a str) -> Self {
+        Buses {
+            category,
+            orientation,
+        }
+    }
+
+    /// For a build whose every copy keeps its own buses, as an adder's.
+    pub fn own() -> Buses<'static> {
+        Buses {
+            category: "",
+            orientation: "",
+        }
+    }
+
+    /// Whether copies stacked `direction` share the data buses.
+    fn shared(self, direction: StackDirection) -> bool {
+        SHARED_BUSES.contains(&self.category)
+            && !along_bits(self.orientation, direction)
+    }
+}
+
+/// Whether copies stacked `direction` of a build whose bits run
+/// `orientation` add bits: west for a horizontal build, up for a vertical
+/// one, west and up for a diagonal one.
+fn along_bits(orientation: &str, direction: StackDirection) -> bool {
+    matches!(
+        (orientation, direction.name().as_str()),
+        ("horz", "west") | ("vert", "up") | ("diag", "west-up")
+    )
+}
+
 /// The stored file stacked with `copies` along each direction, with the
 /// result's size, as [`interface::measured`] finds it.
 pub fn stack(
     data: &[u8],
     copies: &[(StackDirection, usize)],
+    buses: Buses,
 ) -> Result<(Vec<u8>, Pos)> {
     let mut data = data.to_vec();
     for &(direction, count) in copies {
-        data = along(&data, direction, count)?;
+        data = along(&data, direction, count, buses.shared(direction))?;
     }
     let (low, high) = interface::measured(&Blocks::read(&data)?);
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
@@ -61,9 +109,13 @@ pub fn stack(
 /// Stacks two copies each way, so a wrong step is refused when it is saved
 /// rather than when someone downloads a stack. The `Err` is a sentence for
 /// the person.
-pub fn check(data: &[u8], directions: &[StackDirection]) -> Result<(), String> {
+pub fn check(
+    data: &[u8],
+    directions: &[StackDirection],
+    buses: Buses,
+) -> Result<(), String> {
     for &direction in directions {
-        along(data, direction, 2).map_err(|err| {
+        along(data, direction, 2, buses.shared(direction)).map_err(|err| {
             format!("Two copies stacked {} don't fit: {err}.", direction.name())
         })?;
     }
@@ -88,11 +140,13 @@ pub fn plan<S: BuildHasher>(
         .collect())
 }
 
-/// `copies` copies of the file along one direction.
+/// `copies` copies of the file along one direction, sharing its data buses
+/// if `shared`.
 fn along(
     data: &[u8],
     direction: StackDirection,
     copies: usize,
+    shared: bool,
 ) -> Result<Vec<u8>> {
     ensure!(copies >= 1, "a stack needs at least one copy");
     // Anyone can ask for a stack, so cap the work one request can make.
@@ -123,7 +177,7 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let left_out = first_copy(&blocks, step).all;
+    let left_out = first_copy(&blocks, step, shared).all;
     let outputs = labelled_outputs(&blocks);
 
     // As in game: the parts only the first copy keeps are broken, the rest
@@ -139,11 +193,10 @@ fn along(
             {
                 continue;
             }
-            let state = if !final_copy && outputs.blocks.contains(&pos) {
-                WHITE
-            } else {
-                state
-            };
+            // A later copy's data blocks on a shared bus are plain blocks.
+            let plain = (!final_copy && outputs.blocks.contains(&pos))
+                || (shared && i > 0 && bus(short(state)));
+            let state = if plain { WHITE } else { state };
             place(&mut grid, add(pos, shift(i)), state);
         }
     }
@@ -225,22 +278,19 @@ pub struct Disagreement {
     pub later: String,
 }
 
-/// Reviews the build in `data`, whose bits run `orientation`, stacked
-/// `direction`.
+/// Reviews the build in `data` stacked `direction`.
 pub fn review(
     data: &[u8],
     direction: StackDirection,
-    orientation: &str,
+    buses: Buses,
 ) -> Result<Review> {
     let blocks = Blocks::read(data)?;
     let step = step_of(direction)?;
-    let first_copy = first_copy(&blocks, step);
+    let shared = buses.shared(direction);
+    let first_copy = first_copy(&blocks, step, shared);
     let disagreements = disagreements(&blocks, step, &first_copy);
-    let along_bits = matches!(
-        (orientation, direction.name().as_str()),
-        ("horz", "west") | ("vert", "up") | ("diag", "west-up")
-    );
-    let shape = shape(data, &blocks, direction, along_bits)?;
+    let along = along_bits(buses.orientation, direction);
+    let shape = shape(data, &blocks, direction, along, shared)?;
     Ok(Review {
         direction,
         first_copy,
@@ -321,6 +371,7 @@ fn shape(
     blocks: &Blocks,
     direction: StackDirection,
     along_bits: bool,
+    shared: bool,
 ) -> Result<Option<String>> {
     let control = format!("{} concrete", lint::CONTROL);
     let buses = |interface: &interface::Interface| -> Vec<(String, usize)> {
@@ -345,7 +396,8 @@ fn shape(
             .sum()
     };
     let single = interface::read(blocks);
-    let two = interface::read(&Blocks::read(&along(data, direction, 2)?)?);
+    let two =
+        interface::read(&Blocks::read(&along(data, direction, 2, shared)?)?);
     let way = direction.name().replace('-', " and ");
     for (name, bits) in buses(&single) {
         let stacked = buses(&two)
@@ -382,9 +434,11 @@ pub fn part(
     data: &[u8],
     direction: StackDirection,
     parts: bool,
+    buses: Buses,
 ) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
-    let first_copy = first_copy(&blocks, step_of(direction)?);
+    let first_copy =
+        first_copy(&blocks, step_of(direction)?, buses.shared(direction));
     let kept = |pos: &Pos| first_copy.all.contains(pos) == parts;
     let grid: HashMap<Pos, String> = blocks
         .iter()
@@ -424,7 +478,11 @@ pub fn part(
 /// or comparator standing on it: the bus runs on through the copy before,
 /// and is driven and read only at the first copy's end, as a register
 /// file's data buses are.
-fn shared_inputs(blocks: &Blocks, step: Pos) -> (Vec<Pos>, Vec<Pos>) {
+fn shared_inputs(
+    blocks: &Blocks,
+    step: Pos,
+    shared: bool,
+) -> (Vec<Pos>, Vec<Pos>) {
     let (low, high) = interface::core(blocks);
     let in_core = |pos: Pos| {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
@@ -440,7 +498,8 @@ fn shared_inputs(blocks: &Blocks, step: Pos) -> (Vec<Pos>, Vec<Pos>) {
     for (pos, state) in blocks.iter() {
         let name = short(state);
         let landing = add(pos, step);
-        if bus(name)
+        if shared
+            && bus(name)
             && ((!in_measured(pos) && in_measured(landing))
                 || (within(landing) && blocks.get(landing) != AIR))
         {
@@ -505,6 +564,9 @@ pub struct FirstCopy {
     /// The data input and output blocks whose buses run on through the
     /// copy before.
     pub buses: Vec<Pos>,
+    /// The levers on data inputs, when copies share the buses, which only
+    /// the first copy's drive.
+    pub levers: usize,
     /// Every block broken: these, and what rests on them.
     pub all: HashSet<Pos>,
 }
@@ -515,13 +577,22 @@ impl FirstCopy {
     }
 }
 
-fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
+fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
     let gray = first_copy_only(blocks);
-    let (inputs, buses) = shared_inputs(blocks, step);
+    let (inputs, buses) = shared_inputs(blocks, step, shared);
     let marks: HashSet<Pos> = inputs.iter().chain(&buses).copied().collect();
     let mut all = resting_on(blocks, &marks, step);
     all.extend(&marks);
     all.extend(&gray);
+    // On a shared bus, only the first copy's data levers drive it.
+    let mut levers = 0;
+    if shared {
+        for switch in blocks.switches() {
+            if bus(short(blocks.get(switch.block))) && all.insert(switch.pos) {
+                levers += 1;
+            }
+        }
+    }
     FirstCopy {
         gray: blocks
             .iter()
@@ -529,6 +600,7 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
             .count(),
         inputs,
         buses,
+        levers,
         all,
     }
 }

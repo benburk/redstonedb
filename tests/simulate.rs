@@ -203,7 +203,9 @@ fn an_8_bit_adder_stacks_into_a_16_bit_one() {
     // Three, so one sits between two others: 24 bits.
     assert_eq!((copies, bits), (3, 24));
     assert!(cases > 1 << 18);
-    let (stacked, _) = stack::stack(&data, &[(step.direction(), 2)]).unwrap();
+    let (stacked, _) =
+        stack::stack(&data, &[(step.direction(), 2)], stack::Buses::own())
+            .unwrap();
     let blocks = Blocks::read(&stacked).unwrap();
     // Timed over the test patterns, as it is too wide to time every value.
     let timing = Test::Adder.time(&blocks, &AtomicBool::new(false)).unwrap();

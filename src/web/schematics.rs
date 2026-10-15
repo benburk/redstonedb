@@ -269,7 +269,12 @@ pub async fn detail(
                     .stacking
                     .iter()
                     .filter_map(|&direction| {
-                        stack::review(&data, direction, &s.orientation).ok()
+                        stack::review(
+                            &data,
+                            direction,
+                            stack::Buses::of(&s.category, &s.orientation),
+                        )
+                        .ok()
                     })
                     .collect();
                 analysis
@@ -544,7 +549,8 @@ async fn saved(
     let inferred = conventional
         && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
     if let Some(data) = data.filter(|_| !inferred) {
-        let checked = stack::check(&data, &parsed.stacking);
+        let buses = stack::Buses::of(&parsed.category, &parsed.orientation);
+        let checked = stack::check(&data, &parsed.stacking, buses);
         if let Err(message) = checked {
             return Ok(Err(message));
         }
@@ -753,7 +759,8 @@ pub async fn download(
         else {
             return (StatusCode::BAD_REQUEST, "no such part").into_response();
         };
-        let data = match stack::part(&data, direction, first) {
+        let buses = stack::Buses::of(&s.category, &s.orientation);
+        let data = match stack::part(&data, direction, first, buses) {
             Ok(data) => data,
             Err(err) => return internal_error(&*err).into_response(),
         };
@@ -785,7 +792,8 @@ pub async fn download(
             .collect::<anyhow::Result<HashMap<String, usize>>>()
             .and_then(|wanted| stack::plan(&s.stacking, &wanted))
             .and_then(|plan| {
-                let (data, size) = stack::stack(&data, &plan)?;
+                let buses = stack::Buses::of(&s.category, &s.orientation);
+                let (data, size) = stack::stack(&data, &plan, buses)?;
                 Ok((data, s.stacked(&plan, size)))
             });
         match stacked {
