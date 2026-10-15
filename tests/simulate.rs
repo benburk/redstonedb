@@ -820,3 +820,26 @@ fn a_register_whose_data_levers_land_on_its_data_line_stacks() {
         ("4 west".to_owned(), 6, Some(3))
     );
 }
+
+/// A register whose two cells are each 3 wide. Copies 1 west apart give a
+/// line more inputs than Redpiler compiles, which counts as not working
+/// rather than stopping the search; 6 west, each copy keeping its own
+/// write buttons, two copies make 4 registers, and a third is past where
+/// the bus reaches.
+#[test]
+fn a_register_with_wide_cells_stacks_at_its_width() {
+    let (data, _) = register("register-8-wide-cells");
+    let Some(Stacking::Registers {
+        step,
+        registers,
+        most,
+        ..
+    }) = Test::Register.stacking(&data)
+    else {
+        panic!("the register does not stack");
+    };
+    assert_eq!(
+        (step.describe(), registers, most),
+        ("6 west".to_owned(), 4, Some(2))
+    );
+}

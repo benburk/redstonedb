@@ -533,7 +533,8 @@ fn shared_inputs(
         if shared && bus(name) && within(landing) && blocks.get(landing) != AIR
         {
             buses.push(pos);
-        } else if (name == format!("{}_concrete", lint::CONTROL)
+        } else if (!shared
+            && name == format!("{}_concrete", lint::CONTROL)
             && within(landing)
             && fed(blocks, landing))
             || (lint::is_input(name) && !in_core(pos) && in_core(landing))

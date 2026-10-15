@@ -143,7 +143,7 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
     if let Some(report) = recent(&sha256, test) {
         return Ok(report);
     }
-    let report = tokio::task::spawn_blocking(move || {
+    let ran = tokio::task::spawn_blocking(move || {
         let mut report = test.run(&Blocks::read(&data)?);
         if let Report::Ran(run) = &mut report
             && run.wrong == 0
@@ -152,7 +152,19 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
         }
         anyhow::Ok(report)
     })
-    .await??;
+    .await;
+    // A run that panics is stored as skipped, so asking again does not
+    // run it again and again.
+    let report = match ran {
+        Ok(report) => report?,
+        Err(err) if err.is_panic() => Report::Skipped {
+            reason: format!(
+                "The simulator failed on it: {}.",
+                crate::simulate::panic_message(&*err.into_panic())
+            ),
+        },
+        Err(err) => return Err(err.into()),
+    };
     remember(&sha256, test, &report);
     Ok(report)
 }

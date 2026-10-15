@@ -13,6 +13,7 @@ mod timing;
 use std::{
     collections::HashSet,
     fmt,
+    panic::AssertUnwindSafe,
     sync::{Arc, atomic::AtomicBool},
 };
 
@@ -94,6 +95,15 @@ struct Driver {
     value: u8,
 }
 
+/// What a panic said, as `panic!` was given it.
+pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+        .unwrap_or_else(|| "it panicked".to_owned())
+}
+
 /// How far the world reaches past the build on each side, west, east,
 /// north, and south, for the drivers of signal-strength inputs.
 const MARGIN: i32 = 2;
@@ -143,16 +153,38 @@ impl Circuit {
             .flat_map(|pos| BlockFace::values().map(|side| pos.offset(side)))
             .filter(|&pos| matches!(world.get_block(pos), Block::Comparator(_)))
             .collect();
-        let compiler = (!digits).then(|| {
-            let mut compiler = Compiler::default();
-            let [x, y, z] = world_size(blocks);
-            let bounds =
-                (BlockPos::new(0, 0, 0), BlockPos::new(x - 1, y - 1, z - 1));
-            let ticks = world.to_be_ticked.clone();
-            let options = CompilerOptions::default();
-            compiler.compile(&world, bounds, options, ticks, Arc::default());
-            compiler
-        });
+        let compiler = if digits {
+            None
+        } else {
+            // Redpiler panics on a circuit it cannot compile, such as one
+            // whose line takes more than 255 inputs, as copies stacked too
+            // close may make; that is a build it cannot run.
+            let built = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                let mut compiler = Compiler::default();
+                let [x, y, z] = world_size(blocks);
+                let bounds = (
+                    BlockPos::new(0, 0, 0),
+                    BlockPos::new(x - 1, y - 1, z - 1),
+                );
+                let ticks = world.to_be_ticked.clone();
+                let options = CompilerOptions::default();
+                compiler.compile(
+                    &world,
+                    bounds,
+                    options,
+                    ticks,
+                    Arc::default(),
+                );
+                compiler
+            }));
+            match built {
+                Ok(redpiler) => Some(redpiler),
+                Err(panic) => bail!(
+                    "The simulator could not compile it: {}.",
+                    panic_message(&*panic)
+                ),
+            }
+        };
         Ok(Circuit {
             world,
             compiler,
