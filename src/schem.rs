@@ -507,11 +507,22 @@ fn item(value: &Value) -> Option<(String, u32)> {
 
 fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
     let (pos, fields) = entity(value, "sign")?;
-    let lines = match fields.get("front_text") {
-        Some(Value::Compound(front)) => match front.get("messages") {
-            Some(Value::List(messages)) => messages.iter().map(text).collect(),
-            _ => return None,
+    let side = |key: &str| match fields.get(key) {
+        Some(Value::Compound(side)) => match side.get("messages") {
+            Some(Value::List(messages)) => {
+                Some(messages.iter().map(text).collect::<Vec<String>>())
+            }
+            _ => None,
         },
+        _ => None,
+    };
+    let lines = match side("front_text") {
+        // Written on the back alone, the back names it.
+        Some(front) if front.iter().all(String::is_empty) => {
+            side("back_text").unwrap_or(front)
+        }
+        Some(front) => front,
+        None if fields.contains_key("front_text") => return None,
         _ => ["Text1", "Text2", "Text3", "Text4"]
             .iter()
             .map(|key| fields.get(*key).map(text).unwrap_or_default())
@@ -520,10 +531,13 @@ fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
     Some((pos, lines))
 }
 
-/// A sign's block entity with the commas taken out of its text, as words on
-/// a sign are separated by spaces and lines alone; any other entity as it
-/// is. A line keeps its form: JSON text stays JSON, a plain string plain.
-pub fn without_commas(entity: &Value) -> Value {
+/// A sign's block entity with each line plain text, as the site writes
+/// signs: its words alone, however the line held them, such as in a text
+/// component's `extra` parts, with commas taken out, as words on a sign are
+/// separated by spaces and lines alone. A line written as JSON, as files
+/// before 1.21.5 need, stays a JSON string; any other is a plain string.
+/// Any other entity is as it is.
+pub fn plain_sign(entity: &Value) -> Value {
     let mut entity = entity.clone();
     let Value::Compound(outer) = &mut entity else {
         return entity;
@@ -545,59 +559,83 @@ pub fn without_commas(entity: &Value) -> Value {
             && let Some(Value::List(lines)) = text.get_mut("messages")
         {
             for line in lines.iter_mut() {
-                *line = line_without_commas(line);
+                *line = plain_line(line);
             }
         }
     }
     for key in ["Text1", "Text2", "Text3", "Text4"] {
         if let Some(line) = fields.get_mut(key) {
-            *line = line_without_commas(line);
+            *line = plain_line(line);
         }
     }
     entity
 }
 
-/// One sign line with its commas taken out, each run of commas and spaces
-/// one space.
-fn line_without_commas(line: &Value) -> Value {
-    let plain = text(line);
-    let words: Vec<&str> = plain
+/// One sign line as plain text, each run of commas and spaces one space:
+/// a JSON string for a line written as JSON, else a plain string.
+fn plain_line(line: &Value) -> Value {
+    let words: Vec<String> = text(line)
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|word| !word.is_empty())
+        .map(str::to_owned)
         .collect();
-    let cleaned = words.join(" ");
-    if cleaned == plain {
-        return line.clone();
-    }
+    let plain = words.join(" ");
     match line {
-        Value::String(raw) if raw.trim_start().starts_with(['"', '{']) => {
-            Value::String(serde_json::to_string(&cleaned).unwrap_or_default())
+        Value::String(raw) if raw.trim_start().starts_with(['"', '{', '[']) => {
+            Value::String(serde_json::to_string(&plain).unwrap_or_default())
         }
-        Value::Compound(fields) => {
-            let mut fields = fields.clone();
-            fields.insert("text".to_owned(), Value::String(cleaned));
-            Value::Compound(fields)
-        }
-        _ => Value::String(cleaned),
+        _ => Value::String(plain),
     }
 }
 
 /// The plain text of one sign line. Lines are stored as plain strings, as
-/// JSON text such as `"lsb"` or `{"text":"lsb"}`, or since 1.21.5 as an NBT
-/// text compound.
+/// JSON text such as `"lsb"`, `{"text":"lsb"}`, or
+/// `{"text":"","extra":["ls","b"]}`, or since 1.21.5 as an NBT text
+/// compound, whose words may likewise sit in its `extra` parts.
 fn text(line: &Value) -> String {
     match line {
         Value::String(s) => {
             let s = s.trim();
-            if let Some(rest) = s.split_once(r#""text":""#).map(|(_, r)| r) {
-                rest.split('"').next().unwrap_or("").to_owned()
-            } else if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
-                s[1..s.len() - 1].to_owned()
+            if s.starts_with(['"', '{', '[']) {
+                match serde_json::from_str::<serde_json::Value>(s) {
+                    Ok(json) => json_text(&json),
+                    Err(_) => s.to_owned(),
+                }
             } else {
                 s.to_owned()
             }
         }
-        Value::Compound(c) => c.get("text").map(text).unwrap_or_default(),
+        Value::Compound(c) => {
+            // An unnamed field holds plain text where a list mixes kinds.
+            let own = c.get("text").or_else(|| c.get("")).map(text);
+            let extra = match c.get("extra") {
+                Some(Value::List(parts)) => parts.iter().map(text).collect(),
+                _ => String::new(),
+            };
+            own.unwrap_or_default() + &extra
+        }
+        Value::List(parts) => parts.iter().map(text).collect(),
+        _ => String::new(),
+    }
+}
+
+/// The plain text of a JSON text component: its own text, then its
+/// `extra` parts', in order.
+fn json_text(json: &serde_json::Value) -> String {
+    match json {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(parts) => {
+            parts.iter().map(json_text).collect()
+        }
+        serde_json::Value::Object(fields) => {
+            let own = fields.get("text").map(json_text).unwrap_or_default();
+            let extra: String = fields
+                .get("extra")
+                .and_then(serde_json::Value::as_array)
+                .map(|parts| parts.iter().map(json_text).collect())
+                .unwrap_or_default();
+            own + &extra
+        }
         _ => String::new(),
     }
 }
@@ -850,6 +888,46 @@ impl Nbt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sign line's words, however the line stores them: a plain string,
+    /// JSON text, or an NBT compound, with words in its `extra` parts too.
+    #[test]
+    fn a_sign_lines_words_are_read_from_every_form() {
+        let compound = |pairs: Vec<(&str, Value)>| {
+            Value::Compound(
+                pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+            )
+        };
+        let string = |s: &str| Value::String(s.to_owned());
+        for (line, words) in [
+            (string("shr"), "shr"),
+            (string(r#""shr""#), "shr"),
+            (string(r#"{"text":"shr"}"#), "shr"),
+            (string(r#"{"text":"","extra":["sh","r"]}"#), "shr"),
+            (string(r#"{"text":"a","extra":[{"text":"n"},"d"]}"#), "and"),
+            (compound(vec![("text", string("shr"))]), "shr"),
+            (
+                compound(vec![
+                    ("text", string("")),
+                    ("extra", Value::List(vec![string("ror")])),
+                ]),
+                "ror",
+            ),
+            (compound(vec![("", string(""))]), ""),
+        ] {
+            assert_eq!(text(&line), words, "{line:?}");
+        }
+        // Written plain, each word once, a JSON line as a JSON string.
+        let parted = compound(vec![
+            ("text", string("")),
+            ("extra", Value::List(vec![string("and,"), string(" or")])),
+        ]);
+        assert_eq!(plain_line(&parted), string("and or"));
+        assert_eq!(
+            plain_line(&string(r#"{"text":"","extra":["shr"]}"#)),
+            string(r#""shr""#)
+        );
+    }
 
     #[test]
     fn a_barrel_takes_the_fewest_redstone_for_each_strength() {

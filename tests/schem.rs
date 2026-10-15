@@ -1044,3 +1044,45 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A + increment", 0));
 }
+
+/// Signs whose words sit in text components' `extra` parts name their
+/// lines, and the file the site writes keeps each line as plain text.
+#[test]
+fn signs_written_as_text_components_are_read_and_written_plain() {
+    let raw = raw("alu-8-extra-signs");
+    for standardized in [None, Some(Gray::Whiten)] {
+        let prepared =
+            import::prepare(&raw, standardized, true, false).unwrap();
+        // Unstandardized, its own blocks break the palette, but no line
+        // lacks a sign.
+        let unsigned: Vec<String> = prepared
+            .violations
+            .iter()
+            .map(ToString::to_string)
+            .filter(|v| v.contains("sign"))
+            .collect();
+        assert!(unsigned.is_empty(), "{unsigned:?}");
+        if standardized.is_some() {
+            assert!(prepared.violations.is_empty());
+        }
+        let read = interface::read(&prepared.blocks);
+        let names: Vec<&str> =
+            read.inputs.iter().map(|p| p.name.as_str()).collect();
+        assert!(
+            names.contains(&"shr")
+                && !names.iter().any(|n| n.starts_with("unnamed")),
+            "{names:?}"
+        );
+        let mut nbt = schem::decode(&prepared.data).unwrap();
+        let signs: Vec<String> = nbt
+            .take_entities()
+            .iter()
+            .map(|e| format!("{e:?}"))
+            .filter(|e| e.contains("sign"))
+            .collect();
+        assert!(!signs.is_empty());
+        for sign in signs {
+            assert!(!sign.contains("extra"), "{sign}");
+        }
+    }
+}

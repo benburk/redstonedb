@@ -69,7 +69,7 @@ pub fn standardize(data: &[u8], gray: Gray) -> Result<Vec<u8>> {
         })
         .collect();
     let restyled = rebox(data, &grid, [0, 0, 0], blocks.size)?;
-    let standardized = tidy(&without_commas(&restyled)?)?;
+    let standardized = tidy(&restyled)?;
 
     let found = interface::read(&Blocks::read(&standardized)?);
     ensure!(
@@ -107,26 +107,6 @@ fn notes(
             })
         })
         .collect()
-}
-
-/// The file with the commas taken out of its signs, whose words are
-/// separated by spaces and lines alone, as an ALU's control line names its
-/// operations: `and nand sub`.
-fn without_commas(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    let mut nbt = schem::decode(data)?;
-    let entities = nbt
-        .take_entities()
-        .iter()
-        .map(schem::without_commas)
-        .collect();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
-    schem::encode(nbt)
 }
 
 /// The file with each status line pink: a block with no lever whose sign
@@ -401,7 +381,8 @@ pub fn for_viewer(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Writes `grid`, in the file's own positions, into a box of `size` whose
-/// first block is at `low`, moving signs and other block entities along.
+/// first block is at `low`, moving signs and other block entities along,
+/// each sign's lines plain text; see `schem::plain_sign`.
 /// Entities left outside the box are dropped.
 fn rebox(
     data: &[u8],
@@ -417,14 +398,15 @@ fn rebox(
         .map(|(&pos, state)| (shift(pos), state.clone()))
         .collect();
     let mut nbt = schem::decode(data)?;
-    // A block entity whose block was taken out goes with it.
+    // A block entity whose block was taken out goes with it, and a sign's
+    // lines are written plain.
     let entities = nbt
         .take_entities()
         .iter()
         .filter_map(|entity| {
             let pos = shift(schem::entity_pos(entity)?);
             (inside(pos) && placed.contains_key(&pos))
-                .then(|| schem::with_pos(entity, pos))
+                .then(|| schem::with_pos(&schem::plain_sign(entity), pos))
         })
         .collect();
     nbt.write_blocks(low, size, &placed, entities)?;
