@@ -368,9 +368,9 @@ fn listing_body(
             } @else if shown.is_empty() {
                 p class="text-muted" { "No builds match. Remove a term to widen the search." }
             } @else if view == View::Cards {
-                (cards(shown))
+                (cards(shown, listing.terms))
             } @else {
-                (table(shown))
+                (table(shown, listing.terms))
             }
     }
 }
@@ -422,7 +422,19 @@ fn badges(s: &Schematic, class: &str) -> Markup {
     }
 }
 
-fn cards(schematics: &[Schematic]) -> Markup {
+/// That build `s` makes the width `terms` ask for as a stack of its
+/// copies, if it does only so.
+fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
+    html! {
+        @if let Some((width, copies)) = crate::search::stacked_width(terms, s) {
+            p class="text-meta text-brand" { (width) " bits as " (copies) " stacked copies" }
+        }
+    }
+}
+
+/// Builds as cards, each noting the width `terms` ask for when it reaches
+/// it only by stacking.
+fn cards(schematics: &[Schematic], terms: &[Term]) -> Markup {
     html! {
         ul class="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5" {
             @for s in schematics {
@@ -438,6 +450,7 @@ fn cards(schematics: &[Schematic]) -> Markup {
                                 class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                         }
                         (badges(s, ""))
+                        (stacked_note(s, terms))
                         p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
                     }
                 }
@@ -521,7 +534,7 @@ fn player_href(name: &str) -> String {
     format!("/players/{name}")
 }
 
-fn table(schematics: &[Schematic]) -> Markup {
+fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
     // Columns a phone has no room for; the name and its tags come first.
     let secondary = "hidden desktop:table-cell";
     html! {
@@ -544,6 +557,7 @@ fn table(schematics: &[Schematic]) -> Markup {
                                 tr class="hover:bg-selection/50" {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                         a href={ "/schematics/" (s.id) } class="font-semibold" { (s.name()) }
+                                        (stacked_note(s, terms))
                                         (badges(s, "mt-1.5"))
                                     }
                                     td class={ (TABLE_CELL) " " (secondary) } { (s.orientation_label()) }
@@ -2439,13 +2453,13 @@ pub fn profile(
                     (Some(name), true) => {
                         p class="text-muted" { "No builds credit " (name) " as builder yet." }
                     }
-                    (Some(_), false) => { (cards(&builds.built)) }
+                    (Some(_), false) => { (cards(&builds.built, &[])) }
                 }
             }
             @if !builds.contributed.is_empty() {
                 section aria-labelledby="contributed-heading" class="mb-10" {
                     h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Contributed to" }
-                    (cards(&builds.contributed))
+                    (cards(&builds.contributed, &[]))
                 }
             }
             section aria-labelledby="uploads-heading" {
@@ -2453,7 +2467,7 @@ pub fn profile(
                 @if builds.uploaded.is_empty() {
                     p class="text-muted" { "No uploads yet." }
                 } @else {
-                    (cards(&builds.uploaded))
+                    (cards(&builds.uploaded, &[]))
                 }
             }
         },

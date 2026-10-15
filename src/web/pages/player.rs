@@ -64,13 +64,13 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
                 @if built.is_empty() {
                     p class="text-muted" { "No builds credit " (name) " as builder yet." }
                 } @else {
-                    (cards(built))
+                    (cards(built, &[]))
                 }
             }
             @if !contributed.is_empty() {
                 section aria-labelledby="contributed-heading" {
                     h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Helped with" }
-                    (cards(contributed))
+                    (cards(contributed, &[]))
                 }
             }
         },

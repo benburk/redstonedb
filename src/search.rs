@@ -5,7 +5,8 @@
 //! or written after `not` must not match. A term matches a schematic when
 //! it names one of its facts (category or one of its aliases, such as
 //! `connect4`, orientation, a tag, its design or a flag, its width such as
-//! `8b`, a threshold's `at least 3`, its latency such as `3t`, a builder,
+//! `8b`, or a width its copies stack to where they add bits, as `16b` finds
+//! a 1-bit adder slice that stacks, a threshold's `at least 3`, its latency such as `3t`, a builder,
 //! contributor, or importer, `stackable`, `sync` or `unsync`, `stateless`
 //! or `stateful`, as `comb` and `seq` still are, `pipelined`). A name can be tied to its role, as in
 //! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
@@ -183,6 +184,48 @@ fn text(s: &Schematic) -> String {
     .to_lowercase()
 }
 
+/// The widest a stack is searched by, for a build whose copies add bits
+/// with no limit: past any width there is a build of.
+const WIDEST: i64 = 64;
+
+/// The widths build `s` comes in, each with the copies that make it: its
+/// own, one copy, then each a stack of its copies reaches where they add
+/// bits, as a 1-bit adder slice's do, up to the most copies that work.
+pub fn widths(s: &Schematic) -> Vec<(i64, i64)> {
+    let Some(w) = s.width.filter(|&w| w > 0) else {
+        return Vec::new();
+    };
+    let mut widths = vec![(w, 1)];
+    for direction in &s.stacking {
+        if !direction.adds_bits(&s.orientation) {
+            continue;
+        }
+        let most = direction.max_copies.unwrap_or(WIDEST / w);
+        widths.extend(
+            (2..=most)
+                .map(|copies| (w * copies, copies))
+                .take_while(|&(width, _)| width <= WIDEST),
+        );
+    }
+    widths.sort_unstable();
+    widths.dedup_by_key(|(width, _)| *width);
+    widths
+}
+
+/// The width `terms` ask for that build `s` reaches only by stacking, and
+/// the copies it takes, such as 16 bits as 16 copies of a 1-bit slice.
+pub fn stacked_width(terms: &[Term], s: &Schematic) -> Option<(i64, i64)> {
+    let asked = terms.iter().filter(|term| !term.negated).find_map(|term| {
+        let number = ["-bit", " bits", " bit", "b"]
+            .iter()
+            .find_map(|unit| term.text.strip_suffix(unit))?;
+        number.parse::<i64>().ok()
+    })?;
+    widths(s)
+        .into_iter()
+        .find(|&(width, copies)| width == asked && copies > 1)
+}
+
 /// Every word a term can name a schematic by.
 fn facts(s: &Schematic) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
@@ -194,7 +237,8 @@ fn facts(s: &Schematic) -> Vec<String> {
         facts.push(tag.label());
         facts.push(tag.token().replace('_', " "));
     }
-    if let Some(w) = s.width {
+    // Its own width, and each its copies reach where they add bits.
+    for (w, _) in widths(s) {
         facts.extend([
             format!("{w}b"),
             format!("{w:02}b"),
@@ -452,6 +496,37 @@ mod tests {
             !find("binary", &adder),
             "an adder's encoding is not its name"
         );
+    }
+
+    /// A build whose copies add bits answers to each width they reach, up
+    /// to the most copies that work; copies across its bits widen nothing.
+    #[test]
+    fn a_stack_answers_to_the_widths_its_copies_reach() {
+        use crate::models::schematic::StackDirection;
+        let stacks = |width, west, north, max_copies| {
+            let mut s = schematic("adder", "horz", &[]);
+            s.width = Some(width);
+            s.stacking = vec![StackDirection {
+                west,
+                up: 0,
+                north,
+                max_copies,
+            }];
+            s
+        };
+        let slice = stacks(1, 2, 0, None);
+        assert!(find("16b", &slice) && find("16 bit adder", &slice));
+        assert_eq!(
+            stacked_width(&parse("16 bit adder"), &slice),
+            Some((16, 16))
+        );
+        let eight = stacks(8, 9, 0, None);
+        assert!(find("16b", &eight) && !find("12b", &eight));
+        let capped = stacks(1, 2, 0, Some(8));
+        assert!(find("8b", &capped) && !find("16b", &capped));
+        let file = stacks(8, 0, 4, None);
+        assert!(!find("16b", &file));
+        assert_eq!(stacked_width(&parse("8b"), &eight), None);
     }
 
     #[test]
