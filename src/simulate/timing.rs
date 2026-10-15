@@ -73,8 +73,21 @@ pub struct Timing {
 
 impl Timing {
     /// The latency of the slowest data output, leaving out status lines
-    /// such as carry out: the build's latency.
+    /// such as carry out: the build's latency. A register's is from data in
+    /// to data out: from a write's button until the bus shows the value,
+    /// its read held on.
     pub fn latency(&self) -> Option<i32> {
+        if self.from_read
+            && let Some(write) = self.write
+        {
+            return Some(write);
+        }
+        self.read()
+    }
+
+    /// The slowest data output's ticks, from input A changing or, for a
+    /// register, from a read lever turning on.
+    pub fn read(&self) -> Option<i32> {
         self.outputs
             .iter()
             .filter(|output| !output.status)

@@ -630,8 +630,8 @@ fn register(name: &str) -> (Vec<u8>, Blocks) {
 /// Two staggered cells of an 8-bit register, each a write button and a
 /// read lever on unsigned magenta lines, sharing lime data in and yellow
 /// data out. Each cell takes every value, the bus stays empty with every
-/// read off, and each read shows its cell alone, 6 ticks after its lever
-/// and 8 after a write.
+/// read off, and each read shows its cell alone, 6 ticks after its lever;
+/// a write shows 8 ticks after its button, its latency.
 #[test]
 fn a_register_stores_and_reads_each_cell() {
     let (_, blocks) = register("register-8-2-cells");
@@ -645,8 +645,9 @@ fn a_register_stores_and_reads_each_cell() {
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
-    assert_eq!((timing.latency(), timing.synced), (Some(6), true));
-    assert_eq!(timing.write, Some(8));
+    assert_eq!((timing.read(), timing.synced), (Some(6), true));
+    // Its latency is data in to data out, a write until the bus shows it.
+    assert_eq!((timing.write, timing.latency()), (Some(8), Some(8)));
     assert!(timing.from_read);
     let guess = simulate::guess(&blocks).unwrap();
     assert_eq!(guess.category, "register");
