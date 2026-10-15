@@ -244,12 +244,12 @@ fn a_combinational_multiplier_tries_every_product() {
 
 /// A multiplier with a clock, reset, or calculate line is sequential.
 #[test]
-fn a_sequential_multiplier_is_skipped() {
+fn a_stateful_multiplier_is_skipped() {
     let report = Test::Multiplier.run(&blocks("mult-8-buttons"));
     let Report::Skipped { reason } = report else {
         panic!("tested a sequential multiplier");
     };
-    assert!(reason.contains("not combinational"), "{reason}");
+    assert!(reason.contains("stateful"), "{reason}");
 }
 
 /// A 1-bit slice steps from its carry in to its carry out, which the next
