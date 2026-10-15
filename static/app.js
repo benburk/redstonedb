@@ -12,6 +12,7 @@
 // - `fx-trigger="poll"` with `data-every="ms"` sends every so often while
 //   the element is on the page.
 // - An answer's `FX-Notice` header, percent-encoded, is said in the notice.
+// - An answer's `FX-Replace-Url` header becomes the page's address.
 
 const notice = document.getElementById("notice");
 
@@ -112,6 +113,10 @@ document.addEventListener("fx:after", (event) => {
     location.assign(response.url);
     return;
   }
+  // The address that shows what the answer brings, such as a search's
+  // results, so Back and reloading keep them.
+  const at = response.headers.get("FX-Replace-Url");
+  if (at && response.ok) history.replaceState(history.state, "", at);
   const said = response.headers.get("FX-Notice");
   if (said) showNotice(decodeURIComponent(said));
   const changed = response.headers.get("FX-Redraw");
