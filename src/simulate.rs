@@ -707,6 +707,8 @@ pub enum Test {
     Alu,
     /// A's magnitude, A taken as a signed number.
     AbsoluteValue,
+    /// The carry out of A + B, and a carry in when there is one.
+    CarryOut,
     /// Each value written into every cell, then read.
     Register,
 }
@@ -723,7 +725,7 @@ pub const INFERS_STACKING: [&str; 1] = ["adder"];
 pub const FINDS_STACKING: [&str; 1] = ["register"];
 
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 10] = [
+const TESTS: [Test; 11] = [
     Test::Adder,
     Test::Incrementer,
     Test::Decrementer,
@@ -734,6 +736,7 @@ const TESTS: [Test; 10] = [
     Test::Alu,
     Test::Register,
     Test::AbsoluteValue,
+    Test::CarryOut,
 ];
 
 impl Test {
@@ -757,6 +760,7 @@ impl Test {
             Test::Alu => "alu",
             Test::Register => "register",
             Test::AbsoluteValue => "absolute_value",
+            Test::CarryOut => "carry_out",
         }
     }
 
@@ -773,6 +777,7 @@ impl Test {
             Test::Alu => alu::check(blocks),
             Test::Register => register::check(blocks),
             Test::AbsoluteValue => check_absolute_value(blocks, false),
+            Test::CarryOut => check_carry_out(blocks, false),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -800,7 +805,8 @@ impl Test {
             | Test::BinaryToBcd
             | Test::BcdToBinary
             | Test::Alu
-            | Test::AbsoluteValue => None,
+            | Test::AbsoluteValue
+            | Test::CarryOut => None,
         }
     }
 
@@ -826,6 +832,7 @@ impl Test {
             Test::AbsoluteValue => {
                 one_input_bench(&interface, "", "absolute value")?.inputs
             }
+            Test::CarryOut => carry_out_bench(&mut interface)?.inputs,
             Test::Alu | Test::Register => unreachable!("timed above"),
             Test::BcdToBinary => {
                 let bench = converter_bench(&interface, "")?;
@@ -1238,6 +1245,90 @@ fn adder_line(
         broken!("An adder's {role}, but this one is signed {}.", port.name);
     }
     Ok(Some(line))
+}
+
+/// Runs a carry out through its inputs and checks every case: the carry
+/// out of A + B, plus its carry in when it has one, without the sum. Every
+/// case when they number few enough, else each byte's, with a carry into it
+/// and without, and the pairings of the test patterns; with `quick`, the
+/// pairings only.
+fn check_carry_out(blocks: &Blocks, quick: bool) -> Result<Run> {
+    let mut interface = interface::read(blocks);
+    let bench = carry_out_bench(&mut interface)?;
+    let widths = bench.widths(&interface);
+    let width = widths[0];
+    let carry_in = bench.inputs.len() > 2;
+    let (cases, exhaustive, patterns) = if quick {
+        let (cases, _) = paired(&widths);
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&widths, || adder_cases(width, carry_in, 8))
+    };
+    let carry = |case: &Case| (case[0] + case[1] + case[2]) >> width & 1;
+    let run = sweep(blocks, &interface, &bench, &cases, None, carry)?;
+    Ok(run.covering(exhaustive, patterns))
+}
+
+/// What a carry out's test drives and reads: A, B, and its carry in, if
+/// any, and its one output line, a status line or a 1-bit output. Its lone
+/// control and status lines need no signs, as an adder's do.
+fn carry_out_bench(interface: &mut Interface) -> Result<Bench> {
+    let carry_in = adder_line(
+        &mut interface.inputs,
+        lint::CONTROL,
+        &lint::CARRY_IN,
+        "control line is its carry in",
+    )?;
+    let operands: Vec<usize> = (0..interface.inputs.len())
+        .filter(|&i| Some(i) != carry_in)
+        .collect();
+    let &[a, b] = operands.as_slice() else {
+        broken!(
+            "A carry out takes two operands, but this has {}.",
+            operands.len()
+        );
+    };
+    let (a_bits, b_bits) = (
+        interface.inputs[a].bits.len(),
+        interface.inputs[b].bits.len(),
+    );
+    if a_bits != b_bits {
+        broken!(
+            "A has {a_bits} bits and B {b_bits}, but a carry out's operands have the same number."
+        );
+    }
+    let lines: Vec<usize> = (0..interface.outputs.len()).collect();
+    let &[out] = lines.as_slice() else {
+        broken!(
+            "A carry out has one output, its carry, but this has {}.",
+            lines.len()
+        );
+    };
+    if interface.outputs[out].bits.len() != 1 {
+        broken!(
+            "A carry out's output is one line, but this has {} bits.",
+            interface.outputs[out].bits.len()
+        );
+    }
+    if !interface.outputs[out].labelled {
+        lint::CARRY_OUT[0].clone_into(&mut interface.outputs[out].name);
+    }
+    let mut inputs = vec![a, b];
+    inputs.extend(carry_in);
+    let pattern = match carry_in {
+        Some(port) => {
+            format!("carry of A + B + {}", interface.inputs[port].name)
+        }
+        None => "carry of A + B".to_owned(),
+    };
+    Ok(Bench {
+        inputs,
+        outputs: vec![out],
+        pattern,
+        held: Vec::new(),
+        care: u64::MAX,
+    })
 }
 
 /// Runs a stateless multiplier through its inputs and checks every
@@ -1921,6 +2012,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::BcdToBinary,
         Test::Register,
         Test::AbsoluteValue,
+        Test::CarryOut,
     ];
     tried
         .into_iter()
@@ -1932,6 +2024,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                 Test::BcdToBinary => check_bcd_to_binary(blocks, true),
                 Test::Register => register::check_quick(blocks),
                 Test::AbsoluteValue => check_absolute_value(blocks, true),
+                Test::CarryOut => check_carry_out(blocks, true),
                 _ => check_incrementer(blocks, true, None),
             }
             .ok()?;

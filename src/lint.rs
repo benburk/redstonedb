@@ -133,9 +133,9 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
 }
 
 /// The categories whose builds' lone control line and lone status line
-/// need no sign, their roles being plain: an adder's carry in and carry
-/// out.
-pub const UNSIGNED_LINES: [&str; 1] = ["adder"];
+/// need no sign, their roles being plain: an adder's, or a carry out's,
+/// carry in and carry out.
+pub const UNSIGNED_LINES: [&str; 2] = ["adder", "carry_out"];
 
 /// The names an adder's control line, its carry in, may be signed with;
 /// an unsigned one goes by the first.

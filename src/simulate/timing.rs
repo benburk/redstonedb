@@ -93,9 +93,12 @@ impl Timing {
     /// The slowest data output's ticks, from input A changing or, for a
     /// register, from a read lever turning on.
     pub fn read(&self) -> Option<i32> {
+        // A build whose only outputs are status lines, as a carry out's,
+        // goes by them.
+        let data = self.outputs.iter().any(|output| !output.status);
         self.outputs
             .iter()
-            .filter(|output| !output.status)
+            .filter(|output| !output.status || !data)
             .map(|output| output.latency)
             .max()
     }

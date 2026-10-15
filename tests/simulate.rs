@@ -864,3 +864,26 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
     assert_eq!(run.pattern, "|A|");
     assert_eq!(simulate::guess(&blocks).unwrap().category, "absolute_value");
 }
+
+/// An 8-bit carry out: of A + B, only the carry, on one unsigned status
+/// line, in every one of its 65,536 cases, timed by that line, as it has no
+/// other output.
+#[test]
+fn a_carry_out_gives_the_carry_of_every_sum() {
+    let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .data;
+    let blocks = Blocks::read(&data).unwrap();
+    assert!(lint::check_for(&blocks, "carry_out").is_empty());
+    let Report::Ran(run) = Test::CarryOut.run(&blocks) else {
+        panic!("the carry out was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (1 << 16, 0));
+    assert_eq!(run.pattern, "carry of A + B");
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "carry_out");
+    let timing = Test::CarryOut
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert!(timing.latency().is_some());
+}
