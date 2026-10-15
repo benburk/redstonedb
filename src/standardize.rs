@@ -192,7 +192,7 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| *state != AIR && !markers.contains(pos))
-        .map(|(pos, state)| (pos, state.to_owned()))
+        .map(|(pos, state)| (pos, facing_as_usual(&blocks, pos, state)))
         .collect();
     ensure!(!grid.is_empty(), "the schematic has no blocks");
     let bound = |axis: usize, pick: fn(i32, i32) -> i32| {
@@ -205,6 +205,47 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
+
+/// `state` at `pos` facing the usual way where its facing does nothing, so
+/// files that differ only in that compare alike: a barrel up, closed, and
+/// a hopper down, unless it points into a container, which it would fill,
+/// or down would. Any other block stays as it is.
+fn facing_as_usual(blocks: &Blocks, pos: Pos, state: &str) -> String {
+    match short(state) {
+        "barrel" => BARREL.to_owned(),
+        "hopper" => {
+            let into = |side: &str| {
+                is_container(short(blocks.get(schem::step(pos, side))))
+            };
+            let facing = schem::property(state, "facing").unwrap_or("down");
+            if into(facing) || into("down") {
+                state.to_owned()
+            } else {
+                state.replace(&format!("facing={facing}"), "facing=down")
+            }
+        }
+        _ => state.to_owned(),
+    }
+}
+
+/// Whether a block id without its namespace holds items a hopper could
+/// push into.
+fn is_container(name: &str) -> bool {
+    matches!(
+        name,
+        "barrel"
+            | "chest"
+            | "trapped_chest"
+            | "hopper"
+            | "furnace"
+            | "blast_furnace"
+            | "smoker"
+            | "dropper"
+            | "dispenser"
+            | "brewing_stand"
+            | "crafter"
+    ) || name.ends_with("shulker_box")
+}
 
 /// The file with each furnace, cauldron, and cake, and each container whose
 /// id is in `also`, such as `hopper`, swapped for a barrel holding redstone

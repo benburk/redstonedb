@@ -569,10 +569,11 @@ fn timing_fields(s: &Schematic) -> Markup {
             Some(false) => search_link("no", "unsync"),
             None => html! { "unknown" },
         }))
-        (field("Logic", s.logic.as_deref().map_or_else(
-            || html! { "unknown" },
-            |logic| search_link(schematic::logic_label(logic), logic),
-        )))
+        (field("Stateless", match s.logic.as_deref() {
+            Some("comb") => search_link("yes", "stateless"),
+            Some("seq") => search_link("no", "stateful"),
+            _ => html! { "unknown" },
+        }))
         @if s.pipelined() {
             (field("Pipelined", search_link("yes", "pipelined")))
         }
@@ -1831,8 +1832,8 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
     }
 }
 
-/// Combinational or sequential, or as the category usually is, which
-/// `form.js` names as the category changes.
+/// Stateless or stateful, or as the category usually is, which `form.js`
+/// names as the category changes.
 fn logic_field(f: &Fields, choices: &Choices) -> Markup {
     let usual = choices
         .category(f.category)
@@ -1841,14 +1842,17 @@ fn logic_field(f: &Fields, choices: &Choices) -> Markup {
         .to_lowercase();
     html! {
         label class="field" {
-            span { "Logic" }
-            select name="logic" class="input" {
+            span { "Stateless" }
+            select name="logic" class="input" aria-describedby="logic-help" {
                 option value="" selected[f.logic.is_empty()] data-usual-logic {
                     "As the category usually is (" (usual) ")"
                 }
-                @for (value, label) in [("comb", "Combinational"), ("seq", "Sequential")] {
+                @for (value, label) in [("comb", "Stateless"), ("seq", "Stateful")] {
                     option value=(value) selected[f.logic == value] { (label) }
                 }
+            }
+            span id="logic-help" class="text-meta font-normal text-muted" {
+                "Stateless: once its inputs stop changing, its outputs depend only on them. Stateful: it remembers something, as a register does."
             }
         }
     }

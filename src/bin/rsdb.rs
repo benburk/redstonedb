@@ -276,9 +276,9 @@ struct NewCategory {
     /// `at_least`
     #[arg(long = "measure", value_parser = Measure::ALL.map(Measure::name))]
     measures: Vec<String>,
-    /// Its builds' usual logic, which a build follows unless it gives its
-    /// own
-    #[arg(long, value_parser = ["comb", "seq"])]
+    /// Whether its builds are usually stateless or stateful, which a build
+    /// follows unless it gives its own; `comb` and `seq` mean the same
+    #[arg(long, value_parser = ["stateless", "stateful", "comb", "seq"])]
     logic: Option<String>,
     /// Another word it is searched by; repeatable
     #[arg(long = "alias")]
@@ -298,9 +298,9 @@ struct Details {
     /// 2-tick serial adder
     #[arg(long)]
     throughput: Option<u32>,
-    /// Combinational or sequential, where it differs from what its category
-    /// usually is
-    #[arg(long, value_parser = ["comb", "seq"])]
+    /// Stateless or stateful, where it differs from what its category
+    /// usually is; `comb` and `seq` mean the same
+    #[arg(long, value_parser = ["stateless", "stateful", "comb", "seq"])]
     logic: Option<String>,
     /// For a memory, how many bytes it holds, as in a 32-byte RAM
     #[arg(long)]
@@ -512,7 +512,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         design: details.design.as_deref(),
         description: details.description.as_deref(),
         given_name: details.given_name.as_deref(),
-        logic: details.logic.as_deref(),
+        logic: details.logic.as_deref().map(schematic::logic_value),
         throughput: details.throughput.map(i64::from),
         bytes: details.bytes.map(i64::from),
         at_least: details.at_least.map(i64::from),
@@ -643,7 +643,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             design: details.design.as_deref(),
             description: details.description.as_deref(),
             given_name: details.given_name.as_deref(),
-            logic: details.logic.as_deref(),
+            logic: details.logic.as_deref().map(schematic::logic_value),
             throughput: details.throughput.map(i64::from),
             bytes: details.bytes.map(i64::from),
             at_least: details.at_least.map(i64::from),
@@ -721,7 +721,10 @@ async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
         label,
         named: args.named,
         section: args.section,
-        logic: args.logic,
+        logic: args
+            .logic
+            .as_deref()
+            .map(|word| schematic::logic_value(word).to_owned()),
         measures: if args.measures.is_empty() {
             vec![Measure::Width]
         } else {
@@ -1279,7 +1282,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     }
     println!("synchronized {}", s.synchronized_label());
     println!(
-        "logic        {}{}",
+        "state        {}{}",
         s.logic_label().unwrap_or("unknown").to_lowercase(),
         if s.pipelined() { ", pipelined" } else { "" }
     );

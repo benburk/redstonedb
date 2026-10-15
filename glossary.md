@@ -2,7 +2,7 @@
 
 Restrictions are tags in the database. A tag is named in full words, such as `torchless`, and the website and `rsdb show` print that name. A tag may also store a short token of 3 or 4 letters, which commands and search accept in its place. Each tag has a kind, `restriction` or `other`, which colours its badge; tags a person adds on the site are of the `other` kind.
 
-A fact every build has, with one of a few values, is a field rather than a tag, as orientation, encoding, and logic are. A yes-or-no fact that means something only within one category, such as an adder's carry in, is a flag of that category. A tag is left for what is optional and crosses categories, where a build without it says nothing.
+A fact every build has, with one of a few values, is a field rather than a tag, as orientation, encoding, and statelessness are. A yes-or-no fact that means something only within one category, such as an adder's carry in, is a flag of that category. A tag is left for what is optional and crosses categories, where a build without it says nothing.
 
 ## Restrictions
 
@@ -40,14 +40,14 @@ Required.
 | `bin` | binary                  |
 | `hex` | signal-strength encoded |
 
-## Logic
+## Stateless
 
-A field. Each standard category gives its builds' usual logic: a register is sequential and an adder combinational. A build gives its own only when it departs from that, such as a sequential multiplier (`--logic` on `rsdb add` and `set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual logic.
+A field: whether, once a build's inputs stop changing, its outputs depend only on them. An adder is stateless; a register, which remembers what was written, is stateful. A pipelined build is stateless too, holding values only on their way through. Each standard category gives its builds' usual value, and a build gives its own only when it departs from that, such as a stateful multiplier (`--logic stateless` or `--logic stateful` on `rsdb add` and `set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual value. The field was called logic, combinational or sequential, and its stored values keep those names; search finds it by either.
 
-| Token  | Meaning       |
-| ------ | ------------- |
-| `comb` | combinational |
-| `seq`  | sequential    |
+| Token  | Meaning   | Also searched as        |
+| ------ | --------- | ----------------------- |
+| `comb` | stateless | `comb`, `combinational` |
+| `seq`  | stateful  | `seq`, `sequential`     |
 
 Whether every output bit settles on the same tick is another field, `synchronized`, which is yes, no, or unknown. Search finds it with `sync` or `unsync`.
 
@@ -55,7 +55,7 @@ Whether every output bit settles on the same tick is another field, `synchronize
 
 A field: the fewest ticks from one input to the next that still give right outputs, as in a 3-tick throughput, whatever the latency. Any build may have one; unknown is left empty rather than guessed. Search finds it with `throughput:3`.
 
-A combinational, synchronized build whose throughput is below its latency is pipelined: a new input goes in before the last one's result comes out. Pipelined is worked out from those fields, not stored, and search finds it with `pipelined` or `pipe`.
+A stateless, synchronized build whose throughput is below its latency is pipelined: a new input goes in before the last one's result comes out. Pipelined is worked out from those fields, not stored, and search finds it with `pipelined` or `pipe`.
 
 ## Categories
 

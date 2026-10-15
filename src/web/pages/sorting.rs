@@ -98,7 +98,7 @@ fn measure_part() -> Markup {
         }
         p class="mb-3" {
             "Builds compete only with builds at the same value of every measure. On a leaderboard, a build "
-            "also meets only builds of the same logic, encoding, and orientation."
+            "also meets only builds that are stateless or stateful as it is, of the same encoding and orientation."
         }
     }
 }
@@ -112,8 +112,12 @@ fn fact_part() -> Markup {
             dd { "Horizontal, vertical, or diagonal, the way its bits run. An adder's is read from its lime inputs, or for a 1-bit adder from the way its copies stack." }
             dt class="font-semibold" { "Encoding" }
             dd { "Binary, or hex for inputs that take a signal strength." }
-            dt class="font-semibold" { "Logic" }
-            dd { "Combinational or sequential. Each category has a usual logic, and a build gives its own only when it differs, as a sequential multiplier does." }
+            dt class="font-semibold" { "Stateless" }
+            dd {
+                "Whether, once its inputs stop changing, its outputs depend only on them, as an adder's do, or it "
+                "remembers something, as a register does, which makes it stateful. Each category is usually one or "
+                "the other, and a build says so only when it differs, as a stateful multiplier does."
+            }
             dt class="font-semibold" { "Latency" }
             dd { "Ticks from input A changing until the slowest output settles, leaving out status lines such as carry out. A register's is from its read lever turning on." }
             dt class="font-semibold" { "Synchronized" }
@@ -128,10 +132,10 @@ fn fact_part() -> Markup {
                 "the latest release."
             }
             dt class="font-semibold" { "Pipelined" }
-            dd { "A combinational, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
+            dd { "A stateless, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
         }
         p class="mb-3" {
-            "Adders, incrementers, decrementers, inc/decs, combinational multipliers, combinational "
+            "Adders, incrementers, decrementers, inc/decs, stateless multipliers, stateless "
             "converters between binary and BCD, ALUs, and registers are simulated through their inputs. Once every case of one "
             "comes out right, its latency and synchronized come from the simulation, not from what was typed."
         }
@@ -190,7 +194,7 @@ fn search_part() -> Markup {
         p class="mb-3" {
             "Search matches each word against these facts: category, design, flag, tag, orientation, "
             "a width such as " code { "8b" } ", a latency such as " code { "3t" } ", "
-            code { "comb" } " or " code { "seq" } ", " code { "sync" } ", " code { "pipelined" } ", "
+            code { "stateless" } " or " code { "stateful" } ", " code { "sync" } ", " code { "pipelined" } ", "
             code { "throughput:3" } ", " code { "encoding:hex" } ", a release it works in such as "
             code { "version:1.12" } ", and the people credited. "
             "A category also has aliases, other names people use: " code { "connect4" } " finds the "

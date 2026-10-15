@@ -6,8 +6,8 @@
 //! it names one of its facts (category or one of its aliases, such as
 //! `connect4`, orientation, a tag, its design or a flag, its width such as
 //! `8b`, a threshold's `at least 3`, its latency such as `3t`, a builder,
-//! contributor, or importer, `stackable`, `sync` or `unsync`, `comb` or
-//! `seq`, `pipelined`). A name can be tied to its role, as in
+//! contributor, or importer, `stackable`, `sync` or `unsync`, `stateless`
+//! or `stateful`, as `comb` and `seq` still are, `pipelined`). A name can be tied to its role, as in
 //! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
 //! encoding is `encoding:bin` or `encoding:hex`, a release it works in is
 //! `version:1.12` or `version:beta_1.3`, and the throughput is
@@ -290,8 +290,8 @@ fn ticks(n: i64) -> [String; 4] {
     ]
 }
 
-/// The words for whether a build is synchronized, combinational or
-/// sequential, and pipelined.
+/// The words for whether a build is synchronized, stateless or stateful,
+/// as combinational and sequential still find them, and pipelined.
 fn timing(s: &Schematic) -> Vec<&'static str> {
     let mut words = match s.synchronized {
         Some(true) => vec!["sync", "synchronized"],
@@ -299,8 +299,8 @@ fn timing(s: &Schematic) -> Vec<&'static str> {
         None => Vec::new(),
     };
     match s.logic.as_deref() {
-        Some("comb") => words.extend(["comb", "combinational"]),
-        Some("seq") => words.extend(["seq", "sequential"]),
+        Some("comb") => words.extend(["stateless", "comb", "combinational"]),
+        Some("seq") => words.extend(["stateful", "seq", "sequential"]),
         _ => {}
     }
     if s.pipelined() {
@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn logic_and_pipelining_are_words() {
+    fn state_and_pipelining_are_words() {
         let piped = Schematic {
             throughput: Some(3),
             latency: Some(8),
@@ -531,12 +531,14 @@ mod tests {
             ..schematic("multiplier", "horz", &[])
         };
         assert!(find("comb pipelined", &piped));
+        assert!(find("stateless pipelined", &piped));
         assert!(!find("seq", &piped));
         let sequential = Schematic {
             logic: Some("seq".to_owned()),
             ..piped
         };
         assert!(find("sequential", &sequential));
+        assert!(find("stateful", &sequential));
         assert!(!find("pipe", &sequential));
     }
 

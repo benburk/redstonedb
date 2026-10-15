@@ -76,11 +76,24 @@ pub fn words(name: &str) -> String {
         .join(" ")
 }
 
-/// A build's logic as people read it, such as `Sequential` for `seq`.
+/// Whether a build remembers anything, as people read it: `Stateless` for
+/// `comb`, whose outputs, once its inputs stop changing, depend only on
+/// them, and `Stateful` for `seq`, which remembers. The stored values keep
+/// their old names, combinational and sequential.
 pub fn logic_label(logic: &str) -> &str {
     match logic {
-        "comb" => "Combinational",
-        "seq" => "Sequential",
+        "comb" => "Stateless",
+        "seq" => "Stateful",
+        other => other,
+    }
+}
+
+/// The stored value a word names: `comb` for `stateless`, `seq` for
+/// `stateful`, and the stored values themselves.
+pub fn logic_value(word: &str) -> &str {
+    match word {
+        "stateless" => "comb",
+        "stateful" => "seq",
         other => other,
     }
 }
@@ -539,7 +552,7 @@ impl Schematic {
     }
 
     /// Whether a new input goes in before the last one's result comes out:
-    /// a combinational, synchronized build whose throughput is below its
+    /// a stateless, synchronized build whose throughput is below its
     /// latency.
     pub fn pipelined(&self) -> bool {
         self.logic.as_deref() == Some("comb")

@@ -884,3 +884,25 @@ fn standardizing_whitens_gray_unless_asked_to_keep_it() {
     assert_eq!(grays(Gray::Whiten), 0);
     assert!(grays(Gray::Keep) >= 2);
 }
+
+/// Tidying faces every barrel up and every hopper down, where their facing
+/// does nothing, so files that differ only in that compare alike; a hopper
+/// pointing into a container would fill it, so keeps its facing.
+#[test]
+fn tidying_faces_barrels_up_and_hoppers_down() {
+    let tidied = standardize::tidy(&raw("register-8-hoppers")).unwrap();
+    let blocks = Blocks::read(&tidied).unwrap();
+    let facings: Vec<(&str, Option<&str>)> = blocks
+        .iter()
+        .filter_map(|(_, state)| {
+            let id = app::schem::id(state).trim_start_matches("minecraft:");
+            matches!(id, "barrel" | "hopper")
+                .then(|| (id, app::schem::property(state, "facing")))
+        })
+        .collect();
+    assert!(!facings.is_empty());
+    assert!(facings.iter().all(|&(id, facing)| match id {
+        "barrel" => facing == Some("up"),
+        _ => facing == Some("down"),
+    }));
+}

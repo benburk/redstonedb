@@ -1,7 +1,7 @@
 //! Leaderboards: a category's builds ranked against the others that match
-//! them in its measures, such as width, then logic, encoding, orientation,
+//! them in its measures, such as width, then state, encoding, orientation,
 //! and design, since only those compete: a hex adder never meets a binary
-//! one, nor a sequential multiplier a combinational one.
+//! one, nor a stateful multiplier a stateless one.
 
 use std::collections::BTreeMap;
 
@@ -56,7 +56,7 @@ pub struct Split {
 pub struct Board<'a> {
     /// Its category's measures, in order.
     pub splits: Vec<Split>,
-    /// Combinational and sequential; empty when the builds are all one.
+    /// Stateless and stateful; empty when the builds are all one.
     pub logics: Vec<Choice>,
     pub logic: Option<String>,
     /// Binary and hex; empty when the builds count only one way.
@@ -109,8 +109,8 @@ pub fn board<'a>(
         });
     }
 
-    // Combinational and sequential builds never compete: a sequential
-    // build's latency is no combinational one's.
+    // Stateless and stateful builds never compete: a stateful build's
+    // latency is no stateless one's.
     let (logics, chosen_logic, ranked) =
         narrow(ranked, wanted.logic.as_deref(), |s| {
             let label = s.logic_label().unwrap_or("Unknown");
@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn sequential_and_combinational_builds_never_share_a_board() {
+    fn stateful_and_stateless_builds_never_share_a_board() {
         let mut adders = adders();
         for s in &mut adders {
             s.logic = Some("comb".to_owned());
@@ -516,7 +516,7 @@ mod tests {
         assert!(comb.builds.iter().all(|s| s.id != seq_id));
         let labels: Vec<&str> =
             comb.logics.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["Combinational", "Sequential"]);
+        assert_eq!(labels, ["Stateless", "Stateful"]);
         let wanted = Wanted {
             logic: Some("seq".to_owned()),
             ..Wanted::default()

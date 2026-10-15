@@ -257,7 +257,7 @@ fn choices(path: &str, board: &Board) -> Markup {
                 }, None))
             }
             @if !board.logics.is_empty() {
-                (choice_row("Logic", &board.logics, |c| {
+                (choice_row("State", &board.logics, |c| {
                     (logic.logic == Some(c.value.as_str()),
                         Address { logic: Some(&c.value), ..measured.clone() }.href(path))
                 }, None))
