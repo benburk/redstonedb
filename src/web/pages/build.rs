@@ -8,7 +8,7 @@ use crate::{
     import,
     interface::Interface,
     models::{
-        schematic::{Flag, Measure, Schematic, StackDirection},
+        schematic::{self, Flag, Measure, Schematic, StackDirection},
         simulation::Status,
         user::User,
         version::Version,
@@ -19,8 +19,9 @@ use crate::{
 use super::{
     Analysis, PAGE_TITLE, SECTION_TITLE, Waiting, base, beside_viewer,
     cases_pending, delete_dialog, download_dialog, field, grouped,
-    interface_section, name_links, plural, search_link, similar_section,
-    simulation_section, size, stack_guide, stacking_found, version,
+    interface_section, name_badges, person_badge, plural, search_link,
+    similar_section, simulation_section, size, stack_guide, stacking_found,
+    version, violations_section,
 };
 
 /// A seal with a check, Heroicons' `check-badge`: what the simulator or
@@ -49,8 +50,11 @@ pub fn schematic_page(
         &name,
         &path,
         &html! {
-            div class="mb-2 flex flex-wrap items-start justify-between gap-4" {
-                h1 class=(PAGE_TITLE) { (name) }
+            div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
+                div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
+                    h1 class=(PAGE_TITLE) { (name) }
+                    (build_banner(s, report, simulating))
+                }
                 div class="flex gap-2" {
                     @if viewer.is_some_and(User::is_admin) {
                         button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
@@ -64,7 +68,6 @@ pub fn schematic_page(
                     (download_dialog(s, viewer.is_some()))
                 }
             }
-            (build_banner(s, report, simulating))
             (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, analysis, report)))
             @let poll = format!("{path}/simulation");
             @match simulation {
@@ -74,16 +77,8 @@ pub fn schematic_page(
                 Status::Pending(None) => (cases_pending(&poll)),
                 Status::Untested => {}
             }
-            @match analysis {
-                _ if !s.conventional => {
-                    p class="mt-12 max-w-prose text-muted" {
-                        "Follows its own layout, so its inputs and outputs are not read and it is not linted."
-                    }
-                }
-                Ok(analysis) => (interface_section(analysis, true)),
-                Err(err) => {
-                    p class="mt-12 text-muted" { "Could not read its inputs and outputs: " (err) }
-                }
+            @if let Ok(analysis) = analysis && s.conventional {
+                (violations_section(analysis))
             }
             @if let Ok(analysis) = analysis {
                 (stack_guide::stacking_section(s, &analysis.stacking, stacking_found(s, report)))
@@ -93,44 +88,65 @@ pub fn schematic_page(
     )
 }
 
-/// Under a build's title, what its simulation says in one line: passes,
-/// fails, still running, or none for its category. A live panel, redrawn
-/// when its simulation comes in.
+/// Beside a build's title, what its simulation says, as a badge: passes,
+/// fails, still running, or not simulated, with the counts or the reason
+/// in a popup on hover or focus. A live panel, redrawn when its
+/// simulation comes in.
 pub fn build_banner(
     s: &Schematic,
     report: Option<&Report>,
     simulating: bool,
 ) -> Markup {
-    let pass = "text-ink";
+    let (label, tone, note) = match report {
+        Some(Report::Ran(run)) if run.wrong > 0 => (
+            "Fails simulation",
+            "bg-danger/12 text-danger",
+            format!(
+                "{} of {} cases of {} wrong; see which below.",
+                grouped(run.wrong),
+                grouped(run.cases),
+                run.pattern
+            ),
+        ),
+        Some(Report::Ran(run)) => (
+            "Passes simulation",
+            "bg-success/15 text-success",
+            format!(
+                "All {} cases of {} right{}.",
+                grouped(run.cases),
+                run.pattern,
+                if run.timing.is_none() {
+                    "; timing to follow"
+                } else {
+                    ""
+                }
+            ),
+        ),
+        Some(Report::Broken { reason }) => (
+            "Fails simulation",
+            "bg-danger/12 text-danger",
+            reason.clone(),
+        ),
+        Some(Report::Skipped { reason }) => {
+            ("Not simulated", "bg-muted/12 text-muted", reason.clone())
+        }
+        None if simulating => (
+            "Simulating…",
+            "bg-muted/12 text-muted",
+            "Its cases are running; this updates when they finish.".to_owned(),
+        ),
+        None => (
+            "Not simulated",
+            "bg-muted/12 text-muted",
+            "The simulator has no test for this category yet.".to_owned(),
+        ),
+    };
+    let pill = html! {
+        span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (tone) } { (label) }
+    };
     html! {
-        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw"
-            class="mb-6 text-body" {
-            @match report {
-                Some(Report::Ran(run)) if run.wrong > 0 => p class="text-danger" {
-                    span aria-hidden="true" { "✗ " }
-                    strong { "Fails simulation" }
-                    ": " (grouped(run.wrong)) " of " (grouped(run.cases)) " cases wrong. "
-                    a href="#simulation" class="text-danger underline" { "See which" }
-                },
-                Some(Report::Ran(run)) => p class=(pass) {
-                    span aria-hidden="true" class="text-success" { "✓ " }
-                    strong { "Passes simulation" }
-                    ": all " (grouped(run.cases)) " cases right"
-                    span class="text-muted" {
-                        " · " (run.pattern)
-                        @if run.timing.is_none() { " · timing to follow" }
-                    }
-                },
-                Some(Report::Broken { reason }) => p class="text-danger" {
-                    span aria-hidden="true" { "✗ " }
-                    strong { "Fails simulation: " } (reason)
-                },
-                Some(Report::Skipped { reason }) => p class="text-muted" {
-                    strong { "Not simulated: " } (reason)
-                },
-                None if simulating => p class="text-muted" { "Simulating…" },
-                None => p class="text-muted" { "Not simulated: no test for this category yet." },
-            }
+        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
+            (hover_note("verdict-note", &pill, &note))
         }
     }
 }
@@ -272,15 +288,28 @@ pub fn build_info(
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
             (facts(s, &sources))
-            @if !s.tags.is_empty() {
+            // A failing build says so beside its title, not among its tags.
+            @let tags: Vec<_> = s.tags.iter().filter(|tag| tag.name != schematic::FAILS_SIMULATION).collect();
+            @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
-                    @for tag in &s.tags {
+                    @for tag in tags {
                         li { (super::badge(tag)) }
                     }
                 }
             }
-            (specs(s, flags, &sources))
+            (specs(s, flags, &sources, report))
             (credits(s))
+            @match analysis {
+                _ if !s.conventional => {
+                    p class="text-meta text-muted" {
+                        "Follows its own layout, so its inputs and outputs are not read and it is not linted."
+                    }
+                }
+                Ok(analysis) => (interface_section(analysis)),
+                Err(err) => {
+                    p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
+                }
+            }
             @if let Some(description) = &s.description {
                 section aria-labelledby="description-heading" {
                     h2 id="description-heading" class={ (SECTION_TITLE) " mb-2" } { "Description" }
@@ -295,8 +324,7 @@ pub fn build_info(
 }
 
 /// The numbers a build is compared by, large: its measures, such as
-/// width, then latency, whether it is synced, volume, size, and the
-/// release it works from.
+/// width, then latency, volume, size, and the release it works from.
 fn facts(s: &Schematic, sources: &Sources) -> Markup {
     let fact = |label: &str, value: Markup| {
         html! {
@@ -320,21 +348,39 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
                 (fact("Latency", s.latency.map_or_else(unknown, |t| {
                     sourced(format!("{t} ticks"), sources.timing)
                 })))
-                (fact("Synced", match s.synchronized {
-                    Some(synced) => sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing),
-                    None => unknown(),
-                }))
                 (fact(if s.per_copy().is_some() { "Blocks per copy" } else { "Blocks" }, html! { (s.volume()) }))
                 (fact("Size, H×W×D", html! { (size(s)) }))
                 @if let Some(from) = &s.works_from {
-                    (fact("Works from", sourced(
-                        search_link(from, &format!("version:{}", from.to_lowercase())),
-                        Source::File,
-                    )))
+                    // Why that release, on hover: the newest part it uses.
+                    @let why = match &s.works_from_by {
+                        Some(by) => format!("Needs {from} for its {by}"),
+                        None => format!("Uses only what redstone has had since {from}"),
+                    };
+                    (fact("Works from", sourced(hover_note(
+                        "works-from-note",
+                        &search_link(from, &format!("version:{}", from.to_lowercase())),
+                        &why,
+                    ), Source::File)))
                 }
             }
             p class="mt-3 text-meta text-muted" {
                 span class="text-brand" { (PreEscaped(VERIFIED)) } " Auto-verified"
+            }
+        }
+    }
+}
+
+/// `content` with `note` in a small popup above it while it is hovered or
+/// focused, and as its description for a screen reader. `id` names the
+/// note, once on the page.
+fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
+    html! {
+        span tabindex="0" aria-describedby=(id)
+            class="group relative inline-block cursor-help rounded-control focus-visible:outline-2 focus-visible:outline-boundary" {
+            (content)
+            span id=(id) role="tooltip"
+                class="pointer-events-none invisible absolute bottom-full left-0 z-20 mb-1.5 w-max max-w-xs rounded-control bg-ink px-2.5 py-1.5 text-meta font-normal text-canvas opacity-0 shadow-overlay transition-opacity duration-150 ease-calm group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 motion-reduce:transition-none" {
+                (note)
             }
         }
     }
@@ -358,7 +404,12 @@ fn short_stacking(direction: &StackDirection) -> String {
 }
 
 /// What a build is and how it behaves, beyond its key facts.
-fn specs(s: &Schematic, flags: &[Flag], sources: &Sources) -> Markup {
+fn specs(
+    s: &Schematic,
+    flags: &[Flag],
+    sources: &Sources,
+    report: Option<&Report>,
+) -> Markup {
     html! {
         section aria-labelledby="specs-heading" {
             h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } { "Specs" }
@@ -382,13 +433,25 @@ fn specs(s: &Schematic, flags: &[Flag], sources: &Sources) -> Markup {
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
                     (field("Throughput", search_link(&Measure::Throughput.words(t), &format!("throughput:{t}"))))
                 }
-                (field("Stacks", if s.stacking.is_empty() {
-                    sourced(flag(false, None), sources.stacking)
+                @let stacks = if s.stacking.is_empty() {
+                    flag(false, None)
                 } else {
-                    sourced(html! {
+                    html! {
                         a href="#stacking" { (s.stacking.iter().map(short_stacking).collect::<Vec<_>>().join(" · ")) }
-                    }, sources.stacking)
-                }))
+                    }
+                };
+                // What stacking copies found, on hover.
+                @let found = report.and_then(|report| match report {
+                    Report::Ran(run) => run.stacking.as_ref(),
+                    _ => None,
+                });
+                (field("Stacks", sourced(match found {
+                    Some(stacking) => hover_note("stacks-note", &stacks, &super::stacking_words(stacking)),
+                    None => stacks,
+                }, sources.stacking)))
+                @if let Some(synced) = s.synchronized {
+                    (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing)))
+                }
                 @match s.logic.as_deref() {
                     Some("comb") => (field("Stateless", flag(true, Some("stateless")))),
                     Some("seq") => (field("Stateless", flag(false, Some("stateful")))),
@@ -440,10 +503,10 @@ fn credits(s: &Schematic) -> Markup {
                 (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
                     html! { span class="text-muted" { "unknown" } }
                 } else {
-                    name_links(&s.builders)
+                    name_badges(&s.builders)
                 }))
                 @if !s.contributors.is_empty() {
-                    (field(&plural("Contributor", &s.contributors), name_links(&s.contributors)))
+                    (field(&plural("Contributor", &s.contributors), name_badges(&s.contributors)))
                 }
                 @if let Some(built) = &s.built_on {
                     (field("Built", built.as_str()))
@@ -452,10 +515,10 @@ fn credits(s: &Schematic) -> Markup {
                 // has one; an import names whoever ran it.
                 @match (&s.uploader, &s.uploader_name) {
                     (Some(username), Some(name)) => {
-                        (field("Uploaded by", html! { a href={ "/users/" (username) } { (name) } }))
+                        (field("Uploaded by", person_badge(name, &format!("/users/{username}"))))
                     }
                     _ => @if let Some(name) = &s.imported_by {
-                        (field("Imported by", search_link(name, &format!("importer:{name}"))))
+                        (field("Imported by", person_badge(name, &super::search_href(&format!("importer:{name}")))))
                     },
                 }
             }

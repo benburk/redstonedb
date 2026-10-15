@@ -208,7 +208,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (file_chooser(page))
                 (details_form(page))
             }))
-            (interface_section(page.analysis, false))
+            div class="mt-12 max-w-calm" { (interface_section(page.analysis)) }
             // Redrawn as the category and width call for a test.
             @let simulate = simulate_url(page);
             @let timing = format!("{simulate}/timing");

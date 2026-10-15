@@ -199,6 +199,7 @@ pub fn router() -> Router<AppState> {
         .route("/about/categories", get(about::categories))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
+        .route("/players/{name}/head.png", get(players::head))
         .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
         .route("/users/{username}/role", post(users::set_role))

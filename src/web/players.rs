@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 
@@ -94,6 +95,22 @@ pub async fn show(
         },
     )
     .into_response()
+}
+
+/// The head of the player `name`, for a badge to show beside their name:
+/// their UUID found as their page finds it, then their head as
+/// `/heads/<uuid>` serves it; a 404 for a name no player has.
+pub async fn head(
+    Path(name): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    if !schematic::valid_player_name(&name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match player(&state, &name).await {
+        Some(found) => super::heads::show(Path(found.uuid), State(state)).await,
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// The player Mojang knows as `name`, asked at most every few hours; `None`

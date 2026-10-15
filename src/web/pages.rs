@@ -491,6 +491,30 @@ fn name_links(names: &[String]) -> Markup {
 }
 
 /// The page of the Minecraft player `name`.
+/// A person as a badge: their Minecraft head, blank until it loads or when
+/// there is none, and their name, linking to `href`.
+fn person_badge(name: &str, href: &str) -> Markup {
+    html! {
+        a href=(href)
+            class="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-line bg-raised py-0.5 pr-2.5 pl-1 text-meta text-ink hover:bg-selection hover:no-underline" {
+            img src={ "/players/" (name) "/head.png" } alt="" width="18" height="18" loading="lazy"
+                class="size-[18px] rounded-[4px] bg-line [image-rendering:pixelated]";
+            span { (name) }
+        }
+    }
+}
+
+/// Each of `names` as a badge linking to their player page.
+fn name_badges(names: &[String]) -> Markup {
+    html! {
+        span class="flex flex-wrap gap-1.5" {
+            @for name in names {
+                (person_badge(name, &player_href(name)))
+            }
+        }
+    }
+}
+
 fn player_href(name: &str) -> String {
     format!("/players/{name}")
 }
@@ -675,22 +699,21 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                 Report::Skipped { reason } => p class="text-muted" { "Not simulated: " (reason) },
                 Report::Broken { reason } => p class="text-danger" { strong { "Broken: " } (reason) },
                 Report::Ran(run) => {
-                    p class=[(run.wrong > 0).then_some("text-danger")] {
-                        @if run.wrong == 0 {
-                            span aria-hidden="true" class="text-success" { "✓ " }
-                            strong { "All " (grouped(run.cases)) " cases right" }
-                        } @else {
+                    // A pass is the build's badge; a failure says how badly
+                    // over the cases it got wrong.
+                    @if run.wrong > 0 {
+                        p class="text-danger" {
                             span aria-hidden="true" { "✗ " }
                             strong { (grouped(run.wrong)) " of " (grouped(run.cases)) " cases wrong" }
                         }
-                    }
-                    p class="text-meta text-muted" {
-                        (run.pattern) ", "
-                        @if run.exhaustive { "every combination" } @else {
-                            "every case of each " @if run.by_digit { "hex digit" } @else { "byte" }
-                            " and " (grouped(run.patterns)) " pairings of test patterns"
+                        p class="text-meta text-muted" {
+                            (run.pattern) ", "
+                            @if run.exhaustive { "every combination" } @else {
+                                "every case of each " @if run.by_digit { "hex digit" } @else { "byte" }
+                                " and " (grouped(run.patterns)) " pairings of test patterns"
+                            }
+                            "."
                         }
-                        "."
                     }
                     @if let Some(stacking) = &run.stacking {
                         (stacking_note(stacking))
@@ -723,6 +746,52 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
 
 /// Whether copies of a passing adder stack into a wider one, or of a
 /// register into a bigger register file.
+/// What stacking copies found, in a sentence, for the hover on a build's
+/// Stacks field.
+fn stacking_words(stacking: &Stacking) -> String {
+    let limit = |most: Option<usize>, copies: usize| match most {
+        Some(_) => format!(", at most {copies}"),
+        None => String::new(),
+    };
+    match stacking {
+        Stacking::Stacks {
+            step, copies, bits, ..
+        } => format!(
+            "Simulated: {copies} copies {} apart make a {bits}-bit adder.",
+            step.describe()
+        ),
+        Stacking::Registers {
+            step,
+            copies,
+            registers,
+            most,
+            ..
+        } => format!(
+            "Simulated: copies {} apart make more registers, {registers} from {copies}{}.",
+            step.describe(),
+            limit(*most, *copies)
+        ),
+        Stacking::Wider {
+            step,
+            copies,
+            bits,
+            most,
+            ..
+        } => format!(
+            "Simulated: copies {} apart make a wider register, {bits} bits from {copies}{}.",
+            step.describe(),
+            limit(*most, *copies)
+        ),
+        Stacking::Not { step, reason } => match step {
+            Some(step) => format!(
+                "Copies {} apart don't stack as saved: {reason}",
+                step.describe()
+            ),
+            None => format!("Copies don't stack as saved: {reason}"),
+        },
+    }
+}
+
 fn stacking_note(stacking: &Stacking) -> Markup {
     let limit = |copies: usize, most: Option<usize>| match most {
         Some(_) => format!("; a copy more fails, so at most {copies}"),
@@ -746,11 +815,8 @@ fn stacking_note(stacking: &Stacking) -> Markup {
                 (copies) " copies " (step.describe()) " apart make a " (bits) "-bit register sharing its control lines, all "
                 (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
-            Stacking::Not { step, reason } => p class="mt-3 text-muted" {
-                strong { "Doesn't stack as saved" }
-                @if let Some(step) = step { ", copies " (step.describe()) " apart" }
-                ": " (reason)
-            },
+            // Why not is on the build's Stacks field, on hover.
+            Stacking::Not { .. } => {},
         }
     }
 }
@@ -1066,20 +1132,24 @@ fn grouped(n: u64) -> String {
 
 /// The build's inputs and outputs, read from the file, a short list of
 /// each: a bus by its bits, and a row of numbered lines, such as a
-/// memory's `read 0` to `read 15`, as one entry. What drives an input
-/// shows only when it takes more than any power. Then the conventions it
-/// breaks, when asked.
-fn interface_section(analysis: &Analysis, with_violations: bool) -> Markup {
+/// memory's `read 0` to `read 15`, as one entry.
+fn interface_section(analysis: &Analysis) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
     html! {
-        section aria-labelledby="interface-heading" class="mt-12 max-w-calm" {
+        section aria-labelledby="interface-heading" {
             h2 id="interface-heading" class={ (SECTION_TITLE) " mb-3" } { "Inputs and outputs" }
             div class="grid gap-6 sm:grid-cols-2" {
                 (port_list("Inputs", &port_entries(inputs), true))
                 (port_list("Outputs", &port_entries(outputs), false))
             }
         }
-        @if with_violations && !analysis.violations.is_empty() {
+    }
+}
+
+/// The building conventions the build's file breaks, if any.
+fn violations_section(analysis: &Analysis) -> Markup {
+    html! {
+        @if !analysis.violations.is_empty() {
             section aria-labelledby="lint-heading" class="mt-12 max-w-calm" {
                 h2 id="lint-heading" class={ (SECTION_TITLE) " mb-3" } { "Breaks the building conventions" }
                 (violation_list(&analysis.violations))
@@ -1179,11 +1249,14 @@ fn port_list(heading: &str, entries: &[PortEntry], inputs: bool) -> Markup {
                     @let port = entry.ports[0];
                     @let dye = port.block.strip_suffix(" concrete").unwrap_or(&port.block).replace(' ', "_");
                     @let [r, g, b, _] = crate::thumbnail::dye_color(&dye);
-                    li class="flex items-baseline gap-2" {
-                        span aria-hidden="true" class="inline-block size-3 shrink-0 self-center rounded-[3px] border border-line"
+                    li class="flex items-start gap-2" {
+                        span aria-hidden="true" class="mt-1.5 inline-block size-3 shrink-0 rounded-[3px] border border-line"
                             style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}
-                        span class="font-semibold" { (entry.name) }
-                        span class="text-meta text-muted" { (port_detail(entry, inputs)) }
+                        span {
+                            span class="font-semibold" { (entry.name) }
+                            " "
+                            span class="text-meta text-muted" { (port_detail(entry, inputs)) }
+                        }
                     }
                 }
             }
@@ -1192,7 +1265,8 @@ fn port_list(heading: &str, entries: &[PortEntry], inputs: bool) -> Markup {
 }
 
 /// What an entry carries, such as `8 bits` or `16 lines`, and for an
-/// input, what drives it when that is more than any power.
+/// input, the strength its signs ask for and whether it is inverted, as
+/// its levers are saved on.
 fn port_detail(entry: &PortEntry, inputs: bool) -> String {
     let port = entry.ports[0];
     let mut said = vec![if entry.ports.len() > 1 {
@@ -1218,13 +1292,11 @@ fn port_detail(entry: &PortEntry, inputs: bool) -> String {
         if strength > 1 {
             said.push(format!("strength {strength} or more"));
         }
-        if bits.iter().all(|b| b.hard) {
-            said.push("needs hard power".to_owned());
-        } else if bits.iter().any(|b| b.hard) {
-            said.push("some bits need hard power".to_owned());
-        }
+        // An input saved with its lever on is inverted: off means 1.
         if bits.iter().all(|b| b.inverted) {
-            said.push("saved on".to_owned());
+            said.push("inverted".to_owned());
+        } else if bits.iter().any(|b| b.inverted) {
+            said.push("some bits inverted".to_owned());
         }
     }
     said.join(" · ")
