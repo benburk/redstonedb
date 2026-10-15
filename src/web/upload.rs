@@ -135,11 +135,21 @@ impl Posted {
     }
 }
 
-/// Reads a form for choosing a file, as `Posted::chosen` does.
-pub(super) async fn received(
+/// Reads a form for choosing a file, as `Posted::chosen` does, or for
+/// publishing a file in `user`'s own Schemati folder, named in its
+/// `schemati_file`, as the Schemati page's Publish button sends.
+async fn received(
+    state: &AppState,
+    user: &User,
     multipart: &mut Multipart,
 ) -> Result<Sent, String> {
-    posted(multipart).await?.chosen().await
+    let mut posted = posted(multipart).await?;
+    let own = posted.get("schemati_file").to_owned();
+    if posted.file.is_none() && !own.is_empty() {
+        let data = super::schemati::own_file(state, user, &own).await?;
+        posted.file = Some(Bytes::from(data));
+    }
+    posted.chosen().await
 }
 
 pub async fn form(user_opt: Option<User>) -> Response {
@@ -163,7 +173,7 @@ pub async fn preview(
         file,
         standardize,
         keep_paste,
-    } = match received(&mut multipart).await {
+    } = match received(&state, &user, &mut multipart).await {
         Ok(sent) => sent,
         Err(message) => return pages::upload(&user, &message).into_response(),
     };

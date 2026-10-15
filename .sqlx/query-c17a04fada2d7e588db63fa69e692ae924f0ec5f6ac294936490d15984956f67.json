@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schemati_session FROM user WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "schemati_session",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c17a04fada2d7e588db63fa69e692ae924f0ec5f6ac294936490d15984956f67"
+}

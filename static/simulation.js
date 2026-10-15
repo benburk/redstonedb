@@ -35,3 +35,31 @@ for (const dialog of document.querySelectorAll("dialog")) {
     .querySelector('form[method="get"]')
     ?.addEventListener("submit", () => dialog.close());
 }
+
+// Send to Schemati saves the file the download dialog's choices make in the
+// person's Schemati folder and says how it went in the dialog, leaving the
+// page where it is. Without this script, it opens the Schemati page.
+for (const send of document.querySelectorAll("[data-send]")) {
+  const form = send.form;
+  const said = form.querySelector("[data-sent]");
+  send.addEventListener("click", async (event) => {
+    // An invalid count is left to the browser to point out.
+    if (!form.checkValidity()) return;
+    event.preventDefault();
+    const body = new URLSearchParams(new FormData(form));
+    body.set("fragment", "yes");
+    send.disabled = true;
+    said.textContent = "Sending…";
+    try {
+      const response = await fetch(send.formAction, { method: "POST", body });
+      if (response.ok) {
+        said.innerHTML = await response.text();
+      } else {
+        said.textContent = (await response.text()) || "Could not send it; try again.";
+      }
+    } catch {
+      said.textContent = "Could not reach the site; try again.";
+    }
+    send.disabled = false;
+  });
+}

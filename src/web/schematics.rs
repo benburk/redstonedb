@@ -723,12 +723,37 @@ pub async fn download(
     method: Method,
     Query(mut query): Query<HashMap<String, String>>,
 ) -> Response {
-    // `markers=yes` adds WorldEdit corner markers; the rest of the query
-    // names copies per direction, such as `?west=7&north=3`.
-    let markers = query.remove("markers").is_some_and(|v| v == "yes");
     // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
     // request, is no download.
     let counted = query.remove("preview").is_none() && method == Method::GET;
+    match export(&state.db, &id, query, counted).await {
+        Ok((filename, data)) => (
+            [
+                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{filename}\""),
+                ),
+            ],
+            data,
+        )
+            .into_response(),
+        Err(response) => response,
+    }
+}
+
+/// Build `id`'s file as the download dialog's `query` asks, with its name,
+/// counted as a download if `counted`; or the response for why it cannot
+/// be had.
+pub(super) async fn export(
+    db: &SqlitePool,
+    id: &str,
+    mut query: HashMap<String, String>,
+    counted: bool,
+) -> Result<(String, Vec<u8>), Response> {
+    // `markers=yes` adds WorldEdit corner markers; the rest of the query
+    // names copies per direction, such as `?west=7&north=3`.
+    let markers = query.remove("markers").is_some_and(|v| v == "yes");
     // `part=without` or `part=first`, with a `direction` it stacks, is one
     // of the files the in-game stacking procedure pastes: the build without
     // the parts only its first copy keeps, or those parts.
@@ -736,17 +761,17 @@ pub async fn download(
     let part_direction = query.remove("direction");
     // One copy each way is the build itself.
     query.retain(|_, count| count != "1");
-    let found = match schematic::get(&state.db, &id).await {
+    let found = match schematic::get(db, id).await {
         Ok(found) => found,
-        Err(err) => return internal_error(err).into_response(),
+        Err(err) => return Err(internal_error(err).into_response()),
     };
     let Some(s) = found else {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(StatusCode::NOT_FOUND.into_response());
     };
-    let data = match schematic::data(&state.db, &id).await {
+    let data = match schematic::data(db, id).await {
         Ok(Some(data)) => data,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(err) => return internal_error(err).into_response(),
+        Ok(None) => return Err(StatusCode::NOT_FOUND.into_response()),
+        Err(err) => return Err(internal_error(err).into_response()),
     };
     if let Some(part) = part {
         let first = part == "first";
@@ -757,12 +782,14 @@ pub async fn download(
         let (Some(&direction), "first" | "without") =
             (direction, part.as_str())
         else {
-            return (StatusCode::BAD_REQUEST, "no such part").into_response();
+            return Err(
+                (StatusCode::BAD_REQUEST, "no such part").into_response()
+            );
         };
         let buses = stack::Buses::of(&s.category, &s.orientation);
         let data = match stack::part(&data, direction, first, buses) {
             Ok(data) => data,
-            Err(err) => return internal_error(&*err).into_response(),
+            Err(err) => return Err(internal_error(&*err).into_response()),
         };
         let suffix = if first {
             "_first_copy_parts"
@@ -771,17 +798,7 @@ pub async fn download(
         };
         let filename =
             s.filename().replace(".schem", &format!("{suffix}.schem"));
-        return (
-            [
-                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{filename}\""),
-                ),
-            ],
-            data,
-        )
-            .into_response();
+        return Ok((filename, data));
     }
     let (data, s) = if query.is_empty() {
         (data, s)
@@ -799,32 +816,22 @@ pub async fn download(
         match stacked {
             Ok(stacked) => stacked,
             Err(err) => {
-                return (StatusCode::BAD_REQUEST, err.to_string())
-                    .into_response();
+                return Err(
+                    (StatusCode::BAD_REQUEST, err.to_string()).into_response()
+                );
             }
         }
     };
-    if counted && let Err(err) = schematic::count_download(&state.db, &id).await
-    {
-        return internal_error(err).into_response();
+    if counted && let Err(err) = schematic::count_download(db, id).await {
+        return Err(internal_error(err).into_response());
     }
     let data = if markers {
         match standardize::with_corner_markers(&data) {
             Ok(data) => data,
-            Err(err) => return internal_error(&*err).into_response(),
+            Err(err) => return Err(internal_error(&*err).into_response()),
         }
     } else {
         data
     };
-    (
-        [
-            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", s.filename()),
-            ),
-        ],
-        data,
-    )
-        .into_response()
+    Ok((s.filename(), data))
 }

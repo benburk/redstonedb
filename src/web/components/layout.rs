@@ -70,6 +70,7 @@ pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                     Some(user) => {
                         @let profile_path = format!("/users/{}", user.username);
                         a href="/upload" aria-current=[current("/upload")] class=(link) { "Upload" }
+                        a href="/schemati" aria-current=[current("/schemati")] class=(link) { "Schemati" }
                         @if user.is_admin() {
                             a href="/users" aria-current=[current("/users")] class=(link) { "Users" }
                         }

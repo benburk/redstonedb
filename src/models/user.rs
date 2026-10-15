@@ -323,6 +323,36 @@ impl User {
             .await?;
         Ok(())
     }
+
+    /// The Schemati session the account last gave, if any.
+    pub async fn schemati_session(
+        db: &SqlitePool,
+        id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            "SELECT schemati_session FROM user WHERE id = ?",
+            id
+        )
+        .fetch_one(db)
+        .await
+    }
+
+    /// Keeps `session` as the account's Schemati session, or forgets it
+    /// for `None`.
+    pub async fn set_schemati_session(
+        db: &SqlitePool,
+        id: Uuid,
+        session: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE user SET schemati_session = ? WHERE id = ?",
+            session,
+            id
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
 }
 
 impl User {

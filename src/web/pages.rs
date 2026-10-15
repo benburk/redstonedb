@@ -46,7 +46,9 @@ pub use player::{PlayerPage, player};
 mod details_page;
 mod sorting;
 pub use sorting::sorting;
+mod schemati;
 mod stack_guide;
+pub use schemati::{Connection, schemati, schemati_sent};
 mod version;
 pub use details_page::{DetailsPage, File, Stored, details_page};
 
@@ -637,7 +639,7 @@ pub fn schematic(
                         a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
                     }
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
-                    (download_dialog(s))
+                    (download_dialog(s, viewer.is_some()))
                 }
             }
             @if let Some(report) = report && report.failed() {
@@ -1311,8 +1313,9 @@ fn delete_dialog(s: &Schematic) -> Markup {
 }
 
 /// The choices for downloading a build: copies of a stackable one, and
-/// glass corner markers for `WorldEdit`.
-fn download_dialog(s: &Schematic) -> Markup {
+/// glass corner markers for `WorldEdit`; and, for someone `signed_in`, a
+/// button that sends the file so made to their Schemati instead.
+fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
     let path = format!("/schematics/{}", s.id);
     html! {
         dialog id="download" aria-labelledby="download-heading"
@@ -1335,9 +1338,17 @@ fn download_dialog(s: &Schematic) -> Markup {
                     input type="checkbox" name="markers" value="yes" class="mt-1 size-4 appearance-auto";
                     span { "Add a glass block off each corner, for WorldEdit to select the build by" }
                 }
-                div class="flex items-center gap-4" {
+                div class="flex flex-wrap items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Download" }
+                    @if signed_in {
+                        button type="submit" formaction={ (path) "/schemati" } formmethod="post" data-send class="btn btn-quiet" {
+                            "Send to Schemati"
+                        }
+                    }
                     button type="button" commandfor="download" command="close" class="btn btn-quiet" { "Cancel" }
+                }
+                @if signed_in {
+                    div data-sent aria-live="polite" class="text-meta empty:hidden" {}
                 }
             }
         }

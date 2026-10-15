@@ -19,6 +19,7 @@ mod leaderboards;
 pub mod pages;
 mod players;
 mod profile;
+mod schemati;
 mod schematics;
 mod session;
 mod simulation;
@@ -140,6 +141,7 @@ pub fn router() -> Router<AppState> {
             get(schematics::edit).post(schematics::save),
         )
         .route("/schematics/{id}/delete", post(schematics::delete))
+        .route("/schematics/{id}/schemati", post(schemati::send))
         .route("/schematics/{id}/versions/new", get(versions::form))
         .route(
             "/schematics/{id}/versions/{version}/download",
@@ -157,6 +159,13 @@ pub fn router() -> Router<AppState> {
             "/schematics/{id}/simulation/timing",
             post(simulation::stored_timing),
         )
+        .route("/schemati", get(schemati::show))
+        .route("/schemati/session", post(schemati::connect))
+        .route("/schemati/session/delete", post(schemati::disconnect))
+        .route("/schemati/files", post(schemati::add))
+        .route("/schemati/files/{name}", get(schemati::download))
+        .route("/schemati/files/{name}/rename", post(schemati::rename))
+        .route("/schemati/files/{name}/delete", post(schemati::delete))
         .route("/about", get(about))
         .route("/about/categories", get(about::categories))
         .route("/heads/{uuid}", get(heads::show))
