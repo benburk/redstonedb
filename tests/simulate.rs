@@ -955,3 +955,32 @@ fn a_carry_out_gives_the_carry_of_every_sum() {
         .unwrap();
     assert!(timing.latency().is_some());
 }
+
+/// An 8-bit vertical adder with its least significant bits at the top and
+/// no carry out, whose B alone is signed `lsb` at its top: the sign orders
+/// A and the output too, as they run alongside, so every case comes out
+/// right and the guess finds an adder.
+#[test]
+fn one_lsb_sign_orders_the_buses_alongside() {
+    // As an upload standardizes it, its blocks then all ones the
+    // simulator models.
+    let raw = std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .blocks;
+    let read = interface::read(&blocks);
+    for port in read.inputs.iter().chain(&read.outputs) {
+        let (first, last) =
+            (port.bits[0].pos, port.bits[port.bits.len() - 1].pos);
+        assert!(
+            first[1] > last[1],
+            "{} counts up from the bottom",
+            port.name
+        );
+    }
+    let Report::Ran(run) = Test::Adder.run(&blocks) else {
+        panic!("the adder was not simulated");
+    };
+    assert_eq!((run.pattern.as_str(), run.wrong), ("A + B", 0));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
+}

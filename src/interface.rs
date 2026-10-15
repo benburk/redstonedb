@@ -6,7 +6,8 @@
 //! by its own sign, or a row of them named by one sign on any of the row, as
 //! a memory's read lines are. Each bus's least significant bit, and a row's
 //! first line, is the one nearest the south-east-bottom corner of the
-//! bounding box.
+//! bounding box, unless an `lsb` or `msb` sign says otherwise; such a sign
+//! on one bus orders every unmarked bus running alongside it too.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -223,9 +224,55 @@ pub fn read(blocks: &Blocks) -> Interface {
     // lines, always come out the same way.
     let mut inputs: Vec<Pos> = feeds.keys().copied().collect();
     inputs.sort_unstable();
-    Interface {
+    let mut interface = Interface {
         inputs: ports(blocks, inputs, &signs, Some(&feeds)),
         outputs: ports(blocks, outputs, &signs, None),
+    };
+    follow_marks(blocks, &mut interface);
+    interface
+}
+
+/// The way a bus's bits run, from its least significant: the axis it runs
+/// along most, and whether its bits climb along it or fall.
+fn running(port: &Port) -> Option<(usize, bool)> {
+    let (first, last) = (port.bits.first()?.pos, port.bits.last()?.pos);
+    let axis = (0..3).max_by_key(|&axis| (last[axis] - first[axis]).abs())?;
+    (first[axis] != last[axis]).then(|| (axis, last[axis] > first[axis]))
+}
+
+/// Turns round each bus with no `lsb` or `msb` sign that runs along the
+/// same axis as a bus with one, but the other way, so one sign orders every
+/// bus running alongside: a build whose least significant bits sit at the
+/// top need mark only one of its buses so. Buses marked different ways
+/// along an axis leave the others as they are.
+fn follow_marks(blocks: &Blocks, interface: &mut Interface) {
+    let marked = |port: &Port| {
+        port.bits.len() > 1
+            && [port.bits.first(), port.bits.last()]
+                .into_iter()
+                .flatten()
+                .any(|bit| order_mark(blocks, bit.pos).is_some())
+    };
+    let ports = || interface.inputs.iter().chain(&interface.outputs);
+    let mut ways: HashMap<usize, HashSet<bool>> = HashMap::new();
+    for port in ports().filter(|port| marked(port)) {
+        if let Some((axis, climbs)) = running(port) {
+            ways.entry(axis).or_default().insert(climbs);
+        }
+    }
+    for port in interface.inputs.iter_mut().chain(&mut interface.outputs) {
+        if port.labelled || marked(port) {
+            continue;
+        }
+        let Some((axis, climbs)) = running(port) else {
+            continue;
+        };
+        if ways
+            .get(&axis)
+            .is_some_and(|ways| ways.len() == 1 && !ways.contains(&climbs))
+        {
+            port.bits.reverse();
+        }
     }
 }
 
