@@ -69,18 +69,23 @@ pub struct Timing {
     /// its read held on, until the bus shows the new value.
     #[serde(default)]
     pub write: Option<i32>,
+    /// For a register, the most ticks for data to pass through a cell, its
+    /// write held open and its read on: from its data in changing until the
+    /// bus shows it. `None` for one that takes its data only as its write
+    /// opens.
+    #[serde(default)]
+    pub data: Option<i32>,
 }
 
 impl Timing {
     /// The latency of the slowest data output, leaving out status lines
-    /// such as carry out: the build's latency. A register's is from data in
-    /// to data out: from a write's button until the bus shows the value,
-    /// its read held on.
+    /// such as carry out: the build's latency. A register's is data in to
+    /// data out, through a cell whose write is held open and read on, so a
+    /// data loop's latency is its ALU's plus its registers'; or, for one
+    /// that takes its data only as its write opens, from the write's button.
     pub fn latency(&self) -> Option<i32> {
-        if self.from_read
-            && let Some(write) = self.write
-        {
-            return Some(write);
+        if self.from_read {
+            return self.data.or(self.write).or_else(|| self.read());
         }
         self.read()
     }
@@ -259,6 +264,7 @@ pub(super) fn measure(
         patterns,
         from_read: false,
         write: None,
+        data: None,
     })
 }
 

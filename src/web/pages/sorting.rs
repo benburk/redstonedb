@@ -119,7 +119,7 @@ fn fact_part() -> Markup {
                 "the other, and a build says so only when it differs, as a stateful multiplier does."
             }
             dt class="font-semibold" { "Latency" }
-            dd { "Ticks from input A changing until the slowest output settles, leaving out status lines such as carry out. A register's is from data in to data out: from pressing a write button, its read on, until the bus shows the value." }
+            dd { "Ticks from input A changing until the slowest output settles, leaving out status lines such as carry out. A register's is data in to data out, with a cell writing and read, so a data loop's latency is its ALU's plus its registers'." }
             dt class="font-semibold" { "Synchronized" }
             dd { "Whether every output bit changes once, all on the same tick." }
             dt class="font-semibold" { "Throughput" }

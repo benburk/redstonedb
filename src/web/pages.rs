@@ -881,9 +881,14 @@ fn timing_intro(timing: &Timing) -> Markup {
     html! {
         p class="mb-3 text-meta text-muted" {
             @if timing.from_read {
+                @if let Some(data) = timing.data {
+                    "Its latency, data in to data out, is " (data) " ticks: with a cell's write held open and its read on, "
+                    "from its data in changing until the bus shows it. "
+                }
                 @if let Some(write) = timing.write {
-                    "Its latency, data in to data out, is " (write) " ticks: from a write's button until the bus "
-                    "shows the value, the cell's read held on. "
+                    "A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on"
+                    @if timing.data.is_none() { ", which is its latency, as it takes its data only as its write opens" }
+                    ". "
                 }
                 "Below, in ticks from when a read lever turns on, its cell holding each value in turn."
             } @else {

@@ -624,6 +624,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         }
     }
     let write_ticks = write_latency(&mut circuit, &register)?;
+    let data_ticks = data_latency(&mut circuit, &register, &carried)?;
     let synced = stats
         .iter()
         .all(|bus| bus.glitches == 0 && bus.staggered == 0);
@@ -657,6 +658,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         patterns: !exhaustive,
         from_read: true,
         write: Some(write_ticks),
+        data: data_ticks,
     })
 }
 
@@ -686,6 +688,66 @@ fn watch(
         before = now;
     }
     Ok(changes)
+}
+
+/// The most ticks for data to pass through a cell, its write held open and
+/// its read on: from its data in changing until its bus shows the new
+/// value, as when a data loop's ALU feeds it, the control lines no part of
+/// it. `None` when a cell takes its data only as its write opens, so data
+/// changed while it is held does not pass.
+fn data_latency(
+    circuit: &mut Circuit,
+    register: &Register,
+    carried: &[i32],
+) -> Result<Option<i32>> {
+    let all = mask(register.width);
+    let mut slowest = None;
+    for cell in &register.cells {
+        let Some(&read_line) = cell.reads.first() else {
+            continue;
+        };
+        let port = register.buses[read_line.bus];
+        for value in telling(register.width) {
+            let next = !value & all;
+            write(circuit, register, cell.write, next)?;
+            read(circuit, register, &[read_line.line])?;
+            circuit.set(register.data, value);
+            circuit.settle()?;
+            let shows = |circuit: &Circuit, held: u64| {
+                buses(circuit, register)[read_line.bus]
+                    == read_line.shows(held, register.width)
+            };
+            // Open the write, and wait until the cell passes its data.
+            if cell.write.button {
+                circuit.press(cell.write.port, cell.write.bit);
+            } else {
+                set_reads(circuit, register, &[read_line.line, cell.write]);
+            }
+            let mut open = false;
+            while !open && circuit.step() {
+                open = shows(circuit, value);
+            }
+            if !open {
+                return Ok(None);
+            }
+            // The data changes while the write is still open.
+            circuit.set(register.data, next);
+            let mut ticks = 0;
+            let mut passed = false;
+            while !passed && circuit.step() {
+                ticks += 1;
+                passed = shows(circuit, next);
+            }
+            if !passed {
+                return Ok(None);
+            }
+            let ticks = ticks - carried[port];
+            slowest = Some(slowest.map_or(ticks, |s: i32| s.max(ticks)));
+            circuit.settle()?;
+            read(circuit, register, &[])?;
+        }
+    }
+    Ok(slowest)
 }
 
 /// The most ticks from pressing a cell's write button, its read held on,
