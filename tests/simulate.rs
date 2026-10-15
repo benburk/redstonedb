@@ -847,3 +847,20 @@ fn a_register_with_wide_cells_stacks_at_its_width() {
         ("6 west".to_owned(), 4, Some(2))
     );
 }
+
+/// An 8-bit absolute value: A's magnitude, A taken as a signed number, in
+/// every one of its 256 cases, the most negative giving itself.
+#[test]
+fn an_absolute_value_gives_each_inputs_magnitude() {
+    let raw = std::fs::read("tests/fixtures/abs-8.schem").unwrap();
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .data;
+    let blocks = Blocks::read(&data).unwrap();
+    let Report::Ran(run) = Test::AbsoluteValue.run(&blocks) else {
+        panic!("the absolute value was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (256, 0));
+    assert_eq!(run.pattern, "|A|");
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "absolute_value");
+}

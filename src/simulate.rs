@@ -705,6 +705,8 @@ pub enum Test {
     BcdToBinary,
     /// Each operation an ALU's control lines name, and any other they give.
     Alu,
+    /// A's magnitude, A taken as a signed number.
+    AbsoluteValue,
     /// Each value written into every cell, then read.
     Register,
 }
@@ -721,7 +723,7 @@ pub const INFERS_STACKING: [&str; 1] = ["adder"];
 pub const FINDS_STACKING: [&str; 1] = ["register"];
 
 /// Every test, in the order a guess tries them.
-const TESTS: [Test; 9] = [
+const TESTS: [Test; 10] = [
     Test::Adder,
     Test::Incrementer,
     Test::Decrementer,
@@ -731,6 +733,7 @@ const TESTS: [Test; 9] = [
     Test::BcdToBinary,
     Test::Alu,
     Test::Register,
+    Test::AbsoluteValue,
 ];
 
 impl Test {
@@ -753,6 +756,7 @@ impl Test {
             Test::BcdToBinary => "bcd_to_binary",
             Test::Alu => "alu",
             Test::Register => "register",
+            Test::AbsoluteValue => "absolute_value",
         }
     }
 
@@ -768,6 +772,7 @@ impl Test {
             Test::BcdToBinary => check_bcd_to_binary(blocks, false),
             Test::Alu => alu::check(blocks),
             Test::Register => register::check(blocks),
+            Test::AbsoluteValue => check_absolute_value(blocks, false),
         };
         match result {
             Ok(run) => Report::Ran(Box::new(run)),
@@ -794,7 +799,8 @@ impl Test {
             | Test::Multiplier
             | Test::BinaryToBcd
             | Test::BcdToBinary
-            | Test::Alu => None,
+            | Test::Alu
+            | Test::AbsoluteValue => None,
         }
     }
 
@@ -817,6 +823,9 @@ impl Test {
             }
             Test::Multiplier => multiplier_bench(&interface)?.inputs,
             Test::BinaryToBcd => converter_bench(&interface, "")?.inputs,
+            Test::AbsoluteValue => {
+                one_input_bench(&interface, "", "absolute value")?.inputs
+            }
             Test::Alu | Test::Register => unreachable!("timed above"),
             Test::BcdToBinary => {
                 let bench = converter_bench(&interface, "")?;
@@ -1434,17 +1443,28 @@ fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<u64>, bool) {
 /// digits or bits. One with a control line, such as a clock, is
 /// sequential, which this test does not cover.
 fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
+    one_input_bench(interface, pattern, "converter")
+}
+
+/// What a stateless build of one input, A, is tested on, such as a
+/// converter, named `what` in what is wrong with it: A, and its outputs
+/// read together, the lowest first.
+fn one_input_bench(
+    interface: &Interface,
+    pattern: &str,
+    what: &str,
+) -> Result<Bench> {
     let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
     if let Some(line) = interface.inputs.iter().find(control) {
         bail!(
             "It has a control line, {}, so it is stateful; only a stateless \
-             converter is tested.",
+             {what} is tested.",
             line.name
         );
     }
     if interface.inputs.len() != 1 {
         broken!(
-            "A converter takes one input, A, but this has {}.",
+            "A {what} takes one input, A, but this has {}.",
             interface.inputs.len()
         );
     }
@@ -1452,7 +1472,7 @@ fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
         .filter(|&i| !interface.outputs[i].block.starts_with(lint::STATUS))
         .collect();
     if outputs.is_empty() {
-        broken!("A converter has an output, but this has none.");
+        broken!("A {what} has an output, but this has none.");
     }
     Ok(Bench {
         inputs: vec![0],
@@ -1461,6 +1481,60 @@ fn converter_bench(interface: &Interface, pattern: &str) -> Result<Bench> {
         held: Vec::new(),
         care: u64::MAX,
     })
+}
+
+/// Runs an absolute-value build through its inputs and checks each result:
+/// A taken as a signed number, two's complement, and its magnitude,
+/// unsigned in as many bits as A, so the most negative A, which has no
+/// positive, gives itself, as negating it does; checked on as many low bits
+/// as the outputs hold. Every value of A when there are few enough, else
+/// every value of each byte and the test patterns; with `quick`, only the
+/// test patterns.
+fn check_absolute_value(blocks: &Blocks, quick: bool) -> Result<Run> {
+    let interface = interface::read(blocks);
+    let bench = one_input_bench(&interface, "|A|", "absolute value")?;
+    let width = bench.widths(&interface)[0];
+    let (cases, exhaustive, patterns) = if quick {
+        let cases: Vec<Case> =
+            patterns(width).into_iter().map(|a| [a, 0, 0]).collect();
+        let count = cases.len() as u64;
+        (cases, false, count)
+    } else {
+        cases(&[width], || byte_cases(width))
+    };
+    let magnitude = |case: &Case| absolute(case[0], width);
+    let run = sweep(blocks, &interface, &bench, &cases, None, magnitude)?;
+    let run = run.covering(exhaustive, patterns);
+    with_saved_on_hint(run, blocks, &interface, &bench, &cases, magnitude)
+}
+
+/// The magnitude of `a`, a signed number of `width` bits, unsigned in as
+/// many bits: `a` when its top bit is clear, else its negative, which for
+/// the most negative is itself.
+fn absolute(a: u64, width: usize) -> u64 {
+    if width > 0 && a >> (width - 1) & 1 == 1 {
+        a.wrapping_neg() & mask(width)
+    } else {
+        a
+    }
+}
+
+/// The values of A a one-input build too wide to try every one of is
+/// checked on: every value of each byte, the other bits clear, and the test
+/// patterns, with how many are patterns.
+fn byte_cases(width: usize) -> (Vec<Case>, u64) {
+    let mut values: Vec<u64> = (0..width)
+        .step_by(8)
+        .flat_map(|low| {
+            (0..1u64 << (width - low).min(8)).map(move |v| v << low)
+        })
+        .collect();
+    let bytes = values.len();
+    values.extend(patterns(width));
+    values.sort_unstable();
+    values.dedup();
+    let paired = values.len().saturating_sub(bytes) as u64;
+    (values.into_iter().map(|a| [a, 0, 0]).collect(), paired)
 }
 
 /// Runs a binary-to-BCD converter through its inputs and checks each
@@ -1846,6 +1920,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::BinaryToBcd,
         Test::BcdToBinary,
         Test::Register,
+        Test::AbsoluteValue,
     ];
     tried
         .into_iter()
@@ -1856,6 +1931,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                 Test::BinaryToBcd => check_binary_to_bcd(blocks, true),
                 Test::BcdToBinary => check_bcd_to_binary(blocks, true),
                 Test::Register => register::check_quick(blocks),
+                Test::AbsoluteValue => check_absolute_value(blocks, true),
                 _ => check_incrementer(blocks, true, None),
             }
             .ok()?;
@@ -2101,6 +2177,14 @@ fn judge(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_most_negative_input_is_its_own_absolute_value() {
+        assert_eq!(absolute(5, 8), 5);
+        assert_eq!(absolute(0xff, 8), 1);
+        assert_eq!(absolute(0x81, 8), 0x7f);
+        assert_eq!(absolute(0x80, 8), 0x80);
+    }
 
     #[test]
     fn adders_up_to_32_bits_are_tested() {
