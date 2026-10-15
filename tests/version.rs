@@ -50,6 +50,27 @@ fn a_one_block_fix_is_a_new_version() {
     assert!(refused(&old, &new).is_empty());
 }
 
+/// A solid block recoloured, such as marked or turned gray, is no change;
+/// a solid block turned see-through is one.
+#[test]
+fn a_recoloured_block_is_unchanged() {
+    let old = stored("alpha-rca");
+    let blocks = Blocks::read(&old).unwrap();
+    let (pos, _) = blocks
+        .iter()
+        .find(|(_, state)| *state == "minecraft:white_concrete")
+        .unwrap();
+    for (state, changed) in [
+        ("minecraft:gray_concrete", 0),
+        ("minecraft:stone", 0),
+        ("minecraft:white_stained_glass", 1),
+    ] {
+        let new = edited(&old, pos, state);
+        let comparison = compare(&blocks, &Blocks::read(&new).unwrap());
+        assert_eq!(comparison.changed, changed, "{state}");
+    }
+}
+
 #[test]
 fn a_different_adder_is_not_a_new_version() {
     let refusals = refused(&stored("alpha-rca"), &stored("alpha-cla"));

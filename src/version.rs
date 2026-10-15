@@ -3,9 +3,11 @@
 //!
 //! A new version keeps at least 90% of the build's blocks, or changes at
 //! most 10, so a small build can be fixed too; its inputs and outputs may
-//! move, and its size change, within that. Two different 8-bit
-//! carry-cancel adders share at most 14% of their blocks, and a fix such as
-//! flipping a lever changes one, so the line sits well between.
+//! move, and its size change, within that. A block other than a redstone
+//! component, sign, or container counts only as solid or see-through, so
+//! recolouring one changes nothing. So compared, different builds of one
+//! category share at most 68% of their blocks, and every stored version
+//! kept 95% or more of the one before, so the line sits well between.
 
 use std::collections::HashMap;
 
@@ -16,7 +18,7 @@ use crate::{
     lint,
     models::schematic::{self, Schematic},
     schem::{Blocks, Pos},
-    standardize::Gray,
+    standardize::{self, Gray},
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless
@@ -53,9 +55,11 @@ impl Comparison {
 
 /// Compares the blocks of `old` and `new`, other than air, trying each
 /// shift of up to three blocks, since a new version may have gained or lost
-/// a layer. Power a resave changes, such as dust's strength or a torch
-/// being lit, is left out; a lever's position is kept, being an input's
-/// setting.
+/// a layer. A redstone component, a sign, or a container is compared as it
+/// is, without the power a resave changes, such as dust's strength or a
+/// torch being lit; a lever's position is kept, being an input's setting.
+/// Any other block is compared only as solid or see-through, so a block
+/// recoloured, such as marked as an input or turned gray, is unchanged.
 pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
     let old = solid(old);
     let new = solid(new);
@@ -84,14 +88,31 @@ pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
     best
 }
 
-/// Each block other than air, by position, without the power a resave
-/// changes.
+/// Each block other than air, by position, as `compare` compares it.
 fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
     blocks
         .iter()
         .filter(|&(_, state)| state != crate::schem::AIR)
-        .map(|(pos, state)| (pos, unpowered(state)))
+        .map(|(pos, state)| (pos, compared(state)))
         .collect()
+}
+
+/// `state` as a new version is compared by: a component, sign, or
+/// container without its power, and any other block only as solid or
+/// see-through.
+fn compared(state: &str) -> String {
+    let id = crate::schem::id(state);
+    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    if lint::is_component(name)
+        || name.ends_with("_sign")
+        || crate::schem::slots(state).is_some()
+    {
+        unpowered(state)
+    } else if standardize::see_through(name) {
+        "see-through".to_owned()
+    } else {
+        "solid".to_owned()
+    }
 }
 
 /// A block state without the properties that follow its power, such as

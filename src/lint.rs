@@ -492,13 +492,17 @@ pub fn is_interface(state: &str, support: Option<&str>) -> bool {
             && support.is_some_and(|s| is_input(short(s))))
 }
 
+/// Whether a block id without its namespace is a redstone component, such
+/// as dust, a lever, a button, or a sign, rather than a block that only
+/// holds or carries power.
+pub fn is_component(name: &str) -> bool {
+    COMPONENTS.contains(&name) || name.ends_with("_button")
+}
+
 /// Whether standardizing keeps `name` as it is: a redstone component, an
 /// output block, or a block only a stack's first copy keeps.
 pub fn keeps(name: &str) -> bool {
-    COMPONENTS.contains(&name)
-        || name.ends_with("_button")
-        || is_output(name)
-        || first_copy_only(name)
+    is_component(name) || is_output(name) || first_copy_only(name)
 }
 
 /// Whether a block id without its namespace is one a barrel stands in for:

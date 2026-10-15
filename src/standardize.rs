@@ -504,15 +504,21 @@ fn restyle(state: &str, input: bool, gray: Gray) -> String {
         };
         let properties = &state[id.len()..];
         format!("minecraft:oak_{wall}sign{properties}")
-    } else if name.contains("glass")
-        || name.ends_with("_slab")
-        || name.ends_with("_stairs")
-        || name == "glowstone"
-    {
+    } else if see_through(name) {
         WHITE_GLASS.to_owned()
     } else {
         WHITE.to_owned()
     }
+}
+
+/// Whether a block id without its namespace is one redstone sees through,
+/// neither powered nor cutting dust, which standardizing makes white
+/// stained glass: glass of any kind, a slab, stairs, or glowstone.
+pub fn see_through(name: &str) -> bool {
+    name.contains("glass")
+        || name.ends_with("_slab")
+        || name.ends_with("_stairs")
+        || name == "glowstone"
 }
 
 /// A block state's id without its namespace, such as `furnace`.
