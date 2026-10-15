@@ -274,7 +274,7 @@ pub async fn detail(
     let analysis = match schematic::data(&state.db, &id).await {
         Ok(data) => {
             let data = data.unwrap_or_default();
-            analyse(&data).map(|mut analysis| {
+            analyse(&data, &s.category).map(|mut analysis| {
                 analysis.stacking = s
                     .stacking
                     .iter()
@@ -320,12 +320,16 @@ pub async fn detail(
         }
     };
     match panel.as_deref().filter(|_| fixi) {
-        Some("banner") => pages::build_banner(&s, report).into_response(),
+        Some("banner") => {
+            let simulating =
+                matches!(simulation, simulation::Status::Pending(None));
+            pages::build_banner(&s, report, simulating).into_response()
+        }
         Some("info") => {
             pages::build_info(&s, &flags, &similar, &analysis, report)
                 .into_response()
         }
-        _ => pages::schematic(
+        _ => pages::schematic_page(
             user_opt.as_ref(),
             &s,
             &flags,
@@ -662,7 +666,11 @@ pub(super) async fn show_edit(
     // What the page shows is the new file's, when one is waiting.
     let analysis = match &new_file {
         Some(new) => pages::Analysis {
-            interface: interface::read(&new.checked.prepared.blocks),
+            interface: {
+                let mut read = interface::read(&new.checked.prepared.blocks);
+                import::name_carry_lines(&s.category, &mut read);
+                read
+            },
             violations: if s.conventional {
                 lint::check_for(&new.checked.prepared.blocks, &s.category)
             } else {
@@ -670,14 +678,16 @@ pub(super) async fn show_edit(
             },
             stacking: Vec::new(),
         },
-        None => analyse(&data).unwrap_or_else(|_| pages::Analysis {
-            interface: Interface {
-                inputs: Vec::new(),
-                outputs: Vec::new(),
-            },
-            violations: Vec::new(),
-            stacking: Vec::new(),
-        }),
+        None => {
+            analyse(&data, &s.category).unwrap_or_else(|_| pages::Analysis {
+                interface: Interface {
+                    inputs: Vec::new(),
+                    outputs: Vec::new(),
+                },
+                violations: Vec::new(),
+                stacking: Vec::new(),
+            })
+        }
     };
     // An adder's width and orientation come from its file, whatever its
     // category is now, in case it becomes one.
@@ -736,12 +746,14 @@ pub(super) async fn show_edit(
     .into_response()
 }
 
-/// The build's inputs and outputs and the conventions it breaks, or why
-/// its file could not be read.
-fn analyse(data: &[u8]) -> Result<pages::Analysis, String> {
+/// The build's inputs and outputs, named as `category` makes them, and
+/// the conventions it breaks, or why its file could not be read.
+fn analyse(data: &[u8], category: &str) -> Result<pages::Analysis, String> {
     let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
+    let mut interface = interface::read(&blocks);
+    import::name_carry_lines(category, &mut interface);
     Ok(pages::Analysis {
-        interface: interface::read(&blocks),
+        interface,
         violations: lint::check(&blocks),
         stacking: Vec::new(),
     })

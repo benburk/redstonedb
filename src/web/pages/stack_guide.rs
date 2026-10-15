@@ -28,7 +28,7 @@ pub fn stacking_section(
         return html! {};
     }
     html! {
-        section aria-labelledby="stacking-heading" class="mt-10 max-w-prose" {
+        section id="stacking" aria-labelledby="stacking-heading" class="mt-10 max-w-prose" {
             h2 id="stacking-heading" class={ (SECTION_TITLE) " mb-3" } { "Stacking in game" }
             @for review in reviews {
                 div class="mb-6 flex flex-col gap-2" {
@@ -79,27 +79,24 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
     html! {
         @if review.first_copy.is_empty() {
             p {
-                "Paste it and run " code { (command) } " for " (copies)
-                " copies, the count being the copies wanted less one."
+                "Paste it and run " code { (command) } " for " (copies) " copies."
             }
         } @else {
             ol class="flex list-decimal flex-col gap-1 pl-5" {
                 li {
-                    "Paste the build without the parts only its first copy keeps: "
-                    a href=(download("without")) { "download it" } "."
+                    "Paste it without its first-copy parts: "
+                    a href=(download("without")) { "download" } "."
                 }
                 li {
-                    "Run " code { (command) } " for " (copies)
-                    " copies, the count being the copies wanted less one."
+                    "Run " code { (command) } " for " (copies) " copies."
                 }
                 li {
-                    "From the same spot, paste those parts back into air only, with " code { "//gmask air" }
-                    " then " code { "//paste -a" } ", so the later copies' blocks stand: "
-                    a href=(download("first")) { "download them" } ". " code { "//gmask" } " turns the mask off again."
+                    "From the same spot, paste the first-copy parts with " code { "//gmask air" } " and "
+                    code { "//paste -a" } ": " a href=(download("first")) { "download" } ". Then " code { "//gmask" } "."
                 }
             }
             p class="text-meta text-muted" {
-                "Only the first copy keeps " (parts(&review.first_copy)) "."
+                "First copy only: " (parts(&review.first_copy)) "."
             }
         }
     }
@@ -111,27 +108,34 @@ fn parts(first_copy: &FirstCopy) -> String {
     let mut parts = Vec::new();
     match first_copy.buses.len() {
         0 => {}
-        1 => parts.push("a data input or output block, whose bus runs on through the copy before".to_owned()),
-        n => parts.push(format!("{n} data input and output blocks, whose buses run on through the copy before")),
+        1 => parts.push("a data block on a shared bus".to_owned()),
+        n => parts.push(format!("{n} data blocks on shared buses")),
     }
     match first_copy.levers {
         0 => {}
-        1 => parts.push(
-            "its data lever, as the copies share the data bus".to_owned(),
-        ),
-        n => parts.push(format!(
-            "its {n} data levers, as the copies share the data buses"
-        )),
+        1 => parts.push("its data lever".to_owned()),
+        n => parts.push(format!("its {n} data levers")),
     }
     match first_copy.gray {
         0 => {}
         1 => parts.push("a gray block".to_owned()),
         n => parts.push(format!("{n} gray blocks")),
     }
-    for [x, y, z] in &first_copy.inputs {
-        parts.push(format!(
-            "the input at ({x}, {y}, {z}), which the copy before feeds"
-        ));
+    // Inputs the copy before feeds, by where they are.
+    let fed: Vec<String> = first_copy
+        .inputs
+        .iter()
+        .map(|[x, y, z]| format!("({x}, {y}, {z})"))
+        .collect();
+    match fed.as_slice() {
+        [] => {}
+        [one] => {
+            parts.push(format!("the input at {one}, fed by the copy before"));
+        }
+        many => parts.push(format!(
+            "the inputs at {}, fed by the copy before",
+            many.join(", ")
+        )),
     }
     match parts.as_slice() {
         [] => "nothing".to_owned(),
@@ -152,9 +156,8 @@ fn warnings(review: &Review) -> Markup {
                         1 => "at a spot",
                         n => { "at " (n) " spots" }
                     }
-                    ", where the next copy, " (way(review.direction)) ", puts another block over this one's. "
-                    "If the step is right, look at these; a barrel replaced, or dust cut, may stop a copy working. "
-                    "Logic only the first copy needs, such as an input's driver, goes on gray blocks, which later copies leave out with what rests on them."
+                    ", where the next copy, " (way(review.direction)) ", covers a different block. "
+                    "Logic only the first copy needs goes on gray blocks."
                 }
                 ul class="mt-2 flex list-disc flex-col gap-0.5 pl-5 text-meta" {
                     @for spot in spots.iter().take(LISTED) {
@@ -180,8 +183,7 @@ fn warnings(review: &Review) -> Markup {
         @if let Some(better) = review.better {
             p class="rounded-control border border-line p-3" {
                 strong { "Step: " }
-                "copies " (better) " " (way(review.direction)) " apart hold the same blocks wherever they overlap. "
-                "If the build is meant to stack that way, the step may be " (better) "."
+                "copies " (better) " " (way(review.direction)) " apart agree wherever they overlap."
             }
         }
         @if let Some(shape) = &review.shape {

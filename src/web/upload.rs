@@ -630,6 +630,13 @@ async fn show_preview(
         };
     let interface = interface::read(&prepared.blocks);
     let derived = import::derived("adder", &interface);
+    // Its lines are named for the category chosen so far, as the
+    // simulation names them.
+    let mut shown = interface;
+    import::name_carry_lines(
+        &fields.category.trim().to_lowercase(),
+        &mut shown,
+    );
     let swappable = standardize::swappable(&prepared.blocks);
     pages::details_page(
         user,
@@ -646,7 +653,7 @@ async fn show_preview(
                 hoppers: swappable.hoppers,
             },
             analysis: &pages::Analysis {
-                interface,
+                interface: shown,
                 violations: prepared.violations.clone(),
                 stacking: Vec::new(),
             },

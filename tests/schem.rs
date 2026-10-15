@@ -936,3 +936,46 @@ fn the_viewers_copy_turns_east_and_west_wall_signs() {
     }
     assert!(turned > 0, "no fixture has an east or west wall sign");
 }
+
+/// An adder's lone unsigned magenta and pink lines show as its carry in
+/// and carry out, as the simulator takes them; another category keeps
+/// them unnamed.
+#[test]
+fn an_adders_unsigned_carry_lines_are_named() {
+    let mut renamed = 0;
+    for name in ["alpha-rca-slice", "rca-slice-capped", "cout-8"] {
+        let blocks = Blocks::read(&raw(name)).unwrap();
+        let read = interface::read(&blocks);
+        let unnamed = |ports: &[interface::Port]| {
+            ports
+                .iter()
+                .filter(|p| p.name.starts_with("unnamed"))
+                .count()
+        };
+        let before = unnamed(&read.inputs) + unnamed(&read.outputs);
+        let mut adder = interface::read(&blocks);
+        import::name_carry_lines("adder", &mut adder);
+        let mut other = interface::read(&blocks);
+        import::name_carry_lines("register", &mut other);
+        assert_eq!(
+            unnamed(&adder.inputs) + unnamed(&adder.outputs),
+            0,
+            "{name}"
+        );
+        assert_eq!(unnamed(&other.inputs) + unnamed(&other.outputs), before);
+        if before > 0 {
+            renamed += 1;
+            let names: Vec<&str> = adder
+                .inputs
+                .iter()
+                .chain(&adder.outputs)
+                .map(|p| p.name.as_str())
+                .collect();
+            assert!(
+                names.iter().any(|n| *n == "carry in" || *n == "carry out"),
+                "{name}: {names:?}"
+            );
+        }
+    }
+    assert!(renamed > 0, "no fixture has an unsigned carry line");
+}

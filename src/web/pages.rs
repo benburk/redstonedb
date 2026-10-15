@@ -6,16 +6,11 @@ use maud::{Markup, PreEscaped, html};
 
 use crate::{
     APP_NAME, import,
-    interface::{Bit, Interface},
+    interface::{Bit, Interface, Port},
     lint::Violation,
-    models::simulation::Status,
     models::{
-        schematic::{
-            self, Category, Design, Flag, Measure, Schematic, StackDirection,
-            Tag,
-        },
+        schematic::{self, Category, Design, Flag, Measure, Schematic, Tag},
         user::{Role, User},
-        version::Version,
     },
     search::Term,
     simulate::{
@@ -47,6 +42,8 @@ pub use player::{PlayerPage, player};
 mod details_page;
 mod sorting;
 pub use sorting::sorting;
+mod build;
+pub use build::{build_banner, build_info, schematic_page};
 mod schemati;
 mod stack_guide;
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
@@ -325,10 +322,8 @@ fn listing_body(
                     button type="submit" class="btn btn-primary" { "Search" }
                 }
                 p id="search-help" class="text-meta text-muted" {
-                    "Every word must match: a category, orientation, tag, width such as 8b, latency such as 3t, a builder such as "
-                    code { "embizone" } ", "
-                    code { "stackable" } ", or part of the name or a builder's name. Put " code { "-" } " or "
-                    code { "not" } " before a word to leave those builds out, and quotes around a tag with spaces."
+                    "Every word narrows it: a category, tag, " code { "8b" } ", " code { "3t" } ", a builder, "
+                    code { "stackable" } ". " code { "-" } " before a word leaves it out."
                 }
                 @if !terms.is_empty() {
                     ul class="flex flex-wrap items-center gap-1.5" aria-label="Search terms" {
@@ -542,51 +537,6 @@ fn table(schematics: &[Schematic]) -> Markup {
     }
 }
 
-/// The numbers a build's category names and ranks it by, such as its
-/// width and a memory's capacity.
-fn measure_fields(s: &Schematic, sources: &Sources) -> Markup {
-    html! {
-        @for &measure in &s.measures {
-            @let source = if measure == Measure::Width { sources.width } else { Source::Given };
-            (field(measure.heading(), measure.of(s).map_or_else(
-                || html! { "unknown" },
-                |n| sourced(search_link(&measure.words(n), &measure.term(n)), source),
-            )))
-        }
-    }
-}
-
-/// A build's latency, throughput, logic, and whether it is synchronized
-/// and pipelined.
-fn timing_fields(s: &Schematic, sources: &Sources) -> Markup {
-    html! {
-        (field("Latency", s.latency.map_or_else(
-            || html! { "unknown" },
-            |t| sourced(format!("{t} ticks"), sources.timing),
-        )))
-        // A serial build's throughput is among its measures.
-        @if !s.has(Measure::Throughput) {
-            (field("Throughput", s.throughput.map_or_else(
-                || html! { "unknown" },
-                |t| sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), Source::Given),
-            )))
-        }
-        (field("Synchronized", match s.synchronized {
-            Some(true) => sourced(search_link("yes", "sync"), sources.timing),
-            Some(false) => sourced(search_link("no", "unsync"), sources.timing),
-            None => html! { "unknown" },
-        }))
-        (field("Stateless", match s.logic.as_deref() {
-            Some("comb") => search_link("yes", "stateless"),
-            Some("seq") => search_link("no", "stateful"),
-            _ => html! { "unknown" },
-        }))
-        @if s.pipelined() {
-            (field("Pipelined", search_link("yes", "pipelined")))
-        }
-    }
-}
-
 /// What the stored file says about a build.
 pub struct Analysis {
     pub interface: Interface,
@@ -615,186 +565,6 @@ fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
             || (simulate::FINDS_STACKING.contains(&category) && found))
 }
 
-/// Where a spec on a build's page comes from, said beside it, so a reader
-/// can tell what the site checked from what its uploader typed.
-#[derive(Clone, Copy)]
-enum Source {
-    /// Measured or confirmed by the simulation.
-    Simulated,
-    /// Read from the file.
-    File,
-    /// As typed, unchecked.
-    Given,
-    /// Typed, and the simulation did not bear it out, as it says.
-    Unconfirmed(&'static str),
-}
-
-/// Where each spec that can be checked on build `s`'s page comes from.
-struct Sources {
-    category: Source,
-    width: Source,
-    orientation: Source,
-    encoding: Source,
-    /// Latency and whether it is synchronized, measured together.
-    timing: Source,
-    stacking: Source,
-}
-
-impl Sources {
-    /// Build `s`'s sources, with its file's `interface` if it could be
-    /// read and its simulation's `report` if it has one.
-    fn of(
-        s: &Schematic,
-        interface: Option<&Interface>,
-        report: Option<&Report>,
-    ) -> Self {
-        let passed = report.is_some_and(Report::passed);
-        // A conventional build's file sets these over what was typed.
-        let derived = interface
-            .filter(|_| s.conventional)
-            .map(|interface| import::derived(&s.category, interface))
-            .unwrap_or_default();
-        let checked = |from_file: bool, simulated: bool| {
-            if from_file {
-                Source::File
-            } else if simulated {
-                Source::Simulated
-            } else {
-                Source::Given
-            }
-        };
-        let run = match report {
-            Some(Report::Ran(run)) => Some(run),
-            _ => None,
-        };
-        let stacking = if stacking_found(s, report)
-            && run.is_some_and(|run| run.stacking.is_some())
-        {
-            Source::Simulated
-        } else if !s.stacking.is_empty()
-            && simulate::FINDS_STACKING.contains(&s.category.as_str())
-            && run.is_some_and(|run| {
-                matches!(run.stacking, Some(Stacking::Not { .. }))
-            })
-        {
-            Source::Unconfirmed("not found by simulation")
-        } else {
-            Source::Given
-        };
-        Sources {
-            category: if report.is_some_and(Report::failed) {
-                Source::Unconfirmed("fails simulation")
-            } else {
-                checked(false, passed)
-            },
-            width: checked(
-                derived.width == s.width && s.width.is_some(),
-                passed,
-            ),
-            orientation: checked(
-                derived.orientation == Some(s.orientation.as_str()),
-                false,
-            ),
-            encoding: checked(
-                derived.encoding.is_some()
-                    && derived.encoding == s.encoding.as_deref(),
-                false,
-            ),
-            timing: checked(
-                false,
-                report
-                    .and_then(Report::timing)
-                    .and_then(Timing::latency)
-                    .is_some(),
-            ),
-            stacking,
-        }
-    }
-}
-
-/// `value`, with where it comes from beside it.
-fn sourced(value: impl maud::Render, source: Source) -> Markup {
-    let note = "text-meta whitespace-nowrap";
-    html! {
-        (value) " "
-        @match source {
-            Source::Simulated => span class={ (note) " text-muted" } {
-                span aria-hidden="true" { "✓ " } "simulated"
-            },
-            Source::File => span class={ (note) " text-muted" } {
-                span aria-hidden="true" { "✓ " } "read from the file"
-            },
-            Source::Given => span class={ (note) " text-faint" } { "unchecked" },
-            Source::Unconfirmed(why) => a href="#simulation" class={ (note) " text-danger" } { (why) },
-        }
-    }
-}
-
-/// One schematic's page, with an edit button for a mod.
-pub fn schematic(
-    viewer: Option<&User>,
-    s: &Schematic,
-    flags: &[Flag],
-    similar: &[(Schematic, u32)],
-    analysis: &Result<Analysis, String>,
-    simulation: &Status,
-    versions: &[Version],
-) -> Markup {
-    let report = match simulation {
-        Status::Done(report) | Status::Pending(Some(report)) => Some(report),
-        Status::Pending(None) | Status::Untested => None,
-    };
-    let name = s.name();
-    let path = format!("/schematics/{}", s.id);
-    base(
-        viewer,
-        &name,
-        &path,
-        &html! {
-            div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
-                h1 class=(PAGE_TITLE) { (name) }
-                div class="flex gap-2" {
-                    @if viewer.is_some_and(User::is_admin) {
-                        button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
-                        (delete_dialog(s))
-                    }
-                    @if viewer.is_some_and(|v| v.may_edit(s)) {
-                        a href={ (path) "/versions/new" } class="btn btn-quiet" { "New version" }
-                        a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
-                    }
-                    button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
-                    (download_dialog(s, viewer.is_some()))
-                }
-            }
-            (build_banner(s, report))
-            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, analysis, report)))
-            @match analysis {
-                _ if !s.conventional => {
-                    p class="mt-10 max-w-prose text-muted" {
-                        "This build follows its own layout rather than the building conventions, so its inputs and outputs are not read from the file and it is not linted."
-                    }
-                }
-                Ok(analysis) => (interface_section(analysis, true)),
-                Err(err) => {
-                    p class="mt-10 text-muted" { "Could not read the file's inputs and outputs: " (err) }
-                }
-            }
-            @if let Ok(analysis) = analysis {
-                (stack_guide::stacking_section(s, &analysis.stacking, stacking_found(s, report)))
-            }
-            @let poll = format!("{path}/simulation");
-            @match simulation {
-                Status::Done(report) | Status::Pending(Some(report)) => {
-                    (simulation_section(report, Waiting::Polled(&poll)))
-                }
-                Status::Pending(None) => (cases_pending(&poll)),
-                Status::Untested => {}
-            }
-            (version::versions_section(s, versions))
-        },
-    )
-}
-
 /// The details form's simulation result, a live panel the form redraws
 /// whenever its category or width changes: `content`, the section for the
 /// form's test or why there is none, posted for to `simulate`.
@@ -803,46 +573,6 @@ pub fn simulation_results(simulate: &str, content: &Markup) -> Markup {
         div id="simulation-results" fx-action=(simulate) fx-method="post" fx-trigger="redraw"
             data-form="details-form" {
             (content)
-        }
-    }
-}
-
-/// Under a build's title, that it fails its simulation, if it does: a live
-/// panel, redrawn when its simulation comes in.
-pub fn build_banner(s: &Schematic, report: Option<&Report>) -> Markup {
-    html! {
-        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
-            @if let Some(report) = report && report.failed() {
-                p class="mb-6 max-w-calm rounded-control border border-danger p-3 text-danger" {
-                    strong { "Fails its simulation. " }
-                    @match report {
-                        Report::Ran(run) => {
-                            (grouped(run.wrong)) " of " (grouped(run.cases)) " cases of " (run.pattern) " are wrong. "
-                            a href="#simulation" class="text-danger underline" { "See which" }
-                        }
-                        Report::Broken { reason } | Report::Skipped { reason } => (reason),
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A build's tags, details, and the builds like it, beside its viewer: a
-/// live panel, redrawn when its simulation comes in, since that checks
-/// and measures some of its details.
-pub fn build_info(
-    s: &Schematic,
-    flags: &[Flag],
-    similar: &[(Schematic, u32)],
-    analysis: &Result<Analysis, String>,
-    report: Option<&Report>,
-) -> Markup {
-    let interface = analysis.as_ref().ok().map(|analysis| &analysis.interface);
-    let sources = Sources::of(s, interface, report);
-    html! {
-        div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw" {
-            (schematic_info(s, flags, similar, &sources))
         }
     }
 }
@@ -940,43 +670,27 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
             data-skipped[matches!(report, Report::Skipped { .. })]
             data-state=(if report.failed() { "fail" } else { "pass" })
             data-summary=(simulation_summary(report)) {
-            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
-            p class="mb-4 text-meta text-muted" {
-                "Run in a redstone simulator: each case flips the input levers, waits until nothing changes, and reads the output blocks."
-            }
+            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-2" } { "Simulation" }
             @match report {
-                Report::Skipped { reason } => p { "Not simulated. " (reason) },
-                Report::Broken { reason } => p class="text-danger" { strong { "Broken. " } (reason) },
+                Report::Skipped { reason } => p class="text-muted" { "Not simulated: " (reason) },
+                Report::Broken { reason } => p class="text-danger" { strong { "Broken: " } (reason) },
                 Report::Ran(run) => {
-                    div class="overflow-x-auto" {
-                        table class="w-full border-collapse" {
-                            caption class="sr-only" { "Cases" }
-                            thead {
-                                tr {
-                                    th scope="col" class=(TABLE_HEAD) { "Cases" }
-                                    th scope="col" class=(TABLE_HEAD) { "Tried" }
-                                    th scope="col" class=(TABLE_HEAD) { "Result" }
-                                }
-                            }
-                            tbody {
-                                tr {
-                                    th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (run.pattern) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } {
-                                        (grouped(run.cases)) @if run.exhaustive { ", every one" } @else {
-                                            ": every case of each " @if run.by_digit { "hex digit" } @else { "byte" } ", with a carry into it and without, and "
-                                            (grouped(run.patterns)) " pairings of test patterns, such as all ones or alternate bits set"
-                                        }
-                                    }
-                                    td class={ (TABLE_CELL) " tabular-nums" } {
-                                        @if run.wrong == 0 {
-                                            "All right"
-                                        } @else {
-                                            strong class="text-danger" { (grouped(run.wrong)) " wrong" }
-                                        }
-                                    }
-                                }
-                            }
+                    p class=[(run.wrong > 0).then_some("text-danger")] {
+                        @if run.wrong == 0 {
+                            span aria-hidden="true" class="text-success" { "✓ " }
+                            strong { "All " (grouped(run.cases)) " cases right" }
+                        } @else {
+                            span aria-hidden="true" { "✗ " }
+                            strong { (grouped(run.wrong)) " of " (grouped(run.cases)) " cases wrong" }
                         }
+                    }
+                    p class="text-meta text-muted" {
+                        (run.pattern) ", "
+                        @if run.exhaustive { "every combination" } @else {
+                            "every case of each " @if run.by_digit { "hex digit" } @else { "byte" }
+                            " and " (grouped(run.patterns)) " pairings of test patterns"
+                        }
+                        "."
                     }
                     @if let Some(stacking) = &run.stacking {
                         (stacking_note(stacking))
@@ -1010,44 +724,32 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
 /// Whether copies of a passing adder stack into a wider one, or of a
 /// register into a bigger register file.
 fn stacking_note(stacking: &Stacking) -> Markup {
+    let limit = |copies: usize, most: Option<usize>| match most {
+        Some(_) => format!("; a copy more fails, so at most {copies}"),
+        None => ", so any number stack".to_owned(),
+    };
     html! {
         @match stacking {
-            Stacking::Stacks { step, copies, bits, cases } => p class="mt-4" {
+            Stacking::Stacks { step, copies, bits, cases } => p class="mt-3" {
                 strong { "Stacks: " }
-                (copies) " copies, " (step.describe()) " apart, make a " (bits) "-bit adder whose "
-                (grouped(*cases)) " cases are all right"
-                @if *copies >= 3 {
-                    ", with a copy between two others and longer than dust carries a signal, so it stacks any number of times."
-                } @else {
-                    ". Three would be wider than the simulator tests, so no copy sat between two others."
-                }
+                (copies) " copies " (step.describe()) " apart make a " (bits) "-bit adder, all "
+                (grouped(*cases)) " cases right"
+                @if *copies >= 3 { ", so any number stack." } @else { "." }
             },
-            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-4" data-found-stacking {
+            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-3" data-found-stacking {
                 strong { "Stacks: " }
-                (copies) " copies, " (step.describe()) " apart, make a file of " (registers)
-                " registers whose " (grouped(*cases)) " cases are all right, its data buses driven and read at the first copy"
-                @if most.is_some() {
-                    "; one more copy gets some wrong, so it stacks at most " (copies) " times."
-                } @else {
-                    ", so it stacks any number of times."
-                }
+                (copies) " copies " (step.describe()) " apart make " (registers) " registers sharing their data buses, all "
+                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
-            Stacking::Wider { step, copies, bits, cases, most } => p class="mt-4" data-found-stacking {
+            Stacking::Wider { step, copies, bits, cases, most } => p class="mt-3" data-found-stacking {
                 strong { "Stacks: " }
-                (copies) " copies, " (step.describe()) " apart, make a " (bits)
-                "-bit register whose " (grouped(*cases)) " cases are all right, its control lines driven at the first copy"
-                @if most.is_some() {
-                    "; one more copy gets some wrong, so it stacks at most " (copies) " times."
-                } @else {
-                    ", so it stacks any number of times."
-                }
+                (copies) " copies " (step.describe()) " apart make a " (bits) "-bit register sharing its control lines, all "
+                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
-            Stacking::Not { step, reason } => p class="mt-4 text-muted" {
+            Stacking::Not { step, reason } => p class="mt-3 text-muted" {
                 strong { "Doesn't stack as saved" }
-                @if let Some(step) = step { ", with copies " (step.describe()) " apart" }
+                @if let Some(step) = step { ", copies " (step.describe()) " apart" }
                 ": " (reason)
-                " Logic only the first copy needs goes on gray blocks, which stacking leaves out of the rest; "
-                "standardizing whitens them unless asked not to."
             },
         }
     }
@@ -1060,29 +762,37 @@ fn stacking_note(stacking: &Stacking) -> Markup {
 /// register, a read lever turning on, with when a write shows.
 fn timing_intro(timing: &Timing) -> Markup {
     html! {
-        p class="mb-3 text-meta text-muted" {
-            @if timing.from_read {
-                @if let Some(data) = timing.data {
-                    @if timing.takes == Takes::Closing {
-                        "Its latency, data in to data out, is " (data) " ticks: a cell takes its data as its write ends, its lever turning off or its button springing back, "
-                        "its bus empty while it writes, so from its data in changing as the write ends, its read on, until the bus shows it. "
-                    } @else {
-                        "Its latency, data in to data out, is " (data) " ticks: with a cell's write held open and its read on, "
-                        "from its data in changing until the bus shows it. "
+        @if timing.from_read {
+            p class="mb-3" {
+                @match (timing.data, timing.write, timing.takes) {
+                    (Some(data), Some(write), Takes::Closing) => {
+                        strong { "Latency " (data) " ticks" } ", data in to data out, the data changing as the write ends. "
+                        span class="text-muted" { "A write shows " (write) " ticks after it ends." }
+                    }
+                    (Some(data), Some(write), Takes::Open) => {
+                        strong { "Latency " (data) " ticks" } ", data in to data out with the write held open. "
+                        span class="text-muted" { "A write shows " (write) " ticks after its button." }
+                    }
+                    (None, Some(write), _) => {
+                        strong { "Latency " (write) " ticks" } ", from a write's button until the bus shows it; "
+                        span class="text-muted" { "a cell takes its data only as its write opens." }
+                    }
+                    _ => {}
+                }
+            }
+            p class="mb-2 text-meta text-muted" { "Reads, in ticks from a read lever turning on:" }
+        } @else {
+            @let late: Vec<&InputTiming> = timing.inputs.iter().skip(1).filter(|input| input.tick != Some(0)).collect();
+            p class="mb-2 text-meta text-muted" {
+                "In ticks from A changing."
+                @for input in late {
+                    " " (input.name)
+                    @match input.tick {
+                        Some(tick) if tick > 0 => { " may change up to " (tick) " later." }
+                        Some(tick) => { " must change " (-tick) " earlier." }
+                        None => { " leads to no output." }
                     }
                 }
-                @if let Some(write) = timing.write {
-                    @if timing.takes == Takes::Closing {
-                        "A write shows on the bus " (write) " ticks after it ends, its data set before, the cell's read held on. "
-                    } @else {
-                        "A write shows on the bus " (write) " ticks after its button is pressed, the cell's read held on"
-                        @if timing.data.is_none() { ", which is its latency, as it takes its data only as its write opens" }
-                        ". "
-                    }
-                }
-                "Below, in ticks from when a read lever turns on, its cell holding each value in turn."
-            } @else {
-                "In ticks from when A changes. Each other input may change as late as its tick without delaying an output; a negative tick is before A."
             }
         }
     }
@@ -1099,33 +809,9 @@ pub fn timing_section(timing: &Timing) -> Markup {
         section aria-labelledby="timing-heading" class="mt-6"
             data-timing data-state=(if timing.synced { "pass" } else { "fail" })
             data-summary=(timing_summary(timing)) {
-            h3 id="timing-heading" class="mb-1 font-semibold" { "Timing" }
+            h3 id="timing-heading" class="mb-2 font-semibold" { "Timing" }
             (timing_intro(timing))
-            div class="overflow-x-auto" hidden[timing.from_read] {
-                table class="w-full border-collapse" {
-                    caption class="sr-only" { "When each input may change" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Input" }
-                            th scope="col" class=(TABLE_HEAD) { "Changes by" }
-                        }
-                    }
-                    tbody {
-                        @for input in &timing.inputs {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (input.name) }
-                                td class={ (TABLE_CELL) " tabular-nums" } {
-                                    @match input.tick {
-                                        Some(tick) => (signed(tick)),
-                                        None => span class="text-muted" { "no output follows it" },
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            div class="mt-4 overflow-x-auto" {
+            div class="overflow-x-auto" {
                 table class="w-full border-collapse" {
                     caption class="sr-only" { "When each output settles" }
                     thead {
@@ -1155,11 +841,11 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 }
             }
             (carried_notes(&timing.outputs))
-            p class="mt-4" {
+            p class="mt-3" {
                 @if timing.synced {
-                    strong { "Synced: " } "every output changes once, all its bits on the same tick."
+                    strong { "Synced: " } "each output changes once, all its bits together."
                 } @else {
-                    strong { "Not synced: " } "an output glitches, or its bits change on different ticks, as below."
+                    strong class="text-danger" { "Not synced: " } "an output glitches or its bits change apart."
                 }
             }
             @for output in &timing.outputs {
@@ -1173,17 +859,17 @@ pub fn timing_section(timing: &Timing) -> Markup {
                     }
                 }
             }
-            p class="mt-2 text-muted" {
-                "From all inputs off, half the cases settle by tick " (timing.median) ", 99% by " (timing.p99)
-                ", and the slowest, " (case.join(", ")) ", by " (timing.slowest) "."
+            p class="mt-2 text-meta text-muted" {
+                "Half the changes settle by tick " (timing.median) ", 99% by " (timing.p99)
+                "; the slowest, " (case.join(", ")) ", by " (timing.slowest) "."
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
                 (bit_timing(output))
             }
-            p class="mt-4 text-meta text-muted" {
-                "Measured over " (grouped(timing.changes)) " changes: each input alone, from 0 to "
-                @if timing.patterns { "each test pattern, such as all ones or alternate bits set," } @else { "every value" }
-                " and back, and all of them together from all off. A slower change may exist among those not tried."
+            p class="mt-1 text-meta text-muted" {
+                "Over " (grouped(timing.changes)) " changes, each input alone to "
+                @if timing.patterns { "each test pattern" } @else { "every value" }
+                " and back, and all together; a slower one may hide among those not tried."
             }
         }
     }
@@ -1273,15 +959,6 @@ fn tick(tick: i32) -> String {
     match tick {
         t if t < 0 => format!("−{}", t.unsigned_abs()),
         t => t.to_string(),
-    }
-}
-
-/// An input's tick counted from A's change: `+1`, `−2`, or `0`.
-fn signed(tick: i32) -> String {
-    match tick {
-        0 => "0".to_owned(),
-        t if t > 0 => format!("+{t}"),
-        t => format!("−{}", t.unsigned_abs()),
     }
 }
 
@@ -1387,64 +1064,19 @@ fn grouped(n: u64) -> String {
     out
 }
 
-/// The build's inputs and outputs, and, with `with_violations`, the
-/// conventions it breaks.
+/// The build's inputs and outputs, read from the file, a short list of
+/// each: a bus by its bits, and a row of numbered lines, such as a
+/// memory's `read 0` to `read 15`, as one entry. What drives an input
+/// shows only when it takes more than any power. Then the conventions it
+/// breaks, when asked.
 fn interface_section(analysis: &Analysis, with_violations: bool) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
     html! {
-        section aria-labelledby="interface-heading" class="mt-12" {
-            h2 id="interface-heading" class={ (SECTION_TITLE) " mb-1" } { "Inputs and outputs" }
-            p class="mb-4 text-meta text-muted" {
-                "Read from the file's levers and buttons, yellow output blocks, and signs."
-            }
-            div class="overflow-x-auto" {
-                table class="w-full max-w-calm border-collapse" {
-                    caption class="sr-only" { "Inputs" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Input" }
-                            th scope="col" class=(TABLE_HEAD) { "Bits" }
-                            th scope="col" class=(TABLE_HEAD) { "Strength" }
-                            th scope="col" class=(TABLE_HEAD) { "Drive" }
-                        }
-                    }
-                    tbody {
-                        @for port in inputs {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (port.name) }
-                                @if port.signal_strength {
-                                    // Each block is a hex digit, its strength the value.
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len() * 4) }
-                                    td class=(TABLE_CELL) { "the value" }
-                                    td class=(TABLE_CELL) { "signal strength" }
-                                } @else {
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (port.strength) " or more" }
-                                    td class=(TABLE_CELL) { (uniform(&port.bits, |b| (if b.hard { "hard" } else { "soft" }).to_owned())) }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            div class="mt-8 overflow-x-auto" {
-                table class="w-full max-w-calm border-collapse" {
-                    caption class="sr-only" { "Outputs" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Output" }
-                            th scope="col" class=(TABLE_HEAD) { "Bits" }
-                        }
-                    }
-                    tbody {
-                        @for port in outputs {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-semibold" } { (port.name) }
-                                td class={ (TABLE_CELL) " tabular-nums" } { (port.bits.len()) }
-                            }
-                        }
-                    }
-                }
+        section aria-labelledby="interface-heading" class="mt-12 max-w-calm" {
+            h2 id="interface-heading" class={ (SECTION_TITLE) " mb-3" } { "Inputs and outputs" }
+            div class="grid gap-6 sm:grid-cols-2" {
+                (port_list("Inputs", &port_entries(inputs), true))
+                (port_list("Outputs", &port_entries(outputs), false))
             }
         }
         @if with_violations && !analysis.violations.is_empty() {
@@ -1456,6 +1088,147 @@ fn interface_section(analysis: &Analysis, with_violations: bool) -> Markup {
     }
 }
 
+/// One entry in a list of inputs or outputs: a port, or numbered lines of
+/// one bit each that share a word and a colour, such as `read 0` to
+/// `read 15`.
+struct PortEntry<'a> {
+    name: String,
+    ports: Vec<&'a Port>,
+    /// Names more than one line is signed with, such as `read 5`, as a
+    /// mislabelled sign leaves.
+    repeated: Vec<String>,
+}
+
+/// Sorted, distinct `numbers` as runs, such as `0–14` or `0–3, 6`.
+fn ranges(numbers: &[u32]) -> String {
+    let mut runs: Vec<String> = Vec::new();
+    let mut start = 0;
+    for i in 1..=numbers.len() {
+        if i == numbers.len() || numbers[i] != numbers[i - 1] + 1 {
+            let (first, last) = (numbers[start], numbers[i - 1]);
+            runs.push(if first == last {
+                first.to_string()
+            } else {
+                format!("{first}–{last}")
+            });
+            start = i;
+        }
+    }
+    runs.join(", ")
+}
+
+/// Ports, by the word and colour numbered lines share; one apiece for any
+/// other port.
+type PortGroup<'p> = (Option<(String, String)>, Vec<&'p Port>);
+
+/// `ports` as entries, in order of first appearance, numbered lines
+/// gathered under their shared word.
+fn port_entries(ports: &[Port]) -> Vec<PortEntry<'_>> {
+    let numbered = |port: &Port| {
+        let (word, number) = port.name.rsplit_once(' ')?;
+        let number: u32 = number.parse().ok()?;
+        (port.bits.len() == 1).then(|| (word.to_owned(), number))
+    };
+    let mut entries: Vec<PortGroup> = Vec::new();
+    for port in ports {
+        let key = numbered(port).map(|(word, _)| (word, port.block.clone()));
+        match entries.iter_mut().find(|(k, _)| key.is_some() && *k == key) {
+            Some((_, group)) => group.push(port),
+            None => entries.push((key, vec![port])),
+        }
+    }
+    entries
+        .into_iter()
+        .map(|(key, ports)| {
+            let (name, repeated) = match (&key, ports.as_slice()) {
+                (Some((word, _)), [_, _, ..]) => {
+                    let mut numbers: Vec<u32> = ports
+                        .iter()
+                        .filter_map(|p| numbered(p).map(|(_, n)| n))
+                        .collect();
+                    numbers.sort_unstable();
+                    let mut repeated: Vec<String> = numbers
+                        .windows(2)
+                        .filter(|pair| pair[0] == pair[1])
+                        .map(|pair| format!("{word} {}", pair[0]))
+                        .collect();
+                    repeated.dedup();
+                    numbers.dedup();
+                    (format!("{word} {}", ranges(&numbers)), repeated)
+                }
+                _ => (ports[0].name.clone(), Vec::new()),
+            };
+            PortEntry {
+                name,
+                ports,
+                repeated,
+            }
+        })
+        .collect()
+}
+
+/// A list of input or output entries under `heading`, each with a swatch
+/// of its marking colour, its bits or lines, and, for an input, what it
+/// takes beyond any power.
+fn port_list(heading: &str, entries: &[PortEntry], inputs: bool) -> Markup {
+    html! {
+        div {
+            h3 class="mb-2 text-meta font-semibold text-muted" { (heading) }
+            ul class="flex flex-col gap-1.5" {
+                @for entry in entries {
+                    @let port = entry.ports[0];
+                    @let dye = port.block.strip_suffix(" concrete").unwrap_or(&port.block).replace(' ', "_");
+                    @let [r, g, b, _] = crate::thumbnail::dye_color(&dye);
+                    li class="flex items-baseline gap-2" {
+                        span aria-hidden="true" class="inline-block size-3 shrink-0 self-center rounded-[3px] border border-line"
+                            style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}
+                        span class="font-semibold" { (entry.name) }
+                        span class="text-meta text-muted" { (port_detail(entry, inputs)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What an entry carries, such as `8 bits` or `16 lines`, and for an
+/// input, what drives it when that is more than any power.
+fn port_detail(entry: &PortEntry, inputs: bool) -> String {
+    let port = entry.ports[0];
+    let mut said = vec![if entry.ports.len() > 1 {
+        format!("{} lines", entry.ports.len())
+    } else if port.signal_strength {
+        format!(
+            "{} bits, a hex digit per block's strength",
+            port.bits.len() * 4
+        )
+    } else if port.bits.len() == 1 {
+        "1 bit".to_owned()
+    } else {
+        format!("{} bits", port.bits.len())
+    }];
+    for name in &entry.repeated {
+        said.push(format!("{name} signed more than once"));
+    }
+    if inputs && !port.signal_strength {
+        let bits: Vec<&Bit> =
+            entry.ports.iter().flat_map(|p| p.bits.iter()).collect();
+        let strength =
+            entry.ports.iter().map(|p| p.strength).max().unwrap_or(1);
+        if strength > 1 {
+            said.push(format!("strength {strength} or more"));
+        }
+        if bits.iter().all(|b| b.hard) {
+            said.push("needs hard power".to_owned());
+        } else if bits.iter().any(|b| b.hard) {
+            said.push("some bits need hard power".to_owned());
+        }
+        if bits.iter().all(|b| b.inverted) {
+            said.push("saved on".to_owned());
+        }
+    }
+    said.join(" · ")
+}
 /// Each broken convention with where in the file it is.
 fn violation_list(violations: &[Violation]) -> Markup {
     html! {
@@ -1469,17 +1242,6 @@ fn violation_list(violations: &[Violation]) -> Markup {
                 }
             }
         }
-    }
-}
-
-/// One value shared by every bit, or `mixed`.
-fn uniform(bits: &[Bit], value: impl Fn(&Bit) -> String) -> String {
-    let mut values = bits.iter().map(value);
-    let first = values.next().unwrap_or_default();
-    if values.all(|v| v == first) {
-        first
-    } else {
-        "mixed".to_owned()
     }
 }
 
@@ -1540,134 +1302,6 @@ fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
                 @if signed_in {
                     div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
                 }
-            }
-        }
-    }
-}
-
-/// A schematic's tags and details, and the builds it is similar to, beside
-/// its viewer.
-fn schematic_info(
-    s: &Schematic,
-    flags: &[Flag],
-    similar: &[(Schematic, u32)],
-    sources: &Sources,
-) -> Markup {
-    html! {
-        div class="flex flex-col gap-8" {
-            section aria-labelledby="tags-heading" {
-                h2 id="tags-heading" class={ (SECTION_TITLE) " mb-3" } { "Tags" }
-                @if s.tags.is_empty() {
-                    p class="text-muted" { "No tags yet." }
-                } @else {
-                    ul class="flex flex-wrap gap-1.5" {
-                        @for tag in &s.tags {
-                            li { (badge(tag)) }
-                        }
-                    }
-                }
-            }
-            section aria-labelledby="details-heading" {
-                h2 id="details-heading" class={ (SECTION_TITLE) " mb-3" } { "Details" }
-                dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2" {
-                    // A category off the list has no list of its own to link to.
-                    (field("Category", sourced(html! {
-                        @if s.category_label.is_some() {
-                            a href={ "/?category=" (s.category) } { (s.category_label()) }
-                        } @else {
-                            (s.category_label())
-                        }
-                    }, sources.category)))
-                    @if let Some(design) = s.design_label() {
-                        (field("Design", search_link(&design, &s.design)))
-                    }
-                    (measure_fields(s, sources))
-                    (field("Orientation", sourced(search_link(s.orientation_label(), &s.orientation_label().to_lowercase()), sources.orientation)))
-                    @if let Some(encoding) = s.encoding_label() {
-                        (field("Encoding", sourced(search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default())), sources.encoding)))
-                    }
-                    (timing_fields(s, sources))
-                    // The oldest release with every redstone component and
-                    // mechanic it uses; it links to the builds that work there.
-                    @if let Some(from) = &s.works_from {
-                        (field("Works from", sourced(html! {
-                            (search_link(from, &format!("version:{}", from.to_lowercase())))
-                            @if let Some(by) = &s.works_from_by {
-                                span class="text-muted" { " (" (by) ")" }
-                            }
-                        }, Source::File)))
-                    }
-                    (field("Stacks", sourced(if s.stacking.is_empty() {
-                        html! { "no" }
-                    } else {
-                        search_link(&stacking(s), "stackable")
-                    }, sources.stacking)))
-                    (field("Size", format!("{} (HWD), {} blocks", size(s), s.box_volume())))
-                    // What each copy of a stack adds, which compares
-                    // stackable builds whose copies overlap by different
-                    // amounts, so it is their volume.
-                    @if let Some((x, y, z)) = s.per_copy() {
-                        (field("Per copy", format!("{y}×{x}×{z} (HWD)")))
-                    }
-                    (field("Volume", volume(s)))
-                    (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
-                        html! { "unknown" }
-                    } else {
-                        name_links(&s.builders)
-                    }))
-                    @if !s.contributors.is_empty() {
-                        (field(&plural("Contributor", &s.contributors), name_links(&s.contributors)))
-                    }
-                    (field("Built", s.built_on.as_deref().unwrap_or("unknown")))
-                    (flag_fields(s, flags))
-                    (field("Uploaded", s.added_at.get(..10).unwrap_or(&s.added_at)))
-                    @if let Some(edited) = &s.edited_at {
-                        (field("Last edited", edited.get(..10).unwrap_or(edited)))
-                    }
-                    (field("File", html! { code class="break-all" { (s.filename()) } }))
-                    (field("Downloads", s.downloads.to_string()))
-                    // An upload names its account, by its Minecraft name if
-                    // it has one; an import names whoever ran it.
-                    @match (&s.uploader, &s.uploader_name) {
-                        (Some(username), Some(name)) => {
-                            (field("Uploaded by", html! { a href={ "/users/" (username) } { (name) } }))
-                        }
-                        _ => {
-                            (field("Imported by", s.imported_by.as_deref().map_or_else(
-                                || html! { "unknown" },
-                                |name| search_link(name, &format!("importer:{name}")),
-                            )))
-                        }
-                    }
-                    (field("Conventions", if s.conventional {
-                        html! { "followed" }
-                    } else {
-                        search_link("not followed", "unconventional")
-                    }))
-                }
-            }
-            @if let Some(description) = &s.description {
-                section aria-labelledby="description-heading" {
-                    h2 id="description-heading" class={ (SECTION_TITLE) " mb-3" } { "Description" }
-                    p class="leading-prose whitespace-pre-line" { (description) }
-                }
-            }
-            @if !similar.is_empty() {
-                (similar_section(similar))
-            }
-        }
-    }
-}
-
-/// Every flag of a build's category, yes or no, so one it lacks says so, as
-/// an ALU without SHL does.
-fn flag_fields(s: &Schematic, flags: &[Flag]) -> Markup {
-    html! {
-        @for flag in flags {
-            @if s.flags.iter().any(|has| has.name == flag.name) {
-                (field(&flag.label, search_link("yes", &flag.name)))
-            } @else {
-                (field(&flag.label, "no"))
             }
         }
     }
@@ -1848,7 +1482,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 }
             }
             span id="category-help" class="text-meta font-normal text-muted" {
-                "Pick one, or type a name of your own for a build that fits none, such as piston door."
+                "Or type your own, such as piston door."
             }
         }
         // For a category whose builds each have a name, such as bussing.
@@ -1912,7 +1546,7 @@ fn flag_group(
         div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
             @if import::FLAGS_FROM_FILE.contains(&category.name.as_str()) {
                 p class="text-muted" {
-                    "Carry in and carry out are read from the file: a magenta line is its carry in, and a pink line its carry out."
+                    "Carry in and carry out are read from the file."
                 }
             } @else {
                 @for flag in flags {
@@ -1994,7 +1628,7 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
         }
         // Hidden by form.js once a passing simulation measures them.
         p data-timing-note hidden class="text-muted" {
-            "Latency and whether it is synchronized are measured by the simulation below, once every case comes out right."
+            "Latency and synchronized are measured by the simulation."
             // Sent in place of the hidden fields, so nothing typed is kept.
             input type="hidden" name="synchronized_unknown" value="yes" disabled data-measured-marker;
         }
@@ -2025,7 +1659,7 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
                 inputmode="numeric" placeholder="such as 3" aria-describedby="throughput-help"
                 class="input tabular-nums";
             span id="throughput-help" class="text-meta font-normal" {
-                "The fewest ticks from one input to the next that still give right outputs. A serial build's input is a bit: a 2-tick serial adder takes a new bit every 2 ticks."
+                "The fewest ticks between inputs that still come out right."
             }
         }
         (logic_field(f, choices))
@@ -2060,7 +1694,7 @@ fn logic_field(f: &Fields, choices: &Choices) -> Markup {
                 }
             }
             span id="logic-help" class="text-meta font-normal text-muted" {
-                "Stateless: once its inputs stop changing, its outputs depend only on them. Stateful: it remembers something, as a register does."
+                "Stateful builds remember something, as a register does."
             }
         }
     }
@@ -2137,7 +1771,7 @@ fn stacking_fields(f: &Fields) -> Markup {
         div class="field" data-derived-stacking hidden {
             span { "Stacking" }
             p class="text-muted" {
-                "Worked out by the simulation below, which stacks copies and tests them."
+                "Found by the simulation."
             }
         }
         fieldset class="flex flex-col gap-3" data-stacking data-typed-stacking {
@@ -2378,18 +2012,6 @@ fn field(name: &str, value: impl maud::Render) -> Markup {
     }
 }
 
-/// Each direction a build stacks along, or `no`.
-fn stacking(s: &Schematic) -> String {
-    if s.stacking.is_empty() {
-        return "no".to_owned();
-    }
-    s.stacking
-        .iter()
-        .map(StackDirection::describe)
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
 fn latency(s: &Schematic) -> String {
     s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
 }
@@ -2551,10 +2173,7 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
         &html! {
             h1 class={ (PAGE_TITLE) " mb-2" } { "Users" }
             p class="mb-6 max-w-prose text-muted" {
-                "A user uploads builds. A mod also edits any build's details and tags. An admin also deletes builds and sets roles."
-            }
-            p class="mb-6 max-w-prose text-muted" {
-                "Anyone can type any Minecraft name on their profile. Confirm one only once you know it is theirs: a confirmed name lets its account edit the builds crediting it as builder. A name you give an account yourself is confirmed."
+                "Mods edit any build; admins also delete builds and set roles. Confirm a Minecraft name only once you know it is theirs: it lets them edit the builds crediting it."
             }
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }
@@ -2727,7 +2346,7 @@ pub fn profile(
                     }
                     @if message.is_empty() {
                         p id="minecraft-help" class="text-meta text-muted" {
-                            "Shown on your profile, linked to the builds you built. Once an admin confirms it is yours, you can edit those builds' details. Changing it needs confirming again. Leave it empty to remove it."
+                            "Links you to your builds. Once an admin confirms it, you can edit them."
                         }
                     } @else {
                         p id="minecraft-help" role="alert" class="text-meta text-danger" { (message) }
@@ -2788,8 +2407,7 @@ pub fn file_fields(
                 placeholder="https://schemati.openredstone.org/download?file=…"
                 aria-describedby="schemati-help" class="input";
             span id="schemati-help" class="text-meta font-normal" {
-                "In game, " code { "//save <name>" } " then " code { "//download <name>" }
-                " gives this link. It lasts seven days."
+                "From " code { "//download <name>" } " in game; it lasts seven days."
             }
         }
         (schemati::own_file_field(schemati, form))
@@ -2797,24 +2415,29 @@ pub fn file_fields(
             label class="flex items-start gap-2" {
                 input type="checkbox" name="keep_paste" value="yes" form=[form] class="mt-1 size-4 appearance-auto";
                 span {
-                    "Keep where it pastes from. Otherwise "
-                    code { "//paste" }
-                    " puts it with you one block south of its south-east-bottom corner, as every build on the site does."
+                    "Keep where it pastes from"
+                    span class="block text-meta text-muted" {
+                        "Otherwise it pastes from its south-east-bottom corner, as every build here does."
+                    }
                 }
             }
         }
         label class="flex items-start gap-2" {
             input type="checkbox" name="standardize" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
             span {
-                "Standardize it: every block that isn't redstone, an input, or an output turns white, "
-                "and slabs and glass white stained glass. The inputs and outputs must already be marked."
+                "Standardize it"
+                span class="block text-meta text-muted" {
+                    "Every block but redstone, inputs, and outputs turns white."
+                }
             }
         }
         label class="flex items-start gap-2 pl-6" {
             input type="checkbox" name="whiten_gray" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
             span {
-                "Whiten gray blocks too. Untick this for a stackable build whose gray blocks hold "
-                "logic only its first copy needs, which stacking leaves out of the rest."
+                "Whiten gray blocks too"
+                span class="block text-meta text-muted" {
+                    "Untick to keep logic only a stack's first copy needs."
+                }
             }
         }
     }
@@ -2827,12 +2450,8 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
         "/upload",
         &html! {
             div class="max-w-calm" {
-                h1 class={ (PAGE_TITLE) " mb-2" } { "Upload a build" }
-                p class="mb-6 max-w-prose text-muted" {
-                    "A Sponge " code { ".schem" } " file, yours or someone else's, a link from "
-                    code { "//download" } " on OpenRedstone, or a file from your Schemati. "
-                    "Next you'll see what the site reads from it, and describe it."
-                }
+                h1 class={ (PAGE_TITLE) " mb-6" } { "Upload a build" }
+
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
                     (file_fields(None, true, connection))
@@ -2853,19 +2472,11 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
 fn schemati_guide() -> Markup {
     html! {
         section aria-labelledby="schemati-heading" class="mb-10 max-w-prose leading-prose" {
-            h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-3" } { "From the Open Redstone Engineers server" }
+            h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-3" } { "From Open Redstone" }
             ol class="flex list-decimal flex-col gap-1.5 pl-5" {
-                li {
-                    "Select the whole build with WorldEdit: " code { "//wand" }
-                    ", then left-click one corner and right-click the opposite one."
-                }
-                li { code { "//copy" } }
-                li { code { "//save <name>" } ", which keeps it in Schemati." }
-                li {
-                    code { "//download <name>" } ". Click the link it prints in chat and choose "
-                    strong { "Copy to Clipboard" } "."
-                }
-                li { "Paste the link into the Schemati link box above. It works for seven days." }
+                li { "Select the build with " code { "//wand" } " and " code { "//copy" } " it." }
+                li { code { "//save <name>" } ", then " code { "//download <name>" } " and copy the link." }
+                li { "Paste it above, or pick the file from your Schemati." }
             }
         }
     }
@@ -2967,11 +2578,9 @@ fn marking_guide() -> Markup {
                 }
             }
             ul class="mt-4 flex max-w-prose list-disc flex-col gap-1.5 pl-5" {
-                li { "Each colour is one bus. A sign on any of its blocks names it, such as addend, low, or high; unnamed, inputs are A to D and outputs 1 to 3." }
-                li { "A bus counts up from the bit nearest the south-east bottom corner." }
-                li { "A lever touches nothing but its input block. Save inputs off, or on for an inverted input." }
-                li { "Corner markers aren't needed; the box is trimmed to the build." }
-                li { "A build with its own layout, such as a display, can skip all this: tick “follows its own layout” on the next page." }
+                li { "Each colour is one bus, counting up from the south-east bottom corner. A sign names it." }
+                li { "A lever touches only its input block. Save inputs off." }
+                li { "A build with its own layout, such as a display, skips this: tick “follows its own layout”." }
             }
         }
     }

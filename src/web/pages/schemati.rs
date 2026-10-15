@@ -33,9 +33,7 @@ pub fn schemati(
             div class="max-w-calm" {
                 h1 class={ (PAGE_TITLE) " mb-2" } { "Your Schemati" }
                 p class="mb-6 max-w-prose text-muted" {
-                    "Schemati keeps what you " code { "//save" } " on the Open Redstone Engineers server. "
-                    "Here you can download those files, publish them, rename and delete them, and add files, "
-                    "such as a build sent from its page here, to load in game with " code { "//load <file>" } "."
+                    "What you " code { "//save" } " on Open Redstone. Files added here load in game with " code { "//load <file>" } "."
                 }
                 (schemati_folder(connection, done, refused))
             }
@@ -91,7 +89,7 @@ pub(super) fn own_file_field(
                         }
                     }
                     span id="own-schemati-help" class=(help) {
-                        "The folder of " (folder.player) ", as " code { "//save" } " left it. A file or link above is taken first."
+                        (folder.player) "'s folder. A file or link above wins."
                     }
                 }
             }

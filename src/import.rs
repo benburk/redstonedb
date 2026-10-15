@@ -346,6 +346,30 @@ pub fn derived_flags(
     )
 }
 
+/// Names a build's lone unsigned control and status lines for what its
+/// `category` makes them, as the simulator does: an adder's magenta line
+/// is its carry in and its pink line its carry out, so they show as such
+/// rather than as unnamed.
+pub fn name_carry_lines(category: &str, interface: &mut Interface) {
+    if !FLAGS_FROM_FILE.contains(&category) {
+        return;
+    }
+    for (ports, colour, name) in [
+        (&mut interface.inputs, lint::CONTROL, lint::CARRY_IN[0]),
+        (&mut interface.outputs, lint::STATUS, lint::CARRY_OUT[0]),
+    ] {
+        let mut lines = ports
+            .iter_mut()
+            .filter(|port| port.block.starts_with(colour));
+        if let (Some(line), None) = (lines.next(), lines.next())
+            && !line.labelled
+            && line.bits.len() == 1
+        {
+            name.clone_into(&mut line.name);
+        }
+    }
+}
+
 /// The width and orientation the inputs suggest: the widest operand's bit
 /// count, four for each block of a signal-strength input, and which way its
 /// bits run. `None` where the inputs say nothing.

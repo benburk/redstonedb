@@ -45,6 +45,8 @@
   --color-brand: light-dark(oklch(50% 0.19 250), oklch(72% 0.14 250));
   --color-on-brand: light-dark(oklch(100% 0 0), oklch(16% 0.01 250));
   --color-danger: light-dark(oklch(49% 0.19 25), oklch(72% 0.15 25));
+  /* A yes on a build's flags, and a passing simulation. */
+  --color-success: light-dark(oklch(50% 0.13 150), oklch(74% 0.15 150));
   --color-on-danger: light-dark(oklch(100% 0 0), oklch(16% 0.01 250));
 
   /* One tint per tag category, so a badge's kind reads from its colour. */

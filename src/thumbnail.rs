@@ -380,8 +380,8 @@ fn cube_color(name: &str) -> Rgba {
     }
 }
 
-/// Minecraft's concrete colours.
-fn dye_color(dye: &str) -> Rgba {
+/// Minecraft's concrete colours, by dye, such as `light_blue`.
+pub fn dye_color(dye: &str) -> Rgba {
     match dye {
         "white" => [207, 213, 214, 255],
         "orange" => [224, 97, 1, 255],
