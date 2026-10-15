@@ -1,27 +1,30 @@
 //! Copies of a stackable build joined into one schematic, as a player
 //! stacks it in game:
 //!
-//! 1. Break the parts only the first copy keeps: gray blocks and what rests
-//!    on them, such as logic the least significant bit alone needs or a
-//!    barrel giving the strength it alone takes; the inputs the copy before
-//!    feeds, such as a carry in; and the data inputs and outputs that would
-//!    land in the copy before, whose buses run on through it; each with its
-//!    levers, signs, and the dust on it. See `first_copy_only` and
-//!    `shared_inputs`.
+//! 1. Break the parts only the first copy keeps, each with its levers,
+//!    signs, and the dust on it: gray blocks and what rests on them, such
+//!    as logic the least significant bit alone needs or a barrel giving
+//!    the strength it alone takes; the inputs the copy before feeds, such
+//!    as a carry in; and for copies across a register's bits, which share
+//!    its data buses, its data levers, and the data blocks that would land
+//!    on a block of the copy before. See `first_copy`.
 //! 2. `//rstack` what is left: copy 0 sits at the south-east-bottom corner
 //!    and each later copy one step further along, pasted over the copies
 //!    before it, so copies may overlap, and where they do, the later
 //!    copy's block stands, though air never replaces anything and dust
 //!    that meets joins. A build may rely on that, as a carry out capping
 //!    one copy is covered by the next.
-//! 3. Put the parts from step 1 back on the first copy.
+//! 3. Put the parts from step 1 back on the first copy, into air only, as
+//!    `//gmask air` and `//paste -a` do, so a later copy's block stands
+//!    over them too.
 //! 4. Turn every copy's labelled outputs and status lines but the last
 //!    copy's white, signed or not, and take off their signs, since the
-//!    next copy takes them over.
+//!    next copy takes them over; and a later copy's data blocks on a shared
+//!    bus, which are plain blocks without their levers.
 //!
-//! A later copy's solid block on a different solid block of the copy
-//! before, one of them an input or output, means the step is wrong, and is
-//! refused. Several directions stack one after another.
+//! Where two copies hold different blocks, `review` says so, and finds the
+//! shortest step at which they do not. Several directions stack one after
+//! another.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -44,8 +47,9 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 const WHITE: &str = "minecraft:white_concrete";
 
 /// The categories whose copies, stacked across their bits, share their
-/// data buses: more registers on one data bus, rather than more bits.
-pub const SHARED_BUSES: [&str; 1] = ["register"];
+/// data buses: more registers or words on one data bus, rather than more
+/// bits.
+pub const SHARED_BUSES: [&str; 2] = ["register", "ram"];
 
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
@@ -180,15 +184,15 @@ fn along(
     let left_out = first_copy(&blocks, step, shared).all;
     let outputs = labelled_outputs(&blocks);
 
-    // As in game: the parts only the first copy keeps are broken, the rest
-    // stacked as `//rstack` stacks it, and the parts put back on the first
-    // copy, over anything a later copy put there.
+    // As in game: the first copy whole, then each later copy without the
+    // parts only the first keeps, over the copies before, where its block
+    // stands.
     let mut grid: HashMap<Pos, String> = HashMap::new();
     for i in 0..=last {
         let final_copy = i == last;
         for (pos, state) in blocks.iter() {
             if state == AIR
-                || left_out.contains(&pos)
+                || (i > 0 && left_out.contains(&pos))
                 || (!final_copy && outputs.signs.contains(&pos))
             {
                 continue;
@@ -200,33 +204,18 @@ fn along(
             place(&mut grid, add(pos, shift(i)), state);
         }
     }
-    for (pos, state) in blocks.iter() {
-        if state != AIR
-            && left_out.contains(&pos)
-            && !(last > 0 && outputs.signs.contains(&pos))
-        {
-            let state = if last > 0 && outputs.blocks.contains(&pos) {
-                WHITE
-            } else {
-                state
-            };
-            place(&mut grid, add(pos, shift(0)), state);
-        }
-    }
 
     let mut nbt = schem::decode(data)?;
     let entities = nbt.take_entities();
     // Where copies overlap, a later copy's entity stands, as its block
     // does, and one whose block a later copy covered goes with it.
     let mut placed: HashMap<Pos, (String, fastnbt::Value)> = HashMap::new();
-    // Every copy without the first copy's own parts, then those put back.
-    let passes = (0..=last).map(|i| (i, false)).chain([(0, true)]);
-    for (i, restoring) in passes {
+    for i in 0..=last {
         for entity in &entities {
             let Some(pos) = schem::entity_pos(entity) else {
                 continue;
             };
-            let dropped = left_out.contains(&pos) != restoring
+            let dropped = (i > 0 && left_out.contains(&pos))
                 || (i != last && outputs.signs.contains(&pos));
             if !dropped {
                 let to = add(pos, shift(i));
@@ -267,6 +256,10 @@ pub struct Review {
     pub disagreements: Vec<Disagreement>,
     /// Why two copies do not make a build of the same shape, if not.
     pub shape: Option<String>,
+    /// When copies this far apart disagree, the shortest step the same way
+    /// at which they do not, if any, as trying `//rstack` at each would
+    /// find.
+    pub better: Option<i64>,
 }
 
 /// A spot where two copies overlap with different blocks, in the copy
@@ -291,11 +284,54 @@ pub fn review(
     let disagreements = disagreements(&blocks, step, &first_copy);
     let along = along_bits(buses.orientation, direction);
     let shape = shape(data, &blocks, direction, along, shared)?;
+    let better = if disagreements.is_empty() {
+        None
+    } else {
+        agreeing(&blocks, direction, shared)
+    };
     Ok(Review {
         direction,
         first_copy,
         disagreements,
         shape,
+        better,
+    })
+}
+
+/// The shortest step `direction`'s way, short of the build's length that
+/// way, at which two copies overlap and hold no different blocks anywhere
+/// they do.
+fn agreeing(
+    blocks: &Blocks,
+    direction: StackDirection,
+    shared: bool,
+) -> Option<i64> {
+    let (low, high) = interface::core(blocks);
+    let [width, height, length] =
+        [0, 1, 2].map(|axis| i64::from(high[axis] - low[axis] + 1));
+    let reach = [
+        (direction.west > 0, width),
+        (direction.up > 0, height),
+        (direction.north > 0, length),
+    ]
+    .into_iter()
+    .filter(|&(along, _)| along)
+    .map(|(_, extent)| extent)
+    .min()?;
+    // Copies a whole length apart do not overlap, so agree trivially.
+    (1..reach).find(|&n| {
+        let at = |part: i64| if part > 0 { n } else { 0 };
+        let candidate = StackDirection {
+            west: at(direction.west),
+            up: at(direction.up),
+            north: at(direction.north),
+            max_copies: None,
+        };
+        let Ok(step) = step_of(candidate) else {
+            return false;
+        };
+        disagreements(blocks, step, &first_copy(blocks, step, shared))
+            .is_empty()
     })
 }
 
@@ -487,10 +523,6 @@ fn shared_inputs(
     let in_core = |pos: Pos| {
         (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
     };
-    let (low_m, high_m) = interface::measured(blocks);
-    let in_measured = |pos: Pos| {
-        (0..3).all(|axis| (low_m[axis]..=high_m[axis]).contains(&pos[axis]))
-    };
     let within = |pos: Pos| {
         (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
     };
@@ -498,10 +530,7 @@ fn shared_inputs(
     for (pos, state) in blocks.iter() {
         let name = short(state);
         let landing = add(pos, step);
-        if shared
-            && bus(name)
-            && ((!in_measured(pos) && in_measured(landing))
-                || (within(landing) && blocks.get(landing) != AIR))
+        if shared && bus(name) && within(landing) && blocks.get(landing) != AIR
         {
             buses.push(pos);
         } else if (name == format!("{}_concrete", lint::CONTROL)
@@ -588,7 +617,8 @@ fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
     let mut levers = 0;
     if shared {
         for switch in blocks.switches() {
-            if bus(short(blocks.get(switch.block))) && all.insert(switch.pos) {
+            if bus(short(blocks.get(switch.block))) {
+                all.insert(switch.pos);
                 levers += 1;
             }
         }

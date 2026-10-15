@@ -93,8 +93,9 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
                     " copies, the count being the copies wanted less one."
                 }
                 li {
-                    "From the same spot, paste those parts back with " code { "//paste -a" } ": "
-                    a href=(download("first")) { "download them" } "."
+                    "From the same spot, paste those parts back into air only, with " code { "//gmask air" }
+                    " then " code { "//paste -a" } ", so the later copies' blocks stand: "
+                    a href=(download("first")) { "download them" } ". " code { "//gmask" } " turns the mask off again."
                 }
             }
             p class="text-meta text-muted" {
@@ -163,6 +164,13 @@ fn warnings(review: &Review) -> Markup {
                         li class="text-muted" { "and " (spots.len() - LISTED) " more" }
                     }
                 }
+            }
+        }
+        @if let Some(better) = review.better {
+            p class="rounded-control border border-line p-3" {
+                strong { "Step: " }
+                "copies " (better) " " (way(review.direction)) " apart hold the same blocks wherever they overlap. "
+                "If the build is meant to stack that way, the step may be " (better) "."
             }
         }
         @if let Some(shape) = &review.shape {
