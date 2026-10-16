@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use app::{
     import, interface, lint,
     models::schematic::{Encoding, Orientation},
+    orient,
     schem::{self, Blocks, Direction},
     simulate::{self, Report, Run, Stacking, Takes, Test},
     stack,
@@ -547,7 +548,7 @@ fn a_lever_saved_on_by_mistake_is_named() {
 #[test]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .blocks;
     let report = Test::Alu.run(&blocks);
@@ -596,7 +597,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
         std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .blocks;
     let Report::Ran(run) = Test::Alu.run(&blocks) else {
@@ -629,7 +630,7 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
 /// blocks.
 fn register(name: &str) -> (Vec<u8>, Blocks) {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .data;
     let blocks = Blocks::read(&data).unwrap();
@@ -930,7 +931,7 @@ fn a_register_with_wide_cells_stacks_at_its_width() {
 #[test]
 fn an_absolute_value_gives_each_inputs_magnitude() {
     let raw = std::fs::read("tests/fixtures/abs-8.schem").unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .data;
     let blocks = Blocks::read(&data).unwrap();
@@ -948,7 +949,7 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
 #[test]
 fn a_carry_out_gives_the_carry_of_every_sum() {
     let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .data;
     let blocks = Blocks::read(&data).unwrap();
@@ -974,7 +975,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
     // As an upload standardizes it, its blocks then all ones the
     // simulator models.
     let raw = std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .blocks;
     let read = interface::read(&blocks);
@@ -1002,7 +1003,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
 #[test]
 fn a_double_density_subtractor_takes_b_from_a() {
     let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .blocks;
     assert!(lint::check_for(&blocks, "subtractor").is_empty());
@@ -1025,4 +1026,64 @@ fn a_double_density_subtractor_takes_b_from_a() {
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "subtractor");
+}
+
+/// However a recognized build is turned or mirrored, an upload lays it
+/// back the standard way: A's levers on the south side, and its least
+/// significant bits where its test reads them, so it is known for what it
+/// is with every quick case right, and the subtractor gets every case
+/// right. It never turns a build upside down, so these are each turned
+/// about the vertical and mirrored east for west.
+#[test]
+fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
+    let fixtures = [
+        ("alpha-rca", "adder"),
+        ("dd-cca-sub-16", "subtractor"),
+        ("inc-8", "incrementer"),
+        ("alu-8-ops-raw", "alu"),
+    ];
+    let upload = |data: &[u8]| {
+        import::prepare(data, Some(Gray::Whiten), true, false, true).unwrap()
+    };
+    for (name, category) in fixtures {
+        let raw =
+            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+        let standard = upload(&raw);
+        assert!(
+            standard.turn.is_none(),
+            "{name} already lies the standard way"
+        );
+        for mirrored in [false, true] {
+            for quarters in 0..4 {
+                let turn = orient::Turn { mirrored, quarters };
+                let scrambled = orient::turned(&standard.data, turn).unwrap();
+                let blocks = upload(&scrambled).blocks;
+                let broken: Vec<String> = lint::check(&blocks)
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+                assert!(broken.is_empty(), "{name} {turn:?}: {broken:?}");
+                let guess = simulate::guess(&blocks).unwrap();
+                assert_eq!(
+                    (guess.category, guess.wrong),
+                    (category, 0),
+                    "{name} {turn:?}"
+                );
+            }
+        }
+    }
+    // A hex adder's dust may be entered from any side, so nothing turns it.
+    let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+    assert!(upload(&raw).turn.is_none());
+    // Mirrored, its bits would count from the top of the wrong column.
+    let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
+    let mirrored = orient::Turn {
+        mirrored: true,
+        quarters: 0,
+    };
+    let scrambled = orient::turned(&upload(&raw).data, mirrored).unwrap();
+    let laid = upload(&scrambled);
+    assert_eq!(laid.turn, mirrored);
+    assert!(laid.turn.words().starts_with("Mirrored"));
+    assert!(Test::Subtractor.run(&laid.blocks).passed());
 }

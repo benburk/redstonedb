@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     category,
     interface::{self, Interface},
+    lint,
     schem::Blocks,
 };
 
@@ -181,7 +182,7 @@ impl Test {
     /// ones, quick enough for a guess at what a build is.
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
         match self {
-            Test::Alu => alu::check(blocks),
+            Test::Alu => alu::check(blocks, quick),
             Test::Register => register::check(blocks, quick),
             _ => {
                 let mut interface = interface::read(blocks);
@@ -373,9 +374,19 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::Register,
         Test::AbsoluteValue,
         Test::CarryOut,
+        Test::Alu,
     ];
+    // An ALU's lines are tried only when their signs name operations, as
+    // any build with a control line might otherwise pass for one.
+    let names_ops = interface::read(blocks)
+        .inputs
+        .iter()
+        .filter(|port| port.block.starts_with(lint::CONTROL))
+        .flat_map(|port| port.words.iter())
+        .any(|word| alu::op(word).is_some());
     tried
         .into_iter()
+        .filter(|&test| test != Test::Alu || names_ops)
         .filter_map(|test| {
             let run = if test == Test::Incrementer {
                 let interface = interface::read(blocks);

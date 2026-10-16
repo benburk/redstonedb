@@ -40,7 +40,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
 - The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
-- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. The other operands' levers may be on any side, north, south, east, or west, but not on top or underneath.
+- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. Standardizing an upload turns the build about the vertical so they are, wherever they started. The other operands' levers may be on any side, north, south, east, or west, but not on top or underneath.
 
 ### Signal-strength inputs
 
@@ -94,6 +94,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 
 - Each bus's least significant bit is the bit nearest the south-east-bottom corner of the bounding box. The other bits count up from it along the way the bus runs, the axis its bits spread furthest along, and two bits level along it count from the nearer.
 - So a horizontal bus counts up from its east end, and a vertical bus from its bottom, even when its bits zig-zag between columns, as a double density adder's alternate from one layer to the next.
+- Standardizing an upload mirrors it east for west, which keeps A's levers south, when the mirrored build gets more of the quick cases of what it seems to be right, such as an adder, subtractor, or ALU whose least significant bits sit at its west end. It never turns a build upside down, which redstone does not survive.
 - A bus that counts the other way says so with a sign reading `lsb` on its least significant end, or `msb` on its most significant one. Either word alone on a line is a mark, not a name, and belongs on an end of the bus. One such sign orders every bus running alongside it that has none of its own, so a build whose least significant bits all sit at the top needs only one bus signed.
 
 ## Stacking

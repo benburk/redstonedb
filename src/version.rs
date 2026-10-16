@@ -149,8 +149,13 @@ pub async fn check(
     file: &[u8],
     standardize: Option<Gray>,
 ) -> anyhow::Result<Checked> {
-    let prepared =
-        import::prepare(file, standardize, s.conventional, s.keeps_paste)?;
+    let prepared = import::prepare(
+        file,
+        standardize,
+        s.conventional,
+        s.keeps_paste,
+        false,
+    )?;
     let current = version::current_file(db, &s.id).await?.unwrap_or_default();
     let current = Blocks::read(&current)?;
     let comparison = compare(&current, &prepared.blocks);

@@ -26,7 +26,7 @@ async fn setup_test_db() -> SqlitePool {
 fn adder() -> Vec<u8> {
     let raw = std::fs::read("tests/fixtures/alpha-rca.schem")
         .expect("fixture is readable");
-    import::prepare(&raw, None, true, false)
+    import::prepare(&raw, None, true, false, false)
         .expect("fixture prepares")
         .data
 }

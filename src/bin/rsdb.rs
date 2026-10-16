@@ -233,7 +233,9 @@ struct Replace {
 #[derive(Args)]
 struct Standardizing {
     /// Whiten every block but redstone components, inputs, and outputs,
-    /// and turn slabs and glass into white stained glass, before linting
+    /// and turn slabs and glass into white stained glass, before linting;
+    /// adding also turns the build so A's levers face south, and mirrors it
+    /// when that reads right as what it seems to be
     #[arg(long)]
     standardize: bool,
     /// Keep gray blocks when standardizing, marking logic only a stack's
@@ -641,11 +643,13 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let data = fs::read(file)
         .with_context(|| format!("cannot read {}", file.display()))?;
     let conventional = args.details.conventional.unwrap_or(true);
+    let standardize = args.standardizing.asked();
     let prepared = import::prepare(
         &data,
-        args.standardizing.asked(),
+        standardize,
         conventional,
         args.keep_paste,
+        standardize.is_some(),
     )
     .with_context(|| file.display().to_string())?;
     let mut details = Details {
@@ -856,8 +860,13 @@ async fn refile(
     file: &[u8],
     standardize: Option<Gray>,
 ) -> Result<()> {
-    let prepared =
-        import::prepare(file, standardize, s.conventional, s.keeps_paste)?;
+    let prepared = import::prepare(
+        file,
+        standardize,
+        s.conventional,
+        s.keeps_paste,
+        false,
+    )?;
     let facts = &prepared.facts;
     let stored = (
         s.torches,
@@ -971,7 +980,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
             .context("schematic vanished")?;
         (data, load(db, &id).await?.category)
     };
-    let prepared = import::prepare(&data, None, true, true)?;
+    let prepared = import::prepare(&data, None, true, true, false)?;
     let violations = Analysis::of(&prepared.blocks, &category, true).violations;
     for violation in &violations {
         println!("{violation}");

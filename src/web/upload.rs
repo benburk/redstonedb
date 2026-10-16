@@ -223,13 +223,15 @@ pub async fn preview(
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let prepared = match import::prepare(&file, standardize, true, keep_paste) {
-        Ok(prepared) => prepared,
-        Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
-            return upload_page(&state, &user, &message).await;
-        }
-    };
+    let orient = standardize.is_some();
+    let prepared =
+        match import::prepare(&file, standardize, true, keep_paste, orient) {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                let message = format!("Could not read that file: {err:#}.");
+                return upload_page(&state, &user, &message).await;
+            }
+        };
     // What it seems to be starts the category and design.
     let guess = guessed(&prepared.data).await;
     let form = Form::suggested(
@@ -294,14 +296,15 @@ pub async fn publish(
     } else {
         data
     };
-    let prepared = match import::prepare(&data, None, conventional, keep_paste)
-    {
-        Ok(prepared) => prepared,
-        Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
-            return upload_page(&state, &user, &message).await;
-        }
-    };
+    // The preview's file already lies the standard way.
+    let prepared =
+        match import::prepare(&data, None, conventional, keep_paste, false) {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                let message = format!("Could not read that file: {err:#}.");
+                return upload_page(&state, &user, &message).await;
+            }
+        };
     if posted.choosing() {
         return chosen_instead(&state, &user, &mut posted, prepared, &mut form)
             .await;
@@ -348,6 +351,7 @@ async fn chosen_instead(
             chosen.standardize,
             current.conventional,
             chosen.keep_paste,
+            chosen.standardize.is_some(),
         )
         .map_err(|err| format!("Could not read that file: {err:#}."))
     });
@@ -462,6 +466,7 @@ async fn show_preview(
         keep_paste: prepared.keeps_paste,
         unconventional: !prepared.conventional,
         swapped: &prepared.swapped,
+        turn: prepared.turn,
         guess: said.guess,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
     };

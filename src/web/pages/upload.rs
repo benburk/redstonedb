@@ -52,7 +52,8 @@ pub(super) fn file_fields(
             span {
                 "Standardize it"
                 span class="block text-meta text-muted" {
-                    "Turns every block that isn't redstone, an input, or an output white. Glass, slabs, and stairs become white stained glass."
+                    "Turns every block that isn't redstone, an input, or an output white. Glass, slabs, and stairs become white stained glass. "
+                    "Turns the build so A's levers face south, and mirrors it when that's what makes it read right as what it seems to be, such as an adder with its lowest bit at its west end."
                 }
             }
         }

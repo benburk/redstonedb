@@ -10,6 +10,7 @@ use maud::{Markup, html};
 use crate::{
     import::Analysis,
     models::{schematic::Schematic, user::User},
+    orient::Turn,
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
@@ -49,6 +50,8 @@ pub enum File<'a> {
         /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
         /// with how many.
         swapped: &'a [(String, usize)],
+        /// How it was turned and mirrored to lie the standard way.
+        turn: Turn,
         /// How many hoppers it has, kept unless the uploader asks to swap
         /// them.
         hoppers: usize,
@@ -218,6 +221,14 @@ fn swap_checks(page: &DetailsPage) -> Markup {
                 (grouped(guess.cases - guess.wrong)) " of " (grouped(guess.cases))
                 " quick cases, so its category starts as that. Change it if it's something else."
             }, false))
+        }
+        @if let File::Upload { turn, .. } = &page.file {
+            @if !turn.is_none() {
+                (check("turned", State::Pass, &html! {
+                    (turn.words())
+                    " so A is entered from the south and its least significant bits sit at the south-east-bottom corner."
+                }, false))
+            }
         }
         @if let File::Upload { swapped, .. } = &page.file {
             @if !swapped.is_empty() {

@@ -729,7 +729,7 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
         .iter()
         .find(|(_, state)| state.starts_with("minecraft:furnace"))
         .unwrap();
-    let prepared = import::prepare(&data, None, true, false).unwrap();
+    let prepared = import::prepare(&data, None, true, false, false).unwrap();
     assert_eq!(prepared.swapped, [("furnace".to_owned(), 36)]);
     let after = &prepared.blocks;
     assert!(after.iter().all(|(_, state)| !state.contains("furnace")));
@@ -1054,8 +1054,14 @@ fn an_incrementers_unsigned_line_is_its_increment() {
 fn signs_written_as_text_components_are_read_and_written_plain() {
     let raw = raw("alu-8-extra-signs");
     for standardized in [None, Some(Gray::Whiten)] {
-        let prepared =
-            import::prepare(&raw, standardized, true, false).unwrap();
+        let prepared = import::prepare(
+            &raw,
+            standardized,
+            true,
+            false,
+            standardized.is_some(),
+        )
+        .unwrap();
         // Unstandardized, its own blocks break the palette, but no line
         // lacks a sign.
         let violations =

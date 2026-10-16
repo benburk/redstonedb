@@ -14,6 +14,7 @@ use crate::{
     lint::{self, Violation},
     models::schematic::{self, Encoding, New, Orientation},
     models::version,
+    orient::{self, Turn},
     schem::{self, Blocks, Size},
     standardize::{self, Gray},
     works_from::{self, WorksFrom},
@@ -34,6 +35,8 @@ pub struct Prepared {
     pub facts: FileFacts,
     /// The cauldrons and cakes swapped for barrels, by kind, with how many.
     pub swapped: Vec<(String, usize)>,
+    /// How it was turned and mirrored to lie the standard way.
+    pub turn: Turn,
 }
 
 /// The one way a file becomes the file the site keeps, whether uploaded,
@@ -43,13 +46,16 @@ pub struct Prepared {
 /// tightly; turns a conventional build's status lines pink, as older builds
 /// marked them on yellow; and sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
-/// uploader's `//paste` put it. Then measures it, reads its facts, and
-/// hashes it.
+/// uploader's `//paste` put it. With `orient`, a conventional build is first
+/// turned and mirrored to lie the standard way, as `orient::orient` does; a
+/// new version is not, as it is compared block by block with the one
+/// before. Then measures it, reads its facts, and hashes it.
 pub fn prepare(
     data: &[u8],
     standardize: Option<Gray>,
     conventional: bool,
     keep_paste: bool,
+    orient: bool,
 ) -> Result<Prepared> {
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
     let data = standardize::barrels(data, &[])?;
@@ -63,6 +69,11 @@ pub fn prepare(
         standardize::pink_status(&data)?
     } else {
         data
+    };
+    let (data, turn) = if conventional && orient {
+        orient::orient(&data)?
+    } else {
+        (data, Turn::default())
     };
     let data = if keep_paste {
         data
@@ -81,6 +92,7 @@ pub fn prepare(
         size,
         sha256,
         swapped,
+        turn,
     })
 }
 

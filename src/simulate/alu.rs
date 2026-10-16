@@ -256,14 +256,15 @@ fn selections(
 }
 
 /// Runs an ALU through every operation its signs name, and any other its
-/// control lines are found to give, and checks every result.
-pub fn check(blocks: &Blocks) -> Result<Run> {
+/// control lines are found to give, and checks every result, or with
+/// `quick` a few telling ones of each.
+pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     let interface = crate::interface::read(blocks);
     let alu = ports(&interface)?;
     let found = selections(blocks, &interface, &alu)?;
     let mut runs = Vec::new();
     for selection in &found {
-        runs.push(check_one(blocks, &interface, &alu, selection)?);
+        runs.push(check_one(blocks, &interface, &alu, selection, quick)?);
     }
     let mut merged = runs.remove(0);
     for run in runs {
@@ -282,12 +283,14 @@ pub fn check(blocks: &Blocks) -> Result<Run> {
 type Status = (usize, bool, fn(&str, u64, u64, u64, usize) -> bool);
 
 /// Checks one operation on every case, or on each byte's every case and
-/// the test patterns when there are too many.
+/// the test patterns when there are too many, or with `quick` on a few
+/// telling ones.
 fn check_one(
     blocks: &Blocks,
     interface: &Interface,
     alu: &Alu,
     selection: &Selection,
+    quick: bool,
 ) -> Result<Run> {
     let op = selection.op;
     let width = alu.width;
@@ -334,8 +337,13 @@ fn check_one(
     } else {
         vec![width, width]
     };
-    let (cases, exhaustive, patterns) =
-        cases(&widths, || adder_cases(width, carry, 8));
+    let (cases, exhaustive, patterns) = if quick {
+        let (telling, _) = paired(&widths);
+        let count = telling.len() as u64;
+        (telling, false, count)
+    } else {
+        cases(&widths, || adder_cases(width, carry, 8))
+    };
     let data_bits = alu.data_bits;
     let expected = |case: &Case| {
         let result = apply(op, case[0], case[1], case[2], width) & mask(width);

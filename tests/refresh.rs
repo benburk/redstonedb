@@ -33,8 +33,8 @@ async fn setup_test_db() -> SqlitePool {
 async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
-    let prepared =
-        import::prepare(&raw, None, true, false).expect("fixture prepares");
+    let prepared = import::prepare(&raw, None, true, false, false)
+        .expect("fixture prepares");
     let ready = details::check(db, details, Build::of(&prepared), false)
         .await
         .expect("the database answers")
