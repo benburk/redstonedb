@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Path, State},
-    http::{StatusCode, header},
+    http::header,
     response::{IntoResponse, Response},
 };
 
-use crate::{app_state::AppState, head};
+use crate::{app_state::AppState, error::AppError, head};
 
 /// How long a fetched head is kept before Mojang is asked again.
 const KEPT: Duration = Duration::from_hours(6);
@@ -18,13 +18,13 @@ const KEPT: Duration = Duration::from_hours(6);
 pub async fn show(
     Path(uuid): Path<String>,
     State(state): State<AppState>,
-) -> Response {
+) -> Result<Response, AppError> {
     let plain = uuid.len() == 32
         && uuid
             .chars()
             .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
     if !plain {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(AppError::NotFound);
     }
     let kept = {
         let heads = state
@@ -49,11 +49,11 @@ pub async fn show(
             }
             Err(err) => {
                 tracing::warn!("no head for {uuid}: {err}");
-                return StatusCode::NOT_FOUND.into_response();
+                return Err(AppError::NotFound);
             }
         },
     };
-    (
+    Ok((
         [
             (header::CONTENT_TYPE, "image/png"),
             // Skins change rarely; a day's delay is fine.
@@ -61,5 +61,5 @@ pub async fn show(
         ],
         png,
     )
-        .into_response()
+        .into_response())
 }

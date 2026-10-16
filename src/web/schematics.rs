@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::HashMap};
 
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
-    http::{Method, StatusCode, header},
+    http::{Method, header},
     response::{IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -11,8 +11,11 @@ use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
-    extractors::fixi::Fixi,
+    error::AppError,
+    extractors::{
+        fixi::Fixi,
+        session::{Admin, SignedIn},
+    },
     import,
     interface::{self, Interface},
     lint,
@@ -69,23 +72,15 @@ pub async fn list(
     State(state): State<AppState>,
     RawQuery(raw): RawQuery,
     user_opt: Option<User>,
-) -> Response {
+) -> Result<Response, AppError> {
     let query = ListQuery::read(raw.as_deref());
     let view = match query.view.as_str() {
         "list" => pages::View::List,
         _ => pages::View::Cards,
     };
     let terms = search::parse(&query.q);
-    let loaded = async {
-        Ok::<_, sqlx::Error>((
-            schematic::all(&state.db).await?,
-            schematic::categories(&state.db).await?,
-        ))
-    };
-    let (all, categories) = match loaded.await {
-        Ok(loaded) => loaded,
-        Err(err) => return internal_error(err).into_response(),
-    };
+    let all = schematic::all(&state.db).await?;
+    let categories = schematic::categories(&state.db).await?;
     let total = all.len();
     let found: Vec<Schematic> = search::matching(&terms, all)
         .into_iter()
@@ -102,7 +97,7 @@ pub async fn list(
             .collect()
     };
     order(&mut shown, &query.sort);
-    pages::schematics(
+    Ok(pages::schematics(
         user_opt.as_ref(),
         &pages::Listing {
             shown: &shown,
@@ -117,7 +112,7 @@ pub async fn list(
             facets: &facets,
         },
     )
-    .into_response()
+    .into_response())
 }
 
 /// Whether `s` carries a tag from every group, a group being one `tag`
@@ -220,23 +215,19 @@ fn facets(
 pub async fn thumbnail(
     Path(id): Path<String>,
     State(state): State<AppState>,
-) -> Response {
-    let data = match schematic::data(&state.db, &id).await {
-        Ok(Some(data)) => data,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(err) => return internal_error(err).into_response(),
-    };
-    match Blocks::read(&data).and_then(|blocks| thumbnail::render(&blocks)) {
-        Ok(png) => (
-            [
-                (header::CONTENT_TYPE, "image/png"),
-                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-            ],
-            png,
-        )
-            .into_response(),
-        Err(err) => internal_error(&*err).into_response(),
-    }
+) -> Result<Response, AppError> {
+    let data = schematic::data(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let png = thumbnail::render(&Blocks::read(&data)?)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        png,
+    )
+        .into_response())
 }
 
 /// The builds build `id` is similar to, with how alike.
@@ -265,50 +256,31 @@ pub async fn detail(
     user_opt: Option<User>,
     Fixi(fixi): Fixi,
     Query(Panel { panel }): Query<Panel>,
-) -> Response {
-    let s = match schematic::get(&state.db, &id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return super::not_found(user_opt.as_ref()),
-        Err(err) => return internal_error(err).into_response(),
-    };
-    let analysis = match schematic::data(&state.db, &id).await {
-        Ok(data) => {
-            let data = data.unwrap_or_default();
-            analyse(&data, &s.category).map(|mut analysis| {
-                analysis.stacking = s
-                    .stacking
-                    .iter()
-                    .filter_map(|&direction| {
-                        stack::review(
-                            &data,
-                            direction,
-                            stack::Buses::of(&s.category, &s.orientation),
-                        )
-                        .ok()
-                    })
-                    .collect();
-                analysis
+) -> Result<Response, AppError> {
+    let s = schematic::get(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let data = schematic::data(&state.db, &id).await?.unwrap_or_default();
+    let analysis = analyse(&data, &s.category).map(|mut analysis| {
+        analysis.stacking = s
+            .stacking
+            .iter()
+            .filter_map(|&direction| {
+                stack::review(
+                    &data,
+                    direction,
+                    stack::Buses::of(&s.category, &s.orientation),
+                )
+                .ok()
             })
-        }
-        Err(err) => return internal_error(err).into_response(),
-    };
-    let simulation = match simulation::status(&state.db, &s).await {
-        Ok(status) => status,
-        Err(err) => return internal_error(&*err).into_response(),
-    };
-    let versions = match version::list(&state.db, &id).await {
-        Ok(versions) => versions,
-        Err(err) => return internal_error(err).into_response(),
-    };
-    let similar = match similar_to(&state.db, &id).await {
-        Ok(similar) => similar,
-        Err(err) => return internal_error(&*err).into_response(),
-    };
-    let flags = match schematic::flags(&state.db).await {
-        Ok(flags) => flags,
-        Err(err) => return internal_error(err).into_response(),
-    };
-    let flags: Vec<_> = flags
+            .collect();
+        analysis
+    });
+    let simulation = simulation::status(&state.db, &s).await?;
+    let versions = version::list(&state.db, &id).await?;
+    let similar = similar_to(&state.db, &id).await?;
+    let flags: Vec<_> = schematic::flags(&state.db)
+        .await?
         .into_iter()
         .filter(|flag| flag.category == s.category)
         .collect();
@@ -319,7 +291,7 @@ pub async fn detail(
             None
         }
     };
-    match panel.as_deref().filter(|_| fixi) {
+    Ok(match panel.as_deref().filter(|_| fixi) {
         Some("banner") => {
             let simulating =
                 matches!(simulation, simulation::Status::Pending(None));
@@ -339,7 +311,7 @@ pub async fn detail(
             &versions,
         )
         .into_response(),
-    }
+    })
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -347,31 +319,24 @@ pub async fn detail(
 pub async fn edit(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    let user = match editor(&state.db, user_opt, &id).await {
-        Ok(user) => user,
-        Err(response) => return response,
-    };
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let user = editor(&state.db, user, &id).await?;
     show_edit(&state.db, &user, &id, None, "", None, None).await
 }
 
-/// The account editing build `id`, or the answer when it may not: a login
-/// for no account, a 404 for no build, and a 403 for an account that is
-/// neither a mod nor one of its confirmed builders.
+/// `user`, when they may edit build `id`: a mod, or one of its confirmed
+/// builders. A 404 for no build, and a 403 for anyone else.
 pub(super) async fn editor(
     db: &SqlitePool,
-    user_opt: Option<User>,
+    user: User,
     id: &str,
-) -> Result<User, Response> {
-    let Some(user) = user_opt else {
-        return Err(Redirect::to("/sessions/new").into_response());
-    };
-    match schematic::get(db, id).await {
-        Ok(Some(s)) if user.may_edit(&s) => Ok(user),
-        Ok(Some(_)) => Err(StatusCode::FORBIDDEN.into_response()),
-        Ok(None) => Err(super::not_found(Some(&user))),
-        Err(err) => Err(internal_error(err).into_response()),
+) -> Result<User, AppError> {
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    if user.may_edit(&s) {
+        Ok(user)
+    } else {
+        Err(AppError::Forbidden)
     }
 }
 
@@ -381,13 +346,10 @@ pub(super) async fn editor(
 pub async fn save(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     mut multipart: Multipart,
-) -> Response {
-    let user = match editor(&state.db, user_opt, &id).await {
-        Ok(user) => user,
-        Err(response) => return response,
-    };
+) -> Result<Response, AppError> {
+    let user = editor(&state.db, user, &id).await?;
     let db = &state.db;
     let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
@@ -399,11 +361,21 @@ pub async fn save(
     let form = details::Form::read(&posted.pairs);
     let note: String = posted.get("note").trim().chars().take(500).collect();
     // A new version, when the page carried one, is checked again first.
-    let checked =
-        match attached(db, &user, &id, &form, posted.get("data")).await {
-            Ok(checked) => checked,
-            Err(response) => return response,
-        };
+    let checked = match attached(db, &id, posted.get("data")).await? {
+        Ok(checked) => checked,
+        Err(message) => {
+            return show_edit(
+                db,
+                &user,
+                &id,
+                Some(&form),
+                "",
+                None,
+                Some(&message),
+            )
+            .await;
+        }
+    };
     if posted.choosing() {
         let chosen = match posted.fetch_own(db, &user).await {
             Ok(()) => chosen_version(db, &id, &posted).await,
@@ -433,11 +405,9 @@ pub async fn save(
         )
     } else {
         let new_data = checked.as_ref().map(|c| c.prepared.data.as_slice());
-        match saved(db, &id, &form, new_data, user.is_admin()).await {
-            Ok(Ok(())) => None,
-            Ok(Err(message)) => Some(message),
-            Err(err) => return internal_error(err).into_response(),
-        }
+        saved(db, &id, &form, new_data, user.is_admin())
+            .await?
+            .err()
     };
     if let Some(message) = refused {
         return show_edit(
@@ -461,15 +431,13 @@ pub async fn save(
             added_by: Some(user.id),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
         };
-        if let Err(err) = version::publish(db, &id, &new).await {
-            return internal_error(err).into_response();
-        }
+        version::publish(db, &id, &new).await?;
         tracing::info!(id, by = user.username, "new version");
     }
     // A new file, category, or width may call for a test, or another.
     simulation::refresh_soon(db, &id);
     similarity::refresh_soon(db);
-    Redirect::to(&format!("/schematics/{id}")).into_response()
+    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }
 
 /// The file newly chosen on build `id`'s edit page, checked as its next
@@ -491,36 +459,26 @@ async fn chosen_version(
 }
 
 /// The new version an edit page carried in `data`, base64, checked against
-/// build `id`; none for an empty `data`. A file that cannot be read sends
-/// the page back, with `form` as sent, to choose it again.
+/// build `id`; none for an empty `data`. The inner `Err` says the file
+/// cannot be read, for the page to ask for it again.
 async fn attached(
     db: &SqlitePool,
-    user: &User,
     id: &str,
-    form: &details::Form,
     data: &str,
-) -> Result<Option<Checked>, Response> {
+) -> Result<Result<Option<Checked>, String>, AppError> {
     if data.is_empty() {
-        return Ok(None);
+        return Ok(Ok(None));
     }
-    let checked = match (STANDARD.decode(data), schematic::get(db, id).await) {
-        (Ok(data), Ok(Some(s))) => check_version(db, &s, &data, None).await,
-        (Err(_), _) => Err(anyhow::anyhow!("it did not arrive whole")),
-        (_, Ok(None)) => return Err(super::not_found(Some(user))),
-        (_, Err(err)) => return Err(internal_error(err).into_response()),
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let checked = match STANDARD.decode(data) {
+        Ok(data) => check_version(db, &s, &data, None).await,
+        Err(_) => Err(anyhow::anyhow!("it did not arrive whole")),
     };
-    match checked {
-        Ok(checked) => Ok(Some(checked)),
-        Err(err) => {
-            let message = format!(
-                "Could not read the new version: {err:#}. Choose its file again."
-            );
-            Err(
-                show_edit(db, user, id, Some(form), "", None, Some(&message))
-                    .await,
-            )
-        }
-    }
+    Ok(checked.map(Some).map_err(|err| {
+        format!(
+            "Could not read the new version: {err:#}. Choose its file again."
+        )
+    }))
 }
 
 /// Deletes a build for good, with its tags, credits, and stacking; admins
@@ -528,18 +486,11 @@ async fn attached(
 pub async fn delete(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    let Some(admin) = user_opt.filter(User::is_admin) else {
-        return StatusCode::FORBIDDEN.into_response();
-    };
-    match schematic::delete(&state.db, &id).await {
-        Ok(()) => {
-            tracing::info!(id, by = admin.username, "deleted a build");
-            Redirect::to("/").into_response()
-        }
-        Err(err) => internal_error(err).into_response(),
-    }
+    Admin(admin): Admin,
+) -> Result<Response, AppError> {
+    schematic::delete(&state.db, &id).await?;
+    tracing::info!(id, by = admin.username, "deleted a build");
+    Ok(Redirect::to("/").into_response())
 }
 
 /// Checks and stores an edit, or says why it was refused.
@@ -646,23 +597,12 @@ pub(super) async fn show_edit(
     message: &str,
     new_file: Option<NewFile<'_>>,
     choosing: Option<&str>,
-) -> Response {
-    let loaded = async {
-        anyhow::Ok((
-            schematic::get(db, id).await?,
-            Choices::load(db).await?,
-            schematic::all_tags(db).await?,
-            schematic::data(db, id).await?.unwrap_or_default(),
-            version::list(db, id).await?,
-        ))
-    };
-    let (s, choices, tags, data, versions) = match loaded.await {
-        Ok((Some(s), choices, tags, data, versions)) => {
-            (s, choices, tags, data, versions)
-        }
-        Ok((None, ..)) => return super::not_found(Some(user)),
-        Err(err) => return internal_error(&*err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let choices = Choices::load(db).await?;
+    let tags = schematic::all_tags(db).await?;
+    let data = schematic::data(db, id).await?.unwrap_or_default();
+    let versions = version::list(db, id).await?;
     // What the page shows is the new file's, when one is waiting.
     let analysis = match &new_file {
         Some(new) => pages::Analysis {
@@ -700,14 +640,8 @@ pub(super) async fn show_edit(
     } else {
         import::Derived::default()
     };
-    let simulation = match simulation::current(db, &s).await {
-        Ok(simulation) => simulation,
-        Err(err) => return internal_error(&*err).into_response(),
-    };
-    let folder = match super::schemati::own_folder_quickly(db, user).await {
-        Ok(folder) => folder,
-        Err(err) => return internal_error(err).into_response(),
-    };
+    let simulation = simulation::current(db, &s).await?;
+    let folder = super::schemati::own_folder_quickly(db, user).await?;
     let stored = Stored::of(&s);
     let (fields, chosen_tags) = match sent {
         Some(form) => (form.fields(), form.tags.as_slice()),
@@ -731,7 +665,7 @@ pub(super) async fn show_edit(
             simulation: simulation.as_ref(),
         },
     };
-    pages::details_page(
+    Ok(pages::details_page(
         user,
         &DetailsPage {
             file,
@@ -747,7 +681,7 @@ pub(super) async fn show_edit(
             schemati: &super::schemati::connection(folder.as_ref()),
         },
     )
-    .into_response()
+    .into_response())
 }
 
 /// The build's inputs and outputs, named as `category` makes them, and
@@ -770,15 +704,12 @@ pub async fn download(
     State(state): State<AppState>,
     method: Method,
     Query(mut query): Query<HashMap<String, String>>,
-) -> Response {
+) -> Result<Response, AppError> {
     // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
     // request, is no download.
     let preview = query.remove("preview").is_some();
     let counted = !preview && method == Method::GET;
-    let (filename, data) = match export(&state.db, &id, query, counted).await {
-        Ok(exported) => exported,
-        Err(response) => return response,
-    };
+    let (filename, data) = export(&state.db, &id, query, counted).await?;
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {
@@ -786,28 +717,17 @@ pub async fn download(
     } else {
         data
     };
-    (
-        [
-            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{filename}\""),
-            ),
-        ],
-        data,
-    )
-        .into_response()
+    Ok(super::attachment(&filename, data))
 }
 
 /// Build `id`'s file as the download dialog's `query` asks, with its name,
-/// counted as a download if `counted`; or the response for why it cannot
-/// be had.
+/// counted as a download if `counted`.
 pub(super) async fn export(
     db: &SqlitePool,
     id: &str,
     mut query: HashMap<String, String>,
     counted: bool,
-) -> Result<(String, Vec<u8>), Response> {
+) -> Result<(String, Vec<u8>), AppError> {
     // `markers=yes` adds WorldEdit corner markers; the rest of the query
     // names copies per direction, such as `?west=7&north=3`.
     let markers = query.remove("markers").is_some_and(|v| v == "yes");
@@ -818,18 +738,8 @@ pub(super) async fn export(
     let part_direction = query.remove("direction");
     // One copy each way is the build itself.
     query.retain(|_, count| count != "1");
-    let found = match schematic::get(db, id).await {
-        Ok(found) => found,
-        Err(err) => return Err(internal_error(err).into_response()),
-    };
-    let Some(s) = found else {
-        return Err(StatusCode::NOT_FOUND.into_response());
-    };
-    let data = match schematic::data(db, id).await {
-        Ok(Some(data)) => data,
-        Ok(None) => return Err(StatusCode::NOT_FOUND.into_response()),
-        Err(err) => return Err(internal_error(err).into_response()),
-    };
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let data = schematic::data(db, id).await?.ok_or(AppError::NotFound)?;
     if let Some(part) = part {
         let first = part == "first";
         let direction = s
@@ -839,15 +749,10 @@ pub(super) async fn export(
         let (Some(&direction), "first" | "without") =
             (direction, part.as_str())
         else {
-            return Err(
-                (StatusCode::BAD_REQUEST, "no such part").into_response()
-            );
+            return Err(AppError::BadRequest("no such part".to_owned()));
         };
         let buses = stack::Buses::of(&s.category, &s.orientation);
-        let data = match stack::part(&data, direction, first, buses) {
-            Ok(data) => data,
-            Err(err) => return Err(internal_error(&*err).into_response()),
-        };
+        let data = stack::part(&data, direction, first, buses)?;
         let suffix = if first {
             "_first_copy_parts"
         } else {
@@ -870,23 +775,13 @@ pub(super) async fn export(
                 let (data, size) = stack::stack(&data, &plan, buses)?;
                 Ok((data, s.stacked(&plan, size)))
             });
-        match stacked {
-            Ok(stacked) => stacked,
-            Err(err) => {
-                return Err(
-                    (StatusCode::BAD_REQUEST, err.to_string()).into_response()
-                );
-            }
-        }
+        stacked.map_err(|err| AppError::BadRequest(err.to_string()))?
     };
-    if counted && let Err(err) = schematic::count_download(db, id).await {
-        return Err(internal_error(err).into_response());
+    if counted {
+        schematic::count_download(db, id).await?;
     }
     let data = if markers {
-        match standardize::with_corner_markers(&data) {
-            Ok(data) => data,
-            Err(err) => return Err(internal_error(&*err).into_response()),
-        }
+        standardize::with_corner_markers(&data)?
     } else {
         data
     };

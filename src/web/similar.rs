@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
+    error::AppError,
     extractors::fixi::Fixi,
     models::{schematic, similarity, user::User},
     schem::Blocks,
@@ -73,12 +73,9 @@ pub async fn form(
     State(state): State<AppState>,
     user_opt: Option<User>,
     Query(Shown { file, found }): Query<Shown>,
-) -> Response {
+) -> Result<Response, AppError> {
     let builds = match &found {
-        Some(found) => match shown(&state, found).await {
-            Ok(builds) => Some(builds),
-            Err(err) => return internal_error(err).into_response(),
-        },
+        Some(found) => Some(shown(&state, found).await?),
         None => None,
     };
     let file = file.unwrap_or_else(|| "the file".to_owned());
@@ -96,7 +93,7 @@ pub async fn search(
     user_opt: Option<User>,
     Fixi(fixi): Fixi,
     mut multipart: Multipart,
-) -> Response {
+) -> Result<Response, AppError> {
     let user = user_opt.as_ref();
     let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
@@ -123,33 +120,28 @@ pub async fn search(
             return answer(&state, user, fixi, None, &message).await;
         }
     };
-    let ranked = match similarity::ranked(&state.db, &blocks, LISTED).await {
-        Ok(ranked) => ranked,
-        Err(err) => return internal_error(&*err).into_response(),
-    };
+    let ranked = similarity::ranked(&state.db, &blocks, LISTED).await?;
     // The results go in the address, so Back and reloading keep them: a
     // plain form goes there, and fixi's page takes it as its address.
     let at = shown_at(&name, &ranked);
     if !fixi {
-        return Redirect::to(&at).into_response();
+        return Ok(Redirect::to(&at).into_response());
     }
     let mut builds = Vec::new();
     for (id, permille) in ranked {
-        match schematic::get(&state.db, &id).await {
-            Ok(Some(s)) => builds.push((s, permille)),
-            Ok(None) => {}
-            Err(err) => return internal_error(err).into_response(),
+        if let Some(s) = schematic::get(&state.db, &id).await? {
+            builds.push((s, permille));
         }
     }
     let found = pages::Found {
         file: &name,
         builds: &builds,
     };
-    (
+    Ok((
         [("FX-Replace-Url", at)],
         pages::similar_results(Some(&found), ""),
     )
-        .into_response()
+        .into_response())
 }
 
 /// A search's answer: through fixi, only the results, which is all that
@@ -160,9 +152,9 @@ async fn answer(
     fixi: bool,
     found: Option<&pages::Found<'_>>,
     message: &str,
-) -> Response {
+) -> Result<Response, AppError> {
     if fixi {
-        pages::similar_results(found, message).into_response()
+        Ok(pages::similar_results(found, message).into_response())
     } else {
         page(state, user, found, message).await
     }
@@ -175,19 +167,18 @@ async fn page(
     user: Option<&User>,
     found: Option<&pages::Found<'_>>,
     message: &str,
-) -> Response {
+) -> Result<Response, AppError> {
     let folder = match user {
         Some(user) => {
-            match super::schemati::own_folder_quickly(&state.db, user).await {
-                Ok(folder) => Some(folder),
-                Err(err) => return internal_error(err).into_response(),
-            }
+            Some(super::schemati::own_folder_quickly(&state.db, user).await?)
         }
         None => None,
     };
     let connection = folder
         .as_ref()
         .map(|folder| super::schemati::connection(folder.as_ref()));
-    pages::similar_search(user, connection.as_ref(), found, message)
-        .into_response()
+    Ok(
+        pages::similar_search(user, connection.as_ref(), found, message)
+            .into_response(),
+    )
 }

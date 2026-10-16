@@ -165,13 +165,7 @@ impl Form {
     /// are their text
     /// boxes, sent as typed when scripting is off.
     pub fn read(pairs: &[(String, String)]) -> Self {
-        let get = |key: &str| {
-            pairs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-                .unwrap_or_default()
-        };
+        let get = |key: &str| first(pairs, key).to_owned();
         let each = |key: &str| -> Vec<String> {
             pairs
                 .iter()
@@ -470,6 +464,14 @@ pub fn pairs(body: &[u8]) -> Vec<(String, String)> {
     form_urlencoded::parse(body)
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect()
+}
+
+/// The first value a form sent under `key`, or empty.
+pub fn first<'a>(pairs: &'a [(String, String)], key: &str) -> &'a str {
+    pairs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map_or("", |(_, v)| v.as_str())
 }
 
 /// The date the form's year, month, and day boxes give, as `2024-02-02`,

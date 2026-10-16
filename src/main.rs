@@ -83,7 +83,7 @@ async fn main() {
         // Pages show live data, so browsers fetch them afresh, even on Back;
         // a handler that knows better, such as thumbnails, says so itself.
         .merge(
-            web::router()
+            web::router(state.clone())
                 .layer(trace_layer)
                 .layer(header_layer(header::CACHE_CONTROL, "no-store")),
         )

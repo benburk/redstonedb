@@ -1,14 +1,14 @@
 use axum::{
     Form,
     extract::{Path, State},
-    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
+    error::AppError,
+    extractors::session::SignedIn,
     models::{schematic, user::User},
     mojang,
 };
@@ -20,12 +20,10 @@ pub async fn profile(
     Path(username): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-) -> Response {
-    let account = match User::get_by_username(&state.db, &username).await {
-        Ok(Some(account)) => account,
-        Ok(None) => return super::not_found(user_opt.as_ref()),
-        Err(err) => return internal_error(err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let account = User::get_by_username(&state.db, &username)
+        .await?
+        .ok_or(AppError::NotFound)?;
     show(&state, user_opt.as_ref(), &account, "").await
 }
 
@@ -38,29 +36,28 @@ pub struct MinecraftName {
 pub async fn set_minecraft_name(
     Path(username): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     Form(form): Form<MinecraftName>,
-) -> Response {
-    let Some(user) = user_opt.filter(|user| user.username == username) else {
-        return StatusCode::FORBIDDEN.into_response();
-    };
+) -> Result<Response, AppError> {
+    if user.username != username {
+        return Err(AppError::Forbidden);
+    }
     let name = form.minecraft_name.unwrap_or_default();
     let name = name.trim();
-    let refused = if name.is_empty() {
-        saved(&state, user.id, None).await
+    let saved = if name.is_empty() {
+        saved(&state, user.id, None).await?
     } else {
         match player_named(name).await {
-            Ok(player) => saved(&state, user.id, Some(&player)).await,
+            Ok(player) => saved(&state, user.id, Some(&player)).await?,
             Err(message) => Err(message),
         }
     };
-    let refused = match refused {
-        Ok(Ok(())) => {
-            return Redirect::to(&format!("/users/{username}")).into_response();
+    match saved {
+        Ok(()) => {
+            Ok(Redirect::to(&format!("/users/{username}")).into_response())
         }
-        Ok(Err(message)) | Err(message) => message,
-    };
-    show(&state, Some(&user), &user, &refused).await
+        Err(refused) => show(&state, Some(&user), &user, &refused).await,
+    }
 }
 
 /// The player `name` names, spelled as they spell it and with their UUID,
@@ -88,18 +85,15 @@ pub(super) async fn player_named(
 }
 
 /// Stores `player` as account `id`'s Minecraft name, or clears it for
-/// `None`. The inner `Err` says the name is another account's; the outer
-/// one is any other failure, already logged.
+/// `None`. The inner `Err` says the name is another account's.
 pub(super) async fn saved(
     state: &AppState,
     id: uuid::Uuid,
     player: Option<&mojang::Profile>,
-) -> Result<Result<(), String>, String> {
+) -> Result<Result<(), String>, AppError> {
     let name = player.map(|p| p.name.as_str());
     let uuid = player.map(|p| p.uuid.as_str()).filter(|u| !u.is_empty());
-    User::set_minecraft_name(&state.db, id, name, uuid)
-        .await
-        .map_err(|err| internal_error(err).1.to_owned())
+    Ok(User::set_minecraft_name(&state.db, id, name, uuid).await?)
 }
 
 async fn show(
@@ -107,11 +101,8 @@ async fn show(
     viewer: Option<&User>,
     account: &User,
     message: &str,
-) -> Response {
-    let mut all = match schematic::all(&state.db).await {
-        Ok(all) => all,
-        Err(err) => return internal_error(err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let mut all = schematic::all(&state.db).await?;
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
     // Credits are in-game names, so they match the profile's Minecraft
@@ -131,5 +122,5 @@ async fn show(
             s.uploader.as_deref() == Some(account.username.as_str())
         }),
     };
-    pages::profile(viewer, account, &builds, message).into_response()
+    Ok(pages::profile(viewer, account, &builds, message).into_response())
 }

@@ -9,9 +9,7 @@ use axum_extra::extract::{
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{
-    app_state::AppState, error::internal_error, models::session::Session,
-};
+use crate::{app_state::AppState, error::AppError, models::session::Session};
 
 /// How long a login lasts.
 const LIFETIME: time::Duration = time::Duration::WEEK;
@@ -52,12 +50,11 @@ pub async fn create_session(
 pub async fn delete(
     jar: CookieJar,
     State(state): State<AppState>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, AppError> {
     if let Some(cookie) = jar.get("session_id")
         && let Ok(id) = Uuid::parse_str(cookie.value())
-        && let Err(err) = Session::delete_by_id(&state.db, id).await
     {
-        return internal_error(err).into_response();
+        Session::delete_by_id(&state.db, id).await?;
     }
-    (jar.remove(Cookie::build("session_id")), Redirect::to("/")).into_response()
+    Ok((jar.remove(Cookie::build("session_id")), Redirect::to("/")))
 }

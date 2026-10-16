@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
+    error::AppError,
     leaderboard::{self, Wanted},
     models::{
         schematic::{self, Measure, Schematic},
@@ -38,19 +38,11 @@ pub async fn show(
     Query(query): Query<BoardQuery>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-) -> Response {
-    let loaded = async {
-        Ok::<_, sqlx::Error>((
-            schematic::all(&state.db).await?,
-            schematic::categories(&state.db).await?,
-        ))
-    };
-    let (all, categories) = match loaded.await {
-        Ok(loaded) => loaded,
-        Err(err) => return internal_error(err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let all = schematic::all(&state.db).await?;
+    let categories = schematic::categories(&state.db).await?;
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
-        return super::not_found(user_opt.as_ref());
+        return Err(AppError::NotFound);
     };
     let facets = facets(&categories, &all, &category);
     let given = |value: Option<String>| value.filter(|v| !v.is_empty());
@@ -73,7 +65,7 @@ pub async fn show(
     let builds: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
     let board = leaderboard::board(&builds, &wanted, &chosen.measures);
-    pages::leaderboard(
+    Ok(pages::leaderboard(
         user_opt.as_ref(),
         &pages::LeaderboardPage {
             category: chosen,
@@ -82,7 +74,7 @@ pub async fn show(
             people: leaderboard::most_built(&all).len(),
         },
     )
-    .into_response()
+    .into_response())
 }
 
 /// The people leaderboard: who built, added, and holds the records for the
@@ -90,18 +82,10 @@ pub async fn show(
 pub async fn people(
     State(state): State<AppState>,
     user_opt: Option<User>,
-) -> Response {
-    let loaded = async {
-        Ok::<_, sqlx::Error>((
-            schematic::all(&state.db).await?,
-            schematic::categories(&state.db).await?,
-        ))
-    };
-    let (all, categories) = match loaded.await {
-        Ok(loaded) => loaded,
-        Err(err) => return internal_error(err).into_response(),
-    };
-    pages::people(
+) -> Result<Response, AppError> {
+    let all = schematic::all(&state.db).await?;
+    let categories = schematic::categories(&state.db).await?;
+    Ok(pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
             built: &leaderboard::most_built(&all),
@@ -110,7 +94,7 @@ pub async fn people(
             facets: &facets(&categories, &all, ""),
         },
     )
-    .into_response()
+    .into_response())
 }
 
 /// The leaderboard sidebar: the categories with a build to rank, and

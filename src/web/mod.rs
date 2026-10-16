@@ -3,12 +3,18 @@ use std::{fmt::Write as _, sync::LazyLock};
 
 use axum::{
     Router,
-    http::{StatusCode, header},
+    extract::{OptionalFromRequestParts, Request, State},
+    http::header,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 
-use crate::{app_state::AppState, models::user::User};
+use crate::{
+    app_state::AppState,
+    error::{AppError, ErrorPage},
+    models::user::User,
+};
 
 mod about;
 mod auth;
@@ -147,18 +153,56 @@ fn notice(text: &str) -> String {
     encoded
 }
 
-/// A 404 with the not-found page, for an address naming no build, person,
-/// or page.
-pub fn not_found(viewer: Option<&User>) -> Response {
-    (StatusCode::NOT_FOUND, pages::not_found(viewer)).into_response()
+/// A file to download, saved as `filename`, which needs no quoting.
+fn attachment(filename: &str, data: Vec<u8>) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        data,
+    )
+        .into_response()
 }
 
-async fn fallback(user_opt: Option<User>) -> Response {
-    not_found(user_opt.as_ref())
+/// Puts the page into a not-found or forbidden answer, with the header for
+/// whoever sent the request; see [`ErrorPage`]. Only such answers look up
+/// the viewer, so every other request is spared it.
+async fn error_pages(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let headers = request.headers().clone();
+    let response = next.run(request).await;
+    let Some(&page) = response.extensions().get::<ErrorPage>() else {
+        return response;
+    };
+    let (mut parts, ()) = Request::new(()).into_parts();
+    parts.headers = headers;
+    let viewer = <User as OptionalFromRequestParts<_>>::from_request_parts(
+        &mut parts, &state,
+    )
+    .await
+    .ok()
+    .flatten();
+    let body = match page {
+        ErrorPage::NotFound => pages::not_found(viewer.as_ref()),
+        ErrorPage::Forbidden => pages::forbidden(viewer.as_ref()),
+    };
+    (response.status(), body).into_response()
 }
 
-/// Dynamic routes - with request logging
-pub fn router() -> Router<AppState> {
+async fn fallback() -> AppError {
+    AppError::NotFound
+}
+
+/// Dynamic routes - with request logging. `state` is for the layer that
+/// draws the not-found and forbidden pages.
+pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
@@ -222,4 +266,5 @@ pub fn router() -> Router<AppState> {
         .route("/auth/discord", get(auth::start))
         .route("/auth/discord/callback", get(auth::callback))
         .fallback(fallback)
+        .layer(middleware::from_fn_with_state(state, error_pages))
 }

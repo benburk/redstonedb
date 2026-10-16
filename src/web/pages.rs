@@ -2223,6 +2223,24 @@ pub fn not_found(viewer: Option<&User>) -> Markup {
     )
 }
 
+/// The page for a signed-in account that may not do what it asked.
+pub fn forbidden(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Not allowed",
+        "",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Not allowed" }
+                p class="mb-4" {
+                    "Your account doesn't have permission to do that."
+                }
+                p { a href="/" { "See every build" } }
+            }
+        },
+    )
+}
+
 /// The login page. `enabled` is false when the Discord settings are
 /// missing; `message` explains a failed login.
 pub fn login(enabled: bool, message: &str) -> Markup {
@@ -2251,8 +2269,8 @@ pub fn login(enabled: bool, message: &str) -> Markup {
     )
 }
 
-/// The admin's list of accounts, each with a form to set its role.
-/// The admin's list of accounts; `message` says why a change was refused.
+/// The admin's list of accounts, each with forms to change it; `message`
+/// says why a change was refused.
 pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
     base(
         Some(admin),
@@ -2474,7 +2492,6 @@ pub fn profile(
     )
 }
 
-/// The upload page's first step: choosing a file.
 /// The fields for choosing a file, the same wherever one is chosen: the
 /// file or a Schemati link, and how to prepare it. `form` names the form
 /// they belong to when they stand outside it; `keep_paste` offers keeping
@@ -2533,6 +2550,7 @@ pub fn file_fields(
     }
 }
 
+/// The upload page's first step: choosing a file.
 pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
     base(
         Some(user),

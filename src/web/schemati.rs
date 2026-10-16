@@ -6,8 +6,8 @@ use std::{collections::HashMap, time::Duration};
 
 use axum::{
     Form,
-    extract::{Multipart, Path, State},
-    http::header,
+    extract::{FromRequestParts, Multipart, Path, State},
+    http::request::Parts,
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
@@ -15,8 +15,8 @@ use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
-    extractors::fixi::Fixi,
+    error::AppError,
+    extractors::{fixi::Fixi, session::SignedIn},
     models::user::User,
     schemati::{self, Folder, Refusal},
 };
@@ -29,11 +29,8 @@ use super::{
 /// The Schemati page.
 pub async fn show(
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
     page(&state, &user, "", "").await
 }
 
@@ -44,13 +41,12 @@ async fn page(
     user: &User,
     done: &str,
     refused: &str,
-) -> Response {
-    let folder = match own_folder(&state.db, user).await {
-        Ok(folder) => folder,
-        Err(err) => return internal_error(err).into_response(),
-    };
-    pages::schemati(user, &connection(folder.as_ref()), done, refused)
-        .into_response()
+) -> Result<Response, AppError> {
+    let folder = own_folder(&state.db, user).await?;
+    Ok(
+        pages::schemati(user, &connection(folder.as_ref()), done, refused)
+            .into_response(),
+    )
 }
 
 /// The answer to a change made on the Schemati page: for fixi, the folder
@@ -62,20 +58,17 @@ async fn answer(
     fixi: bool,
     done: &str,
     refused: &str,
-) -> Response {
+) -> Result<Response, AppError> {
     if !fixi {
-        return Redirect::to("/schemati").into_response();
+        return Ok(Redirect::to("/schemati").into_response());
     }
-    let folder = match own_folder(&state.db, user).await {
-        Ok(folder) => folder,
-        Err(err) => return internal_error(err).into_response(),
-    };
+    let folder = own_folder(&state.db, user).await?;
     let said = if refused.is_empty() { done } else { refused };
-    (
+    Ok((
         [("FX-Notice", super::notice(said))],
         pages::schemati_folder(&connection(folder.as_ref()), done, refused),
     )
-        .into_response()
+        .into_response())
 }
 
 /// `user`'s Schemati folder as Schemati has it now, or why not; `None`
@@ -119,19 +112,29 @@ pub(super) fn connection(
     }
 }
 
-/// The viewer and the Schemati session they gave, or the page to send
-/// them to: the login page, or the Schemati page to give one.
-async fn connected(
-    state: &AppState,
-    user_opt: Option<User>,
-) -> Result<(User, String), Response> {
-    let Some(user) = user_opt else {
-        return Err(Redirect::to("/sessions/new").into_response());
-    };
-    match User::schemati_session(&state.db, user.id).await {
-        Ok(Some(session)) => Ok((user, session)),
-        Ok(None) => Err(Redirect::to("/schemati").into_response()),
-        Err(err) => Err(internal_error(err).into_response()),
+/// The signed-in account and the Schemati session it gave, for a change
+/// to its folder. Anyone signed out goes to the login page, and anyone who
+/// gave no session to the Schemati page, to give one.
+pub struct Connected {
+    user: User,
+    session: String,
+}
+
+impl FromRequestParts<AppState> for Connected {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let SignedIn(user) = SignedIn::from_request_parts(parts, state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        match User::schemati_session(&state.db, user.id).await {
+            Ok(Some(session)) => Ok(Connected { user, session }),
+            Ok(None) => Err(Redirect::to("/schemati").into_response()),
+            Err(err) => Err(AppError::from(err).into_response()),
+        }
     }
 }
 
@@ -153,25 +156,18 @@ pub struct Given {
 /// Keeps the session given, once Schemati shows it opens a folder.
 pub async fn connect(
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     Form(given): Form<Given>,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
+) -> Result<Response, AppError> {
     let session = match schemati::session(&given.session) {
         Ok(session) => session,
         Err(message) => return page(&state, &user, "", &message).await,
     };
     let refused = match schemati::folder(&session).await {
         Ok(_) => {
-            if let Err(err) =
-                User::set_schemati_session(&state.db, user.id, Some(&session))
-                    .await
-            {
-                return internal_error(err).into_response();
-            }
-            return Redirect::to("/schemati").into_response();
+            User::set_schemati_session(&state.db, user.id, Some(&session))
+                .await?;
+            return Ok(Redirect::to("/schemati").into_response());
         }
         Err(Refusal::LoggedOut) => "Schemati does not know that session. Log \
                                     in there again and copy the newest one."
@@ -184,15 +180,10 @@ pub async fn connect(
 /// Forgets the viewer's session.
 pub async fn disconnect(
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
-    match User::set_schemati_session(&state.db, user.id, None).await {
-        Ok(()) => Redirect::to("/schemati").into_response(),
-        Err(err) => internal_error(err).into_response(),
-    }
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    User::set_schemati_session(&state.db, user.id, None).await?;
+    Ok(Redirect::to("/schemati").into_response())
 }
 
 /// The file `name` in `user`'s folder, or a sentence saying why it could
@@ -202,9 +193,13 @@ pub(super) async fn own_file(
     user: &User,
     name: &str,
 ) -> Result<Vec<u8>, String> {
+    // A choice among others in a form, so a failure is said beside them.
     let session = User::schemati_session(db, user.id)
         .await
-        .map_err(|err| internal_error(err).1.to_owned())?
+        .map_err(|err| {
+            tracing::error!("could not load a Schemati session: {err}");
+            "Could not load your Schemati session. Try again.".to_owned()
+        })?
         .ok_or_else(|| "Connect your Schemati on its page first.".to_owned())?;
     schemati::file(&session, name).await.map_err(sentence)
 }
@@ -213,28 +208,14 @@ pub(super) async fn own_file(
 pub async fn download(
     Path(name): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    let (user, session) = match connected(&state, user_opt).await {
-        Ok(connected) => connected,
-        Err(response) => return response,
-    };
+    Connected { user, session }: Connected,
+) -> Result<Response, AppError> {
     if !schemati::valid_name(&name) {
-        return super::not_found(Some(&user));
+        return Err(AppError::NotFound);
     }
     match schemati::file(&session, &name).await {
         // A valid name needs no quoting.
-        Ok(data) => (
-            [
-                (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{name}\""),
-                ),
-            ],
-            data,
-        )
-            .into_response(),
+        Ok(data) => Ok(super::attachment(&name, data)),
         Err(refusal) => page(&state, &user, "", &sentence(refusal)).await,
     }
 }
@@ -243,13 +224,9 @@ pub async fn download(
 pub async fn delete(
     Path(name): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    Connected { user, session }: Connected,
     Fixi(fixi): Fixi,
-) -> Response {
-    let (user, session) = match connected(&state, user_opt).await {
-        Ok(connected) => connected,
-        Err(response) => return response,
-    };
+) -> Result<Response, AppError> {
     match schemati::delete(&session, &name).await {
         Ok(()) => {
             answer(&state, &user, fixi, &format!("Deleted {name}."), "").await
@@ -270,14 +247,10 @@ pub struct Rename {
 pub async fn rename(
     Path(name): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    Connected { user, session }: Connected,
     Fixi(fixi): Fixi,
     Form(form): Form<Rename>,
-) -> Response {
-    let (user, session) = match connected(&state, user_opt).await {
-        Ok(connected) => connected,
-        Err(response) => return response,
-    };
+) -> Result<Response, AppError> {
     let extension = name.rsplit_once('.').map_or("schem", |(_, e)| e);
     let typed = form.new_name.trim();
     let new_name = if typed.ends_with(&format!(".{extension}")) {
@@ -319,14 +292,10 @@ pub async fn rename(
 /// takes it, in place of any file of that name.
 pub async fn add(
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    Connected { user, session }: Connected,
     Fixi(fixi): Fixi,
     mut multipart: Multipart,
-) -> Response {
-    let (user, session) = match connected(&state, user_opt).await {
-        Ok(connected) => connected,
-        Err(response) => return response,
-    };
+) -> Result<Response, AppError> {
     let mut files = Vec::new();
     loop {
         match multipart.next_field().await {
@@ -407,32 +376,23 @@ async fn put(
 pub async fn send(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     Fixi(fixi): Fixi,
     Form(choices): Form<HashMap<String, String>>,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
-    let session = match User::schemati_session(&state.db, user.id).await {
-        Ok(session) => session,
-        Err(err) => return internal_error(err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let session = User::schemati_session(&state.db, user.id).await?;
     let sent = match session {
         Some(session) => {
             let (filename, data) =
-                match schematics::export(&state.db, &id, choices, true).await {
-                    Ok(exported) => exported,
-                    Err(response) => return response,
-                };
+                schematics::export(&state.db, &id, choices, true).await?;
             let name = schemati::file_name(&filename);
             put(&session, &name, data).await.map_err(sentence)
         }
         None => Err("Connect your Schemati first.".to_owned()),
     };
-    if fixi {
+    Ok(if fixi {
         pages::schemati_sent(&sent).into_response()
     } else {
         Redirect::to("/schemati").into_response()
-    }
+    })
 }

@@ -3,14 +3,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::{StatusCode, header},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
-    models::{schematic, user::User, version},
+    error::AppError,
+    extractors::session::SignedIn,
+    models::{schematic, version},
 };
 
 use super::schematics::{editor, show_edit};
@@ -19,46 +19,23 @@ use super::schematics::{editor, show_edit};
 pub async fn form(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    match editor(&state.db, user_opt, &id).await {
-        Ok(user) => {
-            show_edit(&state.db, &user, &id, None, "", None, Some("")).await
-        }
-        Err(response) => response,
-    }
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let user = editor(&state.db, user, &id).await?;
+    show_edit(&state.db, &user, &id, None, "", None, Some("")).await
 }
 
 /// An earlier version's file, under the build's filename with its number.
 pub async fn download(
     Path((id, number)): Path<(String, i64)>,
     State(state): State<AppState>,
-) -> Response {
-    let s = match schematic::get(&state.db, &id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(err) => return internal_error(err).into_response(),
-    };
-    match version::data(&state.db, &id, number).await {
-        Ok(Some(data)) => {
-            let filename =
-                s.filename().replace(".schem", &format!("_v{number}.schem"));
-            (
-                [
-                    (
-                        header::CONTENT_TYPE,
-                        "application/octet-stream".to_owned(),
-                    ),
-                    (
-                        header::CONTENT_DISPOSITION,
-                        format!("attachment; filename=\"{filename}\""),
-                    ),
-                ],
-                data,
-            )
-                .into_response()
-        }
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(err) => internal_error(err).into_response(),
-    }
+) -> Result<Response, AppError> {
+    let s = schematic::get(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let data = version::data(&state.db, &id, number)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let filename = s.filename().replace(".schem", &format!("_v{number}.schem"));
+    Ok(super::attachment(&filename, data))
 }

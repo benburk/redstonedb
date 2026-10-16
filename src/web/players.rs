@@ -5,13 +5,12 @@ use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
+    error::AppError,
     leaderboard,
     models::{
         schematic::{self, Schematic},
@@ -32,20 +31,12 @@ pub async fn show(
     Path(name): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
-) -> Response {
+) -> Result<Response, AppError> {
     if !schematic::valid_player_name(&name) {
-        return super::not_found(user_opt.as_ref());
+        return Err(AppError::NotFound);
     }
-    let loaded = async {
-        Ok::<_, sqlx::Error>((
-            schematic::all(&state.db).await?,
-            User::all(&state.db).await?,
-        ))
-    };
-    let (mut all, users) = match loaded.await {
-        Ok(loaded) => loaded,
-        Err(err) => return internal_error(err).into_response(),
-    };
+    let mut all = schematic::all(&state.db).await?;
+    let users = User::all(&state.db).await?;
     let same = |other: &String| other.eq_ignore_ascii_case(&name);
     let account = users.iter().find(|u| {
         u.minecraft_verified && u.minecraft_name.as_ref().is_some_and(same)
@@ -61,11 +52,11 @@ pub async fn show(
     let Some(spelling) =
         account.and_then(|u| u.minecraft_name.clone()).or(credited)
     else {
-        return super::not_found(user_opt.as_ref());
+        return Err(AppError::NotFound);
     };
     if spelling != name {
-        return Redirect::permanent(&format!("/players/{spelling}"))
-            .into_response();
+        return Ok(Redirect::permanent(&format!("/players/{spelling}"))
+            .into_response());
     }
     let records = leaderboard::most_records(&all)
         .into_iter()
@@ -83,7 +74,7 @@ pub async fn show(
         Some(uuid) => Some(uuid),
         None => player(&state, &spelling).await.map(|p| p.uuid),
     };
-    pages::player(
+    Ok(pages::player(
         user_opt.as_ref(),
         &pages::PlayerPage {
             name: &spelling,
@@ -94,7 +85,7 @@ pub async fn show(
             records,
         },
     )
-    .into_response()
+    .into_response())
 }
 
 /// The head of the player `name`, for a badge to show beside their name:
@@ -103,14 +94,12 @@ pub async fn show(
 pub async fn head(
     Path(name): Path<String>,
     State(state): State<AppState>,
-) -> Response {
+) -> Result<Response, AppError> {
     if !schematic::valid_player_name(&name) {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(AppError::NotFound);
     }
-    match player(&state, &name).await {
-        Some(found) => super::heads::show(Path(found.uuid), State(state)).await,
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+    let found = player(&state, &name).await.ok_or(AppError::NotFound)?;
+    super::heads::show(Path(found.uuid), State(state)).await
 }
 
 /// The player Mojang knows as `name`, asked at most every few hours; `None`

@@ -12,7 +12,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
     app_state::AppState,
-    error::internal_error,
+    error::AppError,
+    extractors::session::SignedIn,
     import::{self, Prepared},
     interface, lint,
     models::{
@@ -103,10 +104,7 @@ pub(super) async fn posted(
 impl Posted {
     /// The first value sent under `key`, or empty.
     pub fn get(&self, key: &str) -> &str {
-        self.pairs
-            .iter()
-            .find(|(k, _)| k == key)
-            .map_or("", |(_, v)| v.as_str())
+        details::first(&self.pairs, key)
     }
 
     /// The file chosen in the form: its `file`, or else the file behind
@@ -191,37 +189,31 @@ async fn received(
 
 pub async fn form(
     State(state): State<AppState>,
-    user_opt: Option<User>,
-) -> Response {
-    match user_opt {
-        Some(user) => upload_page(&state, &user, "").await,
-        None => Redirect::to("/sessions/new").into_response(),
-    }
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    upload_page(&state, &user, "").await
 }
 
 /// The upload page for `user`, with their Schemati folder's files to
 /// choose from if they gave a session, and `message` saying why the last
 /// try was refused.
-async fn upload_page(state: &AppState, user: &User, message: &str) -> Response {
-    let folder =
-        match super::schemati::own_folder_quickly(&state.db, user).await {
-            Ok(folder) => folder,
-            Err(err) => return internal_error(err).into_response(),
-        };
+async fn upload_page(
+    state: &AppState,
+    user: &User,
+    message: &str,
+) -> Result<Response, AppError> {
+    let folder = super::schemati::own_folder_quickly(&state.db, user).await?;
     let connection = super::schemati::connection(folder.as_ref());
-    pages::upload(user, message, &connection).into_response()
+    Ok(pages::upload(user, message, &connection).into_response())
 }
 
 /// Reads the chosen file, standardizes it if asked, and shows what the
 /// site makes of it with a details form to fill in.
 pub async fn preview(
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     mut multipart: Multipart,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
+) -> Result<Response, AppError> {
     let Sent {
         file,
         standardize,
@@ -336,12 +328,9 @@ impl Submission {
 /// and shows it again with the details as sent.
 pub async fn publish(
     State(state): State<AppState>,
-    user_opt: Option<User>,
+    SignedIn(user): SignedIn,
     mut multipart: Multipart,
-) -> Response {
-    let Some(user) = user_opt else {
-        return Redirect::to("/sessions/new").into_response();
-    };
+) -> Result<Response, AppError> {
     let mut posted = match posted(&mut multipart).await {
         Ok(posted) => posted,
         Err(message) => return upload_page(&state, &user, &message).await,
@@ -400,7 +389,9 @@ pub async fn publish(
         Ok(id) => {
             simulation::refresh_soon(&state.db, &id);
             similarity::refresh_soon(&state.db);
-            return Redirect::to(&format!("/schematics/{id}")).into_response();
+            return Ok(
+                Redirect::to(&format!("/schematics/{id}")).into_response()
+            );
         }
         Err(message) => message,
     };
@@ -429,7 +420,7 @@ async fn chosen_instead(
     posted: &mut Posted,
     current: Prepared,
     sent: &mut Submission,
-) -> Response {
+) -> Result<Response, AppError> {
     let chosen = match posted.fetch_own(&state.db, user).await {
         Ok(()) => posted.chosen().await,
         Err(message) => Err(message),
@@ -626,31 +617,15 @@ async fn show_preview(
     chosen_tags: &[String],
     settings: Settings,
     said: Said<'_>,
-) -> Response {
-    let tags: Vec<Tag> = match schematic::all_tags(&state.db).await {
-        Ok(tags) => tags,
-        Err(err) => return internal_error(err).into_response(),
-    };
+) -> Result<Response, AppError> {
+    let tags: Vec<Tag> = schematic::all_tags(&state.db).await?;
     let duplicate =
-        match schematic::id_by_sha256(&state.db, &prepared.sha256).await {
-            Ok(found) => found,
-            Err(err) => return internal_error(err).into_response(),
-        };
-    let choices = match Choices::load(&state.db).await {
-        Ok(choices) => choices,
-        Err(err) => return internal_error(err).into_response(),
-    };
+        schematic::id_by_sha256(&state.db, &prepared.sha256).await?;
+    let choices = Choices::load(&state.db).await?;
     let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());
-    let similar = match closest(&state.db, &prepared.blocks, size).await {
-        Ok(similar) => similar,
-        Err(err) => return internal_error(&*err).into_response(),
-    };
-    let folder =
-        match super::schemati::own_folder_quickly(&state.db, user).await {
-            Ok(folder) => folder,
-            Err(err) => return internal_error(err).into_response(),
-        };
+    let similar = closest(&state.db, &prepared.blocks, size).await?;
+    let folder = super::schemati::own_folder_quickly(&state.db, user).await?;
     let interface = interface::read(&prepared.blocks);
     let derived = import::derived("adder", &interface);
     // Its lines are named for the category chosen so far, as the
@@ -662,7 +637,7 @@ async fn show_preview(
         &mut shown,
     );
     let swappable = standardize::swappable(&prepared.blocks);
-    pages::details_page(
+    Ok(pages::details_page(
         user,
         &DetailsPage {
             file: File::Upload {
@@ -692,5 +667,5 @@ async fn show_preview(
             schemati: &super::schemati::connection(folder.as_ref()),
         },
     )
-    .into_response()
+    .into_response())
 }
