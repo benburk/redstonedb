@@ -48,6 +48,11 @@ pub enum Lines {
     /// driven by a button, and reads, by a lever, and its data bus in and
     /// out go by those roles.
     Register,
+    /// A buffer's: its data bus in and out as a register's, and its
+    /// unsigned magenta lines its cells' writes, by a button, or by a lever
+    /// when none has a button, as it has no reads; a lone one needs no
+    /// sign.
+    Buffer,
 }
 
 /// Who decides how a category's builds stack.
@@ -124,6 +129,12 @@ pub fn behaviour(category: &str) -> Behaviour {
             shared_buses: true,
             ..read(Test::Register)
         },
+        // Its copies add bits, as its cells cannot share a bus.
+        "buffer" => Behaviour {
+            lines: Lines::Buffer,
+            stacking: Stacking::Found,
+            ..read(Test::Buffer)
+        },
         "multiplier" => tested(Test::Multiplier),
         "binary_to_bcd" => tested(Test::BinaryToBcd),
         "bcd_to_binary" => tested(Test::BcdToBinary),
@@ -150,7 +161,7 @@ const BORROW_OUT: &str = crate::lint::BORROW_OUT[0];
 impl Lines {
     /// Whether a lone control or status line may go without a sign.
     pub fn lone_unsigned(self) -> bool {
-        matches!(self, Lines::Lone { .. })
+        matches!(self, Lines::Lone { .. } | Lines::Buffer)
     }
 }
 

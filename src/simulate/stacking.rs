@@ -58,9 +58,9 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
-    /// Copies of a register every `step` make a wider register, of `bits`
-    /// bits, whose every cell stores and reads right, sharing its control
-    /// lines: `copies` of them, in `cases` cases. `most` is as for
+    /// Copies of a register or buffer every `step` make a wider one, of
+    /// `bits` bits, whose every cell stores and reads right, sharing its
+    /// control lines: `copies` of them, in `cases` cases. `most` is as for
     /// `Registers`.
     Wider {
         step: Step,

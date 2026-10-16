@@ -5,7 +5,8 @@
 use maud::{Markup, html};
 
 use crate::simulate::{
-    Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Takes, Timing,
+    Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Start, Takes,
+    Timing,
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};
@@ -190,7 +191,7 @@ pub(super) fn stacking_words(stacking: &Stacking) -> String {
             most,
             ..
         } => format!(
-            "Simulated: copies {} apart make a wider register, {bits} bits from {copies}{}.",
+            "Simulated: copies {} apart make more bits, {bits} from {copies}{}.",
             step.describe(),
             limit(*most, *copies)
         ),
@@ -224,7 +225,7 @@ fn stacking_note(stacking: &Stacking) -> Markup {
             },
             Stacking::Wider { step, copies, bits, cases, most } => p class="mt-3" data-found-stacking {
                 strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart make a " (bits) "-bit register sharing its control lines, all "
+                (copies) " copies " (step.describe()) " apart make " (bits) " bits sharing their control lines, all "
                 (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
             // Why not is on the build's Stacks field, on hover.
@@ -237,10 +238,11 @@ fn stacking_note(stacking: &Stacking) -> Markup {
 /// input A's change; and, for an output that does not change cleanly, when
 /// each of its bits does.
 /// What the timing's ticks count from: input A changing, or for a
-/// register, a read lever turning on, with when a write shows.
+/// register, a read lever turning on, with when a write shows, or for a
+/// buffer, a write.
 fn timing_intro(timing: &Timing) -> Markup {
     html! {
-        @if timing.from_read {
+        @if timing.start != Start::Input {
             p class="mb-3" {
                 @match (timing.data, timing.write, timing.takes) {
                     (Some(data), Some(write), Takes::Closing) => {
@@ -258,7 +260,15 @@ fn timing_intro(timing: &Timing) -> Markup {
                     _ => {}
                 }
             }
-            p class="mb-2 text-meta text-muted" { "Reads, in ticks from a read lever turning on:" }
+            p class="mb-2 text-meta text-muted" {
+                @if timing.start == Start::Read {
+                    "Reads, in ticks from a read lever turning on:"
+                } @else if timing.takes == Takes::Closing {
+                    "Writes, in ticks from a write ending:"
+                } @else {
+                    "Writes, in ticks from a write's button or lever:"
+                }
+            }
         } @else {
             @let late: Vec<&InputTiming> = timing.inputs.iter().skip(1).filter(|input| input.tick != Some(0)).collect();
             p class="mb-2 text-meta text-muted" {

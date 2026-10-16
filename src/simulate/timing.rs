@@ -63,9 +63,9 @@ pub struct Timing {
     pub changes: u64,
     /// Whether the inputs took the test patterns rather than every value.
     pub patterns: bool,
-    /// Whether ticks count from a register's read lever turning on rather
-    /// than from input A changing.
-    pub from_read: bool,
+    /// What its ticks count from.
+    #[serde(default)]
+    pub start: Start,
     /// For a register, the most ticks from pressing a cell's write button,
     /// its read held on, until the bus shows the new value; or, for a cell
     /// that takes its data as its write closes, from it closing.
@@ -78,6 +78,22 @@ pub struct Timing {
     pub data: Option<i32>,
     /// When a register's cells take their data.
     pub takes: Takes,
+}
+
+/// What a timing's ticks count from.
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Start {
+    /// Input A changing.
+    #[default]
+    Input,
+    /// A register's read lever turning on.
+    Read,
+    /// A buffer's write, its button pressed or lever turned on, or for one
+    /// that takes its data as its write closes, it closing.
+    Write,
 }
 
 /// When a register's cells take their data from their data in.
@@ -96,19 +112,21 @@ pub enum Takes {
 
 impl Timing {
     /// The latency of the slowest data output, leaving out status lines
-    /// such as carry out: the build's latency. A register's is data in to
-    /// data out, through a cell whose write is held open and read on, so a
+    /// such as carry out: the build's latency. A register's, or a
+    /// buffer's, is data in to data out, through a cell whose write is held
+    /// open and read on, so a
     /// data loop's latency is its ALU's plus its registers'; or, for one
     /// that takes its data only as its write opens, from the write's button.
     pub fn latency(&self) -> Option<i32> {
-        if self.from_read {
+        if self.start != Start::Input {
             return self.data.or(self.write).or_else(|| self.read());
         }
         self.read()
     }
 
     /// The slowest data output's ticks, from input A changing or, for a
-    /// register, from a read lever turning on.
+    /// register, from a read lever turning on, or for a buffer, from a
+    /// write.
     pub fn read(&self) -> Option<i32> {
         // A build whose only outputs are status lines, as a carry out's,
         // goes by them.
@@ -278,7 +296,7 @@ pub(super) fn measure(
         slowest_case: together.slowest.1.clone(),
         changes: together.changes,
         patterns,
-        from_read: false,
+        start: Start::Input,
         takes: Takes::Open,
         write: None,
         data: None,

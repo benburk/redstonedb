@@ -9,7 +9,7 @@
 //!
 //! Each [`Test`] is one category's. Most are stateless, and state only what
 //! sets them apart as a spec, which `bench` runs; an ALU's operations and a
-//! register's cells run their own way.
+//! register's or buffer's cells run their own way.
 
 use std::{fmt, sync::atomic::AtomicBool};
 
@@ -60,7 +60,9 @@ pub use alu::op as alu_op;
 pub use circuit::Circuit;
 pub(crate) use circuit::panic_message;
 pub use stacking::{Stacking, Step};
-pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Takes, Timing};
+pub use timing::{
+    BitTiming, Glitch, InputTiming, OutputTiming, Start, Takes, Timing,
+};
 
 /// The test a build of one category gets, which tries every case when they
 /// number few enough, else every case of each byte and the test patterns.
@@ -88,6 +90,9 @@ pub enum Test {
     Alu,
     /// Each value written into every cell, then read.
     Register,
+    /// Each value written into every cell, then shown with no read, as
+    /// data in changes.
+    Buffer,
     /// A's magnitude, A taken as a signed number.
     AbsoluteValue,
     /// The carry out of A + B, and a carry in when there is one.
@@ -100,7 +105,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 12] = [
+    pub const ALL: [Test; 13] = [
         Test::Adder,
         Test::Subtractor,
         Test::Incrementer,
@@ -111,6 +116,7 @@ impl Test {
         Test::BcdToBinary,
         Test::Alu,
         Test::Register,
+        Test::Buffer,
         Test::AbsoluteValue,
         Test::CarryOut,
     ];
@@ -137,6 +143,7 @@ impl Test {
             Test::BcdToBinary => "bcd_to_binary",
             Test::Alu => "alu",
             Test::Register => "register",
+            Test::Buffer => "buffer",
             Test::AbsoluteValue => "absolute_value",
             Test::CarryOut => "carry_out",
         }
@@ -157,9 +164,12 @@ impl Test {
             | Test::BinaryToBcd
             | Test::BcdToBinary
             | Test::Alu
-            | Test::Register
+            | Test::Buffer
             | Test::AbsoluteValue
             | Test::CarryOut => 1,
+            // Its timing says it counts from a read, where it once said so
+            // as a flag.
+            Test::Register => 2,
         }
     }
 
@@ -183,7 +193,12 @@ impl Test {
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
         match self {
             Test::Alu => alu::check(blocks, quick),
-            Test::Register => register::check(blocks, quick),
+            Test::Register => {
+                register::check(blocks, register::Kind::Register, quick)
+            }
+            Test::Buffer => {
+                register::check(blocks, register::Kind::Buffer, quick)
+            }
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -213,8 +228,10 @@ impl Test {
             Test::BinaryToBcd => converters::binary_to_bcd(interface),
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
-            Test::Alu | Test::Register => {
-                unreachable!("an ALU and a register run their own way")
+            Test::Alu | Test::Register | Test::Buffer => {
+                unreachable!(
+                    "an ALU, a register, and a buffer run their own way"
+                )
             }
         }
     }
@@ -226,7 +243,10 @@ impl Test {
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
-            Test::Register => register::stacking(data),
+            Test::Register => {
+                register::stacking(data, register::Kind::Register)
+            }
+            Test::Buffer => register::stacking(data, register::Kind::Buffer),
             _ => None,
         }
     }
@@ -237,7 +257,12 @@ impl Test {
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         match self {
             Test::Alu => alu::time(blocks, cancel),
-            Test::Register => register::time(blocks, cancel),
+            Test::Register => {
+                register::time(blocks, register::Kind::Register, cancel)
+            }
+            Test::Buffer => {
+                register::time(blocks, register::Kind::Buffer, cancel)
+            }
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -372,6 +397,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::BinaryToBcd,
         Test::BcdToBinary,
         Test::Register,
+        Test::Buffer,
         Test::AbsoluteValue,
         Test::CarryOut,
         Test::Alu,

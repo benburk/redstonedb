@@ -1166,7 +1166,7 @@ fn print_stacking(stacking: &Stacking) {
             cases,
             most,
         } => println!(
-            "        stacks: {copies} copies {} apart make a {bits}-bit register, all {cases} cases right{}",
+            "        stacks: {copies} copies {} apart make {bits} bits sharing their control lines, all {cases} cases right{}",
             step.describe(),
             if most.is_some() {
                 "; one more copy fails"

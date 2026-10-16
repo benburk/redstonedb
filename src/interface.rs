@@ -67,7 +67,8 @@ pub struct Bit {
 /// reads: an adder's lone magenta and pink lines are its carry in and
 /// carry out; a register's data bus in and out are its data in and data
 /// out, and each of its magenta lines a write, driven by a button, or a
-/// read, by a lever. A sign's name always stands.
+/// read, by a lever, and a buffer's the same but every magenta line a
+/// write. A sign's name always stands.
 pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
     let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
         let mut lines =
@@ -86,7 +87,10 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
                 status,
                 lone_output,
             } => (control, status, lone_output),
-            Lines::Register => return name_register(blocks, interface),
+            Lines::Register => {
+                return name_register(blocks, interface, false);
+            }
+            Lines::Buffer => return name_register(blocks, interface, true),
             Lines::Signed => return,
         };
     lone(&mut interface.inputs, lint::CONTROL, control);
@@ -103,7 +107,9 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
 /// `name_lines` for a register: its data bus in and out by their roles,
 /// and its unsigned magenta lines split into writes, each driven by a
 /// button, and reads, by a lever, numbered in order when there are more.
-fn name_register(blocks: &Blocks, interface: &mut Interface) {
+/// A `buffer`'s are all writes when none has a button, as it has no
+/// reads.
+fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
     let control = |port: &Port| port.block.starts_with(lint::CONTROL);
     let data: Vec<&mut Port> = interface
         .inputs
@@ -131,14 +137,24 @@ fn name_register(blocks: &Blocks, interface: &mut Interface) {
                 .ends_with("_button")
         })
     };
+    let levers_write = buffer
+        && !interface
+            .inputs
+            .iter()
+            .filter(|port| control(port) && !port.labelled)
+            .flat_map(|port| &port.bits)
+            .any(button);
     let mut split = Vec::new();
     for port in std::mem::take(&mut interface.inputs) {
         if !control(&port) || port.labelled {
             split.push(port);
             continue;
         }
-        let (writes, reads): (Vec<_>, Vec<_>) =
-            port.bits.iter().cloned().partition(|bit| button(bit));
+        let (writes, reads): (Vec<_>, Vec<_>) = port
+            .bits
+            .iter()
+            .cloned()
+            .partition(|bit| levers_write || button(bit));
         for (bits, word) in [(writes, "write"), (reads, "read")] {
             let count = bits.len();
             for (i, bit) in bits.into_iter().enumerate() {

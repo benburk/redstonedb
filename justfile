@@ -90,6 +90,7 @@ seed db="redstone.db":
     add alu-8-lines horz --category alu
     add register-8-2-cells horz --category register --standardize
     add alpha-register horz --category register
+    add buffer-2-button horz --category buffer
     add threshold-3-raw horz --category threshold --width 3 --at-least 2 --standardize
 
 # Follow the live site's log

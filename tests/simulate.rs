@@ -7,7 +7,7 @@ use app::{
     models::schematic::{Encoding, Orientation},
     orient,
     schem::{self, Blocks, Direction},
-    simulate::{self, Report, Run, Stacking, Takes, Test},
+    simulate::{self, Report, Run, Stacking, Start, Takes, Test},
     stack,
     standardize::{self, Gray},
 };
@@ -661,7 +661,7 @@ fn a_register_stores_and_reads_each_cell() {
     // to data out, its write held open and read on: 4.
     assert_eq!(timing.write, Some(8));
     assert_eq!((timing.data, timing.latency()), (Some(4), Some(4)));
-    assert!(timing.from_read);
+    assert_eq!(timing.start, Start::Read);
     let guess = simulate::guess(&blocks).unwrap();
     assert_eq!(guess.category, "register");
 }
@@ -765,6 +765,68 @@ fn a_register_whose_reads_are_not_gated_fails() {
     };
     assert!(run.wrong > 0);
     assert!(run.hint.unwrap().contains("every read lever off"));
+}
+
+/// A 2-bit latch, embizone's upload with its write lever a button: a
+/// register with no read, whose output shows what it holds all the time.
+/// The register test finds no read and says it may be a buffer; the buffer
+/// test stores every value, keeps it as data in changes, and is timed from
+/// the button, data passing through in 2 ticks while it is held. A bit
+/// turning on settles a tick before one turning off, so it is not synced.
+#[test]
+fn a_buffer_shows_what_it_holds_without_a_read() {
+    let (_, blocks) = register("buffer-2-button");
+    assert!(lint::check_for(&blocks, "buffer").is_empty());
+    let mut read = interface::read(&blocks);
+    interface::name_lines("buffer", &blocks, &mut read);
+    let names: Vec<&str> =
+        read.inputs.iter().map(|port| port.name.as_str()).collect();
+    assert_eq!(names, ["data in", "write"]);
+    let Report::Broken { reason } = Test::Register.run(&blocks) else {
+        panic!("the buffer passed as a register");
+    };
+    assert!(reason.contains("may be a buffer"));
+    let Report::Ran(run) = Test::Buffer.run(&blocks) else {
+        panic!("the buffer was not simulated");
+    };
+    assert_eq!(run.pattern, "written, then shown");
+    assert_eq!((run.cases, run.wrong), (4, 0));
+    let timing = Test::Buffer.time(&blocks, &AtomicBool::new(false)).unwrap();
+    assert_eq!(timing.start, Start::Write);
+    assert_eq!((timing.write, timing.data), (Some(3), Some(2)));
+    assert_eq!((timing.latency(), timing.synced), (Some(2), false));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "buffer");
+}
+
+/// Copies of the buffer 4 west share its write line and make more bits.
+/// Each keeps its own button, its magenta block landing past the copy
+/// before, but only the first copy's is pressed, and from a sixth copy on
+/// it no longer reaches the last one along the line, so five make 10 bits.
+#[test]
+fn a_buffer_stacks_west_into_more_bits() {
+    let (data, _) = register("buffer-2-button");
+    let Some(Stacking::Wider {
+        step,
+        copies,
+        bits,
+        most,
+        ..
+    }) = Test::Buffer.stacking(&data)
+    else {
+        panic!("the buffer does not stack into more bits");
+    };
+    assert_eq!(step.describe(), "4 west");
+    assert_eq!((copies, bits, most), (5, 10, Some(5)));
+}
+
+/// A register's cells show only while read, so it is no buffer.
+#[test]
+fn a_register_is_no_buffer() {
+    let (_, blocks) = register("register-8-2-cells");
+    let Report::Broken { reason } = Test::Buffer.run(&blocks) else {
+        panic!("the register passed as a buffer");
+    };
+    assert!(reason.contains("may be a register"));
 }
 
 /// The register fixture with the levers on `colour` concrete saved on.
