@@ -23,7 +23,10 @@
 
 use std::collections::HashSet;
 
-use crate::models::schematic::{Measure, Schematic};
+use crate::{
+    lint,
+    models::schematic::{Measure, Schematic},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Term {
@@ -314,8 +317,8 @@ fn facts(s: &Schematic) -> Vec<String> {
         facts.push(flag.name.replace('_', " "));
         // The short names a carry line's sign may use.
         match flag.name.as_str() {
-            "carry_in" => facts.push("cin".to_owned()),
-            "carry_out" => facts.push("cout".to_owned()),
+            "carry_in" => facts.push(lint::CARRY_IN[1].to_owned()),
+            "carry_out" => facts.push(lint::CARRY_OUT[1].to_owned()),
             _ => {}
         }
     }

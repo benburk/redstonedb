@@ -5,7 +5,7 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
-    import,
+    category, import,
     interface::Interface,
     models::{
         schematic::{self, Flag, Measure, Schematic, StackDirection},
@@ -13,7 +13,7 @@ use crate::{
         user::User,
         version::Version,
     },
-    simulate::{self, Report, Stacking, Timing},
+    simulate::{Report, Stacking, Timing},
 };
 
 use super::{
@@ -213,7 +213,8 @@ impl Sources {
         {
             Source::Simulated
         } else if !s.stacking.is_empty()
-            && simulate::FINDS_STACKING.contains(&s.category.as_str())
+            && category::behaviour(&s.category).stacking
+                == category::Stacking::Found
             && run.is_some_and(|run| {
                 matches!(run.stacking, Some(Stacking::Not { .. }))
             })
@@ -473,7 +474,7 @@ fn specs(
                     (field("Pipelined", flag(true, Some("pipelined"))))
                 }
                 // A category such as adder reads its flags from the file.
-                @let read = if s.conventional && import::FLAGS_FROM_FILE.contains(&s.category.as_str()) {
+                @let read = if s.conventional && category::behaviour(&s.category).flags_from_file {
                     Source::File
                 } else {
                     Source::Given

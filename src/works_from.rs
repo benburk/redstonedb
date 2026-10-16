@@ -4,7 +4,7 @@
 //! for white stained glass. Every build on the site works in the latest
 //! release, so there is no newest one to find.
 
-use crate::schem::{self, Blocks, Pos};
+use crate::schem::{self, Blocks, Direction, Pos};
 
 /// A release that added redstone components or mechanics a build may use.
 pub struct Release {
@@ -206,19 +206,12 @@ fn like(id: &str) -> &str {
     }
 }
 
-/// The unit step toward `facing`, such as `[0, 0, -1]` for north.
+/// The unit step toward the level direction `facing` names, such as
+/// `[0, 0, -1]` for north.
 fn toward(facing: &str) -> Option<Pos> {
-    Some(match facing {
-        "north" => [0, 0, -1],
-        "south" => [0, 0, 1],
-        "east" => [1, 0, 0],
-        "west" => [-1, 0, 0],
-        _ => return None,
-    })
-}
-
-fn add(a: Pos, b: Pos) -> Pos {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+    Direction::parse(facing)
+        .filter(|d| Direction::SIDES.contains(d))
+        .map(Direction::offset)
 }
 
 /// Whether the repeater at `pos` has a repeater or comparator pointing
@@ -230,14 +223,15 @@ fn locked(blocks: &Blocks, pos: Pos, state: &str) -> bool {
         return false;
     };
     [[z, 0, x], [-z, 0, -x]].into_iter().any(|side| {
-        let beside = add(pos, side);
+        let beside = schem::add(pos, side);
         let other = blocks.get(beside);
         let id = schem::id(other).trim_start_matches("minecraft:");
         matches!(id, "repeater" | "comparator")
             && schem::property(other, "facing")
                 .and_then(toward)
                 .is_some_and(|input| {
-                    add(beside, input) == add(pos, side.map(|n| 2 * n))
+                    schem::add(beside, input)
+                        == schem::add(pos, side.map(|n| 2 * n))
                 })
     })
 }
@@ -250,22 +244,21 @@ fn redstone_block_beside(blocks: &Blocks, pos: Pos, state: &str) -> bool {
         return false;
     };
     [[z, 0, x], [-z, 0, -x]].into_iter().any(|side| {
-        schem::id(blocks.get(add(pos, side))) == "minecraft:redstone_block"
+        schem::id(blocks.get(schem::add(pos, side)))
+            == "minecraft:redstone_block"
     })
 }
 
 /// Whether the dust at `pos` is a dot, joined to none of its sides, with a
 /// block beside it that dust from before the dot would have powered.
 fn dot(blocks: &Blocks, pos: Pos, state: &str) -> bool {
-    let sides = ["north", "south", "east", "west"];
-    let joined = sides.iter().any(|side| {
-        schem::property(state, side).is_some_and(|value| value != "none")
+    let joined = Direction::SIDES.iter().any(|side| {
+        schem::property(state, side.name()).is_some_and(|value| value != "none")
     });
     !joined
-        && sides
-            .iter()
-            .filter_map(|side| toward(side))
-            .any(|step| blocks.get(add(pos, step)) != schem::AIR)
+        && Direction::SIDES
+            .into_iter()
+            .any(|side| blocks.get(schem::step(pos, side)) != schem::AIR)
 }
 
 /// A release's place in time, as `[era, numbers...]`: Alpha 0, Beta 1,

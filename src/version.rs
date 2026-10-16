@@ -17,7 +17,7 @@ use crate::{
     import::{self, Analysis, Prepared},
     lint,
     models::schematic::{self, Schematic},
-    schem::{Blocks, Pos},
+    schem::{self, Blocks, Pos},
     standardize::{self, Gray},
 };
 
@@ -92,7 +92,7 @@ pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
 fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
     blocks
         .iter()
-        .filter(|&(_, state)| state != crate::schem::AIR)
+        .filter(|&(_, state)| state != schem::AIR)
         .map(|(pos, state)| (pos, compared(state)))
         .collect()
 }
@@ -101,37 +101,17 @@ fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
 /// container without its power, and any other block only as solid or
 /// see-through.
 fn compared(state: &str) -> String {
-    let id = crate::schem::id(state);
-    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    let name = schem::short(state);
     if lint::is_component(name)
         || name.ends_with("_sign")
-        || crate::schem::slots(state).is_some()
+        || schem::slots(state).is_some()
     {
-        unpowered(state)
+        schem::unpowered(state)
     } else if standardize::see_through(name) {
         "see-through".to_owned()
     } else {
         "solid".to_owned()
     }
-}
-
-/// A block state without the properties that follow its power, such as
-/// `minecraft:redstone_wire[east=side,north=none,south=up,west=none]`.
-fn unpowered(state: &str) -> String {
-    let Some((id, properties)) = state.split_once('[') else {
-        return state.to_owned();
-    };
-    let lever = id.ends_with(":lever");
-    let kept: Vec<&str> = properties
-        .trim_end_matches(']')
-        .split(',')
-        .filter(|pair| {
-            let key = pair.split('=').next().unwrap_or_default();
-            !matches!(key, "power" | "lit" | "locked")
-                && (key != "powered" || lever)
-        })
-        .collect();
-    format!("{id}[{}]", kept.join(","))
 }
 
 /// Why a file whose blocks compare with the current version's as
@@ -217,6 +197,7 @@ mod tests {
 
     #[test]
     fn a_resave_with_other_power_is_unchanged() {
+        use schem::unpowered;
         assert_eq!(
             unpowered("minecraft:redstone_wire[east=side,power=15,south=up]"),
             "minecraft:redstone_wire[east=side,south=up]"
@@ -232,7 +213,9 @@ mod tests {
     #[test]
     fn a_levers_position_counts() {
         assert_eq!(
-            unpowered("minecraft:lever[face=wall,facing=south,powered=true]"),
+            schem::unpowered(
+                "minecraft:lever[face=wall,facing=south,powered=true]"
+            ),
             "minecraft:lever[face=wall,facing=south,powered=true]"
         );
     }

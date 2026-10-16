@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-use crate::schem::{self, Blocks, Pos};
+use crate::schem::{self, Blocks, Direction, Pos};
 
 pub const WIDTH: u16 = 640;
 pub const HEIGHT: u16 = 480;
@@ -114,7 +114,7 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
                 Shape::Parts(parts) => (parts, false),
             };
             let faces = if cube {
-                ["up", "south", "east"]
+                [Direction::Up, Direction::South, Direction::East]
                     .map(|side| !opaque(schem::step(pos, side)))
             } else {
                 [true; 3]
@@ -403,12 +403,14 @@ pub fn dye_color(dye: &str) -> Rgba {
     }
 }
 
+/// One block toward the level direction `facing` names, or nowhere for
+/// any other.
 fn direction(facing: &str) -> [f32; 3] {
-    match facing {
-        "north" => [0.0, 0.0, -1.0],
-        "south" => [0.0, 0.0, 1.0],
-        "west" => [-1.0, 0.0, 0.0],
-        "east" => [1.0, 0.0, 0.0],
+    match Direction::parse(facing) {
+        Some(Direction::North) => [0.0, 0.0, -1.0],
+        Some(Direction::South) => [0.0, 0.0, 1.0],
+        Some(Direction::West) => [-1.0, 0.0, 0.0],
+        Some(Direction::East) => [1.0, 0.0, 0.0],
         _ => [0.0; 3],
     }
 }

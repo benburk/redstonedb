@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use crate::{
-    interface,
-    schem::{self, Blocks, DIRECTIONS, Pos},
+    category, interface,
+    schem::{self, Blocks, Direction, Pos},
 };
 
 /// The block palette from `conventions.md`, besides the input and output
@@ -133,13 +133,6 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
     found
 }
 
-/// The categories whose builds' lone control line and lone status line
-/// need no sign, their roles being plain: an adder's, or a carry out's,
-/// carry in and carry out; an incrementer's increment and carry out; a
-/// decrementer's decrement and borrow out. See `simulate::name_lines`.
-pub const UNSIGNED_LINES: [&str; 4] =
-    ["adder", "carry_out", "incrementer", "decrementer"];
-
 /// The names an adder's control line, its carry in, may be signed with;
 /// an unsigned one goes by the first.
 pub const CARRY_IN: [&str; 2] = ["carry in", "cin"];
@@ -148,11 +141,12 @@ pub const CARRY_IN: [&str; 2] = ["carry in", "cin"];
 /// an unsigned one goes by the first.
 pub const CARRY_OUT: [&str; 2] = ["carry out", "cout"];
 
-/// As `check`, for a build of `category`: one not in `UNSIGNED_LINES` must
-/// sign even a lone control or status line.
+/// As `check`, for a build of `category`: one whose lines' roles are not
+/// plain, as `category::Lines` says, must sign even a lone control or
+/// status line.
 pub fn check_for(blocks: &Blocks, category: &str) -> Vec<Violation> {
     let mut found = check(blocks);
-    if !UNSIGNED_LINES.contains(&category) {
+    if !category::behaviour(category).lines.lone_unsigned() {
         found.extend(
             unsigned(blocks)
                 .into_iter()
@@ -174,7 +168,7 @@ fn unsigned(blocks: &Blocks) -> Vec<(Violation, bool)> {
     let mut lines: BTreeMap<bool, Vec<Pos>> = BTreeMap::new();
     let mut unsigned = Vec::new();
     for (pos, state) in blocks.iter() {
-        let block = short(state);
+        let block = schem::short(state);
         let control = block == format!("{CONTROL}_concrete");
         if !control && output_colour(block) != Some(STATUS) {
             continue;
@@ -222,7 +216,7 @@ fn say(found: &mut Vec<Violation>, pos: Option<Pos>, message: String) {
 fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
     let mut outside: BTreeMap<&str, (Pos, usize)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
-        let name = short(state);
+        let name = schem::short(state);
         if !PALETTE.contains(&name)
             && !first_copy_only(name)
             && !is_input(name)
@@ -254,7 +248,7 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
 fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
     for lever in blocks.switches() {
         let what = if lever.button { "button" } else { "lever" };
-        let block = short(blocks.get(lever.block));
+        let block = schem::short(blocks.get(lever.block));
         if !is_input(block) {
             let block = block.replace('_', " ");
             say(
@@ -280,7 +274,7 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
             .strip_suffix("_concrete")
             .is_some_and(|colour| INPUT_COLOURS.contains(&colour));
         let primary = block == format!("{}_concrete", INPUT_COLOURS[0]);
-        if primary && lever.side != "south" {
+        if primary && lever.side != Direction::South {
             say(
                 found,
                 Some(lever.pos),
@@ -289,20 +283,26 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     lever.side
                 ),
             );
-        } else if operand && matches!(lever.side.as_str(), "up" | "down") {
+        } else if operand
+            && matches!(lever.side, Direction::Up | Direction::Down)
+        {
             say(
                 found,
                 Some(lever.pos),
                 format!(
                     "operand lever is on the {} of its block; it goes on a \
                      side, north, south, east, or west",
-                    if lever.side == "up" { "top" } else { "bottom" }
+                    if lever.side == Direction::Up {
+                        "top"
+                    } else {
+                        "bottom"
+                    }
                 ),
             );
         }
-        for direction in DIRECTIONS {
+        for direction in Direction::ALL {
             let next = schem::step(lever.pos, direction);
-            let touched = short(blocks.get(next));
+            let touched = schem::short(blocks.get(next));
             if next != lever.block && POWERABLE.contains(&touched) {
                 let touched = touched.replace('_', " ");
                 say(
@@ -327,7 +327,7 @@ fn inputs(blocks: &Blocks, found: &mut Vec<Violation>) {
     // Each operand colour's first levered block and first dust-fed one.
     let mut kinds: BTreeMap<&str, (Option<Pos>, Option<Pos>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
-        let name = short(state);
+        let name = schem::short(state);
         if !is_input(name) {
             continue;
         }
@@ -419,7 +419,7 @@ fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
     let held = interface::feeds(blocks);
     let mut buses: BTreeMap<&str, (Pos, Vec<String>)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
-        let block = short(state);
+        let block = schem::short(state);
         let name = signs.get(&pos).and_then(|l| interface::sign_name(l));
         let line = block == format!("{CONTROL}_concrete")
             || output_colour(block) == Some(STATUS);
@@ -483,13 +483,13 @@ fn names(blocks: &Blocks, found: &mut Vec<Violation>) {
 /// sign, an input block, or a torch on an input block. `support` is the block a
 /// torch stands on or hangs from.
 pub fn is_interface(state: &str, support: Option<&str>) -> bool {
-    let name = short(state);
+    let name = schem::short(state);
     name == "lever"
         || name.ends_with("_button")
         || name.ends_with("sign")
         || is_input(name)
         || (name.contains("torch")
-            && support.is_some_and(|s| is_input(short(s))))
+            && support.is_some_and(|s| is_input(schem::short(s))))
 }
 
 /// Whether a block id without its namespace is a redstone component, such
@@ -573,10 +573,4 @@ pub fn is_status_name(name: &str) -> bool {
                 | "ready"
                 | "done"
         )
-}
-
-/// A block state's id without its namespace, such as `lever`.
-fn short(state: &str) -> &str {
-    let id = schem::id(state);
-    id.strip_prefix("minecraft:").unwrap_or(id)
 }

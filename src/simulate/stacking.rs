@@ -17,8 +17,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Case, Circuit, MAX_WIDTH, adder_bench, adder_ports, check_adder, mask,
-    sweep,
+    MAX_WIDTH, Test,
+    adder::{self, AdderPorts, adder_ports},
+    bench::{Case, mask, sweep},
+    circuit::{Circuit, input_bits},
 };
 use crate::{
     interface::{self, Interface},
@@ -32,7 +34,7 @@ use crate::{
 /// past.
 const DUST_REACH: i64 = 15;
 
-/// What stacking copies of an adder found.
+/// What stacking copies of an adder or a register found.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Stacking {
@@ -67,7 +69,9 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
-    /// They make no working adder, with the step tried when there was one.
+    /// They make no working build of its kind, as an adder whose carries do
+    /// not chain or a register with no step west that works, with the step
+    /// tried when there was one.
     Not { step: Option<Step>, reason: String },
 }
 
@@ -132,7 +136,7 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
                       from the one before.";
         return Some(not(None, reason.to_owned()));
     }
-    let width = super::input_bits(&interface.inputs[ports.a]);
+    let width = input_bits(&interface.inputs[ports.a]);
     // A 1-bit adder's carry out need not be where the next copy's carry in
     // goes, as when the copy above covers it, or it may have none, its carry
     // leaving by dust that carry in lands on; short steps are tried with
@@ -236,10 +240,7 @@ fn copies(step: Step, width: usize) -> Option<usize> {
 /// bus's spacing, which may repeat in a pattern, as a staggered bus's
 /// does, carried on past its last bit. A 1-bit adder steps from its carry
 /// in to its carry out, which the next copy's carry in continues.
-fn step(
-    interface: &Interface,
-    ports: &super::AdderPorts,
-) -> Result<Step, String> {
+fn step(interface: &Interface, ports: &AdderPorts) -> Result<Step, String> {
     let bits = |port: &interface::Port| -> Vec<Pos> {
         port.bits.iter().map(|bit| bit.pos).collect()
     };
@@ -346,9 +347,9 @@ fn stacked(
                     own carry in, which lands past the copy before."
             .to_owned());
     }
-    let bench = adder_bench(&mut interface).map_err(|err| {
-        format!("{copies} copies do not make one adder: {err}")
-    })?;
+    let bench = adder::adder(&mut interface)
+        .map_err(|err| format!("{copies} copies do not make one adder: {err}"))?
+        .bench;
     let bits = copies * width;
     let widths = bench.widths(&interface);
     if widths[..2] != [bits, bits] {
@@ -374,7 +375,9 @@ fn stacked(
             joined(&wrong.expected, bits),
         ));
     }
-    let run = check_adder(&blocks).map_err(|err| err.to_string())?;
+    let run = Test::Adder
+        .check(&blocks, false)
+        .map_err(|err| err.to_string())?;
     if run.wrong > 0 {
         return Err(format!(
             "{copies} copies get {} of {} sums wrong.",

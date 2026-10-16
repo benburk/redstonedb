@@ -176,12 +176,7 @@ async fn stored_result(
     test: Test,
 ) -> Result<Option<Report>, AppError> {
     let Some(s) = s else { return Ok(None) };
-    let stored = simulation::get(&state.db, &s.id).await?;
-    Ok(stored
-        .filter(|stored| {
-            stored.test == test.name() && stored.sha256 == s.sha256
-        })
-        .map(|stored| stored.report))
+    Ok(simulation::stored(&state.db, &s.id, &s.sha256, test).await?)
 }
 
 /// The details form's simulation panel: the section for the cases, with

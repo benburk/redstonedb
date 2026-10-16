@@ -250,14 +250,14 @@ impl Blocks {
                 // A floor or ceiling lever's or button's `facing` is only the
                 // way it points.
                 let side = match property(state, "face")? {
-                    "floor" => "up",
-                    "ceiling" => "down",
-                    _ => property(state, "facing")?,
+                    "floor" => Direction::Up,
+                    "ceiling" => Direction::Down,
+                    _ => Direction::facing(state)?,
                 };
                 Some(Switch {
                     pos,
-                    block: step(pos, opposite(side)),
-                    side: side.to_owned(),
+                    block: step(pos, side.opposite()),
+                    side,
                     on: property(state, "powered") == Some("true"),
                     button: id(state).ends_with("_button"),
                 })
@@ -283,11 +283,11 @@ impl Blocks {
         if name.ends_with("_wall_hanging_sign") {
             None
         } else if name.ends_with("_hanging_sign") {
-            Some(step(pos, "up"))
+            Some(step(pos, Direction::Up))
         } else if name.ends_with("_wall_sign") {
-            Some(step(pos, opposite(property(state, "facing")?)))
+            Some(step(pos, Direction::facing(state)?.opposite()))
         } else {
-            Some(step(pos, "down"))
+            Some(step(pos, Direction::Down))
         }
     }
 }
@@ -297,8 +297,8 @@ pub struct Switch {
     pub pos: Pos,
     /// The block the switch is attached to, which it powers.
     pub block: Pos,
-    /// The side of `block` the switch is on, such as `south` or `up`.
-    pub side: String,
+    /// The side of `block` the switch is on, such as south or up.
+    pub side: Direction,
     pub on: bool,
     /// A button rather than a lever: it powers its block for a moment.
     pub button: bool,
@@ -307,45 +307,186 @@ pub struct Switch {
 /// The block a redstone torch at `pos` stands on or hangs from.
 pub fn torch_block(pos: Pos, state: &str) -> Option<Pos> {
     match id(state) {
-        "minecraft:redstone_torch" => Some(step(pos, "down")),
+        "minecraft:redstone_torch" => Some(step(pos, Direction::Down)),
         "minecraft:redstone_wall_torch" => {
-            Some(step(pos, opposite(property(state, "facing")?)))
+            Some(step(pos, Direction::facing(state)?.opposite()))
         }
         _ => None,
     }
 }
 
-/// The neighbour of `pos` one block toward `direction`, such as `north`.
-pub fn step(pos: Pos, direction: &str) -> Pos {
-    let [x, y, z] = pos;
-    match direction {
-        "north" => [x, y, z - 1],
-        "south" => [x, y, z + 1],
-        "west" => [x - 1, y, z],
-        "east" => [x + 1, y, z],
-        "up" => [x, y + 1, z],
-        "down" => [x, y - 1, z],
-        _ => pos,
+/// One of the six ways from a block to a neighbour, as a block state's
+/// `facing` and the side a lever or sign is on name them.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[must_use]
+pub enum Direction {
+    North,
+    South,
+    West,
+    East,
+    Up,
+    Down,
+}
+
+impl Direction {
+    /// Every direction.
+    pub const ALL: [Direction; 6] = [
+        Direction::North,
+        Direction::South,
+        Direction::West,
+        Direction::East,
+        Direction::Up,
+        Direction::Down,
+    ];
+
+    /// The four level directions, the sides of a block as dust joins them.
+    pub const SIDES: [Direction; 4] = [
+        Direction::North,
+        Direction::South,
+        Direction::West,
+        Direction::East,
+    ];
+
+    /// The direction a block state's name for it gives, such as `north`.
+    pub fn parse(name: &str) -> Option<Self> {
+        Direction::ALL.into_iter().find(|d| d.name() == name)
+    }
+
+    /// The way the block in `state` faces, if it has a `facing`.
+    pub fn facing(state: &str) -> Option<Self> {
+        property(state, "facing").and_then(Direction::parse)
+    }
+
+    /// Its name in a block state, such as `north`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Direction::North => "north",
+            Direction::South => "south",
+            Direction::West => "west",
+            Direction::East => "east",
+            Direction::Up => "up",
+            Direction::Down => "down",
+        }
+    }
+
+    /// One block toward it: north is toward negative z, west toward
+    /// negative x.
+    pub fn offset(self) -> Pos {
+        match self {
+            Direction::North => [0, 0, -1],
+            Direction::South => [0, 0, 1],
+            Direction::West => [-1, 0, 0],
+            Direction::East => [1, 0, 0],
+            Direction::Up => [0, 1, 0],
+            Direction::Down => [0, -1, 0],
+        }
+    }
+
+    pub fn opposite(self) -> Self {
+        match self {
+            Direction::North => Direction::South,
+            Direction::South => Direction::North,
+            Direction::West => Direction::East,
+            Direction::East => Direction::West,
+            Direction::Up => Direction::Down,
+            Direction::Down => Direction::Up,
+        }
+    }
+
+    /// A quarter turn clockwise seen from above; up and down stay.
+    pub fn turned(self) -> Self {
+        match self {
+            Direction::North => Direction::East,
+            Direction::East => Direction::South,
+            Direction::South => Direction::West,
+            Direction::West => Direction::North,
+            other => other,
+        }
+    }
+
+    /// Mirrored east for west.
+    pub fn mirrored(self) -> Self {
+        match self {
+            Direction::East => Direction::West,
+            Direction::West => Direction::East,
+            other => other,
+        }
+    }
+
+    /// Whether it runs north and south rather than east and west, up, or
+    /// down.
+    pub fn north_south(self) -> bool {
+        matches!(self, Direction::North | Direction::South)
     }
 }
 
-pub fn opposite(direction: &str) -> &'static str {
-    match direction {
-        "north" => "south",
-        "south" => "north",
-        "west" => "east",
-        "east" => "west",
-        "up" => "down",
-        _ => "up",
+impl std::fmt::Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
     }
 }
 
-pub const DIRECTIONS: [&str; 6] =
-    ["north", "south", "west", "east", "up", "down"];
+/// The neighbour of `pos` one block toward `direction`.
+pub fn step(pos: Pos, direction: Direction) -> Pos {
+    add(pos, direction.offset())
+}
+
+/// `a` moved by `b`.
+pub fn add(a: Pos, b: Pos) -> Pos {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
 
 /// The block id of a state, such as `minecraft:lever`.
 pub fn id(state: &str) -> &str {
     state.split('[').next().unwrap_or(state)
+}
+
+/// A block state's id without its namespace, such as `lever`.
+pub fn short(state: &str) -> &str {
+    let id = id(state);
+    id.strip_prefix("minecraft:").unwrap_or(id)
+}
+
+/// A block state without the properties that follow its power, such as
+/// `minecraft:redstone_wire[east=side,north=none,south=up,west=none]`, so
+/// two saves of one build compare alike however their power stood. A
+/// lever keeps `powered`, being how it was set rather than powered.
+pub fn unpowered(state: &str) -> String {
+    let Some((id, properties)) = state.split_once('[') else {
+        return state.to_owned();
+    };
+    let lever = id.ends_with(":lever");
+    let kept: Vec<&str> = properties
+        .trim_end_matches(']')
+        .split(',')
+        .filter(|pair| {
+            let key = pair.split('=').next().unwrap_or_default();
+            !matches!(key, "power" | "lit" | "locked")
+                && (key != "powered" || lever)
+        })
+        .collect();
+    format!("{id}[{}]", kept.join(","))
+}
+
+/// A block state as a player places it, before the game works out what
+/// depends on its neighbours: dust as its bare id, its strength and joins
+/// left out, and any other block without whether it is powered or lit,
+/// a lever included. Stacked copies whose blocks differ only so do not
+/// collide, as unlike `unpowered`, which tells two saves apart by how
+/// their dust runs.
+pub fn as_placed(state: &str) -> String {
+    if short(state) == "redstone_wire" {
+        return id(state).to_owned();
+    }
+    let Some((id, properties)) = state.split_once('[') else {
+        return state.to_owned();
+    };
+    let kept: Vec<&str> = properties
+        .trim_end_matches(']')
+        .split(',')
+        .filter(|p| !p.starts_with("powered=") && !p.starts_with("lit="))
+        .collect();
+    format!("{id}[{}]", kept.join(","))
 }
 
 /// A property of a block state, such as `facing`.
@@ -359,7 +500,7 @@ pub fn property<'a>(state: &'a str, key: &str) -> Option<&'a str> {
 }
 
 /// Sponge stores each palette index as an unsigned LEB128 varint.
-pub fn to_varints(values: &[usize]) -> Vec<i8> {
+fn to_varints(values: &[usize]) -> Vec<i8> {
     let mut bytes = Vec::new();
     for &value in values {
         let mut rest = value;
@@ -378,7 +519,7 @@ pub fn to_varints(values: &[usize]) -> Vec<i8> {
     bytes
 }
 
-pub fn varints(bytes: &[i8]) -> Vec<usize> {
+fn varints(bytes: &[i8]) -> Vec<usize> {
     let mut values = Vec::new();
     let mut value = 0;
     let mut shift = 0;

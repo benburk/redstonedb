@@ -12,65 +12,19 @@
 
 use std::collections::HashMap;
 
-use crate::schem::{self, Blocks, Pos};
+use crate::schem::{self, Blocks, Direction, Pos};
 
 /// The share, in tenths of a percent, from which a build is listed as
 /// similar to another: a copy or a small fix of it, not just a build of
 /// the same design.
 pub const SIMILAR: u32 = 900;
 
-/// The way a component faces, or none, as for a standing torch.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Facing {
-    None,
-    North,
-    East,
-    South,
-    West,
-    Up,
-    Down,
-}
-
-impl Facing {
-    fn of(state: &str) -> Self {
-        match schem::property(state, "facing") {
-            Some("north") => Facing::North,
-            Some("east") => Facing::East,
-            Some("south") => Facing::South,
-            Some("west") => Facing::West,
-            Some("up") => Facing::Up,
-            Some("down") => Facing::Down,
-            _ => Facing::None,
-        }
-    }
-
-    /// A quarter turn clockwise seen from above, as `Skeleton::oriented`
-    /// turns positions.
-    fn turned(self) -> Self {
-        match self {
-            Facing::North => Facing::East,
-            Facing::East => Facing::South,
-            Facing::South => Facing::West,
-            Facing::West => Facing::North,
-            other => other,
-        }
-    }
-
-    /// Mirrored east for west.
-    fn mirrored(self) -> Self {
-        match self {
-            Facing::East => Facing::West,
-            Facing::West => Facing::East,
-            other => other,
-        }
-    }
-}
-
 /// A redstone component and the way it faces.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Part {
     kind: &'static str,
-    facing: Facing,
+    /// None for one that faces no way, as a standing torch.
+    facing: Option<Direction>,
 }
 
 /// The blocks compared: those that carry, make, or read a signal.
@@ -100,7 +54,7 @@ impl Skeleton {
                 .filter_map(|(pos, state)| {
                     let id = schem::id(state).trim_start_matches("minecraft:");
                     let kind = KINDS.into_iter().find(|kind| *kind == id)?;
-                    let facing = Facing::of(state);
+                    let facing = Direction::facing(state);
                     Some((pos, Part { kind, facing }))
                 })
                 .collect(),
@@ -136,11 +90,11 @@ impl Skeleton {
                 let mut facing = part.facing;
                 if mirror {
                     x = -x;
-                    facing = facing.mirrored();
+                    facing = facing.map(Direction::mirrored);
                 }
                 for _ in 0..turns {
                     (x, z) = (-z, x);
-                    facing = facing.turned();
+                    facing = facing.map(Direction::turned);
                 }
                 ([x, y, z], Part { facing, ..part })
             })
@@ -182,7 +136,7 @@ pub fn permille(a: &Skeleton, b: &Skeleton) -> u32 {
 mod tests {
     use super::*;
 
-    fn part(kind: &'static str, facing: Facing) -> Part {
+    fn part(kind: &'static str, facing: Option<Direction>) -> Part {
         Part { kind, facing }
     }
 
@@ -193,8 +147,8 @@ mod tests {
         let small = build();
         let mut bigger = build().0;
         bigger.extend([
-            ([5, 0, 0], part("redstone_wire", Facing::None)),
-            ([5, 0, 1], part("repeater", Facing::South)),
+            ([5, 0, 0], part("redstone_wire", None)),
+            ([5, 0, 1], part("repeater", Some(Direction::South))),
         ]);
         let bigger = Skeleton(bigger);
         let turned = Skeleton(build().oriented(1, true));
@@ -213,11 +167,11 @@ mod tests {
     /// A small L of dust ending in a repeater facing east.
     fn build() -> Skeleton {
         Skeleton(vec![
-            ([0, 0, 0], part("redstone_wire", Facing::None)),
-            ([0, 0, 1], part("redstone_wire", Facing::None)),
-            ([0, 0, 2], part("redstone_wire", Facing::None)),
-            ([1, 0, 2], part("repeater", Facing::East)),
-            ([2, 1, 2], part("comparator", Facing::North)),
+            ([0, 0, 0], part("redstone_wire", None)),
+            ([0, 0, 1], part("redstone_wire", None)),
+            ([0, 0, 2], part("redstone_wire", None)),
+            ([1, 0, 2], part("repeater", Some(Direction::East))),
+            ([2, 1, 2], part("comparator", Some(Direction::North))),
         ])
     }
 
@@ -246,7 +200,7 @@ mod tests {
     #[test]
     fn a_turned_component_no_longer_lines_up() {
         let mut changed = build();
-        changed.0[3].1.facing = Facing::West;
+        changed.0[3].1.facing = Some(Direction::West);
         // Four of five line up each way: 8 of 10.
         assert_eq!(permille(&build(), &changed), 800);
     }

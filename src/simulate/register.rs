@@ -26,8 +26,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Circuit, MAX_TICKS, Run, Signal, Wrong, mask, output_bits,
-    patterns,
+    Broken, Run, Signal, Wrong,
+    bench::{mask, patterns},
+    circuit::{Circuit, MAX_TICKS, output_bits},
     stacking::{Stacking, Step},
     timing::{BitTiming, InputTiming, OutputTiming, Takes, Timing},
 };

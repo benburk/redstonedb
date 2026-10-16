@@ -12,8 +12,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
+    category::{self, Lines},
     lint,
-    schem::{self, Blocks, DIRECTIONS, Pos, Switch},
+    schem::{self, Blocks, Direction, Pos, Switch},
 };
 
 #[derive(Default)]
@@ -51,14 +52,110 @@ pub struct Port {
 pub struct Bit {
     /// Position in the file.
     pub pos: Pos,
-    /// For an input, the side power enters through, such as `south`: the
+    /// For an input, the side power enters through, such as south: the
     /// side its lever is on, or the open end of the dust on top.
-    pub entry: Option<String>,
+    pub entry: Option<Direction>,
     /// For an input, whether dust touches its block, so only strong power
     /// from a repeater, comparator, or torch drives it.
     pub hard: bool,
     /// For an input, whether it is saved with its lever on.
     pub inverted: bool,
+}
+
+/// Names a build's unsigned ports for what its `category` takes them to
+/// be, as `category::Lines` gives them, so a page shows what the simulator
+/// reads: an adder's lone magenta and pink lines are its carry in and
+/// carry out; a register's data bus in and out are its data in and data
+/// out, and each of its magenta lines a write, driven by a button, or a
+/// read, by a lever. A sign's name always stands.
+pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
+    let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
+        let mut lines =
+            ports.iter_mut().filter(|p| p.block.starts_with(colour));
+        if let (Some(line), None) = (lines.next(), lines.next())
+            && !line.labelled
+            && line.bits.len() == 1
+        {
+            name.clone_into(&mut line.name);
+        }
+    };
+    let (control, status, lone_output) =
+        match category::behaviour(category).lines {
+            Lines::Lone {
+                control,
+                status,
+                lone_output,
+            } => (control, status, lone_output),
+            Lines::Register => return name_register(blocks, interface),
+            Lines::Signed => return,
+        };
+    lone(&mut interface.inputs, lint::CONTROL, control);
+    lone(&mut interface.outputs, lint::STATUS, status);
+    if lone_output
+        && let [out] = interface.outputs.as_mut_slice()
+        && !out.labelled
+        && out.bits.len() == 1
+    {
+        status.clone_into(&mut out.name);
+    }
+}
+
+/// `name_lines` for a register: its data bus in and out by their roles,
+/// and its unsigned magenta lines split into writes, each driven by a
+/// button, and reads, by a lever, numbered in order when there are more.
+fn name_register(blocks: &Blocks, interface: &mut Interface) {
+    let control = |port: &Port| port.block.starts_with(lint::CONTROL);
+    let data: Vec<&mut Port> = interface
+        .inputs
+        .iter_mut()
+        .filter(|p| !control(p))
+        .collect();
+    if let [only] = data.as_slice()
+        && only.name == "A"
+    {
+        let only = interface
+            .inputs
+            .iter_mut()
+            .find(|p| !control(p))
+            .expect("just found");
+        "data in".clone_into(&mut only.name);
+    }
+    if let [out] = interface.outputs.as_mut_slice()
+        && out.name == "output"
+    {
+        "data out".clone_into(&mut out.name);
+    }
+    let button = |bit: &Bit| {
+        bit.entry.is_some_and(|side| {
+            schem::id(blocks.get(schem::step(bit.pos, side)))
+                .ends_with("_button")
+        })
+    };
+    let mut split = Vec::new();
+    for port in std::mem::take(&mut interface.inputs) {
+        if !control(&port) || port.labelled {
+            split.push(port);
+            continue;
+        }
+        let (writes, reads): (Vec<_>, Vec<_>) =
+            port.bits.iter().cloned().partition(|bit| button(bit));
+        for (bits, word) in [(writes, "write"), (reads, "read")] {
+            let count = bits.len();
+            for (i, bit) in bits.into_iter().enumerate() {
+                let name = if count > 1 {
+                    format!("{word} {}", i + 1)
+                } else {
+                    word.to_owned()
+                };
+                split.push(Port {
+                    name,
+                    bits: vec![bit],
+                    ..port.clone()
+                });
+            }
+        }
+    }
+    interface.inputs = split;
 }
 
 /// The bounds, inclusive, of the build itself: its box less any outer
@@ -106,7 +203,7 @@ fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
 /// signal-strength inputs, whose dust is part of the interface.
 fn interface_only(
     blocks: &Blocks,
-    fed: &HashMap<Pos, Option<String>>,
+    fed: &HashMap<Pos, Option<Direction>>,
     outputs: bool,
     axis: usize,
     at: i32,
@@ -123,7 +220,7 @@ fn interface_only(
                 let state = blocks.get(pos);
                 let support = schem::torch_block(pos, state)
                     .map(|block| blocks.get(block));
-                let below = schem::step(pos, "down");
+                let below = schem::step(pos, Direction::Down);
                 state == schem::AIR
                     || lint::is_interface(state, support)
                     || (schem::id(state) == DUST && fed.contains_key(&below))
@@ -154,7 +251,7 @@ pub enum Feed {
     Switch(Switch),
     /// Dust on top, for a signal-strength input, entered through the side
     /// its open end points to.
-    Dust { entry: Option<String> },
+    Dust { entry: Option<Direction> },
 }
 
 /// Every input block, with what feeds it.
@@ -175,7 +272,7 @@ pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
 /// The signal-strength inputs: input-colour concrete with no lever or
 /// button on it and dust on top, each with the side its signal enters
 /// through.
-pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<String>> {
+pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<Direction>> {
     let switched: HashSet<Pos> = blocks
         .switches()
         .iter()
@@ -184,29 +281,29 @@ pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<String>> {
     blocks
         .iter()
         .filter(|&(pos, state)| {
-            lint::is_input(short(state))
+            lint::is_input(schem::short(state))
                 && !switched.contains(&pos)
-                && schem::id(blocks.get(schem::step(pos, "up"))) == DUST
+                && schem::id(blocks.get(schem::step(pos, Direction::Up)))
+                    == DUST
         })
-        .map(|(pos, _)| (pos, open_end(blocks, schem::step(pos, "up"))))
+        .map(|(pos, _)| {
+            (pos, open_end(blocks, schem::step(pos, Direction::Up)))
+        })
         .collect()
 }
 
 /// The side of the dust at `pos` that leads nowhere, where its driver
 /// goes; `None` unless exactly one side does.
-fn open_end(blocks: &Blocks, pos: Pos) -> Option<String> {
+fn open_end(blocks: &Blocks, pos: Pos) -> Option<Direction> {
     let state = blocks.get(pos);
-    let mut open =
-        ["north", "south", "west", "east"]
-            .into_iter()
-            .filter(|&side| {
-                let next = schem::step(pos, side);
-                schem::property(state, side) == Some("side")
-                    && blocks.get(next) == schem::AIR
-                    && schem::id(blocks.get(schem::step(next, "down"))) != DUST
-            });
+    let mut open = Direction::SIDES.into_iter().filter(|&side| {
+        let next = schem::step(pos, side);
+        schem::property(state, side.name()) == Some("side")
+            && blocks.get(next) == schem::AIR
+            && schem::id(blocks.get(schem::step(next, Direction::Down))) != DUST
+    });
     match (open.next(), open.next()) {
-        (Some(side), None) => Some(side.to_owned()),
+        (Some(side), None) => Some(side),
         _ => None,
     }
 }
@@ -217,7 +314,7 @@ pub fn read(blocks: &Blocks) -> Interface {
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !feeds.contains_key(pos) && lint::is_output(short(state))
+            !feeds.contains_key(pos) && lint::is_output(schem::short(state))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -472,12 +569,12 @@ fn port(
             Bit {
                 pos,
                 entry: match feed(pos) {
-                    Some(Feed::Switch(lever)) => Some(lever.side.clone()),
-                    Some(Feed::Dust { entry }) => entry.clone(),
+                    Some(Feed::Switch(lever)) => Some(lever.side),
+                    Some(Feed::Dust { entry }) => *entry,
                     None => None,
                 },
                 hard: lever.is_some()
-                    && DIRECTIONS.iter().any(|&d| {
+                    && Direction::ALL.into_iter().any(|d| {
                         schem::id(blocks.get(schem::step(pos, d))) == DUST
                     }),
                 inverted: lever.is_some_and(|lever| lever.on) || inverted_line,
@@ -501,16 +598,10 @@ fn port(
 /// The colour an input or output block marks, such as `yellow` for yellow
 /// stained glass. Any other block is its own kind.
 fn colour(state: &str) -> &str {
-    let block = short(state);
+    let block = schem::short(state);
     lint::output_colour(block)
         .or_else(|| block.strip_suffix("_concrete"))
         .unwrap_or(block)
-}
-
-/// A block state's id without its namespace, such as `yellow_concrete`.
-fn short(state: &str) -> &str {
-    let id = schem::id(state);
-    id.strip_prefix("minecraft:").unwrap_or(id)
 }
 
 /// The port a sign names: its first line with a name on it, so a name

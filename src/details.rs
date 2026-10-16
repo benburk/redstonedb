@@ -5,10 +5,11 @@
 use sqlx::SqlitePool;
 
 use crate::{
+    category,
     models::schematic::{
         self, Category, Credit, Measure, Schematic, StackDirection,
     },
-    mojang, simulate, stack,
+    mojang, stack,
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming
@@ -201,7 +202,8 @@ async fn ready(
         schematic::keep_flags(db, &category.name, &details.flags).await?;
 
     let stacking_inferred = build.conventional
-        && simulate::INFERS_STACKING.contains(&category.name.as_str());
+        && category::behaviour(&category.name).stacking
+            == category::Stacking::Inferred;
     if !stacking_inferred {
         let buses = stack::Buses::of(&category.name, &details.orientation);
         stack::check(build.data, &details.stacking, buses)?;

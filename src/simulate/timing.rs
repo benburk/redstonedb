@@ -36,7 +36,10 @@ use std::{
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-use super::{Circuit, MAX_TICKS};
+use super::{
+    bench::{self, EXHAUSTIVE_BITS},
+    circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
+};
 use crate::{interface::Interface, lint, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
@@ -59,26 +62,21 @@ pub struct Timing {
     /// How many changes were measured.
     pub changes: u64,
     /// Whether the inputs took the test patterns rather than every value.
-    #[serde(default)]
     pub patterns: bool,
     /// Whether ticks count from a register's read lever turning on rather
     /// than from input A changing.
-    #[serde(default)]
     pub from_read: bool,
     /// For a register, the most ticks from pressing a cell's write button,
     /// its read held on, until the bus shows the new value; or, for a cell
     /// that takes its data as its write closes, from it closing.
-    #[serde(default)]
     pub write: Option<i32>,
     /// For a register, the most ticks for data to pass through a cell, its
     /// read on: from its data in changing, with its write held open, or for
     /// a cell that takes its data as its write closes, as it closes, until
     /// the bus shows it. `None` for one that takes its data only
     /// as its write opens.
-    #[serde(default)]
     pub data: Option<i32>,
     /// When a register's cells take their data.
-    #[serde(default)]
     pub takes: Takes,
 }
 
@@ -142,17 +140,13 @@ pub struct OutputTiming {
     pub first_change: i32,
     /// The ticks the repeaters or comparators standing on its blocks take
     /// to carry it out of the build, left out of its ticks.
-    #[serde(default)]
     pub carried: i32,
     /// How many changes it glitched in: a bit of it changed more than once.
-    #[serde(default)]
     pub glitches: u64,
     /// How many changes its bits changed on different ticks in, each once,
     /// passing through a value it should not show.
-    #[serde(default)]
     pub staggered: u64,
     /// The first change from all off in which it glitched.
-    #[serde(default)]
     pub glitch: Option<Glitch>,
     /// Each bit, least significant first.
     pub bits: Vec<BitTiming>,
@@ -204,13 +198,13 @@ pub(super) fn measure(
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
         .iter()
-        .map(|&port| super::input_bits(&interface.inputs[port]))
+        .map(|&port| input_bits(&interface.inputs[port]))
         .collect();
     let (values, patterns) = chosen.unwrap_or_else(|| values_to_try(&widths));
     let outputs: Vec<usize> = interface
         .outputs
         .iter()
-        .map(|port| super::output_bits(interface, port))
+        .map(|port| output_bits(interface, port))
         .collect();
     let carried = Circuit::new(blocks, interface)?.carried();
     let rig = Rig {
@@ -328,12 +322,12 @@ fn output_timings(
 /// The values each input of `widths` bits takes: every one, or the test
 /// patterns when that would be too many, which the `bool` says.
 fn values_to_try(widths: &[usize]) -> (Vec<Vec<u64>>, bool) {
-    let patterns = widths.iter().sum::<usize>() > super::EXHAUSTIVE_BITS;
+    let patterns = widths.iter().sum::<usize>() > EXHAUSTIVE_BITS;
     let values = widths
         .iter()
         .map(|&width| {
             if patterns {
-                super::patterns(width)
+                bench::patterns(width)
             } else {
                 (0..1 << width).collect()
             }

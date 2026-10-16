@@ -3,7 +3,7 @@
 use app::{
     import, interface, lint,
     models::schematic::StackDirection,
-    schem::{self, Blocks},
+    schem::{self, Blocks, Direction},
     simulate, stack,
     standardize::{self, Gray},
 };
@@ -123,7 +123,7 @@ fn interface_names_operands_and_control_lines() {
         inputs[0]
             .bits
             .iter()
-            .all(|bit| bit.entry.as_deref() == Some("south"))
+            .all(|bit| bit.entry == Some(Direction::South))
     );
 }
 
@@ -174,7 +174,7 @@ fn a_lever_on_top_enters_from_above() {
         inputs[0]
             .bits
             .iter()
-            .all(|bit| bit.entry.as_deref() == Some("up"))
+            .all(|bit| bit.entry == Some(Direction::Up))
     );
     // A vertical bus counts up from its bottom bit.
     assert_eq!(inputs[0].bits[0].pos[1], 1);
@@ -213,7 +213,10 @@ fn stacked_slices_form_one_wider_build() {
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
     // Each copy's carry in hangs a torch on the previous copy's carry out,
     // which inverts it, so the sums come out right.
-    let run = app::simulate::check_adder(&blocks).unwrap();
+    let report = simulate::Test::Adder.run(&blocks);
+    let simulate::Report::Ran(run) = report else {
+        panic!("the stack was not simulated: {report:?}");
+    };
     assert_eq!((run.cases, run.wrong), (1 << 17, 0));
 }
 
@@ -539,7 +542,7 @@ fn b_levers_on(side: &str) -> Option<Vec<u8>> {
         grid.remove(&lever.pos);
     }
     for lever in &b {
-        let pos = app::schem::step(lever.block, side);
+        let pos = app::schem::step(lever.block, Direction::parse(side)?);
         if grid.contains_key(&pos) {
             return None;
         }
@@ -606,7 +609,7 @@ fn dust_on_an_input_block_is_a_signal_strength_input() {
     let a = &interface.inputs[0];
     assert!(a.signal_strength);
     assert_eq!(a.block, "lime concrete");
-    assert_eq!(a.bits[0].entry.as_deref(), Some("south"));
+    assert_eq!(a.bits[0].entry, Some(Direction::South));
     assert!(!a.bits[0].hard);
     assert_eq!(names(&interface.outputs), [("output", 4)]);
     assert_eq!(import::guess(&interface).0, Some(4));
@@ -954,9 +957,9 @@ fn an_adders_unsigned_carry_lines_are_named() {
         };
         let before = unnamed(&read.inputs) + unnamed(&read.outputs);
         let mut adder = interface::read(&blocks);
-        simulate::name_lines("adder", &blocks, &mut adder);
+        interface::name_lines("adder", &blocks, &mut adder);
         let mut other = interface::read(&blocks);
-        simulate::name_lines("multiplier", &blocks, &mut other);
+        interface::name_lines("multiplier", &blocks, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,
@@ -987,7 +990,7 @@ fn an_adders_unsigned_carry_lines_are_named() {
 fn a_registers_lines_are_named_by_their_roles() {
     let blocks = Blocks::read(&raw("register-8-2-cells")).unwrap();
     let mut read = interface::read(&blocks);
-    simulate::name_lines("register", &blocks, &mut read);
+    interface::name_lines("register", &blocks, &mut read);
     let inputs: Vec<&str> =
         read.inputs.iter().map(|p| p.name.as_str()).collect();
     let outputs: Vec<&str> =
@@ -1036,7 +1039,7 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     assert!(lint::check_for(&blocks, "decrementer").is_empty());
     assert!(!lint::check_for(&blocks, "multiplier").is_empty());
     let mut named = interface::read(&blocks);
-    simulate::name_lines("incrementer", &blocks, &mut named);
+    interface::name_lines("incrementer", &blocks, &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
     let simulate::Report::Ran(run) = simulate::Test::Incrementer.run(&blocks)
     else {

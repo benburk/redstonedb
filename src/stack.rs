@@ -34,9 +34,9 @@ use std::{
 use anyhow::{Result, ensure};
 
 use crate::{
-    interface, lint,
+    category, interface, lint,
     models::schematic::StackDirection,
-    schem::{self, AIR, Blocks, DIRECTIONS, Pos},
+    schem::{self, AIR, Blocks, Direction, Pos},
 };
 
 /// The most copies along one direction.
@@ -46,25 +46,22 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
 
-/// The categories whose copies, stacked across their bits, share their
-/// data buses: more registers or words on one data bus, rather than more
-/// bits.
-pub const SHARED_BUSES: [&str; 2] = ["register", "ram"];
-
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
 /// data inputs and outputs; copies across a register's bits share its
 /// buses, which only the first copy drives and reads.
 #[derive(Clone, Copy)]
 pub struct Buses<'a> {
-    category: &'a str,
+    /// Whether the category's copies across its bits share its buses, as
+    /// `category::Behaviour::shared_buses` says.
+    shared: bool,
     orientation: &'a str,
 }
 
 impl<'a> Buses<'a> {
-    pub fn of(category: &'a str, orientation: &'a str) -> Self {
+    pub fn of(category: &str, orientation: &'a str) -> Self {
         Buses {
-            category,
+            shared: category::behaviour(category).shared_buses,
             orientation,
         }
     }
@@ -72,15 +69,14 @@ impl<'a> Buses<'a> {
     /// For a build whose every copy keeps its own buses, as an adder's.
     pub fn own() -> Buses<'static> {
         Buses {
-            category: "",
+            shared: false,
             orientation: "",
         }
     }
 
     /// Whether copies stacked `direction` share the data buses.
     fn shared(self, direction: StackDirection) -> bool {
-        SHARED_BUSES.contains(&self.category)
-            && !along_bits(self.orientation, direction)
+        self.shared && !along_bits(self.orientation, direction)
     }
 }
 
@@ -199,9 +195,9 @@ fn along(
             }
             // A later copy's data blocks on a shared bus are plain blocks.
             let plain = (!final_copy && outputs.blocks.contains(&pos))
-                || (shared && i > 0 && bus(short(state)));
+                || (shared && i > 0 && bus(schem::short(state)));
             let state = if plain { WHITE } else { state };
-            place(&mut grid, add(pos, shift(i)), state);
+            place(&mut grid, schem::add(pos, shift(i)), state);
         }
     }
 
@@ -218,7 +214,7 @@ fn along(
             let dropped = (i > 0 && left_out.contains(&pos))
                 || (i != last && outputs.signs.contains(&pos));
             if !dropped {
-                let to = add(pos, shift(i));
+                let to = schem::add(pos, shift(i));
                 let block = schem::id(blocks.get(pos)).to_owned();
                 placed.insert(to, (block, schem::with_pos(entity, to)));
             }
@@ -368,14 +364,17 @@ fn disagreements(
     };
     let named = |pos: Pos, state: &str| match strength(pos, state) {
         Some(strength) => {
-            format!("{} of strength {strength}", short(state).replace('_', " "))
+            format!(
+                "{} of strength {strength}",
+                schem::short(state).replace('_', " ")
+            )
         }
-        None => short(state).replace('_', " "),
+        None => schem::short(state).replace('_', " "),
     };
     blocks
         .iter()
         .filter_map(|(pos, _)| {
-            let at = add(pos, step);
+            let at = schem::add(pos, step);
             if first_copy.all.contains(&pos)
                 || first_copy.all.contains(&at)
                 || !within(at)
@@ -383,7 +382,7 @@ fn disagreements(
                 return None;
             }
             let (later, earlier) = (stacked(pos), stacked(at));
-            let dust = |state: &str| short(state) == "redstone_wire";
+            let dust = |state: &str| schem::short(state) == "redstone_wire";
             // A container is told by its kind and the strength it gives.
             let other = match (strength(at, earlier), strength(pos, later)) {
                 (Some(a), Some(b)) => {
@@ -395,9 +394,9 @@ fn disagreements(
                 && earlier != AIR
                 && !(dust(later) && dust(earlier))
                 && other;
-            let on = match short(later) {
+            let on = match schem::short(later) {
                 "redstone_wire" | "repeater" | "comparator" => {
-                    Some(schem::step(pos, "down"))
+                    Some(schem::step(pos, Direction::Down))
                 }
                 _ => schem::torch_block(pos, later),
             };
@@ -542,8 +541,8 @@ fn shared_inputs(
     };
     let (mut inputs, mut buses) = (Vec::new(), Vec::new());
     for (pos, state) in blocks.iter() {
-        let name = short(state);
-        let landing = add(pos, step);
+        let name = schem::short(state);
+        let landing = schem::add(pos, step);
         if shared && bus(name) && within(landing) && blocks.get(landing) != AIR
         {
             buses.push(pos);
@@ -571,10 +570,12 @@ fn resting_on(
     let mut shared = HashSet::new();
     // What carries an output out stands on it, and goes with it.
     shared.extend(blocks.iter().filter_map(|(pos, state)| {
-        let below = schem::step(pos, "down");
-        (matches!(short(state), "redstone_wire" | "repeater" | "comparator")
-            && inputs.contains(&below)
-            && lint::is_output(short(blocks.get(below))))
+        let below = schem::step(pos, Direction::Down);
+        (matches!(
+            schem::short(state),
+            "redstone_wire" | "repeater" | "comparator"
+        ) && inputs.contains(&below)
+            && lint::is_output(schem::short(blocks.get(below))))
         .then_some(pos)
     }));
     shared.extend(
@@ -591,7 +592,7 @@ fn resting_on(
     }));
     shared.extend(blocks.iter().filter_map(|(pos, state)| {
         let on = schem::torch_block(pos, state)?;
-        (inputs.contains(&on) && !solid(blocks.get(add(on, step))))
+        (inputs.contains(&on) && !solid(blocks.get(schem::add(on, step))))
             .then_some(pos)
     }));
     shared
@@ -632,7 +633,7 @@ fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
     let mut levers = 0;
     if shared {
         for switch in blocks.switches() {
-            if bus(short(blocks.get(switch.block))) {
+            if bus(schem::short(blocks.get(switch.block))) {
                 all.insert(switch.pos);
                 levers += 1;
             }
@@ -641,7 +642,7 @@ fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
     FirstCopy {
         gray: blocks
             .iter()
-            .filter(|&(_, state)| lint::first_copy_only(short(state)))
+            .filter(|&(_, state)| lint::first_copy_only(schem::short(state)))
             .count(),
         inputs,
         buses,
@@ -664,7 +665,7 @@ fn bus(name: &str) -> bool {
 fn fed(blocks: &Blocks, pos: Pos) -> bool {
     let redstone = |state: &str| {
         matches!(
-            short(state),
+            schem::short(state),
             "redstone_wire"
                 | "repeater"
                 | "comparator"
@@ -674,9 +675,9 @@ fn fed(blocks: &Blocks, pos: Pos) -> bool {
         )
     };
     blocks.get(pos) != AIR
-        || DIRECTIONS
-            .iter()
-            .any(|&side| redstone(blocks.get(schem::step(pos, side))))
+        || Direction::ALL
+            .into_iter()
+            .any(|side| redstone(blocks.get(schem::step(pos, side))))
 }
 
 /// The blocks only the first copy keeps: gray blocks, and the dust,
@@ -685,15 +686,17 @@ fn fed(blocks: &Blocks, pos: Pos) -> bool {
 fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
     let mut only: HashSet<Pos> = blocks
         .iter()
-        .filter(|&(_, state)| lint::first_copy_only(short(state)))
+        .filter(|&(_, state)| lint::first_copy_only(schem::short(state)))
         .map(|(pos, _)| pos)
         .collect();
     let mut resting: Vec<(Pos, Pos)> = blocks
         .iter()
         .filter_map(|(pos, state)| {
-            let on = match short(state) {
+            let on = match schem::short(state) {
                 "redstone_wire" | "repeater" | "comparator" | "barrel"
-                | "hopper" | "furnace" => Some(schem::step(pos, "down")),
+                | "hopper" | "furnace" => {
+                    Some(schem::step(pos, Direction::Down))
+                }
                 _ => schem::torch_block(pos, state),
             };
             Some((pos, on?))
@@ -753,8 +756,8 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
 fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
     let placed = match grid.get(&pos) {
         Some(existing)
-            if short(existing) == "redstone_wire"
-                && short(state) == "redstone_wire" =>
+            if schem::short(existing) == "redstone_wire"
+                && schem::short(state) == "redstone_wire" =>
         {
             joined(existing, state)
         }
@@ -766,7 +769,7 @@ fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
 /// Whether `state` is a solid block rather than a component standing on
 /// or beside one, such as dust, a torch, or a lever.
 fn solid(state: &str) -> bool {
-    let name = short(state);
+    let name = schem::short(state);
     !(name == "air"
         || name == "redstone_wire"
         || name == "repeater"
@@ -782,24 +785,7 @@ fn solid(state: &str) -> bool {
 /// but air or the same block, though in another state of power, which the
 /// game works out again.
 fn replaces(existing: &str, state: &str) -> bool {
-    existing != AIR && unpowered(existing) != unpowered(state)
-}
-
-/// A block state without what depends on its power or neighbours: dust's
-/// strength and joins, and whether a component is powered or lit.
-fn unpowered(state: &str) -> String {
-    if short(state) == "redstone_wire" {
-        return schem::id(state).to_owned();
-    }
-    let Some((id, properties)) = state.split_once('[') else {
-        return state.to_owned();
-    };
-    let kept: Vec<&str> = properties
-        .trim_end_matches(']')
-        .split(',')
-        .filter(|p| !p.starts_with("powered=") && !p.starts_with("lit="))
-        .collect();
-    format!("{id}[{}]", kept.join(","))
+    existing != AIR && schem::as_placed(existing) != schem::as_placed(state)
 }
 
 /// Dust joined every way either `a` or `b` joins, `up` over `side` over
@@ -825,16 +811,6 @@ fn joined(a: &str, b: &str) -> String {
     format!(
         "minecraft:redstone_wire[{east},{north},power={power},{south},{west}]"
     )
-}
-
-/// A block's id without its namespace, such as `redstone_wire`.
-fn short(state: &str) -> &str {
-    let id = schem::id(state);
-    id.strip_prefix("minecraft:").unwrap_or(id)
-}
-
-fn add(a: Pos, b: Pos) -> Pos {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
 #[cfg(test)]

@@ -8,13 +8,13 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
+    category,
     details::Ready,
     interface::{self, Interface, Port},
     lint::{self, Violation},
     models::schematic::{self, Credit, New},
     models::version,
     schem::{self, Blocks, Size},
-    simulate,
     standardize::{self, Gray},
     works_from::{self, WorksFrom},
 };
@@ -101,7 +101,7 @@ impl Analysis {
     /// lets it pass.
     pub fn of(blocks: &Blocks, category: &str, conventional: bool) -> Self {
         let mut interface = interface::read(blocks);
-        simulate::name_lines(category, blocks, &mut interface);
+        interface::name_lines(category, blocks, &mut interface);
         let violations = match (conventional, category) {
             (false, _) => Vec::new(),
             (true, "") => lint::check(blocks),
@@ -275,25 +275,9 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     .collect()
 }
 
-/// The categories whose width, orientation, and encoding are read from the
-/// file, from input A; see `derived`.
-pub const READ_FROM_FILE: [&str; 8] = [
-    "adder",
-    "incrementer",
-    "decrementer",
-    "inc_dec",
-    "alu",
-    "register",
-    "absolute_value",
-    "carry_out",
-];
-
-/// The categories whose flags are read from the file too, rather than
-/// ticked: an adder's carry lines; see `derived_flags`.
-pub const FLAGS_FROM_FILE: [&str; 1] = ["adder"];
-
-/// What a category in `READ_FROM_FILE` takes from its builds' files in
-/// place of typed details.
+/// What a category that reads its builds' files, as
+/// `category::Behaviour::reads_file` says, takes from them in place of
+/// typed details.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Derived {
     /// A's bit count, four for each block of a signal-strength input.
@@ -311,7 +295,7 @@ pub fn derived(category: &str, interface: &Interface) -> Derived {
         .inputs
         .iter()
         .find(|port| !port.labelled && port.block.starts_with("lime"));
-    match a.filter(|_| READ_FROM_FILE.contains(&category)) {
+    match a.filter(|_| category::behaviour(category).reads_file) {
         Some(a) => Derived {
             width: i64::try_from(
                 a.bits.len() * if a.signal_strength { 4 } else { 1 },
@@ -331,13 +315,14 @@ pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
 }
 
 /// The flags a category takes from its builds' files rather than their
-/// details: an adder's `carry_in` for a magenta control line and
-/// `carry_out` for a pink status line. `None` for other categories.
+/// details, as `category::Behaviour::flags_from_file` says: an adder's
+/// `carry_in` for a magenta control line and `carry_out` for a pink status
+/// line. `None` for other categories.
 pub fn derived_flags(
     category: &str,
     interface: &Interface,
 ) -> Option<Vec<String>> {
-    if !FLAGS_FROM_FILE.contains(&category) {
+    if !category::behaviour(category).flags_from_file {
         return None;
     }
     let has = |ports: &[Port], colour: &str| {

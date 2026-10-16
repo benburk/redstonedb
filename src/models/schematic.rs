@@ -713,9 +713,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
             EXISTS (SELECT 1 FROM simulation
                 WHERE simulation.schematic_id = schematic.id
                     AND simulation.sha256 = schematic.sha256
-                    AND (json_extract(simulation.report, '$.wrong') > 0
-                        OR json_extract(simulation.report, '$.outcome')
-                            = 'broken'))
+                    AND simulation.failed)
                 as "fails_simulation!: bool"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
@@ -843,9 +841,7 @@ pub async fn get(
             EXISTS (SELECT 1 FROM simulation
                 WHERE simulation.schematic_id = schematic.id
                     AND simulation.sha256 = schematic.sha256
-                    AND (json_extract(simulation.report, '$.wrong') > 0
-                        OR json_extract(simulation.report, '$.outcome')
-                            = 'broken'))
+                    AND simulation.failed)
                 as "fails_simulation!: bool"
          FROM schematic LEFT JOIN design ON design.category =
              schematic.category AND design.name = schematic.design
@@ -1588,61 +1584,26 @@ pub async fn unread_files(db: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
     .await
 }
 
-/// Stores a schematic's size, as `rsdb reread` finds it.
-/// Sets a width read from the file, which is not a person's edit.
-pub async fn set_width<'e, E: SqliteExecutor<'e>>(
+/// Sets the details worked out from a build's file and its simulation
+/// rather than typed: its width, orientation, and encoding as its file
+/// shows them, and its latency and whether it is synchronized as the
+/// simulation measured them. None of it is a person's edit.
+pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    width: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE schematic SET width = ? WHERE id = ?", width, id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Sets an orientation read from the file, which is not a person's edit.
-pub async fn set_orientation<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
+    width: Option<i64>,
     orientation: &str,
+    encoding: Option<&str>,
+    latency: Option<i64>,
+    synchronized: Option<bool>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET orientation = ? WHERE id = ?",
+        "UPDATE schematic SET width = ?, orientation = ?, encoding = ?,
+            latency = ?, synchronized = ?
+         WHERE id = ?",
+        width,
         orientation,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Sets an encoding read from the file, which is not a person's edit.
-pub async fn set_encoding<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    encoding: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET encoding = ? WHERE id = ?",
         encoding,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Sets a latency and whether it is synchronized as simulation measured
-/// them, which is not a person's edit.
-pub async fn set_timing<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    latency: i64,
-    synchronized: bool,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET latency = ?, synchronized = ? WHERE id = ?",
         latency,
         synchronized,
         id
@@ -1652,6 +1613,7 @@ pub async fn set_timing<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Stores a schematic's size, as `rsdb reread` finds it.
 pub async fn set_size<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,

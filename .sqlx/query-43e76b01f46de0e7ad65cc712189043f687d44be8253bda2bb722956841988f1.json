@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT report FROM simulation\n         WHERE schematic_id = ? AND sha256 = ? AND test = ? AND version = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "report",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "43e76b01f46de0e7ad65cc712189043f687d44be8253bda2bb722956841988f1"
+}

@@ -4,8 +4,8 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
     import, interface, lint,
-    schem::{self, Blocks},
-    simulate::{self, Report, Stacking, Takes, Test},
+    schem::{self, Blocks, Direction},
+    simulate::{self, Report, Run, Stacking, Takes, Test},
     stack,
     standardize::{self, Gray},
 };
@@ -18,6 +18,14 @@ fn blocks(name: &str) -> Blocks {
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
     let stored = standardize::pink_status(&tidied).expect("fixture recolours");
     Blocks::read(&stored).expect("fixture parses")
+}
+
+/// The run of an adder's test, which a fixture adder always gets.
+fn adder_run(blocks: &Blocks) -> Result<Box<Run>, Report> {
+    match Test::Adder.run(blocks) {
+        Report::Ran(run) => Ok(run),
+        other => Err(other),
+    }
 }
 
 #[test]
@@ -35,7 +43,7 @@ fn a_ripple_carry_adder_gets_every_sum_right() {
 /// power the block, so reading a lamp in its place would get this wrong.
 #[test]
 fn an_output_is_read_from_its_block_not_a_torch_beside_it() {
-    let run = simulate::check_adder(&blocks("alpha-rca-slice")).unwrap();
+    let run = adder_run(&blocks("alpha-rca-slice")).unwrap();
     assert_eq!((run.cases, run.wrong), (8, 0));
 }
 
@@ -43,7 +51,7 @@ fn an_output_is_read_from_its_block_not_a_torch_beside_it() {
 /// 95 + 1 too.
 #[test]
 fn a_carry_lookahead_adder_carries_into_bit_7_wrongly() {
-    let run = simulate::check_adder(&blocks("alpha-cla")).unwrap();
+    let run = adder_run(&blocks("alpha-cla")).unwrap();
     assert_eq!(run.wrong, 8192);
     let first = &run.examples[0];
     assert_eq!(first.inputs, [95, 1, 0]);
@@ -65,7 +73,7 @@ fn a_carry_lookahead_adder_carries_into_bit_7_wrongly() {
 /// puts every sum right.
 #[test]
 fn a_carry_in_saved_the_wrong_way_round_is_named_as_the_cause() {
-    let run = simulate::check_adder(&blocks("vert-3t-cca")).unwrap();
+    let run = adder_run(&blocks("vert-3t-cca")).unwrap();
     assert_eq!(run.wrong, run.cases);
     assert!(run.hint.unwrap().contains("flipped"));
 }
@@ -174,7 +182,7 @@ fn an_adders_lone_lines_need_no_signs() {
     assert!(!unsigned_line(&lint::check(&blocks)));
     assert!(!unsigned_line(&lint::check_for(&blocks, "adder")));
     assert!(unsigned_line(&lint::check_for(&blocks, "multiplier")));
-    let run = simulate::check_adder(&blocks).unwrap();
+    let run = adder_run(&blocks).unwrap();
     assert_eq!((run.cases, run.wrong), (8, 0));
     assert_eq!(run.pattern, "A + B + carry in");
 }
@@ -315,7 +323,7 @@ fn a_barrel_on_gray_belongs_to_the_first_copy() {
     let gray = [5, 1, 1];
     assert!(
         blocks
-            .get(schem::step(gray, "up"))
+            .get(schem::step(gray, Direction::Up))
             .starts_with("minecraft:barrel")
     );
     let grid: HashMap<_, _> = blocks

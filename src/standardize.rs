@@ -29,7 +29,7 @@ use anyhow::{Result, ensure};
 
 use crate::{
     interface, lint,
-    schem::{self, AIR, Blocks, DIRECTIONS, Pos},
+    schem::{self, AIR, Blocks, Direction, Pos},
 };
 
 const WHITE: &str = "minecraft:white_concrete";
@@ -103,7 +103,7 @@ fn notes(
             blocks.sign_block(sign).is_none_or(|on| {
                 !inputs.contains(&on)
                     && !status.contains(&on)
-                    && !lint::is_output(short(blocks.get(on)))
+                    && !lint::is_output(schem::short(blocks.get(on)))
             })
         })
         .collect()
@@ -191,14 +191,14 @@ const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
 /// a hopper down, unless it points into a container, which it would fill,
 /// or down would. Any other block stays as it is.
 fn facing_as_usual(blocks: &Blocks, pos: Pos, state: &str) -> String {
-    match short(state) {
+    match schem::short(state) {
         "barrel" => BARREL.to_owned(),
         "hopper" => {
-            let into = |side: &str| {
-                is_container(short(blocks.get(schem::step(pos, side))))
+            let into = |side: Direction| {
+                is_container(schem::short(blocks.get(schem::step(pos, side))))
             };
-            let facing = schem::property(state, "facing").unwrap_or("down");
-            if into(facing) || into("down") {
+            let facing = Direction::facing(state).unwrap_or(Direction::Down);
+            if into(facing) || into(Direction::Down) {
                 state.to_owned()
             } else {
                 state.replace(&format!("facing={facing}"), "facing=down")
@@ -237,7 +237,7 @@ pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
     let swapped: HashMap<Pos, u8> = blocks
         .iter()
         .filter_map(|(pos, state)| {
-            let name = short(state);
+            let name = schem::short(state);
             let strength = if let Some(strength) = stand_in_strength(state) {
                 strength
             } else if name == "furnace" || also.contains(&name) {
@@ -296,7 +296,7 @@ pub fn swappable(blocks: &Blocks) -> Swappable {
     let mut stand_ins: BTreeMap<String, usize> = BTreeMap::new();
     let mut hoppers = 0;
     for (_, state) in blocks.iter() {
-        match short(state) {
+        match schem::short(state) {
             name if lint::barrel_stands_in(name) => {
                 *stand_ins.entry(name.replace('_', " ")).or_default() += 1;
             }
@@ -461,7 +461,7 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
         while next < group.len() {
             let pos = group[next];
             next += 1;
-            for direction in DIRECTIONS {
+            for direction in Direction::ALL {
                 let neighbour = schem::step(pos, direction);
                 if glass.contains(&neighbour) {
                     if seen.insert(neighbour) {
@@ -519,10 +519,4 @@ pub fn see_through(name: &str) -> bool {
         || name.ends_with("_slab")
         || name.ends_with("_stairs")
         || name == "glowstone"
-}
-
-/// A block state's id without its namespace, such as `furnace`.
-fn short(state: &str) -> &str {
-    let id = schem::id(state);
-    id.strip_prefix("minecraft:").unwrap_or(id)
 }

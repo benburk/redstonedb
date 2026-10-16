@@ -20,8 +20,11 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use super::{
-    Bench, Broken, Case, Run, Timing, adder_cases, cases, input_bits, mask,
-    observe, output_bits, paired, sweep, timing,
+    Broken, Run, Timing,
+    adder::adder_cases,
+    bench::{Bench, Case, cases, mask, observe, paired, sweep},
+    circuit::{input_bits, output_bits},
+    timing,
 };
 use crate::{interface::Interface, lint, schem::Blocks};
 

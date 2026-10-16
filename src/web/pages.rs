@@ -5,7 +5,7 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
-    APP_NAME,
+    APP_NAME, category,
     import::{self, Analysis},
     interface::{Bit, Interface, Port},
     lint::Violation,
@@ -15,8 +15,7 @@ use crate::{
     },
     search::Term,
     simulate::{
-        self, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Takes,
-        Timing,
+        Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Takes, Timing,
     },
 };
 
@@ -582,7 +581,6 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
 /// builder giving it: an adder's always, and a register's when its copies
 /// stored and read right.
 fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
-    let category = s.category.as_str();
     let found = report.is_some_and(|report| {
         matches!(report, Report::Ran(run) if matches!(
             run.stacking,
@@ -594,8 +592,11 @@ fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
         ))
     });
     s.conventional
-        && (simulate::INFERS_STACKING.contains(&category)
-            || (simulate::FINDS_STACKING.contains(&category) && found))
+        && match category::behaviour(&s.category).stacking {
+            category::Stacking::Inferred => true,
+            category::Stacking::Found => found,
+            category::Stacking::Given => false,
+        }
 }
 
 /// The details form's simulation result, a live panel the form redraws
@@ -1488,14 +1489,15 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             div id={ "category-group-" (key) } role="presentation"
                                 class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
+                                @let behaviour = category::behaviour(&category.name);
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
                                     data-logic=(category.logic.as_deref().map_or("unknown", schematic::logic_label).to_lowercase())
-                                    data-reads-file[import::READ_FROM_FILE.contains(&category.name.as_str())]
-                                    data-infers-stacking[simulate::INFERS_STACKING.contains(&category.name.as_str())]
-                                    data-finds-stacking[simulate::FINDS_STACKING.contains(&category.name.as_str())]
-                                    data-tested[simulate::Test::of(&category.name, Some(1)).is_some()]
+                                    data-reads-file[behaviour.reads_file]
+                                    data-infers-stacking[behaviour.stacking == category::Stacking::Inferred]
+                                    data-finds-stacking[behaviour.stacking == category::Stacking::Found]
+                                    data-tested[behaviour.test.is_some()]
                                     data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -1571,7 +1573,7 @@ fn flag_group(
 ) -> Markup {
     html! {
         div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
-            @if import::FLAGS_FROM_FILE.contains(&category.name.as_str()) {
+            @if category::behaviour(&category.name).flags_from_file {
                 p class="text-muted" {
                     "Carry in and carry out are read from the file."
                 }

@@ -1,0 +1,155 @@
+//! What the code does with a build of each category: which simulation test
+//! it gets, what is read from its file, which of its lines may go unsigned,
+//! and how its copies stack. The categories themselves are rows in the
+//! database, which people may add to; only those the code knows something
+//! about have a row in `behaviour`, and every other gets the default,
+//! nothing special.
+
+use crate::simulate::Test;
+
+/// What the code does with builds of one category.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Behaviour {
+    /// The simulation test its builds get, when they are as wide as the
+    /// simulator takes; see `Test::of`.
+    pub test: Option<Test>,
+    /// Whether a conventional build's width, orientation, and encoding are
+    /// read from input A in its file rather than typed.
+    pub reads_file: bool,
+    /// Whether a conventional build's flags are read from its file rather
+    /// than ticked: an adder's carry in and carry out, from its lone
+    /// control and status lines.
+    pub flags_from_file: bool,
+    /// What its control and status lines mean without signs.
+    pub lines: Lines,
+    pub stacking: Stacking,
+    /// Whether copies stacked across its bits share its data buses, as
+    /// more registers or words on one bus, rather than adding bits.
+    pub shared_buses: bool,
+}
+
+/// What a category's unsigned control and status lines are taken to be.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Lines {
+    /// Every line needs a sign naming it.
+    #[default]
+    Signed,
+    /// Its lone control line and lone status line need no sign, their roles
+    /// being plain, and go by these names, such as an adder's carry in and
+    /// carry out. With `lone_output`, its one output is the status line
+    /// whatever its colour, as a carry out's is.
+    Lone {
+        control: &'static str,
+        status: &'static str,
+        lone_output: bool,
+    },
+    /// A register's: its unsigned magenta lines are its cells' writes, each
+    /// driven by a button, and reads, by a lever, and its data bus in and
+    /// out go by those roles.
+    Register,
+}
+
+/// Who decides how a category's builds stack.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Stacking {
+    /// Their builders, as they give it.
+    #[default]
+    Given,
+    /// The simulation, for a conventional build: copies that work as their
+    /// bits suggest make it stackable that way, and none that do make it
+    /// not stack, whatever was given; see `Test::stacking`.
+    Inferred,
+    /// The simulation when it finds copies that work, its builders
+    /// otherwise: a register's copies may stack in ways the search does not
+    /// try, as a 1-bit cell's do into wider registers.
+    Found,
+}
+
+/// What the code does with builds of the category named `category`, such
+/// as `adder`; the default for one it knows nothing about.
+pub fn behaviour(category: &str) -> Behaviour {
+    let tested = |test| Behaviour {
+        test: Some(test),
+        ..Behaviour::default()
+    };
+    // A category whose input A is its operand reads its width and the way
+    // its bits run from it.
+    let read = |test| Behaviour {
+        reads_file: true,
+        ..tested(test)
+    };
+    let lone = |control, status| Lines::Lone {
+        control,
+        status,
+        lone_output: false,
+    };
+    match category {
+        "adder" => Behaviour {
+            flags_from_file: true,
+            lines: lone(CARRY_IN, CARRY_OUT),
+            stacking: Stacking::Inferred,
+            ..read(Test::Adder)
+        },
+        "carry_out" => Behaviour {
+            lines: Lines::Lone {
+                control: CARRY_IN,
+                status: CARRY_OUT,
+                lone_output: true,
+            },
+            ..read(Test::CarryOut)
+        },
+        "incrementer" => Behaviour {
+            lines: lone("increment", CARRY_OUT),
+            ..read(Test::Incrementer)
+        },
+        "decrementer" => Behaviour {
+            lines: lone("decrement", "borrow out"),
+            ..read(Test::Decrementer)
+        },
+        // Its line may mean either way, so it keeps its own name.
+        "inc_dec" => read(Test::IncDec),
+        "alu" => read(Test::Alu),
+        "absolute_value" => read(Test::AbsoluteValue),
+        "register" => Behaviour {
+            lines: Lines::Register,
+            stacking: Stacking::Found,
+            shared_buses: true,
+            ..read(Test::Register)
+        },
+        "multiplier" => tested(Test::Multiplier),
+        "binary_to_bcd" => tested(Test::BinaryToBcd),
+        "bcd_to_binary" => tested(Test::BcdToBinary),
+        "ram" => Behaviour {
+            shared_buses: true,
+            ..Behaviour::default()
+        },
+        _ => Behaviour::default(),
+    }
+}
+
+/// The name an unsigned carry in goes by; see `lint::CARRY_IN`.
+const CARRY_IN: &str = crate::lint::CARRY_IN[0];
+
+/// The name an unsigned carry out goes by; see `lint::CARRY_OUT`.
+const CARRY_OUT: &str = crate::lint::CARRY_OUT[0];
+
+impl Lines {
+    /// Whether a lone control or status line may go without a sign.
+    pub fn lone_unsigned(self) -> bool {
+        matches!(self, Lines::Lone { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_test_is_its_categorys() {
+        for test in Test::ALL {
+            assert_eq!(behaviour(test.name()).test, Some(test));
+        }
+        assert_eq!(behaviour("ram").test, None);
+        assert_eq!(behaviour("piston_door"), Behaviour::default());
+    }
+}
