@@ -67,6 +67,8 @@ pub use timing::{BitTiming, Glitch, InputTiming, OutputTiming, Takes, Timing};
 pub enum Test {
     /// The sums of A, B, and any carry in.
     Adder,
+    /// The differences of A and B, less any borrow in.
+    Subtractor,
     /// A plus 1, or plus its control line.
     Incrementer,
     /// A minus 1, or minus its control line.
@@ -97,8 +99,9 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 11] = [
+    pub const ALL: [Test; 12] = [
         Test::Adder,
+        Test::Subtractor,
         Test::Incrementer,
         Test::Decrementer,
         Test::IncDec,
@@ -124,6 +127,7 @@ impl Test {
     pub fn name(self) -> &'static str {
         match self {
             Test::Adder => "adder",
+            Test::Subtractor => "subtractor",
             Test::Incrementer => "incrementer",
             Test::Decrementer => "decrementer",
             Test::IncDec => "inc_dec",
@@ -144,6 +148,7 @@ impl Test {
     pub fn version(self) -> i64 {
         match self {
             Test::Adder
+            | Test::Subtractor
             | Test::Incrementer
             | Test::Decrementer
             | Test::IncDec
@@ -195,6 +200,7 @@ impl Test {
     ) -> Result<bench::Spec> {
         match self {
             Test::Adder => adder::adder(interface),
+            Test::Subtractor => adder::subtractor(interface),
             Test::CarryOut => adder::carry_out(interface),
             Test::Incrementer | Test::Decrementer | Test::IncDec => {
                 // An unsigned line is named for its role, such as
@@ -359,6 +365,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
     // right names its category.
     let tried = [
         Test::Adder,
+        Test::Subtractor,
         Test::Incrementer,
         Test::Multiplier,
         Test::BinaryToBcd,

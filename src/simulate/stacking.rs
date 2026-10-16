@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     MAX_WIDTH, Test,
-    adder::{self, AdderPorts, adder_ports},
+    adder::{self, ADD, AdderPorts, adder_ports},
     bench::{Case, mask, sweep},
     circuit::{Circuit, input_bits},
 };
@@ -121,7 +121,7 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         Err(err) => return Some(not(None, err.to_string())),
     };
     let mut interface = interface::read(&blocks);
-    let ports = match adder_ports(&mut interface) {
+    let ports = match adder_ports(&mut interface, &ADD) {
         Ok(ports) => ports,
         Err(err) => return Some(not(None, err.to_string())),
     };

@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
-    category,
+    category::{self, Lines},
     details::Ready,
     interface::{self, Interface, Port},
     lint::{self, Violation},
@@ -193,8 +193,9 @@ pub async fn store(
 }
 
 /// The flags the file's signs show: `carry_in` for a line labelled
-/// `carry in` or `cin`, `carry_out` for `carry out` or `cout`, and
-/// `overflow` and `zero` for status lines named so. Those a category has no
+/// `carry in` or `cin`, `carry_out` for `carry out` or `cout`, their
+/// borrowing kin `borrow_in` and `borrow_out` likewise, and `overflow` and
+/// `zero` for status lines named so. Those a category has no
 /// flag of are dropped when stored.
 pub fn sign_flags(interface: &Interface) -> Vec<String> {
     let named = |ports: &[Port], names: &[&str]| {
@@ -205,6 +206,8 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
     [
         (named(&interface.inputs, &lint::CARRY_IN), "carry_in"),
         (named(&interface.outputs, &lint::CARRY_OUT), "carry_out"),
+        (named(&interface.inputs, &lint::BORROW_IN), "borrow_in"),
+        (named(&interface.outputs, &lint::BORROW_OUT), "borrow_out"),
         (named(&interface.outputs, &["overflow"]), "overflow"),
         (named(&interface.outputs, &["zero"]), "zero"),
     ]
@@ -281,28 +284,36 @@ pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
 }
 
 /// The flags a category takes from its builds' files rather than their
-/// details, as `category::Behaviour::flags_from_file` says: an adder's
-/// `carry_in` for a magenta control line and `carry_out` for a pink status
-/// line. `None` for other categories.
+/// details, as `category::Behaviour::flags_from_file` says: one for a
+/// magenta control line and one for a pink status line, named as its lone
+/// lines are, such as an adder's `carry_in` and `carry_out` or a
+/// subtractor's `borrow_in` and `borrow_out`. `None` for other categories.
 pub fn derived_flags(
     category: &str,
     interface: &Interface,
 ) -> Option<Vec<String>> {
-    if !category::behaviour(category).flags_from_file {
+    let behaviour = category::behaviour(category);
+    let Lines::Lone {
+        control, status, ..
+    } = behaviour.lines
+    else {
+        return None;
+    };
+    if !behaviour.flags_from_file {
         return None;
     }
     let has = |ports: &[Port], colour: &str| {
         ports.iter().any(|port| port.block.starts_with(colour))
     };
     let flags = [
-        (has(&interface.inputs, lint::CONTROL), "carry_in"),
-        (has(&interface.outputs, lint::STATUS), "carry_out"),
+        (has(&interface.inputs, lint::CONTROL), control),
+        (has(&interface.outputs, lint::STATUS), status),
     ];
     Some(
         flags
             .into_iter()
             .filter(|(has, _)| *has)
-            .map(|(_, flag)| flag.to_owned())
+            .map(|(_, line)| line.replace(' ', "_"))
             .collect(),
     )
 }

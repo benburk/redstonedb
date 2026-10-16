@@ -993,3 +993,36 @@ fn one_lsb_sign_orders_the_buses_alongside() {
     assert_eq!((run.pattern.as_str(), run.wrong), ("A + B", 0));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }
+
+/// A 16-bit double density carry-cancel subtractor: a bit per layer, each
+/// layer mirroring the one below, so B and the output zig-zag between two
+/// columns as they climb, and A between two beside each other. Each bus
+/// counts up the way it climbs, its lone control line is its borrow in,
+/// every difference comes out right, and the guess finds a subtractor.
+#[test]
+fn a_double_density_subtractor_takes_b_from_a() {
+    let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
+    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false)
+        .unwrap()
+        .blocks;
+    assert!(lint::check_for(&blocks, "subtractor").is_empty());
+    let read = interface::read(&blocks);
+    for port in read.inputs.iter().chain(&read.outputs) {
+        let heights: Vec<i32> =
+            port.bits.iter().map(|bit| bit.pos[1]).collect();
+        assert!(
+            heights.windows(2).all(|pair| pair[1] == pair[0] + 1),
+            "{} climbs a layer a bit: {heights:?}",
+            port.name
+        );
+    }
+    assert_eq!(
+        import::derived_flags("subtractor", &read),
+        Some(vec!["borrow_in".to_owned()])
+    );
+    let Report::Ran(run) = Test::Subtractor.run(&blocks) else {
+        panic!("the subtractor was not simulated");
+    };
+    assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "subtractor");
+}

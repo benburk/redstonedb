@@ -17,8 +17,9 @@ pub struct Behaviour {
     /// read from input A in its file rather than typed.
     pub reads_file: bool,
     /// Whether a conventional build's flags are read from its file rather
-    /// than ticked: an adder's carry in and carry out, from its lone
-    /// control and status lines.
+    /// than ticked: an adder's carry in and carry out, or a subtractor's
+    /// borrow in and borrow out, from its lone control and status lines,
+    /// each flag named as its `Lines::Lone` line is.
     pub flags_from_file: bool,
     /// What its control and status lines mean without signs.
     pub lines: Lines,
@@ -90,6 +91,13 @@ pub fn behaviour(category: &str) -> Behaviour {
             stacking: Stacking::Inferred,
             ..read(Test::Adder)
         },
+        // Its lines are named for borrowing, as it takes B away; its
+        // stacking is its builders' to give, as only an adder's is searched.
+        "subtractor" => Behaviour {
+            flags_from_file: true,
+            lines: lone(BORROW_IN, BORROW_OUT),
+            ..read(Test::Subtractor)
+        },
         "carry_out" => Behaviour {
             lines: Lines::Lone {
                 control: CARRY_IN,
@@ -132,6 +140,12 @@ const CARRY_IN: &str = crate::lint::CARRY_IN[0];
 
 /// The name an unsigned carry out goes by; see `lint::CARRY_OUT`.
 const CARRY_OUT: &str = crate::lint::CARRY_OUT[0];
+
+/// The name an unsigned borrow in goes by; see `lint::BORROW_IN`.
+const BORROW_IN: &str = crate::lint::BORROW_IN[0];
+
+/// The name an unsigned borrow out goes by; see `lint::BORROW_OUT`.
+const BORROW_OUT: &str = crate::lint::BORROW_OUT[0];
 
 impl Lines {
     /// Whether a lone control or status line may go without a sign.

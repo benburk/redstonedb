@@ -141,6 +141,14 @@ pub const CARRY_IN: [&str; 2] = ["carry in", "cin"];
 /// an unsigned one goes by the first.
 pub const CARRY_OUT: [&str; 2] = ["carry out", "cout"];
 
+/// The names a subtractor's control line, its borrow in, may be signed
+/// with; an unsigned one goes by the first.
+pub const BORROW_IN: [&str; 2] = ["borrow in", "bin"];
+
+/// The names a subtractor's status line, its borrow out, may be signed
+/// with; an unsigned one goes by the first.
+pub const BORROW_OUT: [&str; 2] = ["borrow out", "bout"];
+
 /// As `check`, for a build of `category`: one whose lines' roles are not
 /// plain, as `category::Lines` says, must sign even a lone control or
 /// status line.

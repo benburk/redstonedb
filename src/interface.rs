@@ -530,8 +530,8 @@ pub fn rowed(blocks: &Blocks) -> HashSet<Pos> {
 }
 
 /// A port with its bits ordered from the one nearest the south-east-bottom
-/// corner of the bounding box, unless an `lsb` sign on its far end or an
-/// `msb` sign on its near one turns it round.
+/// corner of the bounding box along the way the bus runs, unless an `lsb`
+/// sign on its far end or an `msb` sign on its near one turns it round.
 fn port(
     blocks: &Blocks,
     name: String,
@@ -541,16 +541,17 @@ fn port(
 ) -> Port {
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];
+    let axis = longest_axis(&members);
     if let Some(&lsb) = members.iter().min_by_key(|&&pos| distance(pos, corner))
     {
-        members.sort_by_key(|&pos| distance(pos, lsb));
+        members.sort_by_key(|&pos| along(pos, lsb, axis));
     }
     if let (Some(&near), Some(&far)) = (members.first(), members.last())
         && near != far
         && (order_mark(blocks, far) == Some("lsb")
             || order_mark(blocks, near) == Some("msb"))
     {
-        members.sort_by_key(|&pos| distance(pos, far));
+        members.sort_by_key(|&pos| along(pos, far, axis));
     }
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
     let words = sign_words(lines);
@@ -654,6 +655,24 @@ fn strength(line: &str) -> Option<u8> {
 
 fn distance(a: Pos, b: Pos) -> i32 {
     (0..3).map(|i| (a[i] - b[i]).abs()).sum()
+}
+
+/// The axis `members` spread furthest along, which a bus runs along even
+/// when its bits zig-zag across it, as a double density adder's alternate
+/// between two columns.
+fn longest_axis(members: &[Pos]) -> usize {
+    (0..3)
+        .max_by_key(|&axis| {
+            let coords = members.iter().map(|pos| pos[axis]);
+            coords.clone().max().unwrap_or(0) - coords.min().unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
+/// How far `pos` is from `from` along `axis`, then in all, so bits level
+/// along the axis count up from the nearer.
+fn along(pos: Pos, from: Pos, axis: usize) -> (i32, i32) {
+    ((pos[axis] - from[axis]).abs(), distance(pos, from))
 }
 
 /// A block state as words, such as `lime concrete`.

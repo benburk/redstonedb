@@ -1,6 +1,7 @@
-//! Testing an adder, and a carry out, which gives only an adder's carry:
-//! two operand buses and an optional carry in, into the sum and an optional
-//! carry out above it, or the carry alone.
+//! Testing an adder, a subtractor, and a carry out, which gives only an
+//! adder's carry: two operand buses and an optional carry or borrow in, into
+//! the sum or difference and an optional carry or borrow out above it, or
+//! the carry alone.
 
 use anyhow::Result;
 
@@ -13,20 +14,78 @@ use crate::{
     lint,
 };
 
+/// What an adder or a subtractor does with its operands and its lone
+/// lines, which are the same but for these.
+pub(super) struct Arithmetic {
+    /// The build, as its messages begin, such as `An adder`.
+    a: &'static str,
+    /// The names its control line may be signed with, its carry or borrow
+    /// in; an unsigned one goes by the first.
+    line_in: &'static [&'static str],
+    /// The same for its status line, its carry or borrow out.
+    line_out: &'static [&'static str],
+    /// Between its operands in its cases' name, as in `A + B`.
+    sign: char,
+    /// What it gives for A, B, and its carry or borrow in, before it is cut
+    /// to the outputs' bits, so a borrow out is a difference's sign.
+    apply: fn(u64, u64, u64) -> u64,
+    /// A's bits below a piece of its cases, from their mask, such that the
+    /// carry or borrow in runs through them: all set for an add, which B's
+    /// clear bits then carry through, and clear for a subtract, which they
+    /// then borrow through.
+    a_below: fn(u64) -> u64,
+}
+
+pub(super) const ADD: Arithmetic = Arithmetic {
+    a: "An adder",
+    line_in: &lint::CARRY_IN,
+    line_out: &lint::CARRY_OUT,
+    sign: '+',
+    apply: |a, b, c| a + b + c,
+    a_below: |mask| mask,
+};
+
+pub(super) const SUBTRACT: Arithmetic = Arithmetic {
+    a: "A subtractor",
+    line_in: &lint::BORROW_IN,
+    line_out: &lint::BORROW_OUT,
+    sign: '−',
+    apply: |a, b, c| a.wrapping_sub(b).wrapping_sub(c),
+    a_below: |_| 0,
+};
+
 /// An adder's every sum: A + B, plus its carry in when it has one, into its
-/// output and its carry out. When every sum is wrong, carry in flipped is
-/// tried, since a lever saved the wrong way round does that. A hex adder,
-/// slower to run, takes each digit's every case when there are too many to
-/// try every one, and a binary one each byte's.
+/// output and its carry out.
 pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
-    let ports = adder_ports(interface)?;
+    arithmetic(interface, &ADD)
+}
+
+/// A subtractor's every difference: A − B, less its borrow in when it has
+/// one, into its output and its borrow out, on when A is the smaller.
+pub(super) fn subtractor(interface: &mut Interface) -> Result<Spec> {
+    arithmetic(interface, &SUBTRACT)
+}
+
+/// Every case of an adder or subtractor, as `op` says. When every case is
+/// wrong, its carry or borrow in flipped is tried, since a lever saved the
+/// wrong way round does that. A hex build, slower to run, takes each
+/// digit's every case when there are too many to try every one, and a
+/// binary one each byte's.
+fn arithmetic(
+    interface: &mut Interface,
+    op: &'static Arithmetic,
+) -> Result<Spec> {
+    let ports = adder_ports(interface, op)?;
     let mut inputs = vec![ports.a, ports.b];
     inputs.extend(ports.carry_in);
     let mut outputs = vec![ports.sum];
     outputs.extend(ports.carry_out);
+    let sign = op.sign;
     let pattern = match ports.carry_in {
-        Some(port) => format!("A + B + {}", interface.inputs[port].name),
-        None => "A + B".to_owned(),
+        Some(port) => {
+            format!("A {sign} B {sign} {}", interface.inputs[port].name)
+        }
+        None => format!("A {sign} B"),
     };
     let bench = Bench::new(inputs, outputs, &pattern);
     let width = bench.widths(interface)[0];
@@ -36,9 +95,11 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, carry_in, piece)
+            cases(op, width, carry_in, piece)
         })),
-        kinds: vec![Kind::new(&pattern, |case| case[0] + case[1] + case[2])],
+        kinds: vec![Kind::new(&pattern, move |case| {
+            (op.apply)(case[0], case[1], case[2])
+        })],
         hint: if carry_in {
             Hint::Flipped(2)
         } else {
@@ -52,12 +113,8 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
 /// when it has one, without the sum. Its lone control line and its one
 /// output need no signs, as an adder's do.
 pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
-    let carry_in = adder_line(
-        &mut interface.inputs,
-        lint::CONTROL,
-        &lint::CARRY_IN,
-        "control line is its carry in",
-    )?;
+    let carry_in =
+        adder_line(&mut interface.inputs, lint::CONTROL, &ADD, true)?;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
@@ -116,7 +173,8 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     })
 }
 
-/// The adder's ports, by their place in its interface.
+/// An adder's or subtractor's ports, by their place in its interface: its
+/// carry in and carry out are a subtractor's borrow in and borrow out.
 pub(super) struct AdderPorts {
     pub a: usize,
     pub b: usize,
@@ -125,28 +183,24 @@ pub(super) struct AdderPorts {
     pub carry_out: Option<usize>,
 }
 
-/// The adder's ports. Its one magenta control line, if any, is its carry
-/// in and its one pink status line its carry out, signed or not; a sign on
-/// either must say so. An unsigned one is named for its role here.
-pub(super) fn adder_ports(interface: &mut Interface) -> Result<AdderPorts> {
-    let carry_in = adder_line(
-        &mut interface.inputs,
-        lint::CONTROL,
-        &lint::CARRY_IN,
-        "control line is its carry in",
-    )?;
-    let carry_out = adder_line(
-        &mut interface.outputs,
-        lint::STATUS,
-        &lint::CARRY_OUT,
-        "status line is its carry out",
-    )?;
+/// An adder's or subtractor's ports, as `op` says. Its one magenta control
+/// line, if any, is its carry or borrow in and its one pink status line its
+/// carry or borrow out, signed or not; a sign on either must say so. An
+/// unsigned one is named for its role here.
+pub(super) fn adder_ports(
+    interface: &mut Interface,
+    op: &Arithmetic,
+) -> Result<AdderPorts> {
+    let carry_in = adder_line(&mut interface.inputs, lint::CONTROL, op, true)?;
+    let carry_out =
+        adder_line(&mut interface.outputs, lint::STATUS, op, false)?;
+    let built = op.a;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
     let &[a, b] = operands.as_slice() else {
         broken!(
-            "An adder takes two operands, but this has {}.",
+            "{built} takes two operands, but this has {}.",
             operands.len()
         );
     };
@@ -155,13 +209,14 @@ pub(super) fn adder_ports(interface: &mut Interface) -> Result<AdderPorts> {
         .collect();
     let &[sum] = buses.as_slice() else {
         broken!(
-            "An adder has one output bus and a carry out, but this has {} \
-             output buses.",
+            "{built} has one output bus and a {}, but this has {} output \
+             buses.",
+            op.line_out[0],
             buses.len()
         );
     };
-    // The output may hold the carry as its top bit when there is no carry
-    // out line.
+    // The output may hold the carry or borrow as its top bit when there is
+    // no line for it.
     let bits = |port: &Port| port.bits.len();
     let (a_bits, b_bits) =
         (bits(&interface.inputs[a]), bits(&interface.inputs[b]));
@@ -170,7 +225,8 @@ pub(super) fn adder_ports(interface: &mut Interface) -> Result<AdderPorts> {
     if a_bits != b_bits || !(a_bits..=a_bits + carry_bit).contains(&sum_bits) {
         broken!(
             "A has {a_bits} bits, B {b_bits}, and the output {sum_bits}, but \
-             an adder's operands and output have the same number."
+             {} operands and output have the same number.",
+            possessive(built).to_lowercase()
         );
     }
     Ok(AdderPorts {
@@ -182,22 +238,28 @@ pub(super) fn adder_ports(interface: &mut Interface) -> Result<AdderPorts> {
     })
 }
 
-/// The one line of `colour` among `ports`, if there is one: unsigned, when
-/// it takes its role's first name, or signed with one of `names`. More
-/// than one, or a sign naming something else, is broken; `role` says what
-/// the line is, as in `control line is its carry in`.
+/// The one line of `colour` among `ports`, if there is one, `op`'s line in
+/// when `into` holds, else its line out: unsigned, when it takes its role's
+/// first name, or signed with one of its names. More than one, or a sign
+/// naming something else, is broken.
 fn adder_line(
     ports: &mut [Port],
     colour: &str,
-    names: &[&str],
-    role: &str,
+    op: &Arithmetic,
+    into: bool,
 ) -> Result<Option<usize>> {
+    let (names, what) = if into {
+        (op.line_in, "control")
+    } else {
+        (op.line_out, "status")
+    };
+    let role = format!("{} {what} line is its {}", possessive(op.a), names[0]);
     let lines: Vec<usize> = (0..ports.len())
         .filter(|&i| ports[i].block.starts_with(colour))
         .collect();
     let count: usize = lines.iter().map(|&i| ports[i].bits.len()).sum();
     if count > 1 {
-        broken!("An adder's {role}, but this has {count} such lines.");
+        broken!("{role}, but this has {count} such lines.");
     }
     let Some(&line) = lines.first() else {
         return Ok(None);
@@ -206,18 +268,35 @@ fn adder_line(
     if !port.labelled {
         names[0].clone_into(&mut port.name);
     } else if !names.contains(&port.name.as_str()) {
-        broken!("An adder's {role}, but this one is signed {}.", port.name);
+        broken!("{role}, but this one is signed {}.", port.name);
     }
     Ok(Some(line))
 }
 
-/// The sums an adder too wide to try every combination of is checked on,
-/// as A, B, and carry in, with how many pair the test patterns. Each piece
-/// of `piece` bits, a byte or a hex digit, takes every value of A and B,
-/// with a carry into it and without: the bits below are all set in A, and
-/// carry in, or B's lowest bit when there is no carry in line, carries
-/// through them. Then every pairing of `patterns`, with carry in each way.
+/// `built`, such as `An adder`, as an owner: `An adder's`.
+fn possessive(built: &str) -> String {
+    format!("{built}'s")
+}
+
+/// The sums an adder too wide to try every combination of is checked on;
+/// see `cases`.
 pub(super) fn adder_cases(
+    width: usize,
+    carry_in: bool,
+    piece: usize,
+) -> (Vec<Case>, u64) {
+    cases(&ADD, width, carry_in, piece)
+}
+
+/// The cases an adder or subtractor too wide to try every combination of
+/// is checked on, as A, B, and carry or borrow in, with how many pair the
+/// test patterns. Each piece of `piece` bits, a byte or a hex digit, takes
+/// every value of A and B, with a carry or borrow into it and without: the
+/// bits below are as `op` sets A's, B's clear, and carry or borrow in, or
+/// B's lowest bit when there is no line for it, runs through them. Then
+/// every pairing of `patterns`, with carry or borrow in each way.
+fn cases(
+    op: &Arithmetic,
     width: usize,
     carry_in: bool,
     piece: usize,
@@ -226,12 +305,13 @@ pub(super) fn adder_cases(
     for low in (0..width).step_by(piece) {
         let bits = (width - low).min(piece);
         for carry in [false, true] {
+            let a_below = (op.a_below)(mask(low));
             let below = match (low, carry, carry_in) {
                 (0, true, false) => continue,
                 (0, _, _) => (0, 0, carry),
                 (_, false, _) => (mask(low), 0, false),
-                (_, true, true) => (mask(low), 0, true),
-                (_, true, false) => (mask(low), 1, false),
+                (_, true, true) => (a_below, 0, true),
+                (_, true, false) => (a_below, 1, false),
             };
             for a in 0..1 << bits {
                 for b in 0..1 << bits {
@@ -279,6 +359,18 @@ mod tests {
         assert!(cases.iter().all(|case| case[2] == 0));
     }
 
+    #[test]
+    fn a_wide_subtractor_borrows_through_each_byte() {
+        // The longest borrow: nothing less borrow in.
+        let (tried, _) = cases(&SUBTRACT, 16, true, 8);
+        assert!(tried.contains(&[0x0000, 0x0000, 1]));
+        // From borrow in through the low byte into the high one.
+        assert!(tried.contains(&[0x0F00, 0x0000, 1]));
+        // Without a borrow in line, B's lowest bit makes the borrow.
+        let (tried, _) = cases(&SUBTRACT, 16, false, 8);
+        assert!(tried.contains(&[0x0F00, 0x0001, 0]));
+    }
+
     /// A port of `bits` bits named `name`, of `block`.
     fn port(name: &str, block: &str, labelled: bool, bits: usize) -> Port {
         Port {
@@ -317,7 +409,7 @@ mod tests {
     #[test]
     fn an_adder_whose_operands_and_output_differ_in_width_is_broken() {
         let broken = |mut interface: Interface| {
-            adder_ports(&mut interface)
+            adder_ports(&mut interface, &ADD)
                 .err()
                 .is_some_and(|err| err.downcast_ref::<Broken>().is_some())
         };
@@ -331,7 +423,7 @@ mod tests {
     #[test]
     fn an_adders_lone_lines_are_its_carries_signed_or_not() {
         let ports = |mut interface: Interface| {
-            let ports = adder_ports(&mut interface)?;
+            let ports = adder_ports(&mut interface, &ADD)?;
             let names = (
                 ports.carry_in.map(|i| interface.inputs[i].name.clone()),
                 ports.carry_out.map(|o| interface.outputs[o].name.clone()),
@@ -365,6 +457,24 @@ mod tests {
             port("cout", "pink concrete", true, 1),
         );
         assert!(ports(subtract).is_err());
+        // A subtractor's are its borrows, and a carry sign is not one.
+        let mut borrows = carries(
+            port("unnamed control", "magenta concrete", false, 1),
+            port("bout", "pink concrete", true, 1),
+        );
+        let found = adder_ports(&mut borrows, &SUBTRACT).unwrap();
+        assert_eq!(
+            (
+                borrows.inputs[found.carry_in.unwrap()].name.as_str(),
+                borrows.outputs[found.carry_out.unwrap()].name.as_str()
+            ),
+            ("borrow in", "bout")
+        );
+        let mut carrying = carries(
+            port("cin", "magenta concrete", true, 1),
+            port("bout", "pink concrete", true, 1),
+        );
+        assert!(adder_ports(&mut carrying, &SUBTRACT).is_err());
         let two = carries(
             port("unnamed control", "magenta concrete", false, 2),
             port("cout", "pink concrete", true, 1),

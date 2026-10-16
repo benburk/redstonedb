@@ -321,10 +321,12 @@ fn facts(s: &Schematic) -> Vec<String> {
     }
     for flag in &s.flags {
         facts.push(flag.name.replace('_', " "));
-        // The short names a carry line's sign may use.
+        // The short names a carry or borrow line's sign may use.
         match flag.name.as_str() {
             "carry_in" => facts.push(lint::CARRY_IN[1].to_owned()),
             "carry_out" => facts.push(lint::CARRY_OUT[1].to_owned()),
+            "borrow_in" => facts.push(lint::BORROW_IN[1].to_owned()),
+            "borrow_out" => facts.push(lint::BORROW_OUT[1].to_owned()),
             _ => {}
         }
     }
