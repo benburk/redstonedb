@@ -621,7 +621,7 @@ pub fn sign_name(lines: &[String]) -> Option<String> {
 
 /// The words on a sign's `lines`, lowercase, split at spaces, line breaks,
 /// and commas, leaving out tokens such as `lsb` and `4ss`.
-pub fn sign_words(lines: &[String]) -> Vec<String> {
+fn sign_words(lines: &[String]) -> Vec<String> {
     lines
         .iter()
         .flat_map(|line| line.split(|c: char| c.is_whitespace() || c == ','))
@@ -657,7 +657,7 @@ fn distance(a: Pos, b: Pos) -> i32 {
 }
 
 /// A block state as words, such as `lime concrete`.
-pub fn block_label(state: &str) -> String {
+fn block_label(state: &str) -> String {
     let id = schem::id(state);
     id.strip_prefix("minecraft:")
         .unwrap_or(id)

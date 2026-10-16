@@ -240,7 +240,7 @@ pub struct Schematic {
 }
 
 impl Schematic {
-    pub fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
+    fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 

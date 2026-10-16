@@ -9,7 +9,7 @@ use crate::models::{
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, cards,
+    PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, listing::cards,
     player::credits, player_href,
 };
 

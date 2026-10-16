@@ -55,6 +55,43 @@ deploy: test
 pull-db:
     ./deploy/pull-db.sh
 
+# Many fixtures are deliberately broken test cases, so only distinct builds
+# that keep the conventions once standardized are taken, across most tested
+# categories. `rsdb add` simulates each, which takes about a minute.
+[doc('Make a database from the test fixtures, for working without the live one')]
+seed db="redstone.db":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -e "{{ db }}" ]; then
+        echo "{{ db }} exists; remove it first, or seed another: just seed other.db" >&2
+        exit 1
+    fi
+    export DATABASE_URL="sqlite:{{ db }}"
+    cargo build -q --bin rsdb
+    rsdb() { target/debug/rsdb "$@"; }
+    add() {
+        local name=$1 orientation=$2
+        shift 2
+        rsdb add "tests/fixtures/$name.schem" --orientation "$orientation" "$@"
+    }
+    rsdb define-tag pistonless --kind restriction
+    add alpha-rca horz --category adder --design ripple_carry --tag pistonless
+    add alpha-cla horz --category adder --design carry_lookahead
+    add alpha-rca-slice horz --category adder --design ripple_carry
+    add diag-3t-cca diag --category adder --design carry_cancel
+    add vert-adder-8-stacks vert --category adder --standardize
+    add hex-cca-8 horz --category adder --design carry_cancel --standardize
+    add inc-8 horz --category incrementer
+    add cout-8 horz --category carry_out --standardize
+    add abs-8 horz --category absolute_value --standardize
+    add bin2bcd-8 horz --category binary_to_bcd --width 8
+    add bcd2bin-10 horz --category bcd_to_binary --width 10
+    add mult-8-diag-signed diag --category multiplier --width 8 --standardize
+    add alu-8-lines horz --category alu
+    add register-8-2-cells horz --category register --standardize
+    add alpha-register horz --category register
+    add threshold-3-raw horz --category threshold --width 3 --at-least 2 --standardize
+
 # Follow the live site's log
 logs:
     ssh root@157.180.85.191 journalctl -u redstonedb -f -o cat
@@ -65,7 +102,7 @@ status:
 
 # Restart the server when source files change
 watch:
-    watchexec --restart --watch src --watch static --watch styles --ignore static/app.css --exts rs,css,js -- just serve
+    watchexec --restart --watch src --watch static --watch styles --watch migrations --ignore static/app.css --exts rs,css,js,sql -- just serve
 
 # Needs a live database; everything else does not.
 [doc('Refresh the offline query metadata in .sqlx/ after changing a query')]

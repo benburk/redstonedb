@@ -110,14 +110,10 @@ const STRIDE: u64 = 0x9d;
 /// this many is taken to stack any number of times.
 const MOST_COPIES: usize = 16;
 
-/// Runs the register in `blocks` through its every case.
-pub fn check(blocks: &Blocks) -> Result<Run> {
-    Ok(check_on(blocks, false)?.0)
-}
-
-/// `check` on a few telling values, for a guess at what a build is.
-pub fn check_quick(blocks: &Blocks) -> Result<Run> {
-    Ok(check_on(blocks, true)?.0)
+/// Runs the register in `blocks` through its every case, or when `quick`
+/// a few telling ones, for a guess at what a build is.
+pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
+    Ok(check_on(blocks, quick)?.0)
 }
 
 /// How many cells a register has, and of how many bits.

@@ -44,10 +44,8 @@ enum Command {
     /// building conventions, as an upload would: with any corner markers
     /// taken out and the box fitted first
     Lint { file_or_id: String },
-    /// Simulate a stored adder through its inputs and check every sum;
-    /// with no id, every stored adder. Up to 20 input bits, every
-    /// combination is tried, and beyond that every case of each byte and
-    /// pairings of test patterns
+    /// Run a stored build's test and timing again, or with no id every
+    /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
     /// Replace a stored build's file with a new version that fixes it, as
     /// the site's New version page does: keeping 90% of its blocks or
@@ -682,9 +680,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             Ok(id) => id,
             Err(message) => bail!("{message}"),
         };
+    // Simulated before its name is printed, as the width the name leads
+    // with may be read from the file then.
+    let tested = simulation::refresh(db, &id, false).await?.is_some();
     let name = format!("{}  {}", &id[..8], load(db, &id).await?.filename());
     println!("{name}");
-    if simulation::refresh(db, &id, false).await?.is_some()
+    if tested
         && let Some(report) = simulation::refresh_timing(db, &id, false).await?
     {
         print_report(&name, &report);

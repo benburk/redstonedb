@@ -12,8 +12,9 @@ use crate::{
 };
 
 use super::{
-    Facet, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD,
-    base, category_sidebar, category_tabs, name_links,
+    PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, base,
+    listing::{Facet, category_sidebar, category_tabs},
+    name_links,
 };
 
 /// A leaderboard and the categories beside it.

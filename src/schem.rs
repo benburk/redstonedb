@@ -1,3 +1,6 @@
+//! Reading and writing Sponge `.schem` files, versions 2 and 3: a build's
+//! blocks, its signs' text, and where `//paste` puts it.
+
 use std::{
     collections::HashMap,
     hash::BuildHasher,
@@ -382,7 +385,7 @@ impl Direction {
         }
     }
 
-    pub fn opposite(self) -> Self {
+    fn opposite(self) -> Self {
         match self {
             Direction::North => Direction::South,
             Direction::South => Direction::North,

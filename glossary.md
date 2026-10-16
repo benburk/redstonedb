@@ -23,7 +23,7 @@ A field read from the file: the oldest Minecraft: Java Edition release with ever
 
 ## Orientation
 
-Required. Orientation also implies the stacking direction.
+The way a build's bits run, which is also the way copies of it add bits. A category with a test that takes input A as its operand, such as an adder, reads it from the file; any other build gives it.
 
 | Token  | Meaning    |
 | ------ | ---------- |
@@ -33,7 +33,7 @@ Required. Orientation also implies the stacking direction.
 
 ## Encoding
 
-Required.
+How a build's numbers are written on its lines. A category that reads its orientation from the file reads its encoding too; a build of a category off the list has none.
 
 | Token | Meaning                 |
 | ----- | ----------------------- |
@@ -80,7 +80,7 @@ Each category has measures, the numbers its builds are named and ranked by, in o
 
 A category may have aliases, other words search finds it by, such as `connect4` for a four-in-a-row detector, `inc` for an incrementer, or `bcd` for both BCD converters (`rsdb define-alias`, or `--alias` on `define-category`). A category off the list may have them too.
 
-The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record. Most opt a build into columns of its category's truth table beyond the ones every build has, as an ALU's operations do, so builds with different flags still share their category and a leaderboard. The flags: adders and subtractors have Carry in and Carry out, set from signs labelled `carry in` or `cin` and `carry out` or `cout`, shift registers have Bidirectional and Writeable, ALUs have AND, OR, XOR, NAND, NOR, XNOR, SHL, SHR, and ASR for the operations they offer beyond adding and subtracting, ticked from their control lines' signs, Carry in and Carry out as adders have, and Overflow and Zero for those status lines, ticked from their signs, and multipliers have Upper product, for one that outputs the full product, as 16 bits from 8 by 8, and FMA, for a fused multiply-add, A×B+C.
+The design is part of a build's name, as in "8-bit Carry Lookahead Adder", and so of its filename; see [naming.md](naming.md). A category may also have flags, yes-or-no facts its builds record. Most opt a build into columns of its category's truth table beyond the ones every build has, as an ALU's operations do, so builds with different flags still share their category and a leaderboard. The flags: adders and subtractors have Carry in and Carry out, an adder's read from its file, ticked for a lone magenta control line and a lone pink status line, which need no signs, and a subtractor's set from signs labelled `carry in` or `cin` and `carry out` or `cout`; shift registers have Bidirectional and Writeable, ALUs have AND, OR, XOR, NAND, NOR, XNOR, SHL, SHR, and ASR for the operations they offer beyond adding and subtracting, ticked from their control lines' signs, Carry in and Carry out as adders have, and Overflow and Zero for those status lines, ticked from their signs, and multipliers have Upper product, for one that outputs the full product, as 16 bits from 8 by 8, and FMA, for a fused multiply-add, A×B+C.
 
 An incrementer adds 1, a decrementer subtracts 1, and an inc/dec does either as a control line says; each is its own category. An incrementer's or a decrementer's control line, if it has one, is the 1 it adds or subtracts.
 

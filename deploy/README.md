@@ -9,6 +9,8 @@ The site runs on the Hetzner server (Ubuntu, aarch64) at <https://redstonedb.ben
 3. It installs the binaries in `/usr/local/lib/redstonedb`, keeping the old ones as `*.previous`, and the unit files here, then restarts the site.
 4. It waits for the site to answer, and prints its log if it does not. `/usr/local/lib/redstonedb/DEPLOYED` names the commit running.
 
+Before deploying a release with new migrations, run `just pull-db` and start the server locally once with `just serve`, so the migrations run against a copy of the live data first. A migration can fail on data the tests never see: `20261016020000_files_in_versions.sql` adds a unique index on `schematic_version.sha256`, which fails if any two versions, of one build or of two, share a file, and on the server that failure stops the site from starting.
+
 To roll back, move each `*.previous` binary back over its new one and `systemctl restart redstonedb`. If the bad deploy migrated the database, the old binary refuses it; with the site stopped, restore the copy taken before the deploy, `redstone-<date>-before-<commit>.db` in `/var/backups/redstonedb`, with `runuser -u redstonedb -- sqlite3 /var/lib/redstonedb/redstone.db ".restore <copy>"`.
 
 `just logs` follows the site's log, and `just status` shows the live commit, the service, and the latest backups.

@@ -177,8 +177,7 @@ impl Test {
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
         match self {
             Test::Alu => alu::check(blocks),
-            Test::Register if quick => register::check_quick(blocks),
-            Test::Register => register::check(blocks),
+            Test::Register => register::check(blocks, quick),
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;

@@ -47,7 +47,7 @@ impl Comparison {
     }
 
     /// Whether few enough blocks changed for a new version.
-    pub fn close_enough(self) -> bool {
+    fn close_enough(self) -> bool {
         self.same * 100 >= (self.same + self.changed) * MIN_SAME_PERCENT
             || self.changed <= MAX_CHANGED
     }

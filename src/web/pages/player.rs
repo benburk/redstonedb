@@ -4,7 +4,7 @@ use maud::{Markup, html};
 
 use crate::models::{schematic::Schematic, user::User};
 
-use super::{PAGE_TITLE, SECTION_TITLE, base, cards};
+use super::{PAGE_TITLE, SECTION_TITLE, base, listing::cards};
 
 /// What a player's page shows.
 pub struct PlayerPage<'a> {

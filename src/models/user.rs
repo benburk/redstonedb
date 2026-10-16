@@ -1,3 +1,8 @@
+//! Accounts, made at a person's first Discord login, each with a role, and
+//! the Minecraft name they give on their profile. One name belongs to one
+//! account, whatever its capitals; once an admin confirms it, the account
+//! may edit the builds crediting it as builder.
+
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
@@ -11,7 +16,7 @@ pub enum Role {
     User,
     /// Also edits any build's details and tags.
     Mod,
-    /// Also sets roles.
+    /// Also deletes builds and sets roles.
     Admin,
 }
 
@@ -144,7 +149,7 @@ impl User {
     }
 
     /// The Discord avatar's image address, when the account has one.
-    pub fn avatar_url(&self) -> Option<String> {
+    fn avatar_url(&self) -> Option<String> {
         self.avatar.as_ref().map(|hash| {
             format!(
                 "https://cdn.discordapp.com/avatars/{}/{hash}.png?size=64",

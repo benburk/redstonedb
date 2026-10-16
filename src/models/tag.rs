@@ -32,11 +32,11 @@ pub const FAILS_SIMULATION: &str = "fails_simulation";
 
 /// The name of the tag a build whose file has no redstone torches carries.
 /// It is not stored, so no one can add or remove it.
-pub const TORCHLESS: &str = "torchless";
+const TORCHLESS: &str = "torchless";
 
 /// The name of the tag a build carries that works from Alpha, using no
 /// redstone component or mechanic added since. It is not stored either.
-pub const ALPHA: &str = "alpha";
+const ALPHA: &str = "alpha";
 
 /// The tags worked out from a build rather than given by a person.
 pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];

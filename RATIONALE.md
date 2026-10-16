@@ -34,7 +34,7 @@ MAUD embeds HTML directly in Rust using macros. Template errors are compile erro
 
 Containers add layers: base images, Dockerfiles, registries, orchestration. Each layer has configuration, versioning, and failure modes. Local development often differs from production container behavior.
 
-A single Rust binary contains everything: HTTP server, business logic, SQLite, and templates. Deployment is copying one file. Rollback is copying the old file back. Local development runs the exact same architecture as production.
+A single Rust binary contains everything: HTTP server, business logic, SQLite, templates, static files, and migrations. Deployment builds it on the server and swaps it in, keeping the old one beside it. Rollback is moving the old one back. Local development runs the exact same architecture as production.
 
 ## References
 

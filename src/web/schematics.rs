@@ -1,3 +1,7 @@
+//! A stored build's routes: the listing, its page, its file and thumbnail,
+//! editing its details, and deleting it. A download is counted unless it is
+//! the 3D viewer's `?preview=yes` fetch or a HEAD request.
+
 use std::{cmp::Ordering, collections::HashMap};
 
 use axum::{

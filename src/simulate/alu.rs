@@ -29,7 +29,7 @@ use super::{
 use crate::{interface::Interface, lint, schem::Blocks};
 
 /// The operations an ALU may offer, in the order a result lists them.
-pub const OPS: [&str; 11] = [
+const OPS: [&str; 11] = [
     "add", "sub", "and", "or", "xor", "nand", "nor", "xnor", "shl", "shr",
     "asr",
 ];

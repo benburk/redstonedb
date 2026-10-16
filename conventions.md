@@ -58,7 +58,7 @@ Import derives this from the build, so nothing in-world marks it.
 - A lever strongly powers its block at 15, so a saved build always works under hard power. The derivation only decides whether weaker drivers work too.
 - Required strength: the input block must be powered at strength 1 or more, unless a sign on one of the operand's input blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. The value applies to every bit of the operand.
 - Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value; see Signal-strength inputs.
-- Later, a redstone simulator can derive both facts: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign then becomes a check rather than the source.
+- The simulator drives every input with a lever, at full hard power, so it checks neither fact yet. It could derive both: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign would then become a check rather than the source.
 
 ### Signal strengths
 
@@ -88,7 +88,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 
 - A status name ends in `out`, as `carry out`, `cout`, or `shift out`, or is `overflow`, `zero`, `negative`, `ready`, or `done`.
 - Each further line is one token, such as `4ss`.
-- Import copies sign values into the database. After that the database is the source of truth, so export either rewrites signs from it or strips them.
+- Signs stay in the file and are read again whenever it is. Rewriting or stripping them on export is planned; see [features.md](features.md).
 
 ## Bit order
 
@@ -111,7 +111,7 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 - Copies along a build's bits, west for a horizontal build, up for a vertical one, west and up for a diagonal one, are new bits, each with its own data inputs and outputs. Copies across a register's or RAM's bits are more registers or words sharing its data buses, driven and read only at the first copy's end, so its data inputs and outputs never collide: only the first copy keeps its data levers, and a later copy's lime or yellow block that lands on a block of the copy before, such as the block or dust its data runs through, is left out, with the dust on it, the copy before's block standing. A later copy's other data blocks are plain blocks, shown white. Other categories' copies keep their own data inputs and outputs either way. Registers stack west.
 - Every copy but the last turns its labelled outputs and status lines, such as a carry out, signed or not, white and drops their signs, since the next copy takes them over.
 - Only the first copy keeps gray blocks and the dust, torches, repeaters, comparators, levers, signs, and barrels resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Signal strengths. Standardizing an upload whitens gray unless its uploader unticks Whiten gray blocks too (`rsdb add --standardize --keep-gray`).
-- The site tests whether an adder that adds right stacks: the step comes from how its bits are spaced, carried on past the last one, or for a 1-bit adder the shortest step up, west, or north whose copies add right, its carry in to its carry out winning a tie, and enough copies must add right together that one sits between two others and the stack reaches a copy past the 15 blocks dust carries a signal, as a 1-bit slice 2 wide takes 9 and an 8-bit adder 16 high takes 3. One that does is taken to stack any number of times, and the site sets an adder's stacking from what it found: that step with no limit on copies, or none, in place of any typed.
+- The site tests whether an adder that adds right stacks: the step comes from how its bits are spaced, carried on past the last one, or for a 1-bit adder the shortest step up, west, or north whose copies add right, its carry in to its carry out winning a tie, and enough copies must add right together that one sits between two others and the stack reaches a copy past the 15 blocks dust carries a signal, as a 1-bit slice 2 wide takes 9 and an 8-bit adder 16 high takes 3. One that does is taken to stack any number of times, and the site sets an adder's stacking from what it found: that step with no limit on copies, or none, in place of any typed. A register's copies are searched for too: the shortest step west at which two copies store and read right, as more cells or more bits, then the most copies that do, up to 16. A stacking found replaces its builder's west step; none found keeps what its builder gave.
 - A later copy's block stands over a different block of the copy before, as in game. Where the simulation does not find a build's stacking, its page lists, as warnings, each spot where two copies disagree this way, such as a barrel replaced by concrete or dust cut by a block, and containers giving different strengths; and whether two copies make a bigger build of its shape: copies the way its bits run double each data bus, and copies any other way keep each bus's width, or each tap it, and, if it has control lines, add their own. Neither holds up saving. When copies disagree, the page also gives the shortest step the same way, short of the build's length, at which overlapping copies hold the same blocks, as trying `//rstack` at each step would find.
 - A stackable build's page gives the in-game steps for each way it stacks: the `//rstack` command, and when it has parts only its first copy keeps, the build without them and those parts alone to download, the parts pasted back from the same spot with `//paste -a`.
 
@@ -135,12 +135,10 @@ Some builds, such as displays, follow their own layout. They are stored with `--
 None of these are decided yet.
 
 - Data flows toward +x.
-
 - Inputs enter one face and outputs leave the opposite face.
 - Control lines arrive from above.
-- Each build gets a test bench: input levers with the expected outputs, to catch breakage across game versions. The bench should drive each input with the weakest signal its derived requirement allows, since a lever always gives full hard power and would hide a wrong requirement.
 
 ## Open
 
-- The default orientation and axes. These also fix the order of `WxHxL` in the filename.
+- The default orientation and axes.
 - Which face a sign goes on.
