@@ -8,19 +8,16 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
 
 use crate::{
-    models::{
-        schematic::{Schematic, Tag},
-        user::User,
-    },
+    models::{schematic::Schematic, user::User},
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
 
 use super::{
-    super::details::StackRow, Analysis, Choices, Fields, PAGE_TITLE,
-    SECTION_TITLE, Waiting, base, beside_viewer, fields, file_fields, grouped,
-    interface_section, simulation_section, simulation_summary, spinner,
-    tag_picker, timing_summary, violation_list,
+    super::form::Form, Analysis, Choices, PAGE_TITLE, SECTION_TITLE, Waiting,
+    base, beside_viewer, fields, file_fields, grouped, interface_section,
+    simulation_section, simulation_summary, spinner, tag_picker,
+    timing_summary, violation_list,
 };
 
 /// The file a details page shows.
@@ -72,13 +69,8 @@ pub struct DetailsPage<'a> {
     pub file: File<'a>,
     /// What the file shown, a new one if there is one, says about itself.
     pub analysis: &'a Analysis,
-    pub fields: &'a Fields<'a>,
-    pub chosen_tags: &'a [String],
+    pub form: &'a Form,
     pub choices: &'a Choices,
-    /// Every tag, to suggest.
-    pub tags: &'a [Tag],
-    /// Whether the person, an admin, may name a new tag.
-    pub may_create_tags: bool,
     /// The width and orientation an adder reads from the file; see
     /// `fields`.
     pub derived: crate::import::Derived,
@@ -89,69 +81,6 @@ pub struct DetailsPage<'a> {
     pub choosing: Option<&'a str>,
     /// The viewer's Schemati folder, its files to choose from.
     pub schemati: &'a super::Connection<'a>,
-}
-
-/// A stored build's details as its form starts with them.
-pub struct Stored {
-    width: String,
-    latency: String,
-    throughput: String,
-    bytes: String,
-    at_least: String,
-    flags: Vec<String>,
-    pub tags: Vec<String>,
-    stack_rows: Vec<StackRow>,
-}
-
-impl Stored {
-    pub fn of(s: &Schematic) -> Self {
-        let number =
-            |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
-        Stored {
-            width: number(s.width),
-            latency: number(s.latency),
-            throughput: number(s.throughput),
-            bytes: number(s.bytes),
-            at_least: number(s.at_least),
-            flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
-            tags: s
-                .tags
-                .iter()
-                .filter(|tag| !tag.is_derived())
-                .map(|tag| tag.name.clone())
-                .collect(),
-            // A build that does not stack yet starts with a likely direction.
-            stack_rows: if s.stacking.is_empty() {
-                vec![StackRow::suggested(&s.orientation, s.size)]
-            } else {
-                s.stacking.iter().map(StackRow::of).collect()
-            },
-        }
-    }
-
-    pub fn fields<'a>(&'a self, s: &'a Schematic) -> Fields<'a> {
-        Fields {
-            category: &s.category,
-            width: &self.width,
-            orientation: &s.orientation,
-            encoding: s.encoding.as_deref().unwrap_or_default(),
-            latency: &self.latency,
-            synchronized: s.synchronized,
-            builders: &s.builders,
-            contributors: &s.contributors,
-            built_on: s.built_on.as_deref().unwrap_or(""),
-            description: s.description.as_deref().unwrap_or(""),
-            given_name: s.given_name.as_deref().unwrap_or(""),
-            logic: s.own_logic.as_deref().unwrap_or_default(),
-            throughput: &self.throughput,
-            bytes: &self.bytes,
-            at_least: &self.at_least,
-            design: &s.design,
-            flags: &self.flags,
-            stackable: !s.stacking.is_empty(),
-            stack_rows: &self.stack_rows,
-        }
-    }
 }
 
 pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
@@ -206,7 +135,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 }
                 (checks(page))
                 (file_chooser(page))
-                (details_form(page))
+                (details_form(user, page))
             }))
             div class="mt-12 max-w-calm" { (interface_section(page.analysis)) }
             // Redrawn as the category and width call for a test.
@@ -515,7 +444,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
 
 /// The details, the file a new upload or version carries, and the button
 /// that publishes or saves them, disabled while something holds it up.
-fn details_form(page: &DetailsPage) -> Markup {
+fn details_form(user: &User, page: &DetailsPage) -> Markup {
     let simulate = simulate_url(page);
     let (action, label, cancel) = match &page.file {
         File::Upload { .. } => {
@@ -562,8 +491,9 @@ fn details_form(page: &DetailsPage) -> Markup {
                 }
                 File::Stored { .. } => {}
             }
-            (fields(page.fields, page.choices, &page.derived))
-            (tag_picker(page.tags, page.chosen_tags, page.may_create_tags))
+            (fields(page.form, page.choices, &page.derived))
+            // Only an admin may name a tag not yet on the list.
+            (tag_picker(&page.choices.tags, &page.form.tags, user.is_admin()))
             @if let File::Upload { unconventional, .. } = &page.file
                 && (!page.analysis.violations.is_empty() || *unconventional)
             {

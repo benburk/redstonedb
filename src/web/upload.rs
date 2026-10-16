@@ -12,26 +12,25 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
     app_state::AppState,
+    details,
     error::AppError,
     extractors::session::SignedIn,
-    import::{self, Prepared},
-    interface, lint,
+    import::{self, Analysis, Prepared},
+    interface,
     models::{
-        schematic::{self, Measure, New, Schematic, StackDirection, Tag},
+        schematic::{self, Category, Schematic},
         similarity, simulation,
         user::User,
     },
-    mojang,
     schem::Blocks,
     schemati,
     simulate::{self, Guess},
-    stack,
     standardize::{self, Gray},
 };
 
 use super::{
-    details,
-    pages::{self, Choices, DetailsPage, Fields, File},
+    form::{self, Form},
+    pages::{self, DetailsPage, File},
 };
 
 /// The file behind a Schemati download link, or why it could not be had.
@@ -104,7 +103,7 @@ pub(super) async fn posted(
 impl Posted {
     /// The first value sent under `key`, or empty.
     pub fn get(&self, key: &str) -> &str {
-        details::first(&self.pairs, key)
+        form::first(&self.pairs, key)
     }
 
     /// The file chosen in the form: its `file`, or else the file behind
@@ -229,50 +228,18 @@ pub async fn preview(
             return upload_page(&state, &user, &message).await;
         }
     };
-    let interface = interface::read(&prepared.blocks);
-    let (width, orientation) = import::guess(&interface);
     // What it seems to be starts the category and design.
     let guess = guessed(&prepared.data).await;
-    // The carry lines the signs show start ticked.
-    let flags = import::sign_flags(&interface);
-    let width = width.map(|w| w.to_string()).unwrap_or_default();
-    let orientation = orientation.unwrap_or("horz");
-    let size = &prepared.size;
-    let stack_rows = [details::StackRow::suggested(
-        orientation,
-        (size.x.into(), size.y.into(), size.z.into()),
-    )];
-    let fields = Fields {
-        category: guess.as_ref().map_or("", |guess| guess.category),
-        width: &width,
-        orientation,
-        encoding: "bin",
-        latency: "",
-        // Most builds are; the uploader says when one is not.
-        synchronized: Some(true),
-        builders: &[],
-        contributors: &[],
-        built_on: "",
-        description: "",
-        given_name: "",
-        logic: "",
-        throughput: "",
-        bytes: "",
-        at_least: "",
-        design: "other",
-        flags: &flags,
-        stackable: false,
-        stack_rows: &stack_rows,
-    };
-    let settings = Settings {
-        unconventional: false,
-        keep_paste,
-    };
+    let form = Form::suggested(
+        guess.as_ref(),
+        &interface::read(&prepared.blocks),
+        &prepared.size,
+    );
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
     };
-    show_preview(&state, &user, &prepared, &fields, &[], settings, said).await
+    show_preview(&state, &user, &prepared, &form, said).await
 }
 
 /// The stored build most like an upload's `blocks`, if any is similar.
@@ -288,41 +255,6 @@ async fn closest(
     Ok(schematic::get(db, &id).await?.map(|s| (s, permille)))
 }
 
-/// What the uploader chose about the file itself, carried from the
-/// preview to publishing.
-#[derive(Clone, Copy)]
-struct Settings {
-    /// The build does not follow the conventions, so is not linted.
-    unconventional: bool,
-    /// The file keeps where its uploader's `//paste` put it.
-    keep_paste: bool,
-}
-
-/// What the details form sends when publishing.
-struct Submission {
-    /// The prepared file, base64.
-    data: String,
-    /// `hopper` when the person asked to swap hoppers for barrels rather
-    /// than publish.
-    swap: String,
-    settings: Settings,
-    form: details::Form,
-}
-
-impl Submission {
-    fn read(posted: &Posted) -> Self {
-        Submission {
-            data: posted.get("data").to_owned(),
-            swap: posted.get("swap").to_owned(),
-            settings: Settings {
-                unconventional: !posted.get("unconventional").is_empty(),
-                keep_paste: !posted.get("file_keeps_paste").is_empty(),
-            },
-            form: details::Form::read(&posted.pairs),
-        }
-    }
-}
-
 /// Publishes the previewed file with the details filled in, or, when the
 /// form asks, swaps its hoppers or takes a newly chosen file in its place
 /// and shows it again with the details as sent.
@@ -335,8 +267,9 @@ pub async fn publish(
         Ok(posted) => posted,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let mut sent = Submission::read(&posted);
-    let Ok(data) = STANDARD.decode(&sent.data) else {
+    let mut form = Form::read(&posted.pairs);
+    // The preview carries the prepared file, and how it was prepared.
+    let Ok(data) = STANDARD.decode(posted.get("data")) else {
         return upload_page(
             &state,
             &user,
@@ -344,10 +277,12 @@ pub async fn publish(
         )
         .await;
     };
+    let conventional = posted.get("unconventional").is_empty();
+    let keep_paste = !posted.get("file_keeps_paste").is_empty();
     // A swap changes the file and shows it again, keeping the details.
-    let swapping = sent.swap == "hopper";
+    let swapping = posted.get("swap") == "hopper";
     let data = if swapping {
-        match standardize::barrels(&data, &[sent.swap.as_str()]) {
+        match standardize::barrels(&data, &["hopper"]) {
             Ok(swapped) => swapped,
             Err(err) => {
                 let message = format!("Could not swap them: {err:#}.");
@@ -357,12 +292,8 @@ pub async fn publish(
     } else {
         data
     };
-    let prepared = match import::prepare(
-        &data,
-        None,
-        !sent.settings.unconventional,
-        sent.settings.keep_paste,
-    ) {
+    let prepared = match import::prepare(&data, None, conventional, keep_paste)
+    {
         Ok(prepared) => prepared,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -370,22 +301,15 @@ pub async fn publish(
         }
     };
     if posted.choosing() {
-        return chosen_instead(&state, &user, &mut posted, prepared, &mut sent)
+        return chosen_instead(&state, &user, &mut posted, prepared, &mut form)
             .await;
     }
     if swapping {
-        return show_preview(
-            &state,
-            &user,
-            &prepared,
-            &sent.form.fields(),
-            &sent.form.tags,
-            sent.settings,
-            Said::default(),
-        )
-        .await;
+        return show_preview(&state, &user, &prepared, &form, Said::default())
+            .await;
     }
-    let refused = match publish_checked(&state, &user, &prepared, &sent).await {
+    let refused = match publish_checked(&state, &user, &prepared, &form).await?
+    {
         Ok(id) => {
             simulation::refresh_soon(&state.db, &id);
             similarity::refresh_soon(&state.db);
@@ -399,84 +323,54 @@ pub async fn publish(
         message: &refused,
         ..Said::default()
     };
-    show_preview(
-        &state,
-        &user,
-        &prepared,
-        &sent.form.fields(),
-        &sent.form.tags,
-        sent.settings,
-        said,
-    )
-    .await
+    show_preview(&state, &user, &prepared, &form, said).await
 }
 
 /// The preview of the file newly chosen on the preview page, in place of
-/// `current`, with the details as sent; or `current` again, with why the
-/// new one could not be read.
+/// `current`, with the details as sent in `form`; or `current` again, with
+/// why the new one could not be read.
 async fn chosen_instead(
     state: &AppState,
     user: &User,
     posted: &mut Posted,
     current: Prepared,
-    sent: &mut Submission,
+    form: &mut Form,
 ) -> Result<Response, AppError> {
     let chosen = match posted.fetch_own(&state.db, user).await {
         Ok(()) => posted.chosen().await,
         Err(message) => Err(message),
     };
-    let read = match chosen {
-        Ok(chosen) => import::prepare(
+    let read = chosen.and_then(|chosen| {
+        import::prepare(
             &chosen.file,
             chosen.standardize,
-            !sent.settings.unconventional,
+            current.conventional,
             chosen.keep_paste,
         )
-        .map(|prepared| (prepared, chosen.keep_paste))
-        .map_err(|err| format!("Could not read that file: {err:#}.")),
-        Err(message) => Err(message),
-    };
-    let (prepared, keep_paste) = match read {
-        Ok(read) => read,
+        .map_err(|err| format!("Could not read that file: {err:#}."))
+    });
+    let prepared = match read {
+        Ok(prepared) => prepared,
         Err(message) => {
             let said = Said {
                 choosing: Some(&message),
                 ..Said::default()
             };
-            return show_preview(
-                state,
-                user,
-                &current,
-                &sent.form.fields(),
-                &sent.form.tags,
-                sent.settings,
-                said,
-            )
-            .await;
+            return show_preview(state, user, &current, form, said).await;
         }
     };
-    sent.settings.keep_paste = keep_paste;
     // What it seems to be starts the category, if none is chosen yet.
     let guess = guessed(&prepared.data).await;
-    if sent.form.category.trim().is_empty()
+    if form.category.trim().is_empty()
         && let Some(guess) = &guess
     {
-        guess.category.clone_into(&mut sent.form.category);
+        guess.category.clone_into(&mut form.category);
     }
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
     };
-    show_preview(
-        state,
-        user,
-        &prepared,
-        &sent.form.fields(),
-        &sent.form.tags,
-        sent.settings,
-        said,
-    )
-    .await
+    show_preview(state, user, &prepared, form, said).await
 }
 
 /// What a file seems to be, from a quick run of the tests it fits.
@@ -495,107 +389,41 @@ async fn publish_checked(
     state: &AppState,
     user: &User,
     prepared: &Prepared,
-    sent: &Submission,
-) -> Result<String, String> {
-    if !prepared.violations.is_empty() {
-        return Err(match prepared.violations.len() {
-            1 => "It breaks a building convention, listed below.".to_owned(),
-            n => format!("It breaks {n} building conventions, listed below."),
-        });
-    }
-    let categories = schematic::categories(&state.db)
-        .await
-        .map_err(|err| format!("Could not load the categories: {err}."))?;
-    let parsed = sent.form.parse(&categories)?;
-    // Only an adder, carry out, incrementer, or decrementer may leave its
-    // lone control and status lines unsigned,
-    // which the preview, before the category was known, let pass.
-    if !sent.settings.unconventional
-        && let Some(violation) =
-            lint::check_for(&prepared.blocks, &parsed.category).first()
-    {
-        return Err(format!(
-            "A {} needs every control and status line signed: {}.",
-            parsed.category.replace('_', " "),
-            violation.message
-        ));
-    }
-    // Only an admin may name a tag not yet on the list.
-    match schematic::check_new_tags(&state.db, &sent.form.tags, user.is_admin())
-        .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(message)) => return Err(message),
-        Err(err) => return Err(format!("Could not check the tags: {err}.")),
-    }
-    // Checked here too, so the refusal reads as a sentence of its own.
-    let category = match schematic::check_category(
-        &state.db,
-        &parsed.category,
-        &parsed.design,
-    )
-    .await
-    {
-        Ok(Ok(category)) => category,
-        Ok(Err(message)) => return Err(message),
-        Err(err) => {
-            return Err(format!("Could not check the category: {err}."));
-        }
+    form: &Form,
+) -> Result<Result<String, String>, AppError> {
+    let db = &state.db;
+    let categories = schematic::categories(db).await?;
+    let given = match form.parse(&categories) {
+        Ok(given) => given,
+        Err(message) => return Ok(Err(message)),
     };
-    // The simulation decides how a recognized build stacks once it is
-    // published, so its form's stacking counts for nothing.
-    let inferred = !sent.settings.unconventional
-        && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
-    let stacking: &[StackDirection] =
-        if inferred { &[] } else { &parsed.stacking };
-    stack::check(
-        &prepared.data,
-        stacking,
-        stack::Buses::of(&parsed.category, &parsed.orientation),
-    )?;
-    let size = &prepared.size;
-    let new = New {
-        category: &parsed.category,
-        width: parsed.width,
-        orientation: &parsed.orientation,
-        encoding: parsed.encoding.as_deref(),
-        latency: parsed.latency,
-        synchronized: parsed.synchronized,
-        size: (size.x.into(), size.y.into(), size.z.into()),
-        built_on: parsed.built_on.as_deref(),
-        imported_by: None,
-        conventional: !sent.settings.unconventional,
-        design: Some(&parsed.design),
-        description: parsed.description.as_deref(),
-        given_name: parsed.given_name.as_deref(),
-        logic: parsed.logic.as_deref(),
-        throughput: parsed.throughput,
-        // Only a category ranked by a measure keeps it, as a memory does
-        // its capacity.
-        bytes: parsed.bytes.filter(|_| category.has(Measure::Bytes)),
-        at_least: parsed.at_least.filter(|_| category.has(Measure::AtLeast)),
-        facts: &prepared.facts,
-        keeps_paste: sent.settings.keep_paste,
-        uploaded_by: Some(user.id),
-        sha256: &prepared.sha256,
+    let build = details::Build {
         data: &prepared.data,
+        conventional: prepared.conventional,
     };
-    // Credited as their players spell them; a name no player has is
-    // refused.
-    let builders = mojang::respell(&parsed.builders).await?;
-    let contributors = mojang::respell(&parsed.contributors).await?;
-    let extras = import::Extras {
-        builders: &builders,
-        contributors: &contributors,
-        tags: &sent.form.tags,
-        // An admin may name a new tag; it starts under other.
-        new_tags: user.is_admin(),
-        stacking,
-        flags: &parsed.flags,
+    let ready = match details::check(db, given, build, user.is_admin()).await? {
+        Ok(ready) => ready,
+        Err(message) => return Ok(Err(message)),
     };
-    import::store(&state.db, &new, &extras)
-        .await
-        .map_err(|err| format!("Could not publish it: {err:#}."))
+    let analysis = Analysis::of(
+        &prepared.blocks,
+        &ready.category.name,
+        prepared.conventional,
+    );
+    match analysis.violations.len() {
+        0 => {}
+        1 => {
+            return Ok(Err(
+                "It breaks a building convention, listed below.".to_owned()
+            ));
+        }
+        n => {
+            return Ok(Err(format!(
+                "It breaks {n} building conventions, listed below."
+            )));
+        }
+    }
+    Ok(import::store(db, prepared, &ready, Some(user.id), None).await?)
 }
 
 /// What the preview says beside the form: why publishing was refused,
@@ -608,34 +436,28 @@ struct Said<'a> {
     choosing: Option<&'a str>,
 }
 
-/// The preview page for a prepared file.
+/// The preview page for a prepared file, with the details form as `form`
+/// has it.
 async fn show_preview(
     state: &AppState,
     user: &User,
     prepared: &Prepared,
-    fields: &Fields<'_>,
-    chosen_tags: &[String],
-    settings: Settings,
+    form: &Form,
     said: Said<'_>,
 ) -> Result<Response, AppError> {
-    let tags: Vec<Tag> = schematic::all_tags(&state.db).await?;
     let duplicate =
         schematic::id_by_sha256(&state.db, &prepared.sha256).await?;
-    let choices = Choices::load(&state.db).await?;
+    let choices = form::choices(&state.db).await?;
     let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());
     let similar = closest(&state.db, &prepared.blocks, size).await?;
     let folder = super::schemati::own_folder_quickly(&state.db, user).await?;
-    let interface = interface::read(&prepared.blocks);
-    let derived = import::derived("adder", &interface);
-    // Its lines are named for the category chosen so far, as the
-    // simulation names them.
-    let mut shown = interface;
-    simulate::name_lines(
-        &fields.category.trim().to_lowercase().replace(' ', "_"),
-        &prepared.blocks,
-        &mut shown,
-    );
+    // Its lines are named, and its conventions checked, for the category
+    // chosen so far.
+    let category = Category::name_of(&choices.categories, &form.category);
+    let analysis =
+        Analysis::of(&prepared.blocks, &category, prepared.conventional);
+    let derived = import::derived("adder", &interface::read(&prepared.blocks));
     let swappable = standardize::swappable(&prepared.blocks);
     Ok(pages::details_page(
         user,
@@ -645,22 +467,15 @@ async fn show_preview(
                 size: [prepared.size.x, prepared.size.y, prepared.size.z],
                 duplicate: duplicate.as_deref(),
                 similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
-                keep_paste: settings.keep_paste,
-                unconventional: settings.unconventional,
+                keep_paste: prepared.keeps_paste,
+                unconventional: !prepared.conventional,
                 swapped: &prepared.swapped,
                 guess: said.guess,
                 hoppers: swappable.hoppers,
             },
-            analysis: &pages::Analysis {
-                interface: shown,
-                violations: prepared.violations.clone(),
-                stacking: Vec::new(),
-            },
-            fields,
-            chosen_tags,
+            analysis: &analysis,
+            form,
             choices: &choices,
-            tags: &tags,
-            may_create_tags: user.is_admin(),
             derived,
             message: said.message,
             choosing: said.choosing,

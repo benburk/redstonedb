@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use crate::{
-    import::{self, Prepared},
+    import::{self, Analysis, Prepared},
     lint,
     models::schematic::{self, Schematic},
     schem::{Blocks, Pos},
@@ -178,14 +178,9 @@ pub async fn check(
     let mut refusals = refusals(comparison);
     // Only conventions the current version keeps count against it, so a
     // build from before a rule can still be fixed.
-    let (kept, now) = if s.conventional {
-        (
-            lint::check_for(&current, &s.category),
-            lint::check_for(&prepared.blocks, &s.category),
-        )
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let violations =
+        |blocks| Analysis::of(blocks, &s.category, s.conventional).violations;
+    let (kept, now) = (violations(&current), violations(&prepared.blocks));
     let broken: Vec<&str> = now
         .iter()
         .map(|v| v.message.as_str())

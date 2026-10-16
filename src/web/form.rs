@@ -1,7 +1,17 @@
-//! Reading a build's details from a form, for editing and uploading.
+//! A build's details form: what it starts with, and reading what it
+//! sends, for editing and uploading.
 
-use super::pages::Fields;
-use crate::models::schematic::{self, Category, Details, StackDirection};
+use sqlx::SqlitePool;
+
+use super::pages::Choices;
+use crate::{
+    details::Details,
+    import,
+    interface::Interface,
+    models::schematic::{self, Category, Schematic, StackDirection},
+    schem::Size,
+    simulate::Guess,
+};
 
 /// The ways the form can stack a build, as `StackDirection::name` gives
 /// them, with their labels.
@@ -91,7 +101,7 @@ impl StackRow {
     }
 }
 
-/// A details form as sent, every field as text; empty means unknown.
+/// A details form's values, every field as text; empty means unknown.
 #[derive(Default)]
 pub struct Form {
     /// The category as typed: a standard one by its name or label, in any
@@ -118,13 +128,14 @@ pub struct Form {
     /// A threshold's k.
     pub at_least: String,
     pub design: String,
-    /// The ticked flags of every category's group, each with its category,
-    /// such as `("adder", "carry_in")`; parsing keeps the chosen one's.
+    /// The ticked flags, each with the category whose group it was ticked
+    /// in, such as `("adder", "carry_in")`. The form shows a flag ticked in
+    /// every group that has it, so it stays ticked whichever category is
+    /// chosen, and parsing keeps the chosen category's.
     pub flags: Vec<(String, String)>,
-    /// The ticked flags' names, to show the form again.
-    pub flag_names: Vec<String>,
     /// Whether the stacking toggle is on; the rows count only when it is.
     pub stackable: bool,
+    /// The stacking directions so far, or a suggested first one.
     pub stack_rows: Vec<StackRow>,
     /// In order, from the builder pills and anything typed beside them.
     pub builders: Vec<String>,
@@ -134,36 +145,10 @@ pub struct Form {
     pub tags: Vec<String>,
 }
 
-/// A details form checked and converted.
-pub struct Parsed {
-    pub category: String,
-    pub width: Option<i64>,
-    pub orientation: String,
-    pub encoding: Option<String>,
-    pub latency: Option<i64>,
-    pub synchronized: Option<bool>,
-    pub built_on: Option<String>,
-    pub description: Option<String>,
-    pub given_name: Option<String>,
-    /// `None` follows the category.
-    pub logic: Option<String>,
-    pub throughput: Option<i64>,
-    pub bytes: Option<i64>,
-    pub at_least: Option<i64>,
-    pub design: String,
-    /// Ticked flags; any not of the category are dropped when stored.
-    pub flags: Vec<String>,
-    pub builders: Vec<String>,
-    pub contributors: Vec<String>,
-    /// Empty for a build that does not stack.
-    pub stacking: Vec<StackDirection>,
-}
-
 impl Form {
     /// Reads a urlencoded body by hand, since the pill fields repeat one
     /// name per value. `builder_entry`, `contributor_entry`, and `tag_entry`
-    /// are their text
-    /// boxes, sent as typed when scripting is off.
+    /// are their text boxes, sent as typed when scripting is off.
     pub fn read(pairs: &[(String, String)]) -> Self {
         let get = |key: &str| first(pairs, key).to_owned();
         let each = |key: &str| -> Vec<String> {
@@ -217,19 +202,13 @@ impl Form {
             bytes: get("bytes"),
             at_least: get("at_least"),
             design: get("design"),
-            // Each category's flags are sent under its own name; parsing
-            // keeps the chosen category's.
+            // Each category's flags are sent under its own name.
             flags: pairs
                 .iter()
                 .filter_map(|(k, v)| {
                     let category = k.strip_prefix("flag:")?;
                     Some((category.to_owned(), v.trim().to_owned()))
                 })
-                .collect(),
-            flag_names: pairs
-                .iter()
-                .filter(|(k, _)| k.starts_with("flag:"))
-                .map(|(_, v)| v.trim().to_owned())
                 .collect(),
             stackable: !get("stackable").is_empty(),
             stack_rows,
@@ -242,30 +221,83 @@ impl Form {
         }
     }
 
-    /// The sent values, to show again after a refusal. A category named
-    /// under other shows as that name.
-    pub fn fields(&self) -> Fields<'_> {
-        Fields {
-            category: &self.category,
-            width: &self.width,
-            orientation: &self.orientation,
-            encoding: &self.encoding,
-            latency: &self.latency,
-            synchronized: self.synchronized,
-            builders: &self.builders,
-            contributors: &self.contributors,
-            built_on: &self.built_on,
-            description: &self.description,
-            given_name: &self.given_name,
-            logic: &self.logic,
-            throughput: &self.throughput,
-            bytes: &self.bytes,
-            at_least: &self.at_least,
-            design: &self.design,
-            flags: &self.flag_names,
-            stackable: self.stackable,
-            stack_rows: &self.stack_rows,
+    /// Stored build `s`'s details, for its edit page.
+    pub fn of(s: &Schematic) -> Self {
+        let number =
+            |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
+        let text = |t: &Option<String>| t.clone().unwrap_or_default();
+        Form {
+            category: s.category.clone(),
+            width: number(s.width),
+            orientation: s.orientation.clone(),
+            encoding: text(&s.encoding),
+            latency: number(s.latency),
+            synchronized: s.synchronized,
+            built_on: text(&s.built_on),
+            description: text(&s.description),
+            given_name: text(&s.given_name),
+            logic: text(&s.own_logic),
+            throughput: number(s.throughput),
+            bytes: number(s.bytes),
+            at_least: number(s.at_least),
+            design: s.design.clone(),
+            flags: s
+                .flags
+                .iter()
+                .map(|flag| (s.category.clone(), flag.name.clone()))
+                .collect(),
+            stackable: !s.stacking.is_empty(),
+            // A build that does not stack yet starts with a likely direction.
+            stack_rows: if s.stacking.is_empty() {
+                vec![StackRow::suggested(&s.orientation, s.size)]
+            } else {
+                s.stacking.iter().map(StackRow::of).collect()
+            },
+            builders: s.builders.clone(),
+            contributors: s.contributors.clone(),
+            tags: s
+                .tags
+                .iter()
+                .filter(|tag| !tag.is_derived())
+                .map(|tag| tag.name.clone())
+                .collect(),
         }
+    }
+
+    /// What a new upload's form starts with: the category the file seems
+    /// to be, by `guess`, and the width, orientation, and flags its
+    /// `interface` suggests, with a first stacking direction its `size`
+    /// apart.
+    pub fn suggested(
+        guess: Option<&Guess>,
+        interface: &Interface,
+        size: &Size,
+    ) -> Self {
+        let category = guess.map_or("", |guess| guess.category).to_owned();
+        let (width, orientation) = import::guess(interface);
+        let orientation = orientation.unwrap_or("horz");
+        let size = (size.x.into(), size.y.into(), size.z.into());
+        Form {
+            width: width.map(|w| w.to_string()).unwrap_or_default(),
+            orientation: orientation.to_owned(),
+            encoding: "bin".to_owned(),
+            // Most builds are; the uploader says when one is not.
+            synchronized: Some(true),
+            design: "other".to_owned(),
+            // The carry lines the signs show start ticked.
+            flags: import::sign_flags(interface)
+                .into_iter()
+                .map(|flag| (category.clone(), flag))
+                .collect(),
+            stack_rows: vec![StackRow::suggested(orientation, size)],
+            category,
+            ..Form::default()
+        }
+    }
+
+    /// Whether `flag` shows ticked, in every group that has it.
+    pub fn ticks(&self, flag: &str) -> bool {
+        self.flags.iter().any(|(_, ticked)| ticked == flag)
     }
 
     /// The stacking directions, checked: none unless the toggle is on, and
@@ -289,174 +321,61 @@ impl Form {
         Ok(directions)
     }
 
-    /// The category's name, and whether it is off the list: a standard one
-    /// by its name or label, whatever the capitals, among `categories`, and
-    /// any other text a category of the builder's own.
-    pub fn category(
-        &self,
-        categories: &[Category],
-    ) -> Result<(String, bool), String> {
-        let typed = self.category.trim();
-        let standard = categories.iter().find(|c| {
-            c.name.eq_ignore_ascii_case(typed)
-                || c.label.eq_ignore_ascii_case(typed)
-                || c.name == schematic::tag_name(typed)
-        });
-        let (category, other) = match standard {
-            Some(c) => (c.name.clone(), false),
-            None => (schematic::tag_name(typed), true),
-        };
-        if category.is_empty() {
-            return Err(
-                "Choose a category, or type a name of your own.".to_owned()
-            );
-        }
-        Ok((category, other))
-    }
-
-    /// Refuses a tag worked out from the build, or a name no tag can have.
-    fn check_tags(&self) -> Result<(), String> {
-        if let Some(name) = self
-            .tags
-            .iter()
-            .find(|n| schematic::DERIVED.contains(&n.as_str()))
-        {
-            return Err(format!(
-                "The {} tag is worked out from the build; it cannot be \
-                 added by hand.",
-                name.replace('_', " ")
-            ));
-        }
-        if let Some(name) =
-            self.tags.iter().find(|n| !schematic::valid_tag_name(n))
-        {
-            return Err(format!(
-                "{} cannot be a tag: use letters, digits, and spaces.",
-                name.replace('_', " ")
-            ));
-        }
-        Ok(())
-    }
-
-    /// The ticks in `category`'s group of flags.
-    fn flags_of(&self, category: &str) -> Vec<String> {
-        self.flags
-            .iter()
-            .filter(|(of, _)| of == category)
-            .map(|(_, flag)| flag.clone())
-            .collect()
-    }
-
-    /// The checked fields, or a sentence saying which field is wrong. The
-    /// category is matched among the standard `categories`.
-    pub fn parse(&self, categories: &[Category]) -> Result<Parsed, String> {
-        let text = |value: &str| {
-            let value = value.trim();
-            (!value.is_empty()).then(|| value.to_owned())
-        };
+    /// The details the text gives, or a sentence saying which field is not
+    /// a number or a stacking step. The rules they must keep are
+    /// [`crate::details::check`]'s; `categories` only says whose group of
+    /// flags counts.
+    pub fn parse(&self, categories: &[Category]) -> Result<Details, String> {
         let number = |value: &str, name: &str| -> Result<Option<i64>, String> {
-            text(value)
-                .map(|v| {
-                    v.parse()
+            let value = value.trim();
+            (!value.is_empty())
+                .then(|| {
+                    value
+                        .parse()
                         .map_err(|_| format!("{name} must be a whole number."))
                 })
                 .transpose()
         };
-        let (category, other) = self.category(categories)?;
-        if !matches!(self.orientation.as_str(), "horz" | "vert" | "diag") {
-            return Err(
-                "Orientation must be Horizontal, Vertical, or Diagonal."
-                    .to_owned(),
-            );
-        }
-        // A category off the list, such as a piston door, has no width or
-        // encoding.
-        let encoding = if other {
-            None
-        } else if matches!(self.encoding.as_str(), "bin" | "hex") {
-            Some(self.encoding.clone())
-        } else {
-            return Err("Encoding must be Binary or Hex.".to_owned());
-        };
-        if let Some(name) = self
-            .builders
-            .iter()
-            .chain(&self.contributors)
-            .find(|n| !schematic::valid_player_name(n))
-        {
-            return Err(format!(
-                "{name} is not a Minecraft name: letters, digits, and \
-                 underscores, up to 16."
-            ));
-        }
-        self.check_tags()?;
-        if self.given_name.trim().chars().count() > 60 {
-            return Err("A name is at most 60 characters.".to_owned());
-        }
-        let logic = text(&self.logic);
-        if logic
-            .as_deref()
-            .is_some_and(|l| !matches!(l, "comb" | "seq"))
-        {
-            return Err("Logic must be Combinational or Sequential.".to_owned());
-        }
-        let built_on = text(&self.built_on);
-        if built_on.as_deref().is_some_and(|d| !is_date(d)) {
-            return Err(
-                "Built on must be a date such as 2024-02-02.".to_owned()
-            );
-        }
-        let flags = self.flags_of(&category);
-        Ok(Parsed {
-            category,
-            width: if other {
-                None
-            } else {
-                number(&self.width, "Width")?.filter(|w| *w > 0)
-            },
+        let text = |value: &str| Some(value.to_owned());
+        let category = Category::name_of(categories, &self.category);
+        Ok(Details {
+            category: self.category.clone(),
+            width: number(&self.width, "Width")?,
             orientation: self.orientation.clone(),
-            encoding,
+            encoding: Some(self.encoding.clone()).filter(|e| !e.is_empty()),
             latency: number(&self.latency, "Latency")?,
             synchronized: self.synchronized,
-            built_on,
+            built_on: text(&self.built_on),
             description: text(&self.description),
             given_name: text(&self.given_name),
-            logic,
-            throughput: if other {
-                None
-            } else {
-                number(&self.throughput, "Throughput")?.filter(|t| *t > 0)
-            },
-            bytes: number(&self.bytes, "Capacity")?.filter(|b| *b > 0),
-            at_least: number(&self.at_least, "At least")?.filter(|k| *k > 0),
-            design: text(&self.design).unwrap_or_else(|| "other".to_owned()),
-            flags,
+            logic: text(&self.logic),
+            throughput: number(&self.throughput, "Throughput")?,
+            bytes: number(&self.bytes, "Capacity")?,
+            at_least: number(&self.at_least, "At least")?,
+            design: text(&self.design),
+            flags: self
+                .flags
+                .iter()
+                .filter(|(of, _)| *of == category)
+                .map(|(_, flag)| flag.clone())
+                .collect(),
             builders: self.builders.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,
+            tags: self.tags.clone(),
         })
     }
 }
 
-impl Parsed {
-    pub fn as_details(&self) -> Details<'_> {
-        Details {
-            category: &self.category,
-            width: self.width,
-            orientation: &self.orientation,
-            encoding: self.encoding.as_deref(),
-            latency: self.latency,
-            synchronized: self.synchronized,
-            built_on: self.built_on.as_deref(),
-            description: self.description.as_deref(),
-            given_name: self.given_name.as_deref(),
-            logic: self.logic.as_deref(),
-            throughput: self.throughput,
-            bytes: self.bytes,
-            at_least: self.at_least,
-            design: Some(&self.design),
-        }
-    }
+/// The lists a details form chooses from or suggests.
+pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
+    Ok(Choices {
+        categories: schematic::categories(db).await?,
+        designs: schematic::designs(db).await?,
+        flags: schematic::flags(db).await?,
+        people: schematic::all_people(db).await?,
+        tags: schematic::all_tags(db).await?,
+    })
 }
 
 /// The pairs of a urlencoded body.
@@ -476,7 +395,7 @@ pub fn first<'a>(pairs: &'a [(String, String)], key: &str) -> &'a str {
 
 /// The date the form's year, month, and day boxes give, as `2024-02-02`,
 /// a single-digit month or day taking a leading zero; empty when all are.
-/// One left out leaves a date `is_date` refuses.
+/// One left out leaves a date the details' check refuses.
 fn joined_date(year: &str, month: &str, day: &str) -> String {
     let [year, month, day] = [year, month, day].map(str::trim);
     if [year, month, day].iter().all(|part| part.is_empty()) {
@@ -486,49 +405,16 @@ fn joined_date(year: &str, month: &str, day: &str) -> String {
     }
 }
 
-/// Whether `d` is a real day written as `yyyy-mm-dd`, such as `2024-02-29`.
-fn is_date(d: &str) -> bool {
-    let shaped = d.len() == 10
-        && d.bytes().enumerate().all(|(i, c)| {
-            if i == 4 || i == 7 {
-                c == b'-'
-            } else {
-                c.is_ascii_digit()
-            }
-        });
-    // Being all ASCII, it slices anywhere.
-    shaped
-        && match (d[..4].parse(), d[5..7].parse::<u8>(), d[8..].parse()) {
-            (Ok(year), Ok(month), Ok(day)) => time::Month::try_from(month)
-                .and_then(|month| {
-                    time::Date::from_calendar_date(year, month, day)
-                })
-                .is_ok(),
-            _ => false,
-        }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::Measure;
-
-    #[test]
-    fn a_date_is_a_real_day_as_yyyy_mm_dd() {
-        assert!(is_date("2024-02-29"));
-        assert!(!is_date("2023-02-29"));
-        assert!(!is_date("2024-13-01"));
-        assert!(!is_date("02/29/2024"));
-        assert!(!is_date("2024-2-29"));
-        assert!(!is_date("2024-02-2é"));
-    }
 
     #[test]
     fn the_date_boxes_join_into_one_date() {
         assert_eq!(joined_date("2024", "2", " 9 "), "2024-02-09");
         assert_eq!(joined_date("", "", ""), "");
         // A part left out leaves no date.
-        assert!(!is_date(&joined_date("2024", "", "09")));
+        assert_eq!(joined_date("2024", "", "09"), "2024-00-09");
     }
 
     fn form(stackable: bool, rows: &[(&str, &str, &str)]) -> Form {
@@ -579,51 +465,6 @@ mod tests {
             vec![("sideways", "2", "")],
         ] {
             assert!(form(true, &rows).stacking().is_err(), "{rows:?}");
-        }
-    }
-
-    #[test]
-    fn a_category_off_the_list_has_no_width_or_encoding() {
-        let sent = Form {
-            category: "8-Bit Horizontal Diode".to_owned(),
-            width: "8".to_owned(),
-            orientation: "horz".to_owned(),
-            encoding: "bin".to_owned(),
-            ..Form::default()
-        };
-        let parsed = sent.parse(&[]).unwrap();
-        assert_eq!(parsed.category, "8-bit_horizontal_diode");
-        assert_eq!((parsed.width, parsed.encoding), (None, None));
-    }
-
-    #[test]
-    fn a_standard_category_is_typed_by_name_or_label() {
-        let hex = Category {
-            name: "hex_to_binary".to_owned(),
-            label: "Hex to Binary".to_owned(),
-            plural: "Hex to Binary".to_owned(),
-            named: false,
-            section: None,
-            logic: None,
-            measures: vec![Measure::Width],
-            aliases: Vec::new(),
-        };
-        for typed in [
-            "Hex to Binary",
-            "hex to binary",
-            "hex_to_binary",
-            " HEX TO BINARY ",
-        ] {
-            let sent = Form {
-                category: typed.to_owned(),
-                width: "4".to_owned(),
-                orientation: "horz".to_owned(),
-                encoding: "hex".to_owned(),
-                ..Form::default()
-            };
-            let parsed = sent.parse(std::slice::from_ref(&hex)).unwrap();
-            assert_eq!(parsed.category, "hex_to_binary", "{typed}");
-            assert_eq!(parsed.width, Some(4), "{typed}");
         }
     }
 

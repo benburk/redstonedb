@@ -21,7 +21,7 @@ use crate::{
     app_state::AppState,
     error::AppError,
     models::{
-        schematic,
+        schematic::{self, Category},
         simulation::{self, Status},
         user::User,
     },
@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    details,
+    form::{self, Form},
     pages::{self, Waiting},
 };
 
@@ -98,7 +98,7 @@ pub async fn stored(
     body: Bytes,
 ) -> Result<Response, AppError> {
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
-    cases(&state, &details::pairs(&body), data, Some(&s)).await
+    cases(&state, &form::pairs(&body), data, Some(&s)).await
 }
 
 /// The timing for stored build `id`, as `stored`.
@@ -109,7 +109,7 @@ pub async fn stored_timing(
     body: Bytes,
 ) -> Result<Response, AppError> {
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
-    timing(&state, &details::pairs(&body), data, Some(&s)).await
+    timing(&state, &form::pairs(&body), data, Some(&s)).await
 }
 
 type Pairs = Vec<(String, String)>;
@@ -124,8 +124,8 @@ fn upload_file(
     if user.is_none() {
         return Err(AppError::Forbidden);
     }
-    let pairs = details::pairs(body);
-    let data = Some(details::first(&pairs, "data"))
+    let pairs = form::pairs(body);
+    let data = Some(form::first(&pairs, "data"))
         .filter(|data| !data.is_empty())
         .and_then(|data| STANDARD.decode(data).ok())
         .ok_or_else(|| {
@@ -160,12 +160,10 @@ async fn test(
     pairs: &[(String, String)],
     data: &[u8],
 ) -> Result<Option<Test>, AppError> {
-    let form = details::Form::read(pairs);
+    let form = Form::read(pairs);
     let categories = schematic::categories(&state.db).await?;
-    let Ok((category, _)) = form.category(&categories) else {
-        return Ok(None);
-    };
-    let conventional = details::first(pairs, "unconventional") != "yes";
+    let category = Category::name_of(&categories, &form.category);
+    let conventional = form::first(pairs, "unconventional") != "yes";
     let derived = simulation::derived_width(&category, conventional, data)?;
     let width = derived.or_else(|| form.width.trim().parse().ok());
     Ok(Test::of(&category, width))

@@ -10,15 +10,13 @@ use std::{
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    import, interface, lint,
-    models::schematic::{
-        self, Changes, Credit, Measure, New, Optional, StackDirection,
-    },
+    details::{self, Details},
+    import::{self, Analysis},
+    interface,
+    models::schematic::{self, Measure, StackDirection},
     models::user::{Role, User},
     models::{similarity, simulation, version},
-    mojang,
-    schem::{self, Blocks},
-    search,
+    mojang, search,
     simulate::{Report, Signal, Stacking, Timing},
     stack,
     standardize::{self, Gray},
@@ -170,7 +168,7 @@ struct Set {
     #[arg(long, value_parser = ["bin", "hex"])]
     encoding: Option<String>,
     #[command(flatten)]
-    details: Details,
+    details: DetailArgs,
     /// Field to make unknown; repeatable
     #[arg(
         long,
@@ -207,7 +205,7 @@ struct Add {
     #[arg(long, value_parser = ["bin", "hex"])]
     encoding: Option<String>,
     #[command(flatten)]
-    details: Details,
+    details: DetailArgs,
     /// Tag to attach; repeatable
     #[arg(long = "tag")]
     tags: Vec<String>,
@@ -286,7 +284,7 @@ struct NewCategory {
 }
 
 #[derive(Args)]
-struct Details {
+struct DetailArgs {
     /// Datapath width in bits
     #[arg(long)]
     width: Option<u32>,
@@ -487,92 +485,66 @@ async fn define_tag(
     Ok(())
 }
 
-/// Changes the fields `args` gives and forgets the ones it unsets.
+/// Changes the fields `args` gives and forgets the ones it unsets, holding
+/// the details to the rules the edit page does.
 async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let Set {
         id,
         category,
         orientation,
         encoding,
-        details,
+        details: given,
         unset,
     } = args;
     let id = resolve(db, &id).await?;
-    let imported_by = details.imported_by;
-    let changes = Changes {
-        category: category.as_deref(),
-        width: details.width.map(i64::from),
-        orientation: orientation.as_deref(),
-        encoding: encoding.as_deref(),
-        latency: details.latency.map(i64::from),
-        synchronized: details.synchronized,
-        built_on: details.built_on.as_deref(),
-        imported_by: imported_by.as_deref(),
-        conventional: details.conventional,
-        design: details.design.as_deref(),
-        description: details.description.as_deref(),
-        given_name: details.given_name.as_deref(),
-        logic: details.logic.as_deref().map(schematic::logic_value),
-        throughput: details.throughput.map(i64::from),
-        bytes: details.bytes.map(i64::from),
-        at_least: details.at_least.map(i64::from),
+    let s = load(db, &id).await?;
+    let mut details = Details::of(&s);
+    if let Some(category) = category {
+        details.category = category;
+    }
+    if let Some(orientation) = orientation {
+        details.orientation = orientation;
+    }
+    if encoding.is_some() {
+        details.encoding = encoding;
+    }
+    overlay(&mut details, &given, &unset);
+    let conventional = given.conventional.unwrap_or(s.conventional);
+    let data = schematic::data(db, &id)
+        .await?
+        .context("schematic vanished")?;
+    let build = details::Build {
+        data: &data,
+        conventional,
     };
-    let current = load(db, &id).await?;
-    let category = changes.category.unwrap_or(&current.category);
-    let design = changes.design.unwrap_or(&current.design);
-    if let Err(message) =
-        schematic::check_category(db, category, design).await?
-    {
-        bail!("{message}");
-    }
-    schematic::update(db, &id, &changes).await?;
-    let fields: Vec<Optional> = unset
+    // The command line acts as an admin, so may name a new tag.
+    let ready = match details::check(db, details, build, true).await? {
+        Ok(ready) => ready,
+        Err(message) => bail!("{message}"),
+    };
+    if let Some(name) = given
+        .flags
         .iter()
-        .filter_map(|field| match field.as_str() {
-            "width" => Some(Optional::Width),
-            "latency" => Some(Optional::Latency),
-            "synchronized" => Some(Optional::Synchronized),
-            "built-on" => Some(Optional::BuiltOn),
-            "imported-by" => Some(Optional::ImportedBy),
-            "description" => Some(Optional::Description),
-            "name" => Some(Optional::GivenName),
-            "logic" => Some(Optional::Logic),
-            "throughput" => Some(Optional::Throughput),
-            "bytes" => Some(Optional::Bytes),
-            "at-least" => Some(Optional::AtLeast),
-            "design" => Some(Optional::Design),
-            _ => None,
-        })
-        .collect();
-    schematic::forget(db, &id, &fields).await?;
-    let mut conn = db.acquire().await?;
-    if !details.stacking.is_empty() || unset.iter().any(|f| f == "stacking") {
-        schematic::set_stacking(&mut conn, &id, &details.stacking).await?;
+        .find(|f| !ready.details.flags.contains(f))
+    {
+        bail!(
+            "{name} is not a flag of {}; see rsdb categories",
+            ready.category.name
+        );
     }
-    if !details.flags.is_empty() || unset.iter().any(|f| f == "flags") {
-        let kept =
-            schematic::keep_flags(&mut *conn, category, &details.flags).await?;
-        if let Some(name) = details.flags.iter().find(|f| !kept.contains(f)) {
-            bail!("{name} is not a flag of {category}; see rsdb categories");
-        }
-        schematic::set_flags(&mut conn, &id, &kept).await?;
-    }
-    let credits = [
-        (Credit::Builder, &details.builders, "builders"),
-        (Credit::Contributor, &details.contributors, "contributors"),
-    ];
-    for (credit, names, field) in credits {
-        if names.is_empty() && !unset.iter().any(|f| f == field) {
-            continue;
-        }
-        if let Some(name) =
-            names.iter().find(|n| !schematic::valid_player_name(n))
-        {
-            bail!("{name} is not a Minecraft name");
-        }
-        let names = mojang::respell(names).await.map_err(anyhow::Error::msg)?;
-        schematic::set_credits(&mut conn, &id, credit, &names).await?;
-    }
+    details::save(db, &id, &ready).await?;
+    let imported_by = if unset.iter().any(|f| f == "imported-by") {
+        None
+    } else {
+        given.imported_by.or(s.imported_by)
+    };
+    schematic::set_import_details(
+        db,
+        &id,
+        imported_by.as_deref(),
+        conventional,
+    )
+    .await?;
     // A new category or width may bring a test or drop one.
     simulation::refresh(db, &id, false).await?;
     simulation::refresh_timing(db, &id, false).await?;
@@ -580,12 +552,89 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     Ok(())
 }
 
+/// Puts the fields `given` has in place of `details`' own, after making the
+/// ones `unset` names, as `--unset` takes them, unknown.
+fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
+    fn put<T>(field: &mut Option<T>, given: Option<T>, unset: bool) {
+        if unset {
+            *field = None;
+        }
+        if given.is_some() {
+            *field = given;
+        }
+    }
+    let unsets = |name: &str| unset.iter().any(|field| field == name);
+    let number = |n: Option<u32>| n.map(i64::from);
+    put(&mut details.width, number(given.width), unsets("width"));
+    put(
+        &mut details.latency,
+        number(given.latency),
+        unsets("latency"),
+    );
+    put(
+        &mut details.synchronized,
+        given.synchronized,
+        unsets("synchronized"),
+    );
+    put(
+        &mut details.built_on,
+        given.built_on.clone(),
+        unsets("built-on"),
+    );
+    put(
+        &mut details.description,
+        given.description.clone(),
+        unsets("description"),
+    );
+    put(
+        &mut details.given_name,
+        given.given_name.clone(),
+        unsets("name"),
+    );
+    let logic = given
+        .logic
+        .as_deref()
+        .map(|logic| schematic::logic_value(logic).to_owned());
+    put(&mut details.logic, logic, unsets("logic"));
+    put(
+        &mut details.throughput,
+        number(given.throughput),
+        unsets("throughput"),
+    );
+    put(&mut details.bytes, number(given.bytes), unsets("bytes"));
+    put(
+        &mut details.at_least,
+        number(given.at_least),
+        unsets("at-least"),
+    );
+    put(&mut details.design, given.design.clone(), unsets("design"));
+    // A list given replaces the stored one whole.
+    let lists = [
+        (&mut details.flags, &given.flags, "flags"),
+        (&mut details.builders, &given.builders, "builders"),
+        (
+            &mut details.contributors,
+            &given.contributors,
+            "contributors",
+        ),
+    ];
+    for (field, given, name) in lists {
+        if !given.is_empty() || unsets(name) {
+            field.clone_from(given);
+        }
+    }
+    if !given.stacking.is_empty() || unsets("stacking") {
+        details.stacking.clone_from(&given.stacking);
+    }
+}
+
+/// Imports a file with its details, held to the rules an upload is, as an
+/// admin: a tag not yet on the list is made under `other`.
 async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     let file = &args.file;
     let data = fs::read(file)
         .with_context(|| format!("cannot read {}", file.display()))?;
-    let details = &args.details;
-    let conventional = details.conventional.unwrap_or(true);
+    let conventional = args.details.conventional.unwrap_or(true);
     let prepared = import::prepare(
         &data,
         args.standardizing.asked(),
@@ -593,16 +642,29 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         args.keep_paste,
     )
     .with_context(|| file.display().to_string())?;
-    // As the category has it: only an adder may leave its lone control and
-    // status lines unsigned.
-    let violations: Vec<String> = if conventional {
-        lint::check_for(&prepared.blocks, &args.category)
-            .iter()
-            .map(ToString::to_string)
-            .collect()
-    } else {
-        Vec::new()
+    let mut details = Details {
+        category: args.category.clone(),
+        orientation: args.orientation.clone(),
+        encoding: args.encoding.clone(),
+        tags: args.tags.clone(),
+        ..Details::default()
     };
+    overlay(&mut details, &args.details, &[]);
+    // The carry lines the signs show, beside the flags given.
+    details
+        .flags
+        .extend(import::sign_flags(&interface::read(&prepared.blocks)));
+    let build = details::Build {
+        data: &prepared.data,
+        conventional,
+    };
+    let ready = match details::check(db, details, build, true).await? {
+        Ok(ready) => ready,
+        Err(message) => bail!("{message}"),
+    };
+    let violations =
+        Analysis::of(&prepared.blocks, &ready.category.name, conventional)
+            .violations;
     if !violations.is_empty() {
         for violation in &violations {
             eprintln!("{violation}");
@@ -615,54 +677,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
             );
         }
     }
-    let size = &prepared.size;
-    // The flags given, and the carry lines the signs show.
-    let mut flags = details.flags.clone();
-    flags.extend(import::sign_flags(&interface::read(&prepared.blocks)));
-    let imported_by = details.imported_by.clone();
-    // Credited as their players spell them.
-    let builders = mojang::respell(&details.builders)
-        .await
-        .map_err(anyhow::Error::msg)?;
-    let contributors = mojang::respell(&details.contributors)
-        .await
-        .map_err(anyhow::Error::msg)?;
-    let id = import::store(
-        db,
-        &New {
-            category: &args.category,
-            width: details.width.map(i64::from),
-            orientation: &args.orientation,
-            encoding: args.encoding.as_deref(),
-            latency: details.latency.map(i64::from),
-            synchronized: details.synchronized,
-            size: (size.x.into(), size.y.into(), size.z.into()),
-            built_on: details.built_on.as_deref(),
-            imported_by: imported_by.as_deref(),
-            conventional,
-            design: details.design.as_deref(),
-            description: details.description.as_deref(),
-            given_name: details.given_name.as_deref(),
-            logic: details.logic.as_deref().map(schematic::logic_value),
-            throughput: details.throughput.map(i64::from),
-            bytes: details.bytes.map(i64::from),
-            at_least: details.at_least.map(i64::from),
-            facts: &prepared.facts,
-            keeps_paste: args.keep_paste,
-            uploaded_by: None,
-            sha256: &prepared.sha256,
-            data: &prepared.data,
-        },
-        &import::Extras {
-            builders: &builders,
-            contributors: &contributors,
-            tags: &args.tags,
-            new_tags: false,
-            stacking: &details.stacking,
-            flags: &flags,
-        },
-    )
-    .await?;
+    let imported_by = args.details.imported_by.as_deref();
+    let id =
+        match import::store(db, &prepared, &ready, None, imported_by).await? {
+            Ok(id) => id,
+            Err(message) => bail!("{message}"),
+        };
     let name = format!("{}  {}", &id[..8], load(db, &id).await?.filename());
     println!("{name}");
     if simulation::refresh(db, &id, false).await?.is_some()
@@ -811,52 +831,39 @@ async fn print_categories(db: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-/// Reads every stored file again and prints what changed: the file
-/// itself, with any corner markers taken out, its box fitted, its status
-/// lines pink, and pasting from one block south of its south-east-bottom
-/// corner unless it keeps where its uploader's pasted, and its size.
+/// Reads every stored file again as an upload's is prepared, and prints
+/// what changed; see [`refile`].
 async fn reread(db: &SqlitePool) -> Result<()> {
     let keeping = schematic::keeping_paste(db).await?;
     for s in schematic::all(db).await? {
         let stored = schematic::data(db, &s.id)
             .await?
             .context("schematic vanished")?;
-        reread_one(db, &s, &stored, keeping.contains(&s.id)).await?;
+        refile(db, &s, &stored, None, keeping.contains(&s.id)).await?;
     }
     Ok(())
 }
 
-/// Reads build `s`'s file `stored` again, as `reread` reads every one:
-/// tidies and stores it if that changes it, keeping where it pastes if
-/// `keep_paste`, then its facts and size, and simulates it.
-async fn reread_one(
+/// Prepares `file` as build `s`'s file, standardized if asked, as an
+/// upload's is: stores it if that differs from the stored file, keeping
+/// where it pastes if `keep_paste`, then its facts and size, and simulates
+/// it. No version is added and nothing is compared.
+async fn refile(
     db: &SqlitePool,
     s: &schematic::Schematic,
-    stored: &[u8],
+    file: &[u8],
+    standardize: Option<Gray>,
     keep_paste: bool,
 ) -> Result<()> {
-    let mut data = standardize::tidy(stored)?;
-    if !keep_paste {
-        data = schem::paste_from_corner(&data)?;
+    let prepared =
+        import::prepare(file, standardize, s.conventional, keep_paste)?;
+    if prepared.sha256 != s.sha256 {
+        let (data, sha256) = (&prepared.data, &prepared.sha256);
+        schematic::set_file(db, &s.id, data, sha256).await?;
+        version::rewrite_current(db, &s.id, data, sha256).await?;
+        println!("{}  file rewritten", &s.id[..8]);
     }
-    // Older builds marked status lines yellow; they are pink now.
-    if s.conventional {
-        data = standardize::pink_status(&data)?;
-    }
-    if data != stored {
-        let sha256 = import::sha256(&data);
-        schematic::set_file(db, &s.id, &data, &sha256).await?;
-        version::rewrite_current(db, &s.id, &data, &sha256).await?;
-        let [w, h, l] = Blocks::read(stored)?.size;
-        let [nw, nh, nl] = Blocks::read(&data)?.size;
-        if [w, h, l] == [nw, nh, nl] {
-            println!("{}  file rewritten", &s.id[..8]);
-        } else {
-            println!("{}  file {h}x{w}x{l} -> {nh}x{nw}x{nl}", &s.id[..8]);
-        }
-    }
-    let blocks = Blocks::read(&data)?;
-    let facts = import::FileFacts::of(&blocks);
+    let facts = &prepared.facts;
     let stored = (
         s.torches,
         s.works_from.as_deref(),
@@ -868,9 +875,9 @@ async fn reread_one(
         facts.works_from.because.as_deref(),
     );
     if stored != read {
-        schematic::set_file_facts(db, &s.id, &facts).await?;
+        schematic::set_file_facts(db, &s.id, facts).await?;
     }
-    let size = import::measure(&blocks, s.conventional)?;
+    let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());
     if size != s.size {
         schematic::set_size(db, &s.id, size).await?;
@@ -883,22 +890,14 @@ async fn reread_one(
     Ok(())
 }
 
-/// Puts `args.file` in place of build `args.id`'s current file, standardized if
-/// asked, as a fix to the file rather than a new version: no version is
-/// added and nothing is compared. Then reads it as `reread` does.
+/// Puts `args.file` in place of build `args.id`'s current file, as a fix
+/// to the file rather than a new version; see [`refile`].
 async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
     let id = resolve(db, &args.id).await?;
     let s = load(db, &id).await?;
-    let mut data = fs::read(&args.file)?;
-    if let Some(gray) = args.standardizing.asked() {
-        data = standardize::standardize(&data, gray)?;
-    }
-    let sha256 = import::sha256(&data);
-    schematic::set_file(db, &id, &data, &sha256).await?;
-    version::rewrite_current(db, &id, &data, &sha256).await?;
-    println!("{}  file replaced", &id[..8]);
     let keep_paste = schematic::keeping_paste(db).await?.contains(&id);
-    reread_one(db, &s, &data, keep_paste).await
+    let file = fs::read(&args.file)?;
+    refile(db, &s, &file, args.standardizing.asked(), keep_paste).await
 }
 
 /// Asks Mojang how each stored Minecraft name is spelled and respells it
@@ -962,17 +961,21 @@ async fn list(
     Ok(())
 }
 
-/// Lints a file, or a stored schematic when no such file exists.
+/// Lints a file, or a stored schematic as a build of its category when no
+/// such file exists. A file's category is unknown, so a lone unsigned
+/// control or status line passes.
 async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
-    let data = if fs::exists(file_or_id)? {
-        fs::read(file_or_id)?
+    let (data, category) = if fs::exists(file_or_id)? {
+        (fs::read(file_or_id)?, String::new())
     } else {
         let id = resolve(db, file_or_id).await?;
-        schematic::data(db, &id)
+        let data = schematic::data(db, &id)
             .await?
-            .context("schematic vanished")?
+            .context("schematic vanished")?;
+        (data, load(db, &id).await?.category)
     };
-    let violations = import::prepare(&data, None, true, true)?.violations;
+    let prepared = import::prepare(&data, None, true, true)?;
+    let violations = Analysis::of(&prepared.blocks, &category, true).violations;
     for violation in &violations {
         println!("{violation}");
     }

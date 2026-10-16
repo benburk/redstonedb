@@ -1200,6 +1200,26 @@ impl Category {
     pub fn has(&self, measure: Measure) -> bool {
         self.measures.contains(&measure)
     }
+
+    /// The standard category among `categories` that `typed` names, by its
+    /// name or its label, whatever the capitals and spacing.
+    pub fn find<'a>(
+        categories: &'a [Category],
+        typed: &str,
+    ) -> Option<&'a Self> {
+        let typed = typed.trim();
+        categories.iter().find(|c| {
+            c.label.eq_ignore_ascii_case(typed) || c.name == tag_name(typed)
+        })
+    }
+
+    /// The name of the category `typed` names: a standard one's among
+    /// `categories`, or else the text as the name of a category of the
+    /// builder's own, empty when nothing is typed.
+    pub fn name_of(categories: &[Category], typed: &str) -> String {
+        Self::find(categories, typed)
+            .map_or_else(|| tag_name(typed), |c| c.name.clone())
+    }
 }
 
 /// The sidebar's sections of standard categories, in order: each stored
@@ -1649,30 +1669,11 @@ pub async fn set_size<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Every field a details form sets; `None` makes a field unknown.
-pub struct Details<'a> {
-    pub category: &'a str,
-    pub width: Option<i64>,
-    pub orientation: &'a str,
-    pub encoding: Option<&'a str>,
-    pub latency: Option<i64>,
-    pub synchronized: Option<bool>,
-    pub design: Option<&'a str>,
-    pub built_on: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub given_name: Option<&'a str>,
-    /// `None` follows the category.
-    pub logic: Option<&'a str>,
-    pub throughput: Option<i64>,
-    pub at_least: Option<i64>,
-    pub bytes: Option<i64>,
-}
-
-/// Sets every field of a details form, clearing the empty ones.
+/// Sets every field of checked `details`, clearing the empty ones.
 pub async fn set_details<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    details: &Details<'_>,
+    details: &crate::details::Details,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
@@ -1714,142 +1715,19 @@ pub async fn delete<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Fields to change; `None` keeps the stored value.
-#[derive(Default)]
-pub struct Changes<'a> {
-    pub category: Option<&'a str>,
-    pub width: Option<i64>,
-    pub orientation: Option<&'a str>,
-    pub encoding: Option<&'a str>,
-    pub latency: Option<i64>,
-    pub synchronized: Option<bool>,
-    pub built_on: Option<&'a str>,
-    pub imported_by: Option<&'a str>,
-    pub conventional: Option<bool>,
-    pub design: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub given_name: Option<&'a str>,
-    pub logic: Option<&'a str>,
-    pub throughput: Option<i64>,
-    pub at_least: Option<i64>,
-    pub bytes: Option<i64>,
-}
-
-pub async fn update<'e, E: SqliteExecutor<'e>>(
+/// Sets the fields only `rsdb set` changes once a build is stored: who
+/// imported it, and whether it follows the building conventions.
+pub async fn set_import_details<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    changes: &Changes<'_>,
+    imported_by: Option<&str>,
+    conventional: bool,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET
-            category = coalesce(?, category),
-            width = coalesce(?, width),
-            orientation = coalesce(?, orientation),
-            encoding = coalesce(?, encoding),
-            latency = coalesce(?, latency),
-            synchronized = coalesce(?, synchronized),
-            built_on = coalesce(?, built_on),
-            imported_by = coalesce(?, imported_by),
-            conventional = coalesce(?, conventional),
-            design = coalesce(?, design),
-            description = coalesce(?, description),
-            given_name = coalesce(?, given_name),
-            logic = coalesce(?, logic),
-            throughput = coalesce(?, throughput),
-            at_least = coalesce(?, at_least),
-            bytes = coalesce(?, bytes),
-            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-         WHERE id = ?",
-        changes.category,
-        changes.width,
-        changes.orientation,
-        changes.encoding,
-        changes.latency,
-        changes.synchronized,
-        changes.built_on,
-        changes.imported_by,
-        changes.conventional,
-        changes.design,
-        changes.description,
-        changes.given_name,
-        changes.logic,
-        changes.throughput,
-        changes.at_least,
-        changes.bytes,
-        id,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// A field that may be unknown.
-#[derive(PartialEq, Eq)]
-pub enum Optional {
-    Width,
-    Latency,
-    Synchronized,
-    BuiltOn,
-    ImportedBy,
-    Description,
-    Design,
-    GivenName,
-    /// Unknown logic follows the category's.
-    Logic,
-    Throughput,
-    AtLeast,
-    Bytes,
-}
-
-/// Makes `fields` unknown.
-pub async fn forget<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    fields: &[Optional],
-) -> Result<(), sqlx::Error> {
-    let has = |field| fields.contains(&field);
-    let (width, latency, synchronized, built_on) = (
-        has(Optional::Width),
-        has(Optional::Latency),
-        has(Optional::Synchronized),
-        has(Optional::BuiltOn),
-    );
-    let imported_by = has(Optional::ImportedBy);
-    let description = has(Optional::Description);
-    let design = has(Optional::Design);
-    let given_name = has(Optional::GivenName);
-    let logic = has(Optional::Logic);
-    let throughput = has(Optional::Throughput);
-    let at_least = has(Optional::AtLeast);
-    let bytes = has(Optional::Bytes);
-    sqlx::query!(
-        "UPDATE schematic SET
-            width = iif(?, NULL, width),
-            latency = iif(?, NULL, latency),
-            synchronized = iif(?, NULL, synchronized),
-            built_on = iif(?, NULL, built_on),
-            imported_by = iif(?, NULL, imported_by),
-            description = iif(?, NULL, description),
-            design = iif(?, 'other', design),
-            given_name = iif(?, NULL, given_name),
-            logic = iif(?, NULL, logic),
-            throughput = iif(?, NULL, throughput),
-            at_least = iif(?, NULL, at_least),
-            bytes = iif(?, NULL, bytes)
-         WHERE id = ?",
-        width,
-        latency,
-        synchronized,
-        built_on,
+        "UPDATE schematic SET imported_by = ?, conventional = ? WHERE id = ?",
         imported_by,
-        description,
-        design,
-        given_name,
-        logic,
-        throughput,
-        at_least,
-        bytes,
-        id,
+        conventional,
+        id
     )
     .execute(db)
     .await?;
@@ -2007,6 +1885,34 @@ pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_standard_category_is_typed_by_name_or_label() {
+        let hex = Category {
+            name: "hex_to_binary".to_owned(),
+            label: "Hex to Binary".to_owned(),
+            plural: "Hex to Binary".to_owned(),
+            named: false,
+            section: None,
+            logic: None,
+            measures: vec![Measure::Width],
+            aliases: Vec::new(),
+        };
+        let categories = std::slice::from_ref(&hex);
+        for typed in [
+            "Hex to Binary",
+            "hex to binary",
+            "hex_to_binary",
+            " HEX TO BINARY ",
+        ] {
+            assert_eq!(Category::name_of(categories, typed), "hex_to_binary");
+        }
+        assert_eq!(
+            Category::name_of(categories, "8-Bit Horizontal Diode"),
+            "8-bit_horizontal_diode"
+        );
+        assert!(Category::find(categories, "piston door").is_none());
+    }
 
     fn tag(name: &str, token: Option<&str>, kind: &str) -> Tag {
         Tag {

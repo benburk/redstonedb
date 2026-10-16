@@ -19,7 +19,7 @@ use crate::{
 mod about;
 mod auth;
 pub mod components;
-mod details;
+mod form;
 mod heads;
 mod leaderboards;
 pub mod pages;

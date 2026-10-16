@@ -1,18 +1,20 @@
-//! Turning a `.schem` file into a stored schematic, shared by `rsdb add`
-//! and the upload page.
+//! Turning a `.schem` file into a stored schematic, shared by `rsdb add`,
+//! `rsdb reread`, the upload page, and new versions.
 
 use std::fmt::Write as _;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
+    details::Ready,
     interface::{self, Interface, Port},
     lint::{self, Violation},
-    models::schematic::{self, Credit, New, StackDirection},
+    models::schematic::{self, Credit, New},
     models::version,
     schem::{self, Blocks, Size},
+    simulate,
     standardize::{self, Gray},
     works_from::{self, WorksFrom},
 };
@@ -21,8 +23,11 @@ use crate::{
 pub struct Prepared {
     pub data: Vec<u8>,
     pub blocks: Blocks,
-    /// Empty for a build that does not follow the conventions.
-    pub violations: Vec<Violation>,
+    /// Whether the build follows the conventions, so is measured, linted,
+    /// and has its status lines turned pink.
+    pub conventional: bool,
+    /// Whether the file keeps where its uploader's `//paste` put it.
+    pub keeps_paste: bool,
     pub size: Size,
     pub sha256: String,
     /// What is read from it, such as its torches.
@@ -31,12 +36,15 @@ pub struct Prepared {
     pub swapped: Vec<(String, usize)>,
 }
 
-/// Swaps cauldrons and cakes for barrels giving the same signal strength,
-/// standardizes `data` if asked, gray as `standardize` says, and in any
-/// case takes out corner markers and fits its box tightly; sets it to paste from one block south of its
+/// The one way a file becomes the file the site keeps, whether uploaded,
+/// added, or read again: swaps cauldrons and cakes for barrels giving the
+/// same signal strength; standardizes it if asked, gray as `standardize`
+/// says, and in any case takes out corner markers and fits its box
+/// tightly; turns a conventional build's status lines pink, as older builds
+/// marked them on yellow; and sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
-/// uploader's `//paste` put it; then measures, lints, reads its facts,
-/// and hashes it.
+/// uploader's `//paste` put it. Then measures it, reads its facts, and
+/// hashes it.
 pub fn prepare(
     data: &[u8],
     standardize: Option<Gray>,
@@ -51,28 +59,59 @@ pub fn prepare(
     } else {
         standardize::tidy(&data)?
     };
+    let data = if conventional {
+        standardize::pink_status(&data)?
+    } else {
+        data
+    };
     let data = if keep_paste {
         data
     } else {
         schem::paste_from_corner(&data)?
     };
     let blocks = Blocks::read(&data)?;
-    let violations = if conventional {
-        lint::check(&blocks)
-    } else {
-        Vec::new()
-    };
     let size = measure(&blocks, conventional)?;
     let sha256 = sha256(&data);
     Ok(Prepared {
         facts: FileFacts::of(&blocks),
         data,
         blocks,
-        violations,
+        conventional,
+        keeps_paste: keep_paste,
         size,
         sha256,
         swapped,
     })
+}
+
+/// What a build's file says about itself: its inputs and outputs, and the
+/// building conventions it breaks.
+#[derive(Default)]
+pub struct Analysis {
+    /// Its lines named as its category makes them.
+    pub interface: Interface,
+    /// None for a build that does not follow the conventions.
+    pub violations: Vec<Violation>,
+}
+
+impl Analysis {
+    /// `blocks` read as a build of the category named `category`. A lone
+    /// unsigned control or status line breaks a convention only once a
+    /// category is chosen that needs it signed, so an empty `category`
+    /// lets it pass.
+    pub fn of(blocks: &Blocks, category: &str, conventional: bool) -> Self {
+        let mut interface = interface::read(blocks);
+        simulate::name_lines(category, blocks, &mut interface);
+        let violations = match (conventional, category) {
+            (false, _) => Vec::new(),
+            (true, "") => lint::check(blocks),
+            (true, category) => lint::check_for(blocks, category),
+        };
+        Analysis {
+            interface,
+            violations,
+        }
+    }
 }
 
 /// What is read from a build's file rather than typed: its torches and the
@@ -142,93 +181,64 @@ pub fn measure(blocks: &Blocks, conventional: bool) -> Result<Size> {
     Ok(Size { x, y, z })
 }
 
-/// What else a stored schematic carries besides its row.
-pub struct Extras<'a> {
-    pub builders: &'a [String],
-    pub contributors: &'a [String],
-    pub tags: &'a [String],
-    /// Make tags that do not exist yet, of the `other` kind, rather
-    /// than refusing them.
-    pub new_tags: bool,
-    pub stacking: &'a [StackDirection],
-    /// Flags it has; any not of its category are dropped.
-    pub flags: &'a [String],
-}
-
-/// Stores a schematic with its credits, tags, and stacking, and returns
-/// its id.
+/// Stores a new build, its file as prepared and its details as checked,
+/// and returns its id; the `Err` says the file is already stored.
 pub async fn store(
     db: &SqlitePool,
-    new: &New<'_>,
-    extras: &Extras<'_>,
-) -> Result<String> {
-    if let Some(name) = extras
-        .builders
-        .iter()
-        .chain(extras.contributors)
-        .find(|n| !schematic::valid_player_name(n))
-    {
-        bail!(
-            "{name} is not a Minecraft name: letters, digits, and underscores"
-        );
+    prepared: &Prepared,
+    ready: &Ready,
+    uploaded_by: Option<uuid::Uuid>,
+    imported_by: Option<&str>,
+) -> Result<Result<String, String>, sqlx::Error> {
+    if let Some(id) = schematic::id_by_sha256(db, &prepared.sha256).await? {
+        return Ok(Err(format!(
+            "This exact file is already on the site, as {}.",
+            &id[..8]
+        )));
     }
-    if let Some(name) = extras
-        .tags
-        .iter()
-        .find(|n| schematic::DERIVED.contains(&schematic::tag_name(n).as_str()))
-    {
-        bail!("{name} is worked out from the build, not tagged");
-    }
-    if let Some(id) = schematic::id_by_sha256(db, new.sha256).await? {
-        bail!("this file is already stored as {}", &id[..8]);
-    }
-    let design = new.design.unwrap_or("other");
-    let category =
-        match schematic::check_category(db, new.category, design).await? {
-            Ok(category) => category,
-            Err(message) => bail!("{message}"),
-        };
-    let flags = schematic::keep_flags(db, &category.name, extras.flags).await?;
-    let new = &New {
-        design: Some(design),
-        // Only a category that names each build keeps a given name.
-        given_name: new.given_name.filter(|_| category.named),
-        ..*new
+    let details = &ready.details;
+    let size = &prepared.size;
+    let new = New {
+        category: &details.category,
+        width: details.width,
+        orientation: &details.orientation,
+        encoding: details.encoding.as_deref(),
+        latency: details.latency,
+        synchronized: details.synchronized,
+        size: (size.x.into(), size.y.into(), size.z.into()),
+        built_on: details.built_on.as_deref(),
+        imported_by,
+        conventional: prepared.conventional,
+        design: details.design.as_deref(),
+        description: details.description.as_deref(),
+        given_name: details.given_name.as_deref(),
+        logic: details.logic.as_deref(),
+        throughput: details.throughput,
+        at_least: details.at_least,
+        bytes: details.bytes,
+        facts: &prepared.facts,
+        keeps_paste: prepared.keeps_paste,
+        uploaded_by,
+        sha256: &prepared.sha256,
+        data: &prepared.data,
     };
     let mut tx = db.begin().await?;
-    let id = schematic::insert(&mut *tx, new).await?;
-    version::first(&mut *tx, &id, new.data, new.sha256, new.uploaded_by)
-        .await?;
-    schematic::set_credits(&mut tx, &id, Credit::Builder, extras.builders)
-        .await?;
-    schematic::set_credits(
-        &mut tx,
-        &id,
-        Credit::Contributor,
-        extras.contributors,
-    )
-    .await?;
-    for name in extras.tags {
-        let tag = match schematic::tag_id(&mut *tx, name).await? {
-            Some(tag) => tag,
-            None if extras.new_tags => {
-                schematic::define_tag(&mut *tx, name, None, "other")
-                    .await
-                    .with_context(|| {
-                        format!("{name} cannot be a tag's name")
-                    })?;
-                schematic::tag_id(&mut *tx, name)
-                    .await?
-                    .context("the new tag vanished")?
-            }
-            None => bail!("there is no tag named {name}"),
-        };
-        schematic::attach(&mut *tx, &id, &tag).await?;
+    let id = schematic::insert(&mut *tx, &new).await?;
+    version::first(&mut *tx, &id, new.data, new.sha256, uploaded_by).await?;
+    let credits = [
+        (Credit::Builder, &details.builders),
+        (Credit::Contributor, &details.contributors),
+    ];
+    for (credit, names) in credits {
+        schematic::set_credits(&mut tx, &id, credit, names).await?;
     }
-    schematic::set_stacking(&mut tx, &id, extras.stacking).await?;
-    schematic::set_flags(&mut tx, &id, &flags).await?;
+    schematic::set_tags(&mut tx, &id, &details.tags).await?;
+    if !ready.stacking_inferred {
+        schematic::set_stacking(&mut tx, &id, &details.stacking).await?;
+    }
+    schematic::set_flags(&mut tx, &id, &details.flags).await?;
     tx.commit().await?;
-    Ok(id)
+    Ok(Ok(id))
 }
 
 /// The flags the file's signs show: `carry_in` for a line labelled

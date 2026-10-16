@@ -1,6 +1,18 @@
 // Details forms. Without this script every field shows and the server
 // checks them all; with it, fields follow the chosen category.
 
+// The option among a category menu's `options` that `text` names, by its
+// label or its name in any capitals, as the server's `Category::find` reads
+// it; none for a category off the list.
+const namedCategory = (options, text) => {
+  const typed = text.trim().toLowerCase();
+  return options.find(
+    (option) =>
+      option.dataset.value.toLowerCase() === typed ||
+      option.dataset.name === typed.replaceAll(" ", "_"),
+  );
+};
+
 // Category fields: the category is typed, with a menu of the standard ones
 // under their sections, and the fields follow the one it names, by label or
 // name in any capitals. Each category's flags show only for it, the name box
@@ -19,15 +31,7 @@ for (const input of document.querySelectorAll("input[data-category]")) {
   const design = form.querySelector("select[data-design]");
   const designField = form.querySelector("[data-design-field]");
 
-  // The category the text names, as the server reads it.
-  const chosen = () => {
-    const text = input.value.trim().toLowerCase();
-    return options.find(
-      (option) =>
-        option.dataset.value.toLowerCase() === text ||
-        option.dataset.name === text.replaceAll(" ", "_"),
-    );
-  };
+  const chosen = () => namedCategory(options, input.value);
 
   const update = (settled) => {
     const option = chosen();
@@ -459,11 +463,8 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   // simulation could not run the build, as for a block it does not model.
   // `fresh` is false while a new result is on its way. A new version's form
   // has no latency fields to give way.
-  const chosenOption = () => {
-    const typed = category.value.trim().toLowerCase();
-    return [...form.querySelectorAll("[data-category-menu] [role=option]")]
-      .find((option) => option.dataset.value.toLowerCase() === typed);
-  };
+  const categoryOptions = [...form.querySelectorAll("[data-category-menu] [role=option]")];
+  const chosenOption = () => namedCategory(categoryOptions, category.value);
   const measured = (fresh = true) => {
     found(fresh);
     if (!timingFields) return;

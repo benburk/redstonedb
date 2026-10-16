@@ -16,6 +16,7 @@ use crate::{
     schem::{self, Blocks, DIRECTIONS, Pos, Switch},
 };
 
+#[derive(Default)]
 pub struct Interface {
     pub inputs: Vec<Port>,
     pub outputs: Vec<Port>,

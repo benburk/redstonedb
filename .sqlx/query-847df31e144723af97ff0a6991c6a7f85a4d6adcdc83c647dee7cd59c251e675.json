@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET imported_by = ?, conventional = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "847df31e144723af97ff0a6991c6a7f85a4d6adcdc83c647dee7cd59c251e675"
+}

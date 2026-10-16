@@ -1055,15 +1055,16 @@ fn signs_written_as_text_components_are_read_and_written_plain() {
             import::prepare(&raw, standardized, true, false).unwrap();
         // Unstandardized, its own blocks break the palette, but no line
         // lacks a sign.
-        let unsigned: Vec<String> = prepared
-            .violations
+        let violations =
+            import::Analysis::of(&prepared.blocks, "", true).violations;
+        let unsigned: Vec<String> = violations
             .iter()
             .map(ToString::to_string)
             .filter(|v| v.contains("sign"))
             .collect();
         assert!(unsigned.is_empty(), "{unsigned:?}");
         if standardized.is_some() {
-            assert!(prepared.violations.is_empty());
+            assert!(violations.is_empty());
         }
         let read = interface::read(&prepared.blocks);
         let names: Vec<&str> =

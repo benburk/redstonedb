@@ -28,13 +28,20 @@ use super::{
 /// the file checked, kept apart from a flag's plain check.
 const VERIFIED: &str = r#"<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="inline size-3.5 align-[-2px]"><path fill-rule="evenodd" d="M16.403 12.652a3 3 0 0 0 0-5.304 3 3 0 0 0-3.75-3.751 3 3 0 0 0-5.305 0 3 3 0 0 0-3.751 3.75 3 3 0 0 0 0 5.305 3 3 0 0 0 3.75 3.751 3 3 0 0 0 5.305 0 3 3 0 0 0 3.751-3.75Zm-2.546-4.46a.75.75 0 0 0-1.214-.883l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>"#;
 
+/// What a stored build's file says about it.
+pub struct FileRead {
+    pub analysis: Analysis,
+    /// How its stacking looks, each way it stacks.
+    pub stacking: Vec<crate::stack::Review>,
+}
+
 /// One schematic's page, with an edit button for a mod.
 pub fn schematic_page(
     viewer: Option<&User>,
     s: &Schematic,
     flags: &[Flag],
     similar: &[(Schematic, u32)],
-    analysis: &Result<Analysis, String>,
+    file: &Result<FileRead, String>,
     simulation: &Status,
     versions: &[Version],
 ) -> Markup {
@@ -68,7 +75,7 @@ pub fn schematic_page(
                     (download_dialog(s, viewer.is_some()))
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, analysis, report)))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
             @let poll = format!("{path}/simulation");
             @match simulation {
                 Status::Done(report) | Status::Pending(Some(report)) => {
@@ -77,11 +84,9 @@ pub fn schematic_page(
                 Status::Pending(None) => (cases_pending(&poll)),
                 Status::Untested => {}
             }
-            @if let Ok(analysis) = analysis && s.conventional {
-                (violations_section(analysis))
-            }
-            @if let Ok(analysis) = analysis {
-                (stack_guide::stacking_section(s, &analysis.stacking, stacking_found(s, report)))
+            @if let Ok(file) = file {
+                (violations_section(&file.analysis))
+                (stack_guide::stacking_section(s, &file.stacking, stacking_found(s, report)))
             }
             (version::versions_section(s, versions))
         },
@@ -279,10 +284,10 @@ pub fn build_info(
     s: &Schematic,
     flags: &[Flag],
     similar: &[(Schematic, u32)],
-    analysis: &Result<Analysis, String>,
+    file: &Result<FileRead, String>,
     report: Option<&Report>,
 ) -> Markup {
-    let interface = analysis.as_ref().ok().map(|analysis| &analysis.interface);
+    let interface = file.as_ref().ok().map(|file| &file.analysis.interface);
     let sources = Sources::of(s, interface, report);
     html! {
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
@@ -299,13 +304,13 @@ pub fn build_info(
             }
             (specs(s, flags, &sources, report))
             (credits(s))
-            @match analysis {
+            @match file {
                 _ if !s.conventional => {
                     p class="text-meta text-muted" {
                         "Follows its own layout, so its inputs and outputs are not read and it is not linted."
                     }
                 }
-                Ok(analysis) => (interface_section(analysis)),
+                Ok(file) => (interface_section(&file.analysis)),
                 Err(err) => {
                     p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
                 }

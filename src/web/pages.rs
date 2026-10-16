@@ -5,7 +5,8 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
-    APP_NAME, import,
+    APP_NAME,
+    import::{self, Analysis},
     interface::{Bit, Interface, Port},
     lint::Violation,
     models::{
@@ -21,7 +22,7 @@ use crate::{
 
 use super::{
     components::base,
-    details::{STACK_DIRECTIONS, StackRow},
+    form::{Form, STACK_DIRECTIONS, StackRow},
 };
 
 const PAGE_TITLE: &str = "text-page font-bold";
@@ -43,14 +44,14 @@ mod details_page;
 mod sorting;
 pub use sorting::sorting;
 mod build;
-pub use build::{build_banner, build_info, schematic_page};
+pub use build::{FileRead, build_banner, build_info, schematic_page};
 mod schemati;
 mod similar;
 pub use similar::{Found, similar_results, similar_search};
 mod stack_guide;
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
 mod version;
-pub use details_page::{DetailsPage, File, Stored, details_page};
+pub use details_page::{DetailsPage, File, details_page};
 
 /// How the home page lays out its schematics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -575,14 +576,6 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
                     }
                 }
     }
-}
-
-/// What the stored file says about a build.
-pub struct Analysis {
-    pub interface: Interface,
-    pub violations: Vec<Violation>,
-    /// How a stackable build's stacking looks, each way it stacks.
-    pub stacking: Vec<crate::stack::Review>,
 }
 
 /// Whether the simulation found how build `s` stacks, rather than its
@@ -1444,38 +1437,8 @@ fn sections(categories: &[Category]) -> Vec<(&str, &str, Vec<&Category>)> {
         .collect()
 }
 
-/// The values a details form starts with.
-pub struct Fields<'a> {
-    pub category: &'a str,
-    pub width: &'a str,
-    pub orientation: &'a str,
-    pub encoding: &'a str,
-    pub latency: &'a str,
-    /// `None` when unknown, which shows the toggle as neither on nor off.
-    pub synchronized: Option<bool>,
-    pub builders: &'a [String],
-    pub contributors: &'a [String],
-    pub built_on: &'a str,
-    pub description: &'a str,
-    /// The build's own name, for a category that takes one.
-    pub given_name: &'a str,
-    /// `comb` or `seq`; empty follows the category.
-    pub logic: &'a str,
-    /// The fewest ticks from one input to the next.
-    pub throughput: &'a str,
-    /// How many bytes a memory holds.
-    pub bytes: &'a str,
-    /// A threshold's k.
-    pub at_least: &'a str,
-    pub design: &'a str,
-    /// The ticked flags, such as `carry_in`.
-    pub flags: &'a [String],
-    pub stackable: bool,
-    /// The stacking directions so far, or a suggested first one.
-    pub stack_rows: &'a [StackRow],
-}
-
-/// The lists a details form chooses from or suggests.
+/// The lists a details form chooses from or suggests, loaded by
+/// [`super::form::choices`].
 pub struct Choices {
     /// The standard categories.
     pub categories: Vec<Category>,
@@ -1485,38 +1448,14 @@ pub struct Choices {
     /// Everyone credited on a stored build, to suggest as builders and
     /// contributors.
     pub people: Vec<String>,
-}
-
-impl Choices {
-    /// The standard category `typed` names, by its name or label, whatever
-    /// the capitals, as the server reads the form.
-    fn category(&self, typed: &str) -> Option<&Category> {
-        let typed = typed.trim();
-        self.categories.iter().find(|c| {
-            c.name.eq_ignore_ascii_case(typed)
-                || c.label.eq_ignore_ascii_case(typed)
-                || c.name == schematic::tag_name(typed)
-        })
-    }
-
-    fn sections(&self) -> Vec<(&str, &str, Vec<&Category>)> {
-        sections(&self.categories)
-    }
-
-    pub async fn load(db: &sqlx::SqlitePool) -> Result<Self, sqlx::Error> {
-        Ok(Choices {
-            categories: schematic::categories(db).await?,
-            designs: schematic::designs(db).await?,
-            flags: schematic::flags(db).await?,
-            people: schematic::all_people(db).await?,
-        })
-    }
+    /// Every tag, to suggest.
+    pub tags: Vec<Tag>,
 }
 
 /// The category, its name when other, its design, and its carry lines.
-fn category_fields(f: &Fields, choices: &Choices) -> Markup {
+fn category_fields(f: &Form, choices: &Choices) -> Markup {
     html! {
-        @let chosen = choices.category(f.category);
+        @let chosen = Category::find(&choices.categories, &f.category);
         @let named = chosen.is_some_and(|c| c.named);
         @let has = |measure| chosen.is_some_and(|c: &Category| c.has(measure));
         @let chosen_name = chosen.map_or("", |c| c.name.as_str());
@@ -1540,7 +1479,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
                 div id="category-menu" role="listbox" aria-label="Categories" hidden
                     class="absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay"
                     data-category-menu {
-                    @for (key, heading, members) in choices.sections() {
+                    @for (key, heading, members) in sections(&choices.categories) {
                         // Headings stand apart from the options under them:
                         // bold, with the options indented and a line between
                         // sections.
@@ -1615,7 +1554,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
         @for category in &choices.categories {
             @let flags: Vec<&Flag> = choices.flags.iter().filter(|flag| flag.category == category.name).collect();
             @if !flags.is_empty() {
-                (flag_group(category, &flags, f.flags, category.name == chosen_name))
+                (flag_group(category, &flags, f, category.name == chosen_name))
             }
         }
     }
@@ -1627,7 +1566,7 @@ fn category_fields(f: &Fields, choices: &Choices) -> Markup {
 fn flag_group(
     category: &Category,
     flags: &[&Flag],
-    ticked: &[String],
+    f: &Form,
     chosen: bool,
 ) -> Markup {
     html! {
@@ -1640,7 +1579,7 @@ fn flag_group(
                 @for flag in flags {
                     label class="flex items-center gap-2" {
                         input type="checkbox" name={ "flag:" (category.name) } value=(flag.name)
-                            checked[ticked.contains(&flag.name)] class="size-4 appearance-auto";
+                            checked[f.ticks(&flag.name)] class="size-4 appearance-auto";
                         (flag.label)
                     }
                 }
@@ -1662,10 +1601,10 @@ fn orientation_label(orientation: &str) -> &'static str {
 /// `derived` is the width and orientation the file gives a category that
 /// reads them from the file, such as an adder's from its lime inputs,
 /// shown in place of the typed ones once such a category is chosen.
-fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
+fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
     // A category off the list, such as a piston door, has no width or encoding.
-    let other =
-        !f.category.is_empty() && choices.category(f.category).is_none();
+    let other = !f.category.is_empty()
+        && Category::find(&choices.categories, &f.category).is_none();
     html! {
         (category_fields(f, choices))
         label class="field" data-standard-only data-typed-width hidden[other] {
@@ -1752,9 +1691,9 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
         }
         (logic_field(f, choices))
         (stacking_fields(f))
-        (person_field("Builders", "builder", "Add a builder's in-game name", f.builders, choices))
-        (person_field("Contributors", "contributor", "Add someone who helped", f.contributors, choices))
-        (date_field(f.built_on))
+        (person_field("Builders", "builder", "Add a builder's in-game name", &f.builders, choices))
+        (person_field("Contributors", "contributor", "Add someone who helped", &f.contributors, choices))
+        (date_field(&f.built_on))
         label class="field" {
             span { "Description" }
             textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
@@ -1764,9 +1703,8 @@ fn fields(f: &Fields, choices: &Choices, derived: &import::Derived) -> Markup {
 
 /// Stateless or stateful, or as the category usually is, which `form.js`
 /// names as the category changes.
-fn logic_field(f: &Fields, choices: &Choices) -> Markup {
-    let usual = choices
-        .category(f.category)
+fn logic_field(f: &Form, choices: &Choices) -> Markup {
+    let usual = Category::find(&choices.categories, &f.category)
         .and_then(|c| c.logic.as_deref())
         .map_or("unknown", schematic::logic_label)
         .to_lowercase();
@@ -1845,7 +1783,7 @@ fn tag_pill(tag: &Tag) -> Pill {
 /// step and most copies. The second row is for a build that also stacks
 /// another way, and is left empty otherwise. `form.js` hides the rows
 /// while the toggle is off.
-fn stacking_fields(f: &Fields) -> Markup {
+fn stacking_fields(f: &Form) -> Markup {
     let blank = StackRow::default();
     let rows = f
         .stack_rows

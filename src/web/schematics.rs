@@ -11,26 +11,24 @@ use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
+    details,
     error::AppError,
     extractors::{
         fixi::Fixi,
         session::{Admin, SignedIn},
     },
-    import,
-    interface::{self, Interface},
-    lint,
-    models::schematic::{self, Category, Credit, Measure, Schematic},
+    import::{self, Analysis},
+    models::schematic::{self, Category, Schematic},
     models::user::User,
     models::{similarity, simulation, version},
-    mojang,
     schem::Blocks,
-    search, simulate, stack, standardize, thumbnail,
+    search, stack, standardize, thumbnail,
     version::{Checked, check as check_version},
 };
 
 use super::{
-    details,
-    pages::{self, Choices, DetailsPage, File, Stored},
+    form::{self, Form},
+    pages::{self, DetailsPage, File},
     upload,
 };
 
@@ -261,21 +259,23 @@ pub async fn detail(
         .await?
         .ok_or(AppError::NotFound)?;
     let data = schematic::data(&state.db, &id).await?.unwrap_or_default();
-    let analysis = analyse(&data, &s.category).map(|mut analysis| {
-        analysis.stacking = s
-            .stacking
-            .iter()
-            .filter_map(|&direction| {
-                stack::review(
-                    &data,
-                    direction,
-                    stack::Buses::of(&s.category, &s.orientation),
-                )
-                .ok()
-            })
-            .collect();
-        analysis
-    });
+    let file = Blocks::read(&data)
+        .map(|blocks| pages::FileRead {
+            analysis: Analysis::of(&blocks, &s.category, s.conventional),
+            stacking: s
+                .stacking
+                .iter()
+                .filter_map(|&direction| {
+                    stack::review(
+                        &data,
+                        direction,
+                        stack::Buses::of(&s.category, &s.orientation),
+                    )
+                    .ok()
+                })
+                .collect(),
+        })
+        .map_err(|err| err.to_string());
     let simulation = simulation::status(&state.db, &s).await?;
     let versions = version::list(&state.db, &id).await?;
     let similar = similar_to(&state.db, &id).await?;
@@ -297,16 +297,14 @@ pub async fn detail(
                 matches!(simulation, simulation::Status::Pending(None));
             pages::build_banner(&s, report, simulating).into_response()
         }
-        Some("info") => {
-            pages::build_info(&s, &flags, &similar, &analysis, report)
-                .into_response()
-        }
+        Some("info") => pages::build_info(&s, &flags, &similar, &file, report)
+            .into_response(),
         _ => pages::schematic_page(
             user_opt.as_ref(),
             &s,
             &flags,
             &similar,
-            &analysis,
+            &file,
             &simulation,
             &versions,
         )
@@ -358,7 +356,7 @@ pub async fn save(
                 .await;
         }
     };
-    let form = details::Form::read(&posted.pairs);
+    let form = Form::read(&posted.pairs);
     let note: String = posted.get("note").trim().chars().take(500).collect();
     // A new version, when the page carried one, is checked again first.
     let checked = match attached(db, &id, posted.get("data")).await? {
@@ -405,9 +403,7 @@ pub async fn save(
         )
     } else {
         let new_data = checked.as_ref().map(|c| c.prepared.data.as_slice());
-        saved(db, &id, &form, new_data, user.is_admin())
-            .await?
-            .err()
+        saved(db, &user, &id, &form, new_data).await?.err()
     };
     if let Some(message) = refused {
         return show_edit(
@@ -493,90 +489,37 @@ pub async fn delete(
     Ok(Redirect::to("/").into_response())
 }
 
-/// Checks and stores an edit, or says why it was refused.
+/// Checks and stores `user`'s edit of build `id`, or says why it was
+/// refused. A new version's file, `new_data`, is what the stacking must
+/// fit, when there is one.
 async fn saved(
     db: &SqlitePool,
+    user: &User,
     id: &str,
-    form: &details::Form,
+    form: &Form,
     new_data: Option<&[u8]>,
-    may_create_tags: bool,
-) -> Result<Result<(), String>, sqlx::Error> {
+) -> Result<Result<(), String>, AppError> {
     let categories = schematic::categories(db).await?;
-    let parsed = match form.parse(&categories) {
-        Ok(parsed) => parsed,
+    let given = match form.parse(&categories) {
+        Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
-    if let Err(message) =
-        schematic::check_new_tags(db, &form.tags, may_create_tags).await?
-    {
-        return Ok(Err(message));
-    }
-    let category =
-        match schematic::check_category(db, &parsed.category, &parsed.design)
-            .await?
-        {
-            Ok(category) => category,
-            Err(message) => return Ok(Err(message)),
-        };
-    // The new version, when there is one, is what the stacking must fit.
-    let data = match new_data {
-        Some(data) => Some(data.to_vec()),
-        None => schematic::data(db, id).await?,
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let stored;
+    let data = if let Some(data) = new_data {
+        data
+    } else {
+        stored = schematic::data(db, id).await?.unwrap_or_default();
+        &stored
     };
-    let conventional = schematic::get(db, id)
-        .await?
-        .is_some_and(|s| s.conventional);
-    // The simulation decides how a recognized build stacks, so its form's
-    // stacking counts for nothing and what it found stays.
-    let inferred = conventional
-        && simulate::INFERS_STACKING.contains(&parsed.category.as_str());
-    if let Some(data) = data.filter(|_| !inferred) {
-        let buses = stack::Buses::of(&parsed.category, &parsed.orientation);
-        let checked = stack::check(&data, &parsed.stacking, buses);
-        if let Err(message) = checked {
-            return Ok(Err(message));
-        }
-    }
-    let mut details = parsed.as_details();
-    let flags =
-        schematic::keep_flags(db, &category.name, &parsed.flags).await?;
-    // Only a category that names each build keeps a given name.
-    if !category.named {
-        details.given_name = None;
-    }
-    // Likewise, only a category ranked by a measure keeps it, as a memory
-    // does its capacity.
-    if !category.has(Measure::Bytes) {
-        details.bytes = None;
-    }
-    if !category.has(Measure::AtLeast) {
-        details.at_least = None;
-    }
-    // Credited as their players spell them, asked before the transaction
-    // opens so it is not held across the lookup.
-    let (builders, contributors) = match (
-        mojang::respell(&parsed.builders).await,
-        mojang::respell(&parsed.contributors).await,
-    ) {
-        (Ok(builders), Ok(contributors)) => (builders, contributors),
-        (Err(message), _) | (_, Err(message)) => return Ok(Err(message)),
+    let build = details::Build {
+        data,
+        conventional: s.conventional,
     };
-    let mut tx = db.begin().await?;
-    schematic::set_details(&mut *tx, id, &details).await?;
-    if !inferred {
-        schematic::set_stacking(&mut tx, id, &parsed.stacking).await?;
+    match details::check(db, given, build, user.is_admin()).await? {
+        Ok(ready) => Ok(Ok(details::save(db, id, &ready).await?)),
+        Err(message) => Ok(Err(message)),
     }
-    schematic::set_flags(&mut tx, id, &flags).await?;
-    let credits = [
-        (Credit::Builder, &builders),
-        (Credit::Contributor, &contributors),
-    ];
-    for (credit, names) in credits {
-        schematic::set_credits(&mut tx, id, credit, names).await?;
-    }
-    schematic::set_tags(&mut tx, id, &form.tags).await?;
-    tx.commit().await?;
-    Ok(Ok(()))
 }
 
 /// A new version waiting on the edit page, to save with the details.
@@ -593,45 +536,25 @@ pub(super) async fn show_edit(
     db: &SqlitePool,
     user: &User,
     id: &str,
-    sent: Option<&details::Form>,
+    sent: Option<&Form>,
     message: &str,
     new_file: Option<NewFile<'_>>,
     choosing: Option<&str>,
 ) -> Result<Response, AppError> {
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
-    let choices = Choices::load(db).await?;
-    let tags = schematic::all_tags(db).await?;
-    let data = schematic::data(db, id).await?.unwrap_or_default();
+    let choices = form::choices(db).await?;
     let versions = version::list(db, id).await?;
-    // What the page shows is the new file's, when one is waiting.
-    let analysis = match &new_file {
-        Some(new) => pages::Analysis {
-            interface: {
-                let mut read = interface::read(&new.checked.prepared.blocks);
-                simulate::name_lines(
-                    &s.category,
-                    &new.checked.prepared.blocks,
-                    &mut read,
-                );
-                read
-            },
-            violations: if s.conventional {
-                lint::check_for(&new.checked.prepared.blocks, &s.category)
-            } else {
-                Vec::new()
-            },
-            stacking: Vec::new(),
-        },
-        None => {
-            analyse(&data, &s.category).unwrap_or_else(|_| pages::Analysis {
-                interface: Interface {
-                    inputs: Vec::new(),
-                    outputs: Vec::new(),
-                },
-                violations: Vec::new(),
-                stacking: Vec::new(),
-            })
-        }
+    // What the page shows is the new file's, when one is waiting; a file
+    // that cannot be read shows no inputs and outputs.
+    let analysis = if let Some(new) = &new_file {
+        let blocks = &new.checked.prepared.blocks;
+        Analysis::of(blocks, &s.category, s.conventional)
+    } else {
+        let data = schematic::data(db, id).await?.unwrap_or_default();
+        Blocks::read(&data).map_or_else(
+            |_| Analysis::default(),
+            |blocks| Analysis::of(&blocks, &s.category, s.conventional),
+        )
     };
     // An adder's width and orientation come from its file, whatever its
     // category is now, in case it becomes one.
@@ -642,11 +565,8 @@ pub(super) async fn show_edit(
     };
     let simulation = simulation::current(db, &s).await?;
     let folder = super::schemati::own_folder_quickly(db, user).await?;
-    let stored = Stored::of(&s);
-    let (fields, chosen_tags) = match sent {
-        Some(form) => (form.fields(), form.tags.as_slice()),
-        None => (stored.fields(&s), stored.tags.as_slice()),
-    };
+    let stored = Form::of(&s);
+    let form = sent.unwrap_or(&stored);
     let encoded;
     let file = match &new_file {
         Some(new) => {
@@ -670,11 +590,8 @@ pub(super) async fn show_edit(
         &DetailsPage {
             file,
             analysis: &analysis,
-            fields: &fields,
-            chosen_tags,
+            form,
             choices: &choices,
-            tags: &tags,
-            may_create_tags: user.is_admin(),
             derived,
             message,
             choosing,
@@ -682,19 +599,6 @@ pub(super) async fn show_edit(
         },
     )
     .into_response())
-}
-
-/// The build's inputs and outputs, named as `category` makes them, and
-/// the conventions it breaks, or why its file could not be read.
-fn analyse(data: &[u8], category: &str) -> Result<pages::Analysis, String> {
-    let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
-    let mut interface = interface::read(&blocks);
-    simulate::name_lines(category, &blocks, &mut interface);
-    Ok(pages::Analysis {
-        interface,
-        violations: lint::check(&blocks),
-        stacking: Vec::new(),
-    })
 }
 
 /// The stored `.schem` file, named by the naming scheme. The viewer fetches
