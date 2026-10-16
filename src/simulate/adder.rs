@@ -118,35 +118,7 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
-    let &[a, b] = operands.as_slice() else {
-        broken!(
-            "A carry out takes two operands, but this has {}.",
-            operands.len()
-        );
-    };
-    let (a_bits, b_bits) = (
-        interface.inputs[a].bits.len(),
-        interface.inputs[b].bits.len(),
-    );
-    if a_bits != b_bits {
-        broken!(
-            "A has {a_bits} bits and B {b_bits}, but a carry out's operands \
-             have the same number."
-        );
-    }
-    let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
-    else {
-        broken!(
-            "A carry out has one output, its carry, but this has {}.",
-            interface.outputs.len()
-        );
-    };
-    if interface.outputs[out].bits.len() != 1 {
-        broken!(
-            "A carry out's output is one line, but this has {} bits.",
-            interface.outputs[out].bits.len()
-        );
-    }
+    let (a, b, out) = one_line(interface, &operands, "carry out", "its carry")?;
     if !interface.outputs[out].labelled {
         lint::CARRY_OUT[0].clone_into(&mut interface.outputs[out].name);
     }
@@ -158,7 +130,7 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
         }
         None => "carry of A + B".to_owned(),
     };
-    let width = a_bits;
+    let width = interface.inputs[a].bits.len();
     let carry_in = carry_in.is_some();
     Ok(Spec {
         bench: Bench::new(inputs, vec![out], &pattern),
@@ -171,6 +143,119 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
         hint: Hint::None,
         by_digit: false,
     })
+}
+
+/// A greater-than comparator's every case: whether A is greater than B,
+/// both unsigned, or when `signed`, both in two's complement, on its one
+/// output line. It has no control line.
+pub(super) fn greater_than(
+    interface: &mut Interface,
+    signed: bool,
+) -> Result<Spec> {
+    let built = if signed {
+        "signed greater-than comparator"
+    } else {
+        "greater-than comparator"
+    };
+    let (a, b, out) = comparison(interface, built, "A > B")?;
+    let width = interface.inputs[a].bits.len();
+    let pattern = if signed { "A > B, signed" } else { "A > B" };
+    let value = move |n: u64| {
+        if signed {
+            sign_extended(n, width)
+        } else {
+            n.cast_signed()
+        }
+    };
+    Ok(Spec {
+        bench: Bench::new(vec![a, b], vec![out], pattern),
+        cases: Cases::Combinations(Box::new(move || {
+            adder_cases(width, false, 8)
+        })),
+        kinds: vec![Kind::new(pattern, move |case| {
+            u64::from(value(case[0]) > value(case[1]))
+        })],
+        hint: Hint::None,
+        by_digit: false,
+    })
+}
+
+/// An equality comparator's every case: whether A equals B, on its one
+/// output line. It has no control line.
+pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
+    let (a, b, out) = comparison(interface, "equality comparator", "A = B")?;
+    let width = interface.inputs[a].bits.len();
+    Ok(Spec {
+        bench: Bench::new(vec![a, b], vec![out], "A = B"),
+        cases: Cases::Combinations(Box::new(move || {
+            adder_cases(width, false, 8)
+        })),
+        kinds: vec![Kind::new("A = B", |case| u64::from(case[0] == case[1]))],
+        hint: Hint::None,
+        by_digit: false,
+    })
+}
+
+/// A comparison's operands and one output, which an unsigned output shows
+/// as `result`, such as `A > B`, named so.
+fn comparison(
+    interface: &mut Interface,
+    built: &str,
+    result: &str,
+) -> Result<(usize, usize, usize)> {
+    let operands: Vec<usize> = (0..interface.inputs.len()).collect();
+    let (a, b, out) = one_line(interface, &operands, built, result)?;
+    if !interface.outputs[out].labelled {
+        result.clone_into(&mut interface.outputs[out].name);
+    }
+    Ok((a, b, out))
+}
+
+/// `n`, of `width` bits, read in two's complement.
+fn sign_extended(n: u64, width: usize) -> i64 {
+    let unused = 64 - width;
+    (n << unused).cast_signed() >> unused
+}
+
+/// The ports of a build of two operands, `operands` by their place in its
+/// interface, of one width, and one output of one line, which shows `what`:
+/// A, B, and that output. A build of another shape is broken as `built`.
+fn one_line(
+    interface: &Interface,
+    operands: &[usize],
+    built: &str,
+    what: &str,
+) -> Result<(usize, usize, usize)> {
+    let &[a, b] = operands else {
+        broken!(
+            "A {built} takes two operands, but this has {}.",
+            operands.len()
+        );
+    };
+    let (a_bits, b_bits) = (
+        interface.inputs[a].bits.len(),
+        interface.inputs[b].bits.len(),
+    );
+    if a_bits != b_bits {
+        broken!(
+            "A has {a_bits} bits and B {b_bits}, but a {built}'s operands \
+             have the same number."
+        );
+    }
+    let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
+    else {
+        broken!(
+            "A {built} has one output, {what}, but this has {}.",
+            interface.outputs.len()
+        );
+    };
+    if interface.outputs[out].bits.len() != 1 {
+        broken!(
+            "A {built}'s output is one line, but this has {} bits.",
+            interface.outputs[out].bits.len()
+        );
+    }
+    Ok((a, b, out))
 }
 
 /// An adder's or subtractor's ports, by their place in its interface: its

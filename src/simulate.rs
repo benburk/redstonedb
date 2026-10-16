@@ -97,6 +97,12 @@ pub enum Test {
     AbsoluteValue,
     /// The carry out of A + B, and a carry in when there is one.
     CarryOut,
+    /// Whether A is greater than B, both unsigned.
+    GreaterThan,
+    /// Whether A is greater than B, both in two's complement.
+    SignedGreaterThan,
+    /// Whether A equals B.
+    Equality,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -105,7 +111,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 13] = [
+    pub const ALL: [Test; 16] = [
         Test::Adder,
         Test::Subtractor,
         Test::Incrementer,
@@ -119,6 +125,9 @@ impl Test {
         Test::Buffer,
         Test::AbsoluteValue,
         Test::CarryOut,
+        Test::GreaterThan,
+        Test::SignedGreaterThan,
+        Test::Equality,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -146,6 +155,9 @@ impl Test {
             Test::Buffer => "buffer",
             Test::AbsoluteValue => "absolute_value",
             Test::CarryOut => "carry_out",
+            Test::GreaterThan => "greater_than",
+            Test::SignedGreaterThan => "signed_greater_than",
+            Test::Equality => "equality",
         }
     }
 
@@ -166,7 +178,10 @@ impl Test {
             | Test::Alu
             | Test::Buffer
             | Test::AbsoluteValue
-            | Test::CarryOut => 1,
+            | Test::CarryOut
+            | Test::GreaterThan
+            | Test::SignedGreaterThan
+            | Test::Equality => 1,
             // Its timing says it counts from a read, where it once said so
             // as a flag.
             Test::Register => 2,
@@ -218,6 +233,9 @@ impl Test {
             Test::Adder => adder::adder(interface),
             Test::Subtractor => adder::subtractor(interface),
             Test::CarryOut => adder::carry_out(interface),
+            Test::GreaterThan => adder::greater_than(interface, false),
+            Test::SignedGreaterThan => adder::greater_than(interface, true),
+            Test::Equality => adder::equality(interface),
             Test::Incrementer | Test::Decrementer | Test::IncDec => {
                 // An unsigned line is named for its role, such as
                 // increment, so the cases read `A + increment`.
@@ -400,6 +418,9 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::Buffer,
         Test::AbsoluteValue,
         Test::CarryOut,
+        Test::GreaterThan,
+        Test::SignedGreaterThan,
+        Test::Equality,
         Test::Alu,
     ];
     // An ALU's lines are tried only when their signs name operations, as

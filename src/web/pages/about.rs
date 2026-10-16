@@ -158,7 +158,7 @@ fn fact_part() -> Markup {
         }
         p class="mb-3" {
             "Adders, incrementers, decrementers, inc/decs, stateless multipliers, stateless "
-            "converters between binary and BCD, ALUs, registers, buffers, absolute values, and carry outs are simulated through their inputs. Once every case of one "
+            "converters between binary and BCD, ALUs, registers, buffers, absolute values, carry outs, and comparisons are simulated through their inputs. Once every case of one "
             "comes out right, its latency and synchronized come from the simulation, not from what was typed."
         }
     }

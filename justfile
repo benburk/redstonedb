@@ -83,6 +83,7 @@ seed db="redstone.db":
     add hex-cca-8 horz --category adder --design carry_cancel --standardize
     add inc-8 horz --category incrementer
     add cout-8 horz --category carry_out --standardize
+    add gt-8 vert --category greater_than --standardize
     add abs-8 horz --category absolute_value --standardize
     add bin2bcd-8 horz --category binary_to_bcd --width 8
     add bcd2bin-10 horz --category bcd_to_binary --width 10

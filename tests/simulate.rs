@@ -1149,3 +1149,56 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     assert!(laid.turn.words().starts_with("Mirrored"));
     assert!(Test::Subtractor.run(&laid.blocks).passed());
 }
+
+/// A comparison fixture as an upload standardizes it.
+fn comparison(name: &str) -> Blocks {
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+        .unwrap()
+        .blocks
+}
+
+/// An 8-bit vertical greater-than comparator: whether A is greater than B,
+/// unsigned, on one unsigned output, right in every one of its 65,536
+/// cases. Read in two's complement it is wrong whenever the top bits
+/// differ, so it is no signed comparator.
+#[test]
+fn a_greater_than_comparator_compares_unsigned() {
+    let blocks = comparison("gt-8");
+    assert!(lint::check_for(&blocks, "greater_than").is_empty());
+    let Report::Ran(run) = Test::GreaterThan.run(&blocks) else {
+        panic!("the comparator was not simulated");
+    };
+    assert_eq!(run.pattern, "A > B");
+    assert_eq!((run.cases, run.wrong), (1 << 16, 0));
+    let timing = Test::GreaterThan
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!((timing.latency(), timing.synced), (Some(2), true));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
+    let Report::Ran(signed) = Test::SignedGreaterThan.run(&blocks) else {
+        panic!("the comparator was not simulated as signed");
+    };
+    assert_eq!(signed.wrong, 2 * 128 * 128);
+}
+
+/// An 8-bit equality comparator whose bits' differences climb one dust
+/// column to its output, a pink line: bit 0's leaves its comparator at
+/// 14 and dies 14 dust later, so A and B differing only in bit 0 read as
+/// equal, 256 of its 65,536 cases. It is still guessed for what it is.
+#[test]
+fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
+    let blocks = comparison("eq-8-weak-bit-0");
+    assert!(lint::check_for(&blocks, "equality").is_empty());
+    let Report::Ran(run) = Test::Equality.run(&blocks) else {
+        panic!("the comparator was not simulated");
+    };
+    assert_eq!(run.pattern, "A = B");
+    assert_eq!((run.cases, run.wrong), (1 << 16, 256));
+    assert!(
+        run.examples
+            .iter()
+            .all(|case| case.inputs[0] ^ case.inputs[1] == 1)
+    );
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "equality");
+}

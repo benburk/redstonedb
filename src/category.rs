@@ -48,6 +48,9 @@ pub enum Lines {
     /// driven by a button, and reads, by a lever, and its data bus in and
     /// out go by those roles.
     Register,
+    /// A comparison's: its one output, yellow or pink, is its result, which
+    /// needs no sign and goes by this name, such as `A > B`.
+    Result(&'static str),
     /// A buffer's: its data bus in and out as a register's, and its
     /// unsigned magenta lines its cells' writes, by a button, or by a lever
     /// when none has a button, as it has no reads; a lone one needs no
@@ -123,6 +126,18 @@ pub fn behaviour(category: &str) -> Behaviour {
         "inc_dec" => read(Test::IncDec),
         "alu" => read(Test::Alu),
         "absolute_value" => read(Test::AbsoluteValue),
+        "greater_than" => Behaviour {
+            lines: Lines::Result("A > B"),
+            ..read(Test::GreaterThan)
+        },
+        "signed_greater_than" => Behaviour {
+            lines: Lines::Result("A > B"),
+            ..read(Test::SignedGreaterThan)
+        },
+        "equality" => Behaviour {
+            lines: Lines::Result("A = B"),
+            ..read(Test::Equality)
+        },
         "register" => Behaviour {
             lines: Lines::Register,
             stacking: Stacking::Found,
@@ -161,7 +176,7 @@ const BORROW_OUT: &str = crate::lint::BORROW_OUT[0];
 impl Lines {
     /// Whether a lone control or status line may go without a sign.
     pub fn lone_unsigned(self) -> bool {
-        matches!(self, Lines::Lone { .. } | Lines::Buffer)
+        matches!(self, Lines::Lone { .. } | Lines::Buffer | Lines::Result(_))
     }
 }
 
