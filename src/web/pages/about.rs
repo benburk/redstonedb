@@ -150,8 +150,9 @@ fn fact_part() -> Markup {
             dd {
                 "The oldest Minecraft: Java Edition release with every redstone component and mechanic "
                 "the build uses, such as 1.5 for a comparator or 1.16 for a target block. Building blocks "
-                "do not count, since any solid block can stand in for another. Every build here works in "
-                "the latest release."
+                "do not count, since any solid block can stand in for another, but dust on a transparent "
+                "block does, as it could not go on one before 1.2.1. Every build here works in the latest "
+                "release."
             }
             dt class="font-semibold" { "Pipelined" }
             dd { "A stateless, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
@@ -194,9 +195,10 @@ fn tag_part() -> Markup {
             dt { span class="badge badge-restriction" { "Restriction" } }
             dd {
                 "Components the build does without. The site reads both from the file, and nobody can add "
-                "or remove them. A build is torchless when it has no redstone torch, standing or on a wall, "
-                "and alpha when it works from Alpha, using nothing newer than dust, torches, levers, buttons, "
-                "and pressure plates."
+                "or remove them; the upload form shows them as soon as the file is read. A build is torchless "
+                "when it has no redstone torch, standing or on a wall, and alpha when it works from Alpha, "
+                "using nothing newer than dust, torches, levers, buttons, and pressure plates, none of them "
+                "on a transparent block."
             }
             dt { span class="badge badge-other" { "Other" } }
             dd { "Anything else worth searching by, such as instant." }

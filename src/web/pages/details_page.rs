@@ -85,6 +85,9 @@ pub struct DetailsPage<'a> {
     /// The width and orientation an adder reads from the file; see
     /// `fields`.
     pub derived: crate::import::Derived,
+    /// The tags its file gives it, such as torchless, shown in the tag
+    /// field but not to be removed.
+    pub fixed: &'a [crate::models::tag::Tag],
     /// Why the last attempt to publish or save was refused, if it was.
     pub message: &'a str,
     /// Whether the fields for choosing another file start open, with why
@@ -512,7 +515,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             }
             (fields(page.form, page.choices, &page.derived))
             // Only an admin may name a tag not yet on the list.
-            (tag_picker(&page.choices.tags, &page.form.tags, user.is_admin()))
+            (tag_picker(&page.choices.tags, &page.form.tags, page.fixed, user.is_admin()))
             @if let File::Upload { unconventional, .. } = &page.file
                 && (!page.analysis.violations.is_empty() || *unconventional)
             {

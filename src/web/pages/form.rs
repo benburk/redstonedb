@@ -411,6 +411,7 @@ fn person_field(
             .iter()
             .map(|name| person_pill(name))
             .collect(),
+        fixed: Vec::new(),
         chosen: chosen.iter().map(|name| person_pill(name)).collect(),
         new_class: "badge-builder",
         pattern: "^[A-Za-z0-9_]{1,16}$",
@@ -437,6 +438,9 @@ struct PillField<'a> {
     name: &'a str,
     placeholder: &'a str,
     suggestions: Vec<Pill>,
+    /// Values that are the build's whatever is chosen, shown before the
+    /// chosen ones without a remove button, and not sent.
+    fixed: Vec<Pill>,
     chosen: Vec<Pill>,
     /// The colour of a pill for a value not among the suggestions.
     new_class: &'a str,
@@ -459,6 +463,18 @@ fn pill_field(f: &PillField) -> Markup {
             data-pattern=(f.pattern) data-hint=(f.hint) data-keep-case[f.keep_case] {
             label for=(entry) class="text-meta font-semibold text-muted" { (f.label) }
             div class="flex min-h-10 flex-wrap items-center gap-1.5 rounded-control border border-boundary bg-raised px-2 py-1.5 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand" {
+                @if !f.fixed.is_empty() {
+                    ul class="contents" aria-label={ "Read from the file: " (f.label) } {
+                        @for fixed in &f.fixed {
+                            li {
+                                span class={ "inline-flex items-center rounded-full px-2 py-1 text-meta font-medium whitespace-nowrap " (fixed.class) }
+                                    title="Read from the file, so it cannot be removed" {
+                                    (fixed.label)
+                                }
+                            }
+                        }
+                    }
+                }
                 ul class="contents" aria-label={ "Chosen: " (f.label) } data-chosen {
                     @for chosen in &f.chosen {
                         (pill(chosen, f.name))
@@ -505,17 +521,25 @@ fn pill(p: &Pill, name: &str) -> Markup {
 }
 
 /// The tag field of the details forms. Only an admin, `may_create`, may
-/// name a tag not yet on the list.
+/// name a tag not yet on the list. The tags the build's file gives it,
+/// `fixed`, such as torchless, show first and cannot be removed, and no
+/// tag worked out from a build is suggested.
 pub(super) fn tag_picker(
     tags: &[Tag],
     chosen: &[String],
+    fixed: &[Tag],
     may_create: bool,
 ) -> Markup {
     pill_field(&PillField {
         label: "Tags",
         name: "tag",
-        placeholder: "Add a tag, such as torchless",
-        suggestions: tags.iter().map(tag_pill).collect(),
+        placeholder: "Add a tag, such as double-density",
+        suggestions: tags
+            .iter()
+            .filter(|tag| !tag.is_derived())
+            .map(tag_pill)
+            .collect(),
+        fixed: fixed.iter().map(tag_pill).collect(),
         chosen: tags
             .iter()
             .filter(|t| chosen.contains(&t.name))
@@ -555,5 +579,43 @@ fn cross() -> Markup {
         svg aria-hidden="true" viewBox="0 0 12 12" class="size-2.5" {
             path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::tag::Kind;
+
+    fn tag(name: &str, kind: Kind) -> Tag {
+        Tag {
+            name: name.to_owned(),
+            token: None,
+            kind,
+        }
+    }
+
+    /// The tags the file gives a build show without a remove button and
+    /// are sent by no input, and no derived tag is suggested.
+    #[test]
+    fn tags_read_from_the_file_show_but_cannot_be_removed_or_added() {
+        let tags = [
+            tag("alpha", Kind::Restriction),
+            tag("torchless", Kind::Restriction),
+            tag("double-density", Kind::Other),
+        ];
+        let fixed = [tag("torchless", Kind::Restriction)];
+        let html =
+            tag_picker(&tags, &["double-density".to_owned()], &fixed, false)
+                .into_string();
+        let (read, rest) = html.split_once("data-chosen").unwrap();
+        assert!(read.contains(">torchless<"));
+        assert!(!read.contains("data-remove"));
+        assert!(!html.contains(r#"name="tag" value="torchless""#));
+        assert!(rest.contains(r#"name="tag" value="double-density""#));
+        let suggested = html.split_once("<datalist").unwrap().1;
+        assert!(
+            !suggested.contains("alpha") && !suggested.contains("torchless")
+        );
     }
 }

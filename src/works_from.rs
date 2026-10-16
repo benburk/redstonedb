@@ -1,10 +1,15 @@
 //! The oldest Minecraft: Java Edition release a build works in, from the
 //! redstone components and mechanics it uses. Building blocks do not count,
 //! as any solid block stands in for white concrete and any transparent one
-//! for white stained glass. Every build on the site works in the latest
-//! release, so there is no newest one to find.
+//! for white stained glass. Where a component rests on a transparent block
+//! does count, as one could not always: the oldest transparent block it
+//! could rest on sets the release. Every build on the site works in the
+//! latest release, so there is no newest one to find.
 
-use crate::schem::{self, Blocks, Direction, Pos};
+use crate::{
+    schem::{self, Blocks, Direction, Pos},
+    standardize,
+};
 
 /// A release that added redstone components or mechanics a build may use.
 pub struct Release {
@@ -127,6 +132,19 @@ const REDSTONE_BLOCK_SIDE: &str = "1.9";
 /// When lone dust could be a dot, powering none of its sides.
 const DOT: &str = "1.16";
 
+/// When dust, or a standing torch, could rest on a transparent block: dust
+/// on glowstone, which it passes signals only up through, as through
+/// glass, and a torch on glass.
+const ON_TRANSPARENT: &str = "1.2.1";
+
+/// When a repeater, lever, or pressure plate could rest on a transparent
+/// block: on an upside-down slab.
+const ON_TRANSPARENT_SLAB: &str = "1.3.1";
+
+/// When a torch, lever, or button could hang from a transparent block's
+/// side or underside, glass's among them.
+const ON_TRANSPARENT_SIDE: &str = "1.14";
+
 /// The oldest release a build works in, and the component or mechanic that
 /// sets it, such as `comparator`; `None` for a build of nothing newer than
 /// the earliest.
@@ -171,6 +189,26 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
         if id == "redstone_wire" && dot(blocks, pos, state) {
             raise(DOT, "a dot of dust".to_owned());
         }
+        if let Some((on, top)) = support(pos, state, id)
+            && standardize::see_through(schem::short(blocks.get(on)))
+        {
+            let what = match id {
+                "redstone_wire" => "dust",
+                "redstone_torch" | "redstone_wall_torch" => "a redstone torch",
+                "repeater" => "a repeater",
+                "comparator" => "a comparator",
+                "lever" => "a lever",
+                "stone_button" | "oak_button" => "a button",
+                _ => "a pressure plate",
+            };
+            let release = match (id, top) {
+                (_, false) => ON_TRANSPARENT_SIDE,
+                ("redstone_wire" | "redstone_torch", true) => ON_TRANSPARENT,
+                _ => ON_TRANSPARENT_SLAB,
+            };
+            let place = if top { "on" } else { "under or beside" };
+            raise(release, format!("{what} {place} a transparent block"));
+        }
         if id == "comparator" && redstone_block_beside(blocks, pos, state) {
             raise(
                 REDSTONE_BLOCK_SIDE,
@@ -179,6 +217,33 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
         }
     }
     found
+}
+
+/// The block the component `id` at `pos` rests on or hangs from, and
+/// whether it rests on its top; `None` for a block that needs none.
+fn support(pos: Pos, state: &str, id: &str) -> Option<(Pos, bool)> {
+    let below = Some((schem::step(pos, Direction::Down), true));
+    match id {
+        "redstone_wire"
+        | "redstone_torch"
+        | "repeater"
+        | "comparator"
+        | "stone_pressure_plate"
+        | "light_weighted_pressure_plate"
+        | "heavy_weighted_pressure_plate" => below,
+        "redstone_wall_torch" => Some((schem::torch_block(pos, state)?, false)),
+        "lever" | "stone_button" | "oak_button" => {
+            match schem::property(state, "face")? {
+                "floor" => below,
+                "ceiling" => Some((schem::step(pos, Direction::Up), false)),
+                _ => {
+                    let facing = Direction::facing(state)?;
+                    Some((schem::step(pos, facing.opposite()), false))
+                }
+            }
+        }
+        _ => None,
+    }
 }
 
 /// A component as people name it, such as `target block` for `target`.
@@ -314,6 +379,44 @@ mod tests {
         assert_eq!(known.first().map(String::as_str), Some("Alpha"));
         assert!(known.contains(&"1.12".to_owned()));
         assert_eq!(known.last().map(String::as_str), Some("1.21"));
+    }
+
+    /// A build of one block with `parts` on it, by offset from the block,
+    /// whose own state is `block`.
+    fn on(block: &str, parts: &[(Pos, &str)]) -> WorksFrom {
+        use std::collections::HashMap;
+        let mut grid: HashMap<Pos, String> = parts
+            .iter()
+            .map(|&(offset, state)| {
+                (schem::add([1, 1, 1], offset), format!("minecraft:{state}"))
+            })
+            .collect();
+        grid.insert([1, 1, 1], format!("minecraft:{block}"));
+        of(&Blocks::from_grid([3, 3, 3], &grid))
+    }
+
+    #[test]
+    fn a_component_on_a_transparent_block_waits_for_one_it_could_rest_on() {
+        let dust =
+            "redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+        // A lone dot of dust on nothing beside is no dot, as in Alpha.
+        assert_eq!(on("white_concrete", &[([0, 1, 0], dust)]).release, "Alpha");
+        let glass = on("white_stained_glass", &[([0, 1, 0], dust)]);
+        assert_eq!(glass.release, "1.2.1");
+        assert_eq!(
+            glass.because.as_deref(),
+            Some("dust on a transparent block")
+        );
+        let torch = "redstone_torch[lit=true]";
+        assert_eq!(on("glass", &[([0, 1, 0], torch)]).release, "1.2.1");
+        let lever = "lever[face=floor,facing=north,powered=false]";
+        assert_eq!(on("oak_slab", &[([0, 1, 0], lever)]).release, "1.3.1");
+        let wall = "redstone_wall_torch[facing=south,lit=true]";
+        assert_eq!(
+            on("white_stained_glass", &[([0, 0, 1], wall)]).release,
+            "1.14"
+        );
+        assert_eq!(on("white_concrete", &[([0, 0, 1], wall)]).release, "Alpha");
     }
 
     #[test]

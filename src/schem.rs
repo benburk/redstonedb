@@ -208,6 +208,33 @@ impl Blocks {
         })
     }
 
+    /// A schematic of `size` holding `states` by position, air elsewhere,
+    /// for a test to read as it would a file.
+    #[cfg(test)]
+    pub fn from_grid(size: Pos, states: &HashMap<Pos, String>) -> Self {
+        let mut palette = vec![AIR.to_owned()];
+        let [width, height, length] = size;
+        let volume = usize::try_from(width * height * length).unwrap_or(0);
+        let mut grid = vec![0; volume];
+        for (&[x, y, z], state) in states {
+            let index = palette.iter().position(|known| known == state);
+            let index = index.unwrap_or_else(|| {
+                palette.push(state.clone());
+                palette.len() - 1
+            });
+            let at = x + z * width + y * width * length;
+            grid[usize::try_from(at).unwrap_or(0)] = index;
+        }
+        Blocks {
+            size,
+            palette,
+            grid,
+            signs: HashMap::new(),
+            comparators: HashMap::new(),
+            containers: HashMap::new(),
+        }
+    }
+
     /// The block state at `pos`, such as
     /// `minecraft:lever[face=wall,facing=south,powered=false]`. Outside the
     /// schematic, air.
@@ -385,7 +412,7 @@ impl Direction {
         }
     }
 
-    fn opposite(self) -> Self {
+    pub fn opposite(self) -> Self {
         match self {
             Direction::North => Direction::South,
             Direction::South => Direction::North,

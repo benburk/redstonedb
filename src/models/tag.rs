@@ -85,6 +85,17 @@ pub fn valid_name(name: &str) -> bool {
         })
 }
 
+/// The tags a build's file gives it, `facts` read from it: `alpha` when
+/// it works from Alpha and `torchless` when it has no torches.
+pub fn from_file(facts: &crate::import::FileFacts) -> Vec<Tag> {
+    with_derived(
+        Vec::new(),
+        false,
+        Some(facts.torches),
+        Some(facts.works_from.release),
+    )
+}
+
 /// A build's stored `tags`, led by `fails_simulation` when it fails, with
 /// `torchless` among its restrictions when its file has no torches, and
 /// `alpha` when it works from Alpha.

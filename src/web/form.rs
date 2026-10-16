@@ -8,7 +8,7 @@ use super::pages::{self, Choices, DetailsPage, File};
 use crate::{
     details::Details,
     error::AppError,
-    import::{self, Analysis},
+    import::{self, Analysis, FileFacts},
     interface::{self, Interface},
     models::{
         catalogue::{self, Category},
@@ -426,6 +426,19 @@ pub async fn page(
         .filter(|_| conventional)
         .map(|blocks| import::read_from_file(&interface::read(blocks)))
         .unwrap_or_default();
+    // The tags the file gives the build, which no one may add or remove.
+    let fixed = match (shown.blocks, &shown.file) {
+        (Some(blocks), _) => tag::from_file(&FileFacts::of(blocks)),
+        (None, File::Stored { s, .. } | File::Version { s, .. }) => s
+            .tags
+            .iter()
+            .filter(|tag| {
+                tag.is_derived() && tag.kind == tag::Kind::Restriction
+            })
+            .cloned()
+            .collect(),
+        (None, File::Upload { .. }) => Vec::new(),
+    };
     Ok(pages::details_page(
         user,
         &DetailsPage {
@@ -434,6 +447,7 @@ pub async fn page(
             form,
             choices: &choices,
             derived,
+            fixed: &fixed,
             message: shown.message,
             choosing: shown.choosing,
             schemati: &super::schemati::connection(folder.as_ref()),
