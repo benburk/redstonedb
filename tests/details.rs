@@ -131,3 +131,16 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
         .unwrap();
     assert_eq!(ready.details.tags, ["made_up"]);
 }
+
+#[tokio::test]
+async fn a_build_date_still_to_come_is_refused() {
+    let db = setup_test_db().await;
+    let dated = |date: &str| Details {
+        built_on: Some(date.to_owned()),
+        ..given("multiplier")
+    };
+    let kept = check(&db, dated("2024-02-29")).await.unwrap();
+    assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));
+    let refused = check(&db, dated("2999-01-01")).await.err().unwrap();
+    assert!(refused.contains("still to come"), "{refused}");
+}

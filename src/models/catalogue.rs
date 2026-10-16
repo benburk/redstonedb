@@ -306,12 +306,13 @@ pub async fn keep_flags<'e, E: SqliteExecutor<'e>>(
 /// Checks a build's category and design, and returns the category. A
 /// category is a standard one from the list, or any other name made of
 /// lowercase words joined by underscores. A design is `other`, or one the
-/// category lists. The `Err` is a sentence for the person.
-pub async fn check_category(
-    db: &SqlitePool,
+/// category lists among `designs`. The `Err` is a sentence for the person.
+pub fn check_category(
+    categories: &[Category],
+    designs: &[Design],
     category: &str,
     design: &str,
-) -> Result<Result<Category, String>, sqlx::Error> {
+) -> Result<Category, String> {
     let valid = |name: &str| {
         name.chars().any(|c| c.is_ascii_alphanumeric())
             && name.chars().all(|c| {
@@ -322,33 +323,31 @@ pub async fn check_category(
             })
     };
     if !valid(category) {
-        return Ok(Err(
+        return Err(
             "A category's name is words, numbers, and hyphens, such as line \
              drawer or 8-bit horizontal diode."
                 .to_owned(),
-        ));
+        );
     }
     // The sidebar gathers every category off the list under `other`.
     if category == "other" {
-        return Ok(Err("Name the category, rather than other.".to_owned()));
+        return Err("Name the category, rather than other.".to_owned());
     }
-    let found = categories(db)
-        .await?
-        .into_iter()
-        .find(|f| f.name == category)
-        .unwrap_or_else(|| Category::off_the_list(category));
-    let listed = designs(db)
-        .await?
+    let listed = designs
         .iter()
         .any(|d| d.category == category && d.name == design);
     if design != "other" && !listed {
-        return Ok(Err(format!(
+        return Err(format!(
             "{} is not a design of {}.",
             design.replace('_', " "),
             category.replace('_', " ")
-        )));
+        ));
     }
-    Ok(Ok(found))
+    Ok(categories
+        .iter()
+        .find(|f| f.name == category)
+        .cloned()
+        .unwrap_or_else(|| Category::off_the_list(category)))
 }
 
 /// Adds a standard category. A plural that is the label with an `s` is

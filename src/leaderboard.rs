@@ -3,27 +3,66 @@
 //! and design, since only those compete: a hex adder never meets a binary
 //! one, nor a stateful multiplier a stateless one.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
 use crate::models::{
     catalogue::Measure,
-    schematic::{Encoding, Logic, Schematic},
+    schematic::{Encoding, Logic, Orientation, Schematic},
 };
 
 /// How many builds each ranking shows.
 pub const SHOWN: usize = 10;
+
+/// A build's logic as a board narrows by it. A build of unknown logic
+/// competes only with others of unknown logic, listed after the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum State {
+    Known(Logic),
+    Unknown,
+}
+
+impl State {
+    fn of(s: &Schematic) -> Self {
+        s.logic.map_or(State::Unknown, State::Known)
+    }
+
+    /// As a leaderboard's address writes it, such as `stateless`.
+    pub fn name(self) -> &'static str {
+        match self {
+            State::Known(logic) => logic.name(),
+            State::Unknown => "unknown",
+        }
+    }
+
+    /// As people read it, such as `Stateless`.
+    pub fn label(self) -> &'static str {
+        match self {
+            State::Known(logic) => logic.label(),
+            State::Unknown => "Unknown",
+        }
+    }
+}
+
+impl FromStr for State {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        if text.trim().eq_ignore_ascii_case("unknown") {
+            Ok(State::Unknown)
+        } else {
+            text.parse().map(State::Known)
+        }
+    }
+}
 
 /// What a leaderboard's address asks for; `None` takes the default.
 #[derive(Debug, Default)]
 pub struct Wanted {
     /// A value of each measure asked for, such as a width of 8.
     pub measures: Vec<(Measure, i64)>,
-    /// A [`Logic`]'s name, or `unknown`.
-    pub logic: Option<String>,
-    /// An [`Encoding`]'s name.
-    pub encoding: Option<String>,
-    /// An orientation's name.
-    pub orientation: Option<String>,
+    pub logic: Option<State>,
+    pub encoding: Option<Encoding>,
+    pub orientation: Option<Orientation>,
     /// A design's name; `None` for every design, where they compete.
     pub design: Option<String>,
 }
@@ -39,8 +78,8 @@ impl Wanted {
 
 /// One value a board can be narrowed to, with how many builds have it.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Choice {
-    pub value: String,
+pub struct Choice<V> {
+    pub value: V,
     pub label: String,
     pub count: usize,
 }
@@ -50,7 +89,7 @@ pub struct Choice {
 #[derive(Debug)]
 pub struct Split {
     pub measure: Measure,
-    pub choices: Vec<Choice>,
+    pub choices: Vec<Choice<i64>>,
     pub chosen: Option<i64>,
 }
 
@@ -61,15 +100,15 @@ pub struct Board<'a> {
     /// Its category's measures, in order.
     pub splits: Vec<Split>,
     /// Stateless and stateful; empty when the builds are all one.
-    pub logics: Vec<Choice>,
-    pub logic: Option<String>,
+    pub logics: Vec<Choice<State>>,
+    pub logic: Option<State>,
     /// Binary and hex; empty when the builds count only one way.
-    pub encodings: Vec<Choice>,
-    pub encoding: Option<String>,
-    pub orientations: Vec<Choice>,
-    pub orientation: Option<String>,
+    pub encodings: Vec<Choice<Encoding>>,
+    pub encoding: Option<Encoding>,
+    pub orientations: Vec<Choice<Orientation>>,
+    pub orientation: Option<Orientation>,
     /// Empty when the category has a single design.
-    pub designs: Vec<Choice>,
+    pub designs: Vec<Choice<String>>,
     /// `None` for every design together.
     pub design: Option<String>,
     /// Whether "every design" is a choice.
@@ -90,49 +129,34 @@ pub fn board<'a>(
     let mut ranked: Vec<&Schematic> = category.to_vec();
     let mut splits = Vec::new();
     for &measure in measures {
-        let known: Vec<&Schematic> = ranked
-            .into_iter()
-            .filter(|s| measure.of(s).is_some())
-            .collect();
-        let options = choices(&known, |s| {
-            let n = measure.of(s).unwrap_or_default();
-            // Zero-padded, so the choices sort by number.
-            (format!("{n:012}"), measure.lead(n))
-        });
-        let chosen = wanted.measure(measure).or_else(|| {
-            most_common(&options).and_then(|value| value.parse().ok())
-        });
-        ranked = known
-            .into_iter()
-            .filter(|s| measure.of(s) == chosen)
-            .collect();
+        ranked.retain(|s| measure.of(s).is_some());
+        let (choices, chosen, left) =
+            narrow(ranked, wanted.measure(measure), |s| {
+                let n = measure.of(s).unwrap_or_default();
+                (n, measure.lead(n))
+            });
+        ranked = left;
         splits.push(Split {
             measure,
-            choices: unpadded(options),
+            choices,
             chosen,
         });
     }
 
     // Stateless and stateful builds never compete: a stateful build's
     // latency is no stateless one's.
-    let (logics, chosen_logic, ranked) =
-        narrow(ranked, wanted.logic.as_deref(), |s| {
-            let label = s.logic.map_or("Unknown", Logic::label);
-            (logic(s).to_owned(), label.to_owned())
-        });
+    let (logics, logic, ranked) = narrow(ranked, wanted.logic, |s| {
+        let state = State::of(s);
+        (state, state.label().to_owned())
+    });
     // Hex and binary builds never compete.
-    let (encodings, chosen_encoding, ranked) =
-        narrow(ranked, wanted.encoding.as_deref(), |s| {
-            let encoding = encoding(s);
-            (encoding.name().to_owned(), encoding.label().to_owned())
-        });
+    let (encodings, encoding, ranked) = narrow(ranked, wanted.encoding, |s| {
+        let encoding = encoding(s);
+        (encoding, encoding.label().to_owned())
+    });
     let (orientations, orientation, ranked) =
-        narrow(ranked, wanted.orientation.as_deref(), |s| {
-            let orientation = s.orientation;
-            (
-                orientation.name().to_owned(),
-                orientation.label().to_owned(),
-            )
+        narrow(ranked, wanted.orientation, |s| {
+            (s.orientation, s.orientation.label().to_owned())
         });
 
     // By the short name people say, such as CCA, where there is one.
@@ -147,7 +171,7 @@ pub fn board<'a>(
     let all_designs = designs.len() > 1;
     let design = wanted.design.clone().or_else(|| {
         (!all_designs)
-            .then(|| most_common(&designs).map(str::to_owned))
+            .then(|| most_common(&designs).cloned())
             .flatten()
     });
     let builds = ranked
@@ -157,13 +181,13 @@ pub fn board<'a>(
     Board {
         splits,
         logics: if logics.len() > 1 { logics } else { Vec::new() },
-        logic: chosen_logic,
+        logic,
         encodings: if encodings.len() > 1 {
             encodings
         } else {
             Vec::new()
         },
-        encoding: chosen_encoding,
+        encoding,
         orientations,
         orientation,
         designs: if designs.len() > 1 {
@@ -180,23 +204,18 @@ pub fn board<'a>(
 /// Narrows `ranked` to the builds of one `(value, label)` of `key`: the
 /// `wanted` value, else the most common. Returns every value's choice, the
 /// value chosen, and the builds left.
-fn narrow<'a>(
-    ranked: Vec<&'a Schematic>,
-    wanted: Option<&str>,
-    key: impl Fn(&Schematic) -> (String, String),
-) -> (Vec<Choice>, Option<String>, Vec<&'a Schematic>) {
+fn narrow<V: Ord + Clone>(
+    ranked: Vec<&Schematic>,
+    wanted: Option<V>,
+    key: impl Fn(&Schematic) -> (V, String),
+) -> (Vec<Choice<V>>, Option<V>, Vec<&Schematic>) {
     let options = choices(&ranked, &key);
-    let chosen = wanted.or_else(|| most_common(&options)).map(str::to_owned);
+    let chosen = wanted.or_else(|| most_common(&options).cloned());
     let ranked = ranked
         .into_iter()
         .filter(|s| chosen.as_ref() == Some(&key(s).0))
         .collect();
     (options, chosen, ranked)
-}
-
-/// A build's logic by its name, or `unknown`.
-fn logic(s: &Schematic) -> &'static str {
-    s.logic.map_or("unknown", Logic::name)
 }
 
 /// How a build counts: in hex, or in binary, as one of unknown encoding
@@ -205,24 +224,13 @@ fn encoding(s: &Schematic) -> Encoding {
     s.encoding.unwrap_or(Encoding::Binary)
 }
 
-/// `choices` with the zeros that sorted their values by number taken off.
-fn unpadded(choices: Vec<Choice>) -> Vec<Choice> {
-    choices
-        .into_iter()
-        .map(|c| Choice {
-            value: c.value.trim_start_matches('0').to_owned(),
-            ..c
-        })
-        .collect()
-}
-
 /// Each distinct `(value, label)` of `builds`, in value order, with its
 /// count.
-fn choices(
+fn choices<V: Ord>(
     builds: &[&Schematic],
-    key: impl Fn(&Schematic) -> (String, String),
-) -> Vec<Choice> {
-    let mut counts: BTreeMap<String, (String, usize)> = BTreeMap::new();
+    key: impl Fn(&Schematic) -> (V, String),
+) -> Vec<Choice<V>> {
+    let mut counts: BTreeMap<V, (String, usize)> = BTreeMap::new();
     for s in builds {
         let (value, label) = key(s);
         counts.entry(value).or_insert((label, 0)).1 += 1;
@@ -238,12 +246,12 @@ fn choices(
 }
 
 /// The value with the highest count, the first of a tie.
-fn most_common(choices: &[Choice]) -> Option<&str> {
+fn most_common<V>(choices: &[Choice<V>]) -> Option<&V> {
     choices
         .iter()
         .rev()
         .max_by_key(|c| c.count)
-        .map(|c| c.value.as_str())
+        .map(|c| &c.value)
 }
 
 /// A build with its place: one more than the builds ranked strictly ahead
@@ -383,7 +391,7 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 /// design; each builder of a record holder counts it, and a tie gives every
 /// holder one.
 pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
-    type Key<'a> = (&'a str, Vec<i64>, &'a str, &'a str, &'a str, &'a str);
+    type Key<'a> = (&'a str, Vec<i64>, State, Encoding, Orientation, &'a str);
     let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
     for s in builds.iter().filter(|s| s.category_label.is_some()) {
         let Some(values) = s
@@ -399,9 +407,9 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
             .entry((
                 &s.category,
                 values,
-                logic(s),
-                encoding(s).name(),
-                s.orientation.name(),
+                State::of(s),
+                encoding(s),
+                s.orientation,
                 &s.design,
             ))
             .or_default()
@@ -420,7 +428,6 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::Orientation;
 
     fn build(
         id: &str,
@@ -495,13 +502,13 @@ mod tests {
         let hex_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
         let binary = board(&all, &Wanted::default(), &[Measure::Width]);
-        assert_eq!(binary.encoding.as_deref(), Some("bin"));
+        assert_eq!(binary.encoding, Some(Encoding::Binary));
         assert!(binary.builds.iter().all(|s| s.id != hex_id));
         let labels: Vec<&str> =
             binary.encodings.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["Binary", "Hex"]);
         let wanted = Wanted {
-            encoding: Some("hex".to_owned()),
+            encoding: Some(Encoding::Hex),
             ..Wanted::default()
         };
         let hex = board(&all, &wanted, &[Measure::Width]);
@@ -519,13 +526,13 @@ mod tests {
         let stateful_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
         let stateless = board(&all, &Wanted::default(), &[Measure::Width]);
-        assert_eq!(stateless.logic.as_deref(), Some("stateless"));
+        assert_eq!(stateless.logic, Some(State::Known(Logic::Stateless)));
         assert!(stateless.builds.iter().all(|s| s.id != stateful_id));
         let labels: Vec<&str> =
             stateless.logics.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["Stateful", "Stateless"]);
+        assert_eq!(labels, ["Stateless", "Stateful"]);
         let wanted = Wanted {
-            logic: Some("stateful".to_owned()),
+            logic: Some(State::Known(Logic::Stateful)),
             ..Wanted::default()
         };
         let stateful = board(&all, &wanted, &[Measure::Width]);
@@ -544,11 +551,11 @@ mod tests {
             board.splits[0]
                 .choices
                 .iter()
-                .map(|c| c.value.as_str())
+                .map(|c| c.value)
                 .collect::<Vec<_>>(),
-            ["8", "16"]
+            [8, 16]
         );
-        assert_eq!(board.orientation.as_deref(), Some("horz"));
+        assert_eq!(board.orientation, Some(Orientation::Horizontal));
         assert_eq!(board.design, None);
         assert!(board.all_designs);
         assert_eq!(board.builds.len(), 6);
@@ -574,9 +581,9 @@ mod tests {
             board.splits[1]
                 .choices
                 .iter()
-                .map(|c| c.value.as_str())
+                .map(|c| c.value)
                 .collect::<Vec<_>>(),
-            ["32", "256"]
+            [32, 256]
         );
         assert_eq!(board.builds.len(), 2);
     }

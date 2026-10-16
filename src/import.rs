@@ -239,14 +239,25 @@ pub struct Derived {
     pub encoding: Option<Encoding>,
 }
 
-/// What `category` reads from a build with `interface`: nothing for other
-/// categories, or a build without an A.
+/// What `category` reads from a build with `interface`: nothing for a
+/// category that reads nothing from its file; see [`read_from_file`].
 pub fn derived(category: &str, interface: &Interface) -> Derived {
+    if category::behaviour(category).reads_file {
+        read_from_file(interface)
+    } else {
+        Derived::default()
+    }
+}
+
+/// What a category that reads its builds' files, such as adder, reads
+/// from one with `interface`: its width, orientation, and encoding from
+/// its A, the unsigned lime input; nothing without one.
+pub fn read_from_file(interface: &Interface) -> Derived {
     let a = interface
         .inputs
         .iter()
         .find(|port| !port.labelled && port.block.starts_with("lime"));
-    match a.filter(|_| category::behaviour(category).reads_file) {
+    match a {
         Some(a) => Derived {
             width: i64::try_from(
                 a.bits.len() * if a.signal_strength { 4 } else { 1 },

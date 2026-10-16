@@ -3,10 +3,10 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Board, Choice, Placed, SHOWN, Standing},
+    leaderboard::{self, Board, Choice, Placed, SHOWN, Standing, State},
     models::{
         catalogue::{Category, Measure},
-        schematic::{Encoding, Schematic},
+        schematic::{Encoding, Orientation, Schematic},
         user::User,
     },
 };
@@ -185,9 +185,9 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
 struct Address<'a> {
     /// A value of each measure chosen, such as a width of 8.
     measures: Vec<(Measure, i64)>,
-    logic: Option<&'a str>,
-    encoding: Option<&'a str>,
-    orientation: Option<&'a str>,
+    logic: Option<State>,
+    encoding: Option<Encoding>,
+    orientation: Option<Orientation>,
     design: Option<&'a str>,
 }
 
@@ -200,9 +200,9 @@ impl Address<'_> {
             params.append_pair(measure.name(), &n.to_string());
         }
         let named = [
-            ("logic", self.logic),
-            ("encoding", self.encoding),
-            ("orientation", self.orientation),
+            ("logic", self.logic.map(State::name)),
+            ("encoding", self.encoding.map(Encoding::name)),
+            ("orientation", self.orientation.map(Orientation::name)),
             ("design", self.design),
         ];
         for (name, value) in named {
@@ -236,15 +236,15 @@ fn choices(path: &str, board: &Board) -> Markup {
         ..Address::default()
     };
     let logic = Address {
-        logic: board.logic.as_deref(),
+        logic: board.logic,
         ..measured.clone()
     };
     let encoding = Address {
-        encoding: board.encoding.as_deref(),
+        encoding: board.encoding,
         ..logic.clone()
     };
     let orientation = Address {
-        orientation: board.orientation.as_deref(),
+        orientation: board.orientation,
         ..encoding.clone()
     };
     html! {
@@ -252,26 +252,26 @@ fn choices(path: &str, board: &Board) -> Markup {
             @for (i, split) in board.splits.iter().enumerate() {
                 (choice_row(split.measure.label(), &split.choices, |c| {
                     let mut values = chosen_measures(board, i);
-                    values.extend(c.value.parse().ok().map(|n| (split.measure, n)));
-                    (split.chosen.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
+                    values.push((split.measure, c.value));
+                    (split.chosen == Some(c.value),
                         Address { measures: values, ..Address::default() }.href(path))
                 }, None))
             }
             @if !board.logics.is_empty() {
                 (choice_row("State", &board.logics, |c| {
-                    (logic.logic == Some(c.value.as_str()),
-                        Address { logic: Some(&c.value), ..measured.clone() }.href(path))
+                    (logic.logic == Some(c.value),
+                        Address { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
             }
             @if !board.encodings.is_empty() {
                 (choice_row("Encoding", &board.encodings, |c| {
-                    (encoding.encoding == Some(c.value.as_str()),
-                        Address { encoding: Some(&c.value), ..logic.clone() }.href(path))
+                    (encoding.encoding == Some(c.value),
+                        Address { encoding: Some(c.value), ..logic.clone() }.href(path))
                 }, None))
             }
             (choice_row("Orientation", &board.orientations, |c| {
-                (orientation.orientation == Some(c.value.as_str()),
-                    Address { orientation: Some(&c.value), ..encoding.clone() }.href(path))
+                (orientation.orientation == Some(c.value),
+                    Address { orientation: Some(c.value), ..encoding.clone() }.href(path))
             }, None))
             @if !board.designs.is_empty() {
                 @let all = board.all_designs.then(|| (board.design.is_none(), orientation.href(path)));
@@ -286,10 +286,10 @@ fn choices(path: &str, board: &Board) -> Markup {
 
 /// A labelled segmented control of `options`. `link` gives each option
 /// whether it is chosen and its address; `all` adds an "All" option first.
-fn choice_row(
+fn choice_row<V>(
     label: &str,
-    options: &[Choice],
-    link: impl Fn(&Choice) -> (bool, String),
+    options: &[Choice<V>],
+    link: impl Fn(&Choice<V>) -> (bool, String),
     all: Option<(bool, String)>,
 ) -> Markup {
     html! {
@@ -372,11 +372,7 @@ fn rankings(category: &Category, board: &Board) -> Markup {
 /// What the board holds, such as `8-bit horizontal Carry Cancel (CCA)
 /// adders`.
 fn board_name(category: &Category, board: &Board) -> String {
-    let orientation = board
-        .orientations
-        .iter()
-        .find(|c| Some(&c.value) == board.orientation.as_ref())
-        .map(|c| c.label.to_lowercase());
+    let orientation = board.orientation.map(|o| o.label().to_lowercase());
     let design = board.design.as_ref().and_then(|d| {
         board
             .designs
@@ -392,12 +388,11 @@ fn board_name(category: &Category, board: &Board) -> String {
         .chain(
             board
                 .logic
-                .as_deref()
                 .filter(|_| !board.logics.is_empty())
-                .map(str::to_owned),
+                .map(|logic| logic.name().to_owned()),
         )
         .chain(
-            (board.encoding.as_deref() == Some(Encoding::Hex.name()))
+            (board.encoding == Some(Encoding::Hex))
                 .then(|| Encoding::Hex.name().to_owned()),
         )
         .chain(orientation)

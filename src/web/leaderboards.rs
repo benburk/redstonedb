@@ -46,7 +46,6 @@ pub async fn show(
         return Err(AppError::NotFound);
     };
     let facets = facets(&categories, &all, &category);
-    let given = |value: Option<String>| value.filter(|v| !v.is_empty());
     let asked = [
         (Measure::Width, query.width),
         (Measure::Bytes, query.bytes),
@@ -56,12 +55,12 @@ pub async fn show(
     let wanted = Wanted {
         measures: asked
             .into_iter()
-            .filter_map(|(m, n)| Some((m, given(n)?.parse().ok()?)))
+            .filter_map(|(m, n)| Some((m, parsed(n)?)))
             .collect(),
-        logic: given(query.logic),
-        encoding: given(query.encoding),
-        orientation: given(query.orientation),
-        design: given(query.design),
+        logic: parsed(query.logic),
+        encoding: parsed(query.encoding),
+        orientation: parsed(query.orientation),
+        design: query.design.filter(|d| !d.is_empty()),
     };
     let builds: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
@@ -76,6 +75,11 @@ pub async fn show(
         },
     )
     .into_response())
+}
+
+/// A value an address gives; one naming nothing is as good as none.
+fn parsed<T: std::str::FromStr>(value: Option<String>) -> Option<T> {
+    value?.parse().ok()
 }
 
 /// The people leaderboard: who built, added, and holds the records for the

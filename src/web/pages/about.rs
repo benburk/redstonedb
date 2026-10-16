@@ -1,11 +1,33 @@
-//! How builds are sorted: the About page's guide to categories, designs,
-//! measures, facts, flags, tags, search, size, and similar builds.
+//! The About page, and its guide to how builds are sorted: categories,
+//! designs, measures, facts, flags, tags, search, size, and similar builds.
 
 use maud::{Markup, html};
 
 use crate::models::{catalogue::Category, user::User};
 
 use super::{PAGE_TITLE, SECTION_TITLE, base, sections};
+
+/// What the site is, linking to how builds are sorted.
+pub fn about(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "About",
+        "/about",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "About" }
+                p class="mb-4" {
+                    "A collection of Minecraft redstone schematics. Each build is stored with its facts, "
+                    "so it can be found, compared, and downloaded under a name that describes it."
+                }
+                p class="mb-4" {
+                    a href="/about/categories" { "How builds are sorted" }
+                    " explains categories, designs, measures, tags, and what search and the leaderboards go by."
+                }
+            }
+        },
+    )
+}
 
 /// How builds are sorted, with the standard categories under their
 /// sections.

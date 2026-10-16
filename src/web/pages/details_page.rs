@@ -8,16 +8,24 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
 
 use crate::{
+    import::Analysis,
     models::{schematic::Schematic, user::User},
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
 
 use super::{
-    super::form::Form, Analysis, Choices, PAGE_TITLE, SECTION_TITLE, Waiting,
-    base, beside_viewer, fields, file_fields, grouped, interface_section,
-    simulation_section, simulation_summary, spinner, tag_picker,
-    timing_summary, violation_list,
+    super::form::Form,
+    Choices, PAGE_TITLE, SECTION_TITLE, base, beside_viewer,
+    form::{fields, tag_picker},
+    grouped,
+    interface::{interface_section, violation_list},
+    simulation::{
+        Waiting, simulation_results, simulation_section, simulation_summary,
+        timing_summary,
+    },
+    spinner,
+    upload::file_fields,
 };
 
 /// The file a details page shows.
@@ -140,13 +148,13 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             div class="mt-12 max-w-calm" { (interface_section(page.analysis)) }
             // Redrawn as the category and width call for a test.
             @let simulate = simulate_url(page);
-            @let timing = format!("{simulate}/timing");
-            (super::simulation_results(&simulate, &html! {
+            @let timing = super::super::simulation::timing_url(&simulate);
+            (simulation_results(&simulate, &html! {
                 @if let File::Stored { simulation: Some(report), .. } = &page.file {
                     (simulation_section(report, Waiting::Posted(&timing)))
                 }
             }))
-            script defer src=(super::super::form_js_url()) {}
+            script defer src=(crate::web::FORM_JS.url()) {}
         },
     )
 }

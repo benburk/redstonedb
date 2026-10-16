@@ -2,7 +2,7 @@
 //! they give: its files to download, publish, rename, and delete, files to
 //! add, and builds sent from their pages.
 
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use axum::{
     Form,
@@ -378,13 +378,13 @@ pub async fn send(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
     Fixi(fixi): Fixi,
-    Form(choices): Form<HashMap<String, String>>,
+    Form(asked): Form<schematics::Download>,
 ) -> Result<Response, AppError> {
     let session = User::schemati_session(&state.db, user.id).await?;
     let sent = match session {
         Some(session) => {
             let (filename, data) =
-                schematics::export(&state.db, &id, choices, true).await?;
+                schematics::export(&state.db, &id, &asked, true).await?;
             let name = schemati::file_name(&filename);
             put(&session, &name, data).await.map_err(sentence)
         }

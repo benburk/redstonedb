@@ -17,7 +17,7 @@ use crate::{
         fixi::Fixi,
         session::{Admin, SignedIn},
     },
-    import::{self, Analysis},
+    import::Analysis,
     models::{
         catalogue::{self, Category},
         schematic::{self, Schematic},
@@ -32,7 +32,7 @@ use crate::{
 
 use super::{
     form::{self, Form},
-    pages::{self, DetailsPage, File},
+    pages::{self, File},
     upload,
 };
 
@@ -532,63 +532,86 @@ pub(super) async fn show_edit(
     new_file: Option<NewFile<'_>>,
     choosing: Option<&str>,
 ) -> Result<Response, AppError> {
-    let choices = form::choices(db).await?;
     let versions = version::list(db, &s.id).await?;
-    // What the page shows is the new file's, when one is waiting; a file
-    // that cannot be read shows no inputs and outputs.
-    let analysis = if let Some(new) = &new_file {
-        let blocks = &new.checked.prepared.blocks;
-        Analysis::of(blocks, &s.category, s.conventional)
+    let simulation = simulation::current(db, s).await?;
+    let stored = Form::of(s);
+    // What the page shows is the new file's, when one is waiting.
+    let (encoded, stored_blocks);
+    let (file, blocks) = if let Some(new) = &new_file {
+        encoded = STANDARD.encode(&new.checked.prepared.data);
+        let file = File::Version {
+            s,
+            data: &encoded,
+            comparison: new.checked.comparison,
+            refusals: &new.checked.refusals,
+            version: versions.first().map_or(1, |v| v.version) + 1,
+            note: new.note,
+        };
+        (file, Some(&new.checked.prepared.blocks))
     } else {
         let data = version::current_file(db, &s.id).await?.unwrap_or_default();
-        Blocks::read(&data).map_or_else(
-            |_| Analysis::default(),
-            |blocks| Analysis::of(&blocks, &s.category, s.conventional),
-        )
-    };
-    // An adder's width and orientation come from its file, whatever its
-    // category is now, in case it becomes one.
-    let derived = if s.conventional {
-        import::derived("adder", &analysis.interface)
-    } else {
-        import::Derived::default()
-    };
-    let simulation = simulation::current(db, s).await?;
-    let folder = super::schemati::own_folder_quickly(db, user).await?;
-    let stored = Form::of(s);
-    let form = sent.unwrap_or(&stored);
-    let encoded;
-    let file = match &new_file {
-        Some(new) => {
-            encoded = STANDARD.encode(&new.checked.prepared.data);
-            File::Version {
-                s,
-                data: &encoded,
-                comparison: new.checked.comparison,
-                refusals: &new.checked.refusals,
-                version: versions.first().map_or(1, |v| v.version) + 1,
-                note: new.note,
-            }
-        }
-        None => File::Stored {
+        stored_blocks = Blocks::read(&data).ok();
+        let file = File::Stored {
             s,
             simulation: simulation.as_ref(),
-        },
+        };
+        (file, stored_blocks.as_ref())
     };
-    Ok(pages::details_page(
-        user,
-        &DetailsPage {
-            file,
-            analysis: &analysis,
-            form,
-            choices: &choices,
-            derived,
-            message,
-            choosing,
-            schemati: &super::schemati::connection(folder.as_ref()),
-        },
-    )
-    .into_response())
+    let shown = form::Shown {
+        file,
+        blocks,
+        message,
+        choosing,
+    };
+    form::page(db, user, sent.unwrap_or(&stored), shown).await
+}
+
+/// What a download of a build's file asks for: from the download dialog,
+/// the stacking guide's links, and the 3D viewer.
+#[derive(Deserialize)]
+pub(super) struct Download {
+    /// Set when the 3D viewer fetches the file, which is no download.
+    preview: Option<String>,
+    /// `yes` adds a glass block off each corner, for `WorldEdit` to select
+    /// the build by.
+    markers: Option<String>,
+    /// One of the files the in-game stacking procedure pastes, for the
+    /// `direction` it stacks.
+    part: Option<Part>,
+    direction: Option<String>,
+    /// Copies each way the build stacks.
+    west: Option<usize>,
+    up: Option<usize>,
+    north: Option<usize>,
+    #[serde(rename = "west-up")]
+    west_up: Option<usize>,
+}
+
+/// A file the in-game stacking procedure pastes.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum Part {
+    /// The build without the parts only its first copy keeps.
+    Without,
+    /// Those parts alone.
+    First,
+}
+
+impl Download {
+    /// The copies asked for each way, by direction name, leaving out one
+    /// copy, which is the build itself.
+    fn copies(&self) -> HashMap<String, usize> {
+        [
+            ("west", self.west),
+            ("up", self.up),
+            ("north", self.north),
+            ("west-up", self.west_up),
+        ]
+        .into_iter()
+        .filter_map(|(name, copies)| Some((name.to_owned(), copies?)))
+        .filter(|&(_, copies)| copies != 1)
+        .collect()
+    }
 }
 
 /// The stored `.schem` file, named by the naming scheme. The viewer fetches
@@ -597,13 +620,12 @@ pub async fn download(
     Path(id): Path<String>,
     State(state): State<AppState>,
     method: Method,
-    Query(mut query): Query<HashMap<String, String>>,
+    Query(asked): Query<Download>,
 ) -> Result<Response, AppError> {
-    // The 3D viewer fetches the file with `preview=yes`; that, and a HEAD
-    // request, is no download.
-    let preview = query.remove("preview").is_some();
+    // The 3D viewer's fetch, and a HEAD request, is no download.
+    let preview = asked.preview.is_some();
     let counted = !preview && method == Method::GET;
-    let (filename, data) = export(&state.db, &id, query, counted).await?;
+    let (filename, data) = export(&state.db, &id, &asked, counted).await?;
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {
@@ -614,41 +636,27 @@ pub async fn download(
     Ok(super::attachment(&filename, data))
 }
 
-/// Build `id`'s file as the download dialog's `query` asks, with its name,
-/// counted as a download if `counted`.
+/// Build `id`'s file as `asked`, with its name, counted as a download if
+/// `counted`.
 pub(super) async fn export(
     db: &SqlitePool,
     id: &str,
-    mut query: HashMap<String, String>,
+    asked: &Download,
     counted: bool,
 ) -> Result<(String, Vec<u8>), AppError> {
-    // `markers=yes` adds WorldEdit corner markers; the rest of the query
-    // names copies per direction, such as `?west=7&north=3`.
-    let markers = query.remove("markers").is_some_and(|v| v == "yes");
-    // `part=without` or `part=first`, with a `direction` it stacks, is one
-    // of the files the in-game stacking procedure pastes: the build without
-    // the parts only its first copy keeps, or those parts.
-    let part = query.remove("part");
-    let part_direction = query.remove("direction");
-    // One copy each way is the build itself.
-    query.retain(|_, count| count != "1");
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    if let Some(part) = part {
-        let first = part == "first";
+    if let Some(part) = asked.part {
         let direction = s
             .stacking
             .iter()
-            .find(|d| part_direction.as_deref() == Some(d.name().as_str()));
-        let (Some(&direction), "first" | "without") =
-            (direction, part.as_str())
-        else {
-            return Err(AppError::BadRequest("no such part".to_owned()));
-        };
+            .find(|d| asked.direction.as_deref() == Some(d.name().as_str()))
+            .ok_or_else(|| AppError::BadRequest("no such part".to_owned()))?;
         let buses = stack::Buses::of(&s.category, s.orientation);
-        let data = stack::part(&data, direction, first, buses)?;
+        let first = part == Part::First;
+        let data = stack::part(&data, *direction, first, buses)?;
         let suffix = if first {
             "_first_copy_parts"
         } else {
@@ -658,25 +666,21 @@ pub(super) async fn export(
             s.filename().replace(".schem", &format!("{suffix}.schem"));
         return Ok((filename, data));
     }
-    let (data, s) = if query.is_empty() {
+    let copies = asked.copies();
+    let (data, s) = if copies.is_empty() {
         (data, s)
     } else {
-        let stacked = query
-            .iter()
-            .map(|(name, count)| Ok((name.clone(), count.parse()?)))
-            .collect::<anyhow::Result<HashMap<String, usize>>>()
-            .and_then(|wanted| stack::plan(&s.stacking, &wanted))
-            .and_then(|plan| {
-                let buses = stack::Buses::of(&s.category, s.orientation);
-                let (data, size) = stack::stack(&data, &plan, buses)?;
-                Ok((data, s.stacked(&plan, size)))
-            });
+        let stacked = stack::plan(&s.stacking, &copies).and_then(|plan| {
+            let buses = stack::Buses::of(&s.category, s.orientation);
+            let (data, size) = stack::stack(&data, &plan, buses)?;
+            Ok((data, s.stacked(&plan, size)))
+        });
         stacked.map_err(|err| AppError::BadRequest(err.to_string()))?
     };
     if counted {
         schematic::count_download(db, id).await?;
     }
-    let data = if markers {
+    let data = if asked.markers.as_deref() == Some("yes") {
         standardize::with_corner_markers(&data)?
     } else {
         data

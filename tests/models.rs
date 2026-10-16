@@ -237,9 +237,9 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 
 #[tokio::test]
 async fn only_an_admin_may_name_a_new_tag() {
-    use app::models::tag::{check_new, define};
+    use app::models::tag::{Kind, check_new, define};
     let db = setup_test_db().await;
-    define(&db, "instant", None, "other").await.unwrap();
+    define(&db, "instant", None, Kind::Other).await.unwrap();
     let known = vec!["instant".to_owned()];
     let new = vec!["instant".to_owned(), "made_up".to_owned()];
     assert_eq!(check_new(&db, &known, false).await.unwrap(), Ok(()));

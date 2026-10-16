@@ -35,11 +35,7 @@ async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
         .expect("fixture is readable");
     let prepared =
         import::prepare(&raw, None, true, false).expect("fixture prepares");
-    let build = Build {
-        data: &prepared.data,
-        conventional: true,
-    };
-    let ready = details::check(db, details, build, false)
+    let ready = details::check(db, details, Build::of(&prepared), false)
         .await
         .expect("the database answers")
         .expect("the details keep the rules");

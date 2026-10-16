@@ -1,19 +1,22 @@
 //! A build's details form: what it starts with, and reading what it
 //! sends, for editing and uploading.
 
+use axum::response::{IntoResponse, Response};
 use sqlx::SqlitePool;
 
-use super::pages::Choices;
+use super::pages::{self, Choices, DetailsPage, File};
 use crate::{
     details::Details,
-    import,
-    interface::Interface,
+    error::AppError,
+    import::{self, Analysis},
+    interface::{self, Interface},
     models::{
         catalogue::{self, Category},
         schematic::{self, Encoding, Orientation, Schematic, StackDirection},
         tag,
+        user::User,
     },
-    schem::Size,
+    schem::{Blocks, Size},
     simulate::Guess,
 };
 
@@ -120,7 +123,7 @@ pub struct Form {
     /// Whether the toggle is on; `None` while an unknown build's toggle is
     /// untouched, so saving keeps it unknown.
     pub synchronized: Option<bool>,
-    /// Empty when the "don't know" box beside it is ticked.
+    /// Such as `2024-02-02`; empty when unknown.
     pub built_on: String,
     pub description: String,
     /// The build's own name, for a category that takes one.
@@ -192,15 +195,7 @@ impl Form {
             synchronized: get("synchronized_unknown")
                 .is_empty()
                 .then(|| !get("synchronized").is_empty()),
-            built_on: if get("built_on_unknown").is_empty() {
-                joined_date(
-                    &get("built_on_year"),
-                    &get("built_on_month"),
-                    &get("built_on_day"),
-                )
-            } else {
-                String::new()
-            },
+            built_on: get("built_on"),
             description: get("description"),
             given_name: get("given_name"),
             logic: get("logic"),
@@ -385,6 +380,68 @@ pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     })
 }
 
+/// What a details page shows beside its form: the file, and why the last
+/// try was refused, if it was.
+pub struct Shown<'a> {
+    pub file: File<'a>,
+    /// The file's blocks, when they can be read.
+    pub blocks: Option<&'a Blocks>,
+    /// Why the last attempt to publish or save was refused, if it was.
+    pub message: &'a str,
+    /// Whether the fields for choosing another file start open, with why
+    /// the last file chosen could not be read, if it could not.
+    pub choosing: Option<&'a str>,
+}
+
+/// The details page for `user`, its form as `form` has it. What every
+/// details page shows beside the file is worked out here: the lists the
+/// form chooses from, the viewer's Schemati folder, the file's inputs and
+/// outputs read for the category shown, typed for an upload and stored for
+/// a stored build, and what a category that reads the file, such as an
+/// adder, would take from it.
+pub async fn page(
+    db: &SqlitePool,
+    user: &User,
+    form: &Form,
+    shown: Shown<'_>,
+) -> Result<Response, AppError> {
+    let choices = choices(db).await?;
+    let folder = super::schemati::own_folder_quickly(db, user).await?;
+    let (category, conventional) = match &shown.file {
+        File::Upload { unconventional, .. } => (
+            Category::name_of(&choices.categories, &form.category),
+            !unconventional,
+        ),
+        File::Stored { s, .. } | File::Version { s, .. } => {
+            (s.category.clone(), s.conventional)
+        }
+    };
+    let analysis = shown.blocks.map_or_else(Analysis::default, |blocks| {
+        Analysis::of(blocks, &category, conventional)
+    });
+    // Whatever the category is now, in case it becomes one that reads
+    // the file.
+    let derived = shown
+        .blocks
+        .filter(|_| conventional)
+        .map(|blocks| import::read_from_file(&interface::read(blocks)))
+        .unwrap_or_default();
+    Ok(pages::details_page(
+        user,
+        &DetailsPage {
+            file: shown.file,
+            analysis: &analysis,
+            form,
+            choices: &choices,
+            derived,
+            message: shown.message,
+            choosing: shown.choosing,
+            schemati: &super::schemati::connection(folder.as_ref()),
+        },
+    )
+    .into_response())
+}
+
 /// The value a menu sent, such as an encoding; `None` when it sent none.
 fn chosen<T: std::str::FromStr<Err = String>>(
     value: &str,
@@ -408,29 +465,9 @@ pub fn first<'a>(pairs: &'a [(String, String)], key: &str) -> &'a str {
         .map_or("", |(_, v)| v.as_str())
 }
 
-/// The date the form's year, month, and day boxes give, as `2024-02-02`,
-/// a single-digit month or day taking a leading zero; empty when all are.
-/// One left out leaves a date the details' check refuses.
-fn joined_date(year: &str, month: &str, day: &str) -> String {
-    let [year, month, day] = [year, month, day].map(str::trim);
-    if [year, month, day].iter().all(|part| part.is_empty()) {
-        String::new()
-    } else {
-        format!("{year}-{month:0>2}-{day:0>2}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_date_boxes_join_into_one_date() {
-        assert_eq!(joined_date("2024", "2", " 9 "), "2024-02-09");
-        assert_eq!(joined_date("", "", ""), "");
-        // A part left out leaves no date.
-        assert_eq!(joined_date("2024", "", "09"), "2024-00-09");
-    }
 
     fn form(stackable: bool, rows: &[(&str, &str, &str)]) -> Form {
         Form {

@@ -240,10 +240,7 @@ pub struct Schematic {
 }
 
 impl Schematic {
-    pub fn tags_in<'a>(
-        &'a self,
-        kind: &'a str,
-    ) -> impl Iterator<Item = &'a Tag> + 'a {
+    pub fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
@@ -308,8 +305,8 @@ impl Schematic {
     /// `8-bit alpha Carry Lookahead Adder`.
     pub fn title(&self) -> String {
         self.measures()
-            .chain(self.tags_in("restriction").map(Tag::label))
-            .chain(self.tags_in("other").map(Tag::label))
+            .chain(self.tags_in(tag::Kind::Restriction).map(Tag::label))
+            .chain(self.tags_in(tag::Kind::Other).map(Tag::label))
             .chain(self.hex())
             .chain(self.kind())
             .collect::<Vec<_>>()
@@ -567,11 +564,12 @@ async fn tags_by_schematic(
 ) -> Result<HashMap<String, Vec<Tag>>, sqlx::Error> {
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
+        r#"SELECT schematic_tag.schematic_id, tag.name, tag.token,
+            tag.kind AS "kind: tag::Kind"
          FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
          WHERE ?1 IS NULL
             OR schematic_tag.schematic_id IN (SELECT value FROM json_each(?1))
-         ORDER BY tag.kind = 'other', tag.kind, tag.name",
+         ORDER BY tag.kind = 'other', tag.kind, tag.name"#,
         only
     )
     .fetch_all(db)
@@ -1050,7 +1048,7 @@ mod tests {
             tags: vec![Tag {
                 name: "alpha".to_owned(),
                 token: None,
-                kind: "restriction".to_owned(),
+                kind: tag::Kind::Restriction,
             }],
         }
     }

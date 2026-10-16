@@ -154,8 +154,8 @@ enum Command {
     /// Create a new tag, named in full words
     DefineTag {
         name: String,
-        #[arg(long, value_parser = ["restriction", "other"])]
-        kind: String,
+        #[arg(long)]
+        kind: tag::Kind,
         /// Abbreviation that filenames write instead of the name
         #[arg(long)]
         token: Option<String>,
@@ -463,13 +463,14 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         }
         Command::Tags => {
             for tag in tag::all(db).await? {
-                let token = tag.token.as_deref().unwrap_or("");
-                println!("{:<12} {:<8} {}", tag.kind, token, tag.label());
+                let (kind, token) =
+                    (tag.kind.name(), tag.token.as_deref().unwrap_or(""));
+                println!("{kind:<12} {token:<8} {}", tag.label());
             }
             Ok(())
         }
         Command::DefineTag { name, kind, token } => {
-            define_tag(db, &name, &kind, token.as_deref()).await
+            define_tag(db, &name, kind, token.as_deref()).await
         }
     }
 }
@@ -478,7 +479,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
 async fn define_tag(
     db: &SqlitePool,
     name: &str,
-    kind: &str,
+    kind: tag::Kind,
     token: Option<&str>,
 ) -> Result<()> {
     if tag::DERIVED.contains(&tag::name(name).as_str()) {
@@ -653,14 +654,13 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     details
         .flags
         .extend(import::sign_flags(&interface::read(&prepared.blocks)));
-    let build = details::Build {
-        data: &prepared.data,
-        conventional,
-    };
-    let ready = match details::check(db, details, build, true).await? {
-        Ok(ready) => ready,
-        Err(message) => bail!("{message}"),
-    };
+    let ready =
+        match details::check(db, details, details::Build::of(&prepared), true)
+            .await?
+        {
+            Ok(ready) => ready,
+            Err(message) => bail!("{message}"),
+        };
     let violations =
         Analysis::of(&prepared.blocks, &ready.category.name, conventional)
             .violations;

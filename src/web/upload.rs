@@ -18,7 +18,7 @@ use crate::{
     import::{self, Analysis, Prepared},
     interface,
     models::{
-        catalogue::{self, Category},
+        catalogue,
         schematic::{self, Schematic},
         similarity, simulation,
         user::User,
@@ -32,7 +32,7 @@ use crate::{
 
 use super::{
     form::{self, Form},
-    pages::{self, DetailsPage, File},
+    pages::{self, File},
 };
 
 /// The file behind a Schemati download link, or why it could not be had.
@@ -399,10 +399,7 @@ async fn publish_checked(
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
-    let build = details::Build {
-        data: &prepared.data,
-        conventional: prepared.conventional,
-    };
+    let build = details::Build::of(prepared);
     let ready = match details::check(db, given, build, user.is_admin()).await? {
         Ok(ready) => ready,
         Err(message) => return Ok(Err(message)),
@@ -450,40 +447,29 @@ async fn show_preview(
     let duplicate = version::holder(&state.db, &prepared.sha256)
         .await?
         .map(|(id, _)| id);
-    let choices = form::choices(&state.db).await?;
     let size = &prepared.size;
-    let size = (size.x.into(), size.y.into(), size.z.into());
-    let similar = closest(&state.db, &prepared.blocks, size).await?;
-    let folder = super::schemati::own_folder_quickly(&state.db, user).await?;
-    // Its lines are named, and its conventions checked, for the category
-    // chosen so far.
-    let category = Category::name_of(&choices.categories, &form.category);
-    let analysis =
-        Analysis::of(&prepared.blocks, &category, prepared.conventional);
-    let derived = import::derived("adder", &interface::read(&prepared.blocks));
-    let swappable = standardize::swappable(&prepared.blocks);
-    Ok(pages::details_page(
-        user,
-        &DetailsPage {
-            file: File::Upload {
-                data: &STANDARD.encode(&prepared.data),
-                size: [prepared.size.x, prepared.size.y, prepared.size.z],
-                duplicate: duplicate.as_deref(),
-                similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
-                keep_paste: prepared.keeps_paste,
-                unconventional: !prepared.conventional,
-                swapped: &prepared.swapped,
-                guess: said.guess,
-                hoppers: swappable.hoppers,
-            },
-            analysis: &analysis,
-            form,
-            choices: &choices,
-            derived,
-            message: said.message,
-            choosing: said.choosing,
-            schemati: &super::schemati::connection(folder.as_ref()),
-        },
+    let similar = closest(
+        &state.db,
+        &prepared.blocks,
+        (size.x.into(), size.y.into(), size.z.into()),
     )
-    .into_response())
+    .await?;
+    let file = File::Upload {
+        data: &STANDARD.encode(&prepared.data),
+        size: [size.x, size.y, size.z],
+        duplicate: duplicate.as_deref(),
+        similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
+        keep_paste: prepared.keeps_paste,
+        unconventional: !prepared.conventional,
+        swapped: &prepared.swapped,
+        guess: said.guess,
+        hoppers: standardize::swappable(&prepared.blocks).hoppers,
+    };
+    let shown = form::Shown {
+        file,
+        blocks: Some(&prepared.blocks),
+        message: said.message,
+        choosing: said.choosing,
+    };
+    form::page(&state.db, user, form, shown).await
 }

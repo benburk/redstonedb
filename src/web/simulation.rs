@@ -71,47 +71,59 @@ pub async fn poll(
         .into_response())
 }
 
-/// The cases, for the file being uploaded, carried in the form's `data`.
+/// Which part of a simulation the details form asks for: the cases, or,
+/// once they pass, the slower timing, as `?step=timing`.
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum Step {
+    #[default]
+    Cases,
+    Timing,
+}
+
+/// The address of a simulation's `Step`.
+#[derive(Deserialize)]
+pub struct Asked {
+    #[serde(default)]
+    step: Step,
+}
+
+/// Where the details form asks for the timing, given where it asks for
+/// the cases.
+pub fn timing_url(simulate: &str) -> String {
+    format!("{simulate}?step=timing")
+}
+
+/// The cases or the timing for the file being uploaded, carried in the
+/// form's `data`.
 pub async fn upload(
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Query(Asked { step }): Query<Asked>,
     body: Bytes,
 ) -> Result<Response, AppError> {
     let (pairs, data) = upload_file(user_opt.as_ref(), &body)?;
-    cases(&state, &pairs, data, None).await
+    match step {
+        Step::Cases => cases(&state, &pairs, data, None).await,
+        Step::Timing => timing(&state, &pairs, data, None).await,
+    }
 }
 
-/// The timing, for the file being uploaded.
-pub async fn upload_timing(
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-    body: Bytes,
-) -> Result<Response, AppError> {
-    let (pairs, data) = upload_file(user_opt.as_ref(), &body)?;
-    timing(&state, &pairs, data, None).await
-}
-
-/// The cases for stored build `id` under the category and width on its
-/// edit page, which may not be saved yet.
+/// The cases or the timing for stored build `id` under the category and
+/// width on its edit page, which may not be saved yet.
 pub async fn stored(
     Path(id): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Query(Asked { step }): Query<Asked>,
     body: Bytes,
 ) -> Result<Response, AppError> {
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
-    cases(&state, &form::pairs(&body), data, Some(&s)).await
-}
-
-/// The timing for stored build `id`, as `stored`.
-pub async fn stored_timing(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-    user_opt: Option<User>,
-    body: Bytes,
-) -> Result<Response, AppError> {
-    let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
-    timing(&state, &form::pairs(&body), data, Some(&s)).await
+    let pairs = form::pairs(&body);
+    match step {
+        Step::Cases => cases(&state, &pairs, data, Some(&s)).await,
+        Step::Timing => timing(&state, &pairs, data, Some(&s)).await,
+    }
 }
 
 type Pairs = Vec<(String, String)>;
@@ -207,7 +219,7 @@ async fn cases(
             Err(err) => return Ok(panel(&could_not(&err.to_string()))),
         },
     };
-    let timing = format!("{simulate}/timing");
+    let timing = timing_url(&simulate);
     Ok(panel(&pages::simulation_section(
         &report,
         Waiting::Posted(&timing),

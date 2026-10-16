@@ -59,20 +59,30 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
                     }
                 }
             }
-            section aria-labelledby="built-heading" class="mb-10" {
-                h2 id="built-heading" class={ (SECTION_TITLE) " mb-3" } { "Built" }
-                @if built.is_empty() {
-                    p class="text-muted" { "No builds credit " (name) " as builder yet." }
-                } @else {
-                    (cards(built, &[]))
-                }
-            }
-            @if !contributed.is_empty() {
-                section aria-labelledby="contributed-heading" {
-                    h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Helped with" }
-                    (cards(contributed, &[]))
-                }
-            }
+            (credits(built, contributed, &html! {
+                p class="text-muted" { "No builds credit " (name) " as builder yet." }
+            }))
         },
     )
+}
+
+/// The builds crediting a player, as builder and as contributor, as cards
+/// under their headings; `unbuilt` stands for the first when it is empty.
+pub(super) fn credits(
+    built: &[Schematic],
+    contributed: &[Schematic],
+    unbuilt: &Markup,
+) -> Markup {
+    html! {
+        section aria-labelledby="built-heading" class="mb-10" {
+            h2 id="built-heading" class={ (SECTION_TITLE) " mb-3" } { "Built" }
+            @if built.is_empty() { (unbuilt) } @else { (cards(built, &[])) }
+        }
+        @if !contributed.is_empty() {
+            section aria-labelledby="contributed-heading" class="mb-10" {
+                h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Contributed to" }
+                (cards(contributed, &[]))
+            }
+        }
+    }
 }

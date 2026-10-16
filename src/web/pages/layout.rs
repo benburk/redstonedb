@@ -1,6 +1,11 @@
+//! The frame every page shares, its header, and the pages with nothing
+//! else in them: not found and not allowed.
+
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{APP_NAME, models::user::User};
+
+use super::PAGE_TITLE;
 
 /// What the site is, for search results and link previews.
 const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
@@ -33,10 +38,10 @@ pub fn base(
                 meta name="description" content=(DESCRIPTION);
                 // The brand mark, inline, so there is no icon file to fetch.
                 link rel="icon" href=(ICON);
-                link rel="stylesheet" href=(crate::web::css_url());
+                link rel="stylesheet" href=(crate::web::CSS.url());
                 // fixi first, so the app's policies hear its every event.
-                script defer src=(crate::web::fixi_js_url()) {}
-                script defer src=(crate::web::app_js_url()) {}
+                script defer src=(crate::web::FIXI_JS.url()) {}
+                script defer src=(crate::web::APP_JS.url()) {}
             }
             body class="flex min-h-screen flex-col" {
                 a href="#main"
@@ -56,7 +61,9 @@ pub fn base(
     }
 }
 
-pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
+/// The site's header: its name, its pages, and the viewer's account or a
+/// way to log in, `current_path` marked as the page shown.
+fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
     let current = |path: &str| (current_path == path).then_some("page");
     let link = "whitespace-nowrap rounded-control px-2 py-1.5 desktop:px-2.5 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:font-semibold aria-[current=page]:text-ink";
     html! {
@@ -95,4 +102,40 @@ pub fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
             }
         }
     }
+}
+
+/// The page for an address that names nothing.
+pub fn not_found(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Not found",
+        "",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Not found" }
+                p class="mb-4" {
+                    "Nothing is here. The build or person may have been removed, or the address mistyped."
+                }
+                p { a href="/" { "See every build" } }
+            }
+        },
+    )
+}
+
+/// The page for a signed-in account that may not do what it asked.
+pub fn forbidden(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Not allowed",
+        "",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Not allowed" }
+                p class="mb-4" {
+                    "Your account doesn't have permission to do that."
+                }
+                p { a href="/" { "See every build" } }
+            }
+        },
+    )
 }

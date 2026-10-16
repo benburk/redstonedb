@@ -435,7 +435,7 @@ mod tests {
                 .map(|name| Tag {
                     name: (*name).to_owned(),
                     token: None,
-                    kind: "other".to_owned(),
+                    kind: crate::models::tag::Kind::Other,
                 })
                 .collect(),
         }

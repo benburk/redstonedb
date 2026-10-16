@@ -4,6 +4,18 @@
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
+named_values! {
+    /// What a tag says of a build, which colours its badge.
+    Kind {
+        /// A limit the build keeps, such as working from Alpha.
+        Restriction = "restriction", "Restriction";
+        Other = "other", "Other";
+        /// That the build fails its simulation, never stored.
+        #[value(skip)]
+        Failing = "failing", "Simulation";
+    }
+}
+
 /// A tag's name is written in full words joined by underscores, such as
 /// `carry_lookahead`.
 #[derive(Debug, Clone)]
@@ -11,8 +23,7 @@ pub struct Tag {
     pub name: String,
     /// A short form that commands and search accept.
     pub token: Option<String>,
-    /// `restriction`, `other`, or `failing`, which colours its badge.
-    pub kind: String,
+    pub kind: Kind,
 }
 
 /// The name of the tag simulation puts on a build that gets some cases
@@ -31,11 +42,11 @@ pub const ALPHA: &str = "alpha";
 pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];
 
 impl Tag {
-    fn derived(name: &str, kind: &str) -> Self {
+    fn derived(name: &str, kind: Kind) -> Self {
         Tag {
             name: name.to_owned(),
             token: None,
-            kind: kind.to_owned(),
+            kind,
         }
     }
 
@@ -87,12 +98,12 @@ pub(super) fn with_derived(
         // Restrictions come first, by name.
         let at = tags
             .iter()
-            .position(|tag| tag.kind != "restriction" || *tag.name > *name)
+            .position(|tag| tag.kind != Kind::Restriction || *tag.name > *name)
             .unwrap_or(tags.len());
-        tags.insert(at, Tag::derived(name, "restriction"));
+        tags.insert(at, Tag::derived(name, Kind::Restriction));
     }
     if fails_simulation {
-        tags.insert(0, Tag::derived(FAILS_SIMULATION, "failing"));
+        tags.insert(0, Tag::derived(FAILS_SIMULATION, Kind::Failing));
     }
     tags
 }
@@ -109,7 +120,7 @@ pub(super) async fn set(
         .await?;
     for name in names {
         if find(&mut *tx, name).await?.is_none() {
-            define(&mut *tx, name, None, "other").await?;
+            define(&mut *tx, name, None, Kind::Other).await?;
         }
         let tag = find(&mut *tx, name)
             .await?
@@ -199,8 +210,8 @@ pub async fn all<'e, E: SqliteExecutor<'e>>(
 ) -> Result<Vec<Tag>, sqlx::Error> {
     sqlx::query_as!(
         Tag,
-        "SELECT name, token, kind FROM tag
-         ORDER BY kind = 'other', kind, name"
+        r#"SELECT name, token, kind AS "kind: Kind" FROM tag
+         ORDER BY kind = 'other', kind, name"#
     )
     .fetch_all(db)
     .await
@@ -210,7 +221,7 @@ pub async fn define<'e, E: SqliteExecutor<'e>>(
     db: E,
     name: &str,
     token: Option<&str>,
-    kind: &str,
+    kind: Kind,
 ) -> Result<(), sqlx::Error> {
     let name = self::name(name);
     sqlx::query!(
@@ -228,17 +239,18 @@ pub async fn define<'e, E: SqliteExecutor<'e>>(
 mod tests {
     use super::*;
 
-    fn tag(name: &str, kind: &str) -> Tag {
+    fn tag(name: &str, kind: Kind) -> Tag {
         Tag {
             name: name.to_owned(),
             token: None,
-            kind: kind.to_owned(),
+            kind,
         }
     }
 
     #[test]
     fn a_build_without_torches_is_torchless_among_its_restrictions() {
-        let stored = vec![tag("alpha", "restriction"), tag("buffer", "other")];
+        let stored =
+            vec![tag("alpha", Kind::Restriction), tag("buffer", Kind::Other)];
         let names = |tags: Vec<Tag>| -> Vec<String> {
             tags.into_iter().map(|tag| tag.name).collect()
         };
@@ -256,7 +268,7 @@ mod tests {
             "an uncounted build is not torchless yet"
         );
         // Alpha is read from the file too, before torchless by name.
-        let other = vec![tag("buffer", "other")];
+        let other = vec![tag("buffer", Kind::Other)];
         assert_eq!(
             names(with_derived(other, false, Some(0), Some("Alpha"))),
             ["alpha", "torchless", "buffer"]

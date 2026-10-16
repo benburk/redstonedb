@@ -5,7 +5,8 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
-    category, import,
+    category,
+    import::{self, Analysis},
     interface::Interface,
     models::{
         catalogue::{Flag, Measure},
@@ -19,11 +20,11 @@ use crate::{
 };
 
 use super::{
-    Analysis, PAGE_TITLE, SECTION_TITLE, Waiting, base, beside_viewer,
-    cases_pending, delete_dialog, download_dialog, field, grouped,
-    interface_section, name_badges, person_badge, plural, search_link,
-    similar_section, simulation_section, size, stack_guide, stacking_found,
-    version, violations_section,
+    PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
+    interface::{interface_section, violations_section},
+    name_badges, percent, person_badge, plural, search_link,
+    simulation::{Waiting, cases_pending, simulation_section, stacking_words},
+    size, stack_guide, version,
 };
 
 /// A seal with a check, Heroicons' `check-badge`: what the simulator or
@@ -460,7 +461,7 @@ fn specs(
                     _ => None,
                 });
                 (field("Stacks", sourced(match found {
-                    Some(stacking) => hover_note("stacks-note", &stacks, &super::stacking_words(stacking)),
+                    Some(stacking) => hover_note("stacks-note", &stacks, &stacking_words(stacking)),
                     None => stacks,
                 }, sources.stacking)))
                 @if let Some(synced) = s.synchronized {
@@ -581,6 +582,116 @@ fn credits(s: &Schematic) -> Markup {
                     } else {
                         search_link("not followed", "unconventional")
                     }))
+                }
+            }
+        }
+    }
+}
+
+/// Whether the simulation found how build `s` stacks, rather than its
+/// builder giving it: an adder's always, and a register's when its copies
+/// stored and read right.
+fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
+    let found = report.is_some_and(|report| {
+        matches!(report, Report::Ran(run) if matches!(
+            run.stacking,
+            Some(
+                Stacking::Stacks { .. }
+                    | Stacking::Registers { .. }
+                    | Stacking::Wider { .. }
+            )
+        ))
+    });
+    s.conventional
+        && match category::behaviour(&s.category).stacking {
+            category::Stacking::Inferred => true,
+            category::Stacking::Found => found,
+            category::Stacking::Given => false,
+        }
+}
+
+/// An admin's confirmation before deleting a build.
+fn delete_dialog(s: &Schematic) -> Markup {
+    html! {
+        dialog id="delete" aria-labelledby="delete-heading"
+            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            form action={ "/schematics/" (s.id) "/delete" } method="post" class="flex flex-col gap-4" {
+                h2 id="delete-heading" class=(SECTION_TITLE) { "Delete " (s.name()) "?" }
+                p { "The build, its file, tags, and credits are removed for good." }
+                div class="flex items-center gap-4" {
+                    button type="submit" class="btn btn-danger" { "Delete" }
+                    button type="button" commandfor="delete" command="close" class="btn btn-quiet" { "Cancel" }
+                }
+            }
+        }
+    }
+}
+
+/// The choices for downloading a build: copies of a stackable one, and
+/// glass corner markers for `WorldEdit`; and, for someone `signed_in`, a
+/// button that sends the file so made to their Schemati instead.
+fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
+    let path = format!("/schematics/{}", s.id);
+    html! {
+        dialog id="download" aria-labelledby="download-heading"
+            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            form action={ (path) "/download" } method="get" class="flex flex-col gap-4" {
+                h2 id="download-heading" class=(SECTION_TITLE) { "Download" }
+                @if !s.stacking.is_empty() {
+                    div class="flex gap-2" {
+                        @for direction in &s.stacking {
+                            label class="field flex-1" {
+                                span { "Copies " (direction.name().replace('-', " and ")) }
+                                input type="number" name=(direction.name()) min="1"
+                                    max=[direction.max_copies] value="1" required
+                                    class="input tabular-nums";
+                            }
+                        }
+                    }
+                }
+                label class="flex items-start gap-2" {
+                    input type="checkbox" name="markers" value="yes" class="mt-1 size-4 appearance-auto";
+                    span { "Add a glass block off each corner, for WorldEdit to select the build by" }
+                }
+                div class="flex flex-wrap items-center gap-4" {
+                    button type="submit" class="btn btn-primary" { "Download" }
+                    @if signed_in {
+                        button type="submit" formaction={ (path) "/schemati" } formmethod="post"
+                            fx-action={ (path) "/schemati" } fx-method="post" fx-target="#sent" fx-swap="innerHTML"
+                            class="btn btn-quiet" {
+                            "Send to Schemati"
+                        }
+                    }
+                    button type="button" commandfor="download" command="close" class="btn btn-quiet" { "Cancel" }
+                }
+                @if signed_in {
+                    div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
+                }
+            }
+        }
+    }
+}
+
+/// The builds of its category a build is similar to, the most alike first.
+fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
+    html! {
+        section aria-labelledby="similar-heading" {
+            h2 id="similar-heading" class={ (SECTION_TITLE) " mb-1" } { "Similar builds" }
+            p class="mb-3 text-meta text-muted" {
+                "Share of their redstone that lines up, turned or mirrored as need be."
+            }
+            ul class="flex flex-col gap-1.5" {
+                @for (other, permille) in similar {
+                    li class="flex items-baseline justify-between gap-4" {
+                        span {
+                            a href={ "/schematics/" (other.id) } { (other.title()) }
+                            span class="text-muted" {
+                                @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
+                                ", " (size(other))
+                            }
+                        }
+                        span class="tabular-nums text-muted whitespace-nowrap" { (percent(*permille)) }
+                    }
                 }
             }
         }

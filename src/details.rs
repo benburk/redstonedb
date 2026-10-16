@@ -6,6 +6,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     category,
+    import::Prepared,
     models::{
         catalogue::{self, Category, Measure},
         schematic::{
@@ -98,6 +99,16 @@ pub struct Build<'a> {
     pub conventional: bool,
 }
 
+impl<'a> Build<'a> {
+    /// A file as `import::prepare` made it.
+    pub fn of(prepared: &'a Prepared) -> Self {
+        Build {
+            data: &prepared.data,
+            conventional: prepared.conventional,
+        }
+    }
+}
+
 /// Details that keep every rule, ready to store.
 pub struct Ready {
     /// The category, as the list has it, or one of the builder's own.
@@ -182,8 +193,13 @@ async fn ready(
             .into());
     }
     let design = details.design.take().unwrap_or_else(|| "other".to_owned());
-    let category =
-        catalogue::check_category(db, &details.category, &design).await??;
+    let designs = catalogue::designs(db).await?;
+    let category = catalogue::check_category(
+        &categories,
+        &designs,
+        &details.category,
+        &design,
+    )?;
     details.design = Some(design);
 
     let positive = |n: Option<i64>| n.filter(|n| *n > 0);
@@ -237,8 +253,15 @@ fn shaped(details: &Details) -> Result<(), String> {
     {
         return Err("A name is at most 60 characters.".to_owned());
     }
-    if details.built_on.as_deref().is_some_and(|d| !is_date(d)) {
-        return Err("Built on must be a date such as 2024-02-02.".to_owned());
+    if let Some(date) = details.built_on.as_deref() {
+        if !is_date(date) {
+            return Err(
+                "Built on must be a date such as 2024-02-02.".to_owned()
+            );
+        }
+        if *date > *latest_build_date().to_string() {
+            return Err("Built on is a date still to come.".to_owned());
+        }
     }
     if let Some(name) = details
         .tags
@@ -258,6 +281,13 @@ fn shaped(details: &Details) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// The latest date a build can have been built on: tomorrow, as the server
+/// counts days, since it is already tomorrow in some time zones.
+pub fn latest_build_date() -> time::Date {
+    let today = time::OffsetDateTime::now_utc().date();
+    today.next_day().unwrap_or(today)
 }
 
 /// Whether `d` is a real day written as `yyyy-mm-dd`, such as `2024-02-29`.

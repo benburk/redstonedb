@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name, token, kind FROM tag\n         ORDER BY kind = 'other', kind, name",
+  "query": "SELECT name, token, kind AS \"kind: Kind\" FROM tag\n         ORDER BY kind = 'other', kind, name",
   "describe": {
     "columns": [
       {
@@ -14,7 +14,7 @@
         "type_info": "Text"
       },
       {
-        "name": "kind",
+        "name": "kind: Kind",
         "ordinal": 2,
         "type_info": "Text"
       }
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "66b97fdea15eb0b384a2bcd325fa6e89d0d8fd78fc805b3d553448f2260070c5"
+  "hash": "065215783e458dfa657b31b350b1476a036f51c1e140c283d8b9e4780c3cae33"
 }
