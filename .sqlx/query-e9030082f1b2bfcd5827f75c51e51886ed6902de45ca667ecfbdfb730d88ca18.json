@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic_id, west, up, north, max_copies\n         FROM stack_direction ORDER BY west DESC, up DESC, north DESC",
+  "query": "SELECT schematic_id, west, up, north, max_copies\n         FROM stack_direction\n         WHERE ?1 IS NULL\n            OR schematic_id IN (SELECT value FROM json_each(?1))\n         ORDER BY west DESC, up DESC, north DESC",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -40,5 +40,5 @@
       true
     ]
   },
-  "hash": "0228ca327bfeaa134eb4f44019302dcae53204e308e2d0b6ce17f50d3d3c351a"
+  "hash": "e9030082f1b2bfcd5827f75c51e51886ed6902de45ca667ecfbdfb730d88ca18"
 }

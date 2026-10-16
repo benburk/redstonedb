@@ -188,8 +188,8 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
     let db = setup_test_db().await;
     sqlx::query(
         "INSERT INTO schematic (id, category, orientation, size_x, size_y,
-            size_z, sha256, data, imported_by)
-         VALUES ('b', 'adder', 'horz', 1, 1, 1, 'h', x'00', 'PISHLEBACK')",
+            size_z, imported_by)
+         VALUES ('b', 'adder', 'horz', 1, 1, 1, 'PISHLEBACK')",
     )
     .execute(&db)
     .await
@@ -237,14 +237,14 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 
 #[tokio::test]
 async fn only_an_admin_may_name_a_new_tag() {
-    use app::models::schematic::{check_new_tags, define_tag};
+    use app::models::tag::{check_new, define};
     let db = setup_test_db().await;
-    define_tag(&db, "instant", None, "other").await.unwrap();
+    define(&db, "instant", None, "other").await.unwrap();
     let known = vec!["instant".to_owned()];
     let new = vec!["instant".to_owned(), "made_up".to_owned()];
-    assert_eq!(check_new_tags(&db, &known, false).await.unwrap(), Ok(()));
-    let refused = check_new_tags(&db, &new, false).await.unwrap().unwrap_err();
+    assert_eq!(check_new(&db, &known, false).await.unwrap(), Ok(()));
+    let refused = check_new(&db, &new, false).await.unwrap().unwrap_err();
     assert!(refused.contains("made up"), "{refused}");
     assert!(refused.contains("only an admin"), "{refused}");
-    assert_eq!(check_new_tags(&db, &new, true).await.unwrap(), Ok(()));
+    assert_eq!(check_new(&db, &new, true).await.unwrap(), Ok(()));
 }

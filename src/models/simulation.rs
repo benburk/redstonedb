@@ -14,7 +14,10 @@ use tokio::sync::Semaphore;
 
 use crate::{
     category, import, interface,
-    models::schematic::{self, Schematic, StackDirection},
+    models::schematic::{
+        self, Encoding, Orientation, Schematic, StackDirection,
+    },
+    models::version,
     schem::Blocks,
     simulate::{Report, Stacking, Test, Timing},
 };
@@ -227,7 +230,7 @@ pub async fn refresh(
     again: bool,
 ) -> Result<Option<Report>> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
-    let data = schematic::data(db, id)
+    let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     let mut derived = Derived::of(&s);
@@ -274,8 +277,8 @@ pub async fn refresh(
 #[derive(PartialEq)]
 struct Derived {
     width: Option<i64>,
-    orientation: String,
-    encoding: Option<String>,
+    orientation: Orientation,
+    encoding: Option<Encoding>,
     latency: Option<i64>,
     synchronized: Option<bool>,
     flags: Vec<String>,
@@ -287,8 +290,8 @@ impl Derived {
     fn of(s: &Schematic) -> Self {
         Derived {
             width: s.width,
-            orientation: s.orientation.clone(),
-            encoding: s.encoding.clone(),
+            orientation: s.orientation,
+            encoding: s.encoding,
             latency: s.latency,
             synchronized: s.synchronized,
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
@@ -304,10 +307,10 @@ impl Derived {
             self.width = Some(width);
         }
         if let Some(orientation) = found.orientation {
-            orientation.clone_into(&mut self.orientation);
+            self.orientation = orientation;
         }
         if let Some(encoding) = found.encoding {
-            self.encoding = Some(encoding.to_owned());
+            self.encoding = Some(encoding);
         }
         if let Some(flags) = import::derived_flags(category, &interface) {
             self.flags = flags;
@@ -373,7 +376,7 @@ impl Derived {
         ) = &run.stacking
             && let Some(orientation) = step.orientation()
         {
-            orientation.clone_into(&mut self.orientation);
+            self.orientation = orientation;
         }
     }
 
@@ -390,8 +393,8 @@ impl Derived {
         let columns = |d: &Derived| {
             (
                 d.width,
-                d.orientation.clone(),
-                d.encoding.clone(),
+                d.orientation,
+                d.encoding,
                 d.latency,
                 d.synchronized,
             )
@@ -401,8 +404,8 @@ impl Derived {
                 &mut *tx,
                 &s.id,
                 self.width,
-                &self.orientation,
-                self.encoding.as_deref(),
+                self.orientation,
+                self.encoding,
                 self.latency,
                 self.synchronized,
             )
@@ -437,7 +440,7 @@ pub async fn refresh_timing(
         && (again || run.timing.is_none())
     {
         let test = Test::of(&s.category, s.width).context("no test")?;
-        let data = schematic::data(db, id)
+        let data = version::current_file(db, id)
             .await?
             .context("schematic vanished")?;
         let cancel = Arc::new(AtomicBool::new(false));

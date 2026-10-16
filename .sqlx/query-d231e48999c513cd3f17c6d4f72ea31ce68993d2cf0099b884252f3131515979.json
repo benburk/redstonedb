@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO schematic_version\n                    (schematic_id, version, data, sha256, added_by, note)\n                 VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "d231e48999c513cd3f17c6d4f72ea31ce68993d2cf0099b884252f3131515979"
+}

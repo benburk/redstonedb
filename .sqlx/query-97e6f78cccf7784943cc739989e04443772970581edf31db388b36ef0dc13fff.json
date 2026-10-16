@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind\n         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id\n         ORDER BY tag.kind = 'other', tag.kind, tag.name",
+  "query": "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind\n         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id\n         WHERE ?1 IS NULL\n            OR schematic_tag.schematic_id IN (SELECT value FROM json_each(?1))\n         ORDER BY tag.kind = 'other', tag.kind, tag.name",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "4f859569914319263549ce5d68ba47f3f1a2620f397e76833fd76f1fcfde5b90"
+  "hash": "97e6f78cccf7784943cc739989e04443772970581edf31db388b36ef0dc13fff"
 }

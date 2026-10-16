@@ -8,7 +8,11 @@ use crate::{
     details::Details,
     import,
     interface::Interface,
-    models::schematic::{self, Category, Schematic, StackDirection},
+    models::{
+        catalogue::{self, Category},
+        schematic::{self, Encoding, Orientation, Schematic, StackDirection},
+        tag,
+    },
     schem::Size,
     simulate::Guess,
 };
@@ -52,11 +56,11 @@ impl StackRow {
     /// A likely first direction for a build whose bits run along
     /// `orientation`, with core `size`: copies placed its size apart the
     /// way the bits run. A diagonal build's step is left to the person.
-    pub fn suggested(orientation: &str, size: (i64, i64, i64)) -> Self {
+    pub fn suggested(orientation: Orientation, size: (i64, i64, i64)) -> Self {
         let (direction, step) = match orientation {
-            "vert" => ("up", size.1.to_string()),
-            "diag" => ("west-up", String::new()),
-            _ => ("west", size.0.to_string()),
+            Orientation::Horizontal => ("west", size.0.to_string()),
+            Orientation::Vertical => ("up", size.1.to_string()),
+            Orientation::Diagonal => ("west-up", String::new()),
         };
         StackRow {
             direction: direction.to_owned(),
@@ -108,7 +112,9 @@ pub struct Form {
     /// capitals, or else a name of the builder's own.
     pub category: String,
     pub width: String,
+    /// An [`Orientation`]'s name.
     pub orientation: String,
+    /// An [`Encoding`]'s name; empty for none.
     pub encoding: String,
     pub latency: String,
     /// Whether the toggle is on; `None` while an unknown build's toggle is
@@ -119,7 +125,7 @@ pub struct Form {
     pub description: String,
     /// The build's own name, for a category that takes one.
     pub given_name: String,
-    /// `comb` or `seq`; empty follows the category.
+    /// A [`schematic::Logic`]'s name; empty follows the category.
     pub logic: String,
     /// The fewest ticks from one input to the next.
     pub throughput: String,
@@ -216,7 +222,7 @@ impl Form {
             contributors: all("contributor", "contributor_entry"),
             tags: all("tag", "tag_entry")
                 .iter()
-                .map(|name| schematic::tag_name(name))
+                .map(|name| tag::name(name))
                 .collect(),
         }
     }
@@ -226,17 +232,18 @@ impl Form {
         let number =
             |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
         let text = |t: &Option<String>| t.clone().unwrap_or_default();
+        let name = |name: Option<&str>| name.unwrap_or_default().to_owned();
         Form {
             category: s.category.clone(),
             width: number(s.width),
-            orientation: s.orientation.clone(),
-            encoding: text(&s.encoding),
+            orientation: s.orientation.name().to_owned(),
+            encoding: name(s.encoding.map(Encoding::name)),
             latency: number(s.latency),
             synchronized: s.synchronized,
             built_on: text(&s.built_on),
             description: text(&s.description),
             given_name: text(&s.given_name),
-            logic: text(&s.own_logic),
+            logic: name(s.own_logic.map(schematic::Logic::name)),
             throughput: number(s.throughput),
             bytes: number(s.bytes),
             at_least: number(s.at_least),
@@ -249,7 +256,7 @@ impl Form {
             stackable: !s.stacking.is_empty(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
-                vec![StackRow::suggested(&s.orientation, s.size)]
+                vec![StackRow::suggested(s.orientation, s.size)]
             } else {
                 s.stacking.iter().map(StackRow::of).collect()
             },
@@ -275,12 +282,12 @@ impl Form {
     ) -> Self {
         let category = guess.map_or("", |guess| guess.category).to_owned();
         let (width, orientation) = import::guess(interface);
-        let orientation = orientation.unwrap_or("horz");
+        let orientation = orientation.unwrap_or_default();
         let size = (size.x.into(), size.y.into(), size.z.into());
         Form {
             width: width.map(|w| w.to_string()).unwrap_or_default(),
-            orientation: orientation.to_owned(),
-            encoding: "bin".to_owned(),
+            orientation: orientation.name().to_owned(),
+            encoding: Encoding::Binary.name().to_owned(),
             // Most builds are; the uploader says when one is not.
             synchronized: Some(true),
             design: "other".to_owned(),
@@ -322,7 +329,7 @@ impl Form {
     }
 
     /// The details the text gives, or a sentence saying which field is not
-    /// a number or a stacking step. The rules they must keep are
+    /// a number, one of its choices, or a stacking step. The rules they must keep are
     /// [`crate::details::check`]'s; `categories` only says whose group of
     /// flags counts.
     pub fn parse(&self, categories: &[Category]) -> Result<Details, String> {
@@ -341,14 +348,14 @@ impl Form {
         Ok(Details {
             category: self.category.clone(),
             width: number(&self.width, "Width")?,
-            orientation: self.orientation.clone(),
-            encoding: Some(self.encoding.clone()).filter(|e| !e.is_empty()),
+            orientation: self.orientation.parse()?,
+            encoding: chosen(&self.encoding)?,
             latency: number(&self.latency, "Latency")?,
             synchronized: self.synchronized,
             built_on: text(&self.built_on),
             description: text(&self.description),
             given_name: text(&self.given_name),
-            logic: text(&self.logic),
+            logic: chosen(&self.logic)?,
             throughput: number(&self.throughput, "Throughput")?,
             bytes: number(&self.bytes, "Capacity")?,
             at_least: number(&self.at_least, "At least")?,
@@ -370,12 +377,20 @@ impl Form {
 /// The lists a details form chooses from or suggests.
 pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
-        categories: schematic::categories(db).await?,
-        designs: schematic::designs(db).await?,
-        flags: schematic::flags(db).await?,
+        categories: catalogue::categories(db).await?,
+        designs: catalogue::designs(db).await?,
+        flags: catalogue::flags(db).await?,
         people: schematic::all_people(db).await?,
-        tags: schematic::all_tags(db).await?,
+        tags: tag::all(db).await?,
     })
+}
+
+/// The value a menu sent, such as an encoding; `None` when it sent none.
+fn chosen<T: std::str::FromStr<Err = String>>(
+    value: &str,
+) -> Result<Option<T>, String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.parse()).transpose()
 }
 
 /// The pairs of a urlencoded body.

@@ -35,7 +35,7 @@ use anyhow::{Result, ensure};
 
 use crate::{
     category, interface, lint,
-    models::schematic::StackDirection,
+    models::schematic::{Orientation, StackDirection},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -51,43 +51,41 @@ const WHITE: &str = "minecraft:white_concrete";
 /// data inputs and outputs; copies across a register's bits share its
 /// buses, which only the first copy drives and reads.
 #[derive(Clone, Copy)]
-pub struct Buses<'a> {
+pub struct Buses {
     /// Whether the category's copies across its bits share its buses, as
     /// `category::Behaviour::shared_buses` says.
     shared: bool,
-    orientation: &'a str,
+    /// The way the build's bits run; `None` when it does not matter.
+    orientation: Option<Orientation>,
 }
 
-impl<'a> Buses<'a> {
-    pub fn of(category: &str, orientation: &'a str) -> Self {
+impl Buses {
+    pub fn of(category: &str, orientation: Orientation) -> Self {
         Buses {
             shared: category::behaviour(category).shared_buses,
-            orientation,
+            orientation: Some(orientation),
         }
     }
 
     /// For a build whose every copy keeps its own buses, as an adder's.
-    pub fn own() -> Buses<'static> {
+    pub fn own() -> Buses {
         Buses {
             shared: false,
-            orientation: "",
+            orientation: None,
         }
+    }
+
+    /// Whether copies stacked `direction` add bits, running the way the
+    /// build's bits do.
+    fn along_bits(self, direction: StackDirection) -> bool {
+        self.orientation
+            .is_some_and(|orientation| direction.adds_bits(orientation))
     }
 
     /// Whether copies stacked `direction` share the data buses.
     fn shared(self, direction: StackDirection) -> bool {
-        self.shared && !along_bits(self.orientation, direction)
+        self.shared && !self.along_bits(direction)
     }
-}
-
-/// Whether copies stacked `direction` of a build whose bits run
-/// `orientation` add bits: west for a horizontal build, up for a vertical
-/// one, west and up for a diagonal one.
-fn along_bits(orientation: &str, direction: StackDirection) -> bool {
-    matches!(
-        (orientation, direction.name().as_str()),
-        ("horz", "west") | ("vert", "up") | ("diag", "west-up")
-    )
 }
 
 /// The stored file stacked with `copies` along each direction, with the
@@ -284,7 +282,7 @@ pub fn review(
     let shared = buses.shared(direction);
     let first_copy = first_copy(&blocks, step, shared);
     let disagreements = disagreements(&blocks, step, &first_copy);
-    let along = along_bits(buses.orientation, direction);
+    let along = buses.along_bits(direction);
     let shape = shape(data, &blocks, direction, along, shared)?;
     let better = if disagreements.is_empty() {
         None

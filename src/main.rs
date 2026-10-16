@@ -47,10 +47,6 @@ async fn main() {
     configure_logging();
 
     let db = connect_to_database().await;
-    // Builds stored before a fact was read from files are read once.
-    if let Err(err) = app::import::read_files(&db).await {
-        tracing::error!("could not read files: {err:#}");
-    }
     // Builds not yet compared with their category's others are, in the
     // background.
     app::models::similarity::refresh_soon(&db);

@@ -13,7 +13,7 @@ use crate::{
     models::{schematic, version},
 };
 
-use super::schematics::{editor, show_edit};
+use super::schematics::{editable, show_edit};
 
 /// The edit page, its form for choosing a new version open.
 pub async fn form(
@@ -21,8 +21,8 @@ pub async fn form(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
-    let user = editor(&state.db, user, &id).await?;
-    show_edit(&state.db, &user, &id, None, "", None, Some("")).await
+    let s = editable(&state.db, &user, &id).await?;
+    show_edit(&state.db, &user, &s, None, "", None, Some("")).await
 }
 
 /// An earlier version's file, under the build's filename with its number.

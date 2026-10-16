@@ -8,8 +8,10 @@ use crate::{
     category, import,
     interface::Interface,
     models::{
-        schematic::{self, Flag, Measure, Schematic, StackDirection},
+        catalogue::{Flag, Measure},
+        schematic::{Logic, Schematic, StackDirection},
         simulation::Status,
+        tag,
         user::User,
         version::Version,
     },
@@ -234,12 +236,11 @@ impl Sources {
                 passed,
             ),
             orientation: checked(
-                derived.orientation == Some(s.orientation.as_str()),
+                derived.orientation == Some(s.orientation),
                 false,
             ),
             encoding: checked(
-                derived.encoding.is_some()
-                    && derived.encoding == s.encoding.as_deref(),
+                derived.encoding.is_some() && derived.encoding == s.encoding,
                 false,
             ),
             timing: checked(
@@ -295,7 +296,7 @@ pub fn build_info(
             class="flex flex-col gap-8" {
             (facts(s, &sources))
             // A failing build says so beside its title, not among its tags.
-            @let tags: Vec<_> = s.tags.iter().filter(|tag| tag.name != schematic::FAILS_SIMULATION).collect();
+            @let tags: Vec<_> = s.tags.iter().filter(|tag| tag.name != tag::FAILS_SIMULATION).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
                     @for tag in tags {
@@ -347,7 +348,7 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
             dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3" {
                 @for &measure in &s.measures {
                     @let source = if measure == Measure::Width { sources.width } else { Source::Given };
-                    (fact(measure.heading(), measure.of(s).map_or_else(unknown, |n| {
+                    (fact(measure.label(), measure.of(s).map_or_else(unknown, |n| {
                         sourced(search_link(&measure.words(n), &measure.term(n)), source)
                     })))
                 }
@@ -438,9 +439,9 @@ fn specs(
                 @if let Some(design) = s.design_label() {
                     (field("Design", search_link(&design, &s.design)))
                 }
-                (field("Orientation", sourced(search_link(s.orientation_label(), &s.orientation_label().to_lowercase()), sources.orientation)))
-                @if let Some(encoding) = s.encoding_label() {
-                    (field("Encoding", sourced(search_link(encoding, &format!("encoding:{}", s.encoding.as_deref().unwrap_or_default())), sources.encoding)))
+                (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation)))
+                @if let Some(encoding) = s.encoding {
+                    (field("Encoding", sourced(search_link(encoding.label(), &format!("encoding:{}", encoding.name())), sources.encoding)))
                 }
                 // A serial build's throughput is among its measures.
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
@@ -465,10 +466,8 @@ fn specs(
                 @if let Some(synced) = s.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing)))
                 }
-                @match s.logic.as_deref() {
-                    Some("comb") => (field("Stateless", flag(true, Some("stateless")))),
-                    Some("seq") => (field("Stateless", flag(false, Some("stateful")))),
-                    _ => {}
+                @if let Some(logic) = s.logic {
+                    (field("Stateless", flag(logic == Logic::Stateless, Some(logic.name()))))
                 }
                 @if s.pipelined() {
                     (field("Pipelined", flag(true, Some("pipelined"))))

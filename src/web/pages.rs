@@ -10,7 +10,9 @@ use crate::{
     interface::{Bit, Interface, Port},
     lint::Violation,
     models::{
-        schematic::{self, Category, Design, Flag, Measure, Schematic, Tag},
+        catalogue::{Category, Design, Flag, Measure, Section},
+        schematic::{Encoding, Logic, Orientation, Schematic},
+        tag::Tag,
         user::{Role, User},
     },
     search::Term,
@@ -95,9 +97,8 @@ pub struct Facet {
     pub label: String,
     /// How many builds of it match the search.
     pub count: usize,
-    /// Its sidebar section, one of [`schematic::SECTIONS`]; `None` for
-    /// Other.
-    pub section: Option<String>,
+    /// Its sidebar section; `None` for Other.
+    pub section: Option<Section>,
 }
 
 /// Where the home page's links lead: its layout, search, and category.
@@ -207,11 +208,8 @@ fn category_sidebar(
             }
         }
     };
-    let in_section = |section: Option<&str>| -> Vec<&Facet> {
-        facets
-            .iter()
-            .filter(|f| f.section.as_deref() == section)
-            .collect()
+    let in_section = |section: Option<Section>| -> Vec<&Facet> {
+        facets.iter().filter(|f| f.section == section).collect()
     };
     let rest = in_section(None);
     html! {
@@ -225,11 +223,11 @@ fn category_sidebar(
             @if let Some((label, all_href, count)) = all {
                 ul class=(list) { (link(all_href, label, count, current.is_empty())) }
             }
-            @for (name, heading) in schematic::SECTIONS {
-                @let members = in_section(Some(name));
+            @for &section in Section::ALL {
+                @let members = in_section(Some(section));
                 @if !members.is_empty() {
-                    h3 id={ "section-" (name) } class="mt-5 mb-1 px-2.5 text-section font-semibold" { (heading) }
-                    ul aria-labelledby={ "section-" (name) } class=(list) {
+                    h3 id={ "section-" (section.name()) } class="mt-5 mb-1 px-2.5 text-section font-semibold" { (section.label()) }
+                    ul aria-labelledby={ "section-" (section.name()) } class=(list) {
                         @for facet in members {
                             (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))
                         }
@@ -560,8 +558,8 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
                                         (stacked_note(s, terms))
                                         (badges(s, "mt-1.5"))
                                     }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.orientation_label()) }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding_label().unwrap_or_default()) }
+                                    td class={ (TABLE_CELL) " " (secondary) } { (s.orientation.label()) }
+                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding.map_or("", Encoding::label)) }
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
@@ -1424,15 +1422,12 @@ fn percent(permille: u32) -> String {
 /// its key and heading, with its categories, then any in none under Other.
 /// A section with no categories is left out.
 fn sections(categories: &[Category]) -> Vec<(&str, &str, Vec<&Category>)> {
-    let of = |section: Option<&str>| -> Vec<&Category> {
-        categories
-            .iter()
-            .filter(|c| c.section.as_deref() == section)
-            .collect()
+    let of = |section: Option<Section>| -> Vec<&Category> {
+        categories.iter().filter(|c| c.section == section).collect()
     };
-    schematic::SECTIONS
+    Section::ALL
         .iter()
-        .map(|&(key, heading)| (key, heading, of(Some(key))))
+        .map(|&section| (section.name(), section.label(), of(Some(section))))
         .chain([("other", "Other", of(None))])
         .filter(|(_, _, members)| !members.is_empty())
         .collect()
@@ -1493,7 +1488,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name) data-named[category.named]
-                                    data-logic=(category.logic.as_deref().map_or("unknown", schematic::logic_label).to_lowercase())
+                                    data-logic=(category.logic.map_or("unknown", Logic::name))
                                     data-reads-file[behaviour.reads_file]
                                     data-infers-stacking[behaviour.stacking == category::Stacking::Inferred]
                                     data-finds-stacking[behaviour.stacking == category::Stacking::Found]
@@ -1590,15 +1585,6 @@ fn flag_group(
     }
 }
 
-/// An orientation as people read it, such as `Vertical` for `vert`.
-fn orientation_label(orientation: &str) -> &'static str {
-    match orientation {
-        "horz" => "Horizontal",
-        "vert" => "Vertical",
-        _ => "Diagonal",
-    }
-}
-
 /// The inputs for a build's details, shared by editing and uploading.
 /// `derived` is the width and orientation the file gives a category that
 /// reads them from the file, such as an adder's from its lime inputs,
@@ -1623,7 +1609,7 @@ fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
             div class="field" data-derived-orientation hidden {
                 span { "Orientation" }
                 p {
-                    (orientation_label(orientation))
+                    (orientation.label())
                     span class="text-muted" { ", from the way the lime inputs run" }
                 }
             }
@@ -1631,8 +1617,8 @@ fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
         label class="field" data-typed-orientation {
             span { "Orientation" }
             select name="orientation" class="input" {
-                @for (value, label) in [("horz", "Horizontal"), ("vert", "Vertical"), ("diag", "Diagonal")] {
-                    option value=(value) selected[f.orientation == value] { (label) }
+                @for orientation in Orientation::ALL {
+                    option value=(orientation.name()) selected[f.orientation == orientation.name()] { (orientation.label()) }
                 }
             }
         }
@@ -1640,9 +1626,9 @@ fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
             div class="field" data-derived-encoding hidden {
                 span { "Encoding" }
                 p {
-                    (if encoding == "hex" { "Hex" } else { "Binary" })
+                    (encoding.label())
                     span class="text-muted" {
-                        @if encoding == "hex" { ", as the lime inputs take a signal strength" } @else { ", as the lime inputs take levers" }
+                        @if encoding == Encoding::Hex { ", as the lime inputs take a signal strength" } @else { ", as the lime inputs take levers" }
                     }
                 }
             }
@@ -1650,8 +1636,8 @@ fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
         label class="field" data-standard-only data-typed-encoding hidden[other] {
             span { "Encoding" }
             select name="encoding" class="input" {
-                @for (value, label) in [("bin", "Binary"), ("hex", "Hex")] {
-                    option value=(value) selected[f.encoding == value] { (label) }
+                @for encoding in Encoding::ALL {
+                    option value=(encoding.name()) selected[f.encoding == encoding.name()] { (encoding.label()) }
                 }
             }
         }
@@ -1707,9 +1693,8 @@ fn fields(f: &Form, choices: &Choices, derived: &import::Derived) -> Markup {
 /// names as the category changes.
 fn logic_field(f: &Form, choices: &Choices) -> Markup {
     let usual = Category::find(&choices.categories, &f.category)
-        .and_then(|c| c.logic.as_deref())
-        .map_or("unknown", schematic::logic_label)
-        .to_lowercase();
+        .and_then(|c| c.logic)
+        .map_or("unknown", Logic::name);
     html! {
         label class="field" {
             span { "Stateless" }
@@ -1717,8 +1702,8 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
                 option value="" selected[f.logic.is_empty()] data-usual-logic {
                     "As the category usually is (" (usual) ")"
                 }
-                @for (value, label) in [("comb", "Stateless"), ("seq", "Stateful")] {
-                    option value=(value) selected[f.logic == value] { (label) }
+                @for logic in Logic::ALL {
+                    option value=(logic.name()) selected[f.logic == logic.name()] { (logic.label()) }
                 }
             }
             span id="logic-help" class="text-meta font-normal text-muted" {

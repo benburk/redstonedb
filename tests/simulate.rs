@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
     import, interface, lint,
+    models::schematic::{Encoding, Orientation},
     schem::{self, Blocks, Direction},
     simulate::{self, Report, Run, Stacking, Takes, Test},
     stack,
@@ -359,7 +360,7 @@ fn a_hex_adder_is_driven_digit_by_digit() {
     let derived = import::derived("adder", &interface);
     assert_eq!(
         (derived.width, derived.orientation, derived.encoding),
-        (Some(32), Some("vert"), Some("hex"))
+        (Some(32), Some(Orientation::Vertical), Some(Encoding::Hex))
     );
     let Report::Ran(run) = Test::Adder.run(&blocks) else {
         panic!("the hex adder was not simulated");
@@ -584,7 +585,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
     let found = import::derived("alu", &interface::read(&blocks));
     assert_eq!(
         (found.width, found.orientation, found.encoding),
-        (Some(8), Some("vert"), Some("bin"))
+        (Some(8), Some(Orientation::Vertical), Some(Encoding::Binary))
     );
 }
 

@@ -13,9 +13,13 @@ use app::{
     details::{self, Details},
     import::{self, Analysis},
     interface,
-    models::schematic::{self, Measure, StackDirection},
-    models::user::{Role, User},
-    models::{similarity, simulation, version},
+    models::{
+        catalogue::{self, Measure, Section},
+        schematic::{self, Encoding, Logic, Orientation, StackDirection},
+        similarity, simulation, tag,
+        user::{Role, User},
+        version::{self, Replacing},
+    },
     mojang, search,
     simulate::{Report, Signal, Stacking, Timing},
     stack,
@@ -163,10 +167,10 @@ struct Set {
     id: String,
     #[arg(long)]
     category: Option<String>,
-    #[arg(long, value_parser = ["horz", "vert", "diag"])]
-    orientation: Option<String>,
-    #[arg(long, value_parser = ["bin", "hex"])]
-    encoding: Option<String>,
+    #[arg(long)]
+    orientation: Option<Orientation>,
+    #[arg(long)]
+    encoding: Option<Encoding>,
     #[command(flatten)]
     details: DetailArgs,
     /// Field to make unknown; repeatable
@@ -199,11 +203,11 @@ struct Add {
     file: PathBuf,
     #[arg(long)]
     category: String,
-    #[arg(long, value_parser = ["horz", "vert", "diag"])]
-    orientation: String,
+    #[arg(long)]
+    orientation: Orientation,
     /// Left out for a category off the list, such as a piston door
-    #[arg(long, value_parser = ["bin", "hex"])]
-    encoding: Option<String>,
+    #[arg(long)]
+    encoding: Option<Encoding>,
     #[command(flatten)]
     details: DetailArgs,
     /// Tag to attach; repeatable
@@ -266,18 +270,18 @@ struct NewCategory {
     #[arg(long)]
     named: bool,
     /// The sidebar section it sits in; left out, it sits under Other
-    #[arg(long, value_parser = schematic::SECTIONS.map(|(name, _)| name))]
-    section: Option<String>,
+    #[arg(long)]
+    section: Option<Section>,
     /// A number its builds are named and ranked by, in order; repeatable,
     /// and width alone when left out. A memory takes `width` then `bytes`,
     /// a serial build `throughput`, and a threshold `width` then
     /// `at_least`
-    #[arg(long = "measure", value_parser = Measure::ALL.map(Measure::name))]
-    measures: Vec<String>,
+    #[arg(long = "measure")]
+    measures: Vec<Measure>,
     /// Whether its builds are usually stateless or stateful, which a build
-    /// follows unless it gives its own; `comb` and `seq` mean the same
-    #[arg(long, value_parser = ["stateless", "stateful", "comb", "seq"])]
-    logic: Option<String>,
+    /// follows unless it gives its own
+    #[arg(long)]
+    logic: Option<Logic>,
     /// Another word it is searched by; repeatable
     #[arg(long = "alias")]
     aliases: Vec<String>,
@@ -297,9 +301,9 @@ struct DetailArgs {
     #[arg(long)]
     throughput: Option<u32>,
     /// Stateless or stateful, where it differs from what its category
-    /// usually is; `comb` and `seq` mean the same
-    #[arg(long, value_parser = ["stateless", "stateful", "comb", "seq"])]
-    logic: Option<String>,
+    /// usually is
+    #[arg(long)]
+    logic: Option<Logic>,
     /// For a memory, how many bytes it holds, as in a 32-byte RAM
     #[arg(long)]
     bytes: Option<u32>,
@@ -356,7 +360,6 @@ struct DetailArgs {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = connect_to_database().await;
-    import::read_files(&db).await?;
     let result = run(&db, cli.command).await;
     // Builds whose file or category the command changed are compared again.
     similarity::refresh(&db).await?;
@@ -399,7 +402,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Categories => print_categories(db).await,
         Command::DefineCategory(args) => define_category(db, args).await,
         Command::DefineAlias { category, alias } => {
-            Ok(schematic::define_alias(db, &alias, &category).await?)
+            Ok(catalogue::define_alias(db, &alias, &category).await?)
         }
         Command::DefineFlag {
             category,
@@ -411,9 +414,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             name,
             abbreviation,
             label,
-        } => Ok(schematic::define_design(
+        } => Ok(catalogue::define_design(
             db,
-            &schematic::Design {
+            &catalogue::Design {
                 category,
                 name,
                 abbreviation,
@@ -447,19 +450,19 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Tag { id, tags } => {
             let id = resolve(db, &id).await?;
             for name in &tags {
-                schematic::attach(db, &id, &tag_id(db, name).await?).await?;
+                tag::attach(db, &id, &tag_id(db, name).await?).await?;
             }
             Ok(())
         }
         Command::Untag { id, tags } => {
             let id = resolve(db, &id).await?;
             for name in &tags {
-                schematic::detach(db, &id, &tag_id(db, name).await?).await?;
+                tag::detach(db, &id, &tag_id(db, name).await?).await?;
             }
             Ok(())
         }
         Command::Tags => {
-            for tag in schematic::all_tags(db).await? {
+            for tag in tag::all(db).await? {
                 let token = tag.token.as_deref().unwrap_or("");
                 println!("{:<12} {:<8} {}", tag.kind, token, tag.label());
             }
@@ -478,10 +481,10 @@ async fn define_tag(
     kind: &str,
     token: Option<&str>,
 ) -> Result<()> {
-    if schematic::DERIVED.contains(&schematic::tag_name(name).as_str()) {
+    if tag::DERIVED.contains(&tag::name(name).as_str()) {
         bail!("{name} is worked out from the build, not tagged");
     }
-    schematic::define_tag(db, name, token, kind).await?;
+    tag::define(db, name, token, kind).await?;
     Ok(())
 }
 
@@ -510,7 +513,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     }
     overlay(&mut details, &given, &unset);
     let conventional = given.conventional.unwrap_or(s.conventional);
-    let data = schematic::data(db, &id)
+    let data = version::current_file(db, &id)
         .await?
         .context("schematic vanished")?;
     let build = details::Build {
@@ -532,7 +535,7 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
             ready.category.name
         );
     }
-    details::save(db, &id, &ready).await?;
+    schematic::set_details(db, &id, &ready).await?;
     let imported_by = if unset.iter().any(|f| f == "imported-by") {
         None
     } else {
@@ -591,11 +594,7 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
         given.given_name.clone(),
         unsets("name"),
     );
-    let logic = given
-        .logic
-        .as_deref()
-        .map(|logic| schematic::logic_value(logic).to_owned());
-    put(&mut details.logic, logic, unsets("logic"));
+    put(&mut details.logic, given.logic, unsets("logic"));
     put(
         &mut details.throughput,
         number(given.throughput),
@@ -644,8 +643,8 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
     .with_context(|| file.display().to_string())?;
     let mut details = Details {
         category: args.category.clone(),
-        orientation: args.orientation.clone(),
-        encoding: args.encoding.clone(),
+        orientation: args.orientation,
+        encoding: args.encoding,
         tags: args.tags.clone(),
         ..Details::default()
     };
@@ -705,7 +704,7 @@ async fn export(
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
-    let data = schematic::data(db, &id)
+    let data = version::current_file(db, &id)
         .await?
         .context("schematic vanished")?;
     let (data, s) = match copies {
@@ -713,7 +712,7 @@ async fn export(
         Some(copies) => {
             let wanted = copy_counts(&s.stacking, copies)?;
             let plan = stack::plan(&s.stacking, &wanted)?;
-            let buses = stack::Buses::of(&s.category, &s.orientation);
+            let buses = stack::Buses::of(&s.category, s.orientation);
             let (data, size) = stack::stack(&data, &plan, buses)?;
             (data, s.stacked(&plan, size))
         }
@@ -734,28 +733,22 @@ async fn export(
 /// Adds a standard category, its label being its name's words and its
 /// plural the label with an s unless given.
 async fn define_category(db: &SqlitePool, args: NewCategory) -> Result<()> {
-    let label = args.label.unwrap_or_else(|| schematic::words(&args.name));
-    let category = schematic::Category {
+    let label = args.label.unwrap_or_else(|| catalogue::words(&args.name));
+    let category = catalogue::Category {
         plural: args.plural.unwrap_or_else(|| format!("{label}s")),
         name: args.name,
         label,
         named: args.named,
         section: args.section,
-        logic: args
-            .logic
-            .as_deref()
-            .map(|word| schematic::logic_value(word).to_owned()),
+        logic: args.logic,
         measures: if args.measures.is_empty() {
             vec![Measure::Width]
         } else {
             args.measures
-                .iter()
-                .filter_map(|name| Measure::named(name))
-                .collect()
         },
         aliases: args.aliases,
     };
-    Ok(schematic::define_category(db, &category).await?)
+    Ok(catalogue::define_category(db, &category).await?)
 }
 
 /// Adds a flag to a category, labelled with its name's words, the first
@@ -773,12 +766,12 @@ async fn define_flag(
             first.to_uppercase().chain(chars).collect()
         })
     });
-    let flag = schematic::Flag {
+    let flag = catalogue::Flag {
         category,
         name,
         label,
     };
-    Ok(schematic::define_flag(db, &flag).await?)
+    Ok(catalogue::define_flag(db, &flag).await?)
 }
 
 /// Sets the role of the account with a Discord username.
@@ -798,9 +791,9 @@ async fn set_role(db: &SqlitePool, username: &str, role: &str) -> Result<()> {
 
 /// Prints each category with its designs.
 async fn print_categories(db: &SqlitePool) -> Result<()> {
-    let designs = schematic::designs(db).await?;
-    let flags = schematic::flags(db).await?;
-    for category in schematic::categories(db).await? {
+    let designs = catalogue::designs(db).await?;
+    let flags = catalogue::flags(db).await?;
+    for category in catalogue::categories(db).await? {
         let designs: Vec<&str> = designs
             .iter()
             .filter(|d| d.category == category.name)
@@ -834,35 +827,28 @@ async fn print_categories(db: &SqlitePool) -> Result<()> {
 /// Reads every stored file again as an upload's is prepared, and prints
 /// what changed; see [`refile`].
 async fn reread(db: &SqlitePool) -> Result<()> {
-    let keeping = schematic::keeping_paste(db).await?;
     for s in schematic::all(db).await? {
-        let stored = schematic::data(db, &s.id)
+        let stored = version::current_file(db, &s.id)
             .await?
             .context("schematic vanished")?;
-        refile(db, &s, &stored, None, keeping.contains(&s.id)).await?;
+        refile(db, &s, &stored, None).await?;
     }
     Ok(())
 }
 
 /// Prepares `file` as build `s`'s file, standardized if asked, as an
-/// upload's is: stores it if that differs from the stored file, keeping
-/// where it pastes if `keep_paste`, then its facts and size, and simulates
-/// it. No version is added and nothing is compared.
+/// upload's is, keeping where it pastes if the build does: puts it in place
+/// of the current version if it, its facts, or its size differ from what
+/// is stored, saying what changed, and simulates it. No version is added
+/// and nothing is compared.
 async fn refile(
     db: &SqlitePool,
     s: &schematic::Schematic,
     file: &[u8],
     standardize: Option<Gray>,
-    keep_paste: bool,
 ) -> Result<()> {
     let prepared =
-        import::prepare(file, standardize, s.conventional, keep_paste)?;
-    if prepared.sha256 != s.sha256 {
-        let (data, sha256) = (&prepared.data, &prepared.sha256);
-        schematic::set_file(db, &s.id, data, sha256).await?;
-        version::rewrite_current(db, &s.id, data, sha256).await?;
-        println!("{}  file rewritten", &s.id[..8]);
-    }
+        import::prepare(file, standardize, s.conventional, s.keeps_paste)?;
     let facts = &prepared.facts;
     let stored = (
         s.torches,
@@ -874,13 +860,16 @@ async fn refile(
         Some(facts.works_from.release),
         facts.works_from.because.as_deref(),
     );
-    if stored != read {
-        schematic::set_file_facts(db, &s.id, facts).await?;
-    }
     let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());
+    let rewritten = prepared.sha256 != s.sha256;
+    if rewritten || stored != read || size != s.size {
+        version::replace(db, &s.id, &prepared, Replacing::InPlace).await?;
+    }
+    if rewritten {
+        println!("{}  file rewritten", &s.id[..8]);
+    }
     if size != s.size {
-        schematic::set_size(db, &s.id, size).await?;
         let (x, y, z) = s.size;
         let (nx, ny, nz) = size;
         println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
@@ -895,9 +884,8 @@ async fn refile(
 async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
     let id = resolve(db, &args.id).await?;
     let s = load(db, &id).await?;
-    let keep_paste = schematic::keeping_paste(db).await?.contains(&id);
     let file = fs::read(&args.file)?;
-    refile(db, &s, &file, args.standardizing.asked(), keep_paste).await
+    refile(db, &s, &file, args.standardizing.asked()).await
 }
 
 /// Asks Mojang how each stored Minecraft name is spelled and respells it
@@ -949,7 +937,7 @@ async fn list(
 ) -> Result<()> {
     for s in schematic::all(db).await? {
         let has_tags = tags.iter().all(|t| {
-            let name = schematic::tag_name(t);
+            let name = tag::name(t);
             s.tags
                 .iter()
                 .any(|tag| tag.name == name || tag.token() == t)
@@ -969,7 +957,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
         (fs::read(file_or_id)?, String::new())
     } else {
         let id = resolve(db, file_or_id).await?;
-        let data = schematic::data(db, &id)
+        let data = version::current_file(db, &id)
             .await?
             .context("schematic vanished")?;
         (data, load(db, &id).await?.category)
@@ -1011,20 +999,11 @@ async fn new_version(
         }
         bail!("{} cannot replace {}", file.display(), &id[..8]);
     }
-    let size = &checked.prepared.size;
-    let number = version::publish(
-        db,
-        &id,
-        &version::New {
-            data: &checked.prepared.data,
-            sha256: &checked.prepared.sha256,
-            size: (size.x.into(), size.y.into(), size.z.into()),
-            facts: &checked.prepared.facts,
-            added_by: None,
-            note: note.map(str::trim).filter(|note| !note.is_empty()),
-        },
-    )
-    .await?;
+    let how = Replacing::NextVersion {
+        added_by: None,
+        note: note.map(str::trim).filter(|note| !note.is_empty()),
+    };
+    let number = version::replace(db, &id, &checked.prepared, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
     if simulation::refresh(db, &id, false).await?.is_some()
@@ -1268,7 +1247,7 @@ async fn tag_id<'e, E: sqlx::SqliteExecutor<'e>>(
     db: E,
     name: &str,
 ) -> Result<String> {
-    schematic::tag_id(db, name).await?.with_context(|| {
+    tag::find(db, name).await?.with_context(|| {
         format!("unknown tag {name}; see `rsdb tags` or `rsdb define-tag`")
     })
 }
@@ -1281,14 +1260,17 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
     let unknown = |v: Option<String>| v.unwrap_or_else(|| "unknown".into());
     let (x, y, z) = s.size;
-    let tags: Vec<String> = s.tags.iter().map(schematic::Tag::label).collect();
+    let tags: Vec<String> = s.tags.iter().map(tag::Tag::label).collect();
     println!("id           {}", s.id);
     println!("title        {}", s.title());
     println!("filename     {}", s.filename());
     println!("category     {}", s.category);
     println!("width        {}", unknown(s.width_label()));
-    println!("orientation  {}", s.orientation_label());
-    println!("encoding     {}", s.encoding_label().unwrap_or("none"));
+    println!("orientation  {}", s.orientation.label());
+    println!(
+        "encoding     {}",
+        s.encoding.map_or("none", Encoding::label)
+    );
     println!(
         "latency      {}",
         unknown(s.latency.map(|t| format!("{t} ticks")))
@@ -1306,7 +1288,7 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("synchronized {}", s.synchronized_label());
     println!(
         "state        {}{}",
-        s.logic_label().unwrap_or("unknown").to_lowercase(),
+        s.logic.map_or("unknown", Logic::name),
         if s.pipelined() { ", pipelined" } else { "" }
     );
     let from = s.works_from.as_deref().unwrap_or("unknown");

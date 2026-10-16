@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT coalesce(max(version), 0) + 1 as \"version!: i64\"\n         FROM schematic_version WHERE schematic_id = ?",
+  "query": "SELECT coalesce(max(version), 0) as \"version!: i64\"\n         FROM schematic_version WHERE schematic_id = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "9c286034eda51b4708c795e4a0029f9824d289fe488125327e5ccf6ebe4d2601"
+  "hash": "a5156fdfa4b3b1cd893300eab737763192c00c48ab32ec67585ddf3ce16f8bb5"
 }

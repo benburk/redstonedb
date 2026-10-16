@@ -2,7 +2,7 @@
 
 use app::{
     import, interface, lint,
-    models::schematic::StackDirection,
+    models::schematic::{Orientation, StackDirection},
     schem::{self, Blocks, Direction},
     simulate, stack,
     standardize::{self, Gray},
@@ -229,7 +229,7 @@ fn a_register_stacks_two_ways() {
     let (data, size) = stack::stack(
         &slice("alpha-register"),
         &plan,
-        stack::Buses::of("register", "horz"),
+        stack::Buses::of("register", Orientation::Horizontal),
     )
     .unwrap();
     // Seven 2-wide copies, and the first copy's feed for the control lines.

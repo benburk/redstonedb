@@ -18,9 +18,13 @@ use crate::{
         session::{Admin, SignedIn},
     },
     import::{self, Analysis},
-    models::schematic::{self, Category, Schematic},
-    models::user::User,
-    models::{similarity, simulation, version},
+    models::{
+        catalogue::{self, Category},
+        schematic::{self, Schematic},
+        similarity, simulation, tag,
+        user::User,
+        version::{self, Replacing},
+    },
     schem::Blocks,
     search, stack, standardize, thumbnail,
     version::{Checked, check as check_version},
@@ -78,7 +82,7 @@ pub async fn list(
     };
     let terms = search::parse(&query.q);
     let all = schematic::all(&state.db).await?;
-    let categories = schematic::categories(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
     let total = all.len();
     let found: Vec<Schematic> = search::matching(&terms, all)
         .into_iter()
@@ -118,7 +122,7 @@ pub async fn list(
 /// or token.
 fn has_tags(s: &Schematic, groups: &[String]) -> bool {
     groups.iter().all(|group| {
-        group.split(',').map(schematic::tag_name).any(|wanted| {
+        group.split(',').map(tag::name).any(|wanted| {
             s.tags.iter().any(|tag| {
                 tag.name == wanted || tag.token.as_deref() == Some(&*wanted)
             })
@@ -192,7 +196,7 @@ fn facets(
             name: f.name.clone(),
             label: f.plural.clone(),
             count: count(&f.name),
-            section: f.section.clone(),
+            section: f.section,
         })
         .collect();
     facets.push(pages::Facet {
@@ -214,7 +218,7 @@ pub async fn thumbnail(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Response, AppError> {
-    let data = schematic::data(&state.db, &id)
+    let data = version::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let png = thumbnail::render(&Blocks::read(&data)?)?;
@@ -228,18 +232,14 @@ pub async fn thumbnail(
         .into_response())
 }
 
-/// The builds build `id` is similar to, with how alike.
+/// The builds build `id` is similar to, with how alike, the most alike
+/// first.
 async fn similar_to(
     db: &SqlitePool,
     id: &str,
 ) -> anyhow::Result<Vec<(Schematic, u32)>> {
-    let mut found = Vec::new();
-    for (other, permille) in similarity::similar(db, id).await? {
-        if let Some(s) = schematic::get(db, &other).await? {
-            found.push((s, permille));
-        }
-    }
-    Ok(found)
+    let similar = similarity::similar(db, id).await?;
+    Ok(super::similar::builds(db, &similar).await?)
 }
 
 /// Which part of a build's page fixi asks for, to redraw it.
@@ -248,6 +248,8 @@ pub struct Panel {
     panel: Option<String>,
 }
 
+/// A build's page, or the one part of it fixi asks for, loading only what
+/// that part shows.
 pub async fn detail(
     Path(id): Path<String>,
     State(state): State<AppState>,
@@ -255,10 +257,23 @@ pub async fn detail(
     Fixi(fixi): Fixi,
     Query(Panel { panel }): Query<Panel>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let data = schematic::data(&state.db, &id).await?.unwrap_or_default();
+    let db = &state.db;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let simulation = simulation::status(db, &s).await?;
+    let report = match &simulation {
+        simulation::Status::Done(report)
+        | simulation::Status::Pending(Some(report)) => Some(report),
+        simulation::Status::Pending(None) | simulation::Status::Untested => {
+            None
+        }
+    };
+    let panel = panel.as_deref().filter(|_| fixi);
+    if panel == Some("banner") {
+        let simulating =
+            matches!(simulation, simulation::Status::Pending(None));
+        return Ok(pages::build_banner(&s, report, simulating).into_response());
+    }
+    let data = version::current_file(db, &id).await?.unwrap_or_default();
     let file = Blocks::read(&data)
         .map(|blocks| pages::FileRead {
             analysis: Analysis::of(&blocks, &s.category, s.conventional),
@@ -269,47 +284,34 @@ pub async fn detail(
                     stack::review(
                         &data,
                         direction,
-                        stack::Buses::of(&s.category, &s.orientation),
+                        stack::Buses::of(&s.category, s.orientation),
                     )
                     .ok()
                 })
                 .collect(),
         })
         .map_err(|err| err.to_string());
-    let simulation = simulation::status(&state.db, &s).await?;
-    let versions = version::list(&state.db, &id).await?;
-    let similar = similar_to(&state.db, &id).await?;
-    let flags: Vec<_> = schematic::flags(&state.db)
+    let similar = similar_to(db, &id).await?;
+    let flags: Vec<_> = catalogue::flags(db)
         .await?
         .into_iter()
         .filter(|flag| flag.category == s.category)
         .collect();
-    let report = match &simulation {
-        simulation::Status::Done(report)
-        | simulation::Status::Pending(Some(report)) => Some(report),
-        simulation::Status::Pending(None) | simulation::Status::Untested => {
-            None
-        }
-    };
-    Ok(match panel.as_deref().filter(|_| fixi) {
-        Some("banner") => {
-            let simulating =
-                matches!(simulation, simulation::Status::Pending(None));
-            pages::build_banner(&s, report, simulating).into_response()
-        }
-        Some("info") => pages::build_info(&s, &flags, &similar, &file, report)
-            .into_response(),
-        _ => pages::schematic_page(
-            user_opt.as_ref(),
-            &s,
-            &flags,
-            &similar,
-            &file,
-            &simulation,
-            &versions,
-        )
-        .into_response(),
-    })
+    if panel == Some("info") {
+        return Ok(pages::build_info(&s, &flags, &similar, &file, report)
+            .into_response());
+    }
+    let versions = version::list(db, &id).await?;
+    Ok(pages::schematic_page(
+        user_opt.as_ref(),
+        &s,
+        &flags,
+        &similar,
+        &file,
+        &simulation,
+        &versions,
+    )
+    .into_response())
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits
@@ -319,20 +321,21 @@ pub async fn edit(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
-    let user = editor(&state.db, user, &id).await?;
-    show_edit(&state.db, &user, &id, None, "", None, None).await
+    let s = editable(&state.db, &user, &id).await?;
+    show_edit(&state.db, &user, &s, None, "", None, None).await
 }
 
-/// `user`, when they may edit build `id`: a mod, or one of its confirmed
-/// builders. A 404 for no build, and a 403 for anyone else.
-pub(super) async fn editor(
+/// Build `id`, when `user` may edit it: a mod, one of its confirmed
+/// builders, or its uploader. A 404 for no build, and a 403 for anyone
+/// else.
+pub(super) async fn editable(
     db: &SqlitePool,
-    user: User,
+    user: &User,
     id: &str,
-) -> Result<User, AppError> {
+) -> Result<Schematic, AppError> {
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     if user.may_edit(&s) {
-        Ok(user)
+        Ok(s)
     } else {
         Err(AppError::Forbidden)
     }
@@ -347,25 +350,25 @@ pub async fn save(
     SignedIn(user): SignedIn,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
-    let user = editor(&state.db, user, &id).await?;
     let db = &state.db;
+    let s = editable(db, &user, &id).await?;
     let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
         Err(message) => {
-            return show_edit(db, &user, &id, None, "", None, Some(&message))
+            return show_edit(db, &user, &s, None, "", None, Some(&message))
                 .await;
         }
     };
     let form = Form::read(&posted.pairs);
     let note: String = posted.get("note").trim().chars().take(500).collect();
     // A new version, when the page carried one, is checked again first.
-    let checked = match attached(db, &id, posted.get("data")).await? {
+    let checked = match attached(db, &s, posted.get("data")).await {
         Ok(checked) => checked,
         Err(message) => {
             return show_edit(
                 db,
                 &user,
-                &id,
+                &s,
                 Some(&form),
                 "",
                 None,
@@ -376,7 +379,7 @@ pub async fn save(
     };
     if posted.choosing() {
         let chosen = match posted.fetch_own(db, &user).await {
-            Ok(()) => chosen_version(db, &id, &posted).await,
+            Ok(()) => chosen_version(db, &s, &posted).await,
             Err(message) => Err(message),
         };
         let (checked, refused) = match &chosen {
@@ -387,7 +390,7 @@ pub async fn save(
             checked,
             note: &note,
         });
-        return show_edit(db, &user, &id, Some(&form), "", new_file, refused)
+        return show_edit(db, &user, &s, Some(&form), "", new_file, refused)
             .await;
     }
     let new_file = || {
@@ -403,13 +406,13 @@ pub async fn save(
         )
     } else {
         let new_data = checked.as_ref().map(|c| c.prepared.data.as_slice());
-        saved(db, &user, &id, &form, new_data).await?.err()
+        saved(db, &user, &s, &form, new_data).await?.err()
     };
     if let Some(message) = refused {
         return show_edit(
             db,
             &user,
-            &id,
+            &s,
             Some(&form),
             &message,
             new_file(),
@@ -418,16 +421,11 @@ pub async fn save(
         .await;
     }
     if let Some(checked) = &checked {
-        let size = &checked.prepared.size;
-        let new = version::New {
-            data: &checked.prepared.data,
-            sha256: &checked.prepared.sha256,
-            size: (size.x.into(), size.y.into(), size.z.into()),
-            facts: &checked.prepared.facts,
+        let how = Replacing::NextVersion {
             added_by: Some(user.id),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
         };
-        version::publish(db, &id, &new).await?;
+        version::replace(db, &id, &checked.prepared, how).await?;
         tracing::info!(id, by = user.username, "new version");
     }
     // A new file, category, or width may call for a test, or another.
@@ -436,45 +434,39 @@ pub async fn save(
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }
 
-/// The file newly chosen on build `id`'s edit page, checked as its next
+/// The file newly chosen on build `s`'s edit page, checked as its next
 /// version, or why it could not be read.
 async fn chosen_version(
     db: &SqlitePool,
-    id: &str,
+    s: &Schematic,
     posted: &upload::Posted,
 ) -> Result<Checked, String> {
     let chosen = posted.chosen().await?;
-    let s = match schematic::get(db, id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return Err("The build is gone.".to_owned()),
-        Err(err) => return Err(format!("Could not load the build: {err}.")),
-    };
-    check_version(db, &s, &chosen.file, chosen.standardize)
+    check_version(db, s, &chosen.file, chosen.standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
 }
 
 /// The new version an edit page carried in `data`, base64, checked against
-/// build `id`; none for an empty `data`. The inner `Err` says the file
-/// cannot be read, for the page to ask for it again.
+/// build `s`; none for an empty `data`. The `Err` says the file cannot be
+/// read, for the page to ask for it again.
 async fn attached(
     db: &SqlitePool,
-    id: &str,
+    s: &Schematic,
     data: &str,
-) -> Result<Result<Option<Checked>, String>, AppError> {
+) -> Result<Option<Checked>, String> {
     if data.is_empty() {
-        return Ok(Ok(None));
+        return Ok(None);
     }
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let checked = match STANDARD.decode(data) {
-        Ok(data) => check_version(db, &s, &data, None).await,
+        Ok(data) => check_version(db, s, &data, None).await,
         Err(_) => Err(anyhow::anyhow!("it did not arrive whole")),
     };
-    Ok(checked.map(Some).map_err(|err| {
+    checked.map(Some).map_err(|err| {
         format!(
             "Could not read the new version: {err:#}. Choose its file again."
         )
-    }))
+    })
 }
 
 /// Deletes a build for good, with its tags, credits, and stacking; admins
@@ -489,27 +481,26 @@ pub async fn delete(
     Ok(Redirect::to("/").into_response())
 }
 
-/// Checks and stores `user`'s edit of build `id`, or says why it was
+/// Checks and stores `user`'s edit of build `s`, or says why it was
 /// refused. A new version's file, `new_data`, is what the stacking must
 /// fit, when there is one.
 async fn saved(
     db: &SqlitePool,
     user: &User,
-    id: &str,
+    s: &Schematic,
     form: &Form,
     new_data: Option<&[u8]>,
 ) -> Result<Result<(), String>, AppError> {
-    let categories = schematic::categories(db).await?;
+    let categories = catalogue::categories(db).await?;
     let given = match form.parse(&categories) {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let stored;
     let data = if let Some(data) = new_data {
         data
     } else {
-        stored = schematic::data(db, id).await?.unwrap_or_default();
+        stored = version::current_file(db, &s.id).await?.unwrap_or_default();
         &stored
     };
     let build = details::Build {
@@ -517,7 +508,7 @@ async fn saved(
         conventional: s.conventional,
     };
     match details::check(db, given, build, user.is_admin()).await? {
-        Ok(ready) => Ok(Ok(details::save(db, id, &ready).await?)),
+        Ok(ready) => Ok(Ok(schematic::set_details(db, &s.id, &ready).await?)),
         Err(message) => Ok(Err(message)),
     }
 }
@@ -528,29 +519,28 @@ pub(super) struct NewFile<'a> {
     pub note: &'a str,
 }
 
-/// The edit page for build `id`: its details as `sent`, else as stored,
+/// The edit page for build `s`: its details as `sent`, else as stored,
 /// with `message` saying why a save was refused, and the file a new
 /// version would replace it with, if one is waiting. `choosing` opens the
 /// form for choosing one.
 pub(super) async fn show_edit(
     db: &SqlitePool,
     user: &User,
-    id: &str,
+    s: &Schematic,
     sent: Option<&Form>,
     message: &str,
     new_file: Option<NewFile<'_>>,
     choosing: Option<&str>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let choices = form::choices(db).await?;
-    let versions = version::list(db, id).await?;
+    let versions = version::list(db, &s.id).await?;
     // What the page shows is the new file's, when one is waiting; a file
     // that cannot be read shows no inputs and outputs.
     let analysis = if let Some(new) = &new_file {
         let blocks = &new.checked.prepared.blocks;
         Analysis::of(blocks, &s.category, s.conventional)
     } else {
-        let data = schematic::data(db, id).await?.unwrap_or_default();
+        let data = version::current_file(db, &s.id).await?.unwrap_or_default();
         Blocks::read(&data).map_or_else(
             |_| Analysis::default(),
             |blocks| Analysis::of(&blocks, &s.category, s.conventional),
@@ -563,16 +553,16 @@ pub(super) async fn show_edit(
     } else {
         import::Derived::default()
     };
-    let simulation = simulation::current(db, &s).await?;
+    let simulation = simulation::current(db, s).await?;
     let folder = super::schemati::own_folder_quickly(db, user).await?;
-    let stored = Form::of(&s);
+    let stored = Form::of(s);
     let form = sent.unwrap_or(&stored);
     let encoded;
     let file = match &new_file {
         Some(new) => {
             encoded = STANDARD.encode(&new.checked.prepared.data);
             File::Version {
-                s: &s,
+                s,
                 data: &encoded,
                 comparison: new.checked.comparison,
                 refusals: &new.checked.refusals,
@@ -581,7 +571,7 @@ pub(super) async fn show_edit(
             }
         }
         None => File::Stored {
-            s: &s,
+            s,
             simulation: simulation.as_ref(),
         },
     };
@@ -643,7 +633,9 @@ pub(super) async fn export(
     // One copy each way is the build itself.
     query.retain(|_, count| count != "1");
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
-    let data = schematic::data(db, id).await?.ok_or(AppError::NotFound)?;
+    let data = version::current_file(db, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if let Some(part) = part {
         let first = part == "first";
         let direction = s
@@ -655,7 +647,7 @@ pub(super) async fn export(
         else {
             return Err(AppError::BadRequest("no such part".to_owned()));
         };
-        let buses = stack::Buses::of(&s.category, &s.orientation);
+        let buses = stack::Buses::of(&s.category, s.orientation);
         let data = stack::part(&data, direction, first, buses)?;
         let suffix = if first {
             "_first_copy_parts"
@@ -675,7 +667,7 @@ pub(super) async fn export(
             .collect::<anyhow::Result<HashMap<String, usize>>>()
             .and_then(|wanted| stack::plan(&s.stacking, &wanted))
             .and_then(|plan| {
-                let buses = stack::Buses::of(&s.category, &s.orientation);
+                let buses = stack::Buses::of(&s.category, s.orientation);
                 let (data, size) = stack::stack(&data, &plan, buses)?;
                 Ok((data, s.stacked(&plan, size)))
             });

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\", section, logic\n         FROM category ORDER BY label COLLATE NOCASE",
+  "query": "SELECT name as \"name!\", label,\n            coalesce(plural, label || 's') as \"plural!: String\",\n            named as \"named: bool\", section as \"section: Section\",\n            logic as \"logic: Logic\"\n         FROM category ORDER BY label COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -24,12 +24,12 @@
         "type_info": "Integer"
       },
       {
-        "name": "section",
+        "name": "section: Section",
         "ordinal": 4,
         "type_info": "Text"
       },
       {
-        "name": "logic",
+        "name": "logic: Logic",
         "ordinal": 5,
         "type_info": "Text"
       }
@@ -46,5 +46,5 @@
       true
     ]
   },
-  "hash": "7eeb724792e5d033e2a3927264f8b36674a5e1b20d8511b02c80e71361875181"
+  "hash": "63b9a5936f081bf9fa3d07087e14ca768d48b5aea616e2f5a61db259e0439b67"
 }

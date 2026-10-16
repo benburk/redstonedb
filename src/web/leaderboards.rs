@@ -9,7 +9,8 @@ use crate::{
     error::AppError,
     leaderboard::{self, Wanted},
     models::{
-        schematic::{self, Measure, Schematic},
+        catalogue::{self, Category, Measure},
+        schematic::{self, Schematic},
         user::User,
     },
 };
@@ -40,7 +41,7 @@ pub async fn show(
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
     let all = schematic::all(&state.db).await?;
-    let categories = schematic::categories(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
         return Err(AppError::NotFound);
     };
@@ -84,7 +85,7 @@ pub async fn people(
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
     let all = schematic::all(&state.db).await?;
-    let categories = schematic::categories(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
     Ok(pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
@@ -100,7 +101,7 @@ pub async fn people(
 /// The leaderboard sidebar: the categories with a build to rank, and
 /// `current`, the one shown, whatever it has.
 fn facets(
-    categories: &[schematic::Category],
+    categories: &[Category],
     all: &[Schematic],
     current: &str,
 ) -> Vec<pages::Facet> {
@@ -120,7 +121,7 @@ fn facets(
             name: c.name.clone(),
             label: c.plural.clone(),
             count: ranked(&c.name),
-            section: c.section.clone(),
+            section: c.section,
         })
         .filter(|f| f.count > 0 || f.name == current)
         .collect()

@@ -12,7 +12,7 @@ use crate::{
     details::Ready,
     interface::{self, Interface, Port},
     lint::{self, Violation},
-    models::schematic::{self, Credit, New},
+    models::schematic::{self, Encoding, New, Orientation},
     models::version,
     schem::{self, Blocks, Size},
     standardize::{self, Gray},
@@ -145,19 +145,6 @@ fn torches(blocks: &Blocks) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// Reads the facts of every build whose file has not been read for them
-/// yet, as after one began to be kept.
-pub async fn read_files(db: &SqlitePool) -> Result<()> {
-    for id in schematic::unread_files(db).await? {
-        let data = schematic::data(db, &id)
-            .await?
-            .context("schematic vanished")?;
-        let facts = FileFacts::of(&Blocks::read(&data)?);
-        schematic::set_file_facts(db, &id, &facts).await?;
-    }
-    Ok(())
-}
-
 /// The file's SHA-256, in hex.
 pub fn sha256(data: &[u8]) -> String {
     Sha256::digest(data)
@@ -190,55 +177,19 @@ pub async fn store(
     uploaded_by: Option<uuid::Uuid>,
     imported_by: Option<&str>,
 ) -> Result<Result<String, String>, sqlx::Error> {
-    if let Some(id) = schematic::id_by_sha256(db, &prepared.sha256).await? {
+    if let Some((id, _)) = version::holder(db, &prepared.sha256).await? {
         return Ok(Err(format!(
             "This exact file is already on the site, as {}.",
             &id[..8]
         )));
     }
-    let details = &ready.details;
-    let size = &prepared.size;
     let new = New {
-        category: &details.category,
-        width: details.width,
-        orientation: &details.orientation,
-        encoding: details.encoding.as_deref(),
-        latency: details.latency,
-        synchronized: details.synchronized,
-        size: (size.x.into(), size.y.into(), size.z.into()),
-        built_on: details.built_on.as_deref(),
-        imported_by,
-        conventional: prepared.conventional,
-        design: details.design.as_deref(),
-        description: details.description.as_deref(),
-        given_name: details.given_name.as_deref(),
-        logic: details.logic.as_deref(),
-        throughput: details.throughput,
-        at_least: details.at_least,
-        bytes: details.bytes,
-        facts: &prepared.facts,
-        keeps_paste: prepared.keeps_paste,
+        ready,
+        file: prepared,
         uploaded_by,
-        sha256: &prepared.sha256,
-        data: &prepared.data,
+        imported_by,
     };
-    let mut tx = db.begin().await?;
-    let id = schematic::insert(&mut *tx, &new).await?;
-    version::first(&mut *tx, &id, new.data, new.sha256, uploaded_by).await?;
-    let credits = [
-        (Credit::Builder, &details.builders),
-        (Credit::Contributor, &details.contributors),
-    ];
-    for (credit, names) in credits {
-        schematic::set_credits(&mut tx, &id, credit, names).await?;
-    }
-    schematic::set_tags(&mut tx, &id, &details.tags).await?;
-    if !ready.stacking_inferred {
-        schematic::set_stacking(&mut tx, &id, &details.stacking).await?;
-    }
-    schematic::set_flags(&mut tx, &id, &details.flags).await?;
-    tx.commit().await?;
-    Ok(Ok(id))
+    Ok(Ok(schematic::insert(db, &new).await?))
 }
 
 /// The flags the file's signs show: `carry_in` for a line labelled
@@ -282,10 +233,10 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
 pub struct Derived {
     /// A's bit count, four for each block of a signal-strength input.
     pub width: Option<i64>,
-    /// `horz`, `vert`, or `diag`, the way A's bits run.
-    pub orientation: Option<&'static str>,
-    /// `hex` when A takes a signal strength, a digit per block, else `bin`.
-    pub encoding: Option<&'static str>,
+    /// The way A's bits run.
+    pub orientation: Option<Orientation>,
+    /// Hex when A takes a signal strength, a digit per block, else binary.
+    pub encoding: Option<Encoding>,
 }
 
 /// What `category` reads from a build with `interface`: nothing for other
@@ -302,7 +253,11 @@ pub fn derived(category: &str, interface: &Interface) -> Derived {
             )
             .ok(),
             orientation: orientation(a),
-            encoding: Some(if a.signal_strength { "hex" } else { "bin" }),
+            encoding: Some(if a.signal_strength {
+                Encoding::Hex
+            } else {
+                Encoding::Binary
+            }),
         },
         None => Derived::default(),
     }
@@ -344,7 +299,7 @@ pub fn derived_flags(
 /// The width and orientation the inputs suggest: the widest operand's bit
 /// count, four for each block of a signal-strength input, and which way its
 /// bits run. `None` where the inputs say nothing.
-pub fn guess(interface: &Interface) -> (Option<usize>, Option<&'static str>) {
+pub fn guess(interface: &Interface) -> (Option<usize>, Option<Orientation>) {
     let bits = |port: &Port| {
         port.bits.len() * if port.signal_strength { 4 } else { 1 }
     };
@@ -358,10 +313,10 @@ pub fn guess(interface: &Interface) -> (Option<usize>, Option<&'static str>) {
     (width, orientation)
 }
 
-/// `horz`, `vert`, or `diag`, from how far a bus runs across and up. A bus
-/// that mostly runs one way, such as a staggered horizontal one, counts as
+/// The way a bus runs, from how far it runs across and up. A bus that
+/// mostly runs one way, such as a staggered horizontal one, counts as
 /// running that way.
-fn orientation(port: &Port) -> Option<&'static str> {
+fn orientation(port: &Port) -> Option<Orientation> {
     let first = port.bits.first()?.pos;
     let last = port.bits.last()?.pos;
     let across = (last[0] - first[0]).abs() + (last[2] - first[2]).abs();
@@ -369,11 +324,11 @@ fn orientation(port: &Port) -> Option<&'static str> {
     if across == 0 && up == 0 {
         None
     } else if across >= 2 * up {
-        Some("horz")
+        Some(Orientation::Horizontal)
     } else if up >= 2 * across {
-        Some("vert")
+        Some(Orientation::Vertical)
     } else {
-        Some("diag")
+        Some(Orientation::Diagonal)
     }
 }
 

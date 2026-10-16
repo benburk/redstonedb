@@ -6,8 +6,12 @@ use sqlx::SqlitePool;
 
 use crate::{
     category,
-    models::schematic::{
-        self, Category, Credit, Measure, Schematic, StackDirection,
+    models::{
+        catalogue::{self, Category, Measure},
+        schematic::{
+            self, Encoding, Logic, Orientation, Schematic, StackDirection,
+        },
+        tag,
     },
     mojang, stack,
 };
@@ -22,10 +26,8 @@ pub struct Details {
     /// of the builder's own.
     pub category: String,
     pub width: Option<i64>,
-    /// `horz`, `vert`, or `diag`.
-    pub orientation: String,
-    /// `bin` or `hex`.
-    pub encoding: Option<String>,
+    pub orientation: Orientation,
+    pub encoding: Option<Encoding>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     /// A date such as `2024-02-02`.
@@ -34,8 +36,8 @@ pub struct Details {
     /// The build's own name, kept only for a category that names each
     /// build.
     pub given_name: Option<String>,
-    /// `comb` or `seq`; `None` follows the category.
-    pub logic: Option<String>,
+    /// `None` follows the category.
+    pub logic: Option<Logic>,
     /// The fewest ticks from one input to the next.
     pub throughput: Option<i64>,
     /// How many bytes a memory holds.
@@ -60,14 +62,14 @@ impl Details {
         Details {
             category: s.category.clone(),
             width: s.width,
-            orientation: s.orientation.clone(),
-            encoding: s.encoding.clone(),
+            orientation: s.orientation,
+            encoding: s.encoding,
             latency: s.latency,
             synchronized: s.synchronized,
             built_on: s.built_on.clone(),
             description: s.description.clone(),
             given_name: s.given_name.clone(),
-            logic: s.own_logic.clone(),
+            logic: s.own_logic,
             throughput: s.throughput,
             bytes: s.bytes,
             at_least: s.at_least,
@@ -102,7 +104,7 @@ pub struct Ready {
     pub category: Category,
     /// The category by its name, the fields it has no use for dropped,
     /// flags not of it dropped, the names respelled as their players spell
-    /// them, and tags in the form [`schematic::tag_name`] gives.
+    /// them, and tags in the form [`tag::name`] gives.
     pub details: Details,
     /// Whether the simulation decides how it stacks, so the stacking given
     /// counts for nothing and whatever the simulation found stays.
@@ -160,7 +162,6 @@ async fn ready(
         &mut details.built_on,
         &mut details.description,
         &mut details.given_name,
-        &mut details.logic,
         &mut details.design,
     ] {
         *text = text
@@ -168,15 +169,11 @@ async fn ready(
             .map(|t| t.trim().to_owned())
             .filter(|t| !t.is_empty());
     }
-    details.tags = details
-        .tags
-        .iter()
-        .map(|name| schematic::tag_name(name))
-        .collect();
+    details.tags = details.tags.iter().map(|name| tag::name(name)).collect();
     shaped(&details)?;
-    schematic::check_new_tags(db, &details.tags, may_create_tags).await??;
+    tag::check_new(db, &details.tags, may_create_tags).await??;
 
-    let categories = schematic::categories(db).await?;
+    let categories = catalogue::categories(db).await?;
     let listed = Category::find(&categories, &details.category).is_some();
     details.category = Category::name_of(&categories, &details.category);
     if details.category.is_empty() {
@@ -186,7 +183,7 @@ async fn ready(
     }
     let design = details.design.take().unwrap_or_else(|| "other".to_owned());
     let category =
-        schematic::check_category(db, &details.category, &design).await??;
+        catalogue::check_category(db, &details.category, &design).await??;
     details.design = Some(design);
 
     let positive = |n: Option<i64>| n.filter(|n| *n > 0);
@@ -199,13 +196,13 @@ async fn ready(
     details.at_least =
         positive(details.at_least).filter(|_| category.has(Measure::AtLeast));
     details.flags =
-        schematic::keep_flags(db, &category.name, &details.flags).await?;
+        catalogue::keep_flags(db, &category.name, &details.flags).await?;
 
     let stacking_inferred = build.conventional
         && category::behaviour(&category.name).stacking
             == category::Stacking::Inferred;
     if !stacking_inferred {
-        let buses = stack::Buses::of(&category.name, &details.orientation);
+        let buses = stack::Buses::of(&category.name, details.orientation);
         stack::check(build.data, &details.stacking, buses)?;
     }
 
@@ -222,18 +219,6 @@ async fn ready(
 /// Refuses details whose fields are not of the shape they must be, each
 /// with a sentence saying which.
 fn shaped(details: &Details) -> Result<(), String> {
-    if !matches!(details.orientation.as_str(), "horz" | "vert" | "diag") {
-        return Err(
-            "Orientation must be Horizontal, Vertical, or Diagonal.".to_owned()
-        );
-    }
-    if details
-        .encoding
-        .as_deref()
-        .is_some_and(|e| !matches!(e, "bin" | "hex"))
-    {
-        return Err("Encoding must be Binary or Hex.".to_owned());
-    }
     if let Some(name) = details
         .builders
         .iter()
@@ -252,20 +237,13 @@ fn shaped(details: &Details) -> Result<(), String> {
     {
         return Err("A name is at most 60 characters.".to_owned());
     }
-    if details
-        .logic
-        .as_deref()
-        .is_some_and(|l| !matches!(l, "comb" | "seq"))
-    {
-        return Err("Logic must be Combinational or Sequential.".to_owned());
-    }
     if details.built_on.as_deref().is_some_and(|d| !is_date(d)) {
         return Err("Built on must be a date such as 2024-02-02.".to_owned());
     }
     if let Some(name) = details
         .tags
         .iter()
-        .find(|n| schematic::DERIVED.contains(&n.as_str()))
+        .find(|n| tag::DERIVED.contains(&n.as_str()))
     {
         return Err(format!(
             "The {} tag is worked out from the build; it cannot be added by \
@@ -273,40 +251,13 @@ fn shaped(details: &Details) -> Result<(), String> {
             name.replace('_', " ")
         ));
     }
-    if let Some(name) =
-        details.tags.iter().find(|n| !schematic::valid_tag_name(n))
-    {
+    if let Some(name) = details.tags.iter().find(|n| !tag::valid_name(n)) {
         return Err(format!(
             "{} cannot be a tag: use letters, digits, and spaces.",
             name.replace('_', " ")
         ));
     }
     Ok(())
-}
-
-/// Saves checked details over build `id`'s, with its credits, tags, and
-/// flags, and its stacking unless the simulation decides it.
-pub async fn save(
-    db: &SqlitePool,
-    id: &str,
-    ready: &Ready,
-) -> Result<(), sqlx::Error> {
-    let details = &ready.details;
-    let mut tx = db.begin().await?;
-    schematic::set_details(&mut *tx, id, details).await?;
-    if !ready.stacking_inferred {
-        schematic::set_stacking(&mut tx, id, &details.stacking).await?;
-    }
-    schematic::set_flags(&mut tx, id, &details.flags).await?;
-    let credits = [
-        (Credit::Builder, &details.builders),
-        (Credit::Contributor, &details.contributors),
-    ];
-    for (credit, names) in credits {
-        schematic::set_credits(&mut tx, id, credit, names).await?;
-    }
-    schematic::set_tags(&mut tx, id, &details.tags).await?;
-    tx.commit().await
 }
 
 /// Whether `d` is a real day written as `yyyy-mm-dd`, such as `2024-02-29`.

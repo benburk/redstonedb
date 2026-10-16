@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT data FROM schematic WHERE id = ?",
+  "query": "SELECT data as \"data!\" FROM current_file WHERE schematic_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "data",
+        "name": "data!",
         "ordinal": 0,
         "type_info": "Blob"
       }
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "cfb587a3efcf305e3214ebb1c5626e1aa539e756c9209faeae7b9cfcb16fd896"
+  "hash": "e595607556ad0cfca25b3ef630628d298cd45eb987d77d97dbbb4ee7a7e07fb0"
 }

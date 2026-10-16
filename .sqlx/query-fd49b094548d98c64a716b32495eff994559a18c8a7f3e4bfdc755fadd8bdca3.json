@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!\", category, category || '/' || sha256 as \"now!: String\",\n            compared_as FROM schematic",
+  "query": "SELECT schematic.id as \"id!\", category,\n            category || '/' || file.sha256 as \"now!: String\", compared_as\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       true
     ]
   },
-  "hash": "51ed6bea06a0eccf1ed49d2125e7ed8a432a7502395d62de2223424977c91738"
+  "hash": "fd49b094548d98c64a716b32495eff994559a18c8a7f3e4bfdc755fadd8bdca3"
 }

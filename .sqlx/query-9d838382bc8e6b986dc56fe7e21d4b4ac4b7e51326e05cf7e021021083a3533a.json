@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic.id as \"id!\", category, file.data as \"data!\"\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id\n         WHERE category IN (SELECT value FROM json_each(?))",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "data!",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9d838382bc8e6b986dc56fe7e21d4b4ac4b7e51326e05cf7e021021083a3533a"
+}

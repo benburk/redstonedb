@@ -25,7 +25,10 @@ use std::collections::HashSet;
 
 use crate::{
     lint,
-    models::schematic::{Measure, Schematic},
+    models::{
+        catalogue::Measure,
+        schematic::{Logic, Schematic},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +203,7 @@ pub fn widths(s: &Schematic) -> Vec<(i64, i64)> {
     };
     let mut widths = vec![(w, 1)];
     for direction in &s.stacking {
-        if !direction.adds_bits(&s.orientation) {
+        if !direction.adds_bits(s.orientation) {
             continue;
         }
         let most = direction.max_copies.unwrap_or(WIDEST / w);
@@ -233,9 +236,12 @@ pub fn stacked_width(terms: &[Term], s: &Schematic) -> Option<(i64, i64)> {
 fn facts(s: &Schematic) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
     facts.extend(s.aliases.iter().cloned());
-    facts.extend([s.orientation.clone(), s.orientation_label().to_lowercase()]);
+    facts.extend([
+        s.orientation.name().to_owned(),
+        s.orientation.label().to_lowercase(),
+    ]);
     // Not the bare words, so `binary` and `hex` find the converters by name.
-    facts.extend(s.encoding.as_ref().map(|e| format!("encoding:{e}")));
+    facts.extend(s.encoding.map(|e| format!("encoding:{}", e.name())));
     for tag in &s.tags {
         facts.push(tag.label());
         facts.push(tag.token().replace('_', " "));
@@ -345,10 +351,14 @@ fn timing(s: &Schematic) -> Vec<&'static str> {
         Some(false) => vec!["unsync", "unsynchronized"],
         None => Vec::new(),
     };
-    match s.logic.as_deref() {
-        Some("comb") => words.extend(["stateless", "comb", "combinational"]),
-        Some("seq") => words.extend(["stateful", "seq", "sequential"]),
-        _ => {}
+    match s.logic {
+        Some(Logic::Stateless) => {
+            words.extend(["stateless", "comb", "combinational"]);
+        }
+        Some(Logic::Stateful) => {
+            words.extend(["stateful", "seq", "sequential"]);
+        }
+        None => {}
     }
     if s.pipelined() {
         words.extend(["pipe", "pipelined"]);
@@ -371,11 +381,14 @@ fn versions(s: &Schematic) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::Tag;
+    use crate::models::{
+        schematic::{Encoding, Orientation},
+        tag::Tag,
+    };
 
     fn schematic(
         category: &str,
-        orientation: &str,
+        orientation: Orientation,
         tags: &[&str],
     ) -> Schematic {
         Schematic {
@@ -383,11 +396,11 @@ mod tests {
             category: category.to_owned(),
             category_label: None,
             width: Some(8),
-            orientation: orientation.to_owned(),
-            encoding: Some("bin".to_owned()),
+            orientation,
+            encoding: Some(Encoding::Binary),
             latency: None,
             synchronized: None,
-            logic: Some("comb".to_owned()),
+            logic: Some(Logic::Stateless),
             own_logic: None,
             throughput: None,
             at_least: None,
@@ -404,6 +417,7 @@ mod tests {
             built_on: None,
             imported_by: None,
             conventional: true,
+            keeps_paste: false,
             design: "other".to_owned(),
             design_abbreviation: None,
             design_given_label: None,
@@ -433,7 +447,7 @@ mod tests {
 
     #[test]
     fn terms_and_together() {
-        let register = schematic("register", "vert", &["alpha"]);
+        let register = schematic("register", Orientation::Vertical, &["alpha"]);
         assert!(find("register vertical alpha", &register));
         assert!(find("register vert", &register));
         assert!(!find("register horizontal", &register));
@@ -442,7 +456,11 @@ mod tests {
 
     #[test]
     fn minus_and_not_exclude() {
-        let register = schematic("register", "vert", &["alpha", "torchless"]);
+        let register = schematic(
+            "register",
+            Orientation::Vertical,
+            &["alpha", "torchless"],
+        );
         assert!(!find("register -torchless", &register));
         assert!(!find("register not torchless", &register));
         assert!(find("register -carry_lookahead", &register));
@@ -450,7 +468,8 @@ mod tests {
 
     #[test]
     fn quotes_and_underscores_keep_words_together() {
-        let adder = schematic("adder", "horz", &["carry_lookahead"]);
+        let adder =
+            schematic("adder", Orientation::Horizontal, &["carry_lookahead"]);
         assert!(find("\"carry lookahead\"", &adder));
         assert!(find("carry_lookahead", &adder));
         assert!(!find("-\"carry lookahead\"", &adder));
@@ -461,7 +480,7 @@ mod tests {
         let s = Schematic {
             builders: vec!["Don_Manuel_1229".to_owned()],
             contributors: vec!["Owenage_".to_owned()],
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         assert!(find("don manuel", &s));
         assert!(find("owen", &s));
@@ -470,9 +489,10 @@ mod tests {
 
     #[test]
     fn a_plural_finds_its_singular() {
-        let s = schematic("multiplier", "horz", &[]);
+        let s = schematic("multiplier", Orientation::Horizontal, &[]);
         assert!(find("multipliers", &s));
-        let memory = schematic("serial_write_memory", "horz", &[]);
+        let memory =
+            schematic("serial_write_memory", Orientation::Horizontal, &[]);
         assert!(find("memories", &memory));
     }
 
@@ -480,7 +500,7 @@ mod tests {
     fn latency_and_a_number_before_its_unit() {
         let s = Schematic {
             latency: Some(3),
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         assert!(find("3t", &s));
         assert!(find("3 ticks", &s));
@@ -491,8 +511,9 @@ mod tests {
 
     #[test]
     fn encoding_is_named_with_its_role_not_by_the_bare_word() {
-        let converter = schematic("hex_to_binary", "horz", &[]);
-        let adder = schematic("adder", "horz", &[]);
+        let converter =
+            schematic("hex_to_binary", Orientation::Horizontal, &[]);
+        let adder = schematic("adder", Orientation::Horizontal, &[]);
         assert!(find("encoding:bin", &adder));
         assert!(find("binary", &converter));
         assert!(
@@ -507,7 +528,7 @@ mod tests {
     fn a_stack_answers_to_the_widths_its_copies_reach() {
         use crate::models::schematic::StackDirection;
         let stacks = |width, west, north, max_copies| {
-            let mut s = schematic("adder", "horz", &[]);
+            let mut s = schematic("adder", Orientation::Horizontal, &[]);
             s.width = Some(width);
             s.stacking = vec![StackDirection {
                 west,
@@ -534,7 +555,7 @@ mod tests {
 
     #[test]
     fn width_and_unknown_words() {
-        let adder = schematic("adder", "horz", &[]);
+        let adder = schematic("adder", Orientation::Horizontal, &[]);
         assert!(find("8b", &adder));
         assert!(find("08b", &adder));
         assert!(!find("16b", &adder));
@@ -545,7 +566,7 @@ mod tests {
     fn a_capacity_matches_in_bytes_not_bits() {
         let ram = Schematic {
             bytes: Some(32),
-            ..schematic("ram", "horz", &[])
+            ..schematic("ram", Orientation::Horizontal, &[])
         };
         assert!(find("32-byte", &ram));
         assert!(!find("32b", &ram), "32b means 32 bits wide");
@@ -556,7 +577,7 @@ mod tests {
         let serial = Schematic {
             throughput: Some(2),
             measures: vec![Measure::Throughput],
-            ..schematic("serial_adder", "horz", &[])
+            ..schematic("serial_adder", Orientation::Horizontal, &[])
         };
         assert!(find("2t", &serial));
         assert!(find("2-tick", &serial));
@@ -569,7 +590,7 @@ mod tests {
         let threshold = Schematic {
             at_least: Some(3),
             aliases: vec!["majority".to_owned()],
-            ..schematic("threshold", "horz", &[])
+            ..schematic("threshold", Orientation::Horizontal, &[])
         };
         assert!(find("majority", &threshold));
         assert!(find("\"at least 3\"", &threshold));
@@ -581,7 +602,7 @@ mod tests {
     fn a_build_is_found_in_every_release_it_works_in() {
         let s = Schematic {
             works_from: Some("1.5".to_owned()),
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         assert!(find("version:1.5", &s));
         assert!(find("version:1.12", &s));
@@ -594,7 +615,7 @@ mod tests {
         let adder = Schematic {
             throughput: Some(3),
             latency: Some(8),
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         assert!(find("throughput:3", &adder));
         assert!(!find("3t", &adder), "3t is a latency");
@@ -606,13 +627,13 @@ mod tests {
             throughput: Some(3),
             latency: Some(8),
             synchronized: Some(true),
-            ..schematic("multiplier", "horz", &[])
+            ..schematic("multiplier", Orientation::Horizontal, &[])
         };
         assert!(find("comb pipelined", &piped));
         assert!(find("stateless pipelined", &piped));
         assert!(!find("seq", &piped));
         let sequential = Schematic {
-            logic: Some("seq".to_owned()),
+            logic: Some(Logic::Stateful),
             ..piped
         };
         assert!(find("sequential", &sequential));
@@ -624,7 +645,7 @@ mod tests {
     fn a_builder_matches_whatever_its_case_and_underscores() {
         let s = Schematic {
             builders: vec!["FEARLESS_Z_".to_owned()],
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         let terms = parse("fearless_z_");
         assert_eq!(matching(&terms, vec![s]).len(), 1);
@@ -634,11 +655,11 @@ mod tests {
     fn a_role_ties_a_name_to_it() {
         let built = Schematic {
             builders: vec!["Alex_you".to_owned()],
-            ..schematic("adder", "horz", &[])
+            ..schematic("adder", Orientation::Horizontal, &[])
         };
         let helped = Schematic {
             contributors: vec!["alex_you".to_owned()],
-            ..schematic("register", "horz", &[])
+            ..schematic("register", Orientation::Horizontal, &[])
         };
         let found = matching(&parse("builder:Alex_you"), vec![built, helped]);
         assert_eq!(found.len(), 1);
@@ -647,7 +668,7 @@ mod tests {
 
     #[test]
     fn a_known_word_does_not_match_inside_another() {
-        let mut unsynced = schematic("adder", "horz", &[]);
+        let mut unsynced = schematic("adder", Orientation::Horizontal, &[]);
         unsynced.synchronized = Some(false);
         let mut synced = unsynced.clone();
         synced.synchronized = Some(true);

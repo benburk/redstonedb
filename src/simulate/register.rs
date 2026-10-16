@@ -35,6 +35,7 @@ use super::{
 use crate::{
     interface::{self, Interface},
     lint,
+    models::schematic::Orientation,
     schem::{Blocks, Pos},
     stack,
 };
@@ -1075,7 +1076,11 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let works = |step: Step, copies: usize, bits: bool, quick: bool| {
         // Copies along a register's bits share its control lines; across
         // them, its data buses.
-        let orientation = if bits { "horz" } else { "vert" };
+        let orientation = if bits {
+            Orientation::Horizontal
+        } else {
+            Orientation::Vertical
+        };
         let buses = stack::Buses::of("register", orientation);
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;

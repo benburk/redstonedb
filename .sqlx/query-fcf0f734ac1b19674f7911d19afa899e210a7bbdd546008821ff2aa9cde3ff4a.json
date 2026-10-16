@@ -1,17 +1,17 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT category, measure FROM category_measure\n             ORDER BY category, position",
+  "query": "SELECT schematic_id as \"id!\", data as \"data!\" FROM current_file",
   "describe": {
     "columns": [
       {
-        "name": "category",
+        "name": "id!",
         "ordinal": 0,
         "type_info": "Text"
       },
       {
-        "name": "measure",
+        "name": "data!",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Blob"
       }
     ],
     "parameters": {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "e41217cf5c310ca8f231d5792f54ffe4e19a21186bd23e1468c1ba9a9f3f8544"
+  "hash": "fcf0f734ac1b19674f7911d19afa899e210a7bbdd546008821ff2aa9cde3ff4a"
 }

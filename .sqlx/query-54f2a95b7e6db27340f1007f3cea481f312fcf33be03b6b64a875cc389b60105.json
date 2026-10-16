@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic_id, version FROM schematic_version WHERE sha256 = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "schematic_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "version",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "54f2a95b7e6db27340f1007f3cea481f312fcf33be03b6b64a875cc389b60105"
+}

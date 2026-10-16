@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic_flag.schematic_id, flag.category, flag.name,\n            flag.label\n         FROM schematic_flag\n         JOIN schematic ON schematic.id = schematic_flag.schematic_id\n         JOIN flag ON flag.category = schematic.category\n            AND flag.name = schematic_flag.name\n         ORDER BY flag.position",
+  "query": "SELECT schematic_flag.schematic_id, flag.category, flag.name,\n            flag.label\n         FROM schematic_flag\n         JOIN schematic ON schematic.id = schematic_flag.schematic_id\n         JOIN flag ON flag.category = schematic.category\n            AND flag.name = schematic_flag.name\n         WHERE ?1 IS NULL\n            OR schematic_flag.schematic_id IN (SELECT value FROM json_each(?1))\n         ORDER BY flag.position",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "01376874a4e1beb032953bd7a3740b4c1f63c12fa2edf4ed72ce5a1021d83757"
+  "hash": "06b0134bdd8f9d93e78327d0c866bf6fcc2563f16aa90b5030387828698f7b4d"
 }

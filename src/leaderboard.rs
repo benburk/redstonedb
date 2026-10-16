@@ -5,7 +5,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::models::schematic::{Measure, Schematic};
+use crate::models::{
+    catalogue::Measure,
+    schematic::{Encoding, Logic, Schematic},
+};
 
 /// How many builds each ranking shows.
 pub const SHOWN: usize = 10;
@@ -15,10 +18,11 @@ pub const SHOWN: usize = 10;
 pub struct Wanted {
     /// A value of each measure asked for, such as a width of 8.
     pub measures: Vec<(Measure, i64)>,
-    /// `comb`, `seq`, or `unknown`.
+    /// A [`Logic`]'s name, or `unknown`.
     pub logic: Option<String>,
-    /// `bin` or `hex`.
+    /// An [`Encoding`]'s name.
     pub encoding: Option<String>,
+    /// An orientation's name.
     pub orientation: Option<String>,
     /// A design's name; `None` for every design, where they compete.
     pub design: Option<String>,
@@ -113,22 +117,22 @@ pub fn board<'a>(
     // latency is no stateless one's.
     let (logics, chosen_logic, ranked) =
         narrow(ranked, wanted.logic.as_deref(), |s| {
-            let label = s.logic_label().unwrap_or("Unknown");
+            let label = s.logic.map_or("Unknown", Logic::label);
             (logic(s).to_owned(), label.to_owned())
         });
     // Hex and binary builds never compete.
     let (encodings, chosen_encoding, ranked) =
         narrow(ranked, wanted.encoding.as_deref(), |s| {
-            let label = if encoding(s) == "hex" {
-                "Hex"
-            } else {
-                "Binary"
-            };
-            (encoding(s).to_owned(), label.to_owned())
+            let encoding = encoding(s);
+            (encoding.name().to_owned(), encoding.label().to_owned())
         });
     let (orientations, orientation, ranked) =
         narrow(ranked, wanted.orientation.as_deref(), |s| {
-            (s.orientation.clone(), s.orientation_label().to_owned())
+            let orientation = s.orientation;
+            (
+                orientation.name().to_owned(),
+                orientation.label().to_owned(),
+            )
         });
 
     // By the short name people say, such as CCA, where there is one.
@@ -190,14 +194,15 @@ fn narrow<'a>(
     (options, chosen, ranked)
 }
 
-/// A build's logic: `comb`, `seq`, or `unknown`.
-fn logic(s: &Schematic) -> &str {
-    s.logic.as_deref().unwrap_or("unknown")
+/// A build's logic by its name, or `unknown`.
+fn logic(s: &Schematic) -> &'static str {
+    s.logic.map_or("unknown", Logic::name)
 }
 
-/// How a build counts: `hex`, or `bin` for binary or unknown.
-fn encoding(s: &Schematic) -> &str {
-    s.encoding.as_deref().unwrap_or("bin")
+/// How a build counts: in hex, or in binary, as one of unknown encoding
+/// is taken to.
+fn encoding(s: &Schematic) -> Encoding {
+    s.encoding.unwrap_or(Encoding::Binary)
 }
 
 /// `choices` with the zeros that sorted their values by number taken off.
@@ -395,8 +400,8 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
                 &s.category,
                 values,
                 logic(s),
-                encoding(s),
-                &s.orientation,
+                encoding(s).name(),
+                s.orientation.name(),
                 &s.design,
             ))
             .or_default()
@@ -415,6 +420,7 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::schematic::Orientation;
 
     fn build(
         id: &str,
@@ -428,8 +434,8 @@ mod tests {
             category: "adder".to_owned(),
             category_label: Some("Adder".to_owned()),
             width: Some(width),
-            orientation: "horz".to_owned(),
-            encoding: Some("bin".to_owned()),
+            orientation: Orientation::Horizontal,
+            encoding: Some(Encoding::Binary),
             latency,
             synchronized: None,
             logic: None,
@@ -449,6 +455,7 @@ mod tests {
             built_on: None,
             imported_by: None,
             conventional: true,
+            keeps_paste: false,
             design: design.to_owned(),
             design_abbreviation: None,
             design_given_label: None,
@@ -484,7 +491,7 @@ mod tests {
     #[test]
     fn hex_and_binary_builds_never_share_a_board() {
         let mut adders = adders();
-        adders[0].encoding = Some("hex".to_owned());
+        adders[0].encoding = Some(Encoding::Hex);
         let hex_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
         let binary = board(&all, &Wanted::default(), &[Measure::Width]);
@@ -506,24 +513,25 @@ mod tests {
     fn stateful_and_stateless_builds_never_share_a_board() {
         let mut adders = adders();
         for s in &mut adders {
-            s.logic = Some("comb".to_owned());
+            s.logic = Some(Logic::Stateless);
         }
-        adders[0].logic = Some("seq".to_owned());
-        let seq_id = adders[0].id.clone();
+        adders[0].logic = Some(Logic::Stateful);
+        let stateful_id = adders[0].id.clone();
         let all: Vec<&Schematic> = adders.iter().collect();
-        let comb = board(&all, &Wanted::default(), &[Measure::Width]);
-        assert_eq!(comb.logic.as_deref(), Some("comb"));
-        assert!(comb.builds.iter().all(|s| s.id != seq_id));
+        let stateless = board(&all, &Wanted::default(), &[Measure::Width]);
+        assert_eq!(stateless.logic.as_deref(), Some("stateless"));
+        assert!(stateless.builds.iter().all(|s| s.id != stateful_id));
         let labels: Vec<&str> =
-            comb.logics.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["Stateless", "Stateful"]);
+            stateless.logics.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["Stateful", "Stateless"]);
         let wanted = Wanted {
-            logic: Some("seq".to_owned()),
+            logic: Some("stateful".to_owned()),
             ..Wanted::default()
         };
-        let seq = board(&all, &wanted, &[Measure::Width]);
-        let ids: Vec<&str> = seq.builds.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, [seq_id.as_str()]);
+        let stateful = board(&all, &wanted, &[Measure::Width]);
+        let ids: Vec<&str> =
+            stateful.builds.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, [stateful_id.as_str()]);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use sqlx::SqlitePool;
 use crate::{
     import::{self, Analysis, Prepared},
     lint,
-    models::schematic::{self, Schematic},
+    models::{schematic::Schematic, version},
     schem::{self, Blocks, Pos},
     standardize::{self, Gray},
 };
@@ -149,10 +149,9 @@ pub async fn check(
     file: &[u8],
     standardize: Option<Gray>,
 ) -> anyhow::Result<Checked> {
-    let keep_paste = schematic::keeping_paste(db).await?.contains(&s.id);
     let prepared =
-        import::prepare(file, standardize, s.conventional, keep_paste)?;
-    let current = schematic::data(db, &s.id).await?.unwrap_or_default();
+        import::prepare(file, standardize, s.conventional, s.keeps_paste)?;
+    let current = version::current_file(db, &s.id).await?.unwrap_or_default();
     let current = Blocks::read(&current)?;
     let comparison = compare(&current, &prepared.blocks);
     let mut refusals = refusals(comparison);
@@ -173,10 +172,9 @@ pub async fn check(
             broken.len()
         ));
     }
-    match schematic::id_by_sha256(db, &prepared.sha256).await? {
-        Some(other) if other == s.id => {
-            refusals
-                .push("It is the same file as the current version.".to_owned());
+    match version::holder(db, &prepared.sha256).await? {
+        Some((other, number)) if other == s.id => {
+            refusals.push(format!("It is the same file as version {number}."));
         }
         Some(_) => refusals.push(
             "This exact file is already on the site as another build."

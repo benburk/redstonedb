@@ -1,191 +1,51 @@
+//! Stored builds: their details, loaded together with everything that
+//! hangs off them, and the writes that change them. Their files live in
+//! their versions; see `models::version`.
+
 use std::collections::HashMap;
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
-use crate::import::FileFacts;
+use super::{
+    catalogue::{self, Flag, Measure},
+    tag::{self, Tag},
+    version,
+};
+use crate::{details::Ready, import::Prepared};
 
-/// A tag's name is written in full words joined by underscores, such as
-/// `carry_lookahead`.
-#[derive(Debug, Clone)]
-pub struct Tag {
-    pub name: String,
-    /// A short form that commands and search accept.
-    pub token: Option<String>,
-    /// `restriction`, `other`, or `failing`, which colours its badge.
-    pub kind: String,
-}
-
-/// The name of the tag simulation puts on a build that gets some cases
-/// wrong. It is not stored, so no one can add or remove it.
-pub const FAILS_SIMULATION: &str = "fails_simulation";
-
-/// The name of the tag a build whose file has no redstone torches carries.
-/// It is not stored, so no one can add or remove it.
-pub const TORCHLESS: &str = "torchless";
-
-/// The name of the tag a build carries that works from Alpha, using no
-/// redstone component or mechanic added since. It is not stored either.
-pub const ALPHA: &str = "alpha";
-
-/// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];
-
-impl Tag {
-    fn derived(name: &str, kind: &str) -> Self {
-        Tag {
-            name: name.to_owned(),
-            token: None,
-            kind: kind.to_owned(),
-        }
-    }
-
-    /// Whether the build's file or simulation sets it, rather than a
-    /// person.
-    pub fn is_derived(&self) -> bool {
-        DERIVED.contains(&self.name.as_str())
-    }
-
-    /// The name as words, such as `carry lookahead`.
-    pub fn label(&self) -> String {
-        self.name.replace('_', " ")
-    }
-
-    /// How a filename writes this tag.
-    pub fn token(&self) -> &str {
-        self.token.as_deref().unwrap_or(&self.name)
+named_values! {
+    /// The way a build's bits run.
+    Orientation {
+        Horizontal = "horz", "Horizontal";
+        Vertical = "vert", "Vertical";
+        Diagonal = "diag", "Diagonal";
     }
 }
 
-/// The form of a tag name a person types, with spaces for underscores.
-pub fn tag_name(input: &str) -> String {
-    input.trim().to_lowercase().replace(' ', "_")
-}
-
-/// A name's words for people to read, each capitalized, such as
-/// `Carry Lookahead` for `carry_lookahead`.
-pub fn words(name: &str) -> String {
-    name.split('_')
-        .filter(|word| !word.is_empty())
-        .map(|word| {
-            let mut chars = word.chars();
-            chars.next().map_or_else(String::new, |first| {
-                first.to_uppercase().chain(chars).collect()
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Whether a build remembers anything, as people read it: `Stateless` for
-/// `comb`, whose outputs, once its inputs stop changing, depend only on
-/// them, and `Stateful` for `seq`, which remembers. The stored values keep
-/// their old names, combinational and sequential.
-pub fn logic_label(logic: &str) -> &str {
-    match logic {
-        "comb" => "Stateless",
-        "seq" => "Stateful",
-        other => other,
+/// A build's bits run across unless it says otherwise.
+impl Default for Orientation {
+    fn default() -> Self {
+        Orientation::Horizontal
     }
 }
 
-/// The stored value a word names: `comb` for `stateless`, `seq` for
-/// `stateful`, and the stored values themselves.
-pub fn logic_value(word: &str) -> &str {
-    match word {
-        "stateless" => "comb",
-        "stateful" => "seq",
-        other => other,
+named_values! {
+    /// How a build's numbers are written on its lines.
+    Encoding {
+        /// A bit per line, on levers.
+        Binary = "bin", "Binary";
+        /// A digit per line, as a signal strength.
+        Hex = "hex", "Hex";
     }
 }
 
-/// A number a category's builds are named and ranked by, as width is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Measure {
-    /// Bits, as in `8-bit`.
-    Width,
-    /// A memory's capacity, as in `32-byte`.
-    Bytes,
-    /// A serial build's ticks from one bit to the next, as in `2-tick`.
-    Throughput,
-    /// A threshold's k, the fewest inputs on that turn it on, as in `At
-    /// Least 3`.
-    AtLeast,
-}
-
-impl Measure {
-    pub const ALL: [Measure; 4] = [
-        Measure::Width,
-        Measure::Bytes,
-        Measure::Throughput,
-        Measure::AtLeast,
-    ];
-
-    /// As stored, and as a leaderboard's address and `rsdb` name it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Measure::Width => "width",
-            Measure::Bytes => "bytes",
-            Measure::Throughput => "throughput",
-            Measure::AtLeast => "at_least",
-        }
-    }
-
-    pub fn named(name: &str) -> Option<Self> {
-        Measure::ALL.into_iter().find(|m| m.name() == name)
-    }
-
-    /// Its heading, such as `Capacity`.
-    pub fn heading(self) -> &'static str {
-        match self {
-            Measure::Width => "Width",
-            Measure::Bytes => "Capacity",
-            Measure::Throughput => "Throughput",
-            Measure::AtLeast => "At least",
-        }
-    }
-
-    /// The build's value of it.
-    pub fn of(self, s: &Schematic) -> Option<i64> {
-        match self {
-            Measure::Width => s.width,
-            Measure::Bytes => s.bytes,
-            Measure::Throughput => s.throughput,
-            Measure::AtLeast => s.at_least,
-        }
-    }
-
-    /// `n` of it as a name leads with it, such as `8-bit`, `32-byte`,
-    /// `2-tick`, or `At Least 3`.
-    pub fn lead(self, n: i64) -> String {
-        match self {
-            Measure::Width => format!("{n}-bit"),
-            Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput => format!("{n}-tick"),
-            Measure::AtLeast => format!("At Least {n}"),
-        }
-    }
-
-    /// `n` of it in words, such as `8 bits` or `at least 3 on`.
-    pub fn words(self, n: i64) -> String {
-        let count = |one: &str, many: &str| {
-            format!("{n} {}", if n == 1 { one } else { many })
-        };
-        match self {
-            Measure::Width => count("bit", "bits"),
-            Measure::Bytes => count("byte", "bytes"),
-            Measure::Throughput => count("tick", "ticks"),
-            Measure::AtLeast => format!("at least {n} on"),
-        }
-    }
-
-    /// The search term that finds `n` of it, such as `8b`.
-    pub fn term(self, n: i64) -> String {
-        match self {
-            Measure::Width => format!("{n}b"),
-            Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput => format!("{n}t"),
-            Measure::AtLeast => format!("at least {n}"),
-        }
+named_values! {
+    /// Whether a build remembers anything.
+    Logic {
+        /// Once its inputs stop changing, its outputs depend only on them.
+        Stateless = "stateless", "Stateless";
+        /// It remembers.
+        Stateful = "stateful", "Stateful";
     }
 }
 
@@ -228,15 +88,22 @@ impl StackDirection {
         format!("{} per copy, {limit}", steps.join(" and "))
     }
 
+    /// The way the bits of a build run whose copies this way add bits: west
+    /// alone is horizontal, up alone vertical, and west and up diagonal.
+    /// `None` for any other way.
+    pub fn orientation(&self) -> Option<Orientation> {
+        match (self.west > 0, self.up > 0, self.north > 0) {
+            (true, false, false) => Some(Orientation::Horizontal),
+            (false, true, false) => Some(Orientation::Vertical),
+            (true, true, false) => Some(Orientation::Diagonal),
+            _ => None,
+        }
+    }
+
     /// Whether copies this way add bits, as along the way the build's bits
     /// already run, rather than add parallel copies such as more registers.
-    pub fn adds_bits(&self, orientation: &str) -> bool {
-        match orientation {
-            "horz" => self.west > 0 && self.up == 0 && self.north == 0,
-            "vert" => self.up > 0 && self.west == 0 && self.north == 0,
-            "diag" => self.west > 0 && self.up > 0 && self.north == 0,
-            _ => false,
-        }
+    pub fn adds_bits(&self, orientation: Orientation) -> bool {
+        self.orientation() == Some(orientation)
     }
 }
 
@@ -278,8 +145,8 @@ impl std::str::FromStr for StackDirection {
     }
 }
 
-/// A stored schematic's metadata. The `.schem` bytes stay in the database
-/// until [`data`] fetches them.
+/// A stored schematic's metadata. Its file stays in the database until
+/// [`version::current_file`] fetches it.
 #[derive(Debug, Clone)]
 pub struct Schematic {
     pub id: String,
@@ -288,18 +155,17 @@ pub struct Schematic {
     /// off the list.
     pub category_label: Option<String>,
     pub width: Option<i64>,
-    pub orientation: String,
-    /// `bin` or `hex`; `None` for a category off the list, such as a
-    /// piston door.
-    pub encoding: Option<String>,
+    pub orientation: Orientation,
+    /// `None` for a category off the list, such as a piston door.
+    pub encoding: Option<Encoding>,
     pub latency: Option<i64>,
     /// Whether every output bit settles on the same tick.
     pub synchronized: Option<bool>,
-    /// `comb` or `seq`: the build's own, else its category's usual logic.
-    pub logic: Option<String>,
+    /// The build's own logic, else its category's usual logic.
+    pub logic: Option<Logic>,
     /// The build's own logic, where it says so; `None` follows its
     /// category's.
-    pub own_logic: Option<String>,
+    pub own_logic: Option<Logic>,
     /// The fewest ticks from one input to the next that still gives right
     /// outputs; for a serial build, from one bit to the next.
     pub throughput: Option<i64>,
@@ -327,6 +193,9 @@ pub struct Schematic {
     /// Whether the build follows the building conventions, so the lint and
     /// the interface reader apply to it.
     pub conventional: bool,
+    /// Whether its file keeps where its uploader's `//paste` put it, which
+    /// a new version or a reread file keeps too.
+    pub keeps_paste: bool,
     /// The name the build was given, for a category that takes one, such
     /// as `Bus Crossing` under bussing.
     pub given_name: Option<String>,
@@ -355,8 +224,8 @@ pub struct Schematic {
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
     pub imported_by: Option<String>,
-    /// Of the stored file, so a URL derived from the file can name its
-    /// version.
+    /// Of its current file, so a URL derived from the file can name its
+    /// version, and a simulation result can be matched to it.
     pub sha256: String,
     pub added_at: String,
     /// When a person last changed its details; `None` if never.
@@ -388,7 +257,7 @@ impl Schematic {
     pub fn category_label(&self) -> String {
         self.category_label
             .clone()
-            .unwrap_or_else(|| words(&self.category))
+            .unwrap_or_else(|| catalogue::words(&self.category))
     }
 
     /// What the build is: its given name, or else its category.
@@ -425,7 +294,8 @@ impl Schematic {
     /// `Hex` for a build that counts in hex, before its design, as in
     /// `32-bit Hex Carry Cancel Adder`; a binary one says nothing.
     fn hex(&self) -> Option<String> {
-        (self.encoding.as_deref() == Some("hex")).then(|| "Hex".to_owned())
+        (self.encoding == Some(Encoding::Hex))
+            .then(|| Encoding::Hex.label().to_owned())
     }
 
     /// The design and what the build is, as a name ends, such as `Carry
@@ -452,7 +322,7 @@ impl Schematic {
         (self.design != "other").then(|| {
             self.design_given_label
                 .clone()
-                .unwrap_or_else(|| words(&self.design))
+                .unwrap_or_else(|| catalogue::words(&self.design))
         })
     }
 
@@ -520,7 +390,7 @@ impl Schematic {
         let count = |n: &usize| i64::try_from(*n).unwrap_or(i64::MAX);
         let factor: i64 = copies
             .iter()
-            .filter(|(direction, _)| direction.adds_bits(&self.orientation))
+            .filter(|(direction, _)| direction.adds_bits(self.orientation))
             .map(|(_, n)| count(n))
             .product();
         let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
@@ -546,41 +416,180 @@ impl Schematic {
         }
     }
 
-    /// `Combinational` or `Sequential`.
-    pub fn logic_label(&self) -> Option<&str> {
-        self.logic.as_deref().map(logic_label)
-    }
-
     /// Whether a new input goes in before the last one's result comes out:
     /// a stateless, synchronized build whose throughput is below its
     /// latency.
     pub fn pipelined(&self) -> bool {
-        self.logic.as_deref() == Some("comb")
+        self.logic == Some(Logic::Stateless)
             && self.synchronized == Some(true)
             && matches!((self.throughput, self.latency), (Some(t), Some(l)) if t < l)
     }
-
-    pub fn orientation_label(&self) -> &str {
-        match self.orientation.as_str() {
-            "horz" => "Horizontal",
-            "vert" => "Vertical",
-            "diag" => "Diagonal",
-            other => other,
-        }
-    }
-
-    pub fn encoding_label(&self) -> Option<&str> {
-        self.encoding.as_deref().map(|encoding| match encoding {
-            "bin" => "Binary",
-            "hex" => "Hex",
-            other => other,
-        })
-    }
 }
 
-/// Each schematic's flags, by its id, in its category's order.
+/// Every schematic, ordered by category, width, then insertion.
+pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
+    load(db, None).await
+}
+
+/// The schematic `id`, if there is one.
+pub async fn get(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<Option<Schematic>, sqlx::Error> {
+    Ok(load(db, Some(ids_json(&[id]))).await?.pop())
+}
+
+/// The schematics `ids` name, in that order, leaving out any id that names
+/// none.
+pub async fn get_many(
+    db: &SqlitePool,
+    ids: &[&str],
+) -> Result<Vec<Schematic>, sqlx::Error> {
+    let mut found: HashMap<String, Schematic> = load(db, Some(ids_json(ids)))
+        .await?
+        .into_iter()
+        .map(|s| (s.id.clone(), s))
+        .collect();
+    Ok(ids.iter().filter_map(|&id| found.remove(id)).collect())
+}
+
+/// `ids` as a JSON array, as the loader's queries take a list.
+fn ids_json(ids: &[&str]) -> String {
+    serde_json::to_string(ids).expect("a list of strings is JSON")
+}
+
+/// The schematics `only` names, as a JSON array of ids, or every one for
+/// `None`, ordered by category, width, then insertion: each row with its
+/// tags, flags, stacking, credits, and its category's measures and aliases.
+async fn load(
+    db: &SqlitePool,
+    only: Option<String>,
+) -> Result<Vec<Schematic>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"SELECT schematic.id, schematic.category, width,
+            orientation as "orientation: Orientation",
+            encoding as "encoding: Encoding", latency,
+            synchronized as "synchronized: bool", throughput, at_least, bytes,
+            torches, works_from, works_from_by, size_x, size_y, size_z,
+            built_on, imported_by, file.sha256 as "sha256!", added_at,
+            edited_at, downloads, keeps_paste as "keeps_paste: bool",
+            schematic.logic as "own_logic: Logic",
+            coalesce(schematic.logic, category.logic) as "logic?: Logic",
+            conventional as "conventional: bool", description, given_name,
+            design, design.abbreviation as "design_abbreviation?: String",
+            design.label as "design_given_label?: String",
+            category.label as "category_label?: String",
+            user.username as "uploader?: String",
+            coalesce(user.minecraft_name, user.username)
+                as "uploader_name?: String",
+            EXISTS (SELECT 1 FROM simulation
+                WHERE simulation.schematic_id = schematic.id
+                    AND simulation.sha256 = file.sha256
+                    AND simulation.failed)
+                as "fails_simulation!: bool"
+         FROM schematic
+         JOIN current_file AS file ON file.schematic_id = schematic.id
+         LEFT JOIN category ON category.name = schematic.category
+         LEFT JOIN design ON design.category = schematic.category
+            AND design.name = schematic.design
+         LEFT JOIN user ON user.id = schematic.uploaded_by
+         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))
+         ORDER BY schematic.category, width, added_at"#,
+        only
+    )
+    .fetch_all(db)
+    .await?;
+    let mut tags = tags_by_schematic(db, only.as_deref()).await?;
+    let mut flags = flags_by_schematic(db, only.as_deref()).await?;
+    let mut stacking = stacking_by_schematic(db, only.as_deref()).await?;
+    let mut credits = credits_by_schematic(db, only.as_deref()).await?;
+    let extras = catalogue::Extras::load(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let (builders, contributors) =
+                credits.remove(&row.id).unwrap_or_default();
+            Schematic {
+                measures: extras.measures(&row.category),
+                aliases: extras.aliases(&row.category),
+                tags: tag::with_derived(
+                    tags.remove(&row.id).unwrap_or_default(),
+                    row.fails_simulation,
+                    row.torches,
+                    row.works_from.as_deref(),
+                ),
+                flags: flags.remove(&row.id).unwrap_or_default(),
+                stacking: stacking.remove(&row.id).unwrap_or_default(),
+                builders,
+                contributors,
+                id: row.id,
+                category: row.category,
+                category_label: row.category_label,
+                width: row.width,
+                orientation: row.orientation,
+                encoding: row.encoding,
+                latency: row.latency,
+                synchronized: row.synchronized,
+                logic: row.logic,
+                own_logic: row.own_logic,
+                throughput: row.throughput,
+                at_least: row.at_least,
+                torches: row.torches,
+                works_from: row.works_from,
+                works_from_by: row.works_from_by,
+                bytes: row.bytes,
+                size: (row.size_x, row.size_y, row.size_z),
+                built_on: row.built_on,
+                imported_by: row.imported_by,
+                conventional: row.conventional,
+                keeps_paste: row.keeps_paste,
+                design: row.design,
+                design_abbreviation: row.design_abbreviation,
+                design_given_label: row.design_given_label,
+                description: row.description,
+                given_name: row.given_name,
+                uploader: row.uploader,
+                uploader_name: row.uploader_name,
+                sha256: row.sha256,
+                added_at: row.added_at,
+                edited_at: row.edited_at,
+                downloads: row.downloads,
+            }
+        })
+        .collect())
+}
+
+/// The stored tags of the builds `only` names, as `load` takes it, by id,
+/// by kind then name.
+async fn tags_by_schematic(
+    db: &SqlitePool,
+    only: Option<&str>,
+) -> Result<HashMap<String, Vec<Tag>>, sqlx::Error> {
+    let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    for row in sqlx::query!(
+        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
+         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
+         WHERE ?1 IS NULL
+            OR schematic_tag.schematic_id IN (SELECT value FROM json_each(?1))
+         ORDER BY tag.kind = 'other', tag.kind, tag.name",
+        only
+    )
+    .fetch_all(db)
+    .await?
+    {
+        tags.entry(row.schematic_id).or_default().push(Tag {
+            name: row.name,
+            token: row.token,
+            kind: row.kind,
+        });
+    }
+    Ok(tags)
+}
+
+/// The flags of the builds `only` names, by id, in their category's order.
 async fn flags_by_schematic(
     db: &SqlitePool,
+    only: Option<&str>,
 ) -> Result<HashMap<String, Vec<Flag>>, sqlx::Error> {
     let mut flags: HashMap<String, Vec<Flag>> = HashMap::new();
     for row in sqlx::query!(
@@ -590,7 +599,10 @@ async fn flags_by_schematic(
          JOIN schematic ON schematic.id = schematic_flag.schematic_id
          JOIN flag ON flag.category = schematic.category
             AND flag.name = schematic_flag.name
-         ORDER BY flag.position"
+         WHERE ?1 IS NULL
+            OR schematic_flag.schematic_id IN (SELECT value FROM json_each(?1))
+         ORDER BY flag.position",
+        only
     )
     .fetch_all(db)
     .await?
@@ -604,14 +616,20 @@ async fn flags_by_schematic(
     Ok(flags)
 }
 
-/// Every build's stacking directions, by its id, the most westward first.
+/// The stacking directions of the builds `only` names, by id, the most
+/// westward first.
 async fn stacking_by_schematic(
     db: &SqlitePool,
+    only: Option<&str>,
 ) -> Result<HashMap<String, Vec<StackDirection>>, sqlx::Error> {
     let mut stacking: HashMap<String, Vec<StackDirection>> = HashMap::new();
     for row in sqlx::query!(
         "SELECT schematic_id, west, up, north, max_copies
-         FROM stack_direction ORDER BY west DESC, up DESC, north DESC"
+         FROM stack_direction
+         WHERE ?1 IS NULL
+            OR schematic_id IN (SELECT value FROM json_each(?1))
+         ORDER BY west DESC, up DESC, north DESC",
+        only
     )
     .fetch_all(db)
     .await?
@@ -629,329 +647,45 @@ async fn stacking_by_schematic(
     Ok(stacking)
 }
 
-/// What every category is named and searched by beyond its row: its
-/// measures and its aliases.
-struct Categories {
-    measures: HashMap<String, Vec<Measure>>,
-    aliases: HashMap<String, Vec<String>>,
-}
-
-impl Categories {
-    async fn load(db: &SqlitePool) -> Result<Self, sqlx::Error> {
-        let mut measures: HashMap<String, Vec<Measure>> = HashMap::new();
-        for row in sqlx::query!(
-            "SELECT category, measure FROM category_measure
-             ORDER BY category, position"
-        )
-        .fetch_all(db)
-        .await?
-        {
-            measures
-                .entry(row.category)
-                .or_default()
-                .extend(Measure::named(&row.measure));
-        }
-        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
-        for row in sqlx::query!(
-            "SELECT category, alias FROM category_alias ORDER BY alias"
-        )
-        .fetch_all(db)
-        .await?
-        {
-            aliases.entry(row.category).or_default().push(row.alias);
-        }
-        Ok(Categories { measures, aliases })
-    }
-
-    fn measures(&self, category: &str) -> Vec<Measure> {
-        self.measures.get(category).cloned().unwrap_or_default()
-    }
-
-    fn aliases(&self, category: &str) -> Vec<String> {
-        self.aliases.get(category).cloned().unwrap_or_default()
-    }
-}
-
-/// Every schematic's stored tags, by its id, by kind then name.
-async fn tags_by_schematic(
+/// The builders and contributors of the builds `only` names, by id, each
+/// in the order given.
+async fn credits_by_schematic(
     db: &SqlitePool,
-) -> Result<HashMap<String, Vec<Tag>>, sqlx::Error> {
-    let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
-    for row in sqlx::query!(
-        "SELECT schematic_tag.schematic_id, tag.name, tag.token, tag.kind
-         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         ORDER BY tag.kind = 'other', tag.kind, tag.name"
-    )
-    .fetch_all(db)
-    .await?
-    {
-        tags.entry(row.schematic_id).or_default().push(Tag {
-            name: row.name,
-            token: row.token,
-            kind: row.kind,
-        });
-    }
-    Ok(tags)
-}
-
-/// Every schematic, ordered by category, width, then insertion.
-pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, works_from, works_from_by, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
-            schematic.logic as own_logic,
-            coalesce(schematic.logic, (SELECT logic FROM category
-                WHERE category.name = schematic.category)) as "logic?: String",
-            conventional as "conventional: bool", description, given_name, design,
-            design.abbreviation as "design_abbreviation?: String",
-            design.label as "design_given_label?: String",
-            (SELECT label FROM category WHERE category.name =
-                schematic.category) as "category_label?: String",
-            user.username as "uploader?: String",
-            coalesce(user.minecraft_name, user.username)
-                as "uploader_name?: String",
-            EXISTS (SELECT 1 FROM simulation
-                WHERE simulation.schematic_id = schematic.id
-                    AND simulation.sha256 = schematic.sha256
-                    AND simulation.failed)
-                as "fails_simulation!: bool"
-         FROM schematic LEFT JOIN design ON design.category =
-             schematic.category AND design.name = schematic.design
-         LEFT JOIN user ON user.id = schematic.uploaded_by
-         ORDER BY schematic.category, width, added_at"#
-    )
-    .fetch_all(db)
-    .await?;
-    let mut stacking = stacking_by_schematic(db).await?;
-    let mut flags = flags_by_schematic(db).await?;
-    let mut builders: HashMap<String, Vec<String>> = HashMap::new();
-    let mut contributors: HashMap<String, Vec<String>> = HashMap::new();
+    only: Option<&str>,
+) -> Result<HashMap<String, (Vec<String>, Vec<String>)>, sqlx::Error> {
+    let mut credits: HashMap<String, (Vec<String>, Vec<String>)> =
+        HashMap::new();
     for row in sqlx::query!(
         "SELECT schematic_id, role, name FROM credit
-         ORDER BY schematic_id, position"
+         WHERE ?1 IS NULL
+            OR schematic_id IN (SELECT value FROM json_each(?1))
+         ORDER BY schematic_id, position",
+        only
     )
     .fetch_all(db)
     .await?
     {
-        let people = if row.role == Credit::Builder.as_str() {
-            &mut builders
+        let (builders, contributors) =
+            credits.entry(row.schematic_id).or_default();
+        if row.role == Credit::Builder.as_str() {
+            builders.push(row.name);
         } else {
-            &mut contributors
-        };
-        people.entry(row.schematic_id).or_default().push(row.name);
-    }
-    let mut tags = tags_by_schematic(db).await?;
-    let about = Categories::load(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Schematic {
-            measures: about.measures(&row.category),
-            aliases: about.aliases(&row.category),
-            tags: with_derived(
-                tags.remove(&row.id),
-                row.fails_simulation,
-                row.torches,
-                row.works_from.as_deref(),
-            ),
-            flags: flags.remove(&row.id).unwrap_or_default(),
-            builders: builders.remove(&row.id).unwrap_or_default(),
-            contributors: contributors.remove(&row.id).unwrap_or_default(),
-            stacking: stacking.remove(&row.id).unwrap_or_default(),
-            id: row.id,
-            category: row.category,
-            category_label: row.category_label,
-            width: row.width,
-            orientation: row.orientation,
-            encoding: row.encoding,
-            latency: row.latency,
-            synchronized: row.synchronized,
-            logic: row.logic,
-            own_logic: row.own_logic,
-            throughput: row.throughput,
-            at_least: row.at_least,
-            torches: row.torches,
-            works_from: row.works_from,
-            works_from_by: row.works_from_by,
-            bytes: row.bytes,
-            size: (row.size_x, row.size_y, row.size_z),
-            built_on: row.built_on,
-            imported_by: row.imported_by,
-            conventional: row.conventional,
-            design: row.design,
-            design_abbreviation: row.design_abbreviation,
-            design_given_label: row.design_given_label,
-            description: row.description,
-            given_name: row.given_name,
-            uploader: row.uploader,
-            uploader_name: row.uploader_name,
-            sha256: row.sha256,
-            added_at: row.added_at,
-            edited_at: row.edited_at,
-            downloads: row.downloads,
-        })
-        .collect())
-}
-
-/// A build's stored `tags`, if any, led by `fails_simulation` when it
-/// fails, with `torchless` among its restrictions when its file has no
-/// torches, and `alpha` when it works from Alpha.
-fn with_derived(
-    tags: Option<Vec<Tag>>,
-    fails_simulation: bool,
-    torches: Option<i64>,
-    works_from: Option<&str>,
-) -> Vec<Tag> {
-    let mut tags = tags.unwrap_or_default();
-    let alpha = works_from == Some(crate::works_from::RELEASES[0].name);
-    for (has, name) in [(alpha, ALPHA), (torches == Some(0), TORCHLESS)] {
-        if !has {
-            continue;
+            contributors.push(row.name);
         }
-        // Restrictions come first, by name.
-        let at = tags
-            .iter()
-            .position(|tag| tag.kind != "restriction" || *tag.name > *name)
-            .unwrap_or(tags.len());
-        tags.insert(at, Tag::derived(name, "restriction"));
     }
-    if fails_simulation {
-        tags.insert(0, Tag::derived(FAILS_SIMULATION, "failing"));
-    }
-    tags
-}
-
-pub async fn get(
-    db: &SqlitePool,
-    id: &str,
-) -> Result<Option<Schematic>, sqlx::Error> {
-    let Some(row) = sqlx::query!(
-        r#"SELECT schematic.id, schematic.category, width, orientation, encoding, latency,
-            synchronized as "synchronized: bool", throughput, at_least, bytes, torches, works_from, works_from_by, size_x, size_y, size_z, built_on, imported_by, sha256, added_at, edited_at, downloads,
-            schematic.logic as own_logic,
-            coalesce(schematic.logic, (SELECT logic FROM category
-                WHERE category.name = schematic.category)) as "logic?: String",
-            conventional as "conventional: bool", description, given_name, design,
-            design.abbreviation as "design_abbreviation?: String",
-            design.label as "design_given_label?: String",
-            (SELECT label FROM category WHERE category.name =
-                schematic.category) as "category_label?: String",
-            user.username as "uploader?: String",
-            coalesce(user.minecraft_name, user.username)
-                as "uploader_name?: String",
-            EXISTS (SELECT 1 FROM simulation
-                WHERE simulation.schematic_id = schematic.id
-                    AND simulation.sha256 = schematic.sha256
-                    AND simulation.failed)
-                as "fails_simulation!: bool"
-         FROM schematic LEFT JOIN design ON design.category =
-             schematic.category AND design.name = schematic.design
-         LEFT JOIN user ON user.id = schematic.uploaded_by
-         WHERE schematic.id = ?"#,
-        id
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        return Ok(None);
-    };
-    let (tags, flags) = (stored_tags(db, id).await?, its_flags(db, id).await?);
-    let builders = credits(db, id, Credit::Builder).await?;
-    let contributors = credits(db, id, Credit::Contributor).await?;
-    let about = Categories::load(db).await?;
-    Ok(Some(Schematic {
-        measures: about.measures(&row.category),
-        aliases: about.aliases(&row.category),
-        id: row.id,
-        category: row.category,
-        category_label: row.category_label,
-        width: row.width,
-        orientation: row.orientation,
-        encoding: row.encoding,
-        latency: row.latency,
-        synchronized: row.synchronized,
-        logic: row.logic,
-        own_logic: row.own_logic,
-        throughput: row.throughput,
-        at_least: row.at_least,
-        torches: row.torches,
-        works_from: row.works_from.clone(),
-        works_from_by: row.works_from_by,
-        bytes: row.bytes,
-        size: (row.size_x, row.size_y, row.size_z),
-        stacking: stacking(db, id).await?,
-        builders,
-        contributors,
-        built_on: row.built_on,
-        imported_by: row.imported_by,
-        conventional: row.conventional,
-        design: row.design,
-        design_abbreviation: row.design_abbreviation,
-        design_given_label: row.design_given_label,
-        description: row.description,
-        given_name: row.given_name,
-        uploader: row.uploader,
-        uploader_name: row.uploader_name,
-        sha256: row.sha256,
-        added_at: row.added_at,
-        edited_at: row.edited_at,
-        downloads: row.downloads,
-        tags: with_derived(
-            Some(tags),
-            row.fails_simulation,
-            row.torches,
-            row.works_from.as_deref(),
-        ),
-        flags,
-    }))
-}
-
-/// Build `id`'s stored tags, by kind then name.
-async fn stored_tags(
-    db: &SqlitePool,
-    id: &str,
-) -> Result<Vec<Tag>, sqlx::Error> {
-    sqlx::query_as!(
-        Tag,
-        "SELECT tag.name, tag.token, tag.kind
-         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
-         WHERE schematic_tag.schematic_id = ?
-         ORDER BY tag.kind = 'other', tag.kind, tag.name",
-        id
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// Build `id`'s flags, in its category's order.
-async fn its_flags(
-    db: &SqlitePool,
-    id: &str,
-) -> Result<Vec<Flag>, sqlx::Error> {
-    sqlx::query_as!(
-        Flag,
-        "SELECT flag.category, flag.name, flag.label
-         FROM schematic_flag
-         JOIN schematic ON schematic.id = schematic_flag.schematic_id
-         JOIN flag ON flag.category = schematic.category
-            AND flag.name = schematic_flag.name
-         WHERE schematic_flag.schematic_id = ?
-         ORDER BY flag.position",
-        id
-    )
-    .fetch_all(db)
-    .await
+    Ok(credits)
 }
 
 /// What a person did for a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Credit {
+enum Credit {
     Builder,
     /// Helped, such as with the design or testing, without building it.
     Contributor,
 }
 
 impl Credit {
-    pub fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Credit::Builder => "builder",
             Credit::Contributor => "contributor",
@@ -959,26 +693,162 @@ impl Credit {
     }
 }
 
-/// The people a build credits in one role, in the order given.
-pub async fn credits<'e, E: SqliteExecutor<'e>>(
+/// Whether a name can be credited: a Minecraft name of letters, digits,
+/// and underscores.
+pub fn valid_player_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 16
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Everyone credited on a stored build, by name.
+pub async fn all_people<'e, E: SqliteExecutor<'e>>(
     db: E,
-    id: &str,
-    credit: Credit,
 ) -> Result<Vec<String>, sqlx::Error> {
-    let role = credit.as_str();
+    sqlx::query_scalar!("SELECT DISTINCT name FROM credit ORDER BY name")
+        .fetch_all(db)
+        .await
+}
+
+/// Ids starting with `prefix`; at most two, enough to detect ambiguity.
+pub async fn ids_with_prefix<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    prefix: &str,
+) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT name FROM credit WHERE schematic_id = ? AND role = ?
-         ORDER BY position",
-        id,
-        role
+        "SELECT id FROM schematic WHERE id GLOB ? || '*' LIMIT 2",
+        prefix
     )
     .fetch_all(db)
     .await
 }
 
+/// A new build: its details as checked, and its file as prepared.
+#[derive(Clone, Copy)]
+pub struct New<'a> {
+    pub ready: &'a Ready,
+    pub file: &'a Prepared,
+    pub uploaded_by: Option<uuid::Uuid>,
+    /// The in-game name of whoever imported it with `rsdb`.
+    pub imported_by: Option<&'a str>,
+}
+
+/// Stores a new build, with its file as its first version, and returns its
+/// generated id.
+pub async fn insert(
+    db: &SqlitePool,
+    new: &New<'_>,
+) -> Result<String, sqlx::Error> {
+    let (details, file) = (&new.ready.details, new.file);
+    let (size, facts) = (&file.size, &file.facts);
+    let (x, y, z) = (size.x, size.y, size.z);
+    let mut tx = db.begin().await?;
+    let id = sqlx::query_scalar!(
+        r#"INSERT INTO schematic (category, width, orientation, encoding,
+            latency, synchronized, size_x, size_y, size_z, built_on,
+            imported_by, conventional, design, description, given_name,
+            logic, throughput, at_least, bytes, torches, works_from,
+            works_from_by, keeps_paste, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?)
+         RETURNING id as "id!""#,
+        details.category,
+        details.width,
+        details.orientation,
+        details.encoding,
+        details.latency,
+        details.synchronized,
+        x,
+        y,
+        z,
+        details.built_on,
+        new.imported_by,
+        file.conventional,
+        details.design,
+        details.description,
+        details.given_name,
+        details.logic,
+        details.throughput,
+        details.at_least,
+        details.bytes,
+        facts.torches,
+        facts.works_from.release,
+        facts.works_from.because,
+        file.keeps_paste,
+        new.uploaded_by,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    version::first(&mut tx, &id, file, new.uploaded_by).await?;
+    set_lists(&mut tx, &id, new.ready).await?;
+    tx.commit().await?;
+    Ok(id)
+}
+
+/// Writes checked details over build `id`'s, with its credits, tags, and
+/// flags, and its stacking unless the simulation decides it. The build
+/// counts as edited.
+pub async fn set_details(
+    db: &SqlitePool,
+    id: &str,
+    ready: &Ready,
+) -> Result<(), sqlx::Error> {
+    let details = &ready.details;
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE schematic SET category = ?, width = ?, orientation = ?,
+            encoding = ?, latency = ?, synchronized = ?, design = ?,
+            built_on = ?, description = ?, given_name = ?, logic = ?,
+            throughput = ?, at_least = ?, bytes = ?,
+            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+         WHERE id = ?",
+        details.category,
+        details.width,
+        details.orientation,
+        details.encoding,
+        details.latency,
+        details.synchronized,
+        details.design,
+        details.built_on,
+        details.description,
+        details.given_name,
+        details.logic,
+        details.throughput,
+        details.at_least,
+        details.bytes,
+        id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    set_lists(&mut tx, id, ready).await?;
+    tx.commit().await
+}
+
+/// Replaces build `id`'s credits, tags, and flags with `ready`'s, and its
+/// stacking unless the simulation decides it.
+async fn set_lists(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    ready: &Ready,
+) -> Result<(), sqlx::Error> {
+    let details = &ready.details;
+    if !ready.stacking_inferred {
+        set_stacking(tx, id, &details.stacking).await?;
+    }
+    set_flags(tx, id, &details.flags).await?;
+    let credits = [
+        (Credit::Builder, &details.builders),
+        (Credit::Contributor, &details.contributors),
+    ];
+    for (credit, names) in credits {
+        set_credits(tx, id, credit, names).await?;
+    }
+    tag::set(tx, id, &details.tags).await
+}
+
 /// Replaces the people a build credits in one role with `names`, in that
 /// order. A name given twice, in any case, is credited once.
-pub async fn set_credits(
+async fn set_credits(
     tx: &mut sqlx::SqliteConnection,
     id: &str,
     credit: Credit,
@@ -992,8 +862,7 @@ pub async fn set_credits(
     )
     .execute(&mut *tx)
     .await?;
-    for (position, name) in names.iter().enumerate() {
-        let position = i64::try_from(position).unwrap_or(i64::MAX);
+    for (position, name) in (0_i64..).zip(names) {
         // A name an admin has confirmed for an account is stored as that
         // account spells it.
         sqlx::query!(
@@ -1012,29 +881,6 @@ pub async fn set_credits(
         .await?;
     }
     Ok(())
-}
-
-/// Whether a name can be credited: a Minecraft name of letters, digits,
-/// and underscores.
-pub fn valid_player_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 16
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-/// The directions a build stacks along: west first, then up, then north.
-pub async fn stacking<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-) -> Result<Vec<StackDirection>, sqlx::Error> {
-    sqlx::query_as!(
-        StackDirection,
-        "SELECT west, up, north, max_copies FROM stack_direction
-         WHERE schematic_id = ? ORDER BY west DESC, up DESC, north DESC",
-        id
-    )
-    .fetch_all(db)
-    .await
 }
 
 /// Replaces the directions a build stacks along; none makes it unstackable.
@@ -1062,432 +908,6 @@ pub async fn set_stacking(
     Ok(())
 }
 
-/// The stored `.schem` bytes.
-pub async fn data<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-) -> Result<Option<Vec<u8>>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT data FROM schematic WHERE id = ?", id)
-        .fetch_optional(db)
-        .await
-}
-
-/// Ids starting with `prefix`; at most two, enough to detect ambiguity.
-pub async fn ids_with_prefix<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    prefix: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar!(
-        "SELECT id FROM schematic WHERE id GLOB ? || '*' LIMIT 2",
-        prefix
-    )
-    .fetch_all(db)
-    .await
-}
-
-pub async fn id_by_sha256<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    sha256: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT id FROM schematic WHERE sha256 = ?", sha256)
-        .fetch_optional(db)
-        .await
-}
-
-#[derive(Clone, Copy)]
-pub struct New<'a> {
-    pub category: &'a str,
-    pub width: Option<i64>,
-    pub orientation: &'a str,
-    pub encoding: Option<&'a str>,
-    pub latency: Option<i64>,
-    pub synchronized: Option<bool>,
-    pub size: (i64, i64, i64),
-    pub built_on: Option<&'a str>,
-    pub imported_by: Option<&'a str>,
-    pub conventional: bool,
-    pub design: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub given_name: Option<&'a str>,
-    /// `comb` or `seq`; `None` follows the category.
-    pub logic: Option<&'a str>,
-    pub throughput: Option<i64>,
-    pub at_least: Option<i64>,
-    pub bytes: Option<i64>,
-    /// What is read from the file, such as its torches.
-    pub facts: &'a FileFacts,
-    /// Whether the file keeps where its uploader's `//paste` put it.
-    pub keeps_paste: bool,
-    pub uploaded_by: Option<uuid::Uuid>,
-    pub sha256: &'a str,
-    pub data: &'a [u8],
-}
-
-/// Inserts a schematic and returns its generated id.
-pub async fn insert<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    new: &New<'_>,
-) -> Result<String, sqlx::Error> {
-    let (x, y, z) = new.size;
-    sqlx::query_scalar!(
-        r#"INSERT INTO schematic (category, width, orientation, encoding,
-            latency, synchronized, size_x, size_y, size_z, built_on,
-            imported_by, conventional, design, description, given_name,
-            logic, throughput, at_least, bytes, torches, works_from,
-            works_from_by, keeps_paste, uploaded_by, sha256, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?)
-         RETURNING id as "id!""#,
-        new.category,
-        new.width,
-        new.orientation,
-        new.encoding,
-        new.latency,
-        new.synchronized,
-        x,
-        y,
-        z,
-        new.built_on,
-        new.imported_by,
-        new.conventional,
-        new.design,
-        new.description,
-        new.given_name,
-        new.logic,
-        new.throughput,
-        new.at_least,
-        new.bytes,
-        new.facts.torches,
-        new.facts.works_from.release,
-        new.facts.works_from.because,
-        new.keeps_paste,
-        new.uploaded_by,
-        new.sha256,
-        new.data,
-    )
-    .fetch_one(db)
-    .await
-}
-
-/// An entry in the list of categories a build may have: one function, so
-/// any of its builds could stand in for another.
-#[derive(Debug, Clone)]
-pub struct Category {
-    pub name: String,
-    /// As people read it, such as `RAM` or `BCD to Binary`.
-    pub label: String,
-    /// The label for many builds, such as `Adders` or `RAM`.
-    pub plural: String,
-    /// Whether each build gives its own name, as bussing does.
-    pub named: bool,
-    /// The sidebar section it sits in, one of [`SECTIONS`]; `None` for
-    /// Other, with the categories off the list.
-    pub section: Option<String>,
-    /// `comb` or `seq`, its builds' usual logic; `None` for none.
-    pub logic: Option<String>,
-    /// The numbers its builds are named and ranked by, in order, such as
-    /// width then capacity for a memory, or throughput for a serial adder.
-    pub measures: Vec<Measure>,
-    /// Other words it is searched by, such as `inc`.
-    pub aliases: Vec<String>,
-}
-
-impl Category {
-    pub fn has(&self, measure: Measure) -> bool {
-        self.measures.contains(&measure)
-    }
-
-    /// The standard category among `categories` that `typed` names, by its
-    /// name or its label, whatever the capitals and spacing.
-    pub fn find<'a>(
-        categories: &'a [Category],
-        typed: &str,
-    ) -> Option<&'a Self> {
-        let typed = typed.trim();
-        categories.iter().find(|c| {
-            c.label.eq_ignore_ascii_case(typed) || c.name == tag_name(typed)
-        })
-    }
-
-    /// The name of the category `typed` names: a standard one's among
-    /// `categories`, or else the text as the name of a category of the
-    /// builder's own, empty when nothing is typed.
-    pub fn name_of(categories: &[Category], typed: &str) -> String {
-        Self::find(categories, typed)
-            .map_or_else(|| tag_name(typed), |c| c.name.clone())
-    }
-}
-
-/// The sidebar's sections of standard categories, in order: each stored
-/// name, as `rsdb define-category --section` takes it, with its heading.
-pub const SECTIONS: [(&str, &str); 7] = [
-    ("arithmetic", "Arithmetic"),
-    ("logic", "Logic"),
-    ("gates", "Gates"),
-    ("conversion", "Conversion"),
-    ("memory", "Memory"),
-    ("display", "Display"),
-    ("wiring", "Wiring"),
-];
-
-/// A design within a category, such as the carry lookahead adder.
-#[derive(Debug, Clone)]
-pub struct Design {
-    pub category: String,
-    pub name: String,
-    /// The usual short name, such as `CLA`.
-    pub abbreviation: Option<String>,
-    /// How people read it, such as `XOR`; `None` for the name's words.
-    pub label: Option<String>,
-}
-
-impl Design {
-    /// Such as `Carry Lookahead (CLA)`.
-    pub fn label(&self) -> String {
-        let words = self.label.clone().unwrap_or_else(|| words(&self.name));
-        match &self.abbreviation {
-            Some(short) => format!("{words} ({short})"),
-            None => words,
-        }
-    }
-}
-
-/// Every standard category, alphabetically by label.
-pub async fn categories(db: &SqlitePool) -> Result<Vec<Category>, sqlx::Error> {
-    let about = Categories::load(db).await?;
-    Ok(sqlx::query!(
-        r#"SELECT name as "name!", label,
-            coalesce(plural, label || 's') as "plural!: String",
-            named as "named: bool", section, logic
-         FROM category ORDER BY label COLLATE NOCASE"#
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| Category {
-        measures: about.measures(&row.name),
-        aliases: about.aliases(&row.name),
-        name: row.name,
-        label: row.label,
-        plural: row.plural,
-        named: row.named,
-        section: row.section,
-        logic: row.logic,
-    })
-    .collect())
-}
-
-/// Gives `category`, of the list or off it, another word to be searched
-/// by, in the form a search term takes: lowercase, with spaces.
-pub async fn define_alias<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    alias: &str,
-    category: &str,
-) -> Result<(), sqlx::Error> {
-    let alias = alias.trim().to_lowercase().replace('_', " ");
-    sqlx::query!(
-        "INSERT INTO category_alias (alias, category) VALUES (?, ?)",
-        alias,
-        category
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Everyone credited on a stored build, by name.
-pub async fn all_people<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar!("SELECT DISTINCT name FROM credit ORDER BY name")
-        .fetch_all(db)
-        .await
-}
-
-/// Every design, grouped by category.
-pub async fn designs<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Design>, sqlx::Error> {
-    sqlx::query_as!(
-        Design,
-        "SELECT category, name, abbreviation, label FROM design
-         ORDER BY category, name = 'other', name"
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// Checks a build's category and design, and returns the category. A
-/// category is a standard one from the list, or any other name made of
-/// lowercase words joined by underscores. A design is `other`, or one the
-/// category lists. The `Err` is a sentence for the person.
-pub async fn check_category(
-    db: &SqlitePool,
-    category: &str,
-    design: &str,
-) -> Result<Result<Category, String>, sqlx::Error> {
-    let valid = |name: &str| {
-        name.chars().any(|c| c.is_ascii_alphanumeric())
-            && name.chars().all(|c| {
-                c.is_ascii_lowercase()
-                    || c.is_ascii_digit()
-                    || c == '_'
-                    || c == '-'
-            })
-    };
-    if !valid(category) {
-        return Ok(Err(
-            "A category's name is words, numbers, and hyphens, such as line \
-             drawer or 8-bit horizontal diode."
-                .to_owned(),
-        ));
-    }
-    // The sidebar gathers every category off the list under `other`.
-    if category == "other" {
-        return Ok(Err("Name the category, rather than other.".to_owned()));
-    }
-    let found = categories(db)
-        .await?
-        .into_iter()
-        .find(|f| f.name == category)
-        .unwrap_or_else(|| Category {
-            name: category.to_owned(),
-            label: words(category),
-            plural: words(category),
-            named: false,
-            section: None,
-            logic: None,
-            measures: Vec::new(),
-            aliases: Vec::new(),
-        });
-    let listed = designs(db)
-        .await?
-        .iter()
-        .any(|d| d.category == category && d.name == design);
-    if design != "other" && !listed {
-        return Ok(Err(format!(
-            "{} is not a design of {}.",
-            design.replace('_', " "),
-            category.replace('_', " ")
-        )));
-    }
-    Ok(Ok(found))
-}
-
-/// Adds a standard category. A plural that is the label with an `s` is
-/// left for the database to make.
-pub async fn define_category(
-    db: &SqlitePool,
-    category: &Category,
-) -> Result<(), sqlx::Error> {
-    let plural = (category.plural != format!("{}s", category.label))
-        .then_some(category.plural.as_str());
-    let mut tx = db.begin().await?;
-    sqlx::query!(
-        "INSERT INTO category (name, label, plural, named, section, logic)
-         VALUES (?, ?, ?, ?, ?, ?)",
-        category.name,
-        category.label,
-        plural,
-        category.named,
-        category.section,
-        category.logic
-    )
-    .execute(&mut *tx)
-    .await?;
-    for (position, measure) in (1_i64..).zip(&category.measures) {
-        let measure = measure.name();
-        sqlx::query!(
-            "INSERT INTO category_measure (category, measure, position)
-             VALUES (?, ?, ?)",
-            category.name,
-            measure,
-            position
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    for alias in &category.aliases {
-        define_alias(&mut *tx, alias, &category.name).await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
-pub async fn define_design<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    design: &Design,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO design (category, name, abbreviation, label)
-         VALUES (?, ?, ?, ?)",
-        design.category,
-        design.name,
-        design.abbreviation,
-        design.label
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// A yes-or-no fact a category's builds record, such as an adder's carry
-/// in or a shift register being bidirectional.
-#[derive(Debug, Clone)]
-pub struct Flag {
-    pub category: String,
-    /// Such as `carry_in`.
-    pub name: String,
-    /// Such as `Carry in`.
-    pub label: String,
-}
-
-/// Every category's flags, each category's in its order.
-pub async fn flags<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Flag>, sqlx::Error> {
-    sqlx::query_as!(
-        Flag,
-        "SELECT category, name, label FROM flag ORDER BY category, position"
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// Adds a flag to the end of its category's.
-pub async fn define_flag<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    flag: &Flag,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO flag (category, name, label, position)
-         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM flag
-            WHERE category = ?))",
-        flag.category,
-        flag.name,
-        flag.label,
-        flag.category
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// The names among `names` that are flags of `category`, in its order; any
-/// other means nothing for its builds.
-pub async fn keep_flags<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    category: &str,
-    names: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
-    Ok(flags(db)
-        .await?
-        .into_iter()
-        .filter(|flag| flag.category == category && names.contains(&flag.name))
-        .map(|flag| flag.name)
-        .collect())
-}
-
 /// Replaces the flags a build has with `names`.
 pub async fn set_flags(
     tx: &mut sqlx::SqliteConnection,
@@ -1510,80 +930,6 @@ pub async fn set_flags(
     Ok(())
 }
 
-/// Replaces a schematic's stored file, as `rsdb reread` rewrites it.
-pub async fn set_file<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    data: &[u8],
-    sha256: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET data = ?, sha256 = ? WHERE id = ?",
-        data,
-        sha256,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Counts one more download of a schematic.
-pub async fn count_download<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET downloads = downloads + 1 WHERE id = ?",
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// The ids of builds whose files keep where their uploader's `//paste` put
-/// them.
-pub async fn keeping_paste(
-    db: &SqlitePool,
-) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-    Ok(
-        sqlx::query_scalar!("SELECT id FROM schematic WHERE keeps_paste")
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect(),
-    )
-}
-
-/// Sets what is read from a build's file, such as its torches.
-pub async fn set_file_facts<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    facts: &FileFacts,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET torches = ?, works_from = ?, works_from_by = ?
-         WHERE id = ?",
-        facts.torches,
-        facts.works_from.release,
-        facts.works_from.because,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// The ids of the builds whose files are not yet read for every fact.
-pub async fn unread_files(db: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar!(
-        "SELECT id FROM schematic WHERE torches IS NULL OR works_from IS NULL"
-    )
-    .fetch_all(db)
-    .await
-}
-
 /// Sets the details worked out from a build's file and its simulation
 /// rather than typed: its width, orientation, and encoding as its file
 /// shows them, and its latency and whether it is synchronized as the
@@ -1592,8 +938,8 @@ pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
     width: Option<i64>,
-    orientation: &str,
-    encoding: Option<&str>,
+    orientation: Orientation,
+    encoding: Option<Encoding>,
     latency: Option<i64>,
     synchronized: Option<bool>,
 ) -> Result<(), sqlx::Error> {
@@ -1610,70 +956,6 @@ pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
     )
     .execute(db)
     .await?;
-    Ok(())
-}
-
-/// Stores a schematic's size, as `rsdb reread` finds it.
-pub async fn set_size<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    (x, y, z): (i64, i64, i64),
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET size_x = ?, size_y = ?, size_z = ? WHERE id = ?",
-        x,
-        y,
-        z,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Sets every field of checked `details`, clearing the empty ones.
-pub async fn set_details<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    details: &crate::details::Details,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET category = ?, width = ?, orientation = ?,
-            encoding = ?, latency = ?, synchronized = ?, design = ?,
-            built_on = ?,
-            description = ?, given_name = ?, logic = ?, throughput = ?,
-            at_least = ?, bytes = ?,
-            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-         WHERE id = ?",
-        details.category,
-        details.width,
-        details.orientation,
-        details.encoding,
-        details.latency,
-        details.synchronized,
-        details.design,
-        details.built_on,
-        details.description,
-        details.given_name,
-        details.logic,
-        details.throughput,
-        details.at_least,
-        details.bytes,
-        id,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Deletes a schematic and its tag links.
-pub async fn delete<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM schematic WHERE id = ?", id)
-        .execute(db)
-        .await?;
     Ok(())
 }
 
@@ -1696,151 +978,28 @@ pub async fn set_import_details<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Whether a typed name, once in the form [`tag_name`] gives, can name a
-/// tag: lowercase letters, digits, and underscores.
-pub fn valid_tag_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-
-/// Replaces a build's tags with the ones `names` name. A name no tag has
-/// yet makes a new tag under `other`.
-pub async fn set_tags(
-    tx: &mut sqlx::SqliteConnection,
+/// Counts one more download of a schematic.
+pub async fn count_download<'e, E: SqliteExecutor<'e>>(
+    db: E,
     id: &str,
-    names: &[String],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM schematic_tag WHERE schematic_id = ?", id)
-        .execute(&mut *tx)
+    sqlx::query!(
+        "UPDATE schematic SET downloads = downloads + 1 WHERE id = ?",
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Deletes a schematic, with its versions and everything else of it.
+pub async fn delete<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM schematic WHERE id = ?", id)
+        .execute(db)
         .await?;
-    for name in names {
-        if tag_id(&mut *tx, name).await?.is_none() {
-            define_tag(&mut *tx, name, None, "other").await?;
-        }
-        let tag = tag_id(&mut *tx, name)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
-        attach(&mut *tx, id, &tag).await?;
-    }
-    Ok(())
-}
-
-/// The names in `names` that no tag has, as its name or short token.
-pub async fn unknown_tags(
-    db: &SqlitePool,
-    names: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
-    let mut unknown = Vec::new();
-    for name in names {
-        if tag_id(db, name).await?.is_none() {
-            unknown.push(name.clone());
-        }
-    }
-    Ok(unknown)
-}
-
-/// Refuses `names` that no tag has unless `may_create`, as only an admin
-/// may: the `Err` says which and why.
-pub async fn check_new_tags(
-    db: &SqlitePool,
-    names: &[String],
-    may_create: bool,
-) -> Result<Result<(), String>, sqlx::Error> {
-    if may_create {
-        return Ok(Ok(()));
-    }
-    let unknown = unknown_tags(db, names).await?;
-    Ok(match unknown.as_slice() {
-        [] => Ok(()),
-        [one] => Err(format!(
-            "There is no tag {}, and only an admin can make a new one.",
-            one.replace('_', " ")
-        )),
-        many => Err(format!(
-            "There are no tags {}, and only an admin can make new ones.",
-            many.iter()
-                .map(|name| name.replace('_', " "))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
-    })
-}
-
-/// The tag named `name`, which may also be its short token.
-pub async fn tag_id<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    name: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let name = tag_name(name);
-    sqlx::query_scalar!(
-        "SELECT id FROM tag WHERE name = ? OR token = ?",
-        name,
-        name
-    )
-    .fetch_optional(db)
-    .await
-}
-
-pub async fn attach<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    schematic_id: &str,
-    tag_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT OR IGNORE INTO schematic_tag (schematic_id, tag_id)
-         VALUES (?, ?)",
-        schematic_id,
-        tag_id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn detach<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    schematic_id: &str,
-    tag_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "DELETE FROM schematic_tag WHERE schematic_id = ? AND tag_id = ?",
-        schematic_id,
-        tag_id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn all_tags<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Tag>, sqlx::Error> {
-    sqlx::query_as!(
-        Tag,
-        "SELECT name, token, kind FROM tag
-         ORDER BY kind = 'other', kind, name"
-    )
-    .fetch_all(db)
-    .await
-}
-
-pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    name: &str,
-    token: Option<&str>,
-    kind: &str,
-) -> Result<(), sqlx::Error> {
-    let name = tag_name(name);
-    sqlx::query!(
-        "INSERT INTO tag (name, token, kind) VALUES (?, ?, ?)",
-        name,
-        token,
-        kind
-    )
-    .execute(db)
-    .await?;
     Ok(())
 }
 
@@ -1848,53 +1007,17 @@ pub async fn define_tag<'e, E: SqliteExecutor<'e>>(
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_standard_category_is_typed_by_name_or_label() {
-        let hex = Category {
-            name: "hex_to_binary".to_owned(),
-            label: "Hex to Binary".to_owned(),
-            plural: "Hex to Binary".to_owned(),
-            named: false,
-            section: None,
-            logic: None,
-            measures: vec![Measure::Width],
-            aliases: Vec::new(),
-        };
-        let categories = std::slice::from_ref(&hex);
-        for typed in [
-            "Hex to Binary",
-            "hex to binary",
-            "hex_to_binary",
-            " HEX TO BINARY ",
-        ] {
-            assert_eq!(Category::name_of(categories, typed), "hex_to_binary");
-        }
-        assert_eq!(
-            Category::name_of(categories, "8-Bit Horizontal Diode"),
-            "8-bit_horizontal_diode"
-        );
-        assert!(Category::find(categories, "piston door").is_none());
-    }
-
-    fn tag(name: &str, token: Option<&str>, kind: &str) -> Tag {
-        Tag {
-            name: name.to_owned(),
-            token: token.map(str::to_owned),
-            kind: kind.to_owned(),
-        }
-    }
-
     fn cla() -> Schematic {
         Schematic {
             id: String::new(),
             category: "adder".to_owned(),
             category_label: Some("Adder".to_owned()),
             width: Some(8),
-            orientation: "horz".to_owned(),
-            encoding: Some("bin".to_owned()),
+            orientation: Orientation::Horizontal,
+            encoding: Some(Encoding::Binary),
             latency: Some(8),
             synchronized: Some(false),
-            logic: Some("comb".to_owned()),
+            logic: Some(Logic::Stateless),
             own_logic: None,
             throughput: None,
             at_least: None,
@@ -1911,6 +1034,7 @@ mod tests {
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
             conventional: true,
+            keeps_paste: false,
             design: "carry_lookahead".to_owned(),
             design_abbreviation: None,
             design_given_label: None,
@@ -1923,7 +1047,11 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
-            tags: vec![tag("alpha", None, "restriction")],
+            tags: vec![Tag {
+                name: "alpha".to_owned(),
+                token: None,
+                kind: "restriction".to_owned(),
+            }],
         }
     }
 
@@ -1941,10 +1069,19 @@ mod tests {
     fn a_hex_build_says_so_before_its_design() {
         let mut hex = cla();
         hex.width = Some(32);
-        hex.encoding = Some("hex".to_owned());
+        hex.encoding = Some(Encoding::Hex);
         assert_eq!(hex.name(), "32-bit Hex Carry Lookahead Adder");
         assert_eq!(hex.title(), "32-bit alpha Hex Carry Lookahead Adder");
         assert_eq!(hex.filename(), "32_bit_Hex_Carry_Lookahead_Adder.schem");
+    }
+
+    #[test]
+    fn a_value_parses_from_its_name_or_label() {
+        assert_eq!("horz".parse(), Ok(Orientation::Horizontal));
+        assert_eq!(" Vertical ".parse(), Ok(Orientation::Vertical));
+        assert_eq!("HEX".parse(), Ok(Encoding::Hex));
+        assert_eq!("stateful".parse(), Ok(Logic::Stateful));
+        assert!("sideways".parse::<Orientation>().is_err());
     }
 
     #[test]
@@ -2037,36 +1174,6 @@ mod tests {
     }
 
     #[test]
-    fn a_build_without_torches_is_torchless_among_its_restrictions() {
-        let stored = vec![
-            tag("alpha", None, "restriction"),
-            tag("buffer", None, "other"),
-        ];
-        let names = |tags: Vec<Tag>| -> Vec<String> {
-            tags.into_iter().map(|tag| tag.name).collect()
-        };
-        assert_eq!(
-            names(with_derived(Some(stored.clone()), true, Some(0), None)),
-            ["fails_simulation", "alpha", "torchless", "buffer"]
-        );
-        assert_eq!(
-            names(with_derived(Some(stored.clone()), false, Some(3), None)),
-            ["alpha", "buffer"]
-        );
-        assert_eq!(
-            names(with_derived(Some(stored), false, None, None)),
-            ["alpha", "buffer"],
-            "an uncounted build is not torchless yet"
-        );
-        // Alpha is read from the file too, before torchless by name.
-        let other = vec![tag("buffer", None, "other")];
-        assert_eq!(
-            names(with_derived(Some(other), false, Some(0), Some("Alpha"))),
-            ["alpha", "torchless", "buffer"]
-        );
-    }
-
-    #[test]
     fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
         let serial = Schematic {
             category: "serial_adder".to_owned(),
@@ -2087,8 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn a_synchronized_combinational_build_faster_than_its_latency_is_pipelined()
-    {
+    fn a_synchronized_stateless_build_faster_than_its_latency_is_pipelined() {
         let piped = Schematic {
             synchronized: Some(true),
             throughput: Some(3),
@@ -2100,11 +1206,11 @@ mod tests {
             ..piped.clone()
         };
         assert!(!unsynced.pipelined(), "pipelining needs synced outputs");
-        let sequential = Schematic {
-            logic: Some("seq".to_owned()),
+        let stateful = Schematic {
+            logic: Some(Logic::Stateful),
             ..piped.clone()
         };
-        assert!(!sequential.pipelined());
+        assert!(!stateful.pipelined());
         let as_slow = Schematic {
             throughput: Some(8),
             ..piped
@@ -2142,6 +1248,21 @@ mod tests {
         // Compared by what a copy adds, but its box is still all of it.
         assert_eq!((vertical.volume(), vertical.box_volume()), (60, 180));
         assert_eq!(cla().volume(), cla().box_volume());
+    }
+
+    #[test]
+    fn copies_add_bits_along_the_way_the_bits_run() {
+        let way = |west, up, north| StackDirection {
+            west,
+            up,
+            north,
+            max_copies: None,
+        };
+        assert!(way(2, 0, 0).adds_bits(Orientation::Horizontal));
+        assert!(way(0, 2, 0).adds_bits(Orientation::Vertical));
+        assert!(way(1, 1, 0).adds_bits(Orientation::Diagonal));
+        assert!(!way(0, 0, 3).adds_bits(Orientation::Horizontal));
+        assert!(!way(2, 0, 0).adds_bits(Orientation::Vertical));
     }
 
     #[test]

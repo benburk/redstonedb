@@ -4,7 +4,7 @@ use axum::{
 };
 
 use crate::{
-    app_state::AppState, error::AppError, models::schematic, models::user::User,
+    app_state::AppState, error::AppError, models::catalogue, models::user::User,
 };
 
 use super::pages;
@@ -19,6 +19,6 @@ pub async fn categories(
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
-    let categories = schematic::categories(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
     Ok(pages::sorting(user_opt.as_ref(), &categories).into_response())
 }

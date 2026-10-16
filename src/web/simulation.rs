@@ -21,9 +21,11 @@ use crate::{
     app_state::AppState,
     error::AppError,
     models::{
-        schematic::{self, Category},
+        catalogue::{self, Category},
+        schematic,
         simulation::{self, Status},
         user::User,
+        version,
     },
     simulate::{Report, Test},
 };
@@ -146,7 +148,7 @@ async fn stored_file(
     if !user.is_some_and(|user| user.may_edit(&s)) {
         return Err(AppError::Forbidden);
     }
-    let data = schematic::data(&state.db, id)
+    let data = version::current_file(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
     Ok((s, data))
@@ -161,7 +163,7 @@ async fn test(
     data: &[u8],
 ) -> Result<Option<Test>, AppError> {
     let form = Form::read(pairs);
-    let categories = schematic::categories(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
     let category = Category::name_of(&categories, &form.category);
     let conventional = form::first(pairs, "unconventional") != "yes";
     let derived = simulation::derived_width(&category, conventional, data)?;

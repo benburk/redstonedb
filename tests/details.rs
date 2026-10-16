@@ -4,7 +4,7 @@
 use app::{
     details::{self, Build, Details, Ready},
     import,
-    models::schematic::StackDirection,
+    models::schematic::{Encoding, Orientation, StackDirection},
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -37,8 +37,8 @@ fn given(category: &str) -> Details {
     Details {
         category: category.to_owned(),
         width: Some(8),
-        orientation: "horz".to_owned(),
-        encoding: Some("bin".to_owned()),
+        orientation: Orientation::Horizontal,
+        encoding: Some(Encoding::Binary),
         given_name: Some(" Bus Crossing ".to_owned()),
         bytes: Some(32),
         at_least: Some(3),

@@ -3,7 +3,7 @@
 
 use maud::{Markup, html};
 
-use crate::models::{schematic::Category, user::User};
+use crate::models::{catalogue::Category, user::User};
 
 use super::{PAGE_TITLE, SECTION_TITLE, base, sections};
 

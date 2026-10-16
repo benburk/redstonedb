@@ -18,9 +18,11 @@ use crate::{
     import::{self, Analysis, Prepared},
     interface,
     models::{
-        schematic::{self, Category, Schematic},
+        catalogue::{self, Category},
+        schematic::{self, Schematic},
         similarity, simulation,
         user::User,
+        version,
     },
     schem::Blocks,
     schemati,
@@ -392,7 +394,7 @@ async fn publish_checked(
     form: &Form,
 ) -> Result<Result<String, String>, AppError> {
     let db = &state.db;
-    let categories = schematic::categories(db).await?;
+    let categories = catalogue::categories(db).await?;
     let given = match form.parse(&categories) {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
@@ -445,8 +447,9 @@ async fn show_preview(
     form: &Form,
     said: Said<'_>,
 ) -> Result<Response, AppError> {
-    let duplicate =
-        schematic::id_by_sha256(&state.db, &prepared.sha256).await?;
+    let duplicate = version::holder(&state.db, &prepared.sha256)
+        .await?
+        .map(|(id, _)| id);
     let choices = form::choices(&state.db).await?;
     let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());

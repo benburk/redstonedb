@@ -1,8 +1,10 @@
 //! Each file a build has had: its versions, numbered from 1, the highest
-//! being the one it has now.
+//! being the one it has now. This is the only place files are kept.
 
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
+
+use crate::import::Prepared;
 
 /// One version, without its file.
 pub struct Version {
@@ -48,12 +50,39 @@ pub async fn data<'e, E: SqliteExecutor<'e>>(
     .await
 }
 
-/// Records a build's first version, as it is stored.
-pub async fn first<'e, E: SqliteExecutor<'e>>(
+/// Build `id`'s current file: its highest version's.
+pub async fn current_file<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    data: &[u8],
+) -> Result<Option<Vec<u8>>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT data as "data!" FROM current_file WHERE schematic_id = ?"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// The build and version whose file has the hash `sha256`, if any is
+/// stored: each file is stored once.
+pub async fn holder<'e, E: SqliteExecutor<'e>>(
+    db: E,
     sha256: &str,
+) -> Result<Option<(String, i64)>, sqlx::Error> {
+    Ok(sqlx::query!(
+        "SELECT schematic_id, version FROM schematic_version WHERE sha256 = ?",
+        sha256
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|row| (row.schematic_id, row.version)))
+}
+
+/// Records a new build's file as its first version.
+pub(super) async fn first(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    file: &Prepared,
     added_by: Option<Uuid>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
@@ -61,95 +90,97 @@ pub async fn first<'e, E: SqliteExecutor<'e>>(
             (schematic_id, version, data, sha256, added_by)
          VALUES (?, 1, ?, ?, ?)",
         id,
-        data,
-        sha256,
+        file.data,
+        file.sha256,
         added_by
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
     Ok(())
 }
 
-/// A new version's file, measured.
-pub struct New<'a> {
-    pub data: &'a [u8],
-    pub sha256: &'a str,
-    pub size: (i64, i64, i64),
-    /// What is read from the file, such as its torches.
-    pub facts: &'a crate::import::FileFacts,
-    pub added_by: Option<Uuid>,
-    pub note: Option<&'a str>,
+/// How a new file takes the place of a build's current one.
+#[derive(Clone, Copy)]
+pub enum Replacing<'a> {
+    /// As its next version, uploaded by `added_by` with a `note` saying
+    /// what it changed. The build counts as edited.
+    NextVersion {
+        added_by: Option<Uuid>,
+        note: Option<&'a str>,
+    },
+    /// In its current version's place, as `rsdb reread` and `rsdb replace`
+    /// fix a file: the same build, tidied, with no version added.
+    InPlace,
 }
 
-/// Makes `new` build `id`'s file, as its next version, and returns that
-/// version's number. The build counts as edited.
-pub async fn publish(
+/// Makes `file` build `id`'s current file, as `how` says, together with
+/// what is measured and read from it, and returns the number of the
+/// version that holds it.
+pub async fn replace(
     db: &SqlitePool,
     id: &str,
-    new: &New<'_>,
+    file: &Prepared,
+    how: Replacing<'_>,
 ) -> Result<i64, sqlx::Error> {
     let mut tx = db.begin().await?;
-    let version = sqlx::query_scalar!(
-        r#"SELECT coalesce(max(version), 0) + 1 as "version!: i64"
+    let current = sqlx::query_scalar!(
+        r#"SELECT coalesce(max(version), 0) as "version!: i64"
          FROM schematic_version WHERE schematic_id = ?"#,
         id
     )
     .fetch_one(&mut *tx)
     .await?;
+    let (version, edited) = match how {
+        Replacing::NextVersion { added_by, note } => {
+            let version = current + 1;
+            sqlx::query!(
+                "INSERT INTO schematic_version
+                    (schematic_id, version, data, sha256, added_by, note)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                id,
+                version,
+                file.data,
+                file.sha256,
+                added_by,
+                note
+            )
+            .execute(&mut *tx)
+            .await?;
+            (version, true)
+        }
+        Replacing::InPlace => {
+            sqlx::query!(
+                "UPDATE schematic_version SET data = ?, sha256 = ?
+                 WHERE schematic_id = ? AND version = ?",
+                file.data,
+                file.sha256,
+                id,
+                current
+            )
+            .execute(&mut *tx)
+            .await?;
+            (current, false)
+        }
+    };
+    let (size, facts) = (&file.size, &file.facts);
+    let (x, y, z) = (size.x, size.y, size.z);
     sqlx::query!(
-        "INSERT INTO schematic_version
-            (schematic_id, version, data, sha256, added_by, note)
-         VALUES (?, ?, ?, ?, ?, ?)",
-        id,
-        version,
-        new.data,
-        new.sha256,
-        new.added_by,
-        new.note
-    )
-    .execute(&mut *tx)
-    .await?;
-    let (x, y, z) = new.size;
-    sqlx::query!(
-        "UPDATE schematic SET data = ?, sha256 = ?, size_x = ?, size_y = ?,
-            size_z = ?, torches = ?, works_from = ?, works_from_by = ?,
-            edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        "UPDATE schematic SET size_x = ?, size_y = ?, size_z = ?,
+            torches = ?, works_from = ?, works_from_by = ?,
+            edited_at = iif(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                edited_at)
          WHERE id = ?",
-        new.data,
-        new.sha256,
         x,
         y,
         z,
-        new.facts.torches,
-        new.facts.works_from.release,
-        new.facts.works_from.because,
+        facts.torches,
+        facts.works_from.release,
+        facts.works_from.because,
+        edited,
         id
     )
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(version)
-}
-
-/// Rewrites build `id`'s current version's file, as `rsdb reread` does
-/// when the rules for fitting a file change: the same build, tidied.
-pub async fn rewrite_current<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    data: &[u8],
-    sha256: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic_version SET data = ?, sha256 = ?
-         WHERE schematic_id = ? AND version =
-            (SELECT max(version) FROM schematic_version
-             WHERE schematic_id = ?)",
-        data,
-        sha256,
-        id,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
 }

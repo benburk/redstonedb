@@ -5,7 +5,8 @@ use maud::{Markup, html};
 use crate::{
     leaderboard::{self, Board, Choice, Placed, SHOWN, Standing},
     models::{
-        schematic::{self, Category, Measure, Schematic},
+        catalogue::{Category, Measure},
+        schematic::{Encoding, Schematic},
         user::User,
     },
 };
@@ -166,7 +167,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
                     @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
                         p class="text-muted" {
                             "No " (category.plural.to_lowercase()) " of known "
-                            (board.splits.first().map_or("width", |split| split.measure.heading()).to_lowercase())
+                            (board.splits.first().map_or("width", |split| split.measure.label()).to_lowercase())
                             " yet, so none to rank."
                         }
                     } @else {
@@ -249,7 +250,7 @@ fn choices(path: &str, board: &Board) -> Markup {
     html! {
         div class="mb-6 flex flex-col gap-2" {
             @for (i, split) in board.splits.iter().enumerate() {
-                (choice_row(split.measure.heading(), &split.choices, |c| {
+                (choice_row(split.measure.label(), &split.choices, |c| {
                     let mut values = chosen_measures(board, i);
                     values.extend(c.value.parse().ok().map(|n| (split.measure, n)));
                     (split.chosen.map(|n| n.to_string()).as_deref() == Some(c.value.as_str()),
@@ -393,11 +394,11 @@ fn board_name(category: &Category, board: &Board) -> String {
                 .logic
                 .as_deref()
                 .filter(|_| !board.logics.is_empty())
-                .map(|logic| schematic::logic_label(logic).to_lowercase()),
+                .map(str::to_owned),
         )
         .chain(
-            (board.encoding.as_deref() == Some("hex"))
-                .then(|| "hex".to_owned()),
+            (board.encoding.as_deref() == Some(Encoding::Hex.name()))
+                .then(|| Encoding::Hex.name().to_owned()),
         )
         .chain(orientation)
         .chain(design)

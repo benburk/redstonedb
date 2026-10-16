@@ -49,23 +49,35 @@ async fn shown(
     state: &AppState,
     found: &str,
 ) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
-    let mut builds = Vec::new();
-    for part in found.split(',').take(LISTED) {
-        let Some((id, permille)) = part.rsplit_once('-') else {
-            continue;
-        };
-        let plain = id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit());
-        let Ok(permille) = permille.parse::<u32>() else {
-            continue;
-        };
-        if !plain || permille > 1000 {
-            continue;
-        }
-        if let Some(s) = schematic::get(&state.db, id).await? {
-            builds.push((s, permille));
-        }
-    }
-    Ok(builds)
+    let ranked: Vec<(String, u32)> = found
+        .split(',')
+        .take(LISTED)
+        .filter_map(|part| {
+            let (id, permille) = part.rsplit_once('-')?;
+            let plain =
+                id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit());
+            let permille = permille.parse::<u32>().ok()?;
+            (plain && permille <= 1000).then(|| (id.to_owned(), permille))
+        })
+        .collect();
+    builds(&state.db, &ranked).await
+}
+
+/// The builds `ranked` names, each with how alike it is, in its order;
+/// any that is gone is left out.
+pub(super) async fn builds(
+    db: &sqlx::SqlitePool,
+    ranked: &[(String, u32)],
+) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
+    let ids: Vec<&str> = ranked.iter().map(|(id, _)| id.as_str()).collect();
+    let builds = schematic::get_many(db, &ids).await?;
+    Ok(builds
+        .into_iter()
+        .filter_map(|s| {
+            let (_, permille) = ranked.iter().find(|(id, _)| *id == s.id)?;
+            Some((s, *permille))
+        })
+        .collect())
 }
 
 /// The search form, and the results its address carries, if it does.
@@ -127,12 +139,7 @@ pub async fn search(
     if !fixi {
         return Ok(Redirect::to(&at).into_response());
     }
-    let mut builds = Vec::new();
-    for (id, permille) in ranked {
-        if let Some(s) = schematic::get(&state.db, &id).await? {
-            builds.push((s, permille));
-        }
-    }
+    let builds = builds(&state.db, &ranked).await?;
     let found = pages::Found {
         file: &name,
         builds: &builds,

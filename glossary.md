@@ -42,12 +42,12 @@ Required.
 
 ## Stateless
 
-A field: whether, once a build's inputs stop changing, its outputs depend only on them. An adder is stateless; a register, which remembers what was written, is stateful. A pipelined build is stateless too, holding values only on their way through. Each standard category gives its builds' usual value, and a build gives its own only when it departs from that, such as a stateful multiplier (`--logic stateless` or `--logic stateful` on `rsdb add` and `set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual value. The field was called logic, combinational or sequential, and its stored values keep those names; search finds it by either.
+A field: whether, once a build's inputs stop changing, its outputs depend only on them. An adder is stateless; a register, which remembers what was written, is stateful. A pipelined build is stateless too, holding values only on their way through. Each standard category gives its builds' usual value, and a build gives its own only when it departs from that, such as a stateful multiplier (`--logic stateless` or `--logic stateful` on `rsdb add` and `set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual value. The field was called logic, combinational or sequential; search finds it by either name.
 
-| Token  | Meaning   | Also searched as        |
-| ------ | --------- | ----------------------- |
-| `comb` | stateless | `comb`, `combinational` |
-| `seq`  | stateful  | `seq`, `sequential`     |
+| Token       | Meaning   | Also searched as        |
+| ----------- | --------- | ----------------------- |
+| `stateless` | stateless | `comb`, `combinational` |
+| `stateful`  | stateful  | `seq`, `sequential`     |
 
 Whether every output bit settles on the same tick is another field, `synchronized`, which is yes, no, or unknown. Search finds it with `sync` or `unsync`.
 

@@ -5,7 +5,10 @@
 use app::{
     details::{self, Build, Details},
     import,
-    models::{schematic, simulation},
+    models::{
+        schematic::{self, Encoding, Orientation},
+        simulation, tag,
+    },
     simulate::Report,
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -61,8 +64,8 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     let typed = Details {
         category: "incrementer".to_owned(),
         width: Some(4),
-        orientation: "horz".to_owned(),
-        encoding: Some("hex".to_owned()),
+        orientation: Orientation::Horizontal,
+        encoding: Some(Encoding::Hex),
         ..Details::default()
     };
     let id = store(&db, "inc-8", typed).await;
@@ -72,9 +75,9 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     assert!(report.unwrap().passed());
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.width, Some(8));
-    assert_eq!(s.orientation, "vert");
-    assert_eq!(s.encoding.as_deref(), Some("bin"));
-    assert!(!s.tags.iter().any(|t| t.name == schematic::FAILS_SIMULATION));
+    assert_eq!(s.orientation, Orientation::Vertical);
+    assert_eq!(s.encoding, Some(Encoding::Binary));
+    assert!(!s.tags.iter().any(|t| t.name == tag::FAILS_SIMULATION));
     assert!(simulation::current(&db, &s).await.unwrap().is_some());
 
     // The result is current and the details already match, so refreshing
@@ -92,7 +95,6 @@ async fn a_build_without_a_test_keeps_no_result() {
         category: "multiplier".to_owned(),
         // Wider than any test takes.
         width: Some(64),
-        orientation: "horz".to_owned(),
         ..Details::default()
     };
     let id = store(&db, "mult-8-buttons", typed).await;

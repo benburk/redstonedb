@@ -25,7 +25,7 @@ use super::{
 use crate::{
     interface::{self, Interface},
     lint,
-    models::schematic::StackDirection,
+    models::schematic::{Orientation, StackDirection},
     schem::{Blocks, Pos},
     stack,
 };
@@ -93,17 +93,11 @@ impl Step {
         }
     }
 
-    /// The layout copies stacked this way give: a stack up is vertical, one
-    /// west horizontal, and one west and up diagonal, as the bits of an
-    /// adder whose copies add up run the way it stacks. `None` for any
-    /// other way.
-    pub fn orientation(self) -> Option<&'static str> {
-        match (self.west > 0, self.up > 0, self.north > 0) {
-            (true, false, false) => Some("horz"),
-            (false, true, false) => Some("vert"),
-            (true, true, false) => Some("diag"),
-            _ => None,
-        }
+    /// The layout copies stacked this way give, as the bits of an adder
+    /// whose copies add up run the way it stacks; see
+    /// `StackDirection::orientation`.
+    pub fn orientation(self) -> Option<Orientation> {
+        self.direction().orientation()
     }
 
     /// Such as `16 up` or `2 west and 2 up`.
@@ -415,9 +409,9 @@ mod tests {
     #[test]
     fn a_stack_lies_the_way_it_steps() {
         let step = |west, up, north| Step { west, up, north };
-        assert_eq!(step(0, 2, 0).orientation(), Some("vert"));
-        assert_eq!(step(5, 0, 0).orientation(), Some("horz"));
-        assert_eq!(step(1, 1, 0).orientation(), Some("diag"));
+        assert_eq!(step(0, 2, 0).orientation(), Some(Orientation::Vertical));
+        assert_eq!(step(5, 0, 0).orientation(), Some(Orientation::Horizontal));
+        assert_eq!(step(1, 1, 0).orientation(), Some(Orientation::Diagonal));
         assert_eq!(step(0, 0, 4).orientation(), None);
     }
 

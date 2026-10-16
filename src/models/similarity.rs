@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use sqlx::SqlitePool;
 
 use crate::{
@@ -22,8 +22,10 @@ static COMPARING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub async fn refresh(db: &SqlitePool) -> Result<()> {
     let _alone = COMPARING.lock().await;
     let builds = sqlx::query!(
-        r#"SELECT id as "id!", category, category || '/' || sha256 as "now!: String",
-            compared_as FROM schematic"#
+        r#"SELECT schematic.id as "id!", category,
+            category || '/' || file.sha256 as "now!: String", compared_as
+         FROM schematic
+         JOIN current_file AS file ON file.schematic_id = schematic.id"#
     )
     .fetch_all(db)
     .await?;
@@ -35,22 +37,25 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
     if stale.is_empty() {
         return Ok(());
     }
-    // Every build of a category with a stale one, read once.
+    // Every build of a category with a stale one, read at once.
     let categories: HashSet<&str> = builds
         .iter()
         .filter(|b| stale.contains(b.id.as_str()))
         .map(|b| b.category.as_str())
         .collect();
-    let mut files = Vec::new();
-    for b in builds
-        .iter()
-        .filter(|b| categories.contains(b.category.as_str()))
-    {
-        let data = crate::models::schematic::data(db, &b.id)
-            .await?
-            .context("schematic vanished")?;
-        files.push((b.id.clone(), b.category.clone(), data));
-    }
+    let categories = serde_json::to_string(&categories)?;
+    let files: Vec<(String, String, Vec<u8>)> = sqlx::query!(
+        r#"SELECT schematic.id as "id!", category, file.data as "data!"
+         FROM schematic
+         JOIN current_file AS file ON file.schematic_id = schematic.id
+         WHERE category IN (SELECT value FROM json_each(?))"#,
+        categories
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|row| (row.id, row.category, row.data))
+    .collect();
     let stale_ids: HashSet<String> =
         stale.iter().map(|id| (*id).to_owned()).collect();
     let pairs =
@@ -160,9 +165,11 @@ pub async fn ranked(
     blocks: &Blocks,
     limit: usize,
 ) -> Result<Vec<(String, u32)>> {
-    let candidates = sqlx::query!(r#"SELECT id as "id!", data FROM schematic"#)
-        .fetch_all(db)
-        .await?;
+    let candidates = sqlx::query!(
+        r#"SELECT schematic_id as "id!", data as "data!" FROM current_file"#
+    )
+    .fetch_all(db)
+    .await?;
     let mine = Skeleton::of(blocks);
     let found = tokio::task::spawn_blocking(move || {
         // From the most a build could be alike down, so the comparing stops
@@ -205,7 +212,9 @@ pub async fn closest(
 ) -> Result<Option<(String, u32)>> {
     let volume = size.0 * size.1 * size.2;
     let candidates = sqlx::query!(
-        r#"SELECT id as "id!", data FROM schematic
+        r#"SELECT id as "id!", file.data as "data!"
+         FROM schematic
+         JOIN current_file AS file ON file.schematic_id = schematic.id
          WHERE size_x * size_y * size_z * 3 >= ? * 2
             AND size_x * size_y * size_z * 2 <= ? * 3"#,
         volume,
