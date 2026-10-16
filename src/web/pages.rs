@@ -2495,7 +2495,7 @@ pub fn file_fields(
                 placeholder="https://schemati.openredstone.org/download?file=…"
                 aria-describedby="schemati-help" class="input";
             span id="schemati-help" class="text-meta font-normal" {
-                "From " code { "//download <name>" } " in game; it lasts seven days."
+                "Run " code { "//download <name>" } " in game to get one. It works for seven days."
             }
         }
         (schemati::own_file_field(schemati, form))
@@ -2503,9 +2503,10 @@ pub fn file_fields(
             label class="flex items-start gap-2" {
                 input type="checkbox" name="keep_paste" value="yes" form=[form] class="mt-1 size-4 appearance-auto";
                 span {
-                    "Keep where it pastes from"
+                    "Keep its paste position"
                     span class="block text-meta text-muted" {
-                        "Otherwise it pastes from its south-east-bottom corner, as every build here does."
+                        "Unticked, " code { "//paste" } " puts you one block south of the build's south-east bottom corner, as for every build here. "
+                        "Tick it to paste the build where you copied it from."
                     }
                 }
             }
@@ -2515,16 +2516,17 @@ pub fn file_fields(
             span {
                 "Standardize it"
                 span class="block text-meta text-muted" {
-                    "Every block but redstone, inputs, and outputs turns white."
+                    "Turns every block that isn't redstone, an input, or an output white. Glass, slabs, and stairs become white stained glass."
                 }
             }
         }
         label class="flex items-start gap-2 pl-6" {
             input type="checkbox" name="whiten_gray" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
             span {
-                "Whiten gray blocks too"
+                "Turn gray blocks white too"
                 span class="block text-meta text-muted" {
-                    "Untick to keep logic only a stack's first copy needs."
+                    "Gray marks parts only the first copy of a stack keeps, such as an input's driver. "
+                    "Untick this if your stackable build uses gray that way."
                 }
             }
         }
@@ -2562,9 +2564,12 @@ fn schemati_guide() -> Markup {
         section aria-labelledby="schemati-heading" class="mb-10 max-w-prose leading-prose" {
             h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-3" } { "From Open Redstone" }
             ol class="flex list-decimal flex-col gap-1.5 pl-5" {
-                li { "Select the build with " code { "//wand" } " and " code { "//copy" } " it." }
-                li { code { "//save <name>" } ", then " code { "//download <name>" } " and copy the link." }
-                li { "Paste it above, or pick the file from your Schemati." }
+                li { "Select the build with " code { "//wand" } ", then run " code { "//copy" } "." }
+                li { "Run " code { "//save <name>" } " to keep it in Schemati." }
+                li {
+                    "Pick it from your Schemati above. Without Schemati connected, run "
+                    code { "//download <name>" } " and paste the link instead."
+                }
             }
         }
     }
@@ -2579,56 +2584,64 @@ struct Marking {
     rule: &'static str,
 }
 
+/// Each part of a build and how to mark it, with Minecraft's concrete
+/// colours for the swatches.
+const MARKINGS: [Marking; 7] = [
+    Marking {
+        role: "Input A",
+        colours: &[("bg-[#5ea818]", "lime")],
+        block: "concrete",
+        rule: "A lever on the south face of each bit.",
+    },
+    Marking {
+        role: "Inputs B, C, D",
+        colours: &[
+            ("bg-[#2389c6]", "light blue"),
+            ("bg-[#157788]", "cyan"),
+            ("bg-[#2c2e8f]", "blue"),
+        ],
+        block: "concrete",
+        rule: "A lever on any side of each bit.",
+    },
+    Marking {
+        role: "Control line",
+        colours: &[("bg-[#a9309f]", "magenta")],
+        block: "concrete",
+        rule: "A lever or button, and a sign naming it, such as carry in or reset. The only one on an adder, incrementer, or decrementer needs no sign.",
+    },
+    Marking {
+        role: "Outputs 1, 2, 3",
+        colours: &[
+            ("bg-[#f0af15]", "yellow"),
+            ("bg-[#e06100]", "orange"),
+            ("bg-[#603b1f]", "brown"),
+        ],
+        block: "concrete or stained glass",
+        rule: "When they make one value, yellow holds the lowest bits.",
+    },
+    Marking {
+        role: "Status line",
+        colours: &[("bg-[#d5658e]", "pink")],
+        block: "concrete or stained glass",
+        rule: "A sign naming it, such as carry out or overflow. The only one on an adder, incrementer, or decrementer needs no sign.",
+    },
+    Marking {
+        role: "First copy only",
+        colours: &[("bg-[#373a3e]", "gray")],
+        block: "concrete or stained glass",
+        rule: "Parts only the first copy of a stack keeps, such as an input's driver. Stacking leaves them out of later copies.",
+    },
+    Marking {
+        role: "Everything else",
+        colours: &[("bg-[#cfd5d6]", "white")],
+        block: "concrete or stained glass",
+        rule: "Use no other colours or blocks. Redstone parts stay as they are.",
+    },
+];
+
 /// How a build marks its inputs and outputs so the site can read it, from
 /// `conventions.md`, kept to what an upload needs.
 fn marking_guide() -> Markup {
-    // Minecraft's concrete colours, for the swatches.
-    const MARKINGS: [Marking; 6] = [
-        Marking {
-            role: "Input A",
-            colours: &[("bg-[#5ea818]", "lime")],
-            block: "concrete",
-            rule: "A lever on the south face of each bit.",
-        },
-        Marking {
-            role: "Inputs B, C, D",
-            colours: &[
-                ("bg-[#2389c6]", "light blue"),
-                ("bg-[#157788]", "cyan"),
-                ("bg-[#2c2e8f]", "blue"),
-            ],
-            block: "concrete",
-            rule: "A lever on any side of each bit.",
-        },
-        Marking {
-            role: "Control line",
-            colours: &[("bg-[#a9309f]", "magenta")],
-            block: "concrete",
-            rule: "A lever or button, and a sign naming it, such as carry in or reset.",
-        },
-        Marking {
-            role: "Outputs 1, 2, 3",
-            colours: &[
-                ("bg-[#f0af15]", "yellow"),
-                ("bg-[#e06100]", "orange"),
-                ("bg-[#603b1f]", "brown"),
-            ],
-            block: "concrete or stained glass",
-            rule: "When they make one value, yellow holds the lowest bits.",
-        },
-        Marking {
-            role: "Status line",
-            colours: &[("bg-[#d5658e]", "pink")],
-            block: "concrete or stained glass",
-            rule: "A sign naming it, such as carry out or overflow.",
-        },
-        Marking {
-            role: "Everything else",
-            colours: &[("bg-[#cfd5d6]", "white")],
-            block: "concrete or stained glass",
-            rule: "No other colours or blocks, besides redstone parts.",
-        },
-    ];
     html! {
         section aria-labelledby="guide-heading" {
             h2 id="guide-heading" class={ (SECTION_TITLE) " mb-1" } { "How to mark a build" }
@@ -2666,9 +2679,15 @@ fn marking_guide() -> Markup {
                 }
             }
             ul class="mt-4 flex max-w-prose list-disc flex-col gap-1.5 pl-5" {
-                li { "Each colour is one bus, counting up from the south-east bottom corner. A sign names it." }
-                li { "A lever touches only its input block. Save inputs off." }
-                li { "A build with its own layout, such as a display, skips this: tick “follows its own layout”." }
+                li { "Each colour is one bus. Its first bit is the one nearest the south-east bottom corner." }
+                li {
+                    "To start a bus from the other end, put a sign reading " code { "lsb" } " on its first bit. "
+                    "The buses running alongside it follow, unless they have their own."
+                }
+                li { "To name a bus, put a sign on any of its blocks, such as " code { "addend" } "." }
+                li { "Place each lever so it touches only its input block." }
+                li { "Save every lever off. A lever saved on makes its input inverted." }
+                li { "A build with its own layout, such as a display, needs none of this. Tick “follows its own layout” on the next page." }
             }
         }
     }

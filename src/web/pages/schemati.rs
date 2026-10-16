@@ -89,7 +89,7 @@ pub(super) fn own_file_field(
                         }
                     }
                     span id="own-schemati-help" class=(help) {
-                        (folder.player) "'s folder. A file or link above wins."
+                        "What " (folder.player) " saved with " code { "//save" } ". A file or link chosen above is used instead."
                     }
                 }
             }
