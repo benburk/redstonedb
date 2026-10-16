@@ -1,6 +1,6 @@
 # Glossary
 
-Restrictions are tags in the database. A tag is named in full words, such as `torchless`, and the website and `rsdb show` print that name. A tag may also store a short token of 3 or 4 letters, which commands and search accept in its place. Each tag has a kind, `restriction` or `other`, which colours its badge; tags a person adds on the site are of the `other` kind.
+Restrictions are tags in the database. A tag is named in full words, such as `torchless`, which dashes may join, as in `double-density`, though none may start or end it, since a dash before a search term leaves it out. The website and `rsdb show` print that name. A tag may also store a short token of 3 or 4 letters, which commands and search accept in its place. Each tag has a kind, `restriction` or `other`, which colours its badge; tags a person adds on the site are of the `other` kind.
 
 A fact every build has, with one of a few values, is a field rather than a tag, as orientation, encoding, and statelessness are. A yes-or-no fact that means something only within one category, such as an adder's carry in, is a flag of that category. A tag is left for what is optional and crosses categories, where a build without it says nothing.
 

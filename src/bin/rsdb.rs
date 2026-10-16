@@ -483,6 +483,14 @@ async fn define_tag(
     if tag::DERIVED.contains(&tag::name(name).as_str()) {
         bail!("{name} is worked out from the build, not tagged");
     }
+    for given in std::iter::once(name).chain(token) {
+        if !tag::valid_name(&tag::name(given)) {
+            bail!(
+                "{given} cannot name a tag: use letters, digits, spaces, and \
+                 dashes, with no dash at either end"
+            );
+        }
+    }
     tag::define(db, name, token, kind).await?;
     Ok(())
 }

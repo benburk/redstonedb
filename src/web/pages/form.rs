@@ -535,12 +535,13 @@ pub(super) fn tag_picker(
         new_class: "badge-other",
         // A pattern nothing matches, so only listed tags can be added.
         pattern: if may_create {
-            "^[A-Za-z0-9 _]+$"
+            "^[A-Za-z0-9 _]([A-Za-z0-9 _-]*[A-Za-z0-9 _])?$"
         } else {
             "(?!)"
         },
         hint: if may_create {
-            "cannot be a tag: use letters, digits, and spaces"
+            "cannot be a tag: use letters, digits, spaces, and dashes, with \
+             no dash at either end"
         } else {
             "is not a tag; only an admin can make a new one"
         },

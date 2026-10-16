@@ -17,7 +17,7 @@ named_values! {
 }
 
 /// A tag's name is written in full words joined by underscores, such as
-/// `carry_lookahead`.
+/// `carry_lookahead`, and may hold dashes, as `double-density` does.
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub name: String,
@@ -73,12 +73,16 @@ pub fn name(typed: &str) -> String {
 }
 
 /// Whether a typed name, once in the form [`name`] gives, can name a tag:
-/// lowercase letters, digits, and underscores.
+/// lowercase letters, digits, underscores, and dashes, but no dash at
+/// either end, as one before it would read as leaving the tag out of a
+/// search.
 pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
+        })
 }
 
 /// A build's stored `tags`, led by `fails_simulation` when it fails, with
@@ -238,6 +242,16 @@ pub async fn define<'e, E: SqliteExecutor<'e>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tag_may_hold_a_dash_but_not_at_either_end() {
+        assert!(valid_name("double-density"));
+        assert!(valid_name(&name("Double-Density CCA")));
+        assert!(!valid_name("-density"));
+        assert!(!valid_name("double-"));
+        assert!(!valid_name("double.density"));
+        assert!(!valid_name(""));
+    }
 
     fn tag(name: &str, kind: Kind) -> Tag {
         Tag {

@@ -276,7 +276,8 @@ fn shaped(details: &Details) -> Result<(), String> {
     }
     if let Some(name) = details.tags.iter().find(|n| !tag::valid_name(n)) {
         return Err(format!(
-            "{} cannot be a tag: use letters, digits, and spaces.",
+            "{} cannot be a tag: use letters, digits, spaces, and dashes, \
+             with no dash at either end.",
             name.replace('_', " ")
         ));
     }
