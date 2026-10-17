@@ -33,7 +33,7 @@ pub fn similar_dialog(connection: Option<&Connection>) -> Markup {
                 }
                 label class="field" {
                     span { "Schematic file" }
-                    input type="file" name="file" accept=".schem" class="input py-1.5";
+                    input type="file" name="file" accept=".schem" class="input";
                 }
                 label class="field" {
                     span { "Or a Schemati link" }

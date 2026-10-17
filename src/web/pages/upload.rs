@@ -23,7 +23,7 @@ pub(super) fn file_fields(
     html! {
         label class="field" {
             span { "Schematic file" }
-            input type="file" name="file" accept=".schem" form=[form] class="input py-1.5";
+            input type="file" name="file" accept=".schem" form=[form] class="input";
         }
         label class="field" {
             span { "Or a Schemati link" }

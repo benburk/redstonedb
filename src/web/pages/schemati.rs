@@ -184,7 +184,7 @@ fn open(folder: &Folder) -> Markup {
             class="mb-8 flex flex-wrap items-end gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
             label class="field flex-1" {
                 span { "Add files" }
-                input type="file" name="file" multiple required accept=".schem,.schematic" class="input py-1.5";
+                input type="file" name="file" multiple required accept=".schem,.schematic" class="input";
             }
             button type="submit" class="btn btn-primary" { "Add to Schemati" }
         }
