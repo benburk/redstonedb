@@ -13,6 +13,9 @@
 //   the element is on the page.
 // - An answer's `FX-Notice` header, percent-encoded, is said in the notice.
 // - An answer's `FX-Replace-Url` header becomes the page's address.
+// - A `<dialog data-show>` in an answer opens as a modal once it is in.
+// - A dialog's form with `data-wait` keeps the dialog open while it sends,
+//   so it shows the work under way, and closes it once answered.
 // - A form with `data-live` sends as its fields change, typing once it
 //   pauses, and a new send replaces one under way, as a search does.
 
@@ -82,8 +85,10 @@ document.addEventListener("fx:config", (event) => {
     cfg.swap = swapPanel;
   }
   // A dialog's form closes it as it sends, so the swap never lands under
-  // an open modal.
-  if (element.closest("dialog[open]")) element.closest("dialog").close();
+  // an open modal, unless it waits for the answer.
+  if (element.closest("dialog[open]") && !element.matches("[data-wait]")) {
+    element.closest("dialog").close();
+  }
 });
 
 // The control that sent a request shows it is busy; a live panel is its
@@ -110,6 +115,7 @@ document.addEventListener("fx:before", (event) => {
 
 document.addEventListener("fx:finally", (event) => {
   sender(event).removeAttribute("aria-busy");
+  if (event.target.matches("[data-wait]")) event.target.closest("dialog")?.close();
 });
 
 document.addEventListener("fx:after", (event) => {
@@ -160,6 +166,13 @@ document.addEventListener("input", (event) => {
 });
 // Enter sends at once, so the pause's send is dropped.
 document.addEventListener("submit", () => clearTimeout(pause));
+
+document.addEventListener("fx:swapped", () => {
+  for (const dialog of document.querySelectorAll("dialog[data-show]:not([open])")) {
+    dialog.removeAttribute("data-show");
+    dialog.showModal();
+  }
+});
 
 // A swap that took the focused element away puts focus back on its
 // replacement, the element with the same id, where the caret was.

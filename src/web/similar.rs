@@ -30,17 +30,23 @@ pub struct Shown {
     found: Option<String>,
 }
 
-/// The address that shows `ranked`, found for the file called `file`.
-fn shown_at(file: &str, ranked: &[(String, u32)]) -> String {
-    let found: Vec<String> = ranked
+/// `ranked` as an address carries it, such as `0a1b…-912,…`.
+fn found_of(ranked: &[(String, u32)]) -> String {
+    ranked
         .iter()
         .map(|(id, permille)| format!("{id}-{permille}"))
-        .collect();
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The home page's address showing `found`, found for the file called
+/// `file`.
+fn shown_at(file: &str, found: &str) -> String {
     let query = form_urlencoded::Serializer::new(String::new())
         .append_pair("file", file)
-        .append_pair("found", &found.join(","))
+        .append_pair("found", found)
         .finish();
-    format!("/similar?{query}")
+    format!("/?{query}")
 }
 
 /// The builds an address's `found` names, with how alike; any part that
@@ -80,22 +86,49 @@ pub(super) async fn builds(
         .collect())
 }
 
-/// The search form, and the results its address carries, if it does.
+/// Through fixi, the dialog to choose a file in, with the viewer's own
+/// Schemati files; otherwise the home page, which the dialog opens from,
+/// showing what an older address's `found` names, if it does.
 pub async fn form(
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Fixi(fixi): Fixi,
     Query(Shown { file, found }): Query<Shown>,
 ) -> Result<Response, AppError> {
-    let builds = match &found {
-        Some(found) => Some(shown(&state, found).await?),
+    if !fixi {
+        let home = match &found {
+            Some(found) => shown_at(file.as_deref().unwrap_or_default(), found),
+            None => "/".to_owned(),
+        };
+        return Ok(Redirect::to(&home).into_response());
+    }
+    let folder = match &user_opt {
+        Some(user) => {
+            Some(super::schemati::own_folder_quickly(&state.db, user).await?)
+        }
         None => None,
     };
-    let file = file.unwrap_or_else(|| "the file".to_owned());
-    let found = builds.as_ref().map(|builds| pages::Found {
-        file: &file,
-        builds,
-    });
-    page(&state, user_opt.as_ref(), found.as_ref(), "").await
+    let connection = folder
+        .as_ref()
+        .map(|folder| super::schemati::connection(folder.as_ref()));
+    Ok(pages::similar_dialog(connection.as_ref()).into_response())
+}
+
+/// The home page showing the builds `found` names, as the address of a
+/// search's results carries them, found for the file called `file`.
+pub(super) async fn shown_page(
+    state: &AppState,
+    viewer: Option<&User>,
+    file: &str,
+    found: &str,
+) -> Result<Response, AppError> {
+    let builds = shown(state, found).await?;
+    let file = if file.is_empty() { "the file" } else { file };
+    let found = pages::Found {
+        file,
+        builds: &builds,
+    };
+    Ok(pages::similar_page(viewer, Some(&found), "").into_response())
 }
 
 /// The builds most like the file chosen: a file, a Schemati link, or a
@@ -109,33 +142,29 @@ pub async fn search(
     let user = user_opt.as_ref();
     let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
-        Err(message) => {
-            return answer(&state, user, fixi, None, &message).await;
-        }
+        Err(message) => return Ok(refused(user, fixi, &message)),
     };
     if let Some(viewer) = user
         && let Err(message) = posted.fetch_own(&state.db, viewer).await
     {
-        return answer(&state, user, fixi, None, &message).await;
+        return Ok(refused(user, fixi, &message));
     }
     let name = posted.chosen_name();
     let sent = match posted.chosen().await {
         Ok(sent) => sent,
-        Err(message) => {
-            return answer(&state, user, fixi, None, &message).await;
-        }
+        Err(message) => return Ok(refused(user, fixi, &message)),
     };
     let blocks = match Blocks::read(&sent.file) {
         Ok(blocks) => blocks,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
-            return answer(&state, user, fixi, None, &message).await;
+            return Ok(refused(user, fixi, &message));
         }
     };
     let ranked = similarity::ranked(&state.db, &blocks, LISTED).await?;
     // The results go in the address, so Back and reloading keep them: a
     // plain form goes there, and fixi's page takes it as its address.
-    let at = shown_at(&name, &ranked);
+    let at = shown_at(&name, &found_of(&ranked));
     if !fixi {
         return Ok(Redirect::to(&at).into_response());
     }
@@ -151,41 +180,12 @@ pub async fn search(
         .into_response())
 }
 
-/// A search's answer: through fixi, only the results, which is all that
-/// changes; for a plain form, the page.
-async fn answer(
-    state: &AppState,
-    user: Option<&User>,
-    fixi: bool,
-    found: Option<&pages::Found<'_>>,
-    message: &str,
-) -> Result<Response, AppError> {
+/// Why a search could not run: through fixi, in place of what is below the
+/// home page's search; for a plain form, on the home page.
+fn refused(user: Option<&User>, fixi: bool, message: &str) -> Response {
     if fixi {
-        Ok(pages::similar_results(found, message).into_response())
+        pages::similar_results(None, message).into_response()
     } else {
-        page(state, user, found, message).await
+        pages::similar_page(user, None, message).into_response()
     }
-}
-
-/// The search page, with the viewer's Schemati files to choose from when
-/// they are logged in.
-async fn page(
-    state: &AppState,
-    user: Option<&User>,
-    found: Option<&pages::Found<'_>>,
-    message: &str,
-) -> Result<Response, AppError> {
-    let folder = match user {
-        Some(user) => {
-            Some(super::schemati::own_folder_quickly(&state.db, user).await?)
-        }
-        None => None,
-    };
-    let connection = folder
-        .as_ref()
-        .map(|folder| super::schemati::connection(folder.as_ref()));
-    Ok(
-        pages::similar_search(user, connection.as_ref(), found, message)
-            .into_response(),
-    )
 }

@@ -163,13 +163,26 @@ impl<'a> Listing<'a> {
 /// The home page before anything is searched for: the search, and below it
 /// [`home_index`].
 pub fn home(viewer: Option<&User>, index: &Index) -> Markup {
+    home_page(viewer, "/", None, &home_index(index))
+}
+
+/// The home page: the search, sent to `action` with what `listing` chose,
+/// the place the dialog for finding similar builds opens in, and `below`,
+/// the part a search redraws.
+pub(super) fn home_page(
+    viewer: Option<&User>,
+    action: &str,
+    listing: Option<&Listing>,
+    below: &Markup,
+) -> Markup {
     base(
         viewer,
         APP_NAME,
         "/",
         &html! {
-            (search_form("/", None))
-            (home_index(index))
+            (search_form(action, listing))
+            div id="similar" {}
+            (below)
         },
     )
 }
@@ -185,21 +198,14 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
     } else {
         "/"
     };
-    base(
-        viewer,
-        APP_NAME,
-        "/",
-        &html! {
-            (search_form(action, Some(listing)))
-            (home_results(listing))
-        },
-    )
+    home_page(viewer, action, Some(listing), &home_results(listing))
 }
 
 /// The home page's search, sent to `action`. It sends as the words are
 /// typed, once typing pauses, and redraws the part below it; the layout,
 /// category, and tags `listing` chose go with it, and the order from its
-/// menu in the results.
+/// menu in the results. Beside it, a button opens the dialog for finding
+/// the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
     let (view, query, category, tags) = listing
         .map_or((View::Cards, "", "", &[][..]), |l| {
@@ -207,7 +213,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
         });
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
-            fx-action=(action) fx-target="#listing" class="relative mb-8" {
+            fx-action=(action) fx-target="#listing" class="group relative mb-8" {
             @if view == View::List {
                 input type="hidden" name="view" value="list";
             }
@@ -218,14 +224,20 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
                 input type="hidden" name="tag" value=(tag);
             }
             label for="search" class="sr-only" { "Search builds" }
-            input type="search" id="search" name="q" value=(query)
-                placeholder="Search builds, such as 8b adder 3t"
-                autocomplete="off" aria-describedby="search-help"
-                class="peer input";
+            div class="flex gap-2" {
+                input type="search" id="search" name="q" value=(query)
+                    placeholder="Search builds, such as 8b adder 3t"
+                    autocomplete="off" aria-describedby="search-help"
+                    class="input flex-1";
+                // The dialog comes from the server, with the viewer's
+                // Schemati files, only once asked for.
+                button type="button" fx-action="/similar" fx-target="#similar"
+                    class="btn btn-quiet whitespace-nowrap" { "Find similar" }
+            }
             // Shown only while the box is focused and empty, over the gap
             // below it, so nothing moves.
             p id="search-help"
-                class="absolute top-full z-10 mt-1.5 hidden bg-canvas text-meta text-muted peer-focus:peer-placeholder-shown:block" {
+                class="absolute top-full z-10 mt-1.5 hidden bg-canvas text-meta text-muted group-has-[#search:focus:placeholder-shown]:block" {
                 (search_help())
             }
         }

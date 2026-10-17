@@ -57,6 +57,10 @@ struct ListQuery {
     /// Fields such as `-downloads,volume`; see [`order`].
     sort: String,
     tags: Vec<String>,
+    /// The file a search for similar builds was for, and what it found;
+    /// see `similar::shown_page`.
+    file: String,
+    found: Option<String>,
 }
 
 impl ListQuery {
@@ -71,6 +75,8 @@ impl ListQuery {
                 "category" => query.category = value,
                 "sort" => query.sort = value,
                 "tag" if !value.is_empty() => query.tags.push(value),
+                "file" => query.file = value,
+                "found" => query.found = Some(value),
                 _ => {}
             }
         }
@@ -87,6 +93,15 @@ pub async fn home(
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
     let query = ListQuery::read(raw.as_deref());
+    if let Some(found) = &query.found {
+        return super::similar::shown_page(
+            &state,
+            user_opt.as_ref(),
+            &query.file,
+            found,
+        )
+        .await;
+    }
     if query.q.is_empty() && query.category.is_empty() && query.tags.is_empty()
     {
         return index(&state, fixi, user_opt.as_ref()).await;

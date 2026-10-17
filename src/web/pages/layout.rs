@@ -80,7 +80,6 @@ fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                 a href="/leaderboards"
                     aria-current=[current_path.starts_with("/leaderboards").then_some("page")]
                     class=(link) { "Leaderboards" }
-                a href="/similar" aria-current=[current("/similar")] class=(link) { "Find similar" }
                 a href="/about" aria-current=[current("/about")] class=(link) { "About" }
                 @match viewer {
                     None => {
