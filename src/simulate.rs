@@ -52,6 +52,7 @@ mod bench;
 mod circuit;
 mod converters;
 mod incrementer;
+mod inverter;
 mod monostable;
 mod multiplier;
 mod register;
@@ -111,6 +112,8 @@ pub enum Test {
     Monostable,
     /// A pulse as each bit of A turns on and as it turns off.
     DualEdgeMonostable,
+    /// A, or with its control line on, every bit of A inverted.
+    Inverter,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -119,7 +122,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 17] = [
+    pub const ALL: [Test; 18] = [
         Test::Adder,
         Test::Subtractor,
         Test::Incrementer,
@@ -137,6 +140,7 @@ impl Test {
         Test::Equality,
         Test::Monostable,
         Test::DualEdgeMonostable,
+        Test::Inverter,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -176,6 +180,7 @@ impl Test {
             Test::Equality => "equality",
             Test::Monostable => "monostable",
             Test::DualEdgeMonostable => "dual_edge_monostable",
+            Test::Inverter => "inverter",
         }
     }
 
@@ -199,7 +204,8 @@ impl Test {
             | Test::CarryOut
             | Test::Equality
             | Test::Monostable
-            | Test::DualEdgeMonostable => 1,
+            | Test::DualEdgeMonostable
+            | Test::Inverter => 1,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
@@ -267,6 +273,11 @@ impl Test {
             Test::BinaryToBcd => converters::binary_to_bcd(interface),
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
+            Test::Inverter => {
+                // Its lone control line is named for its role, invert.
+                interface::name_lines(self.name(), blocks, interface);
+                inverter::spec(interface)
+            }
             Test::Alu
             | Test::Register
             | Test::Buffer
@@ -283,7 +294,8 @@ impl Test {
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind: tried on an adder, whose
     /// copies' carries must chain, a register, whose copies may add cells
-    /// or bits, and a buffer and a monostable, whose copies add bits;
+    /// or bits, and a buffer, a monostable, and an inverter, whose copies
+    /// add bits;
     /// `None` for any other.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
@@ -294,6 +306,7 @@ impl Test {
             Test::Buffer => register::stacking(data, register::Kind::Buffer),
             Test::Monostable => monostable::stacking(data, false),
             Test::DualEdgeMonostable => monostable::stacking(data, true),
+            Test::Inverter => inverter::stacking(data),
             _ => None,
         }
     }
@@ -419,11 +432,14 @@ pub struct Wrong {
     pub got: Vec<u64>,
 }
 
-/// The tests `guess` tries. One run tries every kind of incrementer, and
-/// the kind it gets most right names its category.
-const GUESSED: [Test; 15] = [
+/// The tests `guess` tries, the first winning a tie. One run tries every
+/// kind of incrementer, and the kind it gets most right names its
+/// category. An inverter comes before it, as a 1-bit incrementer without a
+/// carry out is A xor its line, as a 1-bit inverter is.
+const GUESSED: [Test; 16] = [
     Test::Adder,
     Test::Subtractor,
+    Test::Inverter,
     Test::Incrementer,
     Test::Multiplier,
     Test::BinaryToBcd,

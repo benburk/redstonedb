@@ -1318,3 +1318,30 @@ fn a_falling_edge_monostable_pulses_as_a_turns_off() {
     assert!(Test::DualEdgeMonostable.run(&blocks).failed());
     assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
 }
+
+/// A 1-bit inverter: two torches give A and not the line, and not A and
+/// the line, onto one yellow output, so its unsigned magenta line inverts
+/// A. Copies 2 west share one line, which inverts every bit, up to 8 of
+/// them: the line's inverse runs on through every copy's dust, and from a
+/// ninth copy on, too far from the torch driving it, it dies out, so that
+/// copy inverts with the line off.
+#[test]
+fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
+    let (data, blocks) = register("inverter-1");
+    assert!(lint::check_for(&blocks, "inverter").is_empty());
+    let Report::Ran(run) = Test::Inverter.run(&blocks) else {
+        panic!("the inverter was not simulated");
+    };
+    assert_eq!(run.pattern, "A xor invert");
+    assert_eq!((run.cases, run.wrong), (4, 0));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "inverter");
+    let stacking = Test::Inverter.stacking(&data);
+    let Some(Stacking::Wider {
+        step, copies, most, ..
+    }) = stacking
+    else {
+        panic!("the inverter does not stack: {stacking:?}");
+    };
+    assert_eq!(step.describe(), "2 west");
+    assert_eq!((copies, most), (8, Some(8)));
+}

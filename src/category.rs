@@ -50,6 +50,9 @@ pub enum Lines {
     /// A comparison's: its one output, yellow or pink, is its result, which
     /// needs no sign and goes by this name, such as `A > B`.
     Result(&'static str),
+    /// An inverter's: its lone control line needs no sign and goes by this
+    /// name, `invert`; it has no status line.
+    Control(&'static str),
     /// A buffer's: its data bus in and out as a register's, and its
     /// unsigned magenta lines its cells' writes, by a button, or by a lever
     /// when none has a button, as it has no reads; a lone one needs no
@@ -171,6 +174,12 @@ pub fn behaviour(category: &str) -> Behaviour {
         },
         "monostable" => monostable(Test::Monostable),
         "dual_edge_monostable" => monostable(Test::DualEdgeMonostable),
+        // Its copies add bits, sharing its control line.
+        "inverter" => Behaviour {
+            lines: Lines::Control("invert"),
+            stacking: Stacking::Found,
+            ..read(Test::Inverter)
+        },
         "multiplier" => tested(Test::Multiplier),
         "binary_to_bcd" => tested(Test::BinaryToBcd),
         "bcd_to_binary" => tested(Test::BcdToBinary),
@@ -197,7 +206,13 @@ const BORROW_OUT: &str = crate::lint::BORROW_OUT[0];
 impl Lines {
     /// Whether a lone control or status line may go without a sign.
     pub fn lone_unsigned(self) -> bool {
-        matches!(self, Lines::Lone { .. } | Lines::Buffer | Lines::Result(_))
+        matches!(
+            self,
+            Lines::Lone { .. }
+                | Lines::Buffer
+                | Lines::Result(_)
+                | Lines::Control(_)
+        )
     }
 }
 

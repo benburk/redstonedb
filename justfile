@@ -94,6 +94,7 @@ seed db="redstone.db":
     add buffer-2-button horz --category buffer
     add threshold-3-raw horz --category threshold --width 3 --at-least 2 --standardize
     add monostable-3-inverted horz --category monostable --standardize
+    add inverter-1 horz --category inverter --standardize
 
 # Follow the live site's log
 logs:

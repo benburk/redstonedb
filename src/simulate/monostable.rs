@@ -29,7 +29,7 @@ use super::{
     Broken, Run, Signal, Test, Wrong,
     bench::mask,
     circuit::{Circuit, MAX_TICKS},
-    stacking::{Stacking, Step},
+    stacking::{self, Stacking},
     timing::{
         BitTiming, Edge, InputTiming, OutputTiming, Pulse, Start, Takes, Timing,
     },
@@ -41,10 +41,6 @@ use crate::{
     schem::Blocks,
     stack,
 };
-
-/// The most copies stacked; a monostable whose copies work with this many
-/// is taken to stack any number of times.
-const MOST_COPIES: usize = 16;
 
 /// The most wrong cases a run keeps to show.
 const EXAMPLES: usize = 10;
@@ -543,11 +539,8 @@ pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
     let (low, high) = interface::measured(&blocks);
     let reach = i64::from(high[0] - low[0] + 1) + 2;
     let buses = stack::Buses::of("monostable", Orientation::Horizontal);
-    let works = |step: Step, copies: usize| {
-        let (stacked, _) =
-            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
-        let blocks = Blocks::read(&stacked).ok()?;
-        let found = cases(&blocks).ok()?;
+    let works = |blocks: &Blocks, copies: usize| {
+        let found = cases(blocks).ok()?;
         let run = run(&found, dual);
         (run.wrong == 0
             && found.width == single.width * copies
@@ -556,37 +549,13 @@ pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
             && found.inverted == single.inverted)
             .then_some(run.cases)
     };
-    let found = (1..=reach)
-        .map(|west| Step {
-            west,
-            up: 0,
-            north: 0,
-        })
-        .find(|&step| works(step, 2).is_some());
-    let Some(step) = found else {
-        return Some(Stacking::Not {
-            step: None,
-            reason: "No step west, up to two past its width, makes copies \
-                     that each give its pulse alone."
-                .to_owned(),
-        });
-    };
-    let mut most = None;
-    let mut copies = 2;
-    let mut cases = works(step, copies).unwrap_or_default();
-    while copies < MOST_COPIES {
-        let Some(more) = works(step, copies + 1) else {
-            most = Some(copies);
-            break;
-        };
-        copies += 1;
-        cases = more;
-    }
-    Some(Stacking::Wider {
-        step,
-        copies,
-        bits: single.width * copies,
-        cases,
-        most,
-    })
+    Some(stacking::west_into_bits(
+        data,
+        reach,
+        single.width,
+        buses,
+        works,
+        "No step west, up to two past its width, makes copies that each \
+         give its pulse alone.",
+    ))
 }

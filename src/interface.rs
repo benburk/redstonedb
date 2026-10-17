@@ -68,8 +68,9 @@ pub struct Bit {
 /// carry out; a register's data bus in and out are its data in and data
 /// out, and each of its magenta lines a write, driven by a button, or a
 /// read, by a lever, and a buffer's the same but every magenta line a
-/// write; and a comparison's one output is its result, such as `A > B`. A
-/// sign's name always stands.
+/// write; a comparison's one output is its result, such as `A > B`; and an
+/// inverter's lone control line is its invert. A sign's name always
+/// stands.
 pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
     let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
         let mut lines =
@@ -100,6 +101,9 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
                     name.clone_into(&mut out.name);
                 }
                 return;
+            }
+            Lines::Control(name) => {
+                return lone(&mut interface.inputs, lint::CONTROL, name);
             }
             Lines::Signed => return,
         };

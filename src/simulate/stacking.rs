@@ -402,6 +402,62 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
     cases
 }
 
+/// The most copies stacked into more bits; a build whose copies work with
+/// this many is taken to stack any number of times.
+const MOST_COPIES: usize = 16;
+
+/// Whether copies of the build in `data`, whose own cases came out right,
+/// stack west into more bits, each copy one more bit as `buses` stacks
+/// them: the shortest step west, up to `reach` blocks, at which two copies
+/// work, then the most copies that do, up to `MOST_COPIES`. `works` tests
+/// a stack of so many copies, giving the cases it ran when every one came
+/// out right; `not` says why none stacks.
+pub(super) fn west_into_bits(
+    data: &[u8],
+    reach: i64,
+    bits: usize,
+    buses: stack::Buses,
+    works: impl Fn(&Blocks, usize) -> Option<u64>,
+    not: &str,
+) -> Stacking {
+    let tried = |step: Step, copies: usize| {
+        let (stacked, _) =
+            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
+        works(&Blocks::read(&stacked).ok()?, copies)
+    };
+    let found = (1..=reach)
+        .map(|west| Step {
+            west,
+            up: 0,
+            north: 0,
+        })
+        .find(|&step| tried(step, 2).is_some());
+    let Some(step) = found else {
+        return Stacking::Not {
+            step: None,
+            reason: not.to_owned(),
+        };
+    };
+    let mut most = None;
+    let mut copies = 2;
+    let mut cases = tried(step, copies).unwrap_or_default();
+    while copies < MOST_COPIES {
+        let Some(more) = tried(step, copies + 1) else {
+            most = Some(copies);
+            break;
+        };
+        copies += 1;
+        cases = more;
+    }
+    Stacking::Wider {
+        step,
+        copies,
+        bits: bits * copies,
+        cases,
+        most,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -186,7 +186,7 @@ fn absolute(a: u64, width: usize) -> u64 {
 /// The values of A a one-input build too wide to try every one of is
 /// checked on: every value of each byte, the other bits clear, and the test
 /// patterns, with how many are patterns.
-fn byte_cases(width: usize) -> (Vec<Case>, u64) {
+pub(super) fn byte_cases(width: usize) -> (Vec<Case>, u64) {
     let mut cases = Distinct::default();
     for low in (0..width).step_by(8) {
         for v in 0..1u64 << (width - low).min(8) {
