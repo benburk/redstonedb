@@ -308,14 +308,18 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
     }
 }
 
-/// The build date, the browser's own date picker; left empty when it is
-/// not known.
+/// The build date, typed as `yyyy-mm-dd`, which the server checks is a
+/// real day not still to come; left empty when it is not known. A text box
+/// rather than the browser's date picker, which shows the date in the
+/// reader's own regional order instead.
 fn date_field(built_on: &str) -> Markup {
     html! {
         label class="field" {
-            span { "Built on " span class="font-normal" { "(empty if unknown)" } }
-            input type="date" name="built_on" value=(built_on)
-                max=(crate::details::latest_build_date()) class="input w-auto tabular-nums";
+            span { "Built on " span class="font-normal" { "(yyyy-mm-dd, empty if unknown)" } }
+            input type="text" name="built_on" value=(built_on)
+                placeholder="yyyy-mm-dd" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                maxlength="10" autocomplete="off"
+                class="input w-36 tabular-nums";
         }
     }
 }
