@@ -72,7 +72,13 @@ pub struct Tile<'a> {
     pub label: String,
     pub count: usize,
     pub best: &'a Schematic,
+    /// Its sidebar section; `None` for Other.
+    pub section: Option<Section>,
 }
+
+/// How many categories with builds a section needs for a heading of its
+/// own on the home page; a smaller one's go under Other.
+const SECTION_SIZE: usize = 2;
 
 /// The home page before anything is searched for.
 pub struct Index<'a> {
@@ -297,8 +303,10 @@ pub fn home_index(index: &Index) -> Markup {
                     h2 id="index-heading" class="mr-auto text-section font-semibold" { "Categories" }
                     a href="/builds" { "All " (index.total) " builds" }
                 }
-                ul class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4" {
-                    @for tile in index.tiles {
+                @for (heading, id, tiles) in tile_groups(index.tiles) {
+                    h3 id={ "tiles-" (id) } class="mt-6 mb-2 text-nav font-semibold text-muted" { (heading) }
+                    ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4" {
+                    @for tile in tiles {
                         @let href = Home {
                             view: View::Cards,
                             sort: "",
@@ -310,7 +318,7 @@ pub fn home_index(index: &Index) -> Markup {
                             img src=(thumbnail_src(tile.best)) alt="" loading="lazy" width="640" height="480"
                                 class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                             div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
-                                h3 class="flex items-baseline justify-between gap-2 font-semibold" {
+                                h4 class="flex items-baseline justify-between gap-2 font-semibold" {
                                     a href=(href) class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (tile.label) }
                                     span class="text-meta font-normal text-muted tabular-nums" {
                                         (tile.count) span class="sr-only" { " builds" }
@@ -318,6 +326,7 @@ pub fn home_index(index: &Index) -> Markup {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -596,6 +605,38 @@ fn thumbnail_src(s: &Schematic) -> String {
         s.id,
         &s.sha256[..12.min(s.sha256.len())]
     )
+}
+
+/// The tiles under their sections' headings, each with its heading and
+/// the id it goes by, in the sidebar's order, then under Other the tiles of
+/// every section too small for a heading and those off the list, keeping
+/// the order of `tiles`.
+fn tile_groups<'t>(
+    tiles: &'t [Tile<'t>],
+) -> Vec<(&'static str, &'static str, Vec<&'t Tile<'t>>)> {
+    let in_section = |section: Section| -> Vec<&Tile> {
+        tiles
+            .iter()
+            .filter(|t| t.section == Some(section))
+            .collect()
+    };
+    let headed: Vec<Section> = Section::ALL
+        .iter()
+        .copied()
+        .filter(|&section| in_section(section).len() >= SECTION_SIZE)
+        .collect();
+    let mut groups: Vec<_> = headed
+        .iter()
+        .map(|&section| (section.label(), section.name(), in_section(section)))
+        .collect();
+    let rest: Vec<&Tile> = tiles
+        .iter()
+        .filter(|t| t.section.is_none_or(|section| !headed.contains(&section)))
+        .collect();
+    if !rest.is_empty() {
+        groups.push(("Other", "other", rest));
+    }
+    groups
 }
 
 /// Build `s` as a card, with `note` under its tags.

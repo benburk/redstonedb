@@ -161,6 +161,7 @@ fn tiles<'a>(
                 label: category.plural.clone(),
                 count: builds.len(),
                 best: leader.unwrap_or(newest),
+                section: category.section,
             })
         })
         .collect();
@@ -173,6 +174,7 @@ fn tiles<'a>(
             label: "Other".to_owned(),
             count: other.len(),
             best: newest,
+            section: None,
         });
     }
     tiles
