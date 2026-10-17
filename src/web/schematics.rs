@@ -27,7 +27,7 @@ use crate::{
     import::Analysis,
     leaderboard,
     models::{
-        catalogue::{self, Category, Measure},
+        catalogue::{self, Category},
         schematic::{self, Schematic},
         similarity, simulation, tag,
         user::User,
@@ -156,18 +156,11 @@ fn tiles<'a>(
             );
             let leader =
                 leaderboard::fastest(&board.builds).first().map(|&(_, s)| s);
-            let width = board
-                .splits
-                .iter()
-                .find(|split| split.measure == Measure::Width)
-                .and_then(|split| split.chosen);
             Some(pages::Tile {
                 category: category.name.clone(),
                 label: category.plural.clone(),
                 count: builds.len(),
                 best: leader.unwrap_or(newest),
-                fastest: leader.and_then(|s| s.latency),
-                width,
             })
         })
         .collect();
@@ -180,8 +173,6 @@ fn tiles<'a>(
             label: "Other".to_owned(),
             count: other.len(),
             best: newest,
-            fastest: None,
-            width: None,
         });
     }
     tiles

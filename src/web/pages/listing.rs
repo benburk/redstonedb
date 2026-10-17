@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use super::{
     PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base, latency,
-    name_links, size, ticks, volume,
+    name_links, size, volume,
 };
 use crate::{
     APP_NAME,
@@ -72,10 +72,6 @@ pub struct Tile<'a> {
     pub label: String,
     pub count: usize,
     pub best: &'a Schematic,
-    /// The latency of `best`, the quickest; `None` when none is timed.
-    pub fastest: Option<i64>,
-    /// The width its leaderboard opens at, which `best` is quickest of.
-    pub width: Option<i64>,
 }
 
 /// The home page before anything is searched for.
@@ -139,6 +135,12 @@ impl<'a> Listing<'a> {
     /// `/?category=adder&q=8b`.
     pub fn href(&self) -> String {
         self.home().href()
+    }
+
+    /// Whether words or tags are searched for, rather than a category
+    /// browsed.
+    fn searching(&self) -> bool {
+        !self.query.is_empty() || !self.tags.is_empty()
     }
 
     fn home(&self) -> Home<'a> {
@@ -250,7 +252,8 @@ fn search_help() -> Markup {
 
 /// The part of the home page a search redraws: the category sidebar, each
 /// category with its count of matches, beside the title, the terms
-/// searched for, and the builds found.
+/// searched for, and the builds found. A search shows only what it finds,
+/// with no sidebar.
 pub fn home_results(listing: &Listing) -> Markup {
     let here = listing.home();
     let title = listing
@@ -258,6 +261,11 @@ pub fn home_results(listing: &Listing) -> Markup {
         .iter()
         .find(|facet| facet.name == listing.category)
         .map_or("Builds", |facet| facet.label.as_str());
+    if listing.searching() {
+        return html! {
+            div id="listing" { (listing_body(listing, here, title)) }
+        };
+    }
     html! {
         div id="listing" class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
             // A phone has no room beside the builds, so it goes back to
@@ -306,13 +314,6 @@ pub fn home_index(index: &Index) -> Markup {
                                     a href=(href) class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (tile.label) }
                                     span class="text-meta font-normal text-muted tabular-nums" {
                                         (tile.count) span class="sr-only" { " builds" }
-                                    }
-                                }
-                                @if let Some(fastest) = tile.fastest {
-                                    p class="text-meta text-muted tabular-nums" {
-                                        "Fastest"
-                                        @if let Some(width) = tile.width { " " (width) "-bit" }
-                                        ": " (ticks(fastest))
                                     }
                                 }
                             }
@@ -460,8 +461,18 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
     } = *listing;
     html! {
             (listing_header(listing, here, title))
-            @if !terms.is_empty() || !here.tags.is_empty() {
+            @if listing.searching() {
                 div class="mb-6 flex flex-wrap items-center gap-1.5" {
+                    // With no sidebar, the category searched in is one of
+                    // the things to remove.
+                    @if !here.category.is_empty() {
+                        a href=(Home { category: "", ..here }.href())
+                            aria-label={ "Search every category, not only " (title) }
+                            class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
+                            "in " (title)
+                            span aria-hidden="true" { "×" }
+                        }
+                    }
                     @if !terms.is_empty() {
                         ul class="contents" aria-label="Search terms" {
                             @for (i, term) in terms.iter().enumerate() {
