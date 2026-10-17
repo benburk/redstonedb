@@ -4,11 +4,13 @@
 
 use maud::{Markup, html};
 
-use crate::models::schematic::StackDirection;
-
-use crate::simulate::{
-    Edge, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Start,
-    Takes, Timing,
+use crate::{
+    models::schematic::StackDirection,
+    schem::Pos,
+    simulate::{
+        Action, Edge, Glitch, InputTiming, OutputTiming, Report, Run, Stacking,
+        Start, Takes, Timing,
+    },
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};
@@ -507,6 +509,9 @@ fn simulation_failures(run: &Run) -> Markup {
         @if let Some(hint) = &run.hint {
             p class="mt-4" { strong { "Likely cause: " } (hint) }
         }
+        @if !run.faults.is_empty() {
+            (cell_faults(run))
+        }
         h3 class="mt-6 mb-2 font-semibold" { "Wrong bits" }
         ul class="flex flex-col gap-1" {
             @for (bit, count) in &run.wrong_bits {
@@ -548,6 +553,88 @@ fn simulation_failures(run: &Run) -> Markup {
                                             (value_bits(got, expected, signal.bits))
                                             span class="text-meta text-muted" { "expected" }
                                             span class="text-muted" { (value_bits(expected, expected, signal.bits)) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A failing register's cells, by the blocks their controls are on, and
+/// the steps that show each fault, from the build as saved, each read's
+/// wrong bits marked.
+fn cell_faults(run: &Run) -> Markup {
+    let width = run.inputs.first().map_or(1, |signal| signal.bits);
+    let at = |[x, y, z]: Pos| format!("({x}, {y}, {z})");
+    let buses = run.outputs.len() > 1;
+    html! {
+        h3 class="mt-6 mb-2 font-semibold" { "Cells" }
+        div class="overflow-x-auto" {
+            table class="w-full border-collapse" {
+                caption class="sr-only" { "Cells" }
+                thead {
+                    tr {
+                        th scope="col" class=(TABLE_HEAD) { "Cell" }
+                        th scope="col" class=(TABLE_HEAD) { "Write" }
+                        th scope="col" class=(TABLE_HEAD) { "Read" }
+                    }
+                }
+                tbody {
+                    @for (i, cell) in run.cells.iter().enumerate() {
+                        tr {
+                            th scope="row" class={ (TABLE_CELL) " text-left font-normal tabular-nums" } { (i + 1) }
+                            td class={ (TABLE_CELL) " tabular-nums" } { (at(cell.write)) }
+                            td class={ (TABLE_CELL) " tabular-nums" } { (cell.read.map(at).unwrap_or_default()) }
+                        }
+                    }
+                }
+            }
+        }
+        h3 class="mt-6 mb-2 font-semibold" { "Faults" }
+        div class="overflow-x-auto" {
+            table class="w-full border-collapse" {
+                caption class="sr-only" { "Faults" }
+                thead {
+                    tr {
+                        th scope="col" class=(TABLE_HEAD) { "Fault" }
+                        th scope="col" class=(TABLE_HEAD) { "Step" }
+                        th scope="col" class=(TABLE_HEAD) { "Cell" }
+                        th scope="col" class=(TABLE_HEAD) { "Value" }
+                        th scope="col" class=(TABLE_HEAD) { "Expected" }
+                    }
+                }
+                tbody {
+                    @for (n, steps) in run.faults.iter().enumerate() {
+                        @for (s, step) in steps.iter().enumerate() {
+                            tr {
+                                @if s == 0 {
+                                    th scope="rowgroup" rowspan=(steps.len()) class={ (TABLE_CELL) " text-left align-top font-normal tabular-nums" } { (n + 1) }
+                                }
+                                @match step {
+                                    Action::Write { cell, value } => {
+                                        td class=(TABLE_CELL) { "write" }
+                                        td class={ (TABLE_CELL) " tabular-nums" } { (cell + 1) }
+                                        td class=(TABLE_CELL) { (value_bits(*value, *value, width)) }
+                                        td class=(TABLE_CELL) {}
+                                    }
+                                    Action::Read { cell, bus, expected, got } => {
+                                        td class=(TABLE_CELL) {
+                                            "read"
+                                            @if buses {
+                                                " " (run.outputs[*bus].name)
+                                            }
+                                        }
+                                        td class={ (TABLE_CELL) " tabular-nums" } { (cell + 1) }
+                                        td class=(TABLE_CELL) { (value_bits(*got, *expected, width)) }
+                                        td class=(TABLE_CELL) {
+                                            @if got != expected {
+                                                span class="text-muted" { (value_bits(*expected, *expected, width)) }
+                                            }
                                         }
                                     }
                                 }

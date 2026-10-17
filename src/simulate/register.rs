@@ -34,7 +34,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Run, Signal, Wrong,
+    Action, Broken, CellControls, Run, Signal, Wrong,
     bench::{mask, patterns},
     circuit::{Circuit, MAX_TICKS, output_bits},
     stacking::{Stacking, Step},
@@ -235,7 +235,138 @@ fn check_on(blocks: &Blocks, kind: Kind, quick: bool) -> Result<(Run, Shape)> {
                 .to_owned(),
         );
     }
+    if !quick && run.wrong > 0 {
+        // The faults explain the cases; a fault search that fails, as on a
+        // build that never settles, leaves the cases to speak for it.
+        if let Ok((cells, faults)) = faults(blocks, &interface, kind) {
+            run.cells = cells;
+            run.faults = faults;
+        }
+    }
     Ok((run, shape))
+}
+
+/// The cells' controls, and each fault the cells show from the build as
+/// saved, as the writes and reads that show it: a cell that reads wrong
+/// after a write into it alone, and a cell that reads differently after
+/// another is written. The value written into another cell is narrowed to
+/// a single bit set, or else clear, so the steps point at the bit that
+/// disturbs it.
+fn faults(
+    blocks: &Blocks,
+    interface: &Interface,
+    kind: Kind,
+) -> Result<(Vec<CellControls>, Vec<Vec<Action>>)> {
+    let (mut circuit, register) = ports(blocks, interface, kind)?;
+    let width = register.width;
+    let all = mask(width);
+    let controls = register
+        .cells
+        .iter()
+        .map(|cell| CellControls {
+            write: cell.write.pos,
+            read: cell
+                .reads
+                .first()
+                .and_then(|read| read.line)
+                .map(|line| line.pos),
+        })
+        .collect();
+    let mut faults = Vec::new();
+    for cell in 0..register.cells.len() {
+        for value in telling(width) {
+            let steps = vec![
+                write_step(&mut circuit, &register, cell, value)?,
+                read_step(&mut circuit, &register, cell, value)?,
+            ];
+            if !steps.iter().all(Action::right) {
+                faults.push(steps);
+                break;
+            }
+        }
+    }
+    // Single bits set, then single bits clear, so the first write found
+    // to disturb a cell is the smallest.
+    let single: Vec<u64> = (0..width)
+        .map(|bit| 1 << bit)
+        .chain((0..width).map(|bit| all ^ 1 << bit))
+        .collect();
+    for cell in 0..register.cells.len() {
+        for other in (0..register.cells.len()).filter(|&other| other != cell) {
+            // The telling values find a disturbance quickly; only then do
+            // single bits find the smallest write that causes it.
+            let pair = (cell, other);
+            if disturbed(&mut circuit, &register, pair, &telling(width))?
+                .is_none()
+            {
+                continue;
+            }
+            if let Some(steps) =
+                disturbed(&mut circuit, &register, pair, &single)?
+            {
+                faults.push(steps);
+            }
+        }
+    }
+    Ok((controls, faults))
+}
+
+/// The first of `others` that, written into the cell `pair.1` after the
+/// cell `pair.0` is written all ones or none, changes what `pair.0` reads,
+/// as its steps.
+fn disturbed(
+    circuit: &mut Circuit,
+    register: &Register,
+    (cell, other): (usize, usize),
+    others: &[u64],
+) -> Result<Option<Vec<Action>>> {
+    for held in [mask(register.width), 0] {
+        for &value in others {
+            let steps = vec![
+                write_step(circuit, register, cell, held)?,
+                read_step(circuit, register, cell, held)?,
+                write_step(circuit, register, other, value)?,
+                read_step(circuit, register, cell, held)?,
+            ];
+            if steps[1].got() != steps[3].got() {
+                return Ok(Some(steps));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Writes `value` into the cell `cell`, leaving data in on it.
+fn write_step(
+    circuit: &mut Circuit,
+    register: &Register,
+    cell: usize,
+    value: u64,
+) -> Result<Action> {
+    write(circuit, register, register.cells[cell].write, value)?;
+    Ok(Action::Write { cell, value })
+}
+
+/// Reads the cell `cell`, which was written `held`, through its first
+/// read, then turns every read off.
+fn read_step(
+    circuit: &mut Circuit,
+    register: &Register,
+    cell: usize,
+    held: u64,
+) -> Result<Action> {
+    let Some(&first) = register.cells[cell].reads.first() else {
+        bail!("cell {} has no read", cell + 1);
+    };
+    read(circuit, register, first.line.as_slice())?;
+    let got = buses(circuit, register)[first.bus];
+    read(circuit, register, &[])?;
+    Ok(Action::Read {
+        cell,
+        bus: first.bus,
+        expected: first.shows(held, register.width),
+        got,
+    })
 }
 
 /// What the buses show with every read off, the cells holding `stored`:
@@ -733,6 +864,8 @@ impl Tally {
                 .collect(),
             examples: self.examples,
             hint: None,
+            cells: Vec::new(),
+            faults: Vec::new(),
             timing: None,
             stacking: None,
         }

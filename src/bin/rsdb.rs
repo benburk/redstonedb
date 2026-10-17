@@ -21,7 +21,7 @@ use app::{
         version::{self, Replacing},
     },
     mojang, search,
-    simulate::{Report, Signal, Stacking, Timing},
+    simulate::{Action, Report, Signal, Stacking, Timing},
     stack,
     standardize::{self, Gray},
 };
@@ -1096,6 +1096,45 @@ fn print_report(name: &str, report: &Report) {
             );
             if let Some(hint) = &run.hint {
                 println!("        {hint}");
+            }
+            for (i, cell) in run.cells.iter().enumerate() {
+                let at = |[x, y, z]: [i32; 3]| format!("({x}, {y}, {z})");
+                let read = cell.read.map(|pos| format!(", read {}", at(pos)));
+                println!(
+                    "        cell {}: write {}{}",
+                    i + 1,
+                    at(cell.write),
+                    read.unwrap_or_default()
+                );
+            }
+            let width = run.inputs.first().map_or(1, |signal| signal.bits);
+            for steps in &run.faults {
+                let steps: Vec<String> = steps
+                    .iter()
+                    .map(|step| match step {
+                        Action::Write { cell, value } => {
+                            format!("w{} {value:0width$b}", cell + 1)
+                        }
+                        Action::Read {
+                            cell,
+                            expected,
+                            got,
+                            ..
+                        } if got == expected => {
+                            format!("r{} {got:0width$b}", cell + 1)
+                        }
+                        Action::Read {
+                            cell,
+                            expected,
+                            got,
+                            ..
+                        } => format!(
+                            "r{} got {got:0width$b} expected {expected:0width$b}",
+                            cell + 1
+                        ),
+                    })
+                    .collect();
+                println!("        fault: {}", steps.join("; "));
             }
             let bits: Vec<String> = run
                 .wrong_bits

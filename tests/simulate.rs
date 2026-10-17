@@ -7,7 +7,10 @@ use app::{
     models::schematic::{Encoding, Orientation},
     orient,
     schem::{self, Blocks, Direction},
-    simulate::{self, Edge, Report, Run, Stacking, Start, Takes, Test},
+    simulate::{
+        self, Action, CellControls, Edge, Report, Run, Stacking, Start, Takes,
+        Test,
+    },
     stack,
     standardize::{self, Gray},
 };
@@ -1344,4 +1347,50 @@ fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     };
     assert_eq!(step.describe(), "2 west");
     assert_eq!((copies, most), (8, Some(8)));
+}
+
+/// Two staggered cells of an 8-bit register, packed so close that the west
+/// cell's torches face into the east cell's dust: one keeps bits 1, 3, and
+/// 5 of the east cell from being written, and another, lit as the west
+/// cell writes a 1 into an odd bit, clears the even bit below it in the
+/// east cell. Each fault comes with the writes and reads that show it.
+#[test]
+fn a_register_whose_cells_disturb_each_other_shows_how() {
+    let (_, blocks) = register("register-8-2-cells-crosstalk");
+    let Report::Ran(run) = Test::Register.run(&blocks) else {
+        panic!("the register was not simulated");
+    };
+    assert!(run.wrong > 0);
+    assert_eq!(
+        run.cells,
+        [
+            CellControls {
+                write: [4, 2, 19],
+                read: Some([3, 1, 6]),
+            },
+            CellControls {
+                write: [1, 1, 19],
+                read: Some([0, 0, 6]),
+            },
+        ]
+    );
+    let write = |cell, value| Action::Write { cell, value };
+    let read = |cell, expected, got| Action::Read {
+        cell,
+        bus: 0,
+        expected,
+        got,
+    };
+    assert_eq!(
+        run.faults,
+        [
+            vec![write(0, 255), read(0, 255, 0b1101_0101)],
+            vec![
+                write(0, 255),
+                read(0, 255, 0b1101_0101),
+                write(1, 0b10),
+                read(0, 255, 0b1101_0100),
+            ],
+        ]
+    );
 }

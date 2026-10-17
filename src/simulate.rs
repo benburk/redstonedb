@@ -21,7 +21,7 @@ use crate::{
     category,
     interface::{self, Interface},
     lint,
-    schem::Blocks,
+    schem::{Blocks, Pos},
 };
 
 /// Why a build cannot be what its category says, such as an adder whose
@@ -404,6 +404,14 @@ pub struct Run {
     /// What would make every case right, when one change does, such as
     /// flipping carry in.
     pub hint: Option<String>,
+    /// For a failing register or buffer, its cells' controls, by the
+    /// number its faults give each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellControls>,
+    /// For a failing register or buffer, each fault its cells show, as the
+    /// writes and reads that show it from the build as saved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub faults: Vec<Vec<Action>>,
     /// When its outputs settle; measured after the cases, and only for a
     /// build that gets them all right.
     pub timing: Option<Timing>,
@@ -411,6 +419,49 @@ pub struct Run {
     /// wider one, as `Test::stacking` tries; `None` for a build of another
     /// test, or one too wide to try.
     pub stacking: Option<Stacking>,
+}
+
+/// A register's or buffer's cell, by the block each control is on: its
+/// write's, and its first read's, which a buffer's cell has none of.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CellControls {
+    pub write: Pos,
+    pub read: Option<Pos>,
+}
+
+/// One step of a register's fault, on a cell by its place in `Run::cells`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "op", rename_all = "lowercase")]
+pub enum Action {
+    /// Data in set to `value`, then the cell's write pressed, or its lever
+    /// flicked on and off; data in stays on `value`.
+    Write { cell: usize, value: u64 },
+    /// The cell's first read turned on and its bus, by its place in
+    /// `Run::outputs`, read, then the read turned off.
+    Read {
+        cell: usize,
+        bus: usize,
+        expected: u64,
+        got: u64,
+    },
+}
+
+impl Action {
+    /// Whether it read what it should; a write always does.
+    pub fn right(&self) -> bool {
+        match self {
+            Action::Write { .. } => true,
+            Action::Read { expected, got, .. } => expected == got,
+        }
+    }
+
+    /// What a read showed; a write shows nothing.
+    pub fn got(&self) -> Option<u64> {
+        match self {
+            Action::Write { .. } => None,
+            Action::Read { got, .. } => Some(*got),
+        }
+    }
 }
 
 /// A port a test sets or reads, by the build's name for it.

@@ -562,6 +562,8 @@ fn judge(
         wrong_bits,
         examples,
         hint: None,
+        cells: Vec::new(),
+        faults: Vec::new(),
         timing: None,
         stacking: None,
         by_digit: false,
