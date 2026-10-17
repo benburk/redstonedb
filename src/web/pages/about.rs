@@ -1,7 +1,10 @@
 //! The About page, and its guide to how builds are sorted: categories,
 //! designs, measures, facts, flags, tags, search, size, and similar builds.
 
-use maud::{Markup, html};
+use std::sync::LazyLock;
+
+use maud::{Markup, PreEscaped, html};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use crate::{
     category::Stacking,
@@ -30,6 +33,11 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     " explains categories, designs, measures, tags, and what search and the leaderboards go by."
                 }
                 p class="mb-4" {
+                    a href="/about/conventions" { "Building conventions" }
+                    " sets out how a build is laid out: its block palette, inputs and outputs, signs, "
+                    "bit order, stacking, and bounding box."
+                }
+                p class="mb-4" {
                     a href="/about/simulation" { "What the site checks" }
                     " lists the categories it simulates, recognizes in an upload, reads from the file, and "
                     "works out the stacking of."
@@ -37,6 +45,56 @@ pub fn about(viewer: Option<&User>) -> Markup {
             }
         },
     )
+}
+
+/// The building conventions, from `conventions.md` as the site was built.
+static CONVENTIONS: LazyLock<String> =
+    LazyLock::new(|| markdown(include_str!("../../../conventions.md")));
+
+/// The building conventions every build follows.
+pub fn conventions(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Building conventions",
+        "/about",
+        &html! {
+            div class="doc max-w-prose" { (PreEscaped(CONVENTIONS.as_str())) }
+        },
+    )
+}
+
+/// `text`, in Markdown, as HTML. A link to another of the repository's
+/// Markdown files, which the site does not serve, keeps only its words.
+fn markdown(text: &str) -> String {
+    let mut in_file_link = false;
+    let events = Parser::new_ext(text, Options::ENABLE_TABLES).filter(
+        |event| match event {
+            Event::Start(Tag::Link { dest_url, .. })
+                if markdown_file(dest_url) =>
+            {
+                in_file_link = true;
+                false
+            }
+            Event::End(TagEnd::Link) if in_file_link => {
+                in_file_link = false;
+                false
+            }
+            _ => true,
+        },
+    );
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, events);
+    html
+}
+
+/// Whether `url` leads to a Markdown file beside this one, such as
+/// `features.md#lint-checks`, rather than to a page.
+fn markdown_file(url: &str) -> bool {
+    let path = url.split('#').next().unwrap_or_default();
+    !url.contains(':')
+        && std::path::Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
 /// How builds are sorted, with the standard categories under their

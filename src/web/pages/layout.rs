@@ -52,6 +52,7 @@ pub fn base(
                 main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
                     (content)
                 }
+                (footer(viewer))
                 // The one place a script says what happened, outside every
                 // swap, so it is announced and stays put.
                 p id="notice" role="status"
@@ -101,6 +102,25 @@ fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                             button type="submit" class={ (link) " cursor-pointer" } { "Log out" }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// The pages most visits don't need, at the foot of every page.
+fn footer(viewer: Option<&User>) -> Markup {
+    html! {
+        footer class="mt-12 border-t border-line" {
+            nav aria-label="More"
+                class="mx-auto flex max-w-wide flex-wrap gap-x-5 gap-y-2 px-4 py-6 text-meta desktop:px-5 *:text-muted *:hover:text-ink" {
+                a href="/about" { "About" }
+                a href="/about/categories" { "How builds are sorted" }
+                a href="/about/simulation" { "What the site checks" }
+                a href="/about/conventions" { "Building conventions" }
+                a href="/builds" { "All builds" }
+                @if viewer.is_some_and(User::is_admin) {
+                    a href="/users" { "Users" }
                 }
             }
         }

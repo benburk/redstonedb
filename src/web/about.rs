@@ -21,6 +21,11 @@ pub async fn about(user_opt: Option<User>) -> impl IntoResponse {
     pages::about(user_opt.as_ref())
 }
 
+/// The building conventions every build follows.
+pub async fn conventions(user_opt: Option<User>) -> impl IntoResponse {
+    pages::conventions(user_opt.as_ref())
+}
+
 /// How builds are sorted: categories, designs, measures, and the rest,
 /// with the standard categories as they stand.
 pub async fn categories(
