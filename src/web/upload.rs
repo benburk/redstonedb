@@ -271,7 +271,7 @@ pub async fn publish(
         Ok(posted) => posted,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let mut form = Form::read(&posted.pairs);
+    let form = Form::read(&posted.pairs);
     // The preview carries the prepared file, and how it was prepared.
     let Ok(data) = STANDARD.decode(posted.get("data")) else {
         return upload_page(
@@ -306,7 +306,7 @@ pub async fn publish(
             }
         };
     if posted.choosing() {
-        return chosen_instead(&state, &user, &mut posted, prepared, &mut form)
+        return chosen_instead(&state, &user, &mut posted, prepared, form)
             .await;
     }
     if swapping {
@@ -332,14 +332,16 @@ pub async fn publish(
 }
 
 /// The preview of the file newly chosen on the preview page, in place of
-/// `current`, with the details as sent in `form`; or `current` again, with
-/// why the new one could not be read.
+/// `current`, with its details worked out afresh, as a first upload's are,
+/// so its category is guessed from the new file rather than kept, but
+/// with the credits sent in `form`; or `current` again, with the details
+/// as sent and why the new one could not be read.
 async fn chosen_instead(
     state: &AppState,
     user: &User,
     posted: &mut Posted,
     current: Prepared,
-    form: &mut Form,
+    form: Form,
 ) -> Result<Response, AppError> {
     let chosen = match posted.fetch_own(&state.db, user).await {
         Ok(()) => posted.chosen().await,
@@ -362,21 +364,21 @@ async fn chosen_instead(
                 choosing: Some(&message),
                 ..Said::default()
             };
-            return show_preview(state, user, &current, form, said).await;
+            return show_preview(state, user, &current, &form, said).await;
         }
     };
-    // What it seems to be starts the category, if none is chosen yet.
     let guess = guessed(&prepared.data).await;
-    if form.category.trim().is_empty()
-        && let Some(guess) = &guess
-    {
-        guess.category.clone_into(&mut form.category);
-    }
+    let suggested = Form::suggested(
+        guess.as_ref(),
+        &interface::read(&prepared.blocks),
+        &prepared.size,
+    );
+    let form = form.keeping_credits(suggested);
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
     };
-    show_preview(state, user, &prepared, form, said).await
+    show_preview(state, user, &prepared, &form, said).await
 }
 
 /// What a file seems to be, from a quick run of the tests it fits.

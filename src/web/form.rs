@@ -301,6 +301,23 @@ impl Form {
         }
     }
 
+    /// The details for a newly chosen file: `suggested`, what the new file
+    /// suggests, from its category on, as a first upload's are, with what
+    /// this form says of who made the build and when, which a new file
+    /// does not change: its builders, contributors, build date,
+    /// description, own name, and tags.
+    pub fn keeping_credits(self, suggested: Form) -> Form {
+        Form {
+            built_on: self.built_on,
+            description: self.description,
+            given_name: self.given_name,
+            builders: self.builders,
+            contributors: self.contributors,
+            tags: self.tags,
+            ..suggested
+        }
+    }
+
     /// Whether `flag` shows ticked, in every group that has it.
     pub fn ticks(&self, flag: &str) -> bool {
         self.flags.iter().any(|(_, ticked)| ticked == flag)
@@ -501,6 +518,35 @@ mod tests {
                 .collect(),
             ..Form::default()
         }
+    }
+
+    /// A new file's details are worked out afresh, its category guessed
+    /// from it rather than kept, but who made it stays.
+    #[test]
+    fn a_new_file_keeps_its_credits_but_not_its_category() {
+        let sent = Form {
+            category: "adder".to_owned(),
+            width: "8".to_owned(),
+            design: "carry_lookahead".to_owned(),
+            latency: "6".to_owned(),
+            builders: vec!["Sam".to_owned()],
+            description: "Fast.".to_owned(),
+            tags: vec!["pistonless".to_owned()],
+            ..Form::default()
+        };
+        let suggested = Form {
+            category: "monostable".to_owned(),
+            width: "1".to_owned(),
+            design: "other".to_owned(),
+            ..Form::default()
+        };
+        let form = sent.keeping_credits(suggested);
+        assert_eq!(form.category, "monostable");
+        assert_eq!((form.width.as_str(), form.design.as_str()), ("1", "other"));
+        assert!(form.latency.is_empty());
+        assert_eq!(form.builders, ["Sam"]);
+        assert_eq!(form.description, "Fast.");
+        assert_eq!(form.tags, ["pistonless"]);
     }
 
     #[test]
