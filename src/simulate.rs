@@ -148,6 +148,14 @@ impl Test {
         category::behaviour(category).test
     }
 
+    /// Whether `guess` may take a build for one of this test's category,
+    /// a decrementer or inc/dec by the incrementer's run; an ALU only when
+    /// its control lines' signs name operations.
+    pub fn guessed(self) -> bool {
+        matches!(self, Test::Decrementer | Test::IncDec)
+            || GUESSED.contains(&self)
+    }
+
     /// The name stored with its result, which is its category's.
     pub fn name(self) -> &'static str {
         match self {
@@ -411,6 +419,26 @@ pub struct Wrong {
     pub got: Vec<u64>,
 }
 
+/// The tests `guess` tries. One run tries every kind of incrementer, and
+/// the kind it gets most right names its category.
+const GUESSED: [Test; 15] = [
+    Test::Adder,
+    Test::Subtractor,
+    Test::Incrementer,
+    Test::Multiplier,
+    Test::BinaryToBcd,
+    Test::BcdToBinary,
+    Test::Register,
+    Test::Buffer,
+    Test::AbsoluteValue,
+    Test::CarryOut,
+    Test::GreaterThan,
+    Test::Equality,
+    Test::Monostable,
+    Test::DualEdgeMonostable,
+    Test::Alu,
+];
+
 /// What a build seems to be, from a few telling values run through each
 /// test its inputs and outputs fit.
 #[derive(Debug, Clone)]
@@ -428,25 +456,6 @@ pub struct Guess {
 /// three in four do. Quick enough to run before anyone says what it is,
 /// even for a hex build, which runs slower.
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
-    // One run tries every kind of incrementer, and the kind it gets most
-    // right names its category.
-    let tried = [
-        Test::Adder,
-        Test::Subtractor,
-        Test::Incrementer,
-        Test::Multiplier,
-        Test::BinaryToBcd,
-        Test::BcdToBinary,
-        Test::Register,
-        Test::Buffer,
-        Test::AbsoluteValue,
-        Test::CarryOut,
-        Test::GreaterThan,
-        Test::Equality,
-        Test::Monostable,
-        Test::DualEdgeMonostable,
-        Test::Alu,
-    ];
     // An ALU's lines are tried only when their signs name operations, as
     // any build with a control line might otherwise pass for one.
     let names_ops = interface::read(blocks)
@@ -455,7 +464,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         .filter(|port| port.block.starts_with(lint::CONTROL))
         .flat_map(|port| port.words.iter())
         .any(|word| alu::op(word).is_some());
-    tried
+    GUESSED
         .into_iter()
         .filter(|&test| test != Test::Alu || names_ops)
         .filter_map(|test| {

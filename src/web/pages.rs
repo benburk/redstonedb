@@ -38,7 +38,7 @@ mod upload;
 mod users;
 mod version;
 
-pub use about::{about, sorting};
+pub use about::{Checked, about, simulation_guide, sorting};
 pub use build::{FileRead, build_banner, build_info, schematic_page};
 pub use details_page::{DetailsPage, File, details_page};
 pub use form::Choices;

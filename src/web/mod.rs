@@ -238,6 +238,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schemati/files/{name}/delete", post(schemati::delete))
         .route("/about", get(about))
         .route("/about/categories", get(about::categories))
+        .route("/about/simulation", get(about::simulation))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
         .route("/players/{name}/head.png", get(players::head))

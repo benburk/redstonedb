@@ -3,9 +3,14 @@
 
 use maud::{Markup, html};
 
-use crate::models::{catalogue::Category, user::User};
+use crate::{
+    category::Stacking,
+    models::{catalogue::Category, user::User},
+};
 
-use super::{PAGE_TITLE, SECTION_TITLE, base, sections};
+use super::{
+    PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, sections,
+};
 
 /// What the site is, linking to how builds are sorted.
 pub fn about(viewer: Option<&User>) -> Markup {
@@ -23,6 +28,11 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 p class="mb-4" {
                     a href="/about/categories" { "How builds are sorted" }
                     " explains categories, designs, measures, tags, and what search and the leaderboards go by."
+                }
+                p class="mb-4" {
+                    a href="/about/simulation" { "What the site checks" }
+                    " lists the categories it simulates, recognizes in an upload, reads from the file, and "
+                    "works out the stacking of."
                 }
             }
         },
@@ -160,9 +170,9 @@ fn fact_part() -> Markup {
             dd { "A stateless, synchronized build whose throughput is below its latency, so a new input goes in before the last result comes out. The site works this out; nobody types it." }
         }
         p class="mb-3" {
-            "Adders, incrementers, decrementers, inc/decs, stateless multipliers, stateless "
-            "converters between binary and BCD, ALUs, registers, buffers, absolute values, carry outs, comparisons, and monostables are simulated through their inputs. Once every case of one "
-            "comes out right, its latency and synchronized come from the simulation, not from what was typed."
+            "A build of a category the site simulates is run through its inputs. Once every case "
+            "comes out right, its latency and synchronized come from the simulation, not from what was "
+            "typed. " a href="/about/simulation" { "What the site checks" } " lists those categories."
         }
     }
 }
@@ -259,5 +269,166 @@ fn similar_part() -> Markup {
             "best. Filler blocks do not count. An upload that close to a stored build gets a warning, with a "
             "link to upload it as a new version of that build instead."
         }
+    }
+}
+
+/// A category the site simulates, and what it works out for itself about
+/// its builds.
+pub struct Checked {
+    pub name: String,
+    pub plural: String,
+    /// Whether an upload may be taken for one: `Yes`, `No`, or when.
+    pub recognized: &'static str,
+    /// What a conventional build's file says, over what was typed, such as
+    /// `width`.
+    pub read: Vec<String>,
+    /// The flags its file says, by label.
+    pub read_flags: Vec<String>,
+    /// What a build that passes takes from its simulation, such as
+    /// `latency`.
+    pub measured: Vec<String>,
+    /// The flags its simulation says, by label.
+    pub measured_flags: Vec<String>,
+    pub stacking: Stacking,
+}
+
+/// What the site works out for itself: a row for each category it
+/// simulates, then those it does not, and what the simulator cannot run.
+pub fn simulation_guide(
+    viewer: Option<&User>,
+    checked: &[Checked],
+    unchecked: &[String],
+) -> Markup {
+    base(
+        viewer,
+        "What the site checks",
+        "/about",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "What the site checks" }
+                p class="mb-4" {
+                    "The site runs builds of these categories in a redstone simulator, through every case "
+                    "of their inputs, or every case of each byte when there are too many. A build that gets "
+                    "every case right is marked as passing, and the facts below come from the simulation or "
+                    "its file rather than from what was typed, each with a check beside it on the build's page."
+                }
+            }
+            (checked_table(checked))
+            (simulation_notes(unchecked))
+        },
+    )
+}
+
+/// A row for each category the site simulates: whether an upload is
+/// taken for one, what is read from its file and its simulation, and how
+/// its stacking is decided.
+fn checked_table(checked: &[Checked]) -> Markup {
+    let stacking = |stacking: Stacking| match stacking {
+        Stacking::Inferred => "Found by the simulation",
+        Stacking::Found => "Searched for; the builder's when none is found",
+        Stacking::Given => "Given by the builder",
+    };
+    // Such as `Width, orientation, and encoding`, then the flags beneath.
+    let listed = |items: &[String], flags: &[String]| {
+        let mut words = match items {
+            [] => String::new(),
+            [one] => one.clone(),
+            [first, second] => format!("{first} and {second}"),
+            [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+        };
+        if let Some(first) = words.get(..1) {
+            words.replace_range(..1, &first.to_uppercase());
+        }
+        html! {
+            @if items.is_empty() && flags.is_empty() {
+                span class="text-muted" { "Nothing" }
+            }
+            (words)
+            @if !flags.is_empty() {
+                span class="block text-meta text-muted" { "Flags: " (flags.join(", ")) }
+            }
+        }
+    };
+    html! {
+    div class="overflow-x-auto" {
+        table class="w-full border-collapse" {
+            caption class="sr-only" { "What the site works out for each category it simulates" }
+            thead {
+                tr {
+                    th scope="col" class=(TABLE_HEAD) { "Category" }
+                    th scope="col" class=(TABLE_HEAD) { "Recognized in an upload" }
+                    th scope="col" class=(TABLE_HEAD) { "Read from the file" }
+                    th scope="col" class=(TABLE_HEAD) { "From the simulation" }
+                    th scope="col" class=(TABLE_HEAD) { "Stacking" }
+                }
+            }
+            tbody {
+                @for row in checked {
+                    tr {
+                        th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                            a href={ "/?category=" (row.name) } { (row.plural) }
+                        }
+                        td class=(TABLE_CELL) { (row.recognized) }
+                        td class=(TABLE_CELL) { (listed(&row.read, &row.read_flags)) }
+                        td class=(TABLE_CELL) { (listed(&row.measured, &row.measured_flags)) }
+                        td class=(TABLE_CELL) { (stacking(row.stacking)) }
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+/// What each column of the table means, the categories not simulated,
+/// and what the simulator cannot run.
+fn simulation_notes(unchecked: &[String]) -> Markup {
+    html! {
+    div class="max-w-prose leading-prose" {
+        (heading("columns", "What each column means"))
+        dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2" {
+            dt class="font-semibold" { "Recognized" }
+            dd {
+                "An upload is run quickly through every test its inputs and outputs fit, and the one "
+                "it gets most right, at least three cases in four, chooses its category to start with. "
+                "An ALU is tried only when its control lines' signs name operations, as any build with "
+                "a control line might otherwise pass for one."
+            }
+            dt class="font-semibold" { "Read from the file" }
+            dd {
+                "Width, orientation, and encoding come from input A of a build that follows the "
+                "building conventions; an adder's and a subtractor's carry or borrow flags from "
+                "whether it has the lone lines for them."
+            }
+            dt class="font-semibold" { "From the simulation" }
+            dd {
+                "Measured once every case comes out right: latency and synchronized for every "
+                "category, a monostable's pulse, and the flags the cases show, such as whether a "
+                "comparator is signed or which edge a monostable pulses on."
+            }
+            dt class="font-semibold" { "Stacking" }
+            dd {
+                "Found by the simulation: an adder's copies are stacked the way its bits are spaced, "
+                "or for a 1-bit adder at the shortest step that adds right, and it stacks any number "
+                "of times or not at all, whatever was typed. Searched for: "
+                "copies are stacked west at each step up to the build's width, or two past it for a "
+                "monostable, and the shortest that works is kept with the most copies that do, up to "
+                "16, in place of the builder's step west. Given: the builder says how it stacks, and "
+                "saving checks only that two copies fit."
+            }
+        }
+        (heading("not-simulated", "Not simulated yet"))
+        p class="mb-3" {
+            (unchecked.join(", ")) ", and any category off the list. Their facts are what was typed."
+        }
+        (heading("limits", "What the simulator cannot run"))
+        p class="mb-3" {
+            "The simulator models dust, torches, repeaters, comparators, levers, buttons, lamps, "
+            "and the barrels, furnaces, and hoppers a comparator reads. A build with anything else, "
+            "such as a piston or an observer, is not simulated rather than simulated wrongly, nor is "
+            "one wider than 32 bits. It runs a tick at a time, without the order in which the game "
+            "updates blocks, so a build that relies on that order may behave differently in game."
+        }
+    }
     }
 }

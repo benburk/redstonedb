@@ -276,6 +276,16 @@ pub async fn refresh(
 /// off.
 const INVERTED: &str = "inverted";
 
+/// The flags of `category` its simulation sets, by name.
+pub fn simulated_flags(category: &str) -> &'static [&'static str] {
+    match category {
+        "greater_than" => &[SIGNED],
+        "monostable" => &[INVERTED, FALLING_EDGE],
+        "dual_edge_monostable" => &[INVERTED],
+        _ => &[],
+    }
+}
+
 /// The flag of a comparator that reads its operands in two's complement.
 const SIGNED: &str = "signed";
 
