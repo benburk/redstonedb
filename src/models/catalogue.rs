@@ -96,10 +96,10 @@ named_values! {
     /// its heading.
     Section {
         Arithmetic = "arithmetic", "Arithmetic";
+        Memory = "memory", "Memory";
         Logic = "logic", "Logic";
         Gates = "gates", "Gates";
         Conversion = "conversion", "Conversion";
-        Memory = "memory", "Memory";
         Display = "display", "Display";
         Wiring = "wiring", "Wiring";
     }
