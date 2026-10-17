@@ -160,6 +160,7 @@ pub fn behaviour(category: &str) -> Behaviour {
             lines: Lines::Result("A = B"),
             ..read(Test::Equality)
         },
+        "xor_xnor_gate" => read(Test::XorXnor),
         "register" => Behaviour {
             lines: Lines::Register,
             stacking: Stacking::Found,

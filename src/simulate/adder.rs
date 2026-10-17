@@ -300,6 +300,20 @@ pub(super) fn adder_ports(
     let bits = |port: &Port| port.bits.len();
     let (a_bits, b_bits) =
         (bits(&interface.inputs[a]), bits(&interface.inputs[b]));
+    // One bit is a slice of a wider build, which its lines chain; without
+    // either, its one output bit is A xor B, an XOR gate's.
+    if a_bits == 1 && (carry_in.is_none() || carry_out.is_none()) {
+        let (line_in, line_out) = (op.line_in[0], op.line_out[0]);
+        let lacks = match (carry_in, carry_out) {
+            (None, None) => "without them it is an XOR gate".to_owned(),
+            (None, Some(_)) => format!("this has no {line_in}"),
+            _ => format!("this has no {line_out}"),
+        };
+        broken!(
+            "{built} of one bit has a {line_in} and a {line_out}, as a slice \
+             of a wider one does; {lacks}."
+        );
+    }
     let sum_bits = bits(&interface.outputs[sum]);
     let carry_bit = usize::from(carry_out.is_none());
     if a_bits != b_bits || !(a_bits..=a_bits + carry_bit).contains(&sum_bits) {

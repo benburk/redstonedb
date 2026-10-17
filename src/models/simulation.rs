@@ -19,7 +19,9 @@ use crate::{
     },
     models::version,
     schem::Blocks,
-    simulate::{Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing},
+    simulate::{
+        Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
+    },
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -280,6 +282,7 @@ const INVERTED: &str = "inverted";
 pub fn simulated_flags(category: &str) -> &'static [&'static str] {
     match category {
         "greater_than" => &[SIGNED],
+        "xor_xnor_gate" => &[XNOR_FLAG],
         "monostable" => &[INVERTED, FALLING_EDGE],
         "dual_edge_monostable" => &[INVERTED],
         _ => &[],
@@ -288,6 +291,9 @@ pub fn simulated_flags(category: &str) -> &'static [&'static str] {
 
 /// The flag of a comparator that reads its operands in two's complement.
 const SIGNED: &str = "signed";
+
+/// The flag of an XOR/XNOR gate whose every bit is inverted, an XNOR.
+const XNOR_FLAG: &str = "xnor";
 
 /// The flag of a monostable that pulses as A turns off, not on.
 const FALLING_EDGE: &str = "falling_edge";
@@ -365,6 +371,16 @@ impl Derived {
             self.flags.retain(|flag| flag != SIGNED);
             if run.pattern == SIGNED_GREATER_THAN {
                 self.flags.push(SIGNED.to_owned());
+            }
+        }
+        // A gate's cases say whether it is an XNOR.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::XorXnor)
+        {
+            self.flags.retain(|flag| flag != XNOR_FLAG);
+            if run.pattern == XNOR {
+                self.flags.push(XNOR_FLAG.to_owned());
             }
         }
         if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {

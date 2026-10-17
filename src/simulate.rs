@@ -51,6 +51,7 @@ mod alu;
 mod bench;
 mod circuit;
 mod converters;
+mod gate;
 mod incrementer;
 mod inverter;
 mod monostable;
@@ -63,6 +64,7 @@ pub use adder::SIGNED_GREATER_THAN;
 pub use alu::op as alu_op;
 pub use circuit::Circuit;
 pub(crate) use circuit::panic_message;
+pub use gate::XNOR;
 pub use stacking::{Stacking, Step};
 pub use timing::{
     BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,
@@ -114,6 +116,8 @@ pub enum Test {
     DualEdgeMonostable,
     /// A, or with its control line on, every bit of A inverted.
     Inverter,
+    /// A xor B, or every bit of it inverted, an XNOR gate's.
+    XorXnor,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -122,7 +126,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 18] = [
+    pub const ALL: [Test; 19] = [
         Test::Adder,
         Test::Subtractor,
         Test::Incrementer,
@@ -141,6 +145,7 @@ impl Test {
         Test::Monostable,
         Test::DualEdgeMonostable,
         Test::Inverter,
+        Test::XorXnor,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -181,6 +186,7 @@ impl Test {
             Test::Monostable => "monostable",
             Test::DualEdgeMonostable => "dual_edge_monostable",
             Test::Inverter => "inverter",
+            Test::XorXnor => "xor_xnor_gate",
         }
     }
 
@@ -205,7 +211,8 @@ impl Test {
             | Test::Equality
             | Test::Monostable
             | Test::DualEdgeMonostable
-            | Test::Inverter => 1,
+            | Test::Inverter
+            | Test::XorXnor => 1,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
@@ -278,6 +285,7 @@ impl Test {
                 interface::name_lines(self.name(), blocks, interface);
                 inverter::spec(interface)
             }
+            Test::XorXnor => gate::spec(interface),
             Test::Alu
             | Test::Register
             | Test::Buffer
@@ -486,11 +494,13 @@ pub struct Wrong {
 /// The tests `guess` tries, the first winning a tie. One run tries every
 /// kind of incrementer, and the kind it gets most right names its
 /// category. An inverter comes before it, as a 1-bit incrementer without a
-/// carry out is A xor its line, as a 1-bit inverter is.
-const GUESSED: [Test; 16] = [
+/// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
+/// comes before an equality comparator, as a 1-bit one is A xnor B.
+const GUESSED: [Test; 17] = [
     Test::Adder,
     Test::Subtractor,
     Test::Inverter,
+    Test::XorXnor,
     Test::Incrementer,
     Test::Multiplier,
     Test::BinaryToBcd,

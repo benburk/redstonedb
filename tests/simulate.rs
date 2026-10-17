@@ -383,19 +383,16 @@ fn a_copy_must_not_overwrite_the_copy_before() {
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,
-/// where the next copy's carry in lands, with no carry out line to say
-/// where that copy goes; the shortest step whose copies add right is
-/// found instead.
+/// where the next copy's carry in lands, with no carry out line; a slice
+/// has both its lines, so it fails.
 #[test]
-fn a_slice_without_a_carry_out_finds_its_step() {
+fn a_slice_without_a_carry_out_fails() {
     let data = std::fs::read("tests/fixtures/rca-slice-2-high.schem").unwrap();
-    assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
-    let Some(Stacking::Stacks { step, copies, .. }) =
-        Test::Adder.stacking(&data)
-    else {
-        panic!("it does not stack");
+    let report = Test::Adder.run(&Blocks::read(&data).unwrap());
+    let Report::Broken { reason } = report else {
+        panic!("it did not fail: {report:?}");
     };
-    assert_eq!((step.describe().as_str(), copies), ("2 up", 9));
+    assert!(reason.ends_with("this has no carry out."), "{reason}");
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry out is capped by
@@ -1400,4 +1397,24 @@ fn a_glass_output_is_read_from_the_repeater_on_it() {
     );
     let timing = Test::Adder.time(&glass, &AtomicBool::new(false)).unwrap();
     assert_eq!(timing.latency(), Some(3));
+}
+
+/// One bit of A and of B into one output bit, with no carry in or out, is
+/// A xor B: an XOR gate, not an adder, which at one bit is a slice of a
+/// wider one and has both lines.
+#[test]
+fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
+    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let prepared =
+        import::prepare(&raw, Some(Gray::Keep), true, false, true).unwrap();
+    let report = Test::Adder.run(&prepared.blocks);
+    let Report::Broken { reason } = report else {
+        panic!("it passed for an adder: {report:?}");
+    };
+    assert!(reason.ends_with("it is an XOR gate."), "{reason}");
+    let guess = simulate::guess(&prepared.blocks).unwrap();
+    assert_eq!(
+        (guess.category, guess.pattern.as_str(), guess.wrong),
+        ("xor_xnor_gate", "A xor B", 0)
+    );
 }
