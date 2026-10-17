@@ -300,7 +300,9 @@ pub fn home_index(index: &Index) -> Markup {
                 h2 id="index-heading" class="sr-only" { "Categories" }
                 @for (heading, id, tiles) in tile_groups(index.tiles) {
                     h3 id={ "tiles-" (id) } class="mt-8 mb-3 text-section font-semibold first-of-type:mt-0" { (heading) }
-                    ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4" {
+                    // Five to a row at the page's full width, fewer as it
+                    // narrows, and never fewer than two.
+                    ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(min(13rem,calc(50%_-_0.5rem)),1fr))] gap-4" {
                     @for tile in tiles {
                         @let href = Home {
                             view: View::Cards,
