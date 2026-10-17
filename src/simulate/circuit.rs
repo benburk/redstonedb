@@ -12,6 +12,7 @@ use mchprs_blocks::{
 use mchprs_redpiler::{Compiler, CompilerOptions};
 use mchprs_world::{World, testing::TestWorld};
 
+use super::Broken;
 use crate::{
     interface::{Interface, Port},
     lint,
@@ -22,9 +23,9 @@ use crate::{
 pub(super) const MAX_TICKS: u32 = 1000;
 
 /// A build set up for simulation. Each input is driven by its levers, and
-/// each output bit is on while its block is powered; a signal-strength
-/// input takes each digit's strength, and an output of a build with one
-/// shows a digit per block, its strength.
+/// each output bit is on while the component standing on its block is; a
+/// signal-strength input takes each digit's strength, and an output of a
+/// build with one shows a digit per block, its strength.
 ///
 /// A build driven by levers alone is compiled by Redpiler, whose
 /// optimizations stay off: they keep only what drives a lamp or another
@@ -116,10 +117,9 @@ impl Circuit {
                     .bits
                     .iter()
                     .map(|bit| {
-                        // Glass is never powered, so a glass bit is read
-                        // only by what stands on it.
-                        let glass =
-                            schem::id(blocks.get(bit.pos)).ends_with("_glass");
+                        // A bit is read only by what stands on its block,
+                        // the component carrying it out of the build, never
+                        // by the block's own power.
                         let above =
                             world.get_block(at(bit.pos).offset(BlockFace::Top));
                         let read = matches!(
@@ -128,11 +128,13 @@ impl Circuit {
                                 | Block::Repeater(_)
                                 | Block::Comparator(_)
                         );
-                        if glass && !read {
-                            bail!(
-                                "Output {} has a glass block with no dust, \
+                        // A build so wired breaks the conventions, so it
+                        // fails rather than going untested.
+                        if !read {
+                            broken!(
+                                "Output {} has a block with no dust, \
                                  repeater, or comparator on it, which is how \
-                                 a glass output is read.",
+                                 an output is read.",
                                 port.name
                             );
                         }
@@ -340,46 +342,43 @@ impl Circuit {
         }
     }
 
-    /// The value output `port` shows, as of the last `settle`. Where dust,
-    /// a repeater, or a comparator stands on a bit's block, it is the
-    /// output, as the component carrying it out of the build, and the bit
-    /// is on while it is, however the block below is powered; a bare block
-    /// is on while it is powered. A digit is the strength of the dust on
-    /// its block, or of the block when it has none.
+    /// The value output `port` shows, as of the last `settle`, read from
+    /// the dust, repeater, or comparator standing on each bit's block, the
+    /// component carrying it out of the build, however the block below is
+    /// powered. A bit is on while its component is; a digit is the strength
+    /// its component gives out.
     pub fn get(&self, port: usize) -> u64 {
         let (blocks, digits) = &self.outputs[port];
         blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
-            let block = self.world.get_block(pos);
-            let above = self.world.get_block(pos.offset(BlockFace::Top));
-            let strength = || {
-                mchprs_redstone::get_redstone_power(
-                    block,
-                    &self.world,
-                    pos,
-                    BlockFace::Top,
-                )
+            let top = pos.offset(BlockFace::Top);
+            let (on, strength) = match self.world.get_block(top) {
+                Block::RedstoneWire(wire) => (wire.power > 0, wire.power),
+                Block::Repeater(repeater) => {
+                    (repeater.powered, if repeater.powered { 15 } else { 0 })
+                }
+                Block::Comparator(comparator) => {
+                    let strength = match self.world.get_block_entity(top) {
+                        Some(BlockEntity::Comparator { output_strength }) => {
+                            *output_strength
+                        }
+                        _ => 0,
+                    };
+                    (comparator.powered, strength)
+                }
+                // `new` takes no output with a bit bare of one.
+                _ => (false, 0),
             };
             if *digits {
-                let strength = match above {
-                    Block::RedstoneWire(wire) => wire.power,
-                    _ => strength(),
-                };
-                return value | u64::from(strength) << (4 * i);
+                value | u64::from(strength) << (4 * i)
+            } else {
+                value | u64::from(on) << i
             }
-            let on = match above {
-                Block::RedstoneWire(wire) => wire.power > 0,
-                Block::Repeater(repeater) => repeater.powered,
-                Block::Comparator(comparator) => comparator.powered,
-                _ => strength() > 0,
-            };
-            value | u64::from(on) << i
         })
     }
 
     /// For each output, the ticks the repeaters or comparators standing on
     /// its every block take to carry it out of the build, the least of
-    /// them, which its value shows that much later than it arrives; 0 for
-    /// an output with a block bare of one.
+    /// them, which its value shows that much later than it arrives.
     pub fn carried(&self) -> Vec<i32> {
         let delay = |pos: BlockPos| match self
             .world

@@ -44,12 +44,18 @@ fn a_ripple_carry_adder_gets_every_sum_right() {
     assert_eq!(run.cases, 1 << 17);
 }
 
-/// Its carry out has a torch beside it, which lights a lamp but does not
-/// power the block, so reading a lamp in its place would get this wrong.
+/// Its carry out is a bare block, powered by dust run into its side, with
+/// nothing standing on it for an output to be read by, so it fails.
 #[test]
-fn an_output_is_read_from_its_block_not_a_torch_beside_it() {
-    let run = adder_run(&blocks("alpha-rca-slice")).unwrap();
-    assert_eq!((run.cases, run.wrong), (8, 0));
+fn an_output_with_nothing_on_its_block_fails() {
+    let report = Test::Adder.run(&blocks("alpha-rca-slice"));
+    let Report::Broken { reason } = report else {
+        panic!("it did not fail: {report:?}");
+    };
+    assert!(
+        reason.starts_with("Output carry out has a block with no dust"),
+        "{reason}"
+    );
 }
 
 /// The game agrees: mc-tick, a vanilla-accurate engine, lights bit 7 for
@@ -119,32 +125,6 @@ fn a_hopper_swaps_for_a_barrel_of_the_same_strength() {
     assert!(!Test::Adder.run(&after).passed());
 }
 
-/// Its paths from A to the sum take from 4 to 6 ticks, depending on the
-/// case, so the sum can change twice whenever carry in arrives.
-#[test]
-fn a_ripple_slice_is_timed_from_a() {
-    let timing = Test::Adder
-        .time(&blocks("alpha-rca-slice"), &AtomicBool::new(false))
-        .unwrap();
-    let inputs: Vec<(&str, Option<i32>)> = timing
-        .inputs
-        .iter()
-        .map(|input| (input.name.as_str(), input.tick))
-        .collect();
-    assert_eq!(
-        inputs,
-        [("A", Some(0)), ("B", Some(0)), ("carry in", Some(3))]
-    );
-    let outputs: Vec<(&str, bool, i32)> = timing
-        .outputs
-        .iter()
-        .map(|output| (output.name.as_str(), output.status, output.latency))
-        .collect();
-    assert_eq!(outputs, [("output", false, 6), ("carry out", true, 5)]);
-    assert_eq!(timing.latency(), Some(6));
-    assert!(!timing.synced);
-}
-
 #[test]
 fn an_adders_width_is_its_lime_bit_count() {
     let width =
@@ -174,7 +154,7 @@ fn unsigned(data: &[u8]) -> Vec<u8> {
 /// they need no signs.
 #[test]
 fn an_adders_lone_lines_need_no_signs() {
-    let raw = std::fs::read("tests/fixtures/alpha-rca-slice.schem").unwrap();
+    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
     let stored = standardize::pink_status(&tidied).unwrap();
     let blocks = Blocks::read(&unsigned(&stored)).unwrap();
@@ -188,7 +168,7 @@ fn an_adders_lone_lines_need_no_signs() {
     assert!(!unsigned_line(&lint::check_for(&blocks, "adder")));
     assert!(unsigned_line(&lint::check_for(&blocks, "multiplier")));
     let run = adder_run(&blocks).unwrap();
-    assert_eq!((run.cases, run.wrong), (8, 0));
+    assert_eq!((run.cases, run.wrong), (1 << 17, 0));
     assert_eq!(run.pattern, "A + B + carry in");
 }
 
@@ -263,22 +243,6 @@ fn a_stateful_multiplier_is_skipped() {
         panic!("tested a sequential multiplier");
     };
     assert!(reason.contains("stateful"), "{reason}");
-}
-
-/// A 1-bit slice steps from its carry in to its carry out, which the next
-/// copy's carry in lands on.
-#[test]
-fn a_ripple_carry_slice_stacks_any_number_of_times() {
-    let raw = std::fs::read("tests/fixtures/alpha-rca-slice.schem").unwrap();
-    let data =
-        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
-    let Some(Stacking::Stacks { step, copies, .. }) =
-        Test::Adder.stacking(&data)
-    else {
-        panic!("it does not stack");
-    };
-    // Nine reach a copy past the 15 blocks dust carries.
-    assert_eq!((step.describe().as_str(), copies), ("2 west", 9));
 }
 
 /// Its copies fit, but a carry out of one never reaches the next, which

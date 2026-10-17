@@ -211,13 +211,13 @@ fn stacked_slices_form_one_wider_build() {
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
-    // Each copy's carry in hangs a torch on the previous copy's carry out,
-    // which inverts it, so the sums come out right.
+    // Each copy's carry in hangs a torch on the previous copy's carry out, a
+    // bare block, so the last copy's carry out has nothing on it to read.
     let report = simulate::Test::Adder.run(&blocks);
-    let simulate::Report::Ran(run) = report else {
-        panic!("the stack was not simulated: {report:?}");
+    let simulate::Report::Broken { reason } = report else {
+        panic!("the stack did not fail: {report:?}");
     };
-    assert_eq!((run.cases, run.wrong), (1 << 17, 0));
+    assert!(reason.starts_with("Output carry out"), "{reason}");
 }
 
 #[test]
