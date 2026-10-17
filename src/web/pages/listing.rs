@@ -160,15 +160,14 @@ impl<'a> Listing<'a> {
     }
 }
 
-/// The home page before anything is searched for: what the site is, for
-/// someone not logged in, the search, and below it [`home_index`].
+/// The home page before anything is searched for: the search, and below it
+/// [`home_index`].
 pub fn home(viewer: Option<&User>, index: &Index) -> Markup {
     base(
         viewer,
         APP_NAME,
         "/",
         &html! {
-            (intro(viewer))
             (search_form("/", None))
             (home_index(index))
         },
@@ -176,8 +175,7 @@ pub fn home(viewer: Option<&User>, index: &Index) -> Markup {
 }
 
 /// The home page with something searched for or chosen, or every build:
-/// what the site is, for someone not logged in, the search, and below it
-/// [`home_results`].
+/// the search, and below it [`home_results`].
 pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
     // Clearing the search on the list of every build keeps to it; anywhere
     // else it goes back to the index.
@@ -192,24 +190,10 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
         APP_NAME,
         "/",
         &html! {
-            (intro(viewer))
             (search_form(action, Some(listing)))
             (home_results(listing))
         },
     )
-}
-
-/// What the site is, for someone not logged in.
-fn intro(viewer: Option<&User>) -> Markup {
-    html! {
-        @if viewer.is_none() {
-            p class="mb-4 max-w-prose text-muted" {
-                "Minecraft redstone circuits, such as adders and multipliers, each with its "
-                "latency, size, and builders, ready to download. "
-                a href="/about" { "About the site" }
-            }
-        }
-    }
 }
 
 /// The home page's search, sent to `action`. It sends as the words are
