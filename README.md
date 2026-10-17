@@ -35,6 +35,8 @@ just rsdb users
 just rsdb role <discord username> admin
 ```
 
+To try the site signed in without Discord, open `/dev/login` on a local server, such as `http://localhost:3001/dev/login?next=/upload`. It signs in as the account `debug`, made the first time, as an admin, or with `role=user` or `role=mod` as either. Only a debug build has the route, as `just serve` runs; the release build the live site runs answers it with 404.
+
 `redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb` checkpoints the write-ahead log before it exits, so copying `redstone.db` alone is a complete backup.
 
 ## Recipes

@@ -18,6 +18,8 @@ use crate::{
 
 mod about;
 mod auth;
+#[cfg(debug_assertions)]
+mod dev;
 mod form;
 mod heads;
 mod leaderboards;
@@ -203,7 +205,7 @@ async fn fallback() -> AppError {
 /// Dynamic routes - with request logging. `state` is for the layer that
 /// draws the not-found and forbidden pages.
 pub fn router(state: AppState) -> Router<AppState> {
-    Router::new()
+    let router = Router::new()
         .route("/", get(schematics::home))
         .route("/builds", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
@@ -262,7 +264,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sessions/new", get(auth::login))
         .route("/logout", post(session::delete))
         .route("/auth/discord", get(auth::start))
-        .route("/auth/discord/callback", get(auth::callback))
+        .route("/auth/discord/callback", get(auth::callback));
+    // Signing in without Discord, for a local server only.
+    #[cfg(debug_assertions)]
+    let router = router.route("/dev/login", get(dev::login));
+    router
         .fallback(fallback)
         .layer(middleware::from_fn_with_state(state, error_pages))
 }
