@@ -13,6 +13,8 @@
 //   the element is on the page.
 // - An answer's `FX-Notice` header, percent-encoded, is said in the notice.
 // - An answer's `FX-Replace-Url` header becomes the page's address.
+// - A form with `data-live` sends as its fields change, typing once it
+//   pauses, and a new send replaces one under way, as a search does.
 
 const notice = document.getElementById("notice");
 
@@ -63,6 +65,11 @@ document.addEventListener("fx:config", (event) => {
     cfg.body = new URLSearchParams(
       [...cfg.body].filter(([, value]) => typeof value === "string"),
     );
+  }
+  // Only the latest search's answer matters.
+  if (element.matches("form[data-live]")) {
+    for (const request of requests) request.abort();
+    cfg.drop = 0;
   }
   if (element.matches(LIVE)) {
     // A redraw stands in for any request still under way in the panel,
@@ -138,6 +145,21 @@ document.addEventListener("fx:error", (event) => {
   if (event.detail.error?.name === "AbortError") return;
   showNotice("Couldn't reach the server. Try again.");
 });
+
+// A live form sends once typing pauses, or at once for a menu. Its
+// fields may sit outside it, naming it in their `form` attribute.
+const PAUSE = 250;
+let pause;
+document.addEventListener("input", (event) => {
+  const field = event.target;
+  const form = field.form;
+  if (!form?.matches("[data-live]") || event.isComposing) return;
+  clearTimeout(pause);
+  const wait = field.matches("select") ? 0 : PAUSE;
+  pause = setTimeout(() => form.requestSubmit(), wait);
+});
+// Enter sends at once, so the pause's send is dropped.
+document.addEventListener("submit", () => clearTimeout(pause));
 
 // A swap that took the focused element away puts focus back on its
 // replacement, the element with the same id, where the caret was.

@@ -2,7 +2,10 @@
 //! editing its details, and deleting it. A download is counted unless it is
 //! the 3D viewer's `?preview=yes` fetch or a HEAD request.
 
-use std::{cmp::Ordering, collections::HashMap};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
@@ -22,8 +25,9 @@ use crate::{
         session::{Admin, SignedIn},
     },
     import::Analysis,
+    leaderboard,
     models::{
-        catalogue::{self, Category},
+        catalogue::{self, Category, Measure},
         schematic::{self, Schematic},
         similarity, simulation, tag,
         user::User,
@@ -74,12 +78,142 @@ impl ListQuery {
     }
 }
 
-pub async fn list(
+/// The home page: every category until something is searched for or
+/// chosen, then the builds found.
+pub async fn home(
     State(state): State<AppState>,
     RawQuery(raw): RawQuery,
+    Fixi(fixi): Fixi,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
     let query = ListQuery::read(raw.as_deref());
+    if query.q.is_empty() && query.category.is_empty() && query.tags.is_empty()
+    {
+        return index(&state, fixi, user_opt.as_ref()).await;
+    }
+    listing(&state, query, fixi, user_opt.as_ref()).await
+}
+
+/// Every build, as the home page lists them once a search is cleared.
+pub async fn list(
+    State(state): State<AppState>,
+    RawQuery(raw): RawQuery,
+    Fixi(fixi): Fixi,
+    user_opt: Option<User>,
+) -> Result<Response, AppError> {
+    let query = ListQuery::read(raw.as_deref());
+    listing(&state, query, fixi, user_opt.as_ref()).await
+}
+
+/// How many builds the home page shows as recently added.
+const RECENT: usize = 8;
+
+/// The home page with nothing searched for: each category, pictured by its
+/// best build, and the builds added last. Through fixi, as when a search
+/// is cleared, only the part below the search.
+async fn index(
+    state: &AppState,
+    fixi: bool,
+    viewer: Option<&User>,
+) -> Result<Response, AppError> {
+    let all = schematic::all(&state.db).await?;
+    let categories = catalogue::categories(&state.db).await?;
+    let index = pages::Index {
+        tiles: &tiles(&categories, &all),
+        recent: &recent(&all),
+        total: all.len(),
+    };
+    if fixi {
+        return Ok(([("FX-Replace-Url", "/")], pages::home_index(&index))
+            .into_response());
+    }
+    Ok(pages::home(viewer, &index).into_response())
+}
+
+/// Each category with a build, most builds first and Other last, pictured
+/// by the first on its leaderboard as it opens, the quickest of its most
+/// common width, or by its newest build when none is timed.
+fn tiles<'a>(
+    categories: &[Category],
+    all: &'a [Schematic],
+) -> Vec<pages::Tile<'a>> {
+    let newest = |builds: &[&'a Schematic]| {
+        builds
+            .iter()
+            .copied()
+            .max_by(|a, b| a.added_at.cmp(&b.added_at))
+    };
+    let mut tiles: Vec<pages::Tile> = categories
+        .iter()
+        .filter_map(|category| {
+            let builds: Vec<&Schematic> =
+                all.iter().filter(|s| s.category == category.name).collect();
+            let newest = newest(&builds)?;
+            let board = leaderboard::board(
+                &builds,
+                &leaderboard::Wanted::default(),
+                &category.measures,
+            );
+            let leader =
+                leaderboard::fastest(&board.builds).first().map(|&(_, s)| s);
+            let width = board
+                .splits
+                .iter()
+                .find(|split| split.measure == Measure::Width)
+                .and_then(|split| split.chosen);
+            Some(pages::Tile {
+                category: category.name.clone(),
+                label: category.plural.clone(),
+                count: builds.len(),
+                best: leader.unwrap_or(newest),
+                fastest: leader.and_then(|s| s.latency),
+                width,
+            })
+        })
+        .collect();
+    tiles.sort_by(|a, b| b.count.cmp(&a.count).then(a.label.cmp(&b.label)));
+    let other: Vec<&Schematic> =
+        all.iter().filter(|s| in_category(s, OTHER)).collect();
+    if let Some(newest) = newest(&other) {
+        tiles.push(pages::Tile {
+            category: OTHER.to_owned(),
+            label: "Other".to_owned(),
+            count: other.len(),
+            best: newest,
+            fastest: None,
+            width: None,
+        });
+    }
+    tiles
+}
+
+/// The builds added last, newest first, one of each name so an import of
+/// many alike takes one place, each with how many builds share its name.
+fn recent(all: &[Schematic]) -> Vec<(&Schematic, usize)> {
+    let mut named: HashMap<String, usize> = HashMap::new();
+    for s in all {
+        *named.entry(s.name()).or_default() += 1;
+    }
+    let mut newest: Vec<&Schematic> = all.iter().collect();
+    newest.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    let mut seen = HashSet::new();
+    newest
+        .into_iter()
+        .filter(|s| seen.insert(s.name()))
+        .take(RECENT)
+        .map(|s| (s, named[&s.name()]))
+        .collect()
+}
+
+/// The builds a search, category, and tags find, with the category
+/// sidebar. Through fixi, as a search is typed, only the part below the
+/// search, with the search's address.
+async fn listing(
+    state: &AppState,
+    query: ListQuery,
+    fixi: bool,
+    viewer: Option<&User>,
+) -> Result<Response, AppError> {
     let view = match query.view.as_str() {
         "list" => pages::View::List,
         _ => pages::View::Cards,
@@ -103,22 +237,28 @@ pub async fn list(
             .collect()
     };
     order(&mut shown, &query.sort);
-    Ok(pages::schematics(
-        user_opt.as_ref(),
-        &pages::Listing {
-            shown: &shown,
-            total,
-            matched,
-            view,
-            sort: &query.sort,
-            query: &query.q,
-            terms: &terms,
-            category: &query.category,
-            tags: &query.tags,
-            facets: &facets,
-        },
-    )
-    .into_response())
+    let listing = pages::Listing {
+        shown: &shown,
+        total,
+        matched,
+        view,
+        sort: &query.sort,
+        query: &query.q,
+        terms: &terms,
+        category: &query.category,
+        tags: &query.tags,
+        facets: &facets,
+    };
+    // A search as it is typed redraws only the results, and puts the
+    // search in the address, so Back and reloading keep it.
+    if fixi {
+        return Ok((
+            [("FX-Replace-Url", listing.href())],
+            pages::home_results(&listing),
+        )
+            .into_response());
+    }
+    Ok(pages::schematics(viewer, &listing).into_response())
 }
 
 /// Whether `s` carries a tag from every group, a group being one `tag`

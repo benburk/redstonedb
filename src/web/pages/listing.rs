@@ -4,8 +4,8 @@
 use maud::{Markup, html};
 
 use super::{
-    PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base, facts,
-    latency, name_links, size, volume,
+    PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base, latency,
+    name_links, size, ticks, volume,
 };
 use crate::{
     APP_NAME,
@@ -64,6 +64,29 @@ pub struct Facet {
     pub section: Option<Section>,
 }
 
+/// A category on the home page's index, pictured by its best build.
+pub struct Tile<'a> {
+    /// Such as `adder`, or `other` for every category off the list.
+    pub category: String,
+    /// Such as `Adders`.
+    pub label: String,
+    pub count: usize,
+    pub best: &'a Schematic,
+    /// The latency of `best`, the quickest; `None` when none is timed.
+    pub fastest: Option<i64>,
+    /// The width its leaderboard opens at, which `best` is quickest of.
+    pub width: Option<i64>,
+}
+
+/// The home page before anything is searched for.
+pub struct Index<'a> {
+    pub tiles: &'a [Tile<'a>],
+    /// The builds added last, each with how many share its name.
+    pub recent: &'a [(&'a Schematic, usize)],
+    /// How many builds there are in all.
+    pub total: usize,
+}
+
 /// Where the home page's links lead: its layout, search, and category.
 #[derive(Clone, Copy)]
 struct Home<'a> {
@@ -92,63 +115,225 @@ impl Home<'_> {
         if !self.query.is_empty() {
             params.append_pair("q", self.query);
         }
+        // With nothing to narrow it, the home page shows its index, so
+        // every build has an address of its own.
+        let path = if self.query.is_empty()
+            && self.category.is_empty()
+            && self.tags.is_empty()
+        {
+            "/builds"
+        } else {
+            "/"
+        };
         let params = params.finish();
         if params.is_empty() {
-            "/".to_owned()
+            path.to_owned()
         } else {
-            format!("/?{params}")
+            format!("{path}?{params}")
         }
     }
 }
 
-/// The home page: the category sidebar beside the search and the builds
-/// it finds.
+impl<'a> Listing<'a> {
+    /// The home page's address for this listing, such as
+    /// `/?category=adder&q=8b`.
+    pub fn href(&self) -> String {
+        self.home().href()
+    }
+
+    fn home(&self) -> Home<'a> {
+        Home {
+            view: self.view,
+            sort: self.sort,
+            query: self.query,
+            category: self.category,
+            tags: self.tags,
+        }
+    }
+}
+
+/// The home page before anything is searched for: what the site is, for
+/// someone not logged in, the search, and below it [`home_index`].
+pub fn home(viewer: Option<&User>, index: &Index) -> Markup {
+    base(
+        viewer,
+        APP_NAME,
+        "/",
+        &html! {
+            (intro(viewer))
+            (search_form("/", None))
+            (home_index(index))
+        },
+    )
+}
+
+/// The home page with something searched for or chosen, or every build:
+/// what the site is, for someone not logged in, the search, and below it
+/// [`home_results`].
 pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
-    let Listing {
-        shown,
-        total,
-        matched,
-        view,
-        sort,
-        query,
-        category,
-        tags,
-        facets,
-        ..
-    } = *listing;
-    let here = Home {
-        view,
-        sort,
-        query,
-        category,
-        tags,
-    };
-    let title = facets
-        .iter()
-        .find(|facet| facet.name == category)
-        .map_or("Schematics", |facet| facet.label.as_str());
-    let builds = if total == 1 { "build" } else { "builds" };
-    let count = if shown.len() == total {
-        format!("{total} {builds}")
+    // Clearing the search on the list of every build keeps to it; anywhere
+    // else it goes back to the index.
+    let href = listing.href();
+    let action = if href.starts_with("/builds") {
+        "/builds"
     } else {
-        format!("{} of {total} {builds}", shown.len())
+        "/"
     };
     base(
         viewer,
         APP_NAME,
         "/",
         &html! {
-            div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-                (category_sidebar(
-                    facets,
-                    category,
-                    Some(("All", &Home { category: "", ..here }.href(), matched)),
-                    |name| Home { category: name, ..here }.href(),
-                ))
-                div { (listing_body(listing, here, title, &count)) }
-            }
+            (intro(viewer))
+            (search_form(action, Some(listing)))
+            (home_results(listing))
         },
     )
+}
+
+/// What the site is, for someone not logged in.
+fn intro(viewer: Option<&User>) -> Markup {
+    html! {
+        @if viewer.is_none() {
+            p class="mb-4 max-w-prose text-muted" {
+                "Minecraft redstone circuits, such as adders and multipliers, each with its "
+                "latency, size, and builders, ready to download. "
+                a href="/about" { "About the site" }
+            }
+        }
+    }
+}
+
+/// The home page's search, sent to `action`. It sends as the words are
+/// typed, once typing pauses, and redraws the part below it; the layout,
+/// category, and tags `listing` chose go with it, and the order from its
+/// menu in the results.
+fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
+    let (view, query, category, tags) = listing
+        .map_or((View::Cards, "", "", &[][..]), |l| {
+            (l.view, l.query, l.category, l.tags)
+        });
+    html! {
+        form id="search-form" action=(action) method="get" role="search" data-live
+            fx-action=(action) fx-target="#listing" class="relative mb-8" {
+            @if view == View::List {
+                input type="hidden" name="view" value="list";
+            }
+            @if !category.is_empty() {
+                input type="hidden" name="category" value=(category);
+            }
+            @for tag in tags {
+                input type="hidden" name="tag" value=(tag);
+            }
+            label for="search" class="sr-only" { "Search builds" }
+            input type="search" id="search" name="q" value=(query)
+                placeholder="Search builds, such as 8b adder 3t"
+                autocomplete="off" aria-describedby="search-help"
+                class="peer input";
+            // Shown only while the box is focused and empty, over the gap
+            // below it, so nothing moves.
+            p id="search-help"
+                class="absolute top-full z-10 mt-1.5 hidden bg-canvas text-meta text-muted peer-focus:peer-placeholder-shown:block" {
+                (search_help())
+            }
+        }
+    }
+}
+
+/// How the search reads its words.
+fn search_help() -> Markup {
+    html! {
+        "Each word narrows it: a category, tag, " code { "8b" } ", " code { "3t" } ", a builder, "
+        code { "stackable" } ". " code { "-" } " before a word leaves it out."
+    }
+}
+
+/// The part of the home page a search redraws: the category sidebar, each
+/// category with its count of matches, beside the title, the terms
+/// searched for, and the builds found.
+pub fn home_results(listing: &Listing) -> Markup {
+    let here = listing.home();
+    let title = listing
+        .facets
+        .iter()
+        .find(|facet| facet.name == listing.category)
+        .map_or("Builds", |facet| facet.label.as_str());
+    html! {
+        div id="listing" class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
+            // A phone has no room beside the builds, so it goes back to
+            // the index to choose another category.
+            (category_sidebar(
+                listing.facets,
+                listing.category,
+                Some(("All", &Home { category: "", ..here }.href(), listing.matched)),
+                |name| Home { category: name, ..here }.href(),
+                "hidden desktop:block",
+            ))
+            div {
+                a href="/" class="mb-2 inline-block text-meta desktop:hidden" { "← All categories" }
+                (listing_body(listing, here, title))
+            }
+        }
+    }
+}
+
+/// The part of the home page below its search before anything is searched
+/// for: each category as a tile, and the builds added last. A search
+/// cleared redraws it.
+pub fn home_index(index: &Index) -> Markup {
+    html! {
+        div id="listing" {
+            h1 class="sr-only" { (APP_NAME) }
+            section aria-labelledby="index-heading" class="mb-12" {
+                div class="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
+                    h2 id="index-heading" class="mr-auto text-section font-semibold" { "Categories" }
+                    a href="/builds" { "All " (index.total) " builds" }
+                }
+                ul class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4" {
+                    @for tile in index.tiles {
+                        @let href = Home {
+                            view: View::Cards,
+                            sort: "",
+                            query: "",
+                            category: &tile.category,
+                            tags: &[],
+                        }.href();
+                        li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
+                            img src=(thumbnail_src(tile.best)) alt="" loading="lazy" width="640" height="480"
+                                class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                            div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
+                                h3 class="flex items-baseline justify-between gap-2 font-semibold" {
+                                    a href=(href) class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (tile.label) }
+                                    span class="text-meta font-normal text-muted tabular-nums" {
+                                        (tile.count) span class="sr-only" { " builds" }
+                                    }
+                                }
+                                @if let Some(fastest) = tile.fastest {
+                                    p class="text-meta text-muted tabular-nums" {
+                                        "Fastest"
+                                        @if let Some(width) = tile.width { " " (width) "-bit" }
+                                        ": " (ticks(fastest))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            section aria-labelledby="recent-heading" {
+                h2 id="recent-heading" class="mb-4 text-section font-semibold" { "Recently added" }
+                ul class=(CARDS) {
+                    @for &(s, named) in index.recent {
+                        (card(s, &html! {
+                            @if named > 1 {
+                                p class="text-meta text-muted" { (named) " builds by this name" }
+                            }
+                        }))
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The categories to narrow a page to, each with its count and its
@@ -160,6 +345,7 @@ pub(super) fn category_sidebar(
     current: &str,
     all: Option<(&str, &str, usize)>,
     href: impl Fn(&str) -> String,
+    class: &str,
 ) -> Markup {
     let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1 text-nav text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
     let list = "flex flex-wrap gap-0.5 desktop:flex-col";
@@ -182,7 +368,7 @@ pub(super) fn category_sidebar(
         // may be taller than the window: sidebar.js fits it to the window
         // below its top, and without it, it fits below the header.
         nav aria-labelledby="categories-heading" data-sidebar
-            class="desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-6.5rem)] desktop:self-start desktop:overflow-y-auto" {
+            class={ (class) " desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-6.5rem)] desktop:self-start desktop:overflow-y-auto" } {
             script defer src=(crate::web::SIDEBAR_JS.url()) {}
             h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
             @if let Some((label, all_href, count)) = all {
@@ -211,24 +397,25 @@ pub(super) fn category_sidebar(
     }
 }
 
-/// The home page's title and count, with its tabs, layouts, and sorts.
-fn listing_header(
-    listing: &Listing,
-    here: Home,
-    title: &str,
-    count: &str,
-) -> Markup {
-    let Listing { view, category, .. } = *listing;
-    // Every build, and a single standard category, has a leaderboard to
-    // switch to.
-    let ranked = category.is_empty()
-        || (!category.contains(',')
-            && category != "other"
-            && listing.facets.iter().any(|f| f.name == category));
+/// The home page's title and count, with its tabs, layouts, and order.
+fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
+    let Listing {
+        shown,
+        view,
+        category,
+        ..
+    } = *listing;
+    // A single standard category has a leaderboard to switch to.
+    let ranked = !category.is_empty()
+        && !category.contains(',')
+        && category != "other"
+        && listing.facets.iter().any(|f| f.name == category);
     html! {
             div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { (title) }
-                p class="mr-auto self-end pb-1 text-muted tabular-nums" { (count) }
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
+                    (shown.len()) span class="sr-only" { " builds" }
+                }
                 @if ranked {
                     (category_tabs(category, false))
                 }
@@ -236,125 +423,105 @@ fn listing_header(
                     a href=(Home { view: View::Cards, ..here }.href()) class=(SWITCH) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
                     a href=(Home { view: View::List, ..here }.href()) class=(SWITCH) aria-current=[(view == View::List).then_some("page")] { "List" }
                 }
-                nav aria-label="Sort" class=(SWITCHES) {
-                    span class="px-2 text-meta text-muted" aria-hidden="true" { "Sort" }
-                    @for (value, label) in SORTS {
-                        a href=(Home { sort: value, ..here }.href()) class=(SWITCH)
-                            aria-current=[(here.sort == value).then_some("page")] { (label) }
-                    }
-                }
+                (sort_menu(here.sort))
             }
     }
 }
 
-/// The home page's title, search, and schematics.
-fn listing_body(
-    listing: &Listing,
-    here: Home,
-    title: &str,
-    count: &str,
-) -> Markup {
+/// The orders to choose from, as a menu that belongs to the search form,
+/// so choosing one sends the search again. An order the address asked for
+/// that the menu lacks is added to it.
+fn sort_menu(sort: &str) -> Markup {
+    let known = SORTS.iter().any(|(value, _)| *value == sort);
+    html! {
+        label class="flex items-center gap-2 text-meta text-muted" {
+            "Sort"
+            select id="sort" name="sort" form="search-form" class="input min-h-9 w-auto text-body" {
+                @for (value, label) in SORTS {
+                    option value=(value) selected[value == sort] { (label) }
+                }
+                @if !known {
+                    option value=(sort) selected { (sort) }
+                }
+            }
+        }
+    }
+}
+
+/// The home page's title, the terms and tags searched for, and the builds
+/// found.
+fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
     let Listing {
         shown,
         total,
         view,
-        query,
         terms,
-        category,
         ..
     } = *listing;
     html! {
-            (listing_header(listing, here, title, count))
-            form action="/" method="get" role="search" class="mb-6 flex flex-col gap-2" {
-                @if view == View::List {
-                    input type="hidden" name="view" value="list";
-                }
-                @if !category.is_empty() {
-                    input type="hidden" name="category" value=(category);
-                }
-                @if !here.sort.is_empty() {
-                    input type="hidden" name="sort" value=(here.sort);
-                }
-                @for tag in here.tags {
-                    input type="hidden" name="tag" value=(tag);
-                }
-                div class="flex gap-2" {
-                    label for="search" class="sr-only" { "Search schematics" }
-                    input type="search" id="search" name="q" value=(query)
-                        placeholder="register vertical alpha -torchless"
-                        aria-describedby="search-help"
-                        class="input flex-1";
-                    button type="submit" class="btn btn-primary" { "Search" }
-                }
-                p id="search-help" class="text-meta text-muted" {
-                    "Every word narrows it: a category, tag, " code { "8b" } ", " code { "3t" } ", a builder, "
-                    code { "stackable" } ". " code { "-" } " before a word leaves it out."
-                }
-                @if !terms.is_empty() {
-                    ul class="flex flex-wrap items-center gap-1.5" aria-label="Search terms" {
-                        @for (i, term) in terms.iter().enumerate() {
-                            li {
-                                a href=(Home { query: &without(terms, i), ..here }.href())
-                                    aria-label={ "Remove " (term.display()) }
-                                    class={ "badge gap-1.5 pr-2 hover:no-underline "
-                                        (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
-                                    (if term.negated { "not " } else { "" }) (term.text)
-                                    span aria-hidden="true" { "×" }
-                                }
-                            }
-                        }
-                        li {
-                            a href=(Home { query: "", ..here }.href()) class="px-1.5 text-meta" { "Clear" }
-                        }
-                    }
-                }
-                @if !here.tags.is_empty() {
-                    ul class="flex flex-wrap items-center gap-1.5" aria-label="Tag filters" {
-                        @for (i, group) in here.tags.iter().enumerate() {
-                            @let rest: Vec<String> = here.tags.iter().enumerate()
-                                .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
-                            @let shown = group.replace('_', " ").replace(',', " or ");
-                            li {
-                                a href=(Home { tags: &rest, ..here }.href())
-                                    aria-label={ "Remove the tag filter " (shown) }
-                                    class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
-                                    "tag: " (shown)
-                                    span aria-hidden="true" { "×" }
+            (listing_header(listing, here, title))
+            @if !terms.is_empty() || !here.tags.is_empty() {
+                div class="mb-6 flex flex-wrap items-center gap-1.5" {
+                    @if !terms.is_empty() {
+                        ul class="contents" aria-label="Search terms" {
+                            @for (i, term) in terms.iter().enumerate() {
+                                li {
+                                    a href=(Home { query: &without(terms, i), ..here }.href())
+                                        aria-label={ "Remove " (term.display()) }
+                                        class={ "badge gap-1.5 pr-2 hover:no-underline "
+                                            (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
+                                        (if term.negated { "not " } else { "" }) (term.text)
+                                        span aria-hidden="true" { "×" }
+                                    }
                                 }
                             }
                         }
                     }
+                    @if !here.tags.is_empty() {
+                        ul class="contents" aria-label="Tag filters" {
+                            @for (i, group) in here.tags.iter().enumerate() {
+                                @let rest: Vec<String> = here.tags.iter().enumerate()
+                                    .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
+                                @let shown = group.replace('_', " ").replace(',', " or ");
+                                li {
+                                    a href=(Home { tags: &rest, ..here }.href())
+                                        aria-label={ "Remove the tag filter " (shown) }
+                                        class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
+                                        "tag: " (shown)
+                                        span aria-hidden="true" { "×" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    a href=(Home { query: "", tags: &[], ..here }.href()) class="px-1.5 text-meta" { "Clear" }
                 }
             }
             @if total == 0 {
-                p class="text-muted" { "No schematics yet." }
+                p class="text-muted" { "No builds yet." }
             } @else if shown.is_empty() {
-                p class="text-muted" { "No builds match. Remove a term to widen the search." }
+                p class="max-w-prose text-muted" {
+                    "No builds match. " (search_help()) " Remove a term to widen the search."
+                }
             } @else if view == View::Cards {
-                (cards(shown, listing.terms))
+                (cards(shown, terms))
             } @else {
-                (table(shown, listing.terms))
+                (table(shown, terms))
             }
     }
 }
 
-/// A category's builds and its leaderboard, as two tabs, or for no
-/// category, every build and the people leaderboard; `leaderboard` is
+/// A category's builds and its leaderboard, as two tabs; `leaderboard` is
 /// whether that is the one shown.
 pub(super) fn category_tabs(category: &str, leaderboard: bool) -> Markup {
-    let (builds, board) = if category.is_empty() {
-        ("/".to_owned(), "/leaderboards".to_owned())
-    } else {
-        let query = form_urlencoded::Serializer::new(String::new())
-            .append_pair("category", category)
-            .finish();
-        (format!("/?{query}"), format!("/leaderboards/{category}"))
-    };
+    let query = form_urlencoded::Serializer::new(String::new())
+        .append_pair("category", category)
+        .finish();
     html! {
         nav aria-label="Builds or leaderboard" class=(SWITCHES) {
-            a href=(builds) class=(SWITCH)
+            a href={ "/?" (query) } class=(SWITCH)
                 aria-current=[(!leaderboard).then_some("page")] { "Builds" }
-            a href=(board) class=(SWITCH)
+            a href={ "/leaderboards/" (category) } class=(SWITCH)
                 aria-current=[leaderboard.then_some("page")] { "Leaderboard" }
         }
     }
@@ -399,12 +566,34 @@ fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
 /// it only by stacking.
 pub(super) fn cards(schematics: &[Schematic], terms: &[Term]) -> Markup {
     html! {
-        ul class="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5" {
+        ul class=(CARDS) {
             @for s in schematics {
+                (card(s, &stacked_note(s, terms)))
+            }
+        }
+    }
+}
+
+/// The list holding cards.
+const CARDS: &str =
+    "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5";
+
+/// The picture of `s`, at an address that changes with its file.
+fn thumbnail_src(s: &Schematic) -> String {
+    format!(
+        "/schematics/{}/thumbnail.png?v={}",
+        s.id,
+        &s.sha256[..12.min(s.sha256.len())]
+    )
+}
+
+/// Build `s` as a card, with `note` under its tags.
+fn card(s: &Schematic, note: &Markup) -> Markup {
+    html! {
                 // The title's link covers the whole card; the tag and name
                 // links sit above it.
                 li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                    img src={ "/schematics/" (s.id) "/thumbnail.png?v=" (&s.sha256[..12.min(s.sha256.len())]) }
+                    img src=(thumbnail_src(s))
                         alt="" loading="lazy" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                     div class="flex flex-1 flex-col gap-2 p-4" {
@@ -413,12 +602,25 @@ pub(super) fn cards(schematics: &[Schematic], terms: &[Term]) -> Markup {
                                 class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                         }
                         (badges(s, ""))
-                        (stacked_note(s, terms))
-                        p class="mt-auto pt-1 text-meta text-muted tabular-nums" { (facts(s)) }
+                        (note)
+                        // Latency is what builds are compared by, so it
+                        // leads.
+                        p class="mt-auto flex flex-wrap items-baseline gap-x-2 pt-1 tabular-nums" {
+                            @if s.latency.is_some() {
+                                span class="font-semibold" { (latency(s)) }
+                            }
+                            span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
+                        }
+                        // The first builder, and how many more, on one line;
+                        // the build's page names them all.
+                        @if let Some((first, more)) = s.builders.split_first() {
+                            p class="truncate text-meta text-muted" {
+                                (name_links(std::slice::from_ref(first)))
+                                @if !more.is_empty() { " +" (more.len()) }
+                            }
+                        }
                     }
                 }
-            }
-        }
     }
 }
 

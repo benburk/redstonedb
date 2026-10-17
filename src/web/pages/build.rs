@@ -367,7 +367,7 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
                     })))
                 }
                 (fact("Latency", s.latency.map_or_else(unknown, |t| {
-                    sourced(format!("{t} ticks"), sources.timing)
+                    sourced(super::ticks(t), sources.timing)
                 })))
                 @match s.per_copy() {
                     // A copy's own shape, beside what it adds.

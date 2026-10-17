@@ -76,6 +76,9 @@ fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
                     span aria-hidden="true" class="size-3.5 rotate-45 rounded-[3px] bg-redstone" {}
                     (APP_NAME)
                 }
+                a href="/leaderboards"
+                    aria-current=[current_path.starts_with("/leaderboards").then_some("page")]
+                    class=(link) { "Leaderboards" }
                 a href="/similar" aria-current=[current("/similar")] class=(link) { "Find similar" }
                 a href="/about" aria-current=[current("/about")] class=(link) { "About" }
                 @match viewer {

@@ -64,11 +64,10 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
             div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
                 (category_sidebar(facets, "", Some(people_link(built.len())), |name| {
                     format!("/leaderboards/{name}")
-                }))
+                }, ""))
                 div {
                     div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                        h1 class={ (PAGE_TITLE) " mr-auto" } { "People" }
-                        (category_tabs("", true))
+                        h1 class=(PAGE_TITLE) { "People" }
                     }
                     p class="mb-6 max-w-prose text-muted" {
                         "A record is first place, as fastest or as smallest, on a category's leaderboard "
@@ -159,7 +158,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
             div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
                 (category_sidebar(facets, &category.name, Some(people_link(people)), |name| {
                     format!("/leaderboards/{name}")
-                }))
+                }, ""))
                 div {
                     div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                         h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }

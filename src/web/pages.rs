@@ -45,7 +45,10 @@ pub use form::Choices;
 use layout::base;
 pub use layout::{forbidden, not_found};
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
-pub use listing::{Facet, Listing, View, schematics};
+pub use listing::{
+    Facet, Index, Listing, Tile, View, home, home_index, home_results,
+    schematics,
+};
 pub use player::{PlayerPage, player};
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
 pub use similar::{Found, similar_results, similar_search};
@@ -57,14 +60,11 @@ pub use users::{ProfileBuilds, login, profile, user_row, users};
 /// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.
 fn facts(s: &Schematic) -> Markup {
-    let measures: Vec<String> = [
-        s.latency.map(|t| format!("{t} ticks")),
-        Some(size(s)),
-        Some(volume(s)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let measures: Vec<String> =
+        [s.latency.map(ticks), Some(size(s)), Some(volume(s))]
+            .into_iter()
+            .flatten()
+            .collect();
     html! {
         (measures.join(" · "))
         @if !s.builders.is_empty() {
@@ -199,7 +199,16 @@ fn field(name: &str, value: impl maud::Render) -> Markup {
 }
 
 fn latency(s: &Schematic) -> String {
-    s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
+    s.latency.map(ticks).unwrap_or_default()
+}
+
+/// `n` game ticks, such as `1 tick` or `3 ticks`.
+fn ticks(n: i64) -> String {
+    if n == 1 {
+        "1 tick".to_owned()
+    } else {
+        format!("{n} ticks")
+    }
 }
 
 /// The blocks a build takes as it is compared, said per copy for a

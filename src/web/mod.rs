@@ -204,7 +204,8 @@ async fn fallback() -> AppError {
 /// draws the not-found and forbidden pages.
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/", get(schematics::list))
+        .route("/", get(schematics::home))
+        .route("/builds", get(schematics::list))
         .route("/schematics/{id}", get(schematics::detail))
         .route("/leaderboards", get(leaderboards::people))
         .route("/leaderboards/{category}", get(leaderboards::show))
