@@ -299,12 +299,11 @@ pub fn home_index(index: &Index) -> Markup {
         div id="listing" {
             h1 class="sr-only" { (APP_NAME) }
             section aria-labelledby="index-heading" class="mb-12" {
-                div class="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
-                    h2 id="index-heading" class="mr-auto text-section font-semibold" { "Categories" }
-                    a href="/builds" { "All " (index.total) " builds" }
-                }
+                // The section headings say what the tiles are, so this one
+                // is for a screen reader's outline only.
+                h2 id="index-heading" class="sr-only" { "Categories" }
                 @for (heading, id, tiles) in tile_groups(index.tiles) {
-                    h3 id={ "tiles-" (id) } class="mt-6 mb-2 text-nav font-semibold text-muted" { (heading) }
+                    h3 id={ "tiles-" (id) } class="mt-8 mb-3 text-section font-semibold first-of-type:mt-0" { (heading) }
                     ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4" {
                     @for tile in tiles {
                         @let href = Home {
@@ -331,7 +330,10 @@ pub fn home_index(index: &Index) -> Markup {
                 }
             }
             section aria-labelledby="recent-heading" {
-                h2 id="recent-heading" class="mb-4 text-section font-semibold" { "Recently added" }
+                div class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
+                    h2 id="recent-heading" class="mr-auto text-section font-semibold" { "Recently added" }
+                    a href="/builds" { "All " (index.total) " builds" }
+                }
                 ul class=(CARDS) {
                     @for &(s, named) in index.recent {
                         (card(s, &html! {
