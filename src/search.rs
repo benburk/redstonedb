@@ -275,6 +275,11 @@ fn facts(s: &Schematic) -> Vec<String> {
     if let Some(k) = s.at_least {
         facts.push(Measure::AtLeast.term(k));
     }
+    // A monostable's name leads with its pulse, so its ticks find it too.
+    if let Some(p) = s.pulse {
+        facts.push(format!("pulse:{p}"));
+        facts.extend(ticks(p));
+    }
     // In-game names keep their capitals and underscores, but terms are
     // lowercase, with spaces for underscores.
     let person =
@@ -406,6 +411,7 @@ mod tests {
             own_logic: None,
             throughput: None,
             at_least: None,
+            pulse: None,
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,
@@ -621,6 +627,19 @@ mod tests {
         };
         assert!(find("throughput:3", &adder));
         assert!(!find("3t", &adder), "3t is a latency");
+    }
+
+    #[test]
+    fn a_monostable_is_found_by_its_pulse() {
+        let monostable = Schematic {
+            pulse: Some(3),
+            latency: Some(1),
+            ..schematic("monostable", Orientation::Horizontal, &[])
+        };
+        assert!(find("pulse:3", &monostable));
+        assert!(find("3t", &monostable), "its name leads with 3-tick");
+        assert!(find("1t", &monostable), "1t is its latency");
+        assert!(!find("pulse:1", &monostable));
     }
 
     #[test]

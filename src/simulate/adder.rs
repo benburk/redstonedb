@@ -145,36 +145,31 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     })
 }
 
+/// The cases of a comparison that reads its operands in two's complement.
+pub const SIGNED_GREATER_THAN: &str = "A > B, signed";
+
 /// A greater-than comparator's every case: whether A is greater than B,
-/// both unsigned, or when `signed`, both in two's complement, on its one
-/// output line. It has no control line.
-pub(super) fn greater_than(
-    interface: &mut Interface,
-    signed: bool,
-) -> Result<Spec> {
-    let built = if signed {
-        "signed greater-than comparator"
-    } else {
-        "greater-than comparator"
-    };
-    let (a, b, out) = comparison(interface, built, "A > B")?;
+/// both unsigned or both in two's complement, whichever it gets more
+/// right, unsigned for a tie, on its one output line. The two differ only
+/// in each operand's top bit being inverted. It has no control line.
+pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
+    let (a, b, out) =
+        comparison(interface, "greater-than comparator", "A > B")?;
     let width = interface.inputs[a].bits.len();
-    let pattern = if signed { "A > B, signed" } else { "A > B" };
-    let value = move |n: u64| {
-        if signed {
-            sign_extended(n, width)
-        } else {
-            n.cast_signed()
-        }
-    };
     Ok(Spec {
-        bench: Bench::new(vec![a, b], vec![out], pattern),
+        bench: Bench::new(vec![a, b], vec![out], "A > B"),
         cases: Cases::Combinations(Box::new(move || {
             adder_cases(width, false, 8)
         })),
-        kinds: vec![Kind::new(pattern, move |case| {
-            u64::from(value(case[0]) > value(case[1]))
-        })],
+        kinds: vec![
+            Kind::new("A > B", |case| u64::from(case[0] > case[1])),
+            Kind::new(SIGNED_GREATER_THAN, move |case| {
+                u64::from(
+                    sign_extended(case[0], width)
+                        > sign_extended(case[1], width),
+                )
+            }),
+        ],
         hint: Hint::None,
         by_digit: false,
     })

@@ -70,8 +70,10 @@ fn category_part(categories: &[Category]) -> Markup {
         p class="mb-3" {
             "A category is one function. Two builds share a category only when they have the same truth "
             "table, the same outputs for the same inputs, so either could stand in for the other. A subtractor "
-            "is no adder, a decrementer no incrementer, and an XNOR gate no XOR gate, though each pair is "
-            "built alike."
+            "is no adder and a decrementer no incrementer, though each is the other with a torch on every bit "
+            "of a bus. Inverting a few lines, whatever the width, does not split a category: XOR and XNOR "
+            "gates share one, told apart by a flag, as do signed and unsigned comparators and monostables "
+            "that pulse as their input turns on or off."
         }
         p class="mb-3" {
             "The sidebar groups the categories into sections. A build that fits none of them names its own "
@@ -159,7 +161,7 @@ fn fact_part() -> Markup {
         }
         p class="mb-3" {
             "Adders, incrementers, decrementers, inc/decs, stateless multipliers, stateless "
-            "converters between binary and BCD, ALUs, registers, buffers, absolute values, carry outs, and comparisons are simulated through their inputs. Once every case of one "
+            "converters between binary and BCD, ALUs, registers, buffers, absolute values, carry outs, comparisons, and monostables are simulated through their inputs. Once every case of one "
             "comes out right, its latency and synchronized come from the simulation, not from what was typed."
         }
     }

@@ -171,6 +171,8 @@ pub struct Schematic {
     pub throughput: Option<i64>,
     /// For a threshold, the fewest inputs on that turn it on.
     pub at_least: Option<i64>,
+    /// For a monostable, the ticks its pulse lasts.
+    pub pulse: Option<i64>,
     /// The numbers its category's builds are named and ranked by, in
     /// order; none for a category off the list.
     pub measures: Vec<Measure>,
@@ -466,8 +468,8 @@ async fn load(
         r#"SELECT schematic.id, schematic.category, width,
             orientation as "orientation: Orientation",
             encoding as "encoding: Encoding", latency,
-            synchronized as "synchronized: bool", throughput, at_least, bytes,
-            torches, works_from, works_from_by, size_x, size_y, size_z,
+            synchronized as "synchronized: bool", throughput, at_least, pulse,
+            bytes, torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
             schematic.logic as "own_logic: Logic",
@@ -531,6 +533,7 @@ async fn load(
                 own_logic: row.own_logic,
                 throughput: row.throughput,
                 at_least: row.at_least,
+                pulse: row.pulse,
                 torches: row.torches,
                 works_from: row.works_from,
                 works_from_by: row.works_from_by,
@@ -745,10 +748,10 @@ pub async fn insert(
         r#"INSERT INTO schematic (category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
-            logic, throughput, at_least, bytes, torches, works_from,
+            logic, throughput, at_least, pulse, bytes, torches, works_from,
             works_from_by, keeps_paste, uploaded_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?)
+            ?, ?, ?)
          RETURNING id as "id!""#,
         details.category,
         details.width,
@@ -768,6 +771,7 @@ pub async fn insert(
         details.logic,
         details.throughput,
         details.at_least,
+        details.pulse,
         details.bytes,
         facts.torches,
         facts.works_from.release,
@@ -797,7 +801,7 @@ pub async fn set_details(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, given_name = ?, logic = ?,
-            throughput = ?, at_least = ?, bytes = ?,
+            throughput = ?, at_least = ?, pulse = ?, bytes = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -813,6 +817,7 @@ pub async fn set_details(
         details.logic,
         details.throughput,
         details.at_least,
+        details.pulse,
         details.bytes,
         id,
     )
@@ -957,6 +962,19 @@ pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Sets a monostable's pulse as the simulation measured it, which is no
+/// person's edit either.
+pub async fn set_pulse<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    pulse: Option<i64>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE schematic SET pulse = ? WHERE id = ?", pulse, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 /// Sets the fields only `rsdb set` changes once a build is stored: who
 /// imported it, and whether it follows the building conventions.
 pub async fn set_import_details<'e, E: SqliteExecutor<'e>>(
@@ -1019,6 +1037,7 @@ mod tests {
             own_logic: None,
             throughput: None,
             at_least: None,
+            pulse: None,
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,

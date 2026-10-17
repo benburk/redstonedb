@@ -9,7 +9,8 @@
 //!
 //! Each [`Test`] is one category's. Most are stateless, and state only what
 //! sets them apart as a spec, which `bench` runs; an ALU's operations and a
-//! register's or buffer's cells run their own way.
+//! register's or buffer's cells and a monostable's pulse run their own
+//! way.
 
 use std::{fmt, sync::atomic::AtomicBool};
 
@@ -51,17 +52,20 @@ mod bench;
 mod circuit;
 mod converters;
 mod incrementer;
+mod monostable;
 mod multiplier;
 mod register;
 mod stacking;
 mod timing;
 
+pub use adder::SIGNED_GREATER_THAN;
 pub use alu::op as alu_op;
 pub use circuit::Circuit;
 pub(crate) use circuit::panic_message;
 pub use stacking::{Stacking, Step};
 pub use timing::{
-    BitTiming, Glitch, InputTiming, OutputTiming, Start, Takes, Timing,
+    BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,
+    Timing,
 };
 
 /// The test a build of one category gets, which tries every case when they
@@ -97,12 +101,16 @@ pub enum Test {
     AbsoluteValue,
     /// The carry out of A + B, and a carry in when there is one.
     CarryOut,
-    /// Whether A is greater than B, both unsigned.
+    /// Whether A is greater than B, both unsigned or both in two's
+    /// complement, whichever the build gets more right.
     GreaterThan,
-    /// Whether A is greater than B, both in two's complement.
-    SignedGreaterThan,
     /// Whether A equals B.
     Equality,
+    /// A pulse as each bit of A turns on, and none as it turns off, or the
+    /// other way round.
+    Monostable,
+    /// A pulse as each bit of A turns on and as it turns off.
+    DualEdgeMonostable,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -111,7 +119,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 16] = [
+    pub const ALL: [Test; 17] = [
         Test::Adder,
         Test::Subtractor,
         Test::Incrementer,
@@ -126,8 +134,9 @@ impl Test {
         Test::AbsoluteValue,
         Test::CarryOut,
         Test::GreaterThan,
-        Test::SignedGreaterThan,
         Test::Equality,
+        Test::Monostable,
+        Test::DualEdgeMonostable,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -156,8 +165,9 @@ impl Test {
             Test::AbsoluteValue => "absolute_value",
             Test::CarryOut => "carry_out",
             Test::GreaterThan => "greater_than",
-            Test::SignedGreaterThan => "signed_greater_than",
             Test::Equality => "equality",
+            Test::Monostable => "monostable",
+            Test::DualEdgeMonostable => "dual_edge_monostable",
         }
     }
 
@@ -179,12 +189,14 @@ impl Test {
             | Test::Buffer
             | Test::AbsoluteValue
             | Test::CarryOut
-            | Test::GreaterThan
-            | Test::SignedGreaterThan
-            | Test::Equality => 1,
-            // Its timing says it counts from a read, where it once said so
-            // as a flag.
-            Test::Register => 2,
+            | Test::Equality
+            | Test::Monostable
+            | Test::DualEdgeMonostable => 1,
+            // A register's timing says it counts from a read, where it once
+            // said so as a flag; a signed comparator passes as a Greater
+            // Than with the flag Signed, where it was once a category of its
+            // own.
+            Test::Register | Test::GreaterThan => 2,
         }
     }
 
@@ -214,6 +226,8 @@ impl Test {
             Test::Buffer => {
                 register::check(blocks, register::Kind::Buffer, quick)
             }
+            Test::Monostable => monostable::check(blocks, false),
+            Test::DualEdgeMonostable => monostable::check(blocks, true),
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -233,8 +247,7 @@ impl Test {
             Test::Adder => adder::adder(interface),
             Test::Subtractor => adder::subtractor(interface),
             Test::CarryOut => adder::carry_out(interface),
-            Test::GreaterThan => adder::greater_than(interface, false),
-            Test::SignedGreaterThan => adder::greater_than(interface, true),
+            Test::GreaterThan => adder::greater_than(interface),
             Test::Equality => adder::equality(interface),
             Test::Incrementer | Test::Decrementer | Test::IncDec => {
                 // An unsigned line is named for its role, such as
@@ -246,9 +259,14 @@ impl Test {
             Test::BinaryToBcd => converters::binary_to_bcd(interface),
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
-            Test::Alu | Test::Register | Test::Buffer => {
+            Test::Alu
+            | Test::Register
+            | Test::Buffer
+            | Test::Monostable
+            | Test::DualEdgeMonostable => {
                 unreachable!(
-                    "an ALU, a register, and a buffer run their own way"
+                    "an ALU, a register, a buffer, and a monostable run their \
+                     own way"
                 )
             }
         }
@@ -256,8 +274,9 @@ impl Test {
 
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind: tried on an adder, whose
-    /// copies' carries must chain, and a register, whose copies may add
-    /// cells or bits; `None` for any other.
+    /// copies' carries must chain, a register, whose copies may add cells
+    /// or bits, and a buffer and a monostable, whose copies add bits;
+    /// `None` for any other.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
@@ -265,6 +284,8 @@ impl Test {
                 register::stacking(data, register::Kind::Register)
             }
             Test::Buffer => register::stacking(data, register::Kind::Buffer),
+            Test::Monostable => monostable::stacking(data, false),
+            Test::DualEdgeMonostable => monostable::stacking(data, true),
             _ => None,
         }
     }
@@ -281,6 +302,8 @@ impl Test {
             Test::Buffer => {
                 register::time(blocks, register::Kind::Buffer, cancel)
             }
+            Test::Monostable => monostable::time(blocks, false, cancel),
+            Test::DualEdgeMonostable => monostable::time(blocks, true, cancel),
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -419,8 +442,9 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         Test::AbsoluteValue,
         Test::CarryOut,
         Test::GreaterThan,
-        Test::SignedGreaterThan,
         Test::Equality,
+        Test::Monostable,
+        Test::DualEdgeMonostable,
         Test::Alu,
     ];
     // An ALU's lines are tried only when their signs name operations, as

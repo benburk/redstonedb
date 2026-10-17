@@ -26,7 +26,7 @@ just seed
 just serve 3001
 ```
 
-`just seed` makes `redstone.db` from the test fixtures: 18 builds in twelve categories, each imported with `rsdb add`, which simulates it, so it takes a minute or two. It refuses to overwrite a database that exists; `just seed other.db` writes elsewhere. `just pull-db` instead replaces `redstone.db` with a copy of the live database, backing up the local one to `backups/` first, and needs SSH access to the server.
+`just seed` makes `redstone.db` from the test fixtures: 19 builds in thirteen categories, each imported with `rsdb add`, which simulates it, so it takes a minute or two. It refuses to overwrite a database that exists; `just seed other.db` writes elsewhere. `just pull-db` instead replaces `redstone.db` with a copy of the live database, backing up the local one to `backups/` first, and needs SSH access to the server.
 
 Discord login needs the three `DISCORD_` settings in `.env`; see `.env.example`. The client secret comes from the Discord Developer Portal, and the redirect, port 3001 in the example, must be listed there too. Without them the site runs with login turned off. The first admin is made from the command line, after they have logged in once:
 

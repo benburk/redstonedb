@@ -112,6 +112,12 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
             input type="number" name="at_least" value=(f.at_least) min="1"
                 inputmode="numeric" placeholder="such as 3" class="input";
         }
+        // For a monostable; the simulation measures a conventional one's.
+        label class="field" data-measure-field="pulse" hidden[!has(Measure::Pulse)] {
+            span { "Pulse (ticks)" }
+            input type="number" name="pulse" value=(f.pulse) min="1"
+                inputmode="numeric" placeholder="such as 3" class="input";
+        }
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {
             span { "Design" }
@@ -347,8 +353,9 @@ fn stacking_fields(f: &Form) -> Markup {
         // register, once it finds copies that work.
         div class="field" data-derived-stacking hidden {
             span { "Stacking" }
-            p class="text-muted" {
-                "Found by the simulation."
+            // The stack the simulation found, once it has run.
+            p class="text-muted" data-stack-note {
+                "Found by the simulation once it has run."
             }
         }
         fieldset class="group flex flex-col gap-3" data-typed-stacking {

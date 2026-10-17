@@ -38,6 +38,8 @@ named_values! {
         /// A threshold's k, the fewest inputs on that turn it on, as in `At
         /// Least 3`.
         AtLeast = "at_least", "At least";
+        /// A monostable's pulse, in ticks, as in `3-tick`.
+        Pulse = "pulse", "Pulse";
     }
 }
 
@@ -49,16 +51,18 @@ impl Measure {
             Measure::Bytes => s.bytes,
             Measure::Throughput => s.throughput,
             Measure::AtLeast => s.at_least,
+            Measure::Pulse => s.pulse,
         }
     }
 
     /// `n` of it as a name leads with it, such as `8-bit`, `32-byte`,
-    /// `2-tick`, or `At Least 3`.
+    /// `2-tick`, or `At Least 3`; a pulse as a throughput, as in `3-tick
+    /// Monostable`.
     pub fn lead(self, n: i64) -> String {
         match self {
             Measure::Width => format!("{n}-bit"),
             Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput => format!("{n}-tick"),
+            Measure::Throughput | Measure::Pulse => format!("{n}-tick"),
             Measure::AtLeast => format!("At Least {n}"),
         }
     }
@@ -71,7 +75,7 @@ impl Measure {
         match self {
             Measure::Width => count("bit", "bits"),
             Measure::Bytes => count("byte", "bytes"),
-            Measure::Throughput => count("tick", "ticks"),
+            Measure::Throughput | Measure::Pulse => count("tick", "ticks"),
             Measure::AtLeast => format!("at least {n} on"),
         }
     }
@@ -81,7 +85,7 @@ impl Measure {
         match self {
             Measure::Width => format!("{n}b"),
             Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput => format!("{n}t"),
+            Measure::Throughput | Measure::Pulse => format!("{n}t"),
             Measure::AtLeast => format!("at least {n}"),
         }
     }

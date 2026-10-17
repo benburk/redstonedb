@@ -93,6 +93,7 @@ seed db="redstone.db":
     add alpha-register horz --category register
     add buffer-2-button horz --category buffer
     add threshold-3-raw horz --category threshold --width 3 --at-least 2 --standardize
+    add monostable-3-inverted horz --category monostable --standardize
 
 # Follow the live site's log
 logs:

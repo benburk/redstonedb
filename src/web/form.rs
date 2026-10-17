@@ -136,6 +136,8 @@ pub struct Form {
     pub bytes: String,
     /// A threshold's k.
     pub at_least: String,
+    /// A monostable's pulse, in ticks.
+    pub pulse: String,
     pub design: String,
     /// The ticked flags, each with the category whose group it was ticked
     /// in, such as `("adder", "carry_in")`. The form shows a flag ticked in
@@ -202,6 +204,7 @@ impl Form {
             throughput: get("throughput"),
             bytes: get("bytes"),
             at_least: get("at_least"),
+            pulse: get("pulse"),
             design: get("design"),
             // Each category's flags are sent under its own name.
             flags: pairs
@@ -242,6 +245,7 @@ impl Form {
             throughput: number(s.throughput),
             bytes: number(s.bytes),
             at_least: number(s.at_least),
+            pulse: number(s.pulse),
             design: s.design.clone(),
             flags: s
                 .flags
@@ -354,6 +358,7 @@ impl Form {
             throughput: number(&self.throughput, "Throughput")?,
             bytes: number(&self.bytes, "Capacity")?,
             at_least: number(&self.at_least, "At least")?,
+            pulse: number(&self.pulse, "Pulse")?,
             design: text(&self.design),
             flags: self
                 .flags

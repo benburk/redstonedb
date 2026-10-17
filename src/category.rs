@@ -24,9 +24,8 @@ pub struct Behaviour {
     /// What its control and status lines mean without signs.
     pub lines: Lines,
     pub stacking: Stacking,
-    /// Whether copies stacked across its bits share its data buses, as
-    /// more registers or words on one bus, rather than adding bits.
-    pub shared_buses: bool,
+    /// What its copies stacked do with its buses and lines.
+    pub copies: Copies,
 }
 
 /// What a category's unsigned control and status lines are taken to be.
@@ -58,6 +57,22 @@ pub enum Lines {
     Buffer,
 }
 
+/// What a category's copies stacked do with its data buses and its
+/// labelled outputs and status lines.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Copies {
+    /// Each keeps its own data buses, and the next takes over its labelled
+    /// outputs and status lines, as an adder's carry out.
+    #[default]
+    Chain,
+    /// Copies across its bits share its data buses, as more registers or
+    /// words on one bus, rather than adding bits.
+    SharedBuses,
+    /// Each keeps its labelled outputs and status lines too, as a
+    /// monostable's lone output is its own bit's.
+    OwnOutputs,
+}
+
 /// Who decides how a category's builds stack.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Stacking {
@@ -86,6 +101,14 @@ pub fn behaviour(category: &str) -> Behaviour {
     let read = |test| Behaviour {
         reads_file: true,
         ..tested(test)
+    };
+    // A monostable's lone output needs no sign; its copies add bits, each
+    // with its own.
+    let monostable = |test| Behaviour {
+        lines: Lines::Result("pulse"),
+        stacking: Stacking::Found,
+        copies: Copies::OwnOutputs,
+        ..read(test)
     };
     let lone = |control, status| Lines::Lone {
         control,
@@ -130,10 +153,6 @@ pub fn behaviour(category: &str) -> Behaviour {
             lines: Lines::Result("A > B"),
             ..read(Test::GreaterThan)
         },
-        "signed_greater_than" => Behaviour {
-            lines: Lines::Result("A > B"),
-            ..read(Test::SignedGreaterThan)
-        },
         "equality" => Behaviour {
             lines: Lines::Result("A = B"),
             ..read(Test::Equality)
@@ -141,7 +160,7 @@ pub fn behaviour(category: &str) -> Behaviour {
         "register" => Behaviour {
             lines: Lines::Register,
             stacking: Stacking::Found,
-            shared_buses: true,
+            copies: Copies::SharedBuses,
             ..read(Test::Register)
         },
         // Its copies add bits, as its cells cannot share a bus.
@@ -150,11 +169,13 @@ pub fn behaviour(category: &str) -> Behaviour {
             stacking: Stacking::Found,
             ..read(Test::Buffer)
         },
+        "monostable" => monostable(Test::Monostable),
+        "dual_edge_monostable" => monostable(Test::DualEdgeMonostable),
         "multiplier" => tested(Test::Multiplier),
         "binary_to_bcd" => tested(Test::BinaryToBcd),
         "bcd_to_binary" => tested(Test::BcdToBinary),
         "ram" => Behaviour {
-            shared_buses: true,
+            copies: Copies::SharedBuses,
             ..Behaviour::default()
         },
         _ => Behaviour::default(),

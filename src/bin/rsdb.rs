@@ -274,8 +274,8 @@ struct NewCategory {
     section: Option<Section>,
     /// A number its builds are named and ranked by, in order; repeatable,
     /// and width alone when left out. A memory takes `width` then `bytes`,
-    /// a serial build `throughput`, and a threshold `width` then
-    /// `at_least`
+    /// a serial build `throughput`, a threshold `width` then `at_least`,
+    /// and a monostable `pulse`
     #[arg(long = "measure")]
     measures: Vec<Measure>,
     /// Whether its builds are usually stateless or stateful, which a build
@@ -311,6 +311,10 @@ struct DetailArgs {
     /// at-least-3 threshold
     #[arg(long)]
     at_least: Option<u32>,
+    /// For a monostable, the ticks its pulse lasts, as in a 3-tick
+    /// monostable; a conventional one's comes from its simulation
+    #[arg(long)]
+    pulse: Option<u32>,
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
@@ -615,6 +619,7 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
         number(given.at_least),
         unsets("at-least"),
     );
+    put(&mut details.pulse, number(given.pulse), unsets("pulse"));
     put(&mut details.design, given.design.clone(), unsets("design"));
     // A list given replaces the stored one whole.
     let lists = [
@@ -1125,15 +1130,18 @@ fn print_report(name: &str, report: &Report) {
     if let Report::Ran(run) = report
         && let Some(stacking) = &run.stacking
     {
-        print_stacking(stacking);
+        // A build with only input A, as a monostable, has no control
+        // lines for its copies to share.
+        print_stacking(stacking, run.inputs.len() > 1);
     }
     if let Some(timing) = report.timing() {
         print_timing(timing);
     }
 }
 
-/// What stacking copies of a simulated build found.
-fn print_stacking(stacking: &Stacking) {
+/// What stacking copies of a simulated build found, whose copies share
+/// any `controls` lines.
+fn print_stacking(stacking: &Stacking, controls: bool) {
     match stacking {
         Stacking::Stacks {
             step,
@@ -1166,8 +1174,13 @@ fn print_stacking(stacking: &Stacking) {
             cases,
             most,
         } => println!(
-            "        stacks: {copies} copies {} apart make {bits} bits sharing their control lines, all {cases} cases right{}",
+            "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right{}",
             step.describe(),
+            if controls {
+                " sharing their control lines"
+            } else {
+                ""
+            },
             if most.is_some() {
                 "; one more copy fails"
             } else {
@@ -1226,6 +1239,18 @@ fn print_timing(timing: &Timing) {
         timing.slowest,
         timing.changes
     );
+    if let Some(pulse) = timing.pulse {
+        println!(
+            "        pulse: {} ticks, {}, as {}",
+            pulse.ticks,
+            if pulse.inverted {
+                "low, inverted"
+            } else {
+                "high"
+            },
+            pulse.edge.words()
+        );
+    }
     for output in timing
         .outputs
         .iter()
@@ -1303,6 +1328,9 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     if let Some(k) = s.at_least {
         println!("at least     {k} on");
     }
+    if let Some(p) = s.pulse {
+        println!("pulse        {p} ticks");
+    }
     println!("synchronized {}", s.synchronized_label());
     println!(
         "state        {}{}",
@@ -1356,7 +1384,16 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         println!("edited at    {edited}");
     }
     println!("downloads    {}", s.downloads);
-    let versions = version::list(db, &s.id).await?;
+    print_versions(db, &s.id).await?;
+    if let Some(description) = &s.description {
+        println!("\n{description}");
+    }
+    Ok(())
+}
+
+/// Build `id`'s versions, a line each, when it has more than one.
+async fn print_versions(db: &SqlitePool, id: &str) -> Result<()> {
+    let versions = version::list(db, id).await?;
     if versions.len() > 1 {
         for v in &versions {
             println!(
@@ -1367,9 +1404,6 @@ async fn show(db: &SqlitePool, id: &str) -> Result<()> {
                 v.note.as_deref().unwrap_or("")
             );
         }
-    }
-    if let Some(description) = &s.description {
-        println!("\n{description}");
     }
     Ok(())
 }

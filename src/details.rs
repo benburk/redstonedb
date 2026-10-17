@@ -45,6 +45,8 @@ pub struct Details {
     pub bytes: Option<i64>,
     /// A threshold's k.
     pub at_least: Option<i64>,
+    /// A monostable's pulse, in ticks.
+    pub pulse: Option<i64>,
     /// A design of the category; `None` for `other`.
     pub design: Option<String>,
     /// Flags it has; any not of its category are dropped.
@@ -74,6 +76,7 @@ impl Details {
             throughput: s.throughput,
             bytes: s.bytes,
             at_least: s.at_least,
+            pulse: s.pulse,
             design: Some(s.design.clone()),
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             builders: s.builders.clone(),
@@ -211,6 +214,8 @@ async fn ready(
         positive(details.bytes).filter(|_| category.has(Measure::Bytes));
     details.at_least =
         positive(details.at_least).filter(|_| category.has(Measure::AtLeast));
+    details.pulse =
+        positive(details.pulse).filter(|_| category.has(Measure::Pulse));
     details.flags =
         catalogue::keep_flags(db, &category.name, &details.flags).await?;
 

@@ -7,7 +7,7 @@ use app::{
     models::schematic::{Encoding, Orientation},
     orient,
     schem::{self, Blocks, Direction},
-    simulate::{self, Report, Run, Stacking, Start, Takes, Test},
+    simulate::{self, Edge, Report, Run, Stacking, Start, Takes, Test},
     stack,
     standardize::{self, Gray},
 };
@@ -1160,8 +1160,8 @@ fn comparison(name: &str) -> Blocks {
 
 /// An 8-bit vertical greater-than comparator: whether A is greater than B,
 /// unsigned, on one unsigned output, right in every one of its 65,536
-/// cases. Read in two's complement it is wrong whenever the top bits
-/// differ, so it is no signed comparator.
+/// cases. Read in two's complement it would be wrong whenever the top bits
+/// differ, so it is taken as unsigned.
 #[test]
 fn a_greater_than_comparator_compares_unsigned() {
     let blocks = comparison("gt-8");
@@ -1176,10 +1176,20 @@ fn a_greater_than_comparator_compares_unsigned() {
         .unwrap();
     assert_eq!((timing.latency(), timing.synced), (Some(2), true));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
-    let Report::Ran(signed) = Test::SignedGreaterThan.run(&blocks) else {
-        panic!("the comparator was not simulated as signed");
+}
+
+/// The unsigned comparator with both its sign bits' levers saved on, so
+/// each top bit reaches it inverted: in two's complement, that shifts every
+/// value up by 128, keeping their order, so it compares signed, and right.
+#[test]
+fn a_comparator_with_its_sign_bits_inverted_compares_signed() {
+    let blocks = comparison("gt-8-signed");
+    let Report::Ran(run) = Test::GreaterThan.run(&blocks) else {
+        panic!("the comparator was not simulated");
     };
-    assert_eq!(signed.wrong, 2 * 128 * 128);
+    assert_eq!(run.pattern, simulate::SIGNED_GREATER_THAN);
+    assert_eq!((run.cases, run.wrong), (1 << 16, 0));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
 }
 
 /// An 8-bit equality comparator whose bits' differences climb one dust
@@ -1201,4 +1211,110 @@ fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
             .all(|case| case.inputs[0] ^ case.inputs[1] == 1)
     );
     assert_eq!(simulate::guess(&blocks).unwrap().category, "equality");
+}
+
+/// A 1-wide monostable whose output rests on: A's lever turns one torch
+/// off at once and, three torches later, another on, the output on while
+/// either is, so it goes off for 3 ticks from tick 1 as A turns on, and
+/// stays on as A turns off. Copies 2 west each pulse alone, any number of
+/// them.
+#[test]
+fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
+    // Standardized as a register is, its quartz whitened and its lever
+    // turned to face south.
+    let (data, blocks) = register("monostable-3-inverted");
+    assert!(lint::check_for(&blocks, "monostable").is_empty());
+    let Report::Ran(run) = Test::Monostable.run(&blocks) else {
+        panic!("the monostable was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (2, 0));
+    assert_eq!(run.pattern, "A on gives a 3-tick low pulse, A off none");
+    let timing = Test::Monostable
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    let pulse = timing.pulse.unwrap();
+    assert_eq!((pulse.ticks, pulse.inverted), (3, true));
+    assert_eq!((timing.latency(), timing.synced), (Some(1), true));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
+    let stacking = Test::Monostable.stacking(&data);
+    let Some(Stacking::Wider {
+        step, copies, most, ..
+    }) = stacking
+    else {
+        panic!("the monostable does not stack: {stacking:?}");
+    };
+    assert_eq!(step.describe(), "2 west");
+    assert_eq!((copies, most), (16, None));
+}
+
+/// The inverted monostable with its output line turned into a torch,
+/// which lights a yellow output: it rests off and goes on for 3 ticks from
+/// tick 2.
+#[test]
+fn a_monostable_whose_output_rests_off_gives_a_high_pulse() {
+    let (_, blocks) = register("monostable-3");
+    assert!(lint::check_for(&blocks, "monostable").is_empty());
+    assert!(Test::Monostable.run(&blocks).passed());
+    let timing = Test::Monostable
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    let pulse = timing.pulse.unwrap();
+    assert_eq!((pulse.ticks, pulse.inverted), (3, false));
+    assert_eq!(timing.latency(), Some(2));
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
+}
+
+/// An 8-bit adder has two operands, so it is no monostable.
+#[test]
+fn an_adder_is_no_monostable() {
+    let Report::Broken { reason } = Test::Monostable.run(&blocks("alpha-rca"))
+    else {
+        panic!("the adder was not refused as a monostable");
+    };
+    assert!(reason.contains("one input"));
+}
+
+/// A splits into a fast path and one 3 ticks slower, and a comparator
+/// subtracting the slow from the fast pulses as A turns on, another the
+/// fast from the slow as it turns off, both onto one yellow output: a
+/// 3-tick high pulse on either edge, so no single-edge monostable.
+#[test]
+fn a_dual_edge_monostable_pulses_both_ways() {
+    let (_, blocks) = register("monostable-3-dual-edge");
+    assert!(lint::check_for(&blocks, "dual_edge_monostable").is_empty());
+    let Report::Ran(run) = Test::DualEdgeMonostable.run(&blocks) else {
+        panic!("the monostable was not simulated");
+    };
+    assert_eq!(run.wrong, 0);
+    assert_eq!(run.pattern, "A on or off gives a 3-tick high pulse");
+    let timing = Test::DualEdgeMonostable
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    let pulse = timing.pulse.unwrap();
+    assert_eq!((pulse.ticks, pulse.inverted), (3, false));
+    assert_eq!(pulse.edge, Edge::Both);
+    assert!(Test::Monostable.run(&blocks).failed());
+    assert_eq!(
+        simulate::guess(&blocks).unwrap().category,
+        "dual_edge_monostable"
+    );
+}
+
+/// The dual-edge monostable without the comparator that pulses as A
+/// turns on: a 3-tick high pulse as A turns off alone.
+#[test]
+fn a_falling_edge_monostable_pulses_as_a_turns_off() {
+    let (_, blocks) = register("monostable-3-falling");
+    let Report::Ran(run) = Test::Monostable.run(&blocks) else {
+        panic!("the monostable was not simulated");
+    };
+    assert_eq!(run.wrong, 0);
+    assert_eq!(run.pattern, "A off gives a 3-tick high pulse, A on none");
+    let timing = Test::Monostable
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    let pulse = timing.pulse.unwrap();
+    assert_eq!((pulse.ticks, pulse.edge), (3, Edge::Falling));
+    assert!(Test::DualEdgeMonostable.run(&blocks).failed());
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
 }

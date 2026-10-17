@@ -843,6 +843,7 @@ pub fn time(
         write: Some(write_ticks),
         data: data_ticks,
         takes,
+        pulse: None,
     })
 }
 

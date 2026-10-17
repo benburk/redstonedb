@@ -78,6 +78,64 @@ pub struct Timing {
     pub data: Option<i32>,
     /// When a register's cells take their data.
     pub takes: Takes,
+    /// For a monostable, the pulse it gives as A turns on.
+    #[serde(default)]
+    pub pulse: Option<Pulse>,
+}
+
+/// The pulse a monostable gives as input A changes on its edge.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pulse {
+    /// How many ticks it lasts.
+    pub ticks: i32,
+    /// Whether its output rests on, so the pulse turns it off.
+    pub inverted: bool,
+    #[serde(default)]
+    pub edge: Edge,
+}
+
+/// Which changes of input A give a monostable's pulse.
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Edge {
+    /// A turning on.
+    #[default]
+    Rising,
+    /// A turning off.
+    Falling,
+    /// Either.
+    Both,
+}
+
+impl Edge {
+    /// Whether A turning on, if `on`, or off gives the pulse.
+    pub fn triggers(self, on: bool) -> bool {
+        match self {
+            Edge::Rising => on,
+            Edge::Falling => !on,
+            Edge::Both => true,
+        }
+    }
+
+    /// Such as `A turns on`.
+    pub fn words(self) -> &'static str {
+        match self {
+            Edge::Rising => "A turns on",
+            Edge::Falling => "A turns off",
+            Edge::Both => "A turns on or off",
+        }
+    }
+
+    /// Such as `A turning on`.
+    pub fn turning(self) -> &'static str {
+        match self {
+            Edge::Rising => "A turning on",
+            Edge::Falling => "A turning off",
+            Edge::Both => "A turning on or off",
+        }
+    }
 }
 
 /// What a timing's ticks count from.
@@ -117,7 +175,12 @@ impl Timing {
     /// open and read on, so a
     /// data loop's latency is its ALU's plus its registers'; or, for one
     /// that takes its data only as its write opens, from the write's button.
+    /// A monostable's is from A changing on its edge to its pulse
+    /// starting.
     pub fn latency(&self) -> Option<i32> {
+        if self.pulse.is_some() {
+            return self.outputs.iter().map(|output| output.first_change).max();
+        }
         if self.start != Start::Input {
             return self.data.or(self.write).or_else(|| self.read());
         }
@@ -300,6 +363,7 @@ pub(super) fn measure(
         takes: Takes::Open,
         write: None,
         data: None,
+        pulse: None,
     })
 }
 

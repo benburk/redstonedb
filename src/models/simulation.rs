@@ -19,7 +19,7 @@ use crate::{
     },
     models::version,
     schem::Blocks,
-    simulate::{Report, Stacking, Test, Timing},
+    simulate::{Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing},
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -272,6 +272,16 @@ pub async fn refresh(
     Ok(report)
 }
 
+/// The flag of a monostable whose output rests on, so its pulse turns it
+/// off.
+const INVERTED: &str = "inverted";
+
+/// The flag of a comparator that reads its operands in two's complement.
+const SIGNED: &str = "signed";
+
+/// The flag of a monostable that pulses as A turns off, not on.
+const FALLING_EDGE: &str = "falling_edge";
+
 /// The details worked out from a build's file and its simulation, over
 /// what was typed, as they stand or are to be.
 #[derive(PartialEq)]
@@ -281,6 +291,7 @@ struct Derived {
     encoding: Option<Encoding>,
     latency: Option<i64>,
     synchronized: Option<bool>,
+    pulse: Option<i64>,
     flags: Vec<String>,
     stacking: Vec<StackDirection>,
 }
@@ -294,6 +305,7 @@ impl Derived {
             encoding: s.encoding,
             latency: s.latency,
             synchronized: s.synchronized,
+            pulse: s.pulse,
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             stacking: s.stacking.clone(),
         }
@@ -318,7 +330,8 @@ impl Derived {
     }
 
     /// Takes what build `s`'s result `report` decides: the latency and
-    /// synchronized of a result that measured its timing, and, for a
+    /// synchronized of a result that measured its timing, a monostable's
+    /// pulse and whether it is inverted, and, for a
     /// conventional build of a category whose stacking the simulation
     /// decides, how it stacks. An adder takes the step its copies added
     /// right at, with no limit on copies, or none. A register takes the
@@ -333,6 +346,27 @@ impl Derived {
         {
             self.latency = Some(latency.max(0).into());
             self.synchronized = Some(timing.synced);
+        }
+        // A comparator's cases say whether it reads its operands signed.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::GreaterThan)
+        {
+            self.flags.retain(|flag| flag != SIGNED);
+            if run.pattern == SIGNED_GREATER_THAN {
+                self.flags.push(SIGNED.to_owned());
+            }
+        }
+        if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
+            self.pulse = Some(pulse.ticks.into());
+            self.flags
+                .retain(|flag| flag != INVERTED && flag != FALLING_EDGE);
+            if pulse.inverted {
+                self.flags.push(INVERTED.to_owned());
+            }
+            if pulse.edge == Edge::Falling {
+                self.flags.push(FALLING_EDGE.to_owned());
+            }
         }
         let policy = category::behaviour(&s.category).stacking;
         let Report::Ran(run) = report else {
@@ -410,6 +444,9 @@ impl Derived {
                 self.synchronized,
             )
             .await?;
+        }
+        if self.pulse != stored.pulse {
+            schematic::set_pulse(&mut *tx, &s.id, self.pulse).await?;
         }
         if self.flags != stored.flags {
             schematic::set_flags(tx, &s.id, &self.flags).await?;

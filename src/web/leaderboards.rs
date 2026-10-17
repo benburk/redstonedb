@@ -19,13 +19,15 @@ use super::pages;
 
 /// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel`,
 /// each optional, with a value of each of the category's measures, such as
-/// `throughput` for a serial one and `at_least` for a threshold.
+/// `throughput` for a serial one, `at_least` for a threshold, and `pulse`
+/// for a monostable.
 #[derive(Deserialize)]
 pub struct BoardQuery {
     width: Option<String>,
     throughput: Option<String>,
     bytes: Option<String>,
     at_least: Option<String>,
+    pulse: Option<String>,
     logic: Option<String>,
     encoding: Option<String>,
     orientation: Option<String>,
@@ -51,6 +53,7 @@ pub async fn show(
         (Measure::Bytes, query.bytes),
         (Measure::Throughput, query.throughput),
         (Measure::AtLeast, query.at_least),
+        (Measure::Pulse, query.pulse),
     ];
     let wanted = Wanted {
         measures: asked

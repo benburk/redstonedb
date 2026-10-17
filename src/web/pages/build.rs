@@ -16,7 +16,7 @@ use crate::{
         user::User,
         version::Version,
     },
-    simulate::{Report, Stacking, Timing},
+    simulate::{Report, Stacking, Test, Timing},
 };
 
 use super::{
@@ -181,6 +181,9 @@ struct Sources {
     encoding: Source,
     /// Latency and whether it is synchronized, measured together.
     timing: Source,
+    /// A monostable's pulse and whether it is inverted, measured with its
+    /// timing.
+    pulse: Source,
     stacking: Source,
 }
 
@@ -250,6 +253,12 @@ impl Sources {
                     .and_then(Report::timing)
                     .and_then(Timing::latency)
                     .is_some(),
+            ),
+            pulse: checked(
+                false,
+                report
+                    .and_then(Report::timing)
+                    .is_some_and(|timing| timing.pulse.is_some()),
             ),
             stacking,
         }
@@ -348,7 +357,11 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
         section aria-label="Key facts" {
             dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3" {
                 @for &measure in &s.measures {
-                    @let source = if measure == Measure::Width { sources.width } else { Source::Given };
+                    @let source = match measure {
+                        Measure::Width => sources.width,
+                        Measure::Pulse => sources.pulse,
+                        _ => Source::Given,
+                    };
                     (fact(measure.label(), measure.of(s).map_or_else(unknown, |n| {
                         sourced(search_link(&measure.words(n), &measure.term(n)), source)
                     })))
@@ -473,9 +486,15 @@ fn specs(
                 @if s.pipelined() {
                     (field("Pipelined", flag(true, Some("pipelined"))))
                 }
-                // A category such as adder reads its flags from the file.
+                // A category such as adder reads its flags from the file,
+                // a monostable's Inverted comes with its pulse, and a
+                // comparator's Signed with its cases.
                 @let read = if s.conventional && category::behaviour(&s.category).flags_from_file {
                     Source::File
+                } else if s.has(Measure::Pulse) {
+                    sources.pulse
+                } else if category::behaviour(&s.category).test == Some(Test::GreaterThan) {
+                    sources.category
                 } else {
                     Source::Given
                 };

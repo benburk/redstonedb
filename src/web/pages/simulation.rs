@@ -4,9 +4,11 @@
 
 use maud::{Markup, html};
 
+use crate::models::schematic::StackDirection;
+
 use crate::simulate::{
-    Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Start, Takes,
-    Timing,
+    Edge, Glitch, InputTiming, OutputTiming, Report, Run, Stacking, Start,
+    Takes, Timing,
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};
@@ -58,8 +60,18 @@ pub(super) fn simulation_summary(report: &Report) -> String {
     }
 }
 
-/// A timing in a few words, such as `synced; output settles by tick 3`.
+/// A timing in a few words, such as `synced; output settles by tick 3`,
+/// or for a monostable `a 3-tick low pulse from tick 1`.
 pub(super) fn timing_summary(timing: &Timing) -> String {
+    if let Some(pulse) = timing.pulse {
+        return format!(
+            "{}a {}-tick {} pulse from tick {}.",
+            if timing.synced { "" } else { "not synced; " },
+            pulse.ticks,
+            if pulse.inverted { "low" } else { "high" },
+            timing.latency().map_or_else(|| "?".to_owned(), tick)
+        );
+    }
     // Such as `output settles by tick 3, carry out by tick 4`.
     let outputs: Vec<String> = timing
         .outputs
@@ -106,7 +118,8 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
             data-measures-timing[report.passed()]
             data-skipped[matches!(report, Report::Skipped { .. })]
             data-state=(if report.failed() { "fail" } else { "pass" })
-            data-summary=(simulation_summary(report)) {
+            data-summary=(simulation_summary(report))
+            data-stack=[found_stack(report)] {
             h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-2" } { "Simulation" }
             @match report {
                 Report::Skipped { reason } => p class="text-muted" { "Not simulated: " (reason) },
@@ -129,7 +142,9 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                         }
                     }
                     @if let Some(stacking) = &run.stacking {
-                        (stacking_note(stacking))
+                        // A build with only input A, as a monostable,
+                        // has no control lines for its copies to share.
+                        (stacking_note(stacking, run.inputs.len() > 1))
                     }
                     @if run.wrong > 0 {
                         (simulation_failures(run))
@@ -159,6 +174,25 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
 
 /// Whether copies of a passing adder stack into a wider one, or of a
 /// register into a bigger register file.
+/// How copies stack, as stacking them found, such as `2 west per copy,
+/// any number of copies`, for the details form to show in place of the
+/// typed stacking; `None` when no copies were stacked.
+fn found_stack(report: &Report) -> Option<String> {
+    let Report::Ran(run) = report else {
+        return None;
+    };
+    Some(match run.stacking.as_ref()? {
+        Stacking::Stacks { step, .. } => step.direction().describe(),
+        Stacking::Registers { step, most, .. }
+        | Stacking::Wider { step, most, .. } => StackDirection {
+            max_copies: most.and_then(|n| i64::try_from(n).ok()),
+            ..step.direction()
+        }
+        .describe(),
+        Stacking::Not { reason, .. } => format!("Doesn't stack: {reason}"),
+    })
+}
+
 /// What stacking copies found, in a sentence, for the hover on a build's
 /// Stacks field.
 pub(super) fn stacking_words(stacking: &Stacking) -> String {
@@ -205,7 +239,7 @@ pub(super) fn stacking_words(stacking: &Stacking) -> String {
     }
 }
 
-fn stacking_note(stacking: &Stacking) -> Markup {
+fn stacking_note(stacking: &Stacking, controls: bool) -> Markup {
     let limit = |copies: usize, most: Option<usize>| match most {
         Some(_) => format!("; a copy more fails, so at most {copies}"),
         None => ", so any number stack".to_owned(),
@@ -225,7 +259,9 @@ fn stacking_note(stacking: &Stacking) -> Markup {
             },
             Stacking::Wider { step, copies, bits, cases, most } => p class="mt-3" data-found-stacking {
                 strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart make " (bits) " bits sharing their control lines, all "
+                (copies) " copies " (step.describe()) " apart make " (bits) " bits"
+                @if controls { " sharing their control lines" }
+                ", all "
                 (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
             // Why not is on the build's Stacks field, on hover.
@@ -242,7 +278,20 @@ fn stacking_note(stacking: &Stacking) -> Markup {
 /// buffer, a write.
 fn timing_intro(timing: &Timing) -> Markup {
     html! {
-        @if timing.start != Start::Input {
+        @if let Some(pulse) = timing.pulse {
+            p class="mb-3" {
+                @let latency = timing.latency().unwrap_or(0);
+                strong { "A " (pulse.ticks) "-tick pulse" } ", "
+                @if pulse.inverted { "low, its output resting on" } @else { "high, its output resting off" }
+                ", from " (tick(latency)) " " (if latency == 1 { "tick" } else { "ticks" }) " after " (pulse.edge.words()) ". "
+                @match pulse.edge {
+                    Edge::Rising => span class="text-muted" { "Turning A off gives none." },
+                    Edge::Falling => span class="text-muted" { "Turning A on gives none." },
+                    Edge::Both => {},
+                }
+            }
+            p class="mb-2 text-meta text-muted" { "In ticks from " (pulse.edge.turning()) ": the pulse starts at its first change and ends as it settles." }
+        } @else if timing.start != Start::Input {
             p class="mb-3" {
                 @match (timing.data, timing.write, timing.takes) {
                     (Some(data), Some(write), Takes::Closing) => {

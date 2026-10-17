@@ -369,6 +369,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const derivedStacking = form.querySelector("[data-derived-stacking]");
   const found = (fresh) => {
     if (!typedStacking || !derivedStacking) return;
+    const stack = fresh ? results().querySelector("[data-stack]")?.dataset.stack : null;
+    derivedStacking.querySelector("[data-stack-note]").textContent =
+      stack ?? "Found by the simulation once it has run.";
     if (!chosenOption()?.hasAttribute("data-finds-stacking")) {
       typedStacking.disabled = false;
       return;

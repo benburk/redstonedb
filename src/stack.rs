@@ -19,8 +19,9 @@
 //!    over them too.
 //! 4. Turn every copy's labelled outputs and status lines but the last
 //!    copy's white, signed or not, and take off their signs, since the
-//!    next copy takes them over; and a later copy's data blocks on a shared
-//!    bus, which are plain blocks without their levers.
+//!    next copy takes them over, unless each copy keeps its own, as a
+//!    monostable's lone output is its own bit's; and a later copy's data
+//!    blocks on a shared bus, which are plain blocks without their levers.
 //!
 //! Where two copies hold different blocks, `review` says so, and finds the
 //! shortest step at which they do not. Several directions stack one after
@@ -53,17 +54,22 @@ const WHITE: &str = "minecraft:white_concrete";
 #[derive(Clone, Copy)]
 pub struct Buses {
     /// Whether the category's copies across its bits share its buses, as
-    /// `category::Behaviour::shared_buses` says.
+    /// `category::Copies::SharedBuses` says.
     shared: bool,
     /// The way the build's bits run; `None` when it does not matter.
     orientation: Option<Orientation>,
+    /// Whether each copy keeps its labelled outputs and status lines, as
+    /// `category::Copies::OwnOutputs` says.
+    own_outputs: bool,
 }
 
 impl Buses {
     pub fn of(category: &str, orientation: Orientation) -> Self {
+        let behaviour = category::behaviour(category);
         Buses {
-            shared: category::behaviour(category).shared_buses,
+            shared: behaviour.copies == category::Copies::SharedBuses,
             orientation: Some(orientation),
+            own_outputs: behaviour.copies == category::Copies::OwnOutputs,
         }
     }
 
@@ -72,6 +78,7 @@ impl Buses {
         Buses {
             shared: false,
             orientation: None,
+            own_outputs: false,
         }
     }
 
@@ -97,7 +104,7 @@ pub fn stack(
 ) -> Result<(Vec<u8>, Pos)> {
     let mut data = data.to_vec();
     for &(direction, count) in copies {
-        data = along(&data, direction, count, buses.shared(direction))?;
+        data = along(&data, direction, count, buses)?;
     }
     let (low, high) = interface::measured(&Blocks::read(&data)?);
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
@@ -113,7 +120,7 @@ pub fn check(
     buses: Buses,
 ) -> Result<(), String> {
     for &direction in directions {
-        along(data, direction, 2, buses.shared(direction)).map_err(|err| {
+        along(data, direction, 2, buses).map_err(|err| {
             format!("Two copies stacked {} don't fit: {err}.", direction.name())
         })?;
     }
@@ -139,13 +146,14 @@ pub fn plan<S: BuildHasher>(
 }
 
 /// `copies` copies of the file along one direction, sharing its data buses
-/// if `shared`.
+/// and outputs as `buses` says.
 fn along(
     data: &[u8],
     direction: StackDirection,
     copies: usize,
-    shared: bool,
+    buses: Buses,
 ) -> Result<Vec<u8>> {
+    let shared = buses.shared(direction);
     ensure!(copies >= 1, "a stack needs at least one copy");
     // Anyone can ask for a stack, so cap the work one request can make.
     ensure!(
@@ -176,7 +184,14 @@ fn along(
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
     let left_out = first_copy(&blocks, step, shared).all;
-    let outputs = labelled_outputs(&blocks);
+    let outputs = if buses.own_outputs {
+        Outputs {
+            blocks: HashSet::new(),
+            signs: HashSet::new(),
+        }
+    } else {
+        labelled_outputs(&blocks)
+    };
 
     // As in game: the first copy whole, then each later copy without the
     // parts only the first keeps, over the copies before, where its block
@@ -283,7 +298,7 @@ pub fn review(
     let first_copy = first_copy(&blocks, step, shared);
     let disagreements = disagreements(&blocks, step, &first_copy);
     let along = buses.along_bits(direction);
-    let shape = shape(data, &blocks, direction, along, shared)?;
+    let shape = shape(data, &blocks, direction, along, buses)?;
     let better = if disagreements.is_empty() {
         None
     } else {
@@ -418,7 +433,7 @@ fn shape(
     blocks: &Blocks,
     direction: StackDirection,
     along_bits: bool,
-    shared: bool,
+    stacking: Buses,
 ) -> Result<Option<String>> {
     let control = format!("{} concrete", lint::CONTROL);
     let buses = |interface: &interface::Interface| -> Vec<(String, usize)> {
@@ -444,7 +459,7 @@ fn shape(
     };
     let single = interface::read(blocks);
     let two =
-        interface::read(&Blocks::read(&along(data, direction, 2, shared)?)?);
+        interface::read(&Blocks::read(&along(data, direction, 2, stacking)?)?);
     let way = direction.name().replace('-', " and ");
     for (name, bits) in buses(&single) {
         let stacked = buses(&two)

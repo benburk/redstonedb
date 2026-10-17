@@ -449,6 +449,7 @@ mod tests {
             own_logic: None,
             throughput: None,
             at_least: None,
+            pulse: None,
             measures: vec![Measure::Width],
             aliases: Vec::new(),
             torches: None,
