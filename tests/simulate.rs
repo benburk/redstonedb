@@ -1394,3 +1394,46 @@ fn a_register_whose_cells_disturb_each_other_shows_how() {
         ]
     );
 }
+
+/// `data` with every `from` block made `to`, its state otherwise kept.
+fn swapped(data: &[u8], from: &str, to: &str) -> Vec<u8> {
+    let blocks = Blocks::read(data).unwrap();
+    let grid: HashMap<[i32; 3], String> = blocks
+        .iter()
+        .map(|(pos, state)| (pos, state.replace(from, to)))
+        .collect();
+    let mut nbt = schem::decode(data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
+    schem::encode(nbt).unwrap()
+}
+
+/// A glass output is never powered, so it is read by the repeater on it,
+/// and the adder adds and is timed as it is on concrete.
+#[test]
+fn a_glass_output_is_read_from_the_repeater_on_it() {
+    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
+    let tidied = standardize::tidy(&raw).unwrap();
+    let stored = standardize::pink_status(&tidied).unwrap();
+    let glazed = swapped(
+        &stored,
+        "minecraft:yellow_concrete",
+        "minecraft:yellow_stained_glass",
+    );
+    let concrete = Blocks::read(&stored).unwrap();
+    let glass = Blocks::read(&glazed).unwrap();
+    assert!(
+        glass
+            .iter()
+            .any(|(_, state)| state == "minecraft:yellow_stained_glass")
+    );
+    let on_concrete = adder_run(&concrete).unwrap();
+    let on_glass = adder_run(&glass).unwrap();
+    assert_eq!(
+        (on_glass.cases, on_glass.wrong),
+        (on_concrete.cases, on_concrete.wrong)
+    );
+    let timing = Test::Adder.time(&glass, &AtomicBool::new(false)).unwrap();
+    assert_eq!(timing.latency(), Some(3));
+}

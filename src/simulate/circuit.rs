@@ -116,10 +116,23 @@ impl Circuit {
                     .bits
                     .iter()
                     .map(|bit| {
-                        if schem::id(blocks.get(bit.pos)).ends_with("_glass") {
+                        // Glass is never powered, so a glass bit is read
+                        // only by what stands on it.
+                        let glass =
+                            schem::id(blocks.get(bit.pos)).ends_with("_glass");
+                        let above =
+                            world.get_block(at(bit.pos).offset(BlockFace::Top));
+                        let read = matches!(
+                            above,
+                            Block::RedstoneWire(_)
+                                | Block::Repeater(_)
+                                | Block::Comparator(_)
+                        );
+                        if glass && !read {
                             bail!(
-                                "Output {} is stained glass, which the \
-                                 simulator does not read yet.",
+                                "Output {} has a glass block with no dust, \
+                                 repeater, or comparator on it, which is how \
+                                 a glass output is read.",
                                 port.name
                             );
                         }
