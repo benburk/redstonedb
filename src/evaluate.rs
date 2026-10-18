@@ -1,8 +1,9 @@
 //! The one way the site reads a build: what it is and how it performs,
 //! worked out from its file alone, trusting nothing stored. The test that
 //! recognizes it names its category; that test's cases say whether it
-//! works; its copies, stacked, say how it stacks; and its timing gives its
-//! latency, whether its outputs change together, and its throughput.
+//! works; its copies, stacked, say how it stacks; its timing gives its
+//! latency, whether its outputs change together, and its throughput; and
+//! for an adder, how its carries are made gives its design.
 
 use std::sync::atomic::AtomicBool;
 
@@ -12,7 +13,9 @@ use crate::{
     import::{self, Prepared},
     interface,
     models::schematic::{Encoding, Orientation, StackDirection},
-    simulate::{self, Report, Stacking, Test, throughput},
+    simulate::{
+        self, Design, Report, Stacking, Test, adder_design, throughput,
+    },
 };
 
 /// Everything worked out from a build's file.
@@ -35,6 +38,8 @@ pub struct Evaluation {
     /// The fewest ticks from one input to the next that keep every result
     /// right.
     pub throughput: Option<i64>,
+    /// How an adder makes its carries.
+    pub design: Option<Design>,
 }
 
 impl Evaluation {
@@ -66,6 +71,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         latency: None,
         synchronized: None,
         throughput: None,
+        design: None,
         prepared,
     };
     let Some(test) = category.and_then(|c| Test::of(c, found.width)) else {
@@ -89,6 +95,9 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         found.throughput =
             throughput(&found.prepared.blocks, &timing)?.map(i64::from);
         run.timing = Some(timing);
+        if category == Some("adder") {
+            found.design = adder_design(&found.prepared.blocks)?;
+        }
     }
     found.report = Some(report);
     Ok(found)

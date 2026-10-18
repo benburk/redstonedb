@@ -1143,7 +1143,8 @@ async fn evaluate(
         stored_flags.sort();
         let mut flags = e.flags.clone();
         flags.sort();
-        let fields: [(&str, String, String); 10] = [
+        let design = e.design.as_ref().map_or("none", |d| d.name);
+        let fields: [(&str, String, String); 11] = [
             (
                 "category",
                 s.category.clone(),
@@ -1162,6 +1163,7 @@ async fn evaluate(
             ("latency", show(&s.latency), show(&e.latency)),
             ("synchronized", show(&s.synchronized), show(&e.synchronized)),
             ("throughput", show(&s.throughput), show(&e.throughput)),
+            ("design", s.design.clone(), design.to_owned()),
         ];
         let differ: Vec<String> = fields
             .iter()
@@ -1172,7 +1174,10 @@ async fn evaluate(
             })
             .collect();
         if !differ.is_empty() {
-            println!("{name}: {}", differ.join("; "));
+            let signature = e.design.as_ref().map_or(String::new(), |d| {
+                format!(" [{} {} terms]", d.signature, d.products)
+            });
+            println!("{name}{signature}: {}", differ.join("; "));
         }
     }
     println!("{} builds evaluated", builds.len());

@@ -350,6 +350,21 @@ impl Circuit {
         }
     }
 
+    /// Whether the component at `pos`, a torch, repeater, comparator, or
+    /// lever, is on, as of the last `settle`.
+    pub fn on(&self, pos: Pos) -> bool {
+        match self.world.get_block(at(pos)) {
+            Block::RedstoneTorch { lit }
+            | Block::RedstoneWallTorch { lit, .. } => lit,
+            Block::Repeater(repeater) => repeater.powered,
+            Block::Comparator(comparator) => comparator.powered,
+            Block::Lever { powered, .. }
+            | Block::StoneButton { powered, .. } => powered,
+            Block::RedstoneWire(wire) => wire.power > 0,
+            _ => false,
+        }
+    }
+
     /// The value output `port` shows, as of the last `settle`, read from
     /// the dust, repeater, or comparator standing on each bit's block, the
     /// component carrying it out of the build, however the block below is

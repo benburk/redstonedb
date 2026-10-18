@@ -29,3 +29,15 @@ fn a_build_failing_its_test_has_no_timing() {
     assert!(!e.passes());
     assert_eq!((e.latency, e.throughput), (None, None));
 }
+
+#[test]
+fn an_adders_design_comes_from_how_its_carries_are_made() {
+    let design = |name| evaluate(&stored(name)).unwrap().design.unwrap();
+    let ripple = design("alpha-rca");
+    assert_eq!(
+        (ripple.name, ripple.signature.as_str()),
+        ("ripple_carry", "rrrrrrrr")
+    );
+    assert_eq!(design("diag-3t-cca").name, "carry_cancel");
+    assert_eq!(design("rca-slice-capped").name, "ripple_carry");
+}
