@@ -47,6 +47,16 @@ enum Command {
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
+    /// Take out the blocks no part of a build's circuit uses, found by the
+    /// rules of redstone, from a stored build, or with no id every build
+    /// whose category the site tests, each as a new version, only where
+    /// the site's test passes and its timing comes out the same
+    Prune {
+        id: Option<String>,
+        /// List what would be taken out, changing nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Replace a stored build's file with a new version that fixes it, as
     /// the site's New version page does: keeping 90% of its blocks or
     /// changing at most 10, its inputs and outputs free to move
@@ -383,6 +393,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
+        Command::Prune { id, dry_run } => {
+            prune(db, id.as_deref(), dry_run).await
+        }
         Command::NewVersion {
             id,
             file,
@@ -437,13 +450,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Role { username, role } => {
             set_role(db, &username, &role).await
         }
-        Command::Remove { id } => {
-            let id = resolve(db, &id).await?;
-            let filename = load(db, &id).await?.filename();
-            schematic::delete(db, &id).await?;
-            println!("removed {}  {filename}", &id[..8]);
-            Ok(())
-        }
+        Command::Remove { id } => remove(db, &id).await,
         Command::Show { id } => show(db, &resolve(db, &id).await?).await,
         Command::Export {
             id,
@@ -477,6 +484,15 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             define_tag(db, &name, kind, token.as_deref()).await
         }
     }
+}
+
+/// Deletes build `id`.
+async fn remove(db: &SqlitePool, id: &str) -> Result<()> {
+    let id = resolve(db, id).await?;
+    let filename = load(db, &id).await?.filename();
+    schematic::delete(db, &id).await?;
+    println!("removed {}  {filename}", &id[..8]);
+    Ok(())
 }
 
 /// Adds a tag, unless the build itself works it out, as it does torchless.
@@ -1074,6 +1090,106 @@ async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
         bail!("{failed} builds fail their tests");
     }
     Ok(())
+}
+
+/// Takes the unused blocks out of build `id`, or of every build with a
+/// test, as `rsdb prune` says.
+async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
+    let ids = match id {
+        Some(prefix) => vec![resolve(db, prefix).await?],
+        None => schematic::all(db)
+            .await?
+            .into_iter()
+            .map(|s| s.id)
+            .collect(),
+    };
+    let one = id.is_some();
+    let (mut builds, mut blocks) = (0, 0);
+    for id in &ids {
+        let s = load(db, id).await?;
+        let name = format!("{}  {}", &id[..8], s.filename());
+        let Some(test) = app::simulate::Test::of(&s.category, s.width) else {
+            if one {
+                println!("{name}: no test for its category and width");
+            }
+            continue;
+        };
+        let data = version::current_file(db, id)
+            .await?
+            .context("schematic vanished")?;
+        let roles = match app::roles::roles(&data, &s.category, &s.stacking) {
+            Ok(roles) => roles,
+            Err(err) => {
+                println!("skip    {name}: {err}");
+                continue;
+            }
+        };
+        let gone: Vec<String> = roles
+            .blocks
+            .iter()
+            .filter(|r| r.need == app::roles::Need::Unused)
+            .map(|r| format!("{},{},{}", r.pos[0], r.pos[1], r.pos[2]))
+            .collect();
+        if gone.is_empty() {
+            continue;
+        }
+        let file = app::roles::without_unused(&data, &roles)?;
+        if let Some(why) = differs(test, &data, &file).await? {
+            println!("skip    {name}: {why}");
+            continue;
+        }
+        let checked = app::version::check(db, &s, &file, None).await?;
+        if let Some(refusal) = checked.refusals.first() {
+            println!("skip    {name}: {refusal}");
+            continue;
+        }
+        builds += 1;
+        blocks += gone.len();
+        println!(
+            "{} {name}: {} blocks: {}",
+            if dry_run { "would" } else { "pruned" },
+            gone.len(),
+            gone.join(" ")
+        );
+        if dry_run {
+            continue;
+        }
+        let how = Replacing::NextVersion {
+            added_by: None,
+            note: Some("Unused blocks taken out"),
+        };
+        version::replace(db, id, &checked.prepared, how).await?;
+        if simulation::refresh(db, id, false).await?.is_some() {
+            simulation::refresh_timing(db, id, false).await?;
+        }
+    }
+    let verb = if dry_run { "would take" } else { "took" };
+    println!("{verb} {blocks} blocks out of {builds} builds");
+    Ok(())
+}
+
+/// Why `after` cannot stand for `before` under `test`: either fails, or
+/// their cases or timing differ. `None` when they agree.
+async fn differs(
+    test: app::simulate::Test,
+    before: &[u8],
+    after: &[u8],
+) -> Result<Option<String>> {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut runs = Vec::new();
+    for data in [before, after] {
+        let Report::Ran(run) = simulation::run(test, data.to_vec()).await?
+        else {
+            return Ok(Some("its test does not run".to_owned()));
+        };
+        if run.wrong > 0 {
+            return Ok(Some("it fails its test".to_owned()));
+        }
+        let timing =
+            simulation::time(test, data.to_vec(), cancel.clone()).await?;
+        runs.push((run.cases, serde_json::to_value(timing)?));
+    }
+    Ok((runs[0] != runs[1]).then(|| "its timing changes".to_owned()))
 }
 
 /// One build's simulation result, on a line or a few.

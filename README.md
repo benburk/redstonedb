@@ -92,6 +92,7 @@ just rsdb export 0f35 --copies 8 --markers
 just rsdb new-version bb62 fixed.schem --note "carry out reads through a repeater"
 just rsdb lint build.schem
 just rsdb simulate
+just rsdb prune --dry-run
 just rsdb reread
 just rsdb remove bb62
 ```
@@ -100,6 +101,7 @@ just rsdb remove bb62
 - `export --copies` joins copies of a stackable build into one file: a count, or one per direction. `--markers` puts a glass block off each corner for WorldEdit.
 - `new-version` replaces a build's file with a fix, as the site's edit page does; `replace` puts a file in place without adding a version or comparing.
 - `simulate` runs a build's test and timing again, or every build's; `reread` reads every stored file again. Run them after the simulator or the import rules change.
+- `prune` takes out the blocks no part of a build's circuit uses, found by the rules in `src/roles.rs`: a block holding nothing up that passes no power, cuts no step between dust, and lets no dust on it power dust a step down, and dust that powers nothing a component reads, from its ends inwards, each read alone and stacked every way the build stacks. It works on one build or every build of a category the site tests, each as a new version noted `Unused blocks taken out`, and only where the site's test passes and its timing comes out the same before and after. `--dry-run` lists what it would take out.
 - `categories` lists the standard categories with their measures, designs, flags, and aliases; `define-category`, `define-design`, `define-flag`, and `define-alias` add to them. `tags` and `define-tag` do the same for tags, which must exist before use.
 - `respell` asks Mojang how each stored Minecraft name is spelled.
 

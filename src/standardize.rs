@@ -23,7 +23,10 @@
 //!   by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    hash::BuildHasher,
+};
 
 use anyhow::{Result, ensure};
 
@@ -182,6 +185,21 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     let high = [0, 1, 2].map(|axis| bound(axis, i32::max));
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
     rebox(data, &grid, low, size)
+}
+
+/// The file with the blocks at `gone` taken out, its box and paste offset
+/// as they were, so `tidy` fits it afterwards.
+pub fn without<S: BuildHasher>(
+    data: &[u8],
+    gone: &HashSet<Pos, S>,
+) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(pos, state)| *state != AIR && !gone.contains(pos))
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    rebox(data, &grid, [0, 0, 0], blocks.size)
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
