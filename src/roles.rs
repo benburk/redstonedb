@@ -1,41 +1,34 @@
 //! What each building block of a build is for, read off its neighbours by
-//! the rules of redstone, with no simulation:
+//! the rules of redstone, with no simulation. A block may:
 //!
-//! - It holds something up: dust, a torch, a repeater, or a comparator on
-//!   top, or a torch, lever, or button hanging from it. Glass can, though
-//!   it may need a later release than the build works in.
-//! - It passes power, so must be solid: hard from a torch under it, a
-//!   repeater or comparator into it, or a lever on it, to dust or a
-//!   component beside it; soft from dust on or into it, to a torch,
-//!   repeater, or comparator reading it.
-//! - It cuts a step: dust under it and dust beside it, diagonally up from
-//!   that, join unless it is solid.
-//! - It lets dust on it power dust a step down beside it, which glass does
-//!   not.
+//! - hold something up: dust, a torch, a repeater, a comparator, or a sign
+//!   on top, or a torch, lever, button, or sign hanging from it;
+//! - pass power, were it solid: hard from a torch under it, a repeater or
+//!   comparator into it, or a lever on it, to dust or a component beside
+//!   it; soft from dust on or into it, to a component reading it;
+//! - cut a step, were it solid: dust under it and dust beside it, which
+//!   otherwise join;
+//! - step down, were it solid: let dust on it power dust a step down beside
+//!   it, which dust on glass does not.
 //!
-//! Glass that would do any of these were it solid must stay transparent,
-//! unless it holds nothing, when air does as well. A solid block doing none
-//! of them could be either if it holds something, and is unused if not.
-//! Dust that powers nothing a component reads and joins at most one thing
-//! is unused too, from the ends inwards. For a build that stacks, the rules
-//! are read in stacked copies as well, as a block can matter only where
-//! copies meet.
-//!
-//! The lab's `roles` command compiles a build before and after, the test
-//! that the rules missed nothing; `rsdb prune` checks that the site's test
-//! and timing come out the same.
+//! A block that would pass power, cut a step, or step down is needed as
+//! the kind it is. Otherwise it could be either kind if it holds something,
+//! and is unused if it holds nothing. Dust that powers nothing a component
+//! reads and joins at most one thing is unused too, from the ends inwards.
+//! A build that stacks is read stacked as well, as a block can matter only
+//! where copies meet. [`changed`] compiles a build before and after an
+//! edit, the proof that the rules missed nothing.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 
 use crate::{
-    interface::{self, Interface},
-    lint,
+    interface, lint,
     models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
     simulate::{Link, Stacking, Test, links},
-    stack, standardize, works_from,
+    stack,
 };
 
 /// What a block must be.
@@ -58,74 +51,207 @@ impl Need {
     }
 }
 
-/// Why a block's kind matters, named for what it is now.
+/// What a block would do were it solid, which makes its kind matter.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Use {
-    HardPowered,
-    SoftPowered,
-    Cuts,
+    HardPower,
+    SoftPower,
+    CutsStep,
     StepsDown,
-    /// Glass keeping power from what would read it.
-    Insulates,
-    /// Glass letting dust step past it.
-    LetsStep,
-    /// Glass under dust, keeping it from powering dust a step down.
-    OneWay,
 }
 
 impl Use {
     pub fn name(self) -> &'static str {
         match self {
-            Use::HardPowered => "hard-powered",
-            Use::SoftPowered => "soft-powered",
-            Use::Cuts => "cuts a step",
+            Use::HardPower => "hard power",
+            Use::SoftPower => "soft power",
+            Use::CutsStep => "cuts a step",
             Use::StepsDown => "steps down",
-            Use::Insulates => "insulates",
-            Use::LetsStep => "lets a step by",
-            Use::OneWay => "one-way step",
-        }
-    }
-
-    /// What a use of a solid block is for glass in its place.
-    fn as_glass(self) -> Use {
-        match self {
-            Use::HardPowered | Use::SoftPowered => Use::Insulates,
-            Use::Cuts => Use::LetsStep,
-            Use::StepsDown => Use::OneWay,
-            other => other,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct Role {
-    pub pos: Pos,
-    pub state: String,
     pub need: Need,
     pub uses: Vec<Use>,
-    /// What rests on it or hangs from it, in any copy, by short name.
-    pub holds: Vec<String>,
-    /// The later release the build would need were it glass.
-    pub release: Option<&'static str>,
 }
 
-impl Role {
-    fn new(pos: Pos, state: &str, need: Need) -> Self {
-        Role {
-            pos,
-            state: state.to_owned(),
-            need,
-            uses: Vec::new(),
-            holds: Vec::new(),
-            release: None,
+/// What each building block of the build in `data` is for, by position,
+/// with its unused dust, read alone and stacked each of `ways`. Inputs and
+/// blocks carrying a sign's text are left out, as they always stay.
+pub fn roles(
+    data: &[u8],
+    ways: &[StackDirection],
+) -> Result<BTreeMap<Pos, Role>> {
+    let file = Blocks::read(data)?;
+    let interface = interface::read(&file);
+    let outputs: Vec<Pos> = interface
+        .outputs
+        .iter()
+        .flat_map(|p| p.bits.iter().map(|b| b.pos))
+        .collect();
+    let inputs: HashSet<Pos> = interface
+        .inputs
+        .iter()
+        .flat_map(|p| p.bits.iter().map(|b| b.pos))
+        .chain(file.signs.keys().copied())
+        .collect();
+    let mut worlds =
+        vec![World::new(Blocks::read(data)?, vec![[0, 0, 0]], &outputs)];
+    for &way in ways {
+        let stacked = Blocks::read(&copies(data, way)?)?;
+        worlds.push(World::new(stacked, shifts(way)?, &outputs));
+    }
+    // Where `p` stands in each copy of a world that still holds its block,
+    // as a later copy may cover or leave out an earlier one's.
+    let places = |w: &World, p: Pos| -> Vec<Pos> {
+        let state = file.get(p);
+        w.copies
+            .iter()
+            .map(|s| schem::add(p, *s))
+            .filter(|&q| w.blocks.get(q) == state)
+            .collect()
+    };
+    // Dust is unused when every world finds it so in every copy.
+    let dead: Vec<HashSet<Pos>> =
+        worlds.iter_mut().map(World::dead_dust).collect();
+    let mut found = BTreeMap::new();
+    for (p, state) in file.iter() {
+        let unused = schem::short(state) == "redstone_wire"
+            && !inputs.contains(&p)
+            && worlds
+                .iter()
+                .zip(&dead)
+                .all(|(w, dead)| places(w, p).iter().all(|q| dead.contains(q)));
+        if unused {
+            found.insert(
+                p,
+                Role {
+                    need: Need::Unused,
+                    uses: Vec::new(),
+                },
+            );
+            for w in &mut worlds {
+                let at = places(w, p);
+                w.gone.extend(at);
+            }
         }
+    }
+    for (p, state) in file.iter() {
+        let output = outputs.contains(&p);
+        let building = schem::short(state).ends_with("_concrete")
+            || schem::short(state).ends_with("glass");
+        if !building
+            || inputs.contains(&p)
+            || (output && !lint::is_output(schem::short(state)))
+        {
+            continue;
+        }
+        let mut uses = Vec::new();
+        let mut holds = output;
+        for w in &worlds {
+            for q in places(w, p) {
+                uses.extend(w.uses(q));
+                holds |= !w.held(q).is_empty();
+            }
+        }
+        uses.sort_unstable();
+        uses.dedup();
+        let glass = schem::short(state).ends_with("glass");
+        let need = match (holds, uses.is_empty(), glass) {
+            // Air passes power and steps as glass does.
+            (false, _, true) | (false, true, false) => Need::Unused,
+            (_, false, true) => Need::Transparent,
+            (_, false, false) => Need::Solid,
+            (true, true, _) => Need::Either,
+        };
+        found.insert(p, Role { need, uses });
+    }
+    Ok(found)
+}
+
+/// The links between components that differ between the circuits of the
+/// builds in `before` and `after`, alone and stacked each of `ways`, by
+/// position; empty when they compute the same in the same ticks.
+pub fn changed(
+    before: &[u8],
+    after: &[u8],
+    ways: &[StackDirection],
+) -> Result<Vec<Link>> {
+    let mut pairs = vec![(before.to_vec(), after.to_vec())];
+    for &way in ways {
+        pairs.push((copies(before, way)?, copies(after, way)?));
+    }
+    let mut found = Vec::new();
+    for (old, new) in pairs {
+        let old = links(&Blocks::read(&old)?)?;
+        let new = links(&Blocks::read(&new)?)?;
+        let keys: HashSet<&Link> = old.keys().chain(new.keys()).collect();
+        let differ = keys.into_iter().filter(|k| old.get(k) != new.get(k));
+        found.extend(differ.copied());
+    }
+    found.sort_unstable();
+    found.dedup();
+    Ok(found)
+}
+
+/// The way copies of the build in `data`, of `category`, stack, as the
+/// site's test finds it by simulating them: for a file with no stacking
+/// stored, as the lab reads.
+pub fn found_stacking(data: &[u8], category: &str) -> Option<StackDirection> {
+    let interface = interface::read(&Blocks::read(data).ok()?);
+    let width = interface.inputs.first().map_or(1, |p| p.bits.len());
+    let test = Test::of(category, i64::try_from(width).ok())?;
+    match test.stacking(data)? {
+        Stacking::Stacks { step, .. } => Some(step.direction()),
+        _ => None,
     }
 }
 
-pub struct Roles {
-    /// Every building block, and unused dust, by position.
-    pub blocks: Vec<Role>,
-    /// The ways copies were read stacked.
-    pub ways: Vec<StackDirection>,
+/// The block `state` as the other kind, its colour kept: concrete for
+/// glass, stained glass for concrete; `None` for any other block.
+pub fn other_kind(state: &str) -> Option<String> {
+    let name = schem::short(state);
+    if name == "glass" {
+        return Some("minecraft:white_concrete".to_owned());
+    }
+    if let Some(colour) = name.strip_suffix("_stained_glass") {
+        return Some(format!("minecraft:{colour}_concrete"));
+    }
+    name.strip_suffix("_concrete")
+        .map(|colour| format!("minecraft:{colour}_stained_glass"))
+}
+
+/// Whether dust `state` is saved as a dot, pointing no way.
+pub fn is_dot(state: &str) -> bool {
+    ["north", "south", "east", "west"]
+        .iter()
+        .all(|side| schem::property(state, side) == Some("none"))
+}
+
+/// How many copies a build that stacks is read in, at most.
+const COPIES: i64 = 3;
+
+/// How many copies of a build stacked `way` are read.
+fn count(way: StackDirection) -> i64 {
+    way.max_copies.map_or(COPIES, |most| most.min(COPIES))
+}
+
+/// Where `stack` moves each copy of a build stacked `way` that is read.
+fn shifts(way: StackDirection) -> Result<Vec<Pos>> {
+    let [west, up, north] = [way.west, way.up, way.north].map(i32::try_from);
+    let (west, up, north) = (west?, up?, north?);
+    let last = i32::try_from(count(way))? - 1;
+    Ok((0..=last)
+        .map(|i| [(last - i) * west, i * up, (last - i) * north])
+        .collect())
+}
+
+/// Copies of the build in `data` stacked `way`, as the site stacks them.
+fn copies(data: &[u8], way: StackDirection) -> Result<Vec<u8>> {
+    let copies = usize::try_from(count(way))?;
+    Ok(stack::stack(data, &[(way, copies)], stack::Buses::own())?.0)
 }
 
 const HORIZONTAL: [Direction; 4] = [
@@ -136,21 +262,30 @@ const HORIZONTAL: [Direction; 4] = [
 ];
 
 /// A world the rules are read in: the build alone, or copies of it
-/// stacked, copy `i` shifted by `copies[i]`.
+/// stacked, copy `i` shifted by `copies[i]`, with the blocks found unused
+/// taken out.
 struct World {
     blocks: Blocks,
     copies: Vec<Pos>,
     /// Output blocks; dust on one is how the site reads it.
     outputs: HashSet<Pos>,
+    gone: HashSet<Pos>,
 }
 
-/// A world's blocks with some taken out.
-struct View<'a> {
-    blocks: &'a Blocks,
-    gone: &'a HashSet<Pos>,
-}
+impl World {
+    fn new(blocks: Blocks, copies: Vec<Pos>, outputs: &[Pos]) -> Self {
+        let outputs = copies
+            .iter()
+            .flat_map(|s| outputs.iter().map(|&p| schem::add(p, *s)))
+            .collect();
+        World {
+            blocks,
+            copies,
+            outputs,
+            gone: HashSet::new(),
+        }
+    }
 
-impl View<'_> {
     fn get(&self, p: Pos) -> &str {
         if self.gone.contains(&p) {
             schem::AIR
@@ -161,6 +296,42 @@ impl View<'_> {
 
     fn dust(&self, p: Pos) -> bool {
         schem::short(self.get(p)) == "redstone_wire"
+    }
+
+    /// What rests on or hangs from the block at `p`. The simulator runs
+    /// such things floating, but the game drops them.
+    fn held(&self, p: Pos) -> Vec<Pos> {
+        let mut found = Vec::new();
+        let above = schem::step(p, Direction::Up);
+        let name = schem::short(self.get(above));
+        if matches!(name, "redstone_wire" | "repeater" | "comparator")
+            || (name.ends_with("_sign") && !name.ends_with("_wall_sign"))
+        {
+            found.push(above);
+        }
+        for d in Direction::ALL {
+            let q = schem::step(p, d);
+            let state = self.get(q);
+            let on = match schem::short(state) {
+                "lever" | "stone_button" => {
+                    match schem::property(state, "face") {
+                        Some("floor") => Some(schem::step(q, Direction::Down)),
+                        Some("ceiling") => Some(schem::step(q, Direction::Up)),
+                        _ => Direction::facing(state)
+                            .map(|f| schem::step(q, f.opposite())),
+                    }
+                }
+                name if name.ends_with("_wall_sign") => {
+                    Direction::facing(state)
+                        .map(|f| schem::step(q, f.opposite()))
+                }
+                _ => schem::torch_block(q, state),
+            };
+            if on == Some(p) {
+                found.push(q);
+            }
+        }
+        found
     }
 
     /// Whether dust at `q` points `d`, into a block or up its side, by
@@ -260,7 +431,7 @@ impl View<'_> {
                     && Direction::facing(state)
                         .is_some_and(|f| schem::step(q, f.opposite()) == p)
             })
-            || held(|q| self.get(q), p).into_iter().any(|q| {
+            || self.held(p).into_iter().any(|q| {
                 matches!(schem::short(self.get(q)), "lever" | "stone_button")
             })
     }
@@ -282,17 +453,17 @@ impl View<'_> {
             .into_iter()
             .any(|d| self.dust(schem::step(p, d)));
         if self.hard(p) && (read || near_dust) {
-            found.push(Use::HardPowered);
+            found.push(Use::HardPower);
         }
         if self.soft(p) && read {
-            found.push(Use::SoftPowered);
+            found.push(Use::SoftPower);
         }
         let under = schem::step(p, Direction::Down);
         let above = schem::step(p, Direction::Up);
         for d in HORIZONTAL {
             let side = schem::step(p, d);
             if self.dust(under) && self.dust(side) {
-                found.push(Use::Cuts);
+                found.push(Use::CutsStep);
             }
             if self.dust(above)
                 && self.dust(side)
@@ -307,9 +478,9 @@ impl View<'_> {
     /// Whether dust at `q` does something itself: it is on an output block,
     /// feeds a repeater's back or a comparator, or powers a block a
     /// component reads.
-    fn dust_used(&self, q: Pos, outputs: &HashSet<Pos>) -> bool {
+    fn dust_used(&self, q: Pos) -> bool {
         let under = schem::step(q, Direction::Down);
-        if outputs.contains(&under)
+        if self.outputs.contains(&under)
             || (self.conductor(under) && self.read(under))
         {
             return true;
@@ -356,350 +527,25 @@ impl View<'_> {
         n
     }
 
-    /// The release glass at `p` would need for what it holds, as
-    /// `works_from` dates them: dust or a standing torch on it 1.2.1, a
-    /// repeater, comparator, lever, or button on it 1.3.1, and anything on
-    /// its side or underside 1.14. `None` when it holds nothing.
-    fn glass_release(&self, p: Pos) -> Option<&'static str> {
-        let above = schem::step(p, Direction::Up);
-        held(|q| self.get(q), p)
-            .into_iter()
-            .filter_map(|q| match schem::short(self.get(q)) {
-                // A sign is no part of the circuit, and no release counts it.
-                name if name.ends_with("_sign") => None,
-                "redstone_wire" | "redstone_torch" if q == above => {
-                    Some("1.2.1")
-                }
-                _ if q == above => Some("1.3.1"),
-                _ => Some("1.14"),
-            })
-            .reduce(later)
-    }
-}
-
-/// The later of two releases.
-fn later(a: &'static str, b: &'static str) -> &'static str {
-    if works_from::works_in(a, b) { b } else { a }
-}
-
-impl World {
     /// The dust that does nothing, from the ends inwards: dust doing
-    /// nothing itself and joining at most one thing.
-    fn dead_dust(&self) -> HashSet<Pos> {
-        let mut gone = HashSet::new();
+    /// nothing itself and joining at most one thing. Read with nothing
+    /// taken out yet.
+    fn dead_dust(&mut self) -> HashSet<Pos> {
         loop {
-            let view = View {
-                blocks: &self.blocks,
-                gone: &gone,
-            };
             let dead: Vec<Pos> = self
                 .blocks
                 .iter()
                 .map(|(q, _)| q)
                 .filter(|&q| {
-                    view.dust(q)
-                        && !view.dust_used(q, &self.outputs)
-                        && view.dust_links(q) <= 1
+                    self.dust(q)
+                        && !self.dust_used(q)
+                        && self.dust_links(q) <= 1
                 })
                 .collect();
             if dead.is_empty() {
-                return gone;
+                return std::mem::take(&mut self.gone);
             }
-            gone.extend(dead);
+            self.gone.extend(dead);
         }
     }
-}
-
-/// The block `state` as the other kind, its colour kept: concrete for
-/// glass, stained glass for concrete; `None` for any other block.
-pub fn other_kind(state: &str) -> Option<String> {
-    let name = schem::short(state);
-    if name == "glass" {
-        return Some("minecraft:white_concrete".to_owned());
-    }
-    if let Some(colour) = name.strip_suffix("_stained_glass") {
-        return Some(format!("minecraft:{colour}_concrete"));
-    }
-    name.strip_suffix("_concrete")
-        .map(|colour| format!("minecraft:{colour}_stained_glass"))
-}
-
-/// Whether `state` is glass of any kind.
-pub fn transparent(state: &str) -> bool {
-    schem::short(state).ends_with("glass")
-}
-
-/// What rests on or hangs from the block at `p`, read through `get`: dust,
-/// a torch, a repeater, a comparator, or a sign on top, or a torch, lever,
-/// button, or sign on any side. The simulator runs such things floating, but the
-/// game drops them.
-pub fn held<'a>(get: impl Fn(Pos) -> &'a str, p: Pos) -> Vec<Pos> {
-    let mut found = Vec::new();
-    let above = schem::step(p, Direction::Up);
-    let name = schem::short(get(above));
-    if matches!(name, "redstone_wire" | "repeater" | "comparator")
-        || (name.ends_with("_sign") && !name.ends_with("_wall_sign"))
-    {
-        found.push(above);
-    }
-    for d in Direction::ALL {
-        let q = schem::step(p, d);
-        let state = get(q);
-        let on = match schem::short(state) {
-            "lever" | "stone_button" => match schem::property(state, "face") {
-                Some("floor") => Some(schem::step(q, Direction::Down)),
-                Some("ceiling") => Some(schem::step(q, Direction::Up)),
-                _ => Direction::facing(state)
-                    .map(|f| schem::step(q, f.opposite())),
-            },
-            name if name.ends_with("_wall_sign") => {
-                Direction::facing(state).map(|f| schem::step(q, f.opposite()))
-            }
-            _ => schem::torch_block(q, state),
-        };
-        if on == Some(p) {
-            found.push(q);
-        }
-    }
-    found
-}
-
-/// Whether dust `state` is saved as a dot, pointing no way.
-pub fn is_dot(state: &str) -> bool {
-    ["north", "south", "east", "west"]
-        .iter()
-        .all(|side| schem::property(state, side) == Some("none"))
-}
-
-/// How many copies the rules read a build that stacks in, at most.
-const COPIES: i64 = 3;
-
-/// The way copies of the build in `data`, of `category`, stack, as the
-/// site's test finds it by simulating them: for a file with no stacking
-/// stored, as the lab reads.
-pub fn found_stacking(data: &[u8], category: &str) -> Option<StackDirection> {
-    let interface = interface::read(&Blocks::read(data).ok()?);
-    let width = interface.inputs.first().map_or(1, |p| p.bits.len());
-    let test = Test::of(category, i64::try_from(width).ok())?;
-    match test.stacking(data)? {
-        Stacking::Stacks { step, .. } => Some(step.direction()),
-        _ => None,
-    }
-}
-
-/// How many copies of a build stacked `way` the rules read.
-fn count(way: StackDirection) -> i64 {
-    way.max_copies.map_or(COPIES, |most| most.min(COPIES))
-}
-
-/// Where `stack` moves each copy of a build stacked `way` that the rules
-/// read.
-fn shifts(way: StackDirection) -> Result<Vec<Pos>> {
-    let [west, up, north] = [way.west, way.up, way.north].map(i32::try_from);
-    let (west, up, north) = (west?, up?, north?);
-    let last = i32::try_from(count(way))? - 1;
-    Ok((0..=last)
-        .map(|i| [(last - i) * west, i * up, (last - i) * north])
-        .collect())
-}
-
-/// Copies of the build in `data` stacked `way`, as the site stacks them.
-pub fn copies(data: &[u8], way: StackDirection) -> Result<Vec<u8>> {
-    let copies = usize::try_from(count(way))?;
-    Ok(stack::stack(data, &[(way, copies)], stack::Buses::own())?.0)
-}
-
-/// The build alone, and stacked each of `ways`.
-fn worlds(
-    data: &[u8],
-    interface: &Interface,
-    ways: &[StackDirection],
-) -> Result<Vec<World>> {
-    let outputs: Vec<Pos> = interface
-        .outputs
-        .iter()
-        .flat_map(|p| p.bits.iter().map(|b| b.pos))
-        .collect();
-    let mut found = vec![World {
-        blocks: Blocks::read(data)?,
-        copies: vec![[0, 0, 0]],
-        outputs: outputs.iter().copied().collect(),
-    }];
-    for &way in ways {
-        let shifts = shifts(way)?;
-        found.push(World {
-            blocks: Blocks::read(&copies(data, way)?)?,
-            outputs: shifts
-                .iter()
-                .flat_map(|s| outputs.iter().map(|&p| schem::add(p, *s)))
-                .collect(),
-            copies: shifts,
-        });
-    }
-    Ok(found)
-}
-
-/// What each building block of the build in `data` is for, and its
-/// unused dust, read alone and stacked each of `ways`.
-pub fn roles(data: &[u8], ways: &[StackDirection]) -> Result<Roles> {
-    let file = Blocks::read(data)?;
-    let interface = interface::read(&file);
-    let ways = ways.to_vec();
-    let worlds = worlds(data, &interface, &ways)?;
-    let ports: HashSet<Pos> = interface
-        .inputs
-        .iter()
-        .chain(&interface.outputs)
-        .flat_map(|p| p.bits.iter().map(|b| b.pos))
-        .collect();
-    // Where `p` stands in each copy of a world that still holds its block,
-    // as a later copy may cover or leave out an earlier one's.
-    let places = |w: &World, p: Pos| -> Vec<Pos> {
-        let state = file.get(p);
-        w.copies
-            .iter()
-            .map(|s| schem::add(p, *s))
-            .filter(|&q| w.blocks.get(q) == state)
-            .collect()
-    };
-    // Dust is unused when every world finds it so in every copy.
-    let mut dead: HashSet<Pos> = file
-        .iter()
-        .filter(|(p, state)| {
-            schem::short(state) == "redstone_wire"
-                && !file.signs.contains_key(p)
-        })
-        .map(|(p, _)| p)
-        .collect();
-    for w in &worlds {
-        let found = w.dead_dust();
-        dead.retain(|&p| places(w, p).iter().all(|q| found.contains(q)));
-    }
-    let gone: Vec<HashSet<Pos>> = worlds
-        .iter()
-        .map(|w| dead.iter().flat_map(|&p| places(w, p)).collect())
-        .collect();
-    let base = works_from::of(&file).release;
-    let mut blocks: Vec<Role> = dead
-        .iter()
-        .map(|&pos| Role::new(pos, file.get(pos), Need::Unused))
-        .collect();
-    for (pos, state) in file.iter() {
-        // A block carrying a sign's text is a label, kept as a port is.
-        let port = ports.contains(&pos) || file.signs.contains_key(&pos);
-        // Inputs stay concrete; an output may be either.
-        if other_kind(state).is_none()
-            || (port && !lint::is_output(schem::short(state)))
-        {
-            continue;
-        }
-        let glass = transparent(state);
-        let mut role = Role::new(pos, state, Need::Either);
-        for (w, gone) in worlds.iter().zip(&gone) {
-            let view = View {
-                blocks: &w.blocks,
-                gone,
-            };
-            for q in places(w, pos) {
-                let uses = view.uses(q).into_iter();
-                role.uses
-                    .extend(uses.map(|u| if glass { u.as_glass() } else { u }));
-                role.holds.extend(
-                    held(|r| view.get(r), q)
-                        .into_iter()
-                        .map(|r| schem::short(view.get(r)).to_owned()),
-                );
-                role.release = role
-                    .release
-                    .into_iter()
-                    .chain(view.glass_release(q))
-                    .reduce(later);
-            }
-        }
-        role.release = role.release.filter(|&r| !works_from::works_in(r, base));
-        role.uses.sort_unstable();
-        role.uses.dedup();
-        role.holds.sort_unstable();
-        role.holds.dedup();
-        let holds = !role.holds.is_empty() || port;
-        role.need = match (glass, holds, role.uses.is_empty()) {
-            // Air passes power and steps as glass does.
-            (true, false, _) | (false, false, true) => Need::Unused,
-            (true, true, false) => Need::Transparent,
-            (false, _, false) => Need::Solid,
-            _ => Need::Either,
-        };
-        blocks.push(role);
-    }
-    blocks.sort_by_key(|r| r.pos);
-    Ok(Roles { blocks, ways })
-}
-
-/// The build in `data` without the blocks `roles` finds unused.
-pub fn without_unused(data: &[u8], roles: &Roles) -> Result<Vec<u8>> {
-    let gone: HashSet<Pos> = roles
-        .blocks
-        .iter()
-        .filter(|r| r.need == Need::Unused)
-        .map(|r| r.pos)
-        .collect();
-    standardize::without(data, &gone)
-}
-
-/// The links that differ between the circuits of the builds in `before`
-/// and `after`, alone and stacked each way `roles` read them, as
-/// `from -> to` with the strength lost before and after, `-` where there
-/// is no link. Links into the blocks `roles` found unused, which `after`
-/// may no longer hold, are left out. Empty when the circuit is the same.
-pub fn changed_links(
-    before: &[u8],
-    after: &[u8],
-    roles: &Roles,
-) -> Result<Vec<String>> {
-    let unused: Vec<Pos> = roles
-        .blocks
-        .iter()
-        .filter(|r| r.need == Need::Unused)
-        .map(|r| r.pos)
-        .collect();
-    let mut pairs =
-        vec![(before.to_vec(), after.to_vec(), vec![[0, 0, 0]], "")];
-    for &way in &roles.ways {
-        pairs.push((
-            copies(before, way)?,
-            copies(after, way)?,
-            shifts(way)?,
-            " stacked",
-        ));
-    }
-    let xyz = |[x, y, z]: Pos| format!("{x},{y},{z}");
-    let show = |d: Option<&u8>| d.map_or("-".to_owned(), u8::to_string);
-    let mut found = Vec::new();
-    for (was, now, shifts, label) in pairs {
-        let gone: HashSet<Pos> = shifts
-            .iter()
-            .flat_map(|s| unused.iter().map(|&p| schem::add(p, *s)))
-            .collect();
-        let mut was = links(&Blocks::read(&was)?)?;
-        was.retain(|(from, to, _), _| {
-            !gone.contains(from) && !gone.contains(to)
-        });
-        let now = links(&Blocks::read(&now)?)?;
-        let mut keys: Vec<&Link> = was.keys().chain(now.keys()).collect();
-        keys.sort_unstable();
-        keys.dedup();
-        for k in keys {
-            if was.get(k) != now.get(k) {
-                found.push(format!(
-                    "{} -> {}{}{label}: {} to {}",
-                    xyz(k.0),
-                    xyz(k.1),
-                    if k.2 { " [side]" } else { "" },
-                    show(was.get(k)),
-                    show(now.get(k)),
-                ));
-            }
-        }
-    }
-    Ok(found)
 }

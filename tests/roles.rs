@@ -1,9 +1,9 @@
 //! What a build's blocks are for, read by the rules of redstone.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use app::{
-    roles::{self, Need},
+    roles::{self, Need, Role},
     schem::{self, Blocks, Pos},
     simulate::{Report, Test},
     standardize,
@@ -39,17 +39,29 @@ fn with_stub(data: &[u8]) -> (Vec<u8>, Pos) {
     (schem::encode(nbt).unwrap(), stub)
 }
 
-fn need(roles: &roles::Roles, pos: Pos) -> Option<Need> {
-    roles.blocks.iter().find(|r| r.pos == pos).map(|r| r.need)
+/// `data` with the blocks at `gone` taken out.
+fn without(data: &[u8], gone: impl IntoIterator<Item = Pos>) -> Vec<u8> {
+    let changes: BTreeMap<Pos, String> = gone
+        .into_iter()
+        .map(|p| (p, schem::AIR.to_owned()))
+        .collect();
+    standardize::edit(data, &changes).unwrap()
+}
+
+fn unused(roles: &BTreeMap<Pos, Role>) -> Vec<Pos> {
+    roles
+        .iter()
+        .filter(|(_, r)| r.need == Need::Unused)
+        .map(|(&p, _)| p)
+        .collect()
 }
 
 #[test]
 fn a_block_holding_only_dust_that_leads_nowhere_is_unused() {
     let (data, stub) = with_stub(&stored("rca-slice-capped"));
-    let roles = roles::roles(&data, &[]).unwrap();
-    assert_eq!(need(&roles, stub), Some(Need::Unused));
-    let dust = schem::step(stub, schem::Direction::Up);
-    assert_eq!(need(&roles, dust), Some(Need::Unused));
+    let found = unused(&roles::roles(&data, &[]).unwrap());
+    assert!(found.contains(&stub));
+    assert!(found.contains(&schem::step(stub, schem::Direction::Up)));
 }
 
 #[test]
@@ -59,33 +71,24 @@ fn torches_keep_their_blocks_and_the_cleaned_adder_still_adds() {
     let roles = roles::roles(&data, &[]).unwrap();
     for (pos, state) in blocks.iter() {
         if let Some(base) = schem::torch_block(pos, state) {
-            assert_ne!(need(&roles, base), Some(Need::Unused), "{base:?}");
+            assert_ne!(roles.get(&base).map(|r| r.need), Some(Need::Unused));
         }
     }
-    let cleaned = roles::without_unused(&data, &roles).unwrap();
-    assert!(
-        roles::changed_links(&data, &cleaned, &roles)
-            .unwrap()
-            .is_empty()
-    );
+    let cleaned = without(&data, unused(&roles));
+    assert!(roles::changed(&data, &cleaned, &[]).unwrap().is_empty());
     let test = Test::of("adder", Some(1)).unwrap();
     let report = test.run(&Blocks::read(&cleaned).unwrap());
     assert!(matches!(report, Report::Ran(run) if run.wrong == 0));
 }
 
 #[test]
-fn taking_out_a_torchs_block_changes_the_circuits_links() {
+fn taking_out_a_torchs_block_changes_the_circuit() {
     let data = stored("rca-slice-capped");
     let blocks = Blocks::read(&data).unwrap();
-    let roles = roles::roles(&data, &[]).unwrap();
     let base = blocks
         .iter()
         .find_map(|(pos, state)| schem::torch_block(pos, state))
         .unwrap();
-    let broken = standardize::without(&data, &[base].into()).unwrap();
-    assert!(
-        !roles::changed_links(&data, &broken, &roles)
-            .unwrap()
-            .is_empty()
-    );
+    let broken = without(&data, [base]);
+    assert!(!roles::changed(&data, &broken, &[]).unwrap().is_empty());
 }

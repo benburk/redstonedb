@@ -15,7 +15,7 @@ use mchprs_blocks::{
 };
 use mchprs_redpiler::{
     Compiler, CompilerInput, CompilerOptions, TaskMonitor,
-    compile_graph::{CompileGraph, LinkType},
+    compile_graph::{CompileGraph, LinkType, NodeType},
     passes::{PassRegistry, build_pass_pipeline},
 };
 use mchprs_world::{World, testing::TestWorld};
@@ -527,8 +527,9 @@ pub type Link = (Pos, Pos, bool);
 
 /// The links of the circuit Redpiler compiles from `blocks`, as its
 /// graph stands before any optimization, each with the signal strength it
-/// loses on the way. Two builds with the same links compute the same in
-/// the same ticks.
+/// loses on the way: those into components, and into the dust on an
+/// output block, which is how the site reads it. Two builds with the same
+/// links compute the same in the same ticks.
 pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
@@ -560,12 +561,20 @@ pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
             .first()
             .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
     };
+    let read: HashSet<Pos> = crate::interface::read(blocks)
+        .outputs
+        .iter()
+        .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
+        .collect();
     let mut found = BTreeMap::new();
     for edge in graph.all_edges() {
         let ends = (pos(&graph[edge.source()]), pos(&graph[edge.target()]));
         let (Some(from), Some(to)) = ends else {
             continue;
         };
+        if graph[edge.target()].ty == NodeType::Wire && !read.contains(&to) {
+            continue;
+        }
         let link = edge.weight();
         let ss = found.entry((from, to, link.ty == LinkType::Side));
         let ss = ss.or_insert(link.ss);

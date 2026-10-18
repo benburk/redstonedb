@@ -23,10 +23,7 @@
 //!   by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
 
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    hash::BuildHasher,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{Result, ensure};
 
@@ -187,18 +184,22 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     rebox(data, &grid, low, size)
 }
 
-/// The file with the blocks at `gone` taken out, its box and paste offset
-/// as they were, so `tidy` fits it afterwards.
-pub fn without<S: BuildHasher>(
-    data: &[u8],
-    gone: &HashSet<Pos, S>,
-) -> Result<Vec<u8>> {
+/// The file with each block of `changes` put in place, air taking one out,
+/// its box and paste offset as they were, so `tidy` fits it afterwards.
+pub fn edit(data: &[u8], changes: &BTreeMap<Pos, String>) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
-    let grid: HashMap<Pos, String> = blocks
+    let mut grid: HashMap<Pos, String> = blocks
         .iter()
-        .filter(|(pos, state)| *state != AIR && !gone.contains(pos))
+        .filter(|(_, state)| *state != AIR)
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
+    for (&pos, state) in changes {
+        if state == AIR {
+            grid.remove(&pos);
+        } else {
+            grid.insert(pos, state.clone());
+        }
+    }
     rebox(data, &grid, [0, 0, 0], blocks.size)
 }
 

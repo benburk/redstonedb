@@ -1,7 +1,7 @@
 //! Command-line access to the schematic database named by `DATABASE_URL`.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     io::Write as _,
     path::{Path, PathBuf},
@@ -1169,21 +1169,26 @@ struct Pruned {
 /// blocks, once compiling it before and after shows every link as it was;
 /// `None` when it has none.
 fn prune_file(data: &[u8], ways: &[StackDirection]) -> Result<Option<Pruned>> {
-    let roles = app::roles::roles(data, ways)?;
-    let gone: Vec<String> = roles
-        .blocks
-        .iter()
-        .filter(|r| r.need == app::roles::Need::Unused)
-        .map(|r| format!("{},{},{}", r.pos[0], r.pos[1], r.pos[2]))
+    let gone: BTreeMap<_, String> = app::roles::roles(data, ways)?
+        .into_iter()
+        .filter(|(_, role)| role.need == app::roles::Need::Unused)
+        .map(|(pos, _)| (pos, app::schem::AIR.to_owned()))
         .collect();
     if gone.is_empty() {
         return Ok(None);
     }
-    let file = app::roles::without_unused(data, &roles)?;
-    let changed = app::roles::changed_links(data, &file, &roles)?;
-    if let Some(first) = changed.first() {
-        bail!("{} links would change, such as {first}", changed.len());
+    let file = standardize::edit(data, &gone)?;
+    let changed = app::roles::changed(data, &file, ways)?;
+    if let Some((from, to, _)) = changed.first() {
+        bail!(
+            "{} links would change, such as {from:?} to {to:?}",
+            changed.len()
+        );
     }
+    let gone = gone
+        .keys()
+        .map(|[x, y, z]| format!("{x},{y},{z}"))
+        .collect();
     Ok(Some(Pruned { file, gone }))
 }
 
