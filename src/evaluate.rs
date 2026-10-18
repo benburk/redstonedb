@@ -36,7 +36,7 @@ pub struct Evaluation {
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     /// The fewest ticks from one input to the next that keep every result
-    /// right.
+    /// right, no fewer than torch burnout allows.
     pub throughput: Option<i64>,
     /// How an adder makes its carries.
     pub design: Option<Design>,
@@ -92,8 +92,16 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;
         found.latency = timing.latency().map(|t| t.max(0).into());
         found.synchronized = Some(timing.synced);
-        found.throughput =
-            throughput(&found.prepared.blocks, &timing)?.map(i64::from);
+        // A torch burns out switched too often, which the simulator does
+        // not model: the game takes a new input no sooner than every third
+        // tick through torches, or every second without.
+        let burnout = if found.prepared.facts.torches > 0 {
+            3
+        } else {
+            2
+        };
+        found.throughput = throughput(&found.prepared.blocks, &timing)?
+            .map(|ticks| i64::from(ticks).max(burnout));
         run.timing = Some(timing);
         if category == Some("adder") {
             found.design = adder_design(&found.prepared.blocks)?;

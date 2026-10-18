@@ -6,7 +6,8 @@
 //! case comes in, whichever is later. A build that only takes a new input
 //! once the last has settled has a throughput near its latency; a
 //! pipelined one, or one whose paths all take about as long, takes them
-//! faster.
+//! faster. The simulator does not model torch burnout, so `evaluate` holds
+//! a build with torches to three ticks or more, and one without to two.
 
 use anyhow::Result;
 
