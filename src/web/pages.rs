@@ -25,6 +25,7 @@ mod about;
 mod build;
 mod details_page;
 mod form;
+mod icons;
 mod interface;
 mod layout;
 mod leaderboard;
@@ -113,6 +114,19 @@ fn person_badge(name: &str, href: &str) -> Markup {
     }
 }
 
+/// A person as their Minecraft head, blank until it loads or when there is
+/// none, and their name beside it, linking to `href`: a badge's parts with
+/// no outline, for a list of people such as a leaderboard.
+fn person_link(name: &str, href: &str) -> Markup {
+    html! {
+        a href=(href) class="inline-flex items-center gap-2" {
+            img src={ "/players/" (name) "/head.png" } alt="" width="16" height="16" loading="lazy"
+                class="size-4 shrink-0 rounded-[3px] bg-line [image-rendering:pixelated]";
+            span { (name) }
+        }
+    }
+}
+
 /// Each of `names` as a badge linking to their player page.
 fn name_badges(names: &[String]) -> Markup {
     html! {
@@ -156,7 +170,7 @@ fn percent(permille: u32) -> String {
     format!("{}%", permille / 10)
 }
 
-/// The standard `categories` as the sidebar lists them: each section, by
+/// The standard `categories` as the menu lists them: each section, by
 /// its key and heading, with its categories, then any in none under Other.
 /// A section with no categories is left out.
 fn sections(categories: &[Category]) -> Vec<(&str, &str, Vec<&Category>)> {

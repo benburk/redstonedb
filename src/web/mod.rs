@@ -102,7 +102,7 @@ pub const FORM_JS: Asset = Asset::new(
     "text/javascript",
     include_bytes!("../../static/form.js"),
 );
-/// Fits the category sidebar to the window.
+/// Keeps the sidebar scrolled where it was from page to page.
 pub const SIDEBAR_JS: Asset = Asset::new(
     "/sidebar.js",
     "text/javascript",

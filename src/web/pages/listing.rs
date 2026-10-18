@@ -1,11 +1,12 @@
 //! Lists of builds, as cards or a table, and the home page that searches
-//! and narrows them, with its category sidebar.
+//! and narrows them, by its search and its menu of categories.
 
 use maud::{Markup, html};
 
 use super::{
-    PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base, latency,
-    name_links, size, volume,
+    PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base,
+    icons::{self, icon},
+    latency, name_links, size, volume,
 };
 use crate::{
     APP_NAME,
@@ -175,10 +176,16 @@ pub(super) fn home_page(
     listing: Option<&Listing>,
     below: &Markup,
 ) -> Markup {
+    // Every build is the sidebar's Recent builds, and the index its Home.
+    let current_path = match listing {
+        None => "/",
+        Some(listing) if listing.href().starts_with("/builds") => "/builds",
+        Some(_) => "",
+    };
     base(
         viewer,
         APP_NAME,
-        "/",
+        current_path,
         &html! {
             (search_form(action, listing))
             div id="similar" {}
@@ -202,37 +209,43 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 }
 
 /// The home page's search, sent to `action`. It sends as the words are
-/// typed, once typing pauses, and redraws the part below it; the layout,
-/// category, and tags `listing` chose go with it, and the order from its
-/// menu in the results. Beside it, a button opens the dialog for finding
-/// the builds most like a file.
+/// typed, once typing pauses, and redraws the part below it; the layout
+/// and tags `listing` chose go with it, and the category and order from
+/// their menus in the results. In the box's end, a button opens the dialog
+/// for finding the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
-    let (view, query, category, tags) = listing
-        .map_or((View::Cards, "", "", &[][..]), |l| {
-            (l.view, l.query, l.category, l.tags)
-        });
+    let (view, query, tags) = listing
+        .map_or((View::Cards, "", &[][..]), |l| (l.view, l.query, l.tags));
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
             fx-action=(action) fx-target="#listing" class="group relative mb-8" {
             @if view == View::List {
                 input type="hidden" name="view" value="list";
             }
-            @if !category.is_empty() {
-                input type="hidden" name="category" value=(category);
-            }
             @for tag in tags {
                 input type="hidden" name="tag" value=(tag);
             }
             label for="search" class="sr-only" { "Search builds" }
-            div class="flex gap-2" {
+            div class="relative" {
                 input type="search" id="search" name="q" value=(query)
                     placeholder="Search builds, such as 8b adder 3t"
                     autocomplete="off" aria-describedby="search-help"
-                    class="input flex-1";
-                // The dialog comes from the server, with the viewer's
-                // Schemati files, only once asked for.
-                button type="button" fx-action="/similar" fx-target="#similar"
-                    class="btn btn-quiet whitespace-nowrap" { "Find similar" }
+                    class="input pr-12";
+                // Inside the box's end, saying what it does while pointed
+                // at or focused. The dialog comes from the server, with the
+                // viewer's Schemati files, only once asked for.
+                div class="group/similar absolute inset-y-0 right-1 flex items-center" {
+                    button type="button" fx-action="/similar" fx-target="#similar"
+                        aria-label="Find similar builds" aria-describedby="similar-tip"
+                        class="flex size-8 cursor-pointer items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink" {
+                        (icon(icons::UPLOAD, "size-4"))
+                    }
+                    span id="similar-tip" role="tooltip"
+                        class="pointer-events-none absolute top-full right-0 z-20 mt-2 hidden w-64 rounded-control bg-ink px-3 py-2 text-meta text-canvas shadow-overlay group-hover/similar:block group-has-[:focus-visible]/similar:block" {
+                        span class="block font-semibold" { "Find similar builds" }
+                        "Choose a schematic file or a Schemati link to see which builds share the most redstone with it."
+                    }
+                }
             }
             // Shown only while the box is focused and empty, over the gap
             // below it, so nothing moves.
@@ -252,10 +265,8 @@ fn search_help() -> Markup {
     }
 }
 
-/// The part of the home page a search redraws: the category sidebar, each
-/// category with its count of matches, beside the title, the terms
-/// searched for, and the builds found. A search shows only what it finds,
-/// with no sidebar.
+/// The part of the home page a search redraws: the title, the terms
+/// searched for, and the builds found.
 pub fn home_results(listing: &Listing) -> Markup {
     let here = listing.home();
     let title = listing
@@ -263,27 +274,8 @@ pub fn home_results(listing: &Listing) -> Markup {
         .iter()
         .find(|facet| facet.name == listing.category)
         .map_or("Builds", |facet| facet.label.as_str());
-    if listing.searching() {
-        return html! {
-            div id="listing" { (listing_body(listing, here, title)) }
-        };
-    }
     html! {
-        div id="listing" class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-            // A phone has no room beside the builds, so it goes back to
-            // the index to choose another category.
-            (category_sidebar(
-                listing.facets,
-                listing.category,
-                Some(("All", &Home { category: "", ..here }.href(), listing.matched)),
-                |name| Home { category: name, ..here }.href(),
-                "hidden desktop:block",
-            ))
-            div {
-                a href="/" class="mb-2 inline-block text-meta desktop:hidden" { "← All categories" }
-                (listing_body(listing, here, title))
-            }
-        }
+        div id="listing" { (listing_body(listing, here, title)) }
     }
 }
 
@@ -299,7 +291,7 @@ pub fn home_index(index: &Index) -> Markup {
                 // is for a screen reader's outline only.
                 h2 id="index-heading" class="sr-only" { "Categories" }
                 @for (heading, id, tiles) in tile_groups(index.tiles) {
-                    h3 id={ "tiles-" (id) } class="mt-8 mb-3 text-section font-semibold first-of-type:mt-0" { (heading) }
+                    h3 id={ "tiles-" (id) } class={ (PAGE_TITLE) " mt-12 mb-4 first-of-type:mt-0" } { (heading) }
                     // Five to a row at the page's full width, fewer as it
                     // narrows, and never fewer than two.
                     ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(min(13rem,calc(50%_-_0.5rem)),1fr))] gap-4" {
@@ -328,8 +320,8 @@ pub fn home_index(index: &Index) -> Markup {
                 }
             }
             section aria-labelledby="recent-heading" {
-                div class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
-                    h2 id="recent-heading" class="mr-auto text-section font-semibold" { "Recently added" }
+                div class="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
+                    h2 id="recent-heading" class={ (PAGE_TITLE) " mr-auto" } { "Recently added" }
                     a href="/builds" { "All " (index.total) " builds" }
                 }
                 ul class=(CARDS) {
@@ -346,62 +338,45 @@ pub fn home_index(index: &Index) -> Markup {
     }
 }
 
-/// The categories to narrow a page to, each with its count and its
-/// address from `href`, under their sections' headings and then the rest;
-/// `current` is the chosen one, and `all` the label, link, and count of the
-/// first entry, for every category, if the page has one.
-pub(super) fn category_sidebar(
+/// The categories to narrow a page to, as a menu named `category`: first
+/// `all`, the label and count of the choice of every category, then each
+/// category with its count, under its section, and the rest; `current` is
+/// the chosen one. With `form`, it belongs to that form, wherever it is.
+pub(super) fn category_menu(
     facets: &[Facet],
     current: &str,
-    all: Option<(&str, &str, usize)>,
-    href: impl Fn(&str) -> String,
-    class: &str,
+    all: (&str, usize),
+    form: Option<&str>,
 ) -> Markup {
-    let item = "flex items-center justify-between gap-3 rounded-control px-2.5 py-1 text-nav text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
-    let list = "flex flex-wrap gap-0.5 desktop:flex-col";
-    let link = |to: &str, label: &str, count: usize, chosen: bool| {
+    let option = |facet: &Facet| {
         html! {
-            li {
-                a href=(to) class=(item) aria-current=[chosen.then_some("page")] {
-                    span { (label) }
-                    span class="text-meta text-muted tabular-nums" { (count) }
-                }
+            option value=(facet.name) selected[facet.name == current] {
+                (facet.label) " (" (facet.count) ")"
             }
         }
     };
     let in_section = |section: Option<Section>| -> Vec<&Facet> {
         facets.iter().filter(|f| f.section == section).collect()
     };
-    let rest = in_section(None);
+    // A choice the address made that the menu lacks, such as two at once.
+    let known = current.is_empty() || facets.iter().any(|f| f.name == current);
     html! {
-        // Its own scroller on a wide screen, since it stays in view and
-        // may be taller than the window: sidebar.js fits it to the window
-        // below its top, and without it, it fits below the header.
-        nav aria-labelledby="categories-heading" data-sidebar
-            class={ (class) " desktop:sticky desktop:top-4 desktop:max-h-[calc(100vh-6.5rem)] desktop:self-start desktop:overflow-y-auto" } {
-            script defer src=(crate::web::SIDEBAR_JS.url()) {}
-            h2 id="categories-heading" class="mb-2 px-2.5 text-meta font-semibold text-muted" { "Categories" }
-            @if let Some((label, all_href, count)) = all {
-                ul class=(list) { (link(all_href, label, count, current.is_empty())) }
-            }
-            @for &section in Section::ALL {
-                @let members = in_section(Some(section));
-                @if !members.is_empty() {
-                    h3 id={ "section-" (section.name()) } class="mt-5 mb-1 px-2.5 text-section font-semibold" { (section.label()) }
-                    ul aria-labelledby={ "section-" (section.name()) } class=(list) {
-                        @for facet in members {
-                            (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))
+        label class="flex items-center gap-2 text-meta text-muted" {
+            "Category"
+            select id="category" name="category" form=[form] class="input min-h-9 w-auto text-body" {
+                option value="" selected[current.is_empty()] { (all.0) " (" (all.1) ")" }
+                @if !known {
+                    option value=(current) selected { (current) }
+                }
+                @for &section in Section::ALL {
+                    @let members = in_section(Some(section));
+                    @if !members.is_empty() {
+                        optgroup label=(section.label()) {
+                            @for facet in members { (option(facet)) }
                         }
                     }
                 }
-            }
-            // Other, off the list, needs no heading of its own.
-            @if !rest.is_empty() {
-                ul class={ "mt-4 " (list) } {
-                    @for facet in rest {
-                        (link(&href(&facet.name), &facet.label, facet.count, facet.name == current))
-                    }
-                }
+                @for facet in in_section(None) { (option(facet)) }
             }
         }
     }
@@ -433,6 +408,7 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
                     a href=(Home { view: View::Cards, ..here }.href()) class=(SWITCH) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
                     a href=(Home { view: View::List, ..here }.href()) class=(SWITCH) aria-current=[(view == View::List).then_some("page")] { "List" }
                 }
+                (category_menu(listing.facets, category, ("All categories", listing.matched), Some("search-form")))
                 (sort_menu(here.sort))
             }
     }

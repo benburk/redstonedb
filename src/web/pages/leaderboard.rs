@@ -13,8 +13,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, base,
-    listing::{Facet, category_sidebar, category_tabs},
-    name_links,
+    listing::{Facet, category_menu, category_tabs},
 };
 
 /// A leaderboard and the categories beside it.
@@ -37,10 +36,16 @@ pub struct PeoplePage<'a> {
     pub facets: &'a [Facet],
 }
 
-/// The sidebar's first entry on a leaderboard: the people leaderboard, with
-/// how many people it ranks.
-fn people_link(people: usize) -> (&'static str, &'static str, usize) {
-    ("People", "/leaderboards", people)
+/// The menu that goes to another leaderboard: the people leaderboard, which
+/// ranks `people`, and each category's, `current` the one shown. Choosing
+/// one goes there at once; without scripts, its button does.
+fn board_menu(facets: &[Facet], current: &str, people: usize) -> Markup {
+    html! {
+        form action="/leaderboards" method="get" data-live class="flex items-center gap-2" {
+            (category_menu(facets, current, ("People", people), None))
+            noscript { button type="submit" class="btn btn-quiet min-h-9" { "Go" } }
+        }
+    }
 }
 
 pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
@@ -61,23 +66,19 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         "People leaderboard",
         "/leaderboards",
         &html! {
-            div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-                (category_sidebar(facets, "", Some(people_link(built.len())), |name| {
-                    format!("/leaderboards/{name}")
-                }, ""))
-                div {
-                    div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                        h1 class=(PAGE_TITLE) { "People" }
-                    }
-                    p class="mb-6 max-w-prose text-muted" {
-                        "A record is first place, as fastest or as smallest, on a category's leaderboard "
-                        "with at least two builds; choose a category on the left to see them."
-                    }
-                    div class="grid gap-x-10 gap-y-8 desktop:grid-cols-3" {
-                        (standings("most-built", "Most builds", "Builds", built, builder))
-                        (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
-                        (standings("most-records", "Most records", "Records", records, builder))
-                    }
+            div {
+                div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                    h1 class={ (PAGE_TITLE) " mr-auto" } { "People" }
+                    (board_menu(facets, "", built.len()))
+                }
+                p class="mb-6 max-w-prose text-muted" {
+                    "A record is first place, as fastest or as smallest, on a category's leaderboard "
+                    "with at least two builds; choose a category to see them."
+                }
+                div class="grid gap-x-10 gap-y-8 desktop:grid-cols-3" {
+                    (standings("most-built", "Most builds", "Builds", built, builder))
+                    (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
+                    (standings("most-records", "Most records", "Records", records, builder))
                 }
             }
         },
@@ -112,7 +113,7 @@ fn standings(
                             tr class="hover:bg-selection/50" {
                                 td class={ (TABLE_CELL) " tabular-nums text-muted" } { (place) }
                                 th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    a href=(href(person)) { (person.name) }
+                                    (super::person_link(&person.name, &href(person)))
                                 }
                                 td class={ (TABLE_CELL) " text-right tabular-nums" } { (person.count) }
                             }
@@ -155,25 +156,21 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         &format!("{} leaderboard", category.label),
         &path,
         &html! {
-            div class="grid gap-x-10 gap-y-6 desktop:grid-cols-[12rem_minmax(0,1fr)]" {
-                (category_sidebar(facets, &category.name, Some(people_link(people)), |name| {
-                    format!("/leaderboards/{name}")
-                }, ""))
-                div {
-                    div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                        h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
-                        (category_tabs(&category.name, true))
+            div {
+                div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                    h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
+                    (category_tabs(&category.name, true))
+                    (board_menu(facets, &category.name, people))
+                }
+                @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
+                    p class="text-muted" {
+                        "No " (category.plural.to_lowercase()) " of known "
+                        (board.splits.first().map_or("width", |split| split.measure.label()).to_lowercase())
+                        " yet, so none to rank."
                     }
-                    @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
-                        p class="text-muted" {
-                            "No " (category.plural.to_lowercase()) " of known "
-                            (board.splits.first().map_or("width", |split| split.measure.label()).to_lowercase())
-                            " yet, so none to rank."
-                        }
-                    } @else {
-                        (choices(&path, board))
-                        (rankings(category, board))
-                    }
+                } @else {
+                    (choices(&path, board))
+                    (rankings(category, board))
                 }
             }
         },
@@ -441,8 +438,10 @@ fn ranking(
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                 a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
                                 @if !s.builders.is_empty() {
-                                    p class="text-meta text-muted" {
-                                        "by " (name_links(&s.builders))
+                                    div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta" {
+                                        @for name in &s.builders {
+                                            (super::person_link(name, &super::player_href(name)))
+                                        }
                                     }
                                 }
                             }

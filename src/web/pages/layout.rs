@@ -1,11 +1,14 @@
-//! The frame every page shares, its header, and the pages with nothing
+//! The frame every page shares, its sidebar, and the pages with nothing
 //! else in them: not found and not allowed.
 
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{APP_NAME, models::user::User};
 
-use super::PAGE_TITLE;
+use super::{
+    PAGE_TITLE,
+    icons::{self, icon},
+};
 
 /// What the site is, for search results and link previews.
 const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
@@ -15,7 +18,7 @@ const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
 /// A block of redstone, turned on its corner, as in the header.
 const ICON: &str = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='1.5' transform='rotate(45 8 8)' fill='%23c4302b'/%3E%3C/svg%3E";
 
-/// A page around `content`, with the header for `viewer`, the account
+/// A page around `content`, with the sidebar for `viewer`, the account
 /// viewing it, if any.
 pub fn base(
     viewer: Option<&User>,
@@ -42,17 +45,29 @@ pub fn base(
                 // fixi first, so the app's policies hear its every event.
                 script defer src=(crate::web::FIXI_JS.url()) {}
                 script defer src=(crate::web::APP_JS.url()) {}
+                script defer src=(crate::web::SIDEBAR_JS.url()) {}
             }
-            body class="flex min-h-screen flex-col" {
+            body class="min-h-screen desktop:flex" {
                 a href="#main"
                     class="sr-only rounded-control bg-raised px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-10" {
                     "Skip to content"
                 }
-                (navbar(viewer, current_path))
-                main id="main" class="mx-auto w-full max-w-wide flex-1 px-4 py-8 desktop:px-5" {
-                    (content)
+                // A phone has no room for the sidebar beside the page, so
+                // a bar holds the button that opens it, where the sidebar's
+                // own button closes it, and the brand, its name short.
+                header class="flex min-h-14 items-center gap-3 border-b border-line bg-sidebar px-4 py-2 desktop:hidden" {
+                    button type="button" popovertarget="sidebar" aria-label="Open the menu"
+                        class="btn btn-quiet min-h-9 px-2" {
+                        (icon(icons::MENU, "size-5"))
+                    }
+                    (brand(current_path, "RSDB"))
                 }
-                (footer(viewer))
+                (sidebar(viewer, current_path))
+                div class="min-w-0 flex-1" {
+                    main id="main" class="mx-auto w-full max-w-wide px-4 py-8 desktop:px-8" {
+                        (content)
+                    }
+                }
                 // The one place a script says what happened, outside every
                 // swap, so it is announced and stays put.
                 p id="notice" role="status"
@@ -62,64 +77,99 @@ pub fn base(
     }
 }
 
-/// The site's header: its name, its pages, and the viewer's account or a
-/// way to log in, `current_path` marked as the page shown.
-fn navbar(viewer: Option<&User>, current_path: &str) -> Markup {
-    let current = |path: &str| (current_path == path).then_some("page");
-    let link = "whitespace-nowrap rounded-control px-2 py-1.5 desktop:px-2.5 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:font-semibold aria-[current=page]:text-ink";
+/// The site's mark and `name`, its own or a short one, linking home; a
+/// screen reader hears its own name either way.
+fn brand(current_path: &str, name: &str) -> Markup {
     html! {
-        header class="border-b border-line bg-sidebar" {
-            nav aria-label="Primary"
-                class="mx-auto flex min-h-14 max-w-wide flex-wrap items-center gap-x-1 px-4 py-2 desktop:px-5" {
-                a href="/" aria-current=[current("/")]
-                    class="mr-auto flex items-center gap-2.5 font-bold whitespace-nowrap text-ink hover:no-underline" {
-                    // The brand mark: a block of redstone.
-                    span aria-hidden="true" class="size-3.5 rotate-45 rounded-[3px] bg-redstone" {}
-                    (APP_NAME)
-                }
-                a href="/leaderboards"
-                    aria-current=[current_path.starts_with("/leaderboards").then_some("page")]
-                    class=(link) { "Leaderboards" }
-                a href="/about" aria-current=[current("/about")] class=(link) { "About" }
-                @match viewer {
-                    None => {
-                        a href="/sessions/new" aria-current=[current("/sessions/new")] class=(link) { "Log in" }
-                    }
-                    Some(user) => {
-                        @let profile_path = format!("/users/{}", user.username);
-                        a href="/upload" aria-current=[current("/upload")] class=(link) { "Upload" }
-                        a href="/schemati" aria-current=[current("/schemati")] class=(link) { "Schemati" }
-                        @if user.is_admin() {
-                            a href="/users" aria-current=[current("/users")] class=(link) { "Users" }
-                        }
-                        a href=(profile_path) aria-current=[current(&profile_path)]
-                            class={ (link) " flex items-center gap-2" } {
-                            @if let Some(picture) = user.picture(20) { (picture) }
-                            (user.name())
-                        }
-                        form action="/logout" method="post" class="contents" {
-                            button type="submit" class={ (link) " cursor-pointer" } { "Log out" }
-                        }
-                    }
-                }
-            }
+        a href="/" aria-current=[(current_path == "/").then_some("page")] aria-label=(APP_NAME)
+            class="flex items-center gap-2.5 font-bold whitespace-nowrap text-ink hover:no-underline" {
+            // The brand mark: a block of redstone.
+            span aria-hidden="true" class="size-3.5 shrink-0 rotate-45 rounded-[3px] bg-redstone" {}
+            (name)
         }
     }
 }
 
-/// The pages most visits don't need, at the foot of every page.
-fn footer(viewer: Option<&User>) -> Markup {
+/// One link in the sidebar, marked as the page shown when it is.
+const SIDEBAR_LINK: &str = "group flex w-full items-center gap-2.5 rounded-control px-2.5 py-1.5 text-nav text-ink hover:bg-selection hover:no-underline aria-[current=page]:bg-selection aria-[current=page]:font-semibold";
+
+/// A sidebar link's icon: muted, as dark as its words once it is hovered or
+/// is the page shown.
+const SIDEBAR_ICON: &str =
+    "size-4 text-muted group-hover:text-ink group-aria-[current=page]:text-ink";
+
+/// A heading over a group of the sidebar's links.
+const SIDEBAR_HEADING: &str =
+    "mt-5 mb-1 px-2.5 text-meta font-semibold text-muted";
+
+/// The sidebar, the same on every page: the site's pages, the viewer's
+/// own, and the pages most visits don't need, with logging in or out,
+/// `current_path` marked as the page shown. Beside the page on a wide
+/// screen, staying in view and scrolling itself; on a phone, a panel the
+/// header's button opens over the page.
+fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
+    let current = |path: &str| (current_path == path).then_some("page");
+    let link = |href: &str, shape: &str, label: &str, chosen: Option<&str>| {
+        html! {
+            li {
+                a href=(href) aria-current=[chosen] class=(SIDEBAR_LINK) {
+                    (icon(shape, SIDEBAR_ICON))
+                    span { (label) }
+                }
+            }
+        }
+    };
     html! {
-        footer class="mt-12 border-t border-line" {
-            nav aria-label="More"
-                class="mx-auto flex max-w-wide flex-wrap gap-x-5 gap-y-2 px-4 py-6 text-meta desktop:px-5 *:text-muted *:hover:text-ink" {
-                a href="/about" { "About" }
-                a href="/about/categories" { "How builds are sorted" }
-                a href="/about/simulation" { "What the site checks" }
-                a href="/about/conventions" { "Building conventions" }
-                a href="/builds" { "All builds" }
+        nav id="sidebar" popover aria-label="Site" data-sidebar
+            class="inset-y-0 left-0 m-0 h-dvh w-72 max-w-[85vw] overflow-y-auto border-r border-line bg-sidebar px-3 pb-4 text-ink desktop:pt-4 shadow-overlay backdrop:bg-black/30 desktop:sticky desktop:top-0 desktop:block desktop:h-screen desktop:w-60 desktop:[scrollbar-gutter:stable] desktop:max-w-none desktop:shrink-0 desktop:shadow-none" {
+            // On a phone, its top matches the bar's, its button where the
+            // bar's was.
+            div class="mb-2 flex min-h-14 items-center gap-3 px-1 desktop:mb-4 desktop:min-h-0 desktop:px-2.5" {
+                button type="button" popovertarget="sidebar" popovertargetaction="hide"
+                    aria-label="Close the menu" class="btn btn-quiet min-h-9 px-2 desktop:hidden" {
+                    (icon(icons::CLOSE, "size-5"))
+                }
+                (brand(current_path, APP_NAME))
+            }
+            ul class="flex flex-col gap-0.5" {
+                (link("/", icons::HOME, "Home", current("/")))
+                (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
+                (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
+            }
+            @if let Some(user) = viewer {
+                @let profile = format!("/users/{}", user.username);
+                h2 class=(SIDEBAR_HEADING) { "You" }
+                ul class="flex flex-col gap-0.5" {
+                    (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
+                    (link("/schemati", icons::FOLDER, "Schemati", current("/schemati")))
+                    (link(&profile, icons::USER, "My builds", current(&profile)))
+                }
+            }
+            h2 class=(SIDEBAR_HEADING) { "About" }
+            ul class="flex flex-col gap-0.5" {
+                (link("/about", icons::INFO, "About the site", current("/about")))
+                (link("/about/categories", icons::LAYERS, "How builds are sorted", current("/about/categories")))
+                (link("/about/simulation", icons::CHECK, "What the site checks", current("/about/simulation")))
+                (link("/about/conventions", icons::BOOK, "Building conventions", current("/about/conventions")))
                 @if viewer.is_some_and(User::is_admin) {
-                    a href="/users" { "Users" }
+                    (link("/users", icons::USERS, "Users", current("/users")))
+                }
+            }
+            div class="mt-5 border-t border-line pt-3" {
+                @match viewer {
+                    None => ul { (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))) },
+                    Some(user) => {
+                        div class="flex min-w-0 items-center gap-2.5 px-2.5 py-1.5 text-nav text-muted" {
+                            @if let Some(picture) = user.picture(16) { (picture) }
+                            span class="truncate" { (user.name()) }
+                        }
+                        form action="/logout" method="post" {
+                            button type="submit" class={ (SIDEBAR_LINK) " cursor-pointer" } {
+                                (icon(icons::LOG_OUT, SIDEBAR_ICON))
+                                span { "Log out" }
+                            }
+                        }
+                    }
                 }
             }
         }

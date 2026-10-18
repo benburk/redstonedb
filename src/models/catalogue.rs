@@ -92,8 +92,8 @@ impl Measure {
 }
 
 named_values! {
-    /// The sidebar's sections of standard categories, in order, each with
-    /// its heading.
+    /// The sections of standard categories, in order, each with its
+    /// heading, as the home page and the menu of categories group them.
     Section {
         Arithmetic = "arithmetic", "Arithmetic";
         Memory = "memory", "Memory";
@@ -116,7 +116,7 @@ pub struct Category {
     pub plural: String,
     /// Whether each build gives its own name, as bussing does.
     pub named: bool,
-    /// The sidebar section it sits in; `None` for Other, with the
+    /// The section it sits in; `None` for Other, with the
     /// categories off the list.
     pub section: Option<Section>,
     /// Its builds' usual logic; `None` for none.
@@ -333,7 +333,7 @@ pub fn check_category(
                 .to_owned(),
         );
     }
-    // The sidebar gathers every category off the list under `other`.
+    // The menu gathers every category off the list under `other`.
     if category == "other" {
         return Err("Name the category, rather than other.".to_owned());
     }

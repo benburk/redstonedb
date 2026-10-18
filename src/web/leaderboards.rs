@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 
@@ -32,6 +32,12 @@ pub struct BoardQuery {
     encoding: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
+}
+
+/// The category the menu of leaderboards chose, as in `?category=adder`.
+#[derive(Deserialize)]
+pub struct Chosen {
+    category: Option<String>,
 }
 
 /// A standard category's leaderboard, narrowed to one width, orientation,
@@ -89,8 +95,14 @@ fn parsed<T: std::str::FromStr>(value: Option<String>) -> Option<T> {
 /// most builds.
 pub async fn people(
     State(state): State<AppState>,
+    Query(chosen): Query<Chosen>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
+    // The menu of leaderboards sends its choice here, as a form does.
+    if let Some(category) = chosen.category.filter(|c| !c.is_empty()) {
+        let path = format!("/leaderboards/{category}");
+        return Ok(Redirect::to(&path).into_response());
+    }
     let all = schematic::all(&state.db).await?;
     let categories = catalogue::categories(&state.db).await?;
     Ok(pages::people(
@@ -105,7 +117,7 @@ pub async fn people(
     .into_response())
 }
 
-/// The leaderboard sidebar: the categories with a build to rank, and
+/// The menu of leaderboards: the categories with a build to rank, and
 /// `current`, the one shown, whatever it has.
 fn facets(
     categories: &[Category],

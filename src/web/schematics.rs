@@ -213,8 +213,8 @@ fn recent(all: &[Schematic]) -> Vec<(&Schematic, usize)> {
         .collect()
 }
 
-/// The builds a search, category, and tags find, with the category
-/// sidebar. Through fixi, as a search is typed, only the part below the
+/// The builds a search, category, and tags find, with the menu of
+/// categories. Through fixi, as a search is typed, only the part below the
 /// search, with the search's address.
 async fn listing(
     state: &AppState,
@@ -317,10 +317,10 @@ fn order(shown: &mut [Schematic], sort: &str) {
     });
 }
 
-/// The sidebar's name for every category off the standard list.
+/// The menu's name for every category off the standard list.
 const OTHER: &str = "other";
 
-/// Whether `s` belongs under the sidebar's `category`: its own category, or
+/// Whether `s` belongs under the menu's `category`: its own category, or
 /// `other` for any category off the standard list. Commas give several.
 fn in_category(s: &Schematic, category: &str) -> bool {
     category.split(',').any(|category| {
@@ -332,7 +332,7 @@ fn in_category(s: &Schematic, category: &str) -> bool {
     })
 }
 
-/// How many of `found` each category has, for the sidebar: the standard
+/// How many of `found` each category has, for the menu: the standard
 /// categories alphabetically, then every other category together under
 /// Other.
 fn facets(
