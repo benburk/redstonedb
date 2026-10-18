@@ -1418,3 +1418,18 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
         ("xor_xnor_gate", "A xor B", 0)
     );
 }
+
+/// A gate has no lines, so copies side by side each add a bit to A, B, and
+/// the output; this one's copies fit four blocks apart.
+#[test]
+fn an_xor_gate_stacks_west_into_wider_ones() {
+    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let prepared =
+        import::prepare(&raw, Some(Gray::Keep), true, false, true).unwrap();
+    let Some(Stacking::Wider { step, copies, .. }) =
+        Test::XorXnor.stacking(&prepared.data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), copies), ("4 west", 16));
+}

@@ -211,13 +211,12 @@ impl Test {
             | Test::Equality
             | Test::Monostable
             | Test::DualEdgeMonostable
-            | Test::Inverter
-            | Test::XorXnor => 1,
+            | Test::Inverter => 1,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
-            // own.
-            Test::Register | Test::GreaterThan => 2,
+            // own; a gate's copies are searched for how they stack.
+            Test::Register | Test::GreaterThan | Test::XorXnor => 2,
         }
     }
 
@@ -302,9 +301,8 @@ impl Test {
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind: tried on an adder, whose
     /// copies' carries must chain, a register, whose copies may add cells
-    /// or bits, and a buffer, a monostable, and an inverter, whose copies
-    /// add bits;
-    /// `None` for any other.
+    /// or bits, and a buffer, a monostable, an inverter, and an XOR or
+    /// XNOR gate, whose copies add bits; `None` for any other.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
@@ -315,6 +313,7 @@ impl Test {
             Test::Monostable => monostable::stacking(data, false),
             Test::DualEdgeMonostable => monostable::stacking(data, true),
             Test::Inverter => inverter::stacking(data),
+            Test::XorXnor => gate::stacking(data),
             _ => None,
         }
     }

@@ -1,15 +1,21 @@
 //! Testing an XOR or XNOR gate: two operand buses of one width, A and B,
 //! into one output as wide, each bit A xor B, or its inverse for an XNOR.
-//! It has no lines.
+//! It has no lines, so copies stacked side by side add bits.
 
 use anyhow::Result;
 
 use super::{
-    Broken,
+    Broken, Report, Stacking, Test,
     adder::adder_cases,
     bench::{Bench, Cases, Hint, Kind, Spec, mask},
+    stacking,
 };
-use crate::interface::Interface;
+use crate::{
+    interface::{self, Interface},
+    models::schematic::Orientation,
+    schem::Blocks,
+    stack,
+};
 
 /// An XOR gate's cases, as they are named.
 const XOR: &str = "A xor B";
@@ -57,4 +63,33 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         hint: Hint::None,
         by_digit: false,
     })
+}
+
+/// How copies of the gate in `data` stack west into a wider one, each
+/// adding its bits to A, B, and the output, as the inverter's do; `None`
+/// when it is not a gate.
+pub fn stacking(data: &[u8]) -> Option<Stacking> {
+    let blocks = Blocks::read(data).ok()?;
+    let interface = interface::read(&blocks);
+    spec(&interface).ok()?;
+    let width = interface.inputs[0].bits.len();
+    let (low, high) = interface::measured(&blocks);
+    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let buses = stack::Buses::of(Test::XorXnor.name(), Orientation::Horizontal);
+    let works = |blocks: &Blocks, copies: usize| {
+        let Report::Ran(run) = Test::XorXnor.run(blocks) else {
+            return None;
+        };
+        let bits = interface::read(blocks).inputs.first()?.bits.len();
+        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
+    };
+    Some(stacking::west_into_bits(
+        data,
+        reach,
+        width,
+        buses,
+        works,
+        "No step west, up to two past its width, makes copies whose bits \
+         together give A xor B, or A xnor B.",
+    ))
 }
