@@ -49,6 +49,15 @@ enum Command {
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
+    /// Work out every build of `category`, or one build, from its file
+    /// alone, and list where what is worked out differs from what is
+    /// stored
+    Evaluate {
+        /// A build's id, or the start of one
+        id: Option<String>,
+        #[arg(long, default_value = "adder")]
+        category: String,
+    },
     /// Take out the blocks no part of a build's circuit uses, found by the
     /// rules of redstone, from a stored build, or with no id every build
     /// whose category the site tests, each as a new version, only where
@@ -395,6 +404,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
+        Command::Evaluate { id, category } => {
+            evaluate(db, id.as_deref(), &category).await
+        }
         Command::Prune { id, dry_run } => {
             prune(db, id.as_deref(), dry_run).await
         }
@@ -1090,6 +1102,82 @@ async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
     }
     if failed > 0 {
         bail!("{failed} builds fail their tests");
+    }
+    Ok(())
+}
+
+/// Evaluates build `id`, or every build of `category`, from its file, and
+/// prints each field where that differs from what is stored, then how
+/// many builds differ in each.
+async fn evaluate(
+    db: &SqlitePool,
+    id: Option<&str>,
+    category: &str,
+) -> Result<()> {
+    let builds: Vec<schematic::Schematic> = match id {
+        Some(prefix) => vec![load(db, &resolve(db, prefix).await?).await?],
+        None => schematic::all(db)
+            .await?
+            .into_iter()
+            .filter(|s| s.category == category)
+            .collect(),
+    };
+    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    for s in &builds {
+        let name = format!("{}  {}", &s.id[..8], s.filename());
+        let file = version::current_file(db, &s.id)
+            .await?
+            .context("schematic vanished")?;
+        // Its test and timing spread over every core already.
+        let e = match app::evaluate::evaluate(&file) {
+            Ok(e) => e,
+            Err(err) => {
+                println!("{name}: could not evaluate: {err}");
+                *tally.entry("could not evaluate").or_default() += 1;
+                continue;
+            }
+        };
+        let show = |v: &dyn std::fmt::Debug| format!("{v:?}");
+        let mut stored_flags: Vec<String> =
+            s.flags.iter().map(|f| f.name.clone()).collect();
+        stored_flags.sort();
+        let mut flags = e.flags.clone();
+        flags.sort();
+        let fields: [(&str, String, String); 10] = [
+            (
+                "category",
+                s.category.clone(),
+                e.category.unwrap_or("none").to_owned(),
+            ),
+            ("passes", "true".to_owned(), e.passes().to_string()),
+            ("width", show(&s.width), show(&e.width)),
+            (
+                "orientation",
+                show(&Some(s.orientation)),
+                show(&e.orientation),
+            ),
+            ("encoding", show(&s.encoding), show(&e.encoding)),
+            ("flags", show(&stored_flags), show(&flags)),
+            ("stacking", show(&s.stacking), show(&e.stacking)),
+            ("latency", show(&s.latency), show(&e.latency)),
+            ("synchronized", show(&s.synchronized), show(&e.synchronized)),
+            ("throughput", show(&s.throughput), show(&e.throughput)),
+        ];
+        let differ: Vec<String> = fields
+            .iter()
+            .filter(|(_, stored, derived)| stored != derived)
+            .map(|(field, stored, derived)| {
+                *tally.entry(field).or_default() += 1;
+                format!("{field} {stored} -> {derived}")
+            })
+            .collect();
+        if !differ.is_empty() {
+            println!("{name}: {}", differ.join("; "));
+        }
+    }
+    println!("{} builds evaluated", builds.len());
+    for (field, n) in tally {
+        println!("  {n} differ in {field}");
     }
     Ok(())
 }

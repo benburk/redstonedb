@@ -10,6 +10,7 @@ pub mod db;
 pub mod details;
 pub mod discord;
 pub mod error;
+pub mod evaluate;
 pub mod extractors;
 pub mod head;
 pub mod import;

@@ -58,6 +58,7 @@ mod monostable;
 mod multiplier;
 mod register;
 mod stacking;
+mod throughput;
 mod timing;
 
 pub use adder::SIGNED_GREATER_THAN;
@@ -66,6 +67,7 @@ pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Link, links};
 pub use gate::XNOR;
 pub use stacking::{Stacking, Step};
+pub use throughput::throughput;
 pub use timing::{
     BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,
     Timing,
