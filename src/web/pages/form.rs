@@ -78,6 +78,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                                     data-infers-stacking[behaviour.stacking == category::Stacking::Inferred]
                                     data-finds-stacking[behaviour.stacking == category::Stacking::Found]
                                     data-tested[behaviour.test.is_some()]
+                                    data-evaluated[behaviour.evaluated]
                                     data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -117,6 +118,12 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
             span { "Pulse (ticks)" }
             input type="number" name="pulse" value=(f.pulse) min="1"
                 inputmode="numeric" placeholder="such as 3" class="input";
+        }
+        // For a category such as adder, whose measured details all come from
+        // the simulation; form.js shows it.
+        p data-evaluated-note hidden class="text-muted" {
+            "Its design, latency, throughput, and stacking are worked out by the simulation, "
+            "and it must pass its test; one that fails goes up as Other."
         }
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {
@@ -263,7 +270,7 @@ pub(super) fn fields(
             }
         }
         }
-        label class="field" data-standard-only hidden[other] {
+        label class="field" data-standard-only data-throughput-field hidden[other] {
             span { "Throughput in ticks" }
             input type="number" name="throughput" value=(f.throughput) min="1" max="1000"
                 inputmode="numeric" placeholder="such as 3" aria-describedby="throughput-help"

@@ -26,6 +26,11 @@ pub struct Behaviour {
     pub stacking: Stacking,
     /// What its copies stacked do with its buses and lines.
     pub copies: Copies,
+    /// Whether a conventional build's every measured detail comes from
+    /// `evaluate` rather than being typed: its stacking, latency,
+    /// synchronized, throughput, and design. Such a build must pass its
+    /// test to be one of the category; one that fails goes up as other.
+    pub evaluated: bool,
 }
 
 /// What a category's unsigned control and status lines are taken to be.
@@ -123,6 +128,7 @@ pub fn behaviour(category: &str) -> Behaviour {
             flags_from_file: true,
             lines: lone(CARRY_IN, CARRY_OUT),
             stacking: Stacking::Inferred,
+            evaluated: true,
             ..read(Test::Adder)
         },
         // Its lines are named for borrowing, as it takes B away; its

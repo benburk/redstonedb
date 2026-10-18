@@ -13,7 +13,9 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use tokio::sync::Semaphore;
 
 use crate::{
-    category, import, interface,
+    category,
+    evaluate::{Evaluation, evaluate},
+    import, interface,
     models::schematic::{
         self, Encoding, Orientation, Schematic, StackDirection,
     },
@@ -255,6 +257,9 @@ pub async fn refresh(
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
+    if s.conventional && category::behaviour(&s.category).evaluated {
+        return refresh_evaluated(db, &s, data, again).await;
+    }
     let mut derived = Derived::of(&s);
     if s.conventional {
         derived.read(&s.category, &Blocks::read(&data)?);
@@ -294,6 +299,49 @@ pub async fn refresh(
     Ok(report)
 }
 
+/// Brings build `s`, of a category whose details all come from
+/// `evaluate`, up to date with its file `data`: evaluated afresh, unless
+/// its stored result is for this file and complete, and every detail the
+/// evaluation gives written over the stored ones. A file its test does not
+/// recognize as the category is kept as failing.
+async fn refresh_evaluated(
+    db: &SqlitePool,
+    s: &Schematic,
+    data: Vec<u8>,
+    again: bool,
+) -> Result<Option<Report>> {
+    if !again
+        && let Some(report) = current(db, s).await?
+        && (!report.passed() || report.timing().is_some())
+    {
+        return Ok(Some(report));
+    }
+    let e = {
+        let _turn = CASES.acquire().await?;
+        tokio::task::spawn_blocking(move || evaluate(&data)).await??
+    };
+    let report = match &e.report {
+        Some(report) if e.category == Some(s.category.as_str()) => {
+            report.clone()
+        }
+        _ => Report::Broken {
+            reason: format!(
+                "Its test does not recognize it as {}.",
+                s.category.replace('_', " ")
+            ),
+        },
+    };
+    let derived = Derived::evaluated(s, &e);
+    let mut tx = db.begin().await?;
+    derived.save(&mut tx, s).await?;
+    match Test::of(&s.category, derived.width) {
+        Some(test) => set(&mut *tx, &s.id, test, &s.sha256, &report).await?,
+        None => clear(&mut *tx, &s.id).await?,
+    }
+    tx.commit().await?;
+    Ok(Some(report))
+}
+
 /// The flag of a monostable whose output rests on, so its pulse turns it
 /// off.
 const INVERTED: &str = "inverted";
@@ -330,6 +378,8 @@ struct Derived {
     pulse: Option<i64>,
     flags: Vec<String>,
     stacking: Vec<StackDirection>,
+    throughput: Option<i64>,
+    design: String,
 }
 
 impl Derived {
@@ -344,7 +394,40 @@ impl Derived {
             pulse: s.pulse,
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             stacking: s.stacking.clone(),
+            throughput: s.throughput,
+            design: s.design.clone(),
         }
+    }
+
+    /// Everything `e` worked out from build `s`'s file, for a build of a
+    /// category whose details all come from `evaluate`: what its file
+    /// shows as the category, its ports' width, orientation, encoding,
+    /// and flags, whatever the test made of it, and, once the test
+    /// recognizes it as the category, what the simulation measured. What
+    /// could not be worked out is unknown, not what was typed.
+    fn evaluated(s: &Schematic, e: &Evaluation) -> Self {
+        let mut derived = Derived {
+            latency: None,
+            synchronized: None,
+            stacking: Vec::new(),
+            throughput: None,
+            design: "other".to_owned(),
+            ..Derived::of(s)
+        };
+        derived.read(&s.category, &e.prepared.blocks);
+        if e.category == Some(s.category.as_str()) {
+            if let Some(orientation) = e.orientation {
+                derived.orientation = orientation;
+            }
+            derived.latency = e.latency;
+            derived.synchronized = e.synchronized;
+            derived.stacking.clone_from(&e.stacking);
+            derived.throughput = e.throughput;
+            if let Some(design) = &e.design {
+                design.name.clone_into(&mut derived.design);
+            }
+        }
+        derived
     }
 
     /// Takes what a build of `category` reads from its file, `blocks`.
@@ -500,6 +583,17 @@ impl Derived {
         if self.stacking != stored.stacking {
             schematic::set_stacking(tx, &s.id, &self.stacking).await?;
         }
+        if (self.throughput, &self.design)
+            != (stored.throughput, &stored.design)
+        {
+            schematic::set_evaluated(
+                &mut *tx,
+                &s.id,
+                self.throughput,
+                &self.design,
+            )
+            .await?;
+        }
         Ok(())
     }
 }
@@ -517,6 +611,10 @@ pub async fn refresh_timing(
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
     };
+    // `refresh` timed it already, with everything else.
+    if s.conventional && category::behaviour(&s.category).evaluated {
+        return Ok(Some(report));
+    }
     let mut measured = None;
     if let Report::Ran(run) = &mut report
         && run.wrong == 0

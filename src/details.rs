@@ -12,9 +12,11 @@ use crate::{
         schematic::{
             self, Encoding, Logic, Orientation, Schematic, StackDirection,
         },
-        tag,
+        simulation, tag,
     },
-    mojang, stack,
+    mojang,
+    simulate::Test,
+    stack,
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming
@@ -219,6 +221,7 @@ async fn ready(
     details.flags =
         catalogue::keep_flags(db, &category.name, &details.flags).await?;
 
+    evaluated(&category, &mut details, build).await?;
     let stacking_inferred = build.conventional
         && category::behaviour(&category.name).stacking
             == category::Stacking::Inferred;
@@ -235,6 +238,45 @@ async fn ready(
         details,
         stacking_inferred,
     })
+}
+
+/// For a conventional build of a category whose measured details all come
+/// from `evaluate`, drops those typed, as the simulation sets them once it
+/// is stored, and refuses the build unless it passes its test: one that
+/// fails can only go up as other.
+async fn evaluated(
+    category: &Category,
+    details: &mut Details,
+    build: Build<'_>,
+) -> Result<(), Stop> {
+    if !build.conventional || !category::behaviour(&category.name).evaluated {
+        return Ok(());
+    }
+    details.latency = None;
+    details.synchronized = None;
+    details.throughput = None;
+    details.design = Some("other".to_owned());
+    let fails = |why: &str| {
+        Stop::Refused(format!(
+            "It {why}, so it can only go up as other: choose Other as its \
+             category, or fix it first.",
+        ))
+    };
+    let width = simulation::derived_width(&category.name, true, build.data)
+        .map_err(|err| fails(&format!("could not be read ({err})")))?;
+    let label = category.label.to_lowercase();
+    let Some(test) = Test::of(&category.name, width) else {
+        return Err(fails(&format!(
+            "is not as wide as the {label} test takes"
+        )));
+    };
+    let report = simulation::run(test, build.data.to_vec())
+        .await
+        .map_err(|err| fails(&format!("could not be simulated ({err})")))?;
+    if !report.passed() {
+        return Err(fails(&format!("does not pass the {label} test")));
+    }
+    Ok(())
 }
 
 /// Refuses details whose fields are not of the shape they must be, each

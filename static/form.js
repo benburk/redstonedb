@@ -77,7 +77,14 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       designs ||= mine;
     }
     if (design.selectedOptions[0]?.disabled) design.value = "other";
-    designField.hidden = !designs;
+    // A category such as adder has its design and throughput worked out by
+    // the simulation, so neither is asked for.
+    const evaluated = has("data-evaluated");
+    designField.hidden = !designs || evaluated;
+    const throughput = form.querySelector("[data-throughput-field]");
+    if (throughput && evaluated) throughput.hidden = true;
+    const note = form.querySelector("[data-evaluated-note]");
+    if (note) note.hidden = !evaluated;
   };
 
   // The menu: the categories whose labels hold the typed text, all of them

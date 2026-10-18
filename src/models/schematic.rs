@@ -964,6 +964,25 @@ pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
 
 /// Sets a monostable's pulse as the simulation measured it, which is no
 /// person's edit either.
+/// Sets the details `evaluate` gives a build of a category whose details
+/// are all evaluated, beside those `set_derived` sets.
+pub async fn set_evaluated<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    throughput: Option<i64>,
+    design: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET throughput = ?, design = ? WHERE id = ?",
+        throughput,
+        design,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn set_pulse<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,

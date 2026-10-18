@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET throughput = ?, design = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "62652a1b54b0faded3764a757c6c176544900d2d7e02e69beff849c0ef6b0b6c"
+}
