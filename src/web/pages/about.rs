@@ -385,6 +385,7 @@ fn checked_table(checked: &[Checked]) -> Markup {
         Stacking::Inferred => "Found by the simulation",
         Stacking::Found => "Searched for; the builder's when none is found",
         Stacking::Given => "Given by the builder",
+        Stacking::Never => "Never stacked",
     };
     // Such as `Width, orientation, and encoding`, then the flags beneath.
     let listed = |items: &[String], flags: &[String]| {

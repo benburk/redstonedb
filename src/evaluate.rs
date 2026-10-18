@@ -81,7 +81,15 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     if let Report::Ran(run) = &mut report
         && run.wrong == 0
     {
-        run.stacking = test.stacking(&found.prepared.data);
+        let never = category.is_some_and(|c| {
+            crate::category::behaviour(c).stacking
+                == crate::category::Stacking::Never
+        });
+        run.stacking = if never {
+            None
+        } else {
+            test.stacking(&found.prepared.data)
+        };
         if let Some(Stacking::Stacks { step, .. }) = &run.stacking {
             found.stacking = vec![step.direction()];
             if let Some(orientation) = step.orientation() {

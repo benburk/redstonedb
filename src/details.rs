@@ -222,10 +222,13 @@ async fn ready(
         catalogue::keep_flags(db, &category.name, &details.flags).await?;
 
     evaluated(&category, &mut details, build).await?;
-    let stacking_inferred = build.conventional
-        && category::behaviour(&category.name).stacking
-            == category::Stacking::Inferred;
-    if !stacking_inferred {
+    let policy = category::behaviour(&category.name).stacking;
+    if policy == category::Stacking::Never {
+        details.stacking.clear();
+    }
+    let stacking_inferred =
+        build.conventional && policy == category::Stacking::Inferred;
+    if !stacking_inferred && policy != category::Stacking::Never {
         let buses = stack::Buses::of(&category.name, details.orientation);
         stack::check(build.data, &details.stacking, buses)?;
     }

@@ -76,7 +76,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                                     data-logic=(category.logic.map_or("unknown", Logic::name))
                                     data-reads-file[behaviour.reads_file]
                                     data-infers-stacking[behaviour.stacking == category::Stacking::Inferred]
-                                    data-finds-stacking[behaviour.stacking == category::Stacking::Found]
+                                    data-finds-stacking[behaviour.stacking == category::Stacking::Found] data-never-stacks[behaviour.stacking == category::Stacking::Never]
                                     data-tested[behaviour.test.is_some()]
                                     data-evaluated[behaviour.evaluated]
                                     data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))

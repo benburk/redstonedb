@@ -62,6 +62,12 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       if (!derived.hidden) typed.hidden = true;
       else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
     }
+    // A category such as multiplier is never stacked, so neither is asked.
+    if (has("data-never-stacks")) {
+      for (const field of form.querySelectorAll("[data-typed-stacking], [data-derived-stacking]")) {
+        field.hidden = true;
+      }
+    }
     form.querySelector("[data-named-field]").hidden = !has("data-named");
     form.querySelector("[data-usual-logic]").textContent =
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;

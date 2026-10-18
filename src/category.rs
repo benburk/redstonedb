@@ -95,6 +95,9 @@ pub enum Stacking {
     /// otherwise: a register's copies may stack in ways the search does not
     /// try, as a 1-bit cell's do into wider registers.
     Found,
+    /// Nobody: its builds are never stacked, as a multiplier's rarely are
+    /// to any use, so stacking is neither asked for, searched, nor kept.
+    Never,
 }
 
 /// What the code does with builds of the category named `category`, such
@@ -191,7 +194,12 @@ pub fn behaviour(category: &str) -> Behaviour {
             stacking: Stacking::Found,
             ..read(Test::Inverter)
         },
-        "multiplier" => tested(Test::Multiplier),
+        "multiplier" => Behaviour {
+            flags_from_file: true,
+            stacking: Stacking::Never,
+            evaluated: true,
+            ..read(Test::Multiplier)
+        },
         "binary_to_bcd" => tested(Test::BinaryToBcd),
         "bcd_to_binary" => tested(Test::BcdToBinary),
         "ram" => Behaviour {

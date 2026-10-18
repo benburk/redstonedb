@@ -93,10 +93,17 @@ async fn stacking_that_does_not_fit_is_refused() {
     // Two copies this far apart make a stack too large to build.
     let apart = Details {
         stacking: vec!["west=100000".parse::<StackDirection>().unwrap()],
-        ..given("multiplier")
+        ..given("ram")
     };
     let refused = check(&db, apart.clone()).await.err().unwrap();
     assert!(refused.contains("don't fit"), "{refused}");
+    // A multiplier never stacks, so what is typed is dropped.
+    let multiplier = Details {
+        category: "multiplier".to_owned(),
+        ..apart.clone()
+    };
+    let multiplier = check(&db, multiplier).await.unwrap();
+    assert!(multiplier.details.stacking.is_empty());
     // An adder's stacking is the simulation's, so what is typed is not
     // checked, nor kept.
     let adder = check(

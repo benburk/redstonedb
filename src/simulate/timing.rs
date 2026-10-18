@@ -367,6 +367,233 @@ pub(super) fn measure(
     })
 }
 
+/// The most ticks after its operands a sequential build's calculate is
+/// tried at.
+const LATEST_PRESS: i32 = 64;
+
+/// Times a build its `bench` drives by pressing control lines once its
+/// inputs are set, as a sequential multiplier's reset and calculate, over
+/// the telling pairs of values. For each case every press but the last,
+/// such as the reset, is made and settled first; the inputs change at tick
+/// 0, and the last press, the calculate, comes at the fewest ticks after
+/// them that still gives every case's result, which is its timing. Each
+/// output's latency is the last tick it changed by, from the inputs.
+pub(super) fn pressed(
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &bench::Bench,
+    cancel: &AtomicBool,
+) -> Result<Timing> {
+    let (cases, _) = bench::paired(&bench.widths(interface));
+    let expected = bench::observe(blocks, interface, bench, &cases, None)?;
+    let Some((&calculate, before)) = bench.presses.split_last() else {
+        bail!("Nothing is pressed.");
+    };
+    let widths = bench.output_widths(interface);
+    for offset in 0..=LATEST_PRESS {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("The timing was cancelled.");
+        }
+        let mut circuit = Circuit::new(blocks, interface)?;
+        for &(port, value) in &bench.held {
+            circuit.set(port, value);
+        }
+        circuit.settle()?;
+        let carried = circuit.carried();
+        // Per case, per output, per bit, the ticks it changed on.
+        let mut runs: Vec<Vec<Vec<Vec<i32>>>> = Vec::with_capacity(cases.len());
+        let mut right = true;
+        for (case, &want) in cases.iter().zip(&expected) {
+            for &port in before {
+                bench::pulse(&mut circuit, port)?;
+                circuit.settle()?;
+            }
+            let mut shown: Vec<u64> =
+                bench.outputs.iter().map(|&o| circuit.get(o)).collect();
+            let mut flips: Vec<Vec<Vec<i32>>> =
+                widths.iter().map(|&w| vec![Vec::new(); w]).collect();
+            for (i, &port) in bench.inputs.iter().enumerate() {
+                circuit.set(port, case[i]);
+            }
+            let mut tick = 0;
+            loop {
+                if tick == offset {
+                    if circuit.is_button(calculate, 0) {
+                        circuit.press(calculate, 0);
+                    } else {
+                        circuit.set(calculate, 1);
+                    }
+                } else if tick == offset + 1 && !circuit.is_button(calculate, 0)
+                {
+                    circuit.set(calculate, 0);
+                }
+                circuit.tick();
+                tick += 1;
+                for (o, (&port, last)) in
+                    bench.outputs.iter().zip(&mut shown).enumerate()
+                {
+                    let now = circuit.get(port);
+                    for (bit, ticks) in flips[o].iter_mut().enumerate() {
+                        if (now ^ *last) >> bit & 1 == 1 {
+                            ticks.push(tick - carried[port]);
+                        }
+                    }
+                    *last = now;
+                }
+                if tick > offset + 1 && !circuit.pending() {
+                    break;
+                }
+                if tick > i32::try_from(MAX_TICKS)? {
+                    bail!(
+                        "It was still changing {MAX_TICKS} ticks after its operands changed."
+                    );
+                }
+            }
+            let mut got = 0;
+            let mut shift = 0;
+            for (&port, &width) in bench.outputs.iter().zip(&widths) {
+                got |= circuit.get(port) << shift;
+                shift += width;
+            }
+            if got != want {
+                right = false;
+                break;
+            }
+            runs.push(flips);
+        }
+        if right {
+            return Ok(pressed_timing(
+                interface, bench, &cases, &runs, offset, &carried,
+            ));
+        }
+    }
+    bail!(
+        "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
+    )
+}
+
+/// The timing `pressed` found: `runs` holding, per case, per output, per
+/// bit, the ticks it changed on, its calculate pressed `offset` ticks after
+/// its operands.
+fn pressed_timing(
+    interface: &Interface,
+    bench: &bench::Bench,
+    cases: &[bench::Case],
+    runs: &[Vec<Vec<Vec<i32>>>],
+    offset: i32,
+    carried: &[i32],
+) -> Timing {
+    let last = |ticks: &[i32]| ticks.last().copied().unwrap_or(0);
+    let outputs: Vec<OutputTiming> = bench
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(o, &port)| {
+            let name = interface.outputs[port].name.clone();
+            pressed_output(name, runs, o, carried[port])
+        })
+        .collect();
+    // Each case's settling, the last tick any output changed.
+    let mut settled: Vec<(i32, usize)> = runs
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            (r.iter().flatten().map(|t| last(t)).max().unwrap_or(0), i)
+        })
+        .collect();
+    settled.sort_unstable();
+    let at = |percent: usize| {
+        settled
+            .get(
+                (settled.len() * percent / 100)
+                    .min(settled.len().saturating_sub(1)),
+            )
+            .map_or(0, |s| s.0)
+    };
+    let (slowest, slowest_at) = settled.last().copied().unwrap_or((0, 0));
+    let mut inputs: Vec<InputTiming> = bench
+        .inputs
+        .iter()
+        .map(|&port| InputTiming {
+            name: interface.inputs[port].name.clone(),
+            tick: Some(0),
+        })
+        .collect();
+    if let Some(&calculate) = bench.presses.last() {
+        inputs.push(InputTiming {
+            name: interface.inputs[calculate].name.clone(),
+            tick: Some(offset),
+        });
+    }
+    let mut slowest_case = cases
+        .get(slowest_at)
+        .map_or_else(Vec::new, |c| c[..bench.inputs.len()].to_vec());
+    slowest_case.push(1);
+    Timing {
+        inputs,
+        synced: outputs.iter().all(|o| o.glitches == 0 && o.staggered == 0),
+        outputs,
+        median: at(50),
+        p99: at(99),
+        slowest,
+        slowest_case,
+        changes: cases.len() as u64,
+        patterns: true,
+        start: Start::Input,
+        takes: Takes::default(),
+        write: None,
+        data: None,
+        pulse: None,
+    }
+}
+
+/// Output `o`'s timing among `runs`, named `name`, carried out of the
+/// build by `carried` ticks of its repeaters or comparators.
+fn pressed_output(
+    name: String,
+    runs: &[Vec<Vec<Vec<i32>>>],
+    o: usize,
+    carried: i32,
+) -> OutputTiming {
+    let last = |ticks: &[i32]| ticks.last().copied().unwrap_or(0);
+
+    let bits: Vec<BitTiming> = (0..runs.first().map_or(0, |r| r[o].len()))
+        .map(|bit| BitTiming {
+            first_change: runs
+                .iter()
+                .filter_map(|r| r[o][bit].first().copied())
+                .min()
+                .unwrap_or(0),
+            latency: runs.iter().map(|r| last(&r[o][bit])).max().unwrap_or(0),
+            glitches: runs.iter().filter(|r| r[o][bit].len() > 1).count()
+                as u64,
+        })
+        .collect();
+    let glitches = runs
+        .iter()
+        .filter(|r| r[o].iter().any(|t| t.len() > 1))
+        .count() as u64;
+    let staggered = runs
+        .iter()
+        .filter(|r| {
+            let once: Vec<i32> =
+                r[o].iter().filter(|t| t.len() == 1).map(|t| t[0]).collect();
+            once.windows(2).any(|w| w[0] != w[1])
+        })
+        .count() as u64;
+    OutputTiming {
+        name,
+        status: false,
+        latency: bits.iter().map(|b| b.latency).max().unwrap_or(0),
+        first_change: bits.iter().map(|b| b.first_change).min().unwrap_or(0),
+        carried,
+        glitches,
+        staggered,
+        glitch: None,
+        bits,
+    }
+}
+
 /// Each output's timing, from what every change together found, with the
 /// ticks `carried` its repeaters or comparators take to carry it out.
 fn output_timings(

@@ -48,6 +48,11 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     }
     // What each case settles to.
     let mut circuit = Circuit::new(blocks, &interface)?;
+    // A build driven by buttons, as a sequential one, takes its inputs one
+    // calculation at a time, not as a stream.
+    if (0..interface.inputs.len()).any(|port| circuit.is_button(port, 0)) {
+        return Ok(None);
+    }
     let mut expected = Vec::with_capacity(cases.len());
     for case in &cases {
         for (port, &value) in case.iter().enumerate() {

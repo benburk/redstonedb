@@ -528,7 +528,12 @@ impl Derived {
         let Report::Ran(run) = report else {
             return;
         };
-        if !s.conventional || policy == category::Stacking::Given {
+        if !s.conventional
+            || matches!(
+                policy,
+                category::Stacking::Given | category::Stacking::Never
+            )
+        {
             return;
         }
         match &run.stacking {

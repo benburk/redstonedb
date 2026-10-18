@@ -38,6 +38,9 @@ pub(super) struct Bench {
     /// rest, such as a status line an operation leaves meaningless, are
     /// not checked.
     pub care: u64,
+    /// Control lines pressed in order once each case's inputs settle, each
+    /// settling in turn, as a sequential multiplier's reset and calculate.
+    pub presses: Vec<usize>,
 }
 
 impl Bench {
@@ -50,6 +53,7 @@ impl Bench {
             pattern: pattern.to_owned(),
             held: Vec::new(),
             care: u64::MAX,
+            presses: Vec::new(),
         }
     }
 
@@ -190,6 +194,9 @@ impl Spec {
         interface: &Interface,
         cancel: &AtomicBool,
     ) -> Result<Timing> {
+        if !self.bench.presses.is_empty() {
+            return timing::pressed(blocks, interface, &self.bench, cancel);
+        }
         let values = match &self.cases {
             Cases::Only(values) => {
                 let (valid, every) = values(false);
@@ -457,6 +464,10 @@ pub(super) fn observe(
             circuit.set(port, case[i] ^ flipped.map_or(0, |(_, bits)| bits));
         }
         circuit.settle()?;
+        for &port in &bench.presses {
+            pulse(&mut circuit, port)?;
+            circuit.settle()?;
+        }
         let mut got = 0;
         let mut shift = 0;
         for (&port, &width) in bench.outputs.iter().zip(&widths) {
@@ -466,6 +477,19 @@ pub(super) fn observe(
         results.push(got);
     }
     Ok(results)
+}
+
+/// Presses control line `port`: its button, or its lever turned on and,
+/// once that settles, off.
+pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {
+    if circuit.is_button(port, 0) {
+        circuit.press(port, 0);
+    } else {
+        circuit.set(port, 1);
+        circuit.settle()?;
+        circuit.set(port, 0);
+    }
+    Ok(())
 }
 
 /// How `got`, what the outputs showed for each of `cases`, compares with

@@ -131,8 +131,8 @@ fn an_adders_width_is_its_lime_bit_count() {
         |name| import::derived_width("adder", &interface::read(&blocks(name)));
     assert_eq!(width("alpha-rca"), Some(8));
     assert_eq!(width("alpha-rca-slice"), Some(1));
-    let multiplier = interface::read(&blocks("alpha-rca"));
-    assert_eq!(import::derived_width("multiplier", &multiplier), None);
+    let memory = interface::read(&blocks("alpha-rca"));
+    assert_eq!(import::derived_width("ram", &memory), None);
 }
 
 /// `data` without its signs.
@@ -235,14 +235,15 @@ fn a_combinational_multiplier_tries_every_product() {
     assert_eq!(circuit.get(0) & 0xF, 15);
 }
 
-/// A multiplier with a clock, reset, or calculate line is sequential.
+/// A sequential multiplier is tested by setting its operands, pressing its
+/// reset, then its calculate.
 #[test]
-fn a_stateful_multiplier_is_skipped() {
-    let report = Test::Multiplier.run(&blocks("mult-8-buttons"));
-    let Report::Skipped { reason } = report else {
-        panic!("tested a sequential multiplier");
-    };
-    assert!(reason.contains("stateful"), "{reason}");
+fn a_sequential_multiplier_is_pressed_to_calculate() {
+    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
+    let file =
+        standardize::standardize(&raw, standardize::Gray::Whiten).unwrap();
+    let report = Test::Multiplier.run(&Blocks::read(&file).unwrap());
+    assert!(report.passed(), "{report:?}");
 }
 
 /// Its copies fit, but a carry out of one never reaches the next, which

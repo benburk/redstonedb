@@ -55,3 +55,24 @@ fn a_carry_signature_names_its_design() {
     assert_eq!(design_of("rLLLLLLL", true), "carry_look_everywhere");
     assert_eq!(design_of("rLLLLLLL", false), "carry_lookahead");
 }
+
+#[test]
+fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
+    // Standardized, as its file is not in the palette.
+    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
+    let file =
+        standardize::standardize(&raw, standardize::Gray::Whiten).unwrap();
+    let e = evaluate(&file).unwrap();
+    assert_eq!(e.category, Some("multiplier"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert!(e.stacking.is_empty());
+    assert!(e.latency.is_some());
+    assert_eq!(e.throughput, None, "it takes one calculation at a time");
+    let timing = e.report.as_ref().and_then(|r| r.timing()).unwrap();
+    assert!(
+        timing
+            .inputs
+            .iter()
+            .any(|i| i.name == "calculate" && i.tick.is_some())
+    );
+}

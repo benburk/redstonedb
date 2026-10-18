@@ -295,25 +295,55 @@ pub fn derived_width(category: &str, interface: &Interface) -> Option<i64> {
     derived(category, interface).width
 }
 
+/// A multiplier's flags, from its ports: `fma` for a third operand, as a
+/// fused multiply-add's, and `upper_product` for outputs holding more bits
+/// than its wider operand, the upper half of the product as well.
+fn multiplier_flags(interface: &Interface) -> Vec<String> {
+    let operands: Vec<usize> = interface
+        .inputs
+        .iter()
+        .filter(|port| !port.block.starts_with(lint::CONTROL))
+        .map(|port| port.bits.len())
+        .collect();
+    let product: usize = interface
+        .outputs
+        .iter()
+        .filter(|port| !port.block.starts_with(lint::STATUS))
+        .map(|port| port.bits.len())
+        .sum();
+    let mut flags = Vec::new();
+    if product > operands.iter().copied().max().unwrap_or(0) {
+        flags.push("upper_product".to_owned());
+    }
+    if operands.len() > 2 {
+        flags.push("fma".to_owned());
+    }
+    flags
+}
+
 /// The flags a category takes from its builds' files rather than their
 /// details, as `category::Behaviour::flags_from_file` says: one for a
 /// magenta control line and one for a pink status line, named as its lone
 /// lines are, such as an adder's `carry_in` and `carry_out` or a
-/// subtractor's `borrow_in` and `borrow_out`. `None` for other categories.
+/// subtractor's `borrow_in` and `borrow_out`; a multiplier's from its
+/// operands and product. `None` for other categories.
 pub fn derived_flags(
     category: &str,
     interface: &Interface,
 ) -> Option<Vec<String>> {
     let behaviour = category::behaviour(category);
+    if !behaviour.flags_from_file {
+        return None;
+    }
+    if category == "multiplier" {
+        return Some(multiplier_flags(interface));
+    }
     let Lines::Lone {
         control, status, ..
     } = behaviour.lines
     else {
         return None;
     };
-    if !behaviour.flags_from_file {
-        return None;
-    }
     let has = |ports: &[Port], colour: &str| {
         ports.iter().any(|port| port.block.starts_with(colour))
     };

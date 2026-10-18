@@ -625,7 +625,7 @@ fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
         && match category::behaviour(&s.category).stacking {
             category::Stacking::Inferred => true,
             category::Stacking::Found => found,
-            category::Stacking::Given => false,
+            category::Stacking::Given | category::Stacking::Never => false,
         }
 }
 

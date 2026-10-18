@@ -210,6 +210,7 @@ fn selections(
             pattern: String::new(),
             held: held.clone(),
             care: u64::MAX,
+            presses: Vec::new(),
         };
         let got = observe(blocks, interface, &bench, &telling, None)?;
         let right = |op: &str| {
@@ -331,6 +332,7 @@ fn check_one(
         pattern: selection.label.clone(),
         held,
         care,
+        presses: Vec::new(),
     };
     let widths: Vec<usize> = if carry {
         vec![width, width, 1]

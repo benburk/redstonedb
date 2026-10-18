@@ -1141,7 +1141,7 @@ async fn evaluate(
         stored_flags.sort();
         let mut flags = e.flags.clone();
         flags.sort();
-        let design = e.design.as_ref().map_or("none", |d| d.name);
+        let design = e.design.as_ref().map_or("other", |d| d.name);
         let fields: [(&str, String, String); 11] = [
             (
                 "category",

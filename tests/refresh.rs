@@ -88,8 +88,7 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
 async fn a_build_without_a_test_keeps_no_result() {
     let db = setup_test_db().await;
     let typed = Details {
-        category: "multiplier".to_owned(),
-        // Wider than any test takes.
+        category: "ram".to_owned(),
         width: Some(64),
         ..Details::default()
     };
@@ -101,7 +100,7 @@ async fn a_build_without_a_test_keeps_no_result() {
             .is_none()
     );
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.width, Some(64), "a multiplier's width is typed");
+    assert_eq!(s.width, Some(64), "a memory's width is typed");
 }
 
 #[tokio::test]
