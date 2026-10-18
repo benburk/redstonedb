@@ -66,7 +66,7 @@ pub use adder::SIGNED_GREATER_THAN;
 pub use alu::op as alu_op;
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Link, links};
-pub use design::{Design, adder_design};
+pub use design::{Design, adder_design, design_of};
 pub use gate::XNOR;
 pub use stacking::{Stacking, Step};
 pub use throughput::throughput;

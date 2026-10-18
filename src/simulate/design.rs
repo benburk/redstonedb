@@ -10,14 +10,17 @@
 //! - `r`: from the carry just below, rippling;
 //! - `L`: from the inputs alone, or the carry in, looking at every bit;
 //! - `s`: from a carry further down, skipping;
-//! - `?`: no component holds it.
+//! - `?`: no component holds it;
+//! - `-`: the carry out of an adder without one.
 //!
-//! A 1-bit adder is a ripple carry. One whose carries below the top are all
-//! strengths is a carry cancel; one whose carries all ripple, a ripple
-//! carry; one mixing strengths and lookahead, a hybrid. The rest look
-//! ahead: a carry look everywhere when every carry has a lookahead term of
-//! its own for each bit below, a generate and the transmits above it, else
-//! a carry lookahead.
+//! A 1-bit adder is a ripple carry. One with a carry no component holds is
+//! other. One whose carries below the top are strengths, but for single
+//! carries joining one block of them to the next, is a carry cancel; one
+//! whose carries all ripple, a ripple carry; one mixing strengths and
+//! lookahead otherwise, a hybrid. The rest look ahead: a carry look
+//! everywhere when every carry has a lookahead term of its own for each
+//! bit below, a generate and the transmits above it, else a carry
+//! lookahead.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -33,7 +36,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Design {
     /// The design's name, as stored: `ripple_carry`, `carry_cancel`,
-    /// `carry_lookahead`, `carry_look_everywhere`, or `hybrid`.
+    /// `carry_lookahead`, `carry_look_everywhere`, `hybrid`, or `other`.
     pub name: &'static str,
     /// A letter per carry, from the carry into bit 1 up to the carry out.
     pub signature: String,
@@ -70,7 +73,7 @@ pub fn adder_design(blocks: &Blocks) -> Result<Option<Design>> {
         .filter(|t| terms.iter().any(|w| t.is(w, cases)))
         .count();
     Ok(Some(Design {
-        name: name(&signature, products >= terms.len()),
+        name: design_of(&signature, products >= terms.len()),
         signature,
         products,
     }))
@@ -78,15 +81,24 @@ pub fn adder_design(blocks: &Blocks) -> Result<Option<Design>> {
 
 /// The design a carry signature names, given whether every lookahead term
 /// has a component of its own.
-fn name(signature: &str, every_term: bool) -> &'static str {
+pub fn design_of(signature: &str, every_term: bool) -> &'static str {
+    if signature.contains('?') {
+        return "other";
+    }
     let body: Vec<char> = signature.chars().take(signature.len() - 1).collect();
-    let strengths = body.contains(&'~');
-    let lookahead = body.iter().any(|&c| c == 'L' || c == 's');
-    if strengths && !lookahead {
+    let strength = |i: usize| body.get(i) == Some(&'~');
+    // Carry cancel blocks: strengths from the first carry, broken only by
+    // single carries joining one block to the next.
+    let blocks = strength(0)
+        && (0..body.len()).all(|i| {
+            strength(i)
+                || (strength(i - 1) && (i + 1 == body.len() || strength(i + 1)))
+        });
+    if blocks {
         "carry_cancel"
     } else if signature.chars().all(|c| c == 'r') {
         "ripple_carry"
-    } else if strengths {
+    } else if body.contains(&'~') {
         "hybrid"
     } else if every_term {
         "carry_look_everywhere"
@@ -328,6 +340,12 @@ impl Tabled {
                             .collect(),
                         _ => Vec::new(),
                     };
+                if start.is_empty()
+                    && k == adder.width
+                    && adder.carry_out.is_none()
+                {
+                    return '-';
+                }
                 if start.is_empty() {
                     return if self.halves(adder, k) { '~' } else { '?' };
                 }

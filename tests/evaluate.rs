@@ -41,3 +41,17 @@ fn an_adders_design_comes_from_how_its_carries_are_made() {
     assert_eq!(design("diag-3t-cca").name, "carry_cancel");
     assert_eq!(design("rca-slice-capped").name, "ripple_carry");
 }
+
+#[test]
+fn a_carry_signature_names_its_design() {
+    use app::simulate::design_of;
+    assert_eq!(design_of("~~~~~~~L", false), "carry_cancel");
+    assert_eq!(design_of("~~~~~~~-", false), "carry_cancel");
+    assert_eq!(design_of("~~~~~~~L~~~~~~~s", false), "carry_cancel");
+    assert_eq!(design_of("rLL~~~~L", false), "hybrid");
+    assert_eq!(design_of("L~~~~~~L", false), "hybrid");
+    assert_eq!(design_of("??????~L", false), "other");
+    assert_eq!(design_of("rrrrrrrr", false), "ripple_carry");
+    assert_eq!(design_of("rLLLLLLL", true), "carry_look_everywhere");
+    assert_eq!(design_of("rLLLLLLL", false), "carry_lookahead");
+}
