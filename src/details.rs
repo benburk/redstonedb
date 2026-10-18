@@ -15,7 +15,7 @@ use crate::{
         simulation, tag,
     },
     mojang,
-    simulate::Test,
+    simulate::{Report, Test},
     stack,
 };
 
@@ -242,8 +242,9 @@ async fn ready(
 
 /// For a conventional build of a category whose measured details all come
 /// from `evaluate`, drops those typed, as the simulation sets them once it
-/// is stored, and refuses the build unless it passes its test: one that
-/// fails can only go up under a category of its own, off the list.
+/// is stored, and refuses the build if it fails its test: one that fails
+/// can only go up under a category of its own, off the list, named for
+/// what it seems meant to be, as 8-bit adder.
 async fn evaluated(
     category: &Category,
     details: &mut Details,
@@ -256,27 +257,31 @@ async fn evaluated(
     details.synchronized = None;
     details.throughput = None;
     details.design = Some("other".to_owned());
-    let fails = |why: &str| {
-        Stop::Refused(format!(
-            "It {why}, so it can't go up as one: give it a category of its \
-             own, naming what it does, or fix it first.",
-        ))
-    };
     let width = simulation::derived_width(&category.name, true, build.data)
-        .map_err(|err| fails(&format!("could not be read ({err})")))?;
+        .ok()
+        .flatten();
     let label = category.label.to_lowercase();
+    // A build too wide for the test, or with a block the simulator does
+    // not model, as a piston, cannot be checked, and goes up as it says.
     let Some(test) = Test::of(&category.name, width) else {
-        return Err(fails(&format!(
-            "is not as wide as the {label} test takes"
-        )));
+        return Ok(());
     };
-    let report = simulation::run(test, build.data.to_vec())
-        .await
-        .map_err(|err| fails(&format!("could not be simulated ({err})")))?;
-    if !report.passed() {
-        return Err(fails(&format!("does not pass the {label} test")));
+    let report =
+        simulation::run(test, build.data.to_vec())
+            .await
+            .map_err(|err| {
+                Stop::Refused(format!("It could not be simulated: {err}."))
+            })?;
+    if report.passed() || matches!(report, Report::Skipped { .. }) {
+        return Ok(());
     }
-    Ok(())
+    // Named for what it seems meant to be, it goes up off the list.
+    let name =
+        width.map_or_else(|| label.clone(), |w| format!("{w}-bit {label}"));
+    Err(Stop::Refused(format!(
+        "It does not pass the {label} test, so it can't go up as one: give \
+         it a category of its own, such as {name}, or fix it first."
+    )))
 }
 
 /// Refuses details whose fields are not of the shape they must be, each

@@ -318,7 +318,7 @@ pub async fn refresh(
 /// `evaluate`, up to date with its file `data`: evaluated afresh, unless
 /// its stored result is for this file and complete, and every detail the
 /// evaluation gives written over the stored ones. A file its test does not
-/// recognize as the category is kept as failing.
+/// recognize as the category keeps its category's test's result instead.
 async fn refresh_evaluated(
     db: &SqlitePool,
     s: &Schematic,
@@ -331,35 +331,42 @@ async fn refresh_evaluated(
     {
         return Ok(Some(report));
     }
-    let e = {
+    // Its result is the evaluation's when the test recognizes it as its
+    // category; else its category's own test's, saying what is wrong.
+    let (e, report) = {
         let _turn = CASES.acquire().await?;
-        let data = data.clone();
-        tokio::task::spawn_blocking(move || evaluate(&data)).await??
-    };
-    let report = match &e.report {
-        Some(report) if e.category == Some(s.category.as_str()) => {
-            report.clone()
-        }
-        _ => Report::Broken {
-            reason: format!(
-                "Its test does not recognize it as {}.",
-                s.category.replace('_', " ")
-            ),
-        },
+        let (data, category) = (data.clone(), s.category.clone());
+        tokio::task::spawn_blocking(move || -> Result<_> {
+            let e = evaluate(&data)?;
+            let report = match &e.report {
+                Some(report) if e.category == Some(category.as_str()) => {
+                    Some(report.clone())
+                }
+                _ => {
+                    let blocks = &e.prepared.blocks;
+                    let width =
+                        import::derived(&category, &interface::read(blocks))
+                            .width;
+                    Test::of(&category, width).map(|test| test.run(blocks))
+                }
+            };
+            Ok((e, report))
+        })
+        .await??
     };
     let derived = Derived::evaluated(s, &e);
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
-    match Test::of(&s.category, derived.width) {
-        Some(test) => {
+    match (Test::of(&s.category, derived.width), &report) {
+        (Some(test), Some(report)) => {
             let key = roles::circuit_key(&data, &derived.stacking).ok();
             let file = (s.sha256.as_str(), key.as_deref());
-            set(&mut *tx, &s.id, test, file, &report).await?;
+            set(&mut *tx, &s.id, test, file, report).await?;
         }
-        None => clear(&mut *tx, &s.id).await?,
+        _ => clear(&mut *tx, &s.id).await?,
     }
     tx.commit().await?;
-    Ok(Some(report))
+    Ok(report)
 }
 
 /// The flag of a monostable whose output rests on, so its pulse turns it

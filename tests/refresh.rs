@@ -137,9 +137,9 @@ async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
         .unwrap()
         .err()
         .unwrap();
-    assert!(refused.contains("category of its own"), "{refused}");
+    assert!(refused.contains("such as 8-bit adder"), "{refused}");
     let as_other = Details {
-        category: "broken adder".to_owned(),
+        category: "8-bit adder".to_owned(),
         ..Details::default()
     };
     let other = details::check(&db, as_other, Build::of(&prepared), false)
