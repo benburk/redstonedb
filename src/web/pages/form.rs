@@ -123,7 +123,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
         // the simulation; form.js shows it.
         p data-evaluated-note hidden class="text-muted" {
             "Its design, latency, throughput, and stacking are worked out by the simulation, "
-            "and it must pass its test; one that fails goes up as Other."
+            "and it must pass its test; one that fails goes up under a category of its own."
         }
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {

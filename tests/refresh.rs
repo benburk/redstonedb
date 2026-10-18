@@ -103,3 +103,101 @@ async fn a_build_without_a_test_keeps_no_result() {
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.width, Some(64), "a multiplier's width is typed");
 }
+
+#[tokio::test]
+async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "adder".to_owned(),
+        latency: Some(99),
+        throughput: Some(99),
+        design: Some("carry_lookahead".to_owned()),
+        ..Details::default()
+    };
+    let id = store(&db, "rca-slice-capped", typed).await;
+    let report = simulation::refresh(&db, &id, false).await.unwrap();
+    assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
+    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(s.design, "ripple_carry");
+    assert_ne!(s.latency, Some(99));
+    assert!(s.throughput.is_some_and(|t| (2..99).contains(&t)));
+}
+
+#[tokio::test]
+async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
+    let db = setup_test_db().await;
+    let raw = std::fs::read("tests/fixtures/cca-8-dust-out.schem").unwrap();
+    let prepared = import::prepare(&raw, None, true, false, false).unwrap();
+    let as_adder = Details {
+        category: "adder".to_owned(),
+        ..Details::default()
+    };
+    let refused = details::check(&db, as_adder, Build::of(&prepared), false)
+        .await
+        .unwrap()
+        .err()
+        .unwrap();
+    assert!(refused.contains("category of its own"), "{refused}");
+    let as_other = Details {
+        category: "broken adder".to_owned(),
+        ..Details::default()
+    };
+    let other = details::check(&db, as_other, Build::of(&prepared), false)
+        .await
+        .unwrap();
+    assert!(other.is_ok(), "{:?}", other.err());
+}
+
+#[tokio::test]
+async fn a_new_file_with_the_same_circuit_keeps_its_result() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "adder".to_owned(),
+        ..Details::default()
+    };
+    let id = store(&db, "rca-slice-capped", typed).await;
+    simulation::refresh(&db, &id, false).await.unwrap();
+    let ran_at = || async {
+        sqlx::query_scalar::<_, String>(
+            "SELECT ran_at FROM simulation WHERE schematic_id = ?",
+        )
+        .bind(&id)
+        .fetch_one(&db)
+        .await
+        .unwrap()
+    };
+    let first = ran_at().await;
+
+    // A copy with a building block recoloured: another file, the same
+    // circuit.
+    let old = app::models::version::current_file(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let blocks = app::schem::Blocks::read(&old).unwrap();
+    let mut grid: std::collections::HashMap<[i32; 3], String> =
+        blocks.iter().map(|(p, s)| (p, s.to_owned())).collect();
+    let (&pos, _) = grid
+        .iter()
+        .find(|(_, s)| s.as_str() == "minecraft:white_concrete")
+        .unwrap();
+    grid.insert(pos, "minecraft:light_gray_concrete".to_owned());
+    let mut nbt = app::schem::decode(&old).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
+        .unwrap();
+    let new = app::schem::encode(nbt).unwrap();
+    let prepared = import::prepare(&new, None, true, false, false).unwrap();
+    let how = app::models::version::Replacing::NextVersion {
+        added_by: None,
+        note: None,
+    };
+    app::models::version::replace(&db, &id, &prepared, how)
+        .await
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let report = simulation::refresh(&db, &id, false).await.unwrap();
+    assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
+    assert_eq!(ran_at().await, first, "it was not simulated again");
+}

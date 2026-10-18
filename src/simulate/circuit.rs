@@ -540,12 +540,27 @@ fn drivers(
 /// runs to, by position, and whether it goes into that part's side.
 pub type Link = (Pos, Pos, bool);
 
-/// The links of the circuit Redpiler compiles from `blocks`, as its
-/// graph stands before any optimization, each with the signal strength it
-/// loses on the way: those into components, and into the dust on an
-/// output block, which is how the site reads it. Two builds with the same
-/// links compute the same in the same ticks.
-pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
+/// The circuit Redpiler compiles from a build, as its graph stands before
+/// any optimization: each component's kind, such as a repeater with its
+/// delay, by position, and each link into a component or into the dust on
+/// an output block, which is how the site reads it, with the signal
+/// strength it loses on the way. Two builds with the same circuit compute
+/// the same in the same ticks.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Compiled {
+    pub kinds: BTreeMap<Pos, String>,
+    pub links: BTreeMap<Link, u8>,
+}
+
+impl Compiled {
+    /// A hash of the whole circuit.
+    pub fn key(&self) -> String {
+        crate::import::sha256(format!("{self:?}").as_bytes())
+    }
+}
+
+/// The circuit of `blocks`; see [`Compiled`].
+pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
     settle_world(&mut world, size)?;
@@ -581,7 +596,12 @@ pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
         .iter()
         .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
         .collect();
-    let mut found = BTreeMap::new();
+    let kinds = graph
+        .node_indices()
+        .filter(|&i| graph[i].ty != NodeType::Wire)
+        .filter_map(|i| Some((pos(&graph[i])?, format!("{:?}", graph[i].ty))))
+        .collect();
+    let mut links = BTreeMap::new();
     for edge in graph.all_edges() {
         let ends = (pos(&graph[edge.source()]), pos(&graph[edge.target()]));
         let (Some(from), Some(to)) = ends else {
@@ -591,11 +611,11 @@ pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
             continue;
         }
         let link = edge.weight();
-        let ss = found.entry((from, to, link.ty == LinkType::Side));
+        let ss = links.entry((from, to, link.ty == LinkType::Side));
         let ss = ss.or_insert(link.ss);
         *ss = (*ss).min(link.ss);
     }
-    Ok(found)
+    Ok(Compiled { kinds, links })
 }
 
 /// An MCHPRS world holding `blocks` as they were saved, `MARGIN` blocks in

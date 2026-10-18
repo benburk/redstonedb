@@ -20,6 +20,7 @@ use crate::{
         self, Encoding, Orientation, Schematic, StackDirection,
     },
     models::version,
+    roles,
     schem::Blocks,
     simulate::{
         Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
@@ -53,12 +54,13 @@ pub async fn stored<'e, E: SqliteExecutor<'e>>(
 }
 
 /// Keeps `report` as build `id`'s result of `test` on the file whose hash
-/// is `sha256`, in place of any before.
+/// is `sha256`, holding the circuit whose key is `circuit`, in place of any
+/// before.
 async fn set<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
     test: Test,
-    sha256: &str,
+    (sha256, circuit): (&str, Option<&str>),
     report: &Report,
 ) -> Result<()> {
     let (name, version, failed) =
@@ -66,16 +68,18 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     let report = serde_json::to_string(report)?;
     sqlx::query!(
         "INSERT INTO simulation
-            (schematic_id, test, version, sha256, failed, report)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (schematic_id, test, version, sha256, circuit, failed, report)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (schematic_id) DO UPDATE SET test = excluded.test,
             version = excluded.version, sha256 = excluded.sha256,
-            failed = excluded.failed, report = excluded.report,
+            circuit = excluded.circuit, failed = excluded.failed,
+            report = excluded.report,
             ran_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
         id,
         name,
         version,
         sha256,
+        circuit,
         failed,
         report
     )
@@ -84,24 +88,30 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Moves build `id`'s stored result from its file whose hash is `from` to
-/// the one whose hash is `to`, which holds the same circuit in the same
-/// box, so the new file is not simulated again.
-pub async fn carry_over(
+/// Moves build `id`'s stored result to its file `data`, whose hash is
+/// `sha256`, when that holds the same circuit, stacked each of `ways`, as
+/// the result ran on, so the file is not simulated again. Returns the
+/// circuit's key, `None` when it could not be compiled.
+async fn adopt(
     db: &SqlitePool,
     id: &str,
-    from: &str,
-    to: &str,
-) -> Result<()> {
+    (data, sha256): (&[u8], &str),
+    ways: &[StackDirection],
+) -> Result<Option<String>> {
+    let Ok(key) = roles::circuit_key(data, ways) else {
+        return Ok(None);
+    };
     sqlx::query!(
-        "UPDATE simulation SET sha256 = ? WHERE schematic_id = ? AND sha256 = ?",
-        to,
+        "UPDATE simulation SET sha256 = ?
+         WHERE schematic_id = ? AND circuit = ? AND sha256 <> ?",
+        sha256,
         id,
-        from
+        key,
+        sha256
     )
     .execute(db)
     .await?;
-    Ok(())
+    Ok(Some(key))
 }
 
 async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
@@ -257,6 +267,9 @@ pub async fn refresh(
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
+    if !again {
+        adopt(db, id, (&data, &s.sha256), &s.stacking).await?;
+    }
     if s.conventional && category::behaviour(&s.category).evaluated {
         return refresh_evaluated(db, &s, data, again).await;
     }
@@ -276,7 +289,7 @@ pub async fn refresh(
             if let Some(report) = kept {
                 Some(report)
             } else {
-                let report = run(test, data).await?;
+                let report = run(test, data.clone()).await?;
                 ran = Some((test, report.clone()));
                 Some(report)
             }
@@ -291,7 +304,9 @@ pub async fn refresh(
     match (test, ran) {
         (None, _) => clear(&mut *tx, id).await?,
         (Some(_), Some((test, report))) => {
-            set(&mut *tx, id, test, &s.sha256, &report).await?;
+            let key = roles::circuit_key(&data, &derived.stacking).ok();
+            let file = (s.sha256.as_str(), key.as_deref());
+            set(&mut *tx, id, test, file, &report).await?;
         }
         (Some(_), None) => {}
     }
@@ -318,6 +333,7 @@ async fn refresh_evaluated(
     }
     let e = {
         let _turn = CASES.acquire().await?;
+        let data = data.clone();
         tokio::task::spawn_blocking(move || evaluate(&data)).await??
     };
     let report = match &e.report {
@@ -335,7 +351,11 @@ async fn refresh_evaluated(
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
     match Test::of(&s.category, derived.width) {
-        Some(test) => set(&mut *tx, &s.id, test, &s.sha256, &report).await?,
+        Some(test) => {
+            let key = roles::circuit_key(&data, &derived.stacking).ok();
+            let file = (s.sha256.as_str(), key.as_deref());
+            set(&mut *tx, &s.id, test, file, &report).await?;
+        }
         None => clear(&mut *tx, &s.id).await?,
     }
     tx.commit().await?;
@@ -625,14 +645,16 @@ pub async fn refresh_timing(
             .await?
             .context("schematic vanished")?;
         let cancel = Arc::new(AtomicBool::new(false));
+        let key = roles::circuit_key(&data, &s.stacking).ok();
         run.timing = Some(time(test, data, cancel).await?);
-        measured = Some(test);
+        measured = Some((test, key));
     }
     let mut derived = Derived::of(&s);
     derived.decide(&s, &report);
     let mut tx = db.begin().await?;
-    if let Some(test) = measured {
-        set(&mut *tx, id, test, &s.sha256, &report).await?;
+    if let Some((test, key)) = measured {
+        let file = (s.sha256.as_str(), key.as_deref());
+        set(&mut *tx, id, test, file, &report).await?;
     }
     derived.save(&mut tx, &s).await?;
     tx.commit().await?;

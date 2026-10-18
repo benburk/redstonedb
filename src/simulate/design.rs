@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 
-use super::circuit::{Circuit, links};
+use super::circuit::{Circuit, compiled};
 use crate::{
     interface::{self, Interface, Port},
     schem::{self, Blocks, Direction, Pos},
@@ -44,9 +44,11 @@ pub struct Design {
     pub products: usize,
 }
 
-/// The most input bits every case of is run; past that, `SAMPLED` cases.
-const EVERY: usize = 20;
-const SAMPLED: usize = 16_384;
+/// The most input bits every case of is run; past that, `SAMPLED` cases,
+/// as many, which tell a carry from every other signal: the test runs
+/// every case already.
+const EVERY: usize = 14;
+const SAMPLED: usize = 1 << EVERY;
 
 /// The design of the adder in `blocks`; `None` when it has no A and B of
 /// one width, takes a signal strength, or has more than 64 input bits.
@@ -237,7 +239,7 @@ impl Tabled {
     ) -> Result<Self> {
         let mut fanin: BTreeMap<Pos, Vec<(Pos, bool, u8)>> = BTreeMap::new();
         let mut nodes = BTreeSet::new();
-        for (&(from, to, side), &distance) in &links(blocks)? {
+        for (&(from, to, side), &distance) in &compiled(blocks)?.links {
             fanin.entry(to).or_default().push((from, side, distance));
             nodes.extend([from, to]);
         }

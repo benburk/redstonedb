@@ -19,7 +19,7 @@
 //! where copies meet. [`changed`] compiles a build before and after an
 //! edit, the proof that the rules missed nothing.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 
@@ -27,7 +27,7 @@ use crate::{
     interface, lint,
     models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
-    simulate::{Link, Stacking, Test, links},
+    simulate::{Compiled, Link, Stacking, Test, compiled},
     stack,
 };
 
@@ -171,28 +171,54 @@ pub fn roles(
     Ok(found)
 }
 
-/// The links between components that differ between the circuits of the
-/// builds in `before` and `after`, alone and stacked each of `ways`, by
-/// position; empty when they compute the same in the same ticks.
+/// What differs between the circuits of the builds in `before` and
+/// `after`, alone and stacked each of `ways`: each component whose kind
+/// changed, and each link between components; empty when they compute the
+/// same in the same ticks.
 pub fn changed(
     before: &[u8],
     after: &[u8],
     ways: &[StackDirection],
-) -> Result<Vec<Link>> {
-    let mut pairs = vec![(before.to_vec(), after.to_vec())];
-    for &way in ways {
-        pairs.push((copies(before, way)?, copies(after, way)?));
-    }
+) -> Result<Vec<String>> {
     let mut found = Vec::new();
-    for (old, new) in pairs {
-        let old = links(&Blocks::read(&old)?)?;
-        let new = links(&Blocks::read(&new)?)?;
-        let keys: HashSet<&Link> = old.keys().chain(new.keys()).collect();
-        let differ = keys.into_iter().filter(|k| old.get(k) != new.get(k));
-        found.extend(differ.copied());
+    for (old, new) in circuits(before, ways)?
+        .into_iter()
+        .zip(circuits(after, ways)?)
+    {
+        let positions: BTreeSet<&Pos> =
+            old.kinds.keys().chain(new.kinds.keys()).collect();
+        for p in positions {
+            if old.kinds.get(p) != new.kinds.get(p) {
+                found.push(format!("the component at {p:?}"));
+            }
+        }
+        let links: BTreeSet<&Link> =
+            old.links.keys().chain(new.links.keys()).collect();
+        for (from, to, _) in links
+            .into_iter()
+            .filter(|k| old.links.get(k) != new.links.get(k))
+        {
+            found.push(format!("the link from {from:?} to {to:?}"));
+        }
     }
-    found.sort_unstable();
     found.dedup();
+    Ok(found)
+}
+
+/// A hash of the circuit of the build in `data`, alone and stacked each of
+/// `ways`: two files with the same key compute the same, stacked the same.
+pub fn circuit_key(data: &[u8], ways: &[StackDirection]) -> Result<String> {
+    let keys: Vec<String> =
+        circuits(data, ways)?.iter().map(Compiled::key).collect();
+    Ok(crate::import::sha256(keys.join(" ").as_bytes()))
+}
+
+/// The circuit of the build in `data` alone, then stacked each of `ways`.
+fn circuits(data: &[u8], ways: &[StackDirection]) -> Result<Vec<Compiled>> {
+    let mut found = vec![compiled(&Blocks::read(data)?)?];
+    for &way in ways {
+        found.push(compiled(&Blocks::read(&copies(data, way)?)?)?);
+    }
     Ok(found)
 }
 

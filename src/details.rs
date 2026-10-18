@@ -243,7 +243,7 @@ async fn ready(
 /// For a conventional build of a category whose measured details all come
 /// from `evaluate`, drops those typed, as the simulation sets them once it
 /// is stored, and refuses the build unless it passes its test: one that
-/// fails can only go up as other.
+/// fails can only go up under a category of its own, off the list.
 async fn evaluated(
     category: &Category,
     details: &mut Details,
@@ -258,8 +258,8 @@ async fn evaluated(
     details.design = Some("other".to_owned());
     let fails = |why: &str| {
         Stop::Refused(format!(
-            "It {why}, so it can only go up as other: choose Other as its \
-             category, or fix it first.",
+            "It {why}, so it can't go up as one: give it a category of its \
+             own, naming what it does, or fix it first.",
         ))
     };
     let width = simulation::derived_width(&category.name, true, build.data)

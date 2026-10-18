@@ -20,9 +20,7 @@ use app::{
         user::{Role, User},
         version::{self, Replacing},
     },
-    mojang,
-    schem::Blocks,
-    search,
+    mojang, search,
     simulate::{Action, Report, Signal, Stacking, Timing},
     stack,
     standardize::{self, Gray},
@@ -1237,12 +1235,6 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
             note: Some("Unused blocks taken out"),
         };
         version::replace(db, id, &checked.prepared, how).await?;
-        // The circuit is the same, so its stored result still holds, unless
-        // the box moved, as the cells a register's result names would.
-        if checked.prepared.blocks.size == Blocks::read(&data)?.size {
-            let new = &checked.prepared.sha256;
-            simulation::carry_over(db, id, &s.sha256, new).await?;
-        }
         if simulation::refresh(db, id, false).await?.is_some() {
             simulation::refresh_timing(db, id, false).await?;
         }
@@ -1272,9 +1264,9 @@ fn prune_file(data: &[u8], ways: &[StackDirection]) -> Result<Option<Pruned>> {
     }
     let file = standardize::edit(data, &gone)?;
     let changed = app::roles::changed(data, &file, ways)?;
-    if let Some((from, to, _)) = changed.first() {
+    if let Some(first) = changed.first() {
         bail!(
-            "{} links would change, such as {from:?} to {to:?}",
+            "{} parts of its circuit would change, such as {first}",
             changed.len()
         );
     }
