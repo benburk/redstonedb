@@ -82,6 +82,26 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Moves build `id`'s stored result from its file whose hash is `from` to
+/// the one whose hash is `to`, which holds the same circuit in the same
+/// box, so the new file is not simulated again.
+pub async fn carry_over(
+    db: &SqlitePool,
+    id: &str,
+    from: &str,
+    to: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "UPDATE simulation SET sha256 = ? WHERE schematic_id = ? AND sha256 = ?",
+        to,
+        id,
+        from
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
     sqlx::query!("DELETE FROM simulation WHERE schematic_id = ?", id)
         .execute(db)

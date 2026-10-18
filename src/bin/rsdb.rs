@@ -20,7 +20,9 @@ use app::{
         user::{Role, User},
         version::{self, Replacing},
     },
-    mojang, search,
+    mojang,
+    schem::Blocks,
+    search,
     simulate::{Action, Report, Signal, Stacking, Timing},
     stack,
     standardize::{self, Gray},
@@ -1103,54 +1105,37 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
             .map(|s| s.id)
             .collect(),
     };
-    let one = id.is_some();
     let (mut builds, mut blocks) = (0, 0);
     for id in &ids {
         let s = load(db, id).await?;
         let name = format!("{}  {}", &id[..8], s.filename());
-        let Some(test) = app::simulate::Test::of(&s.category, s.width) else {
-            if one {
+        if app::simulate::Test::of(&s.category, s.width).is_none() {
+            if ids.len() == 1 {
                 println!("{name}: no test for its category and width");
             }
             continue;
-        };
+        }
         let data = version::current_file(db, id)
             .await?
             .context("schematic vanished")?;
-        let roles = match app::roles::roles(&data, &s.category, &s.stacking) {
-            Ok(roles) => roles,
+        let pruned = match prune_file(&data, &s.stacking) {
+            Ok(Some(pruned)) => pruned,
+            Ok(None) => continue,
             Err(err) => {
                 println!("skip    {name}: {err}");
                 continue;
             }
         };
-        let gone: Vec<String> = roles
-            .blocks
-            .iter()
-            .filter(|r| r.need == app::roles::Need::Unused)
-            .map(|r| format!("{},{},{}", r.pos[0], r.pos[1], r.pos[2]))
-            .collect();
-        if gone.is_empty() {
-            continue;
-        }
-        let file = app::roles::without_unused(&data, &roles)?;
-        if let Some(why) = differs(test, &data, &file).await? {
-            println!("skip    {name}: {why}");
-            continue;
-        }
-        let checked = app::version::check(db, &s, &file, None).await?;
+        let checked = app::version::check(db, &s, &pruned.file, None).await?;
         if let Some(refusal) = checked.refusals.first() {
             println!("skip    {name}: {refusal}");
             continue;
         }
         builds += 1;
-        blocks += gone.len();
-        println!(
-            "{} {name}: {} blocks: {}",
-            if dry_run { "would" } else { "pruned" },
-            gone.len(),
-            gone.join(" ")
-        );
+        blocks += pruned.gone.len();
+        let verb = if dry_run { "would" } else { "pruned" };
+        let n = pruned.gone.len();
+        println!("{verb} {name}: {n} blocks: {}", pruned.gone.join(" "));
         if dry_run {
             continue;
         }
@@ -1159,6 +1144,12 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
             note: Some("Unused blocks taken out"),
         };
         version::replace(db, id, &checked.prepared, how).await?;
+        // The circuit is the same, so its stored result still holds, unless
+        // the box moved, as the cells a register's result names would.
+        if checked.prepared.blocks.size == Blocks::read(&data)?.size {
+            let new = &checked.prepared.sha256;
+            simulation::carry_over(db, id, &s.sha256, new).await?;
+        }
         if simulation::refresh(db, id, false).await?.is_some() {
             simulation::refresh_timing(db, id, false).await?;
         }
@@ -1168,28 +1159,32 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// Why `after` cannot stand for `before` under `test`: either fails, or
-/// their cases or timing differ. `None` when they agree.
-async fn differs(
-    test: app::simulate::Test,
-    before: &[u8],
-    after: &[u8],
-) -> Result<Option<String>> {
-    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let mut runs = Vec::new();
-    for data in [before, after] {
-        let Report::Ran(run) = simulation::run(test, data.to_vec()).await?
-        else {
-            return Ok(Some("its test does not run".to_owned()));
-        };
-        if run.wrong > 0 {
-            return Ok(Some("it fails its test".to_owned()));
-        }
-        let timing =
-            simulation::time(test, data.to_vec(), cancel.clone()).await?;
-        runs.push((run.cases, serde_json::to_value(timing)?));
+/// A build's file with its unused blocks taken out, and where they were.
+struct Pruned {
+    file: Vec<u8>,
+    gone: Vec<String>,
+}
+
+/// The build in `data`, stacking each of `ways`, without its unused
+/// blocks, once compiling it before and after shows every link as it was;
+/// `None` when it has none.
+fn prune_file(data: &[u8], ways: &[StackDirection]) -> Result<Option<Pruned>> {
+    let roles = app::roles::roles(data, ways)?;
+    let gone: Vec<String> = roles
+        .blocks
+        .iter()
+        .filter(|r| r.need == app::roles::Need::Unused)
+        .map(|r| format!("{},{},{}", r.pos[0], r.pos[1], r.pos[2]))
+        .collect();
+    if gone.is_empty() {
+        return Ok(None);
     }
-    Ok((runs[0] != runs[1]).then(|| "its timing changes".to_owned()))
+    let file = app::roles::without_unused(data, &roles)?;
+    let changed = app::roles::changed_links(data, &file, &roles)?;
+    if let Some(first) = changed.first() {
+        bail!("{} links would change, such as {first}", changed.len());
+    }
+    Ok(Some(Pruned { file, gone }))
 }
 
 /// One build's simulation result, on a line or a few.

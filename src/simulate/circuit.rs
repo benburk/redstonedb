@@ -1,7 +1,11 @@
 //! A build set up in a world for the simulator: its inputs driven by
 //! levers, buttons, or barrels, and its outputs read from their blocks.
 
-use std::{collections::HashSet, panic::AssertUnwindSafe, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    panic::AssertUnwindSafe,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use mchprs_blocks::{
@@ -9,7 +13,11 @@ use mchprs_blocks::{
     block_entities::{BlockEntity, ContainerType},
     blocks::Block,
 };
-use mchprs_redpiler::{Compiler, CompilerOptions};
+use mchprs_redpiler::{
+    Compiler, CompilerInput, CompilerOptions, TaskMonitor,
+    compile_graph::{CompileGraph, LinkType},
+    passes::{PassRegistry, build_pass_pipeline},
+};
 use mchprs_world::{World, testing::TestWorld};
 
 use super::Broken;
@@ -511,6 +519,59 @@ fn drivers(
             })
         })
         .collect()
+}
+
+/// A link of a compiled circuit: the part it runs from and the part it
+/// runs to, by position, and whether it goes into that part's side.
+pub type Link = (Pos, Pos, bool);
+
+/// The links of the circuit Redpiler compiles from `blocks`, as its
+/// graph stands before any optimization, each with the signal strength it
+/// loses on the way. Two builds with the same links compute the same in
+/// the same ticks.
+pub fn links(blocks: &Blocks) -> Result<BTreeMap<Link, u8>> {
+    let mut world = world(blocks)?;
+    let size = world_size(blocks);
+    settle_world(&mut world, size)?;
+    let [x, y, z] = size;
+    let input = CompilerInput {
+        world: &world,
+        bounds: (BlockPos::new(0, 0, 0), BlockPos::new(x - 1, y - 1, z - 1)),
+        ticks: &[],
+    };
+    let options = CompilerOptions::default();
+    let graph = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        build_pass_pipeline(&PassRegistry::default(), &options).run_passes(
+            &options,
+            &input,
+            CompileGraph::default(),
+            Arc::new(TaskMonitor::default()),
+        )
+    }))
+    .map_err(|panic| {
+        anyhow::anyhow!(
+            "The simulator could not compile it: {}.",
+            panic_message(&*panic)
+        )
+    })?;
+    let origin = at([0, 0, 0]);
+    let pos = |node: &mchprs_redpiler::compile_graph::CompileNode| {
+        node.block
+            .first()
+            .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
+    };
+    let mut found = BTreeMap::new();
+    for edge in graph.all_edges() {
+        let ends = (pos(&graph[edge.source()]), pos(&graph[edge.target()]));
+        let (Some(from), Some(to)) = ends else {
+            continue;
+        };
+        let link = edge.weight();
+        let ss = found.entry((from, to, link.ty == LinkType::Side));
+        let ss = ss.or_insert(link.ss);
+        *ss = (*ss).min(link.ss);
+    }
+    Ok(found)
 }
 
 /// An MCHPRS world holding `blocks` as they were saved, `MARGIN` blocks in

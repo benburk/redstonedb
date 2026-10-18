@@ -62,8 +62,8 @@ mod timing;
 
 pub use adder::SIGNED_GREATER_THAN;
 pub use alu::op as alu_op;
-pub use circuit::Circuit;
 pub(crate) use circuit::panic_message;
+pub use circuit::{Circuit, Link, links};
 pub use gate::XNOR;
 pub use stacking::{Stacking, Step};
 pub use timing::{

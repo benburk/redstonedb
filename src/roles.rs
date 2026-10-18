@@ -34,7 +34,7 @@ use crate::{
     lint,
     models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
-    simulate::{Stacking, Test},
+    simulate::{Link, Stacking, Test, links},
     stack, standardize, works_from,
 };
 
@@ -364,10 +364,14 @@ impl View<'_> {
         let above = schem::step(p, Direction::Up);
         held(|q| self.get(q), p)
             .into_iter()
-            .map(|q| match schem::short(self.get(q)) {
-                "redstone_wire" | "redstone_torch" if q == above => "1.2.1",
-                _ if q == above => "1.3.1",
-                _ => "1.14",
+            .filter_map(|q| match schem::short(self.get(q)) {
+                // A sign is no part of the circuit, and no release counts it.
+                name if name.ends_with("_sign") => None,
+                "redstone_wire" | "redstone_torch" if q == above => {
+                    Some("1.2.1")
+                }
+                _ if q == above => Some("1.3.1"),
+                _ => Some("1.14"),
             })
             .reduce(later)
     }
@@ -426,16 +430,16 @@ pub fn transparent(state: &str) -> bool {
 }
 
 /// What rests on or hangs from the block at `p`, read through `get`: dust,
-/// a torch, a repeater, or a comparator on top, or a torch, lever, or
-/// button on any side. The simulator runs such things floating, but the
+/// a torch, a repeater, a comparator, or a sign on top, or a torch, lever,
+/// button, or sign on any side. The simulator runs such things floating, but the
 /// game drops them.
 pub fn held<'a>(get: impl Fn(Pos) -> &'a str, p: Pos) -> Vec<Pos> {
     let mut found = Vec::new();
     let above = schem::step(p, Direction::Up);
-    if matches!(
-        schem::short(get(above)),
-        "redstone_wire" | "repeater" | "comparator"
-    ) {
+    let name = schem::short(get(above));
+    if matches!(name, "redstone_wire" | "repeater" | "comparator")
+        || (name.ends_with("_sign") && !name.ends_with("_wall_sign"))
+    {
         found.push(above);
     }
     for d in Direction::ALL {
@@ -448,6 +452,9 @@ pub fn held<'a>(get: impl Fn(Pos) -> &'a str, p: Pos) -> Vec<Pos> {
                 _ => Direction::facing(state)
                     .map(|f| schem::step(q, f.opposite())),
             },
+            name if name.ends_with("_wall_sign") => {
+                Direction::facing(state).map(|f| schem::step(q, f.opposite()))
+            }
             _ => schem::torch_block(q, state),
         };
         if on == Some(p) {
@@ -468,12 +475,11 @@ pub fn is_dot(state: &str) -> bool {
 const COPIES: i64 = 3;
 
 /// The way copies of the build in `data`, of `category`, stack, as the
-/// site's test finds it.
-fn found_stacking(
-    data: &[u8],
-    category: &str,
-    width: usize,
-) -> Option<StackDirection> {
+/// site's test finds it by simulating them: for a file with no stacking
+/// stored, as the lab reads.
+pub fn found_stacking(data: &[u8], category: &str) -> Option<StackDirection> {
+    let interface = interface::read(&Blocks::read(data).ok()?);
+    let width = interface.inputs.first().map_or(1, |p| p.bits.len());
     let test = Test::of(category, i64::try_from(width).ok())?;
     match test.stacking(data)? {
         Stacking::Stacks { step, .. } => Some(step.direction()),
@@ -484,6 +490,17 @@ fn found_stacking(
 /// How many copies of a build stacked `way` the rules read.
 fn count(way: StackDirection) -> i64 {
     way.max_copies.map_or(COPIES, |most| most.min(COPIES))
+}
+
+/// Where `stack` moves each copy of a build stacked `way` that the rules
+/// read.
+fn shifts(way: StackDirection) -> Result<Vec<Pos>> {
+    let [west, up, north] = [way.west, way.up, way.north].map(i32::try_from);
+    let (west, up, north) = (west?, up?, north?);
+    let last = i32::try_from(count(way))? - 1;
+    Ok((0..=last)
+        .map(|i| [(last - i) * west, i * up, (last - i) * north])
+        .collect())
 }
 
 /// Copies of the build in `data` stacked `way`, as the site stacks them.
@@ -509,15 +526,7 @@ fn worlds(
         outputs: outputs.iter().copied().collect(),
     }];
     for &way in ways {
-        let [west, up, north] =
-            [way.west, way.up, way.north].map(i32::try_from);
-        let (west, up, north) = (west?, up?, north?);
-        let copies_read = i32::try_from(count(way))?;
-        let last = copies_read - 1;
-        // Where `stack` moves copy `i`.
-        let shifts: Vec<Pos> = (0..copies_read)
-            .map(|i| [(last - i) * west, i * up, (last - i) * north])
-            .collect();
+        let shifts = shifts(way)?;
         found.push(World {
             blocks: Blocks::read(&copies(data, way)?)?,
             outputs: shifts
@@ -530,22 +539,12 @@ fn worlds(
     Ok(found)
 }
 
-/// What each building block of the build in `data`, of `category`, is
-/// for, and its unused dust, read stacked each way of `stacking` too, or,
-/// with none given, the way the site's test finds it stacks.
-pub fn roles(
-    data: &[u8],
-    category: &str,
-    stacking: &[StackDirection],
-) -> Result<Roles> {
+/// What each building block of the build in `data` is for, and its
+/// unused dust, read alone and stacked each of `ways`.
+pub fn roles(data: &[u8], ways: &[StackDirection]) -> Result<Roles> {
     let file = Blocks::read(data)?;
     let interface = interface::read(&file);
-    let width = interface.inputs.first().map_or(1, |p| p.bits.len());
-    let ways: Vec<StackDirection> = if stacking.is_empty() {
-        found_stacking(data, category, width).into_iter().collect()
-    } else {
-        stacking.to_vec()
-    };
+    let ways = ways.to_vec();
     let worlds = worlds(data, &interface, &ways)?;
     let ports: HashSet<Pos> = interface
         .inputs
@@ -566,7 +565,10 @@ pub fn roles(
     // Dust is unused when every world finds it so in every copy.
     let mut dead: HashSet<Pos> = file
         .iter()
-        .filter(|(_, state)| schem::short(state) == "redstone_wire")
+        .filter(|(p, state)| {
+            schem::short(state) == "redstone_wire"
+                && !file.signs.contains_key(p)
+        })
         .map(|(p, _)| p)
         .collect();
     for w in &worlds {
@@ -583,7 +585,8 @@ pub fn roles(
         .map(|&pos| Role::new(pos, file.get(pos), Need::Unused))
         .collect();
     for (pos, state) in file.iter() {
-        let port = ports.contains(&pos);
+        // A block carrying a sign's text is a label, kept as a port is.
+        let port = ports.contains(&pos) || file.signs.contains_key(&pos);
         // Inputs stay concrete; an output may be either.
         if other_kind(state).is_none()
             || (port && !lint::is_output(schem::short(state)))
@@ -641,4 +644,62 @@ pub fn without_unused(data: &[u8], roles: &Roles) -> Result<Vec<u8>> {
         .map(|r| r.pos)
         .collect();
     standardize::without(data, &gone)
+}
+
+/// The links that differ between the circuits of the builds in `before`
+/// and `after`, alone and stacked each way `roles` read them, as
+/// `from -> to` with the strength lost before and after, `-` where there
+/// is no link. Links into the blocks `roles` found unused, which `after`
+/// may no longer hold, are left out. Empty when the circuit is the same.
+pub fn changed_links(
+    before: &[u8],
+    after: &[u8],
+    roles: &Roles,
+) -> Result<Vec<String>> {
+    let unused: Vec<Pos> = roles
+        .blocks
+        .iter()
+        .filter(|r| r.need == Need::Unused)
+        .map(|r| r.pos)
+        .collect();
+    let mut pairs =
+        vec![(before.to_vec(), after.to_vec(), vec![[0, 0, 0]], "")];
+    for &way in &roles.ways {
+        pairs.push((
+            copies(before, way)?,
+            copies(after, way)?,
+            shifts(way)?,
+            " stacked",
+        ));
+    }
+    let xyz = |[x, y, z]: Pos| format!("{x},{y},{z}");
+    let show = |d: Option<&u8>| d.map_or("-".to_owned(), u8::to_string);
+    let mut found = Vec::new();
+    for (was, now, shifts, label) in pairs {
+        let gone: HashSet<Pos> = shifts
+            .iter()
+            .flat_map(|s| unused.iter().map(|&p| schem::add(p, *s)))
+            .collect();
+        let mut was = links(&Blocks::read(&was)?)?;
+        was.retain(|(from, to, _), _| {
+            !gone.contains(from) && !gone.contains(to)
+        });
+        let now = links(&Blocks::read(&now)?)?;
+        let mut keys: Vec<&Link> = was.keys().chain(now.keys()).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        for k in keys {
+            if was.get(k) != now.get(k) {
+                found.push(format!(
+                    "{} -> {}{}{label}: {} to {}",
+                    xyz(k.0),
+                    xyz(k.1),
+                    if k.2 { " [side]" } else { "" },
+                    show(was.get(k)),
+                    show(now.get(k)),
+                ));
+            }
+        }
+    }
+    Ok(found)
 }
