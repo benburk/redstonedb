@@ -95,6 +95,10 @@ const POWERABLE: [&str; 7] = [
     "observer",
 ];
 
+/// Components no build may use: an observer, whose updates the simulator
+/// does not model, so a build with one could never be checked.
+const FORBIDDEN: [&str; 1] = ["observer"];
+
 /// One broken convention, at a position in the file when it has one.
 #[derive(Clone)]
 pub struct Violation {
@@ -120,6 +124,7 @@ impl fmt::Display for Violation {
 pub fn check(blocks: &Blocks) -> Vec<Violation> {
     let mut found = Vec::new();
     palette(blocks, &mut found);
+    forbidden(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
     names(blocks, &mut found);
@@ -219,6 +224,31 @@ fn unsigned(blocks: &Blocks) -> Vec<(Violation, bool)> {
 
 fn say(found: &mut Vec<Violation>, pos: Option<Pos>, message: String) {
     found.push(Violation { pos, message });
+}
+
+fn forbidden(blocks: &Blocks, found: &mut Vec<Violation>) {
+    let mut seen: BTreeMap<&str, (Pos, usize)> = BTreeMap::new();
+    for (pos, state) in blocks.iter() {
+        let name = schem::short(state);
+        if FORBIDDEN.contains(&name) {
+            seen.entry(name).or_insert((pos, 0)).1 += 1;
+        }
+    }
+    for (name, (pos, count)) in seen {
+        let blocks = if count == 1 {
+            String::new()
+        } else {
+            format!(" ({count} blocks)")
+        };
+        say(
+            found,
+            Some(pos),
+            format!(
+                "an {name} is not allowed{blocks}, as the simulator can't run \
+                 one, so the build could never be checked"
+            ),
+        );
+    }
 }
 
 fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {

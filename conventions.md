@@ -21,6 +21,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 - Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
 - White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
 - Plain glass is not in the palette, so the WorldEdit corner markers a download can add are never mistaken for part of the build.
+- Observers are not allowed: the simulator does not model them, so a build with one could never be checked.
 - A is green and B is blue, which stay apart under red-green colour blindness.
 - Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
 - Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.

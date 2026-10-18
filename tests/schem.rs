@@ -90,6 +90,32 @@ fn conventional_ripple_carry_passes_lint() {
 }
 
 #[test]
+fn lint_refuses_observers() {
+    let data = raw("alpha-rca");
+    let blocks = Blocks::read(&data).unwrap();
+    let mut grid: std::collections::HashMap<[i32; 3], String> =
+        blocks.iter().map(|(p, s)| (p, s.to_owned())).collect();
+    let [x, y, z] = blocks.size;
+    grid.insert(
+        [x, y, z],
+        "minecraft:observer[facing=north,powered=false]".to_owned(),
+    );
+    let mut nbt = schem::decode(&data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], [x + 1, y + 1, z + 1], &grid, entities)
+        .unwrap();
+    let with = Blocks::read(&schem::encode(nbt).unwrap()).unwrap();
+    let messages: Vec<String> =
+        lint::check(&with).into_iter().map(|v| v.message).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("an observer is not allowed")),
+        "{messages:?}"
+    );
+}
+
+#[test]
 fn lint_flags_blocks_outside_the_palette() {
     let messages: Vec<String> = lint::check(&blocks("quartz-rca-slice"))
         .iter()
