@@ -32,6 +32,7 @@ mod leaderboard;
 mod listing;
 mod player;
 mod schemati;
+mod settings;
 mod similar;
 mod simulation;
 mod stack_guide;
@@ -52,6 +53,7 @@ pub use listing::{
 };
 pub use player::{PlayerPage, player};
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
+pub use settings::settings;
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,

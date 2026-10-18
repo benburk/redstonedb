@@ -13,7 +13,7 @@ Most role checks need a model of which blocks are powered, so they come after th
 
 `rsdb export` and the download dialog rewrite the schematic before handing it over:
 
-- Recolour each role to a user's palette, such as `--palette mine.toml`.
+- Recolour each role to a user's palette, which they set on the Settings page and is stored with their account.
 - Keep or strip the signs, or rewrite them from the database.
 
 Because roles are encoded by block, this is a palette substitution, not a change to the build.
@@ -28,5 +28,5 @@ The database is the source of truth for metadata; signs carry only machine-reada
 
 ## Open
 
-- Where user palettes live: a file passed on the command line, or stored in the database.
+- Whether `rsdb export` also takes a palette file, as `--palette mine.toml`, beside the one a user sets on the Settings page.
 - Which candidate fields are required.

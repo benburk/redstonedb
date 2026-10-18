@@ -29,6 +29,7 @@ mod profile;
 mod schemati;
 mod schematics;
 mod session;
+mod settings;
 mod similar;
 mod simulation;
 mod upload;
@@ -108,6 +109,12 @@ pub const SIDEBAR_JS: Asset = Asset::new(
     "text/javascript",
     include_bytes!("../../static/sidebar.js"),
 );
+/// Applies the theme chosen on the settings page before a page is drawn.
+pub const THEME_JS: Asset = Asset::new(
+    "/theme.js",
+    "text/javascript",
+    include_bytes!("../../static/theme.js"),
+);
 /// The 3D view of a build.
 pub const VIEWER_JS: Asset = Asset::new(
     "/viewer.js",
@@ -115,8 +122,9 @@ pub const VIEWER_JS: Asset = Asset::new(
     include_bytes!("../../static/viewer.js"),
 );
 
-const ASSETS: [Asset; 6] =
-    [CSS, FIXI_JS, APP_JS, FORM_JS, SIDEBAR_JS, VIEWER_JS];
+const ASSETS: [Asset; 7] = [
+    CSS, FIXI_JS, APP_JS, FORM_JS, SIDEBAR_JS, THEME_JS, VIEWER_JS,
+];
 
 /// The static assets, served without request logging.
 pub fn static_router() -> Router<AppState> {
@@ -232,6 +240,8 @@ pub fn router(state: AppState) -> Router<AppState> {
             "/schematics/{id}/simulation",
             get(simulation::poll).post(simulation::stored),
         )
+        .route("/settings", get(settings::show))
+        .route("/settings/minecraft", post(settings::set_minecraft_name))
         .route("/schemati", get(schemati::show))
         .route("/schemati/session", post(schemati::connect))
         .route("/schemati/session/delete", post(schemati::disconnect))
@@ -256,10 +266,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route(
             "/users/{username}/minecraft/name",
             post(users::name_minecraft),
-        )
-        .route(
-            "/users/{username}/minecraft",
-            post(profile::set_minecraft_name),
         )
         .route("/sessions/new", get(auth::login))
         .route("/logout", post(session::delete))

@@ -42,6 +42,9 @@ pub fn base(
                 // The brand mark, inline, so there is no icon file to fetch.
                 link rel="icon" href=(ICON);
                 link rel="stylesheet" href=(crate::web::CSS.url());
+                // Not deferred: the chosen theme must apply before the page
+                // is drawn.
+                script src=(crate::web::THEME_JS.url()) {}
                 // fixi first, so the app's policies hear its every event.
                 script defer src=(crate::web::FIXI_JS.url()) {}
                 script defer src=(crate::web::APP_JS.url()) {}
@@ -103,10 +106,11 @@ const SIDEBAR_HEADING: &str =
     "mt-5 mb-1 px-2.5 text-meta font-semibold text-muted";
 
 /// The sidebar, the same on every page: the site's pages, the viewer's
-/// own, and the pages most visits don't need, with logging in or out,
-/// `current_path` marked as the page shown. Beside the page on a wide
-/// screen, staying in view and scrolling itself; on a phone, a panel the
-/// header's button opens over the page.
+/// own, and the pages most visits don't need, then at its foot the
+/// account, with settings and logging out, or logging in; `current_path`
+/// is marked as the page shown. Beside the page on a wide screen, staying
+/// in view, its pages scrolling between its brand and its foot; on a
+/// phone, a panel the header's button opens over the page.
 fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
     let current = |path: &str| (current_path == path).then_some("page");
     let link = |href: &str, shape: &str, label: &str, chosen: Option<&str>| {
@@ -120,42 +124,45 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
         }
     };
     html! {
-        nav id="sidebar" popover aria-label="Site" data-sidebar
-            class="inset-y-0 left-0 m-0 h-dvh w-72 max-w-[85vw] overflow-y-auto border-r border-line bg-sidebar px-3 pb-4 text-ink desktop:pt-4 shadow-overlay backdrop:bg-black/30 desktop:sticky desktop:top-0 desktop:block desktop:h-screen desktop:w-60 desktop:[scrollbar-gutter:stable] desktop:max-w-none desktop:shrink-0 desktop:shadow-none" {
+        nav id="sidebar" popover aria-label="Site"
+            class="inset-y-0 left-0 m-0 h-dvh w-72 max-w-[85vw] flex-col border-r border-line bg-sidebar text-ink shadow-overlay backdrop:bg-black/30 open:flex desktop:sticky desktop:top-0 desktop:flex desktop:h-screen desktop:w-60 desktop:max-w-none desktop:shrink-0 desktop:shadow-none" {
             // On a phone, its top matches the bar's, its button where the
             // bar's was.
-            div class="mb-2 flex min-h-14 items-center gap-3 px-1 desktop:mb-4 desktop:min-h-0 desktop:px-2.5" {
+            div class="flex min-h-14 shrink-0 items-center gap-3 px-4 desktop:min-h-0 desktop:px-5.5 desktop:pt-4 desktop:pb-4" {
                 button type="button" popovertarget="sidebar" popovertargetaction="hide"
                     aria-label="Close the menu" class="btn btn-quiet min-h-9 px-2 desktop:hidden" {
                     (icon(icons::CLOSE, "size-5"))
                 }
                 (brand(current_path, APP_NAME))
             }
-            ul class="flex flex-col gap-0.5" {
-                (link("/", icons::HOME, "Home", current("/")))
-                (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
-                (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
-            }
-            @if let Some(user) = viewer {
-                @let profile = format!("/users/{}", user.username);
-                h2 class=(SIDEBAR_HEADING) { "You" }
+            // The site's pages scroll between the brand and the account,
+            // which stay put.
+            div data-sidebar class="min-h-0 flex-1 overflow-y-auto px-3 pb-4 [scrollbar-gutter:stable]" {
                 ul class="flex flex-col gap-0.5" {
-                    (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
-                    (link("/schemati", icons::FOLDER, "Schemati", current("/schemati")))
-                    (link(&profile, icons::USER, "My builds", current(&profile)))
+                    (link("/", icons::HOME, "Home", current("/")))
+                    (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
+                    (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
+                }
+                @if let Some(user) = viewer {
+                    @let profile = format!("/users/{}", user.username);
+                    h2 class=(SIDEBAR_HEADING) { "You" }
+                    ul class="flex flex-col gap-0.5" {
+                        (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
+                        (link(&profile, icons::USER, "My builds", current(&profile)))
+                    }
+                }
+                h2 class=(SIDEBAR_HEADING) { "About" }
+                ul class="flex flex-col gap-0.5" {
+                    (link("/about", icons::INFO, "About the site", current("/about")))
+                    (link("/about/categories", icons::LAYERS, "How builds are sorted", current("/about/categories")))
+                    (link("/about/simulation", icons::CHECK, "What the site checks", current("/about/simulation")))
+                    (link("/about/conventions", icons::BOOK, "Building conventions", current("/about/conventions")))
+                    @if viewer.is_some_and(User::is_admin) {
+                        (link("/users", icons::USERS, "Users", current("/users")))
+                    }
                 }
             }
-            h2 class=(SIDEBAR_HEADING) { "About" }
-            ul class="flex flex-col gap-0.5" {
-                (link("/about", icons::INFO, "About the site", current("/about")))
-                (link("/about/categories", icons::LAYERS, "How builds are sorted", current("/about/categories")))
-                (link("/about/simulation", icons::CHECK, "What the site checks", current("/about/simulation")))
-                (link("/about/conventions", icons::BOOK, "Building conventions", current("/about/conventions")))
-                @if viewer.is_some_and(User::is_admin) {
-                    (link("/users", icons::USERS, "Users", current("/users")))
-                }
-            }
-            div class="mt-5 border-t border-line pt-3" {
+            div class="shrink-0 border-t border-line px-3 py-3" {
                 @match viewer {
                     None => ul { (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))) },
                     Some(user) => {
@@ -163,10 +170,15 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                             @if let Some(picture) = user.picture(16) { (picture) }
                             span class="truncate" { (user.name()) }
                         }
-                        form action="/logout" method="post" {
-                            button type="submit" class={ (SIDEBAR_LINK) " cursor-pointer" } {
-                                (icon(icons::LOG_OUT, SIDEBAR_ICON))
-                                span { "Log out" }
+                        ul class="flex flex-col gap-0.5" {
+                            (link("/settings", icons::SETTINGS, "Settings", current("/settings")))
+                            li {
+                                form action="/logout" method="post" {
+                                    button type="submit" class={ (SIDEBAR_LINK) " cursor-pointer" } {
+                                        (icon(icons::LOG_OUT, SIDEBAR_ICON))
+                                        span { "Log out" }
+                                    }
+                                }
                             }
                         }
                     }

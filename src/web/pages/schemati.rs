@@ -1,4 +1,5 @@
-//! The page for the viewer's own Schemati folder.
+//! The page for the viewer's own Schemati folder, and the parts of the
+//! settings page that connect it.
 
 use maud::{Markup, html};
 
@@ -58,12 +59,13 @@ pub fn schemati_folder(
                 p class="mb-6 text-danger" { (refused) }
             }
             @match connection {
-                Connection::Unset => (session_form(false)),
-                Connection::Forgotten => (session_form(true)),
-                Connection::Unreachable(why) => {
-                    p class="mb-6 text-danger" { (why) }
-                    (disconnect())
-                }
+                Connection::Unset => p {
+                    a href="/settings" { "Connect your Schemati" } " in Settings to see its files here."
+                },
+                Connection::Forgotten => p {
+                    "Schemati has forgotten your session. " a href="/settings" { "Give it a new one" } " in Settings."
+                },
+                Connection::Unreachable(why) => p class="text-danger" { (why) },
                 Connection::Open(folder) => (open(folder)),
             }
         }
@@ -97,10 +99,10 @@ pub(super) fn own_file_field(
                 "Your Schemati folder is empty. In game, " code { "//save <name>" } " adds to it."
             },
             Connection::Unset => p class=(help) {
-                a href="/schemati" { "Connect your Schemati" } " to choose from its files here."
+                a href="/settings" { "Connect your Schemati" } " in Settings to choose from its files here."
             },
             Connection::Forgotten => p class=(help) {
-                "Schemati has forgotten your session. " a href="/schemati" { "Give it a new one" } " to choose from its files here."
+                "Schemati has forgotten your session. " a href="/settings" { "Give it a new one" } " in Settings to choose from its files here."
             },
             Connection::Unreachable(why) => p class=(help) { "Your Schemati files: " (why) },
         }
@@ -115,7 +117,7 @@ pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
         @match sent {
             Ok(done) => p { (done) },
             Err(why) => p class="text-danger" {
-                (why) " " a href="/schemati" { "Open your Schemati" }
+                (why) " " a href="/settings" { "Check it in Settings" }
             },
         }
     }
@@ -123,11 +125,11 @@ pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
 
 /// The form for giving a Schemati session, with how to find one, saying
 /// so first when Schemati has `forgotten` the last.
-fn session_form(forgotten: bool) -> Markup {
+pub(super) fn session_form(forgotten: bool) -> Markup {
     html! {
         section aria-labelledby="session-heading"
             class="flex max-w-prose flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-            h2 id="session-heading" class=(SECTION_TITLE) { "Connect your Schemati" }
+            h3 id="session-heading" class=(SECTION_TITLE) { "Connect your Schemati" }
             @if forgotten {
                 p role="alert" class="text-danger" {
                     "Schemati has forgotten the session you gave, as it does after a day or when you log out there. Give it a new one."
@@ -161,7 +163,7 @@ fn session_form(forgotten: bool) -> Markup {
 }
 
 /// The button that forgets the viewer's session.
-fn disconnect() -> Markup {
+pub(super) fn disconnect() -> Markup {
     html! {
         form action="/schemati/session/delete" method="post" {
             button type="submit" class="btn btn-quiet" { "Disconnect" }
@@ -173,11 +175,9 @@ fn disconnect() -> Markup {
 /// form for adding files.
 fn open(folder: &Folder) -> Markup {
     html! {
-        div class="mb-6 flex flex-wrap items-center justify-between gap-4" {
-            p {
-                "Connected as " strong { (folder.player) } "."
-            }
-            (disconnect())
+        p class="mb-6" {
+            "Connected as " strong { (folder.player) } ". "
+            a href="/settings" { "Change in Settings" }
         }
         form action="/schemati/files" method="post" enctype="multipart/form-data"
             fx-action="/schemati/files" fx-method="post" fx-target="#schemati-folder"

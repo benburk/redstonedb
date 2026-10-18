@@ -182,7 +182,6 @@ pub fn profile(
     viewer: Option<&User>,
     account: &User,
     builds: &ProfileBuilds,
-    message: &str,
 ) -> Markup {
     let path = format!("/users/{}", account.username);
     let own = viewer.is_some_and(|viewer| viewer.id == account.id);
@@ -209,32 +208,12 @@ pub fn profile(
                     }
                 }
             }
-            @if own {
-                form action={ (path) "/minecraft" } method="post" class="mb-8 flex max-w-form flex-col gap-2" {
-                    label for="minecraft-name" class="text-meta font-semibold text-muted" { "Your Minecraft name" }
-                    div class="flex gap-2" {
-                        input id="minecraft-name" name="minecraft_name"
-                            value=(account.minecraft_name.as_deref().unwrap_or_default())
-                            pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
-                            placeholder="Your in-game name"
-                            aria-invalid=[(!message.is_empty()).then_some("true")]
-                            aria-describedby="minecraft-help"
-                            class="input flex-1";
-                        button type="submit" class="btn btn-quiet" { "Save" }
-                    }
-                    @if message.is_empty() {
-                        p id="minecraft-help" class="text-meta text-muted" {
-                            "Links you to your builds. Once an admin confirms it, you can edit them."
-                        }
-                    } @else {
-                        p id="minecraft-help" role="alert" class="text-meta text-danger" { (message) }
-                    }
-                }
-            }
             (credits(&builds.built, &builds.contributed, &html! {
                 p class="text-muted" {
                     @match &account.minecraft_name {
-                        None if own => { "Give your Minecraft name above to list the builds credited to it." }
+                        None if own => {
+                            "Give your Minecraft name in " a href="/settings" { "Settings" } " to list the builds credited to it."
+                        }
                         None => { "No Minecraft name given, so their builds can't be listed." }
                         Some(name) => { "No builds credit " (name) " as builder yet." }
                     }

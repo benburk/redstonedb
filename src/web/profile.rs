@@ -1,14 +1,11 @@
 use axum::{
-    Form,
     extract::{Path, State},
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Response},
 };
-use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
     error::AppError,
-    extractors::session::SignedIn,
     models::{schematic, user::User},
     mojang,
 };
@@ -24,40 +21,7 @@ pub async fn profile(
     let account = User::get_by_username(&state.db, &username)
         .await?
         .ok_or(AppError::NotFound)?;
-    show(&state, user_opt.as_ref(), &account, "").await
-}
-
-#[derive(Deserialize)]
-pub struct MinecraftName {
-    minecraft_name: Option<String>,
-}
-
-/// Sets or clears the Minecraft name of the account viewing its own page.
-pub async fn set_minecraft_name(
-    Path(username): Path<String>,
-    State(state): State<AppState>,
-    SignedIn(user): SignedIn,
-    Form(form): Form<MinecraftName>,
-) -> Result<Response, AppError> {
-    if user.username != username {
-        return Err(AppError::Forbidden);
-    }
-    let name = form.minecraft_name.unwrap_or_default();
-    let name = name.trim();
-    let saved = if name.is_empty() {
-        saved(&state, user.id, None).await?
-    } else {
-        match player_named(name).await {
-            Ok(player) => saved(&state, user.id, Some(&player)).await?,
-            Err(message) => Err(message),
-        }
-    };
-    match saved {
-        Ok(()) => {
-            Ok(Redirect::to(&format!("/users/{username}")).into_response())
-        }
-        Err(refused) => show(&state, Some(&user), &user, &refused).await,
-    }
+    show(&state, user_opt.as_ref(), &account).await
 }
 
 /// The player `name` names, spelled as they spell it and with their UUID,
@@ -100,7 +64,6 @@ async fn show(
     state: &AppState,
     viewer: Option<&User>,
     account: &User,
-    message: &str,
 ) -> Result<Response, AppError> {
     let mut all = schematic::all(&state.db).await?;
     // Newest first, as on the home page.
@@ -122,5 +85,5 @@ async fn show(
             s.uploader.as_deref() == Some(account.username.as_str())
         }),
     };
-    Ok(pages::profile(viewer, account, &builds, message).into_response())
+    Ok(pages::profile(viewer, account, &builds).into_response())
 }

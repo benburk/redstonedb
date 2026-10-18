@@ -161,20 +161,34 @@ pub async fn connect(
 ) -> Result<Response, AppError> {
     let session = match schemati::session(&given.session) {
         Ok(session) => session,
-        Err(message) => return page(&state, &user, "", &message).await,
+        Err(message) => return refused_session(&state, &user, &message).await,
     };
     let refused = match schemati::folder(&session).await {
         Ok(_) => {
             User::set_schemati_session(&state.db, user.id, Some(&session))
                 .await?;
-            return Ok(Redirect::to("/schemati").into_response());
+            return Ok(Redirect::to("/settings").into_response());
         }
         Err(Refusal::LoggedOut) => "Schemati does not know that session. Log \
                                     in there again and copy the newest one."
             .to_owned(),
         Err(Refusal::Said(why)) => why,
     };
-    page(&state, &user, "", &refused).await
+    refused_session(&state, &user, &refused).await
+}
+
+/// The settings page, where a session is given, saying why `user`'s was
+/// refused.
+async fn refused_session(
+    state: &AppState,
+    user: &User,
+    refused: &str,
+) -> Result<Response, AppError> {
+    let said = super::settings::Said {
+        schemati: refused,
+        ..Default::default()
+    };
+    super::settings::page(state, user, &said).await
 }
 
 /// Forgets the viewer's session.
@@ -183,7 +197,7 @@ pub async fn disconnect(
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
     User::set_schemati_session(&state.db, user.id, None).await?;
-    Ok(Redirect::to("/schemati").into_response())
+    Ok(Redirect::to("/settings").into_response())
 }
 
 /// The file `name` in `user`'s folder, or a sentence saying why it could
@@ -200,7 +214,7 @@ pub(super) async fn own_file(
             tracing::error!("could not load a Schemati session: {err}");
             "Could not load your Schemati session. Try again.".to_owned()
         })?
-        .ok_or_else(|| "Connect your Schemati on its page first.".to_owned())?;
+        .ok_or_else(|| "Connect your Schemati in Settings first.".to_owned())?;
     schemati::file(&session, name).await.map_err(sentence)
 }
 
