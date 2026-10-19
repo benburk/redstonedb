@@ -1455,3 +1455,12 @@ fn compare_mode_comparators_sharing_a_back_hold_nothing() {
     let adder = simulate::compiled(&blocks("xor-pair-adder-8")).unwrap();
     assert!(adder.memory().is_empty());
 }
+
+/// A comparator in subtract mode reading a barrel of strength 1 puts out
+/// no more than 1, which its own side, a step away, never gets.
+#[test]
+fn a_loop_that_loses_all_it_could_carry_holds_nothing() {
+    let adder = simulate::compiled(&blocks("barrel-leak-adder")).unwrap();
+    assert!(adder.kinds.values().any(|k| k == "Constant { ss: 1 }"));
+    assert!(adder.memory().is_empty());
+}

@@ -564,7 +564,8 @@ impl Compiled {
     /// its own is, itself included, is no loop: what that one puts out is
     /// their shared back's strength or nothing, and reaches the side no
     /// stronger, so it can never decide the comparison the back already
-    /// wins.
+    /// wins. Nor is a link that loses all a component could ever put out,
+    /// as from a comparator reading a barrel of strength 1 to its own side.
     pub fn memory(&self) -> BTreeSet<Pos> {
         let compares = |p: &Pos| {
             self.kinds.get(p).is_some_and(|k| {
@@ -579,14 +580,18 @@ impl Compiled {
                 backs.entry(to).or_default().push((from, loss));
                 backs
             });
+        let strongest = self.strongest(&backs);
         let inert = |&(from, to, side): &Link| {
             side && compares(&from)
                 && compares(&to)
                 && backs.get(&from) == backs.get(&to)
         };
+        let carries = |link: &Link| {
+            strongest.get(&link.0).copied().unwrap_or(15) > self.links[link]
+        };
         let mut next: BTreeMap<Pos, Vec<Pos>> = BTreeMap::new();
         let mut found = BTreeSet::new();
-        for link in self.links.keys().filter(|l| !inert(l)) {
+        for link in self.links.keys().filter(|l| carries(l) && !inert(l)) {
             let &(from, to, side) = link;
             if from == to {
                 found.insert(from);
@@ -619,6 +624,52 @@ impl Compiled {
             }
         }
         found
+    }
+
+    /// The strongest signal each component could ever put out: a
+    /// constant's own, and a comparator's no more than what reaches its
+    /// back, `backs`; any other may reach 15.
+    fn strongest(
+        &self,
+        backs: &BTreeMap<Pos, Vec<(Pos, u8)>>,
+    ) -> BTreeMap<Pos, u8> {
+        let mut strongest: BTreeMap<Pos, u8> = self
+            .kinds
+            .iter()
+            .map(|(&p, k)| {
+                let constant = k
+                    .strip_prefix("Constant { ss: ")
+                    .and_then(|ss| ss.trim_end_matches(" }").parse().ok());
+                (p, constant.unwrap_or(15))
+            })
+            .collect();
+        // Lowered from 15 until no comparator's back can reach more.
+        loop {
+            let mut lowered = false;
+            for (p, k) in &self.kinds {
+                if !k.starts_with("Comparator")
+                    || !k.contains("far_input: None")
+                {
+                    continue;
+                }
+                let back =
+                    backs.get(p).into_iter().flatten().map(|(from, loss)| {
+                        strongest
+                            .get(from)
+                            .copied()
+                            .unwrap_or(15)
+                            .saturating_sub(*loss)
+                    });
+                let most = back.max().unwrap_or(0);
+                if most < strongest[p] {
+                    strongest.insert(*p, most);
+                    lowered = true;
+                }
+            }
+            if !lowered {
+                return strongest;
+            }
+        }
     }
 }
 
@@ -662,7 +713,17 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
     let kinds = graph
         .node_indices()
         .filter(|&i| graph[i].ty != NodeType::Wire)
-        .filter_map(|i| Some((pos(&graph[i])?, format!("{:?}", graph[i].ty))))
+        .filter_map(|i| {
+            let node = &graph[i];
+            // A constant, as a barrel read by a comparator, is its strength.
+            let kind = match &node.ty {
+                NodeType::Constant => {
+                    format!("Constant {{ ss: {} }}", node.state.output_strength)
+                }
+                ty => format!("{ty:?}"),
+            };
+            Some((pos(node)?, kind))
+        })
         .collect();
     let mut links = BTreeMap::new();
     for edge in graph.all_edges() {
