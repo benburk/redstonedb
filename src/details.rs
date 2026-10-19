@@ -243,17 +243,18 @@ async fn ready(
     })
 }
 
-/// For a conventional build of a category whose measured details all come
-/// from `evaluate`, drops those typed, as the simulation sets them once it
-/// is stored, and refuses the build if it fails its test: one that fails
-/// can only go up under a category of its own, off the list, named for
-/// what it seems meant to be, as 8-bit adder.
+/// For a build of a category whose measured details all come from
+/// `evaluate`, drops those typed, as the simulation sets them once it is
+/// stored, and refuses the build unless it is recognized: conventional,
+/// of a width its test reads, simulated, and passing. One that is not can
+/// only go up under a category of its own, off the list, named for what
+/// it seems meant to be, as 8-bit adder.
 async fn evaluated(
     category: &Category,
     details: &mut Details,
     build: Build<'_>,
 ) -> Result<(), Stop> {
-    if !build.conventional || !category::behaviour(&category.name).evaluated {
+    if !category::behaviour(&category.name).evaluated {
         return Ok(());
     }
     details.latency = None;
@@ -265,10 +266,29 @@ async fn evaluated(
         .ok()
         .flatten();
     let label = category.label.to_lowercase();
-    // A build too wide for the test, or with a block the simulator does
-    // not model, as a piston, cannot be checked, and goes up as it says.
+    // Named for what it seems meant to be, it goes up off the list.
+    let off_list = |why: String| {
+        let name =
+            width.map_or_else(|| label.clone(), |w| format!("{w}-bit {label}"));
+        Err(Stop::Refused(format!(
+            "{why}, so it can't go up as one: give it a category of its own, \
+             such as {name}, or fix it first."
+        )))
+    };
+    if !build.conventional {
+        return off_list(format!(
+            "The {label} test reads the building conventions, which it does \
+             not follow"
+        ));
+    }
     let Some(test) = Test::of(&category.name, width) else {
-        return Ok(());
+        return off_list(match width {
+            None => format!(
+                "The {label} test can't read its width from its inputs and \
+                 outputs"
+            ),
+            Some(w) => format!("The {label} test does not run at {w} bits"),
+        });
     };
     let report =
         simulation::run(test, build.data.to_vec())
@@ -276,16 +296,15 @@ async fn evaluated(
             .map_err(|err| {
                 Stop::Refused(format!("It could not be simulated: {err}."))
             })?;
-    if report.passed() || matches!(report, Report::Skipped { .. }) {
-        return Ok(());
+    match report {
+        _ if report.passed() => Ok(()),
+        // A block the simulator does not model, as a piston.
+        Report::Skipped { reason } => off_list(format!(
+            "{} The {label} test can't run on it",
+            reason.trim()
+        )),
+        _ => off_list(format!("It does not pass the {label} test")),
     }
-    // Named for what it seems meant to be, it goes up off the list.
-    let name =
-        width.map_or_else(|| label.clone(), |w| format!("{w}-bit {label}"));
-    Err(Stop::Refused(format!(
-        "It does not pass the {label} test, so it can't go up as one: give \
-         it a category of its own, such as {name}, or fix it first."
-    )))
 }
 
 /// Refuses details whose fields are not of the shape they must be, each

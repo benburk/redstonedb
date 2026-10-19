@@ -5,6 +5,8 @@ use app::{
     details::{self, Build, Details, Ready},
     import,
     models::schematic::{Encoding, Orientation, StackDirection},
+    schem::Blocks,
+    standardize::{self, Gray},
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -22,13 +24,24 @@ async fn setup_test_db() -> SqlitePool {
     pool
 }
 
-/// A stored adder's file, as an upload prepares it.
-fn adder() -> Vec<u8> {
-    let raw = std::fs::read("tests/fixtures/alpha-rca.schem")
+/// A fixture's file, as an upload prepares it, its gray blocks whitened
+/// for one not in the palette.
+fn prepared(name: &str, gray: Option<Gray>) -> Vec<u8> {
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
-    import::prepare(&raw, None, true, false, false)
+    import::prepare(&raw, gray, true, false, false)
         .expect("fixture prepares")
         .data
+}
+
+/// A stored adder's file, as an upload prepares it.
+fn adder() -> Vec<u8> {
+    prepared("alpha-rca", None)
+}
+
+/// A stored sequential multiplier's file.
+fn multiplier() -> Vec<u8> {
+    prepared("mult-8-buttons", Some(Gray::Whiten))
 }
 
 /// Details with a category typed as `category`, and the rest as a builder
@@ -49,11 +62,17 @@ fn given(category: &str) -> Details {
 /// `details` checked against the adder's file, as a person who may not
 /// name new tags.
 async fn check(db: &SqlitePool, details: Details) -> Result<Ready, String> {
-    let data = adder();
-    let build = Build {
-        data: &data,
-        conventional: true,
-    };
+    check_file(db, details, &adder(), true).await
+}
+
+/// `details` checked against file `data`.
+async fn check_file(
+    db: &SqlitePool,
+    details: Details,
+    data: &[u8],
+    conventional: bool,
+) -> Result<Ready, String> {
+    let build = Build { data, conventional };
     details::check(db, details, build, false)
         .await
         .expect("the database answers")
@@ -64,8 +83,8 @@ async fn only_a_named_category_keeps_a_given_name() {
     let db = setup_test_db().await;
     let bussing = check(&db, given("Bussing")).await.unwrap();
     assert_eq!(bussing.details.given_name.as_deref(), Some("Bus Crossing"));
-    let multiplier = check(&db, given("multiplier")).await.unwrap();
-    assert_eq!(multiplier.details.given_name, None);
+    let subtractor = check(&db, given("subtractor")).await.unwrap();
+    assert_eq!(subtractor.details.given_name, None);
 }
 
 #[tokio::test]
@@ -75,8 +94,8 @@ async fn only_a_category_ranked_by_a_measure_keeps_it() {
     let ram = check(&db, given("ram")).await.unwrap();
     assert_eq!(ram.details.category, "ram");
     assert_eq!((ram.details.bytes, ram.details.at_least), (Some(32), None));
-    let multiplier = check(&db, given("Multiplier")).await.unwrap();
-    assert_eq!(multiplier.details.bytes, None);
+    let subtractor = check(&db, given("Subtractor")).await.unwrap();
+    assert_eq!(subtractor.details.bytes, None);
 }
 
 #[tokio::test]
@@ -102,7 +121,9 @@ async fn stacking_that_does_not_fit_is_refused() {
         category: "multiplier".to_owned(),
         ..apart.clone()
     };
-    let multiplier = check(&db, multiplier).await.unwrap();
+    let multiplier = check_file(&db, multiplier, &self::multiplier(), true)
+        .await
+        .unwrap();
     assert!(multiplier.details.stacking.is_empty());
     // An adder's stacking is the simulation's, so what is typed is not
     // checked, nor kept.
@@ -123,7 +144,7 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
     let db = setup_test_db().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
-        ..given("multiplier")
+        ..given("subtractor")
     };
     let refused = check(&db, tagged.clone()).await.err().unwrap();
     assert!(refused.contains("only an admin"), "{refused}");
@@ -144,10 +165,54 @@ async fn a_build_date_still_to_come_is_refused() {
     let db = setup_test_db().await;
     let dated = |date: &str| Details {
         built_on: Some(date.to_owned()),
-        ..given("multiplier")
+        ..given("subtractor")
     };
     let kept = check(&db, dated("2024-02-29")).await.unwrap();
     assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));
     let refused = check(&db, dated("2999-01-01")).await.err().unwrap();
     assert!(refused.contains("still to come"), "{refused}");
+}
+
+/// An adder or multiplier is recognized from its file or goes up under a
+/// category of its own: one the simulator can't run, one that breaks the
+/// conventions its test reads, and one that fails its test are refused.
+#[tokio::test]
+async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
+    let db = setup_test_db().await;
+    let off_list = |refused: Result<Ready, String>, why: &str| {
+        let refused = refused.err().unwrap();
+        assert!(refused.contains(why), "{why}: {refused}");
+        assert!(refused.contains("category of its own"), "{refused}");
+    };
+    // A piston in its first empty space, which the simulator does not
+    // model.
+    let data = adder();
+    let blocks = Blocks::read(&data).unwrap();
+    let (empty, _) =
+        blocks.iter().find(|(_, s)| *s == "minecraft:air").unwrap();
+    let piston = [(
+        empty,
+        "minecraft:piston[extended=false,facing=up]".to_owned(),
+    )]
+    .into();
+    let pushed = standardize::edit(&data, &piston).unwrap();
+    off_list(
+        check_file(&db, given("adder"), &pushed, true).await,
+        "piston, which the simulator does not model",
+    );
+    off_list(
+        check_file(&db, given("adder"), &adder(), false).await,
+        "building conventions",
+    );
+    off_list(
+        check_file(
+            &db,
+            given("adder"),
+            &prepared("cca-8-dust-out", None),
+            true,
+        )
+        .await,
+        "does not pass the adder test",
+    );
+    assert!(check(&db, given("adder")).await.is_ok());
 }

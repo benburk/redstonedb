@@ -96,8 +96,11 @@ const POWERABLE: [&str; 7] = [
 ];
 
 /// Components no build may use: an observer, whose updates the simulator
-/// does not model, so a build with one could never be checked.
-const FORBIDDEN: [&str; 1] = ["observer"];
+/// does not model, and a button but a stone one, as a wooden one, which it
+/// does not press, so a build with one could never be checked.
+fn forbids(name: &str) -> bool {
+    name == "observer" || name.ends_with("_button") && name != "stone_button"
+}
 
 /// One broken convention, at a position in the file when it has one.
 #[derive(Clone)]
@@ -230,7 +233,7 @@ fn forbidden(blocks: &Blocks, found: &mut Vec<Violation>) {
     let mut seen: BTreeMap<&str, (Pos, usize)> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let name = schem::short(state);
-        if FORBIDDEN.contains(&name) {
+        if forbids(name) {
             seen.entry(name).or_insert((pos, 0)).1 += 1;
         }
     }
@@ -240,11 +243,17 @@ fn forbidden(blocks: &Blocks, found: &mut Vec<Violation>) {
         } else {
             format!(" ({count} blocks)")
         };
+        let name = name.replace('_', " ");
+        let a = if name.starts_with(['a', 'e', 'i', 'o', 'u']) {
+            "an"
+        } else {
+            "a"
+        };
         say(
             found,
             Some(pos),
             format!(
-                "an {name} is not allowed{blocks}, as the simulator can't run \
+                "{a} {name} is not allowed{blocks}, as the simulator can't run \
                  one, so the build could never be checked"
             ),
         );

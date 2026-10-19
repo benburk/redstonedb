@@ -483,10 +483,10 @@ fn simulation_notes(unchecked: &[String]) -> Markup {
         }
         (heading("limits", "What the simulator cannot run"))
         p class="mb-3" {
-            "The simulator models dust, torches, repeaters, comparators, levers, buttons, lamps, "
+            "The simulator models dust, torches, repeaters, comparators, levers, stone buttons, lamps, "
             "and the barrels, furnaces, and hoppers a comparator reads. A build with anything else, "
-            "such as a piston or an observer, is not simulated rather than simulated wrongly, nor is "
-            "one wider than 32 bits. It runs a tick at a time, without the order in which the game "
+            "such as a piston, an observer, or a wooden button, is not simulated rather than simulated wrongly, nor is "
+            "one wider than 32 bits; an adder or multiplier it can't run goes under a category of its own. It runs a tick at a time, without the order in which the game "
             "updates blocks, so a build that relies on that order may behave differently in game."
         }
     }

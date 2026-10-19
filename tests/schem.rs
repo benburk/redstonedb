@@ -89,29 +89,46 @@ fn conventional_ripple_carry_passes_lint() {
     assert!(messages.is_empty(), "{messages:#?}");
 }
 
-#[test]
-fn lint_refuses_observers() {
+/// What lint says of the ripple adder with `state` set just past its box.
+fn lint_with(state: &str) -> Vec<String> {
     let data = raw("alpha-rca");
     let blocks = Blocks::read(&data).unwrap();
     let mut grid: std::collections::HashMap<[i32; 3], String> =
         blocks.iter().map(|(p, s)| (p, s.to_owned())).collect();
     let [x, y, z] = blocks.size;
-    grid.insert(
-        [x, y, z],
-        "minecraft:observer[facing=north,powered=false]".to_owned(),
-    );
+    grid.insert([x, y, z], state.to_owned());
     let mut nbt = schem::decode(&data).unwrap();
     let entities = nbt.take_entities();
     nbt.write_blocks([0, 0, 0], [x + 1, y + 1, z + 1], &grid, entities)
         .unwrap();
     let with = Blocks::read(&schem::encode(nbt).unwrap()).unwrap();
-    let messages: Vec<String> =
-        lint::check(&with).into_iter().map(|v| v.message).collect();
+    lint::check(&with).into_iter().map(|v| v.message).collect()
+}
+
+#[test]
+fn lint_refuses_observers_and_wooden_buttons() {
+    let refused = |state: &str, says: &str| {
+        let messages = lint_with(state);
+        assert!(messages.iter().any(|m| m.starts_with(says)), "{messages:?}");
+    };
+    refused(
+        "minecraft:observer[facing=north,powered=false]",
+        "an observer is not allowed",
+    );
+    refused(
+        "minecraft:oak_button[face=floor,facing=north,powered=false]",
+        "an oak button is not allowed",
+    );
+    refused(
+        "minecraft:spruce_button[face=floor,facing=north,powered=false]",
+        "a spruce button is not allowed",
+    );
+    let stone = lint_with(
+        "minecraft:stone_button[face=floor,facing=north,powered=false]",
+    );
     assert!(
-        messages
-            .iter()
-            .any(|m| m.starts_with("an observer is not allowed")),
-        "{messages:?}"
+        !stone.iter().any(|m| m.contains("not allowed")),
+        "{stone:?}"
     );
 }
 
