@@ -17,7 +17,8 @@
 //! of any schematic, nor in the singular, as `adders` is `adder`, matches
 //! when it appears in a schematic's title, description, or credited names
 //! instead, so `add` finds adders, `owen` finds Owenage_'s builds, and
-//! `sync` does not find `unsync`. Quotes keep a multi-word term together,
+//! `sync` does not find `unsync`. Six or more hex digits, as `3234d4a4`,
+//! find the build whose id holds them. Quotes keep a multi-word term together,
 //! as in `"carry lookahead"`; underscores work too, and a number before a
 //! unit, as in `3 ticks` or `8 bit`, is one term.
 
@@ -144,7 +145,10 @@ pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
             terms.iter().all(|(term, fact)| {
                 let found = match fact {
                     Some(fact) => facts.contains(fact),
-                    None => forms(&term.text).any(|form| text.contains(&form)),
+                    None => {
+                        forms(&term.text).any(|form| text.contains(&form))
+                            || in_id(&term.text, s)
+                    }
                 };
                 found != term.negated
             })
@@ -170,6 +174,18 @@ fn forms(text: &str) -> impl Iterator<Item = String> + '_ {
         .chain(singular)
         .flatten()
         .filter(|form| !form.is_empty())
+}
+
+/// The fewest hex digits a term is taken as part of an id by, so a short
+/// word of them, as `add` or `8b`, is not.
+const ID_PART: usize = 6;
+
+/// Whether `text` is part of build `s`'s id, as the start of one the site
+/// gives, such as `3234d4a4`.
+fn in_id(text: &str, s: &Schematic) -> bool {
+    text.len() >= ID_PART
+        && text.chars().all(|c| c.is_ascii_hexdigit())
+        && s.id.contains(text)
 }
 
 /// What a term that is no fact is looked for in: the title, description,
@@ -685,6 +701,20 @@ mod tests {
         let found = matching(&parse("builder:Alex_you"), vec![built, helped]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].category, "adder");
+    }
+
+    #[test]
+    fn part_of_an_id_finds_its_build() {
+        let s = Schematic {
+            id: "3234d4a46edc0fffa584336cb45bf12e".to_owned(),
+            ..schematic("adder", Orientation::Horizontal, &[])
+        };
+        assert!(find("3234d4a4", &s));
+        assert!(find("3234D4A46EDC0FFFA584336CB45BF12E", &s));
+        assert!(find("edc0ff", &s), "any part of it");
+        assert!(!find("3234d4a5", &s));
+        assert!(!find("-3234d4a4", &s));
+        assert!(!find("3234d", &s), "too short to be taken as an id");
     }
 
     #[test]

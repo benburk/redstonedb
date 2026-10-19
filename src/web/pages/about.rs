@@ -291,6 +291,7 @@ fn search_part() -> Markup {
             code { "stateless" } " or " code { "stateful" } ", " code { "sync" } ", " code { "pipelined" } ", "
             code { "throughput:3" } ", " code { "encoding:hex" } ", a release it works in such as "
             code { "version:1.12" } ", and the people credited. "
+            "Six or more characters of a build's id, such as " code { "3234d4a4" } ", find that build. "
             "A category also has aliases, other names people use: " code { "connect4" } " finds the "
             "four-in-a-row detector, " code { "inc" } " the incrementers, and " code { "bcd" }
             " both BCD converters. Every word must match, and " code { "-" } " in front of a word excludes it."
