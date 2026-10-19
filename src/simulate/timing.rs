@@ -33,7 +33,7 @@ use std::{
     thread,
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -367,17 +367,21 @@ pub(super) fn measure(
     })
 }
 
-/// The most ticks after its operands a sequential build's calculate is
-/// tried at.
+/// The most ticks before or after its operands a sequential build's
+/// calculate is tried at.
 const LATEST_PRESS: i32 = 64;
+
+/// Per case, per output, per bit, the ticks it changed on.
+type Runs = Vec<Vec<Vec<Vec<i32>>>>;
 
 /// Times a build its `bench` drives by pressing control lines once its
 /// inputs are set, as a sequential multiplier's reset and calculate, over
-/// the telling pairs of values. For each case every press but the last,
-/// such as the reset, is made and settled first; the inputs change at tick
-/// 0, and the last press, the calculate, comes at the fewest ticks after
-/// them that still gives every case's result, which is its timing. Each
-/// output's latency is the last tick it changed by, from the inputs.
+/// the telling pairs of values, as every control line is timed: from the
+/// operands changing at tick 0, its calculate pressed at the latest tick,
+/// before or after them, that adds no delay to any result, which is its
+/// timing. Every press but the last, such as the reset, is made and
+/// settled before each case. Each output's latency is the last tick it
+/// changed by.
 pub(super) fn pressed(
     blocks: &Blocks,
     interface: &Interface,
@@ -386,95 +390,138 @@ pub(super) fn pressed(
 ) -> Result<Timing> {
     let (cases, _) = bench::paired(&bench.widths(interface));
     let expected = bench::observe(blocks, interface, bench, &cases, None)?;
+    let at = |offset: i32| -> Result<Option<(Runs, Vec<i32>)>> {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("The timing was cancelled.");
+        }
+        press_at(blocks, interface, bench, (&cases, &expected), offset)
+    };
+    let settled = |runs: &Runs| {
+        runs.iter()
+            .flatten()
+            .flatten()
+            .filter_map(|t| t.last().copied())
+            .max()
+            .unwrap_or(0)
+    };
+    // Pressing sooner helps until the operands are what hold it up; from
+    // there, the latest press that keeps the fewest ticks is its timing.
+    let mut first = None;
+    for offset in 0..=LATEST_PRESS {
+        if let Some(found) = at(offset)? {
+            first = Some((offset, found));
+            break;
+        }
+    }
+    let mut best = first.with_context(|| {
+        format!(
+            "No press of its calculate within {LATEST_PRESS} ticks of its \
+             operands gives every product."
+        )
+    })?;
+    if best.0 == 0 {
+        for offset in (-LATEST_PRESS..0).rev() {
+            match at(offset)? {
+                Some(found) if settled(&found.0) < settled(&best.1.0) => {
+                    best = (offset, found);
+                }
+                _ => break,
+            }
+        }
+    }
+    let (offset, (runs, carried)) = best;
+    Ok(pressed_timing(
+        interface, bench, &cases, &runs, offset, &carried,
+    ))
+}
+
+/// What each case of `cases` showed, its operands set at tick 0 and its
+/// calculate, the bench's last press, pressed `offset` ticks from them,
+/// with what each output's repeaters or comparators take to carry it out;
+/// `None` when some case does not come out as `expected`.
+fn press_at(
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &bench::Bench,
+    (cases, expected): (&[bench::Case], &[u64]),
+    offset: i32,
+) -> Result<Option<(Runs, Vec<i32>)>> {
     let Some((&calculate, before)) = bench.presses.split_last() else {
         bail!("Nothing is pressed.");
     };
     let widths = bench.output_widths(interface);
-    for offset in 0..=LATEST_PRESS {
-        if cancel.load(Ordering::Relaxed) {
-            bail!("The timing was cancelled.");
+    let mut circuit = Circuit::new(blocks, interface)?;
+    for &(port, value) in &bench.held {
+        circuit.set(port, value);
+    }
+    circuit.settle()?;
+    let carried = circuit.carried();
+    let button = circuit.is_button(calculate, 0);
+    let mut runs: Runs = Vec::with_capacity(cases.len());
+    for (case, &want) in cases.iter().zip(expected) {
+        for &port in before {
+            bench::pulse(&mut circuit, port)?;
+            circuit.settle()?;
         }
-        let mut circuit = Circuit::new(blocks, interface)?;
-        for &(port, value) in &bench.held {
-            circuit.set(port, value);
-        }
-        circuit.settle()?;
-        let carried = circuit.carried();
-        // Per case, per output, per bit, the ticks it changed on.
-        let mut runs: Vec<Vec<Vec<Vec<i32>>>> = Vec::with_capacity(cases.len());
-        let mut right = true;
-        for (case, &want) in cases.iter().zip(&expected) {
-            for &port in before {
-                bench::pulse(&mut circuit, port)?;
-                circuit.settle()?;
+        let mut shown: Vec<u64> =
+            bench.outputs.iter().map(|&o| circuit.get(o)).collect();
+        let mut flips: Vec<Vec<Vec<i32>>> =
+            widths.iter().map(|&w| vec![Vec::new(); w]).collect();
+        let mut tick = offset.min(0);
+        loop {
+            if tick == offset {
+                if button {
+                    circuit.press(calculate, 0);
+                } else {
+                    circuit.set(calculate, 1);
+                }
+            } else if tick == offset + 1 && !button {
+                circuit.set(calculate, 0);
             }
-            let mut shown: Vec<u64> =
-                bench.outputs.iter().map(|&o| circuit.get(o)).collect();
-            let mut flips: Vec<Vec<Vec<i32>>> =
-                widths.iter().map(|&w| vec![Vec::new(); w]).collect();
-            for (i, &port) in bench.inputs.iter().enumerate() {
-                circuit.set(port, case[i]);
+            if tick == 0 {
+                for (i, &port) in bench.inputs.iter().enumerate() {
+                    circuit.set(port, case[i]);
+                }
             }
-            let mut tick = 0;
-            loop {
-                if tick == offset {
-                    if circuit.is_button(calculate, 0) {
-                        circuit.press(calculate, 0);
-                    } else {
-                        circuit.set(calculate, 1);
+            circuit.tick();
+            tick += 1;
+            for (o, (&port, last)) in
+                bench.outputs.iter().zip(&mut shown).enumerate()
+            {
+                let now = circuit.get(port);
+                for (bit, ticks) in flips[o].iter_mut().enumerate() {
+                    if (now ^ *last) >> bit & 1 == 1 {
+                        ticks.push(tick - carried[port]);
                     }
-                } else if tick == offset + 1 && !circuit.is_button(calculate, 0)
-                {
-                    circuit.set(calculate, 0);
                 }
-                circuit.tick();
-                tick += 1;
-                for (o, (&port, last)) in
-                    bench.outputs.iter().zip(&mut shown).enumerate()
-                {
-                    let now = circuit.get(port);
-                    for (bit, ticks) in flips[o].iter_mut().enumerate() {
-                        if (now ^ *last) >> bit & 1 == 1 {
-                            ticks.push(tick - carried[port]);
-                        }
-                    }
-                    *last = now;
-                }
-                if tick > offset + 1 && !circuit.pending() {
-                    break;
-                }
-                if tick > i32::try_from(MAX_TICKS)? {
-                    bail!(
-                        "It was still changing {MAX_TICKS} ticks after its operands changed."
-                    );
-                }
+                *last = now;
             }
-            let mut got = 0;
-            let mut shift = 0;
-            for (&port, &width) in bench.outputs.iter().zip(&widths) {
-                got |= circuit.get(port) << shift;
-                shift += width;
-            }
-            if got != want {
-                right = false;
+            if tick > offset.max(0) + 1 && !circuit.pending() {
                 break;
             }
-            runs.push(flips);
+            if tick > i32::try_from(MAX_TICKS)? {
+                bail!(
+                    "It was still changing {MAX_TICKS} ticks after its operands changed."
+                );
+            }
         }
-        if right {
-            return Ok(pressed_timing(
-                interface, bench, &cases, &runs, offset, &carried,
-            ));
+        let mut got = 0;
+        let mut shift = 0;
+        for (&port, &width) in bench.outputs.iter().zip(&widths) {
+            got |= circuit.get(port) << shift;
+            shift += width;
         }
+        if got != want {
+            return Ok(None);
+        }
+        runs.push(flips);
     }
-    bail!(
-        "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
-    )
+    Ok(Some((runs, carried)))
 }
 
 /// The timing `pressed` found: `runs` holding, per case, per output, per
-/// bit, the ticks it changed on, its calculate pressed `offset` ticks after
-/// its operands.
+/// bit, the ticks it changed on, its calculate pressed `offset` ticks from
+/// its operands, before them when negative.
 fn pressed_timing(
     interface: &Interface,
     bench: &bench::Bench,
