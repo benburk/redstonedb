@@ -195,7 +195,21 @@ impl Spec {
         cancel: &AtomicBool,
     ) -> Result<Timing> {
         if !self.bench.presses.is_empty() {
-            return timing::pressed(blocks, interface, &self.bench, cancel);
+            let every = match self.cases {
+                Cases::Combinations(structured) => {
+                    cases(&self.bench.widths(interface), structured).0
+                }
+                Cases::Only(values) => {
+                    values(false).0.into_iter().map(|a| [a, 0, 0]).collect()
+                }
+            };
+            return timing::pressed(
+                blocks,
+                interface,
+                &self.bench,
+                &every,
+                cancel,
+            );
         }
         let values = match &self.cases {
             Cases::Only(values) => {

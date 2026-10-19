@@ -375,27 +375,31 @@ const LATEST_PRESS: i32 = 64;
 type Runs = Vec<Vec<Vec<Vec<i32>>>>;
 
 /// Times a build its `bench` drives by pressing control lines once its
-/// inputs are set, as a sequential multiplier's reset and calculate, over
-/// the telling pairs of values, as every control line is timed: from the
-/// operands changing at tick 0, its calculate pressed at the latest tick,
-/// before or after them, that adds no delay to any result, which is its
-/// timing. Every press but the last, such as the reset, is made and
-/// settled before each case. Each output's latency is the last tick it
-/// changed by.
+/// inputs are set, as a sequential multiplier's reset and calculate, as
+/// every control line is timed: from the operands changing at tick 0, its
+/// calculate pressed at the latest tick, before or after them, that adds
+/// no delay to any result, which is its timing. That press is searched for
+/// on the telling pairs of values, then checked on `every` case of its
+/// test, pressing later until each comes out right, as a press too soon
+/// for some operands gets them wrong. Every press but the last, such as
+/// the reset, is made and settled before each case. Each output's latency
+/// is the last tick it changed by.
 pub(super) fn pressed(
     blocks: &Blocks,
     interface: &Interface,
     bench: &bench::Bench,
+    every: &[bench::Case],
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let (cases, _) = bench::paired(&bench.widths(interface));
     let expected = bench::observe(blocks, interface, bench, &cases, None)?;
-    let at = |offset: i32| -> Result<Option<(Runs, Vec<i32>)>> {
+    let on = |cases: &[bench::Case], expected: &[u64], offset: i32| {
         if cancel.load(Ordering::Relaxed) {
             bail!("The timing was cancelled.");
         }
-        press_at(blocks, interface, bench, (&cases, &expected), offset)
+        press_at(blocks, interface, bench, (cases, expected), offset)
     };
+    let at = |offset: i32| on(&cases, &expected, offset);
     let settled = |runs: &Runs| {
         runs.iter()
             .flatten()
@@ -429,10 +433,17 @@ pub(super) fn pressed(
             }
         }
     }
-    let (offset, (runs, carried)) = best;
-    Ok(pressed_timing(
-        interface, bench, &cases, &runs, offset, &carried,
-    ))
+    let every_expected = bench::observe(blocks, interface, bench, every, None)?;
+    for offset in best.0..=LATEST_PRESS {
+        if let Some((runs, carried)) = on(every, &every_expected, offset)? {
+            return Ok(pressed_timing(
+                interface, bench, every, &runs, offset, &carried,
+            ));
+        }
+    }
+    bail!(
+        "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
+    )
 }
 
 /// What each case of `cases` showed, its operands set at tick 0 and its
