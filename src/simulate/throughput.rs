@@ -6,7 +6,9 @@
 //! case comes in, whichever is later. A build that only takes a new input
 //! once the last has settled has a throughput near its latency; a
 //! pipelined one, or one whose paths all take about as long, takes them
-//! faster. The simulator does not model torch burnout, so `evaluate` holds
+//! faster. A sequential build's buttons, as its reset and calculate, are
+//! pressed in the stream at their own ticks, so its throughput is how often
+//! a new calculation can start. The simulator does not model torch burnout, so `evaluate` holds
 //! a build with torches to three ticks or more, and one without to two.
 
 use anyhow::Result;
@@ -17,15 +19,17 @@ use super::{
 };
 use crate::{interface, schem::Blocks};
 
-/// The fewest random cases the stream runs through.
+/// The fewest random cases the stream a period is found on runs through,
+/// and the long one it is checked on.
 const CASES: usize = 64;
+const LONG: usize = 4096;
 
 /// The throughput of the build in `blocks`, timed as `timing`; `None` when
 /// no period up to twice its slowest output keeps every result right.
 pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     let interface = interface::read(blocks);
     let widths: Vec<usize> = interface.inputs.iter().map(input_bits).collect();
-    let cases = stream(&widths);
+    let cases = stream(&widths, CASES);
     // Each input's tick from A's, as the timing found it.
     let offset: Vec<i32> = interface
         .inputs
@@ -35,7 +39,6 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
             found.and_then(|i| i.tick).unwrap_or(0)
         })
         .collect();
-    let earliest = offset.iter().copied().min().unwrap_or(0).min(0);
     // Each output's tick from A's, past the repeaters or comparators that
     // carry it out, where the site reads it.
     let latency: Vec<i32> = timing
@@ -46,27 +49,111 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if latency.len() != interface.outputs.len() {
         return Ok(None);
     }
-    // What each case settles to.
+    // What each case settles to: its levers set, then its buttons, as a
+    // sequential build's reset and calculate, pressed in the order of their
+    // ticks, each settling in turn.
     let mut circuit = Circuit::new(blocks, &interface)?;
-    // A build driven by buttons, as a sequential one, takes its inputs one
-    // calculation at a time, not as a stream.
-    if (0..interface.inputs.len()).any(|port| circuit.is_button(port, 0)) {
+    let button: Vec<bool> = (0..interface.inputs.len())
+        .map(|p| circuit.is_button(p, 0))
+        .collect();
+    let timed = |port: usize| {
+        let name = &interface.inputs[port].name;
+        timing
+            .inputs
+            .iter()
+            .any(|i| &i.name == name && i.tick.is_some())
+    };
+    // A button with no tick, as a reset nothing can press in turn, can't be
+    // streamed.
+    if (0..button.len()).any(|p| button[p] && !timed(p)) {
         return Ok(None);
     }
+    let mut presses: Vec<usize> =
+        (0..button.len()).filter(|&p| button[p]).collect();
+    presses.sort_by_key(|&p| offset[p]);
+    let expected =
+        settled_cases(&mut circuit, &cases, &button, &presses, latency.len())?;
+    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
+    let short = Stream {
+        blocks,
+        interface: &interface,
+        cases: &cases,
+        expected: &expected,
+        offset: &offset,
+        latency: &latency,
+        button: &button,
+    };
+    // Found on a short stream, then checked on a long one, a period kept
+    // only once every case of that comes out right too.
+    let long = stream(&widths, LONG);
+    let long_expected =
+        settled_cases(&mut circuit, &long, &button, &presses, latency.len())?;
+    let checked = Stream {
+        cases: &long,
+        expected: &long_expected,
+        ..short
+    };
+    for period in 1..=2 * slowest {
+        if short.right(period)? {
+            for period in period..=2 * slowest {
+                if checked.right(period)? {
+                    return Ok(Some(period));
+                }
+            }
+            return Ok(None);
+        }
+    }
+    Ok(None)
+}
+
+/// What each of `cases` settles to: its levers set, then its buttons,
+/// `presses`, pressed in turn, each settling, read from its `outputs`.
+fn settled_cases(
+    circuit: &mut Circuit,
+    cases: &[Vec<u64>],
+    button: &[bool],
+    presses: &[usize],
+    outputs: usize,
+) -> Result<Vec<Vec<u64>>> {
     let mut expected = Vec::with_capacity(cases.len());
-    for case in &cases {
+    for case in cases {
         for (port, &value) in case.iter().enumerate() {
-            circuit.set(port, value);
+            if !button[port] {
+                circuit.set(port, value);
+            }
         }
         circuit.settle()?;
-        expected.push(
-            (0..latency.len())
-                .map(|o| circuit.get(o))
-                .collect::<Vec<_>>(),
-        );
+        for &port in presses {
+            circuit.press(port, 0);
+            circuit.settle()?;
+        }
+        expected.push((0..outputs).map(|o| circuit.get(o)).collect::<Vec<_>>());
     }
-    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
-    for period in 1..=2 * slowest {
+    Ok(expected)
+}
+
+/// A stream of cases, each input set or pressed at its tick from A's, and
+/// each output read at its latency: what `throughput` tries at each period.
+struct Stream<'a> {
+    blocks: &'a Blocks,
+    interface: &'a crate::interface::Interface,
+    cases: &'a [Vec<u64>],
+    expected: &'a [Vec<u64>],
+    offset: &'a [i32],
+    latency: &'a [i32],
+    button: &'a [bool],
+}
+
+impl Stream<'_> {
+    /// Whether every case comes out right, a case going in every `period`
+    /// ticks.
+    fn right(&self, period: i32) -> Result<bool> {
+        let (blocks, interface, cases, expected) =
+            (self.blocks, self.interface, self.cases, self.expected);
+        let (offset, latency, button) =
+            (self.offset, self.latency, self.button);
+        let earliest = offset.iter().copied().min().unwrap_or(0).min(0);
+
         // Ticks from the stream's start: case `i`'s A goes in at
         // `start + i * period`.
         let start = -earliest;
@@ -84,7 +171,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
         sets.sort_unstable();
         reads.sort_unstable();
         let end = reads.last().map_or(0, |r| r.0);
-        let mut circuit = Circuit::new(blocks, &interface)?;
+        let mut circuit = Circuit::new(blocks, interface)?;
         circuit.settle()?;
         let (mut next_set, mut next_read, mut right) = (0, 0, true);
         for t in 0..=end {
@@ -102,23 +189,24 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
             while let Some(&(at, port, value)) = sets.get(next_set)
                 && at == t
             {
-                circuit.set(port, value);
+                if button[port] {
+                    circuit.press(port, 0);
+                } else {
+                    circuit.set(port, value);
+                }
                 next_set += 1;
             }
             circuit.tick();
         }
-        if right {
-            return Ok(Some(period));
-        }
+        Ok(right)
     }
-    Ok(None)
 }
 
 /// A fixed stream of cases: every mix of the values that make the longest
 /// carries and the most bits change, as zero, all ones, one, and
 /// alternating bits, then as many from a simple generator, so every build
 /// is measured on the same stream.
-fn stream(widths: &[usize]) -> Vec<Vec<u64>> {
+fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
     let mask = |w: usize| if w >= 64 { u64::MAX } else { (1 << w) - 1 };
     let special = |w: usize| {
         [0, u64::MAX, 1, 0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa]
@@ -144,7 +232,7 @@ fn stream(widths: &[usize]) -> Vec<Vec<u64>> {
         state ^= state << 17;
         state
     };
-    let random = cases.len().max(CASES);
+    let random = cases.len().max(random);
     // Each special case beside random ones, so every case follows others
     // of every kind.
     let mut stream = Vec::new();

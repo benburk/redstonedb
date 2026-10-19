@@ -67,12 +67,15 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     assert!(e.passes(), "{:?}", e.report);
     assert!(e.stacking.is_empty());
     assert!(e.latency.is_some());
-    assert_eq!(e.throughput, None, "it takes one calculation at a time");
+    // How often a new calculation can start: its reset and calculate
+    // pressed in turn, each at its own tick.
+    assert!(e.throughput.is_some());
     let timing = e.report.as_ref().and_then(|r| r.timing()).unwrap();
-    assert!(
-        timing
+    for line in ["reset", "calculate"] {
+        let timed = timing
             .inputs
             .iter()
-            .any(|i| i.name == "calculate" && i.tick.is_some())
-    );
+            .any(|i| i.name == line && i.tick.is_some());
+        assert!(timed, "{line}");
+    }
 }

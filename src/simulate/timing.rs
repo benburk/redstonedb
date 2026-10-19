@@ -393,13 +393,14 @@ pub(super) fn pressed(
 ) -> Result<Timing> {
     let (cases, _) = bench::paired(&bench.widths(interface));
     let expected = bench::observe(blocks, interface, bench, &cases, None)?;
-    let on = |cases: &[bench::Case], expected: &[u64], offset: i32| {
-        if cancel.load(Ordering::Relaxed) {
-            bail!("The timing was cancelled.");
-        }
-        press_at(blocks, interface, bench, (cases, expected), offset)
-    };
-    let at = |offset: i32| on(&cases, &expected, offset);
+    let on =
+        |cases: &[bench::Case], expected: &[u64], when: (i32, Option<i32>)| {
+            if cancel.load(Ordering::Relaxed) {
+                bail!("The timing was cancelled.");
+            }
+            press_at(blocks, interface, bench, (cases, expected), when)
+        };
+    let at = |offset: i32| on(&cases, &expected, (offset, None));
     let settled = |runs: &Runs| {
         runs.iter()
             .flatten()
@@ -434,28 +435,59 @@ pub(super) fn pressed(
         }
     }
     let every_expected = bench::observe(blocks, interface, bench, every, None)?;
+    let mut found = None;
     for offset in best.0..=LATEST_PRESS {
-        if let Some((runs, carried)) = on(every, &every_expected, offset)? {
-            return Ok(pressed_timing(
-                interface, bench, every, &runs, offset, &carried,
-            ));
+        if let Some(runs) = on(every, &every_expected, (offset, None))? {
+            found = Some((offset, runs));
+            break;
         }
     }
-    bail!(
-        "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
-    )
+    let Some((offset, runs)) = found else {
+        bail!(
+            "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
+        )
+    };
+    // A reset, or any other press before the calculate, goes as late
+    // before it as still gives every product, so a stream of calculations
+    // can press it in turn; when none does, it is left unstreamed.
+    let mut reset = None;
+    if bench.presses.len() > 1 {
+        for gap in 1..=LATEST_PRESS {
+            let when = (offset, Some(offset - gap));
+            if on(&cases, &expected, when)?.is_some()
+                && let Some(runs) = on(every, &every_expected, when)?
+            {
+                reset = Some((offset - gap, runs));
+                break;
+            }
+        }
+    }
+    let (tick, (runs, carried)) = match reset {
+        Some((tick, found)) => (Some(tick), found),
+        None => (None, runs),
+    };
+    Ok(pressed_timing(
+        interface,
+        bench,
+        every,
+        &runs,
+        (offset, tick),
+        &carried,
+    ))
 }
 
 /// What each case of `cases` showed, its operands set at tick 0 and its
 /// calculate, the bench's last press, pressed `offset` ticks from them,
-/// with what each output's repeaters or comparators take to carry it out;
-/// `None` when some case does not come out as `expected`.
+/// and its other presses, such as a reset, at `reset` ticks from them, or
+/// made and settled before each case when `None`; with what each output's
+/// repeaters or comparators take to carry it out. `None` when some case
+/// does not come out as `expected`.
 fn press_at(
     blocks: &Blocks,
     interface: &Interface,
     bench: &bench::Bench,
     (cases, expected): (&[bench::Case], &[u64]),
-    offset: i32,
+    (offset, reset): (i32, Option<i32>),
 ) -> Result<Option<(Runs, Vec<i32>)>> {
     let Some((&calculate, before)) = bench.presses.split_last() else {
         bail!("Nothing is pressed.");
@@ -470,16 +502,23 @@ fn press_at(
     let button = circuit.is_button(calculate, 0);
     let mut runs: Runs = Vec::with_capacity(cases.len());
     for (case, &want) in cases.iter().zip(expected) {
-        for &port in before {
-            bench::pulse(&mut circuit, port)?;
-            circuit.settle()?;
+        if reset.is_none() {
+            for &port in before {
+                bench::pulse(&mut circuit, port)?;
+                circuit.settle()?;
+            }
         }
         let mut shown: Vec<u64> =
             bench.outputs.iter().map(|&o| circuit.get(o)).collect();
         let mut flips: Vec<Vec<Vec<i32>>> =
             widths.iter().map(|&w| vec![Vec::new(); w]).collect();
-        let mut tick = offset.min(0);
+        let mut tick = offset.min(0).min(reset.unwrap_or(0));
         loop {
+            if Some(tick) == reset {
+                for &port in before {
+                    circuit.press(port, 0);
+                }
+            }
             if tick == offset {
                 if button {
                     circuit.press(calculate, 0);
@@ -510,10 +549,9 @@ fn press_at(
             if tick > offset.max(0) + 1 && !circuit.pending() {
                 break;
             }
+            // Still changing, it never settles on a result: wrong.
             if tick > i32::try_from(MAX_TICKS)? {
-                bail!(
-                    "It was still changing {MAX_TICKS} ticks after its operands changed."
-                );
+                return Ok(None);
             }
         }
         let mut got = 0;
@@ -538,7 +576,7 @@ fn pressed_timing(
     bench: &bench::Bench,
     cases: &[bench::Case],
     runs: &[Vec<Vec<Vec<i32>>>],
-    offset: i32,
+    (offset, reset): (i32, Option<i32>),
     carried: &[i32],
 ) -> Timing {
     let last = |ticks: &[i32]| ticks.last().copied().unwrap_or(0);
@@ -577,7 +615,13 @@ fn pressed_timing(
             tick: Some(0),
         })
         .collect();
-    if let Some(&calculate) = bench.presses.last() {
+    if let Some((&calculate, before)) = bench.presses.split_last() {
+        for &port in before {
+            inputs.push(InputTiming {
+                name: interface.inputs[port].name.clone(),
+                tick: reset,
+            });
+        }
         inputs.push(InputTiming {
             name: interface.inputs[calculate].name.clone(),
             tick: Some(offset),
