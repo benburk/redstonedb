@@ -560,17 +560,29 @@ impl Compiled {
 
     /// The components that could hold state: those on a feedback loop, and
     /// repeaters locked from their side. A comparator in compare mode that
-    /// reads its own output from its side is no loop: what it puts out is
-    /// its back's strength or nothing, and reaches its side no stronger, so
-    /// it can never decide the comparison its back already wins.
+    /// reads, from its side, one in compare mode whose back is fed just as
+    /// its own is, itself included, is no loop: what that one puts out is
+    /// their shared back's strength or nothing, and reaches the side no
+    /// stronger, so it can never decide the comparison the back already
+    /// wins.
     pub fn memory(&self) -> BTreeSet<Pos> {
+        let compares = |p: &Pos| {
+            self.kinds.get(p).is_some_and(|k| {
+                k.contains("mode: Compare") && k.contains("far_input: None")
+            })
+        };
+        let backs: BTreeMap<Pos, Vec<(Pos, u8)>> = self
+            .links
+            .iter()
+            .filter(|((_, _, side), _)| !side)
+            .fold(BTreeMap::new(), |mut backs, (&(from, to, _), &loss)| {
+                backs.entry(to).or_default().push((from, loss));
+                backs
+            });
         let inert = |&(from, to, side): &Link| {
-            from == to
-                && side
-                && self
-                    .kinds
-                    .get(&from)
-                    .is_some_and(|k| k.contains("mode: Compare"))
+            side && compares(&from)
+                && compares(&to)
+                && backs.get(&from) == backs.get(&to)
         };
         let mut next: BTreeMap<Pos, Vec<Pos>> = BTreeMap::new();
         let mut found = BTreeSet::new();

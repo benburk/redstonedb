@@ -1446,3 +1446,12 @@ fn memory_is_found_in_loops_but_not_in_combinational_logic() {
     let multiplier = simulate::compiled(&Blocks::read(&file).unwrap()).unwrap();
     assert!(!multiplier.memory().is_empty());
 }
+
+/// Each bit's XOR is two comparators in compare mode on one back line,
+/// each reading the other from its side: one can put out no more than the
+/// other's back, so neither decides the other, and the pair holds nothing.
+#[test]
+fn compare_mode_comparators_sharing_a_back_hold_nothing() {
+    let adder = simulate::compiled(&blocks("xor-pair-adder-8")).unwrap();
+    assert!(adder.memory().is_empty());
+}
