@@ -17,7 +17,7 @@ use crate::{
     evaluate::{Evaluation, evaluate},
     import, interface,
     models::schematic::{
-        self, Encoding, Orientation, Schematic, StackDirection,
+        self, Encoding, Logic, Orientation, Schematic, StackDirection,
     },
     models::version,
     roles,
@@ -407,6 +407,8 @@ struct Derived {
     stacking: Vec<StackDirection>,
     throughput: Option<i64>,
     design: String,
+    /// Whether it holds state, where set on the build itself.
+    logic: Option<Logic>,
 }
 
 impl Derived {
@@ -423,6 +425,7 @@ impl Derived {
             stacking: s.stacking.clone(),
             throughput: s.throughput,
             design: s.design.clone(),
+            logic: s.own_logic,
         }
     }
 
@@ -452,6 +455,9 @@ impl Derived {
             derived.throughput = e.throughput;
             if let Some(design) = &e.design {
                 design.name.clone_into(&mut derived.design);
+            }
+            if e.logic.is_some() {
+                derived.logic = e.logic;
             }
         }
         derived
@@ -614,6 +620,9 @@ impl Derived {
         }
         if self.stacking != stored.stacking {
             schematic::set_stacking(tx, &s.id, &self.stacking).await?;
+        }
+        if self.logic != stored.logic {
+            schematic::set_logic(&mut *tx, &s.id, self.logic).await?;
         }
         if (self.throughput, &self.design)
             != (stored.throughput, &stored.design)

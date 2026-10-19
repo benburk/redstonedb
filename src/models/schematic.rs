@@ -267,11 +267,33 @@ impl Schematic {
     }
 
     /// Its category's measures that lead a name, such as `8-bit` and
-    /// `32-byte`, or `2-tick`; an unknown one is left out.
+    /// `32-byte`, or `2-tick`; an unknown one is left out. A multiplier's
+    /// width is its shape, as `8x8=16`, keeping the upper half of its
+    /// product, or `8x8=8`, and `8x8+8=16` for a fused multiply-add.
     fn measures(&self) -> impl Iterator<Item = String> {
-        self.measures
-            .iter()
-            .filter_map(|m| m.of(self).map(|n| m.lead(n)))
+        let shape = self.product_shape();
+        self.measures.iter().filter_map(move |m| match (m, &shape) {
+            (Measure::Width, Some(shape)) => Some(shape.clone()),
+            _ => m.of(self).map(|n| m.lead(n)),
+        })
+    }
+
+    /// A multiplier's operands and product, as `8x8=16`; `None` for any
+    /// other build, or one of unknown width.
+    fn product_shape(&self) -> Option<String> {
+        let width = self.width.filter(|_| self.category == "multiplier")?;
+        let flagged = |name: &str| self.flags.iter().any(|f| f.name == name);
+        let product = if flagged("upper_product") {
+            2 * width
+        } else {
+            width
+        };
+        let addend = if flagged("fma") {
+            format!("+{width}")
+        } else {
+            String::new()
+        };
+        Some(format!("{width}x{width}{addend}={product}"))
     }
 
     /// Whether its category is named and ranked by `measure`.
@@ -962,8 +984,6 @@ pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Sets a monostable's pulse as the simulation measured it, which is no
-/// person's edit either.
 /// Sets the details `evaluate` gives a build of a category whose details
 /// are all evaluated, beside those `set_derived` sets.
 pub async fn set_evaluated<'e, E: SqliteExecutor<'e>>(
@@ -983,6 +1003,22 @@ pub async fn set_evaluated<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Sets whether build `id` holds state, where it differs from its
+/// category's; `None` follows the category.
+pub async fn set_logic<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    logic: Option<Logic>,
+) -> Result<(), sqlx::Error> {
+    let logic = logic.map(Logic::name);
+    sqlx::query!("UPDATE schematic SET logic = ? WHERE id = ?", logic, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Sets a monostable's pulse as the simulation measured it, which is no
+/// person's edit either.
 pub async fn set_pulse<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
@@ -1143,6 +1179,28 @@ mod tests {
         let mut uploaded = cla;
         uploaded.uploader = Some("someone".to_owned());
         assert!(user(None, false, Role::User).may_edit(&uploaded));
+    }
+
+    #[test]
+    fn a_multiplier_is_named_by_its_operands_and_product() {
+        let flag = |name: &str| Flag {
+            category: "multiplier".to_owned(),
+            name: name.to_owned(),
+            label: String::new(),
+        };
+        let mut multiplier = Schematic {
+            category: "multiplier".to_owned(),
+            category_label: Some("Multiplier".to_owned()),
+            design: "other".to_owned(),
+            tags: Vec::new(),
+            ..cla()
+        };
+        assert_eq!(multiplier.name(), "8x8=8 Multiplier");
+        multiplier.flags = vec![flag("upper_product")];
+        assert_eq!(multiplier.name(), "8x8=16 Multiplier");
+        assert_eq!(multiplier.filename(), "8x8_16_Multiplier.schem");
+        multiplier.flags.push(flag("fma"));
+        assert_eq!(multiplier.name(), "8x8+8=16 Multiplier");
     }
 
     #[test]

@@ -259,6 +259,7 @@ async fn evaluated(
     details.latency = None;
     details.synchronized = None;
     details.throughput = None;
+    details.logic = None;
     details.design = Some("other".to_owned());
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()

@@ -493,6 +493,35 @@ pub(super) fn observe(
     Ok(results)
 }
 
+/// Whether the build holds state: a copy run through the telling cases in
+/// turn, making the presses the test makes, against a fresh copy for each
+/// case given only its inputs, nothing pressed and every control at rest.
+/// An output that differs was left behind by what came before.
+pub(super) fn remembers(
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &Bench,
+) -> Result<bool> {
+    let (mut cases, _) = paired(&bench.widths(interface));
+    cases.truncate(32);
+    let history = observe(blocks, interface, bench, &cases, None)?;
+    let rest = Bench {
+        inputs: bench.inputs.clone(),
+        outputs: bench.outputs.clone(),
+        pattern: String::new(),
+        held: bench.held.clone(),
+        care: bench.care,
+        presses: Vec::new(),
+    };
+    for (case, &was) in cases.iter().zip(&history) {
+        let fresh = observe(blocks, interface, &rest, &[*case], None)?;
+        if fresh[0] & bench.care != was & bench.care {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Presses control line `port`: its button, or its lever turned on and,
 /// once that settles, off.
 pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {

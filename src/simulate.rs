@@ -260,6 +260,26 @@ impl Test {
         }
     }
 
+    /// Whether the build in `blocks` holds state, as `bench::remembers`
+    /// tells: what is left of each case once its presses are over, against
+    /// a fresh copy given only the case's inputs. `None` for a test that
+    /// runs its own way, as a register's does.
+    pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
+        if matches!(
+            self,
+            Test::Alu
+                | Test::Register
+                | Test::Buffer
+                | Test::Monostable
+                | Test::DualEdgeMonostable
+        ) {
+            return Ok(None);
+        }
+        let mut interface = interface::read(blocks);
+        let spec = self.spec(blocks, &mut interface)?;
+        bench::remembers(blocks, &interface, &spec.bench).map(Some)
+    }
+
     /// What a stateless test drives, reads, and expects of a build with
     /// `interface`, its lines named for their roles.
     fn spec(

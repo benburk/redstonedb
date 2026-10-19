@@ -83,12 +83,14 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       designs ||= mine;
     }
     if (design.selectedOptions[0]?.disabled) design.value = "other";
-    // A category such as adder has its design and throughput worked out by
-    // the simulation, so neither is asked for.
+    // A category such as adder has its design, throughput, and logic worked
+    // out by the simulation, so none is asked for.
     const evaluated = has("data-evaluated");
     designField.hidden = !designs || evaluated;
     const throughput = form.querySelector("[data-throughput-field]");
     if (throughput && evaluated) throughput.hidden = true;
+    const logic = form.querySelector("[data-logic-field]");
+    if (logic) logic.hidden = evaluated;
     const note = form.querySelector("[data-evaluated-note]");
     if (note) note.hidden = !evaluated;
   };

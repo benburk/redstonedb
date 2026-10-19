@@ -1142,7 +1142,7 @@ async fn evaluate(
         let mut flags = e.flags.clone();
         flags.sort();
         let design = e.design.as_ref().map_or("other", |d| d.name);
-        let fields: [(&str, String, String); 11] = [
+        let fields: [(&str, String, String); 12] = [
             (
                 "category",
                 s.category.clone(),
@@ -1162,6 +1162,7 @@ async fn evaluate(
             ("synchronized", show(&s.synchronized), show(&e.synchronized)),
             ("throughput", show(&s.throughput), show(&e.throughput)),
             ("design", s.design.clone(), design.to_owned()),
+            ("logic", show(&s.logic), show(&e.logic)),
         ];
         let differ: Vec<String> = fields
             .iter()

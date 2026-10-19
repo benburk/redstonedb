@@ -12,7 +12,7 @@ use anyhow::Result;
 use crate::{
     import::{self, Prepared},
     interface,
-    models::schematic::{Encoding, Orientation, StackDirection},
+    models::schematic::{Encoding, Logic, Orientation, StackDirection},
     simulate::{
         self, Design, Report, Stacking, Test, adder_design, throughput,
     },
@@ -40,6 +40,9 @@ pub struct Evaluation {
     pub throughput: Option<i64>,
     /// How an adder makes its carries.
     pub design: Option<Design>,
+    /// Whether it holds state: whether what its test leaves on its outputs
+    /// differs from a fresh copy given the same inputs.
+    pub logic: Option<Logic>,
 }
 
 impl Evaluation {
@@ -72,6 +75,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         synchronized: None,
         throughput: None,
         design: None,
+        logic: None,
         prepared,
     };
     let Some(test) = category.and_then(|c| Test::of(c, found.width)) else {
@@ -111,6 +115,13 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         found.throughput = throughput(&found.prepared.blocks, &timing)?
             .map(|ticks| i64::from(ticks).max(burnout));
         run.timing = Some(timing);
+        found.logic = test.remembers(&found.prepared.blocks)?.map(|held| {
+            if held {
+                Logic::Stateful
+            } else {
+                Logic::Stateless
+            }
+        });
         if category == Some("adder") {
             found.design = adder_design(&found.prepared.blocks)?;
         }

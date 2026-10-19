@@ -122,7 +122,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
         // For a category such as adder, whose measured details all come from
         // the simulation; form.js shows it.
         p data-evaluated-note hidden class="text-muted" {
-            "Its design, latency, throughput, and stacking are worked out by the simulation, "
+            "Its design, latency, throughput, stacking, and whether it holds state are worked out by the simulation, "
             "and it must pass its test; one that fails goes up under a category of its own."
         }
         // Shown once the chosen category has designs to choose from.
@@ -297,8 +297,10 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
     let usual = Category::find(&choices.categories, &f.category)
         .and_then(|c| c.logic)
         .map_or("unknown", Logic::name);
+    // An evaluated category's builds are found to hold state or not.
+    let evaluated = category::behaviour(&f.category).evaluated;
     html! {
-        label class="field" {
+        label class="field" data-logic-field hidden[evaluated] {
             span { "Stateless" }
             select name="logic" class="input" aria-describedby="logic-help" {
                 option value="" selected[f.logic.is_empty()] data-usual-logic {

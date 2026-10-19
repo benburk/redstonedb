@@ -1,6 +1,6 @@
 //! Reading a build from its file alone.
 
-use app::{evaluate::evaluate, standardize};
+use app::{evaluate::evaluate, models::schematic::Logic, standardize};
 
 /// A fixture as the site stores it.
 fn stored(name: &str) -> Vec<u8> {
@@ -20,6 +20,7 @@ fn a_ripple_adder_slice_is_read_whole_from_its_file() {
     let latency = e.latency.unwrap();
     let throughput = e.throughput.unwrap();
     assert!((1..=2 * latency.max(1)).contains(&throughput));
+    assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
 #[test]
@@ -67,6 +68,8 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     assert!(e.passes(), "{:?}", e.report);
     assert!(e.stacking.is_empty());
     assert!(e.latency.is_some());
+    // What it was given is kept from one calculation to the next.
+    assert_eq!(e.logic, Some(Logic::Stateful));
     // How often a new calculation can start: its reset and calculate
     // pressed in turn, each at its own tick.
     assert!(e.throughput.is_some());
