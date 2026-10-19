@@ -2,7 +2,7 @@
 //! levers, buttons, or barrels, and its outputs read from their blocks.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     panic::AssertUnwindSafe,
     sync::Arc,
 };
@@ -556,6 +556,57 @@ impl Compiled {
     /// A hash of the whole circuit.
     pub fn key(&self) -> String {
         crate::import::sha256(format!("{self:?}").as_bytes())
+    }
+
+    /// The components that could hold state: those on a feedback loop, and
+    /// repeaters locked from their side. A comparator in compare mode that
+    /// reads its own output from its side is no loop: what it puts out is
+    /// its back's strength or nothing, and reaches its side no stronger, so
+    /// it can never decide the comparison its back already wins.
+    pub fn memory(&self) -> BTreeSet<Pos> {
+        let inert = |&(from, to, side): &Link| {
+            from == to
+                && side
+                && self
+                    .kinds
+                    .get(&from)
+                    .is_some_and(|k| k.contains("mode: Compare"))
+        };
+        let mut next: BTreeMap<Pos, Vec<Pos>> = BTreeMap::new();
+        let mut found = BTreeSet::new();
+        for link in self.links.keys().filter(|l| !inert(l)) {
+            let &(from, to, side) = link;
+            if from == to {
+                found.insert(from);
+            } else {
+                next.entry(from).or_default().push(to);
+            }
+            if side
+                && self
+                    .kinds
+                    .get(&to)
+                    .is_some_and(|k| k.starts_with("Repeater"))
+            {
+                found.insert(to);
+            }
+        }
+        // A component is on a loop when it reaches itself: every one a path
+        // from it comes back to.
+        for &start in self.kinds.keys() {
+            let mut seen = BTreeSet::new();
+            let mut stack: Vec<Pos> =
+                next.get(&start).cloned().unwrap_or_default();
+            while let Some(p) = stack.pop() {
+                if p == start {
+                    found.insert(start);
+                    break;
+                }
+                if seen.insert(p) {
+                    stack.extend(next.get(&p).into_iter().flatten());
+                }
+            }
+        }
+        found
     }
 }
 

@@ -1434,3 +1434,15 @@ fn an_xor_gate_stacks_west_into_wider_ones() {
     };
     assert_eq!((step.describe().as_str(), copies), ("4 west", 16));
 }
+
+/// A ripple adder holds nothing; a sequential multiplier holds its partial
+/// products in loops.
+#[test]
+fn memory_is_found_in_loops_but_not_in_combinational_logic() {
+    let adder = simulate::compiled(&blocks("alpha-rca")).unwrap();
+    assert!(adder.memory().is_empty());
+    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
+    let file = standardize::standardize(&raw, Gray::Whiten).unwrap();
+    let multiplier = simulate::compiled(&Blocks::read(&file).unwrap()).unwrap();
+    assert!(!multiplier.memory().is_empty());
+}
