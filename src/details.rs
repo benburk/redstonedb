@@ -125,6 +125,9 @@ pub struct Ready {
     /// Whether the simulation decides how it stacks, so the stacking given
     /// counts for nothing and whatever the simulation found stays.
     pub stacking_inferred: bool,
+    /// Whether the simulation works out its every measured detail, as for
+    /// a conventional adder, so an edit leaves them as it set them.
+    pub evaluated: bool,
 }
 
 /// Holds `details` of `build` to every rule, and returns them ready to
@@ -236,10 +239,13 @@ async fn ready(
     // Asked last, as it goes to Mojang, which is slow.
     details.builders = mojang::respell(&details.builders).await?;
     details.contributors = mojang::respell(&details.contributors).await?;
+    let evaluated =
+        build.conventional && category::behaviour(&category.name).evaluated;
     Ok(Ready {
         category,
         details,
         stacking_inferred,
+        evaluated,
     })
 }
 

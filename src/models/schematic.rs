@@ -810,8 +810,10 @@ pub async fn insert(
 }
 
 /// Writes checked details over build `id`'s, with its credits, tags, and
-/// flags, and its stacking unless the simulation decides it. The build
-/// counts as edited.
+/// flags, and its stacking unless the simulation decides it. A build whose
+/// every measured detail the simulation works out keeps those as it set
+/// them, as its result on the same file stands and is not run again. The
+/// build counts as edited.
 pub async fn set_details(
     db: &SqlitePool,
     id: &str,
@@ -819,6 +821,26 @@ pub async fn set_details(
 ) -> Result<(), sqlx::Error> {
     let details = &ready.details;
     let mut tx = db.begin().await?;
+    if ready.evaluated {
+        sqlx::query!(
+            "UPDATE schematic SET category = ?, built_on = ?,
+                description = ?, given_name = ?, at_least = ?, pulse = ?,
+                bytes = ?, edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE id = ?",
+            details.category,
+            details.built_on,
+            details.description,
+            details.given_name,
+            details.at_least,
+            details.pulse,
+            details.bytes,
+            id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        set_people(&mut tx, id, ready).await?;
+        return tx.commit().await;
+    }
     sqlx::query!(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
@@ -861,6 +883,16 @@ async fn set_lists(
         set_stacking(tx, id, &details.stacking).await?;
     }
     set_flags(tx, id, &details.flags).await?;
+    set_people(tx, id, ready).await
+}
+
+/// Replaces build `id`'s credits and tags with `ready`'s.
+async fn set_people(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    ready: &Ready,
+) -> Result<(), sqlx::Error> {
+    let details = &ready.details;
     let credits = [
         (Credit::Builder, &details.builders),
         (Credit::Contributor, &details.contributors),

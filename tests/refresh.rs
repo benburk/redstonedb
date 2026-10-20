@@ -200,3 +200,61 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
     assert_eq!(ran_at().await, first, "it was not simulated again");
 }
+
+/// Editing an adder's details, as renaming its builder, keeps what the
+/// simulation measured: its result on the same file stands, so nothing
+/// runs again to set them back.
+#[tokio::test]
+async fn editing_an_adders_details_keeps_what_was_measured() {
+    let db = setup_test_db().await;
+    let id = store(
+        &db,
+        "rca-slice-capped",
+        Details {
+            category: "adder".to_owned(),
+            ..Details::default()
+        },
+    )
+    .await;
+    simulation::refresh(&db, &id, false).await.unwrap();
+    let measured = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert!(measured.latency.is_some() && measured.throughput.is_some());
+
+    let mut edited = Details::of(&measured);
+    edited.builders = vec!["Someone_Else".to_owned()];
+    edited.description = Some("A slice.".to_owned());
+    let data = app::models::version::current_file(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let build = Build {
+        data: &data,
+        conventional: true,
+    };
+    let ready = details::check(&db, edited, build, false)
+        .await
+        .unwrap()
+        .unwrap();
+    schematic::set_details(&db, &id, &ready).await.unwrap();
+    simulation::refresh(&db, &id, false).await.unwrap();
+
+    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    // Respelled as the player spells it, whatever that is.
+    assert!(
+        matches!(s.builders.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
+    );
+    assert_eq!(s.description.as_deref(), Some("A slice."));
+    let fields = |s: &schematic::Schematic| {
+        (
+            s.width,
+            s.orientation,
+            s.latency,
+            s.synchronized,
+            s.throughput,
+            s.design.clone(),
+            s.logic,
+            s.stacking.clone(),
+        )
+    };
+    assert_eq!(fields(&s), fields(&measured));
+}
