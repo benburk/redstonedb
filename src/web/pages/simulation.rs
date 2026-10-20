@@ -186,7 +186,8 @@ fn found_stack(report: &Report) -> Option<String> {
     Some(match run.stacking.as_ref()? {
         Stacking::Stacks { step, .. } => step.direction().describe(),
         Stacking::Registers { step, most, .. }
-        | Stacking::Wider { step, most, .. } => StackDirection {
+        | Stacking::Wider { step, most, .. }
+        | Stacking::Separate { step, most, .. } => StackDirection {
             max_copies: most.and_then(|n| i64::try_from(n).ok()),
             ..step.direction()
         }
@@ -231,6 +232,13 @@ pub(super) fn stacking_words(stacking: &Stacking) -> String {
             step.describe(),
             limit(*most, *copies)
         ),
+        Stacking::Separate {
+            step, copies, most, ..
+        } => format!(
+            "Simulated: copies {} apart each work on their own, {copies} of them{}.",
+            step.describe(),
+            limit(*most, *copies)
+        ),
         Stacking::Not { step, reason } => match step {
             Some(step) => format!(
                 "Copies {} apart don't stack as saved: {reason}",
@@ -264,6 +272,11 @@ fn stacking_note(stacking: &Stacking, controls: bool) -> Markup {
                 (copies) " copies " (step.describe()) " apart make " (bits) " bits"
                 @if controls { " sharing their control lines" }
                 ", all "
+                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
+            },
+            Stacking::Separate { step, copies, cases, most } => p class="mt-3" data-found-stacking {
+                strong { "Stacks: " }
+                (copies) " copies " (step.describe()) " apart each work on their own, all "
                 (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
             // Why not is on the build's Stacks field, on hover.

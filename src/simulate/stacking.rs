@@ -69,6 +69,15 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
+    /// Copies every `step` side by side each do their own work, as more
+    /// decoders, each with its own input and outputs: `copies` of them, in
+    /// `cases` cases. `most` is as for `Registers`.
+    Separate {
+        step: Step,
+        copies: usize,
+        cases: u64,
+        most: Option<usize>,
+    },
     /// They make no working build of its kind, as an adder whose carries do
     /// not chain or a register with no step west that works, with the step
     /// tried when there was one.

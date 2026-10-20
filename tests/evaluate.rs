@@ -356,7 +356,7 @@ fn inverted_lines_are_flags_not_categories() {
 }
 
 /// A decoder is read whole from its file: each value of A turns its own
-/// output bit on, or, as this one, off, the rest on; it never stacks.
+/// output bit on, or, as this one, off, the rest on.
 #[test]
 fn a_decoder_is_read_whole_from_its_file() {
     let e = evaluate(&stored("decoder-4-inverted")).unwrap();
@@ -364,7 +364,6 @@ fn a_decoder_is_read_whole_from_its_file() {
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(4));
     assert_eq!(e.flags, ["inverted"]);
-    assert!(e.stacking.is_empty());
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
@@ -402,4 +401,26 @@ fn a_barrel_shifters_shifts_are_found_by_its_lines() {
     assert!(e.stacking.is_empty());
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
+/// Copies of a decoder stacked side by side are more decoders, each
+/// decoding its own bits of A onto its own outputs, however their bits lie
+/// between each other's; they show nothing of how its bits run.
+#[test]
+fn a_decoders_copies_stack_as_more_decoders() {
+    let e = evaluate(&stored("decoder-4-inverted")).unwrap();
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(
+        matches!(run.stacking, Some(Stacking::Separate { .. })),
+        "{:?}",
+        run.stacking
+    );
+    assert_eq!(e.stacking.len(), 1);
+    assert_eq!(
+        e.orientation,
+        Some(Orientation::Horizontal),
+        "as its own bits run"
+    );
 }

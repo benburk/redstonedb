@@ -367,6 +367,7 @@ impl Test {
             Test::Inverter => inverter::stacking(data),
             Test::XorXnor => gate::stacking(data),
             Test::NandXnor => gate::nand_xnor_stacking(data),
+            Test::Decoder => decoder::stacking(data),
             Test::Incrementer | Test::Decrementer | Test::CarryOut => {
                 Some(stacking::chained(data, self))
             }

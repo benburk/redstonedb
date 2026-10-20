@@ -147,9 +147,10 @@ impl Evaluation {
             }
             // A register file's copies are more cells, not more bits, so
             // they show nothing of how its bits run.
-            Some(Stacking::Registers { step, most, .. }) => {
-                Some((step, *most, false))
-            }
+            Some(
+                Stacking::Registers { step, most, .. }
+                | Stacking::Separate { step, most, .. },
+            ) => Some((step, *most, false)),
             _ => None,
         };
         if let Some((step, most, bits)) = stepped {

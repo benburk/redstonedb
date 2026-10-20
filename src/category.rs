@@ -181,7 +181,11 @@ pub fn behaviour(category: &str) -> Behaviour {
         "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
         "nand_xnor_gate" => evaluated(Test::NandXnor, Stacking::Inferred),
         // Copies of these make no wider one, so they never stack.
-        "decoder" => evaluated(Test::Decoder, Stacking::Never),
+        // Its copies are more decoders, each with its own input and outputs.
+        "decoder" => Behaviour {
+            copies: Copies::OwnOutputs,
+            ..evaluated(Test::Decoder, Stacking::Inferred)
+        },
         "barrel_shifter" => evaluated(Test::BarrelShifter, Stacking::Never),
         "register" => Behaviour {
             lines: Lines::Register,

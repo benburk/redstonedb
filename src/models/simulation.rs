@@ -570,7 +570,8 @@ impl Derived {
             }
             Some(
                 Stacking::Registers { step, most, .. }
-                | Stacking::Wider { step, most, .. },
+                | Stacking::Wider { step, most, .. }
+                | Stacking::Separate { step, most, .. },
             ) => {
                 let found = StackDirection {
                     max_copies: most.and_then(|n| i64::try_from(n).ok()),

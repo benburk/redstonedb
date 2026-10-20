@@ -618,6 +618,7 @@ fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
                 Stacking::Stacks { .. }
                     | Stacking::Registers { .. }
                     | Stacking::Wider { .. }
+                    | Stacking::Separate { .. }
             )
         ))
     });
