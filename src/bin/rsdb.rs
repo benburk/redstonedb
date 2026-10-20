@@ -47,6 +47,18 @@ enum Command {
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
+    /// Write each build's simulation result and the details it sets, as
+    /// JSON, to stdout, for `import-results` on another copy of the
+    /// database
+    ExportResults {
+        /// Builds' ids, or the starts of them
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// Take results `export-results` wrote, for each build whose file and
+    /// details are as they were when they were worked out, and say which
+    /// were not
+    ImportResults { file: PathBuf },
     /// Work out every build of `category`, or one build, from its file
     /// alone, and list where what is worked out differs from what is
     /// stored
@@ -402,6 +414,8 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
+        Command::ExportResults { ids } => export_results(db, &ids).await,
+        Command::ImportResults { file } => import_results(db, &file).await,
         Command::Evaluate { id, category } => {
             evaluate(db, id.as_deref(), &category).await
         }
@@ -453,12 +467,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             },
         )
         .await?),
-        Command::Users => {
-            for user in User::all(db).await? {
-                println!("{:<6} {}", user.role.as_str(), user.username);
-            }
-            Ok(())
-        }
+        Command::Users => list_users(db).await,
         Command::Role { username, role } => {
             set_role(db, &username, &role).await
         }
@@ -496,6 +505,14 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             define_tag(db, &name, kind, token.as_deref()).await
         }
     }
+}
+
+/// Prints every account's role and username.
+async fn list_users(db: &SqlitePool) -> Result<()> {
+    for user in User::all(db).await? {
+        println!("{:<6} {}", user.role.as_str(), user.username);
+    }
+    Ok(())
 }
 
 /// Deletes build `id`.
@@ -1101,6 +1118,34 @@ async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
     if failed > 0 {
         bail!("{failed} builds fail their tests");
     }
+    Ok(())
+}
+
+/// Prints the results of the builds `ids` name, as JSON.
+async fn export_results(db: &SqlitePool, ids: &[String]) -> Result<()> {
+    let mut full = Vec::new();
+    for id in ids {
+        full.push(resolve(db, id).await?);
+    }
+    let results = app::models::results::export(db, &full).await?;
+    println!("{}", serde_json::to_string(&results)?);
+    Ok(())
+}
+
+/// Takes the results in `file` that still fit their builds, and says which
+/// do not.
+async fn import_results(db: &SqlitePool, file: &Path) -> Result<()> {
+    use app::models::results::{self, Taken};
+    let sent: Vec<results::Results> = serde_json::from_slice(&fs::read(file)?)?;
+    let taken = results::import(db, &sent).await?;
+    let mut stale = 0;
+    for (id, outcome) in &taken {
+        if let Taken::Stale(why) = outcome {
+            println!("{}  not taken: {why}", &id[..8]);
+            stale += 1;
+        }
+    }
+    println!("took {} of {}", taken.len() - stale, taken.len());
     Ok(())
 }
 

@@ -58,6 +58,10 @@ deploy:
 pull-db:
     ./deploy/pull-db.sh
 
+# Refresh live builds here rather than on the server, by id or --category
+refresh-live +args:
+    ./deploy/refresh-live.sh {{ args }}
+
 # Many fixtures are deliberately broken test cases, so only distinct builds
 # that keep the conventions once standardized are taken, across most tested
 # categories. `rsdb add` simulates each, which takes about a minute.
