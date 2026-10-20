@@ -16,6 +16,7 @@ use crate::{
         schematic::{Encoding, Logic, Orientation, StackDirection},
         simulation::{SIGNED, XNOR_FLAG},
     },
+    schem::{self, Blocks},
     simulate::{
         self, Design, Report, Stacking, Test, adder_design, throughput,
     },
@@ -142,8 +143,17 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         } else {
             2
         };
-        found.throughput = throughput(&found.prepared.blocks, &timing)?
-            .map(|ticks| i64::from(ticks).max(burnout));
+        found.throughput = if test == Test::Register {
+            // A register's writes and reads stream at its burnout floor
+            // once synchronized, slowed to its longest repeater, which
+            // passes nothing that changes faster than its delay.
+            timing
+                .synced
+                .then(|| burnout.max(longest_repeater(&found.prepared.blocks)))
+        } else {
+            throughput(&found.prepared.blocks, &timing)?
+                .map(|ticks| i64::from(ticks).max(burnout))
+        };
         run.timing = Some(timing);
         found.logic = test.remembers(&found.prepared.blocks)?.map(|held| {
             if held {
@@ -158,4 +168,14 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     }
     found.report = Some(report);
     Ok(found)
+}
+
+/// The longest delay of any repeater in `blocks`, in ticks; 0 with none.
+fn longest_repeater(blocks: &Blocks) -> i64 {
+    blocks
+        .iter()
+        .filter(|(_, state)| schem::short(state) == "repeater")
+        .filter_map(|(_, state)| schem::property(state, "delay")?.parse().ok())
+        .max()
+        .unwrap_or(0)
 }

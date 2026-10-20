@@ -100,3 +100,57 @@ fn taking_out_a_torchs_block_changes_the_circuit() {
             .is_empty()
     );
 }
+
+/// A gray block marks what only a stack's first copy keeps, so it is never
+/// unused, though a lone copy does not need it, as this adder's, which its
+/// copies stacked up leave out.
+#[test]
+fn a_gray_block_is_never_unused() {
+    let data =
+        std::fs::read("tests/fixtures/gray-first-copy-adder-8.schem").unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let gray: Vec<Pos> = blocks
+        .iter()
+        .filter(|(_, state)| schem::short(state).starts_with("gray"))
+        .map(|(pos, _)| pos)
+        .collect();
+    assert!(!gray.is_empty(), "the fixture has gray blocks");
+    let roles = roles::roles(&data, &[], stack::Buses::own()).unwrap();
+    for pos in gray {
+        assert!(
+            roles.get(&pos).is_none_or(|role| role.need != Need::Unused),
+            "{pos:?}"
+        );
+    }
+}
+
+/// A register file's copies share its data bus, joined by dust up its back
+/// that a lone copy does not use; read as the site stacks it, that dust is
+/// used.
+#[test]
+fn the_dust_joining_a_register_files_bus_is_used() {
+    use app::models::schematic::{Orientation, StackDirection};
+    let data =
+        std::fs::read("tests/fixtures/register-8-shared-bus-stack.schem")
+            .unwrap();
+    let way = StackDirection {
+        west: 4,
+        up: 0,
+        north: 0,
+        max_copies: Some(3),
+    };
+    let unused = |buses| {
+        unused(&roles::roles(&data, &[way], buses).unwrap())
+            .into_iter()
+            .filter(|&[x, _, z]| (x, z) == (1, 8))
+            .count()
+    };
+    assert!(
+        unused(stack::Buses::own()) > 0,
+        "a lone copy's bus is its own"
+    );
+    assert_eq!(
+        unused(stack::Buses::of("register", Orientation::Vertical)),
+        0
+    );
+}

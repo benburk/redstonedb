@@ -168,3 +168,25 @@ fn a_comparison_and_an_absolute_value_are_read_whole_from_their_files() {
     assert!(!weak.passes());
     assert_eq!((weak.latency, weak.throughput), (None, None));
 }
+
+/// A register is read whole from its file: holding what it was written is
+/// its test, so passing it is holding state; its throughput is its burnout
+/// floor once synchronized, and its copies stack west into a register file.
+#[test]
+fn a_register_is_read_whole_from_its_file() {
+    let e = evaluate(&uploaded("register-8-2-cells")).unwrap();
+    assert_eq!(e.category, Some("register"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    assert_eq!(e.logic, Some(Logic::Stateful));
+    assert_eq!(e.synchronized, Some(true));
+    let torches = e.prepared.facts.torches > 0;
+    assert!(e.throughput >= Some(if torches { 3 } else { 2 }));
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    if let Some(Stacking::Registers { step, .. }) = &run.stacking {
+        assert_eq!(e.stacking.len(), 1);
+        assert_eq!(e.stacking[0].west, step.west);
+    }
+}

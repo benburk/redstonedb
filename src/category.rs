@@ -184,9 +184,8 @@ pub fn behaviour(category: &str) -> Behaviour {
         "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
         "register" => Behaviour {
             lines: Lines::Register,
-            stacking: Stacking::Found,
             copies: Copies::SharedBuses,
-            ..read(Test::Register)
+            ..evaluated(Test::Register, Stacking::Inferred)
         },
         // Its copies add bits, as its cells cannot share a bus.
         "buffer" => Behaviour {
