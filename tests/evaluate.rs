@@ -417,7 +417,10 @@ fn a_decoders_copies_stack_as_more_decoders() {
         "{:?}",
         run.stacking
     );
-    assert_eq!(e.stacking.len(), 1);
+    // Both ways: copies side by side west, and up on top of each other.
+    assert_eq!(e.stacking.len(), 2, "{:?}", e.stacking);
+    assert!(e.stacking.iter().any(|d| d.west > 0 && d.up == 0));
+    assert!(e.stacking.iter().any(|d| d.up > 0 && d.west == 0));
     assert_eq!(
         e.orientation,
         Some(Orientation::Horizontal),
