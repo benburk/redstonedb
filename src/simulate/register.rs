@@ -10,12 +10,13 @@
 //! unclear, as when reads are not gated, they pair in order, and the cases
 //! show what is wrong.
 //!
-//! Each value, every one up to 8 bits and the test patterns and each
-//! byte's values beyond, is written into every cell, each cell offset from
-//! the last so that they hold different values. Then the data bus changes,
-//! which no cell may take without its button, every read off must leave
-//! the buses empty, and each read alone must show its cell's value on its
-//! bus and nothing on any other.
+//! Each value, every one up to 8 bits and the test patterns and each byte's
+//! values beyond, is written into every cell, each cell offset from the
+//! last so that they hold different values, each round starting its writes
+//! a cell on, so a cell another's write disturbs shows it. Then the data
+//! bus changes, which no cell may take without its button, every read off
+//! must leave the buses empty, and each read alone must show its cell's
+//! value on its bus and nothing on any other.
 //!
 //! Copies stack west into a bigger register file, sharing the data buses,
 //! which are driven and read at the first copy's end, or into a wider
@@ -162,12 +163,21 @@ fn check_on(blocks: &Blocks, kind: Kind, quick: bool) -> Result<(Run, Shape)> {
     let all = mask(register.width);
     let mut tally = Tally::new(&interface, &register.buses);
     let mut ungated = 0;
-    for &value in &values {
-        let stored: Vec<u64> = (0..register.cells.len() as u64)
+    let cells = register.cells.len();
+    for (round, &value) in values.iter().enumerate() {
+        let stored: Vec<u64> = (0..cells as u64)
             .map(|cell| value.wrapping_add(cell * STRIDE) & all)
             .collect();
-        for (cell, &held) in register.cells.iter().zip(&stored) {
-            write(&mut circuit, &register, cell.write, held)?;
+        // Each round starts its writes a cell on, so every cell is written
+        // after every other, and one a later write disturbs shows it.
+        for i in 0..cells {
+            let cell = (round + i) % cells;
+            write(
+                &mut circuit,
+                &register,
+                register.cells[cell].write,
+                stored[cell],
+            )?;
         }
         // No cell may take the bus without its button.
         circuit.set(register.data, !value & all);
@@ -1457,4 +1467,244 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
             most,
         }
     })
+}
+
+/// The fewest steps a register's throughput is found on, and the many it
+/// is checked on.
+const STEPS: usize = 64;
+const LONG_STEPS: usize = 1024;
+
+/// How often the register in `data`, timed as `timing`, takes a new
+/// access, as a CPU's clock drives it: each period the data bus takes a
+/// new value, and a cell is read, or written, its write open for some
+/// ticks of the period, timed against the data, both as works best, as a
+/// control line is. Its write buttons are driven as levers, as a clock's
+/// pulse is not a press. Each read must show what was last written into
+/// its cell, some ticks after it starts, the same for every read, no
+/// sooner than its bus's latency: a read that follows another may take
+/// longer, as the bus lets go of the last. The shortest period that holds, at some timing of its
+/// writes, on a short stream and then a long one; `None` when none up to
+/// twice its slowest read, write, or data does.
+pub fn throughput(data: &[u8], timing: &Timing) -> Result<Option<i32>> {
+    let blocks = Blocks::read(data)?;
+    let interface = interface::read(&blocks);
+    let (_, register) = ports(&blocks, &interface, Kind::Register)?;
+    // Its writes' buttons as levers on the same blocks.
+    let writes: Vec<Pos> = register
+        .cells
+        .iter()
+        .filter(|cell| cell.write.button)
+        .map(|cell| cell.write.pos)
+        .collect();
+    let levers: std::collections::BTreeMap<Pos, String> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| switch.button && writes.contains(&switch.block))
+        .map(|switch| {
+            let state = blocks.get(switch.pos);
+            let properties = state.split_once('[').map_or("", |(_, p)| p);
+            (switch.pos, format!("minecraft:lever[{properties}"))
+        })
+        .collect();
+    let levered = Blocks::read(&crate::standardize::edit(data, &levers)?)?;
+    let latency: Vec<i32> = timing
+        .outputs
+        .iter()
+        .map(|o| (o.latency + o.carried).max(0))
+        .collect();
+    if latency.len() != register.buses.len() {
+        return Ok(None);
+    }
+    // A write's data must pass into its cell, and a read come out, so the
+    // slowest of those bounds the periods tried.
+    let slowest = latency
+        .iter()
+        .copied()
+        .chain(timing.write)
+        .chain(timing.data)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let short = accesses(&register, STEPS);
+    let long = accesses(&register, LONG_STEPS);
+    let right = |stream: Stream, steps: &[Access]| -> Result<Vec<i32>> {
+        let interface = interface::read(&levered);
+        let mut circuit = Circuit::new(&levered, &interface)?;
+        stream.right(&mut circuit, steps)
+    };
+    for period in 2..=2 * slowest {
+        // Its write open for a tick up to all but one of the period, and
+        // opening from as early to as late against its data as one period
+        // allows.
+        for open in 1..period {
+            for offset in -(period - 1)..period {
+                let stream = Stream {
+                    register: &register,
+                    latency: &latency,
+                    period,
+                    offset,
+                    open,
+                };
+                let found = right(stream, &short)?;
+                if found.is_empty() {
+                    continue;
+                }
+                let held = right(stream, &long)?;
+                if found.iter().any(|delay| held.contains(delay)) {
+                    return Ok(Some(period));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// One period of a register's stream: the value the data bus takes, and
+/// the cell written or the cell and read read.
+struct Access {
+    value: u64,
+    write: Option<usize>,
+    read: Option<(usize, usize)>,
+}
+
+/// A fixed stream of `count` accesses to `register`, from a simple
+/// generator: each writes a cell or reads one, at random, as a register
+/// file may not read one cell while it writes another.
+fn accesses(register: &Register, count: usize) -> Vec<Access> {
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let pick = |n: usize, r: u64| usize::try_from(r % n as u64).unwrap_or(0);
+    (0..count)
+        .map(|_| {
+            let value = next() & mask(register.width);
+            let cell = pick(register.cells.len(), next());
+            if next() & 1 == 0 {
+                Access {
+                    value,
+                    write: Some(cell),
+                    read: None,
+                }
+            } else {
+                let reads = register.cells[cell].reads.len();
+                Access {
+                    value,
+                    write: None,
+                    read: Some((cell, pick(reads, next()))),
+                }
+            }
+        })
+        .collect()
+}
+
+/// Sets every control line of `register`: the write `write` open, the
+/// read `read` on, and the rest as they rest.
+fn drive(
+    circuit: &mut Circuit,
+    register: &Register,
+    write: Option<Line>,
+    read: Option<Line>,
+) {
+    for &port in &register.controls {
+        let mut value = 0;
+        for line in register.reads.iter().filter(|line| line.port == port) {
+            let on = read.is_some_and(|read| read.is(line));
+            if on != line.active_low {
+                value |= 1 << line.bit;
+            }
+        }
+        if let Some(write) = write.filter(|write| write.port == port) {
+            value |= 1 << write.bit;
+        }
+        circuit.set(port, value);
+    }
+}
+
+/// A register's stream: an access every `period` ticks, each write
+/// opening `offset` ticks after its data, for `open` ticks.
+#[derive(Clone, Copy)]
+struct Stream<'a> {
+    register: &'a Register,
+    latency: &'a [i32],
+    period: i32,
+    offset: i32,
+    open: i32,
+}
+
+impl Stream<'_> {
+    /// The read delays, from its bus's latency on, at which `steps`, after
+    /// every cell is first written at leisure, read right: each read's bus
+    /// shows what was last written into its cell.
+    fn right(
+        &self,
+        circuit: &mut Circuit,
+        steps: &[Access],
+    ) -> Result<Vec<i32>> {
+        let register = self.register;
+        let mut held =
+            vec![STRIDE & mask(register.width); register.cells.len()];
+        for cell in &register.cells {
+            circuit.set(register.data, held[0]);
+            drive(circuit, register, Some(cell.write), None);
+            circuit.settle()?;
+            drive(circuit, register, None, None);
+            circuit.settle()?;
+        }
+        // Each read's start, bus, and what it should show, from what was
+        // written before it.
+        let mut reads: Vec<(i32, usize, u64)> = Vec::new();
+        for (i, step) in steps.iter().enumerate() {
+            if let Some((cell, read)) = step.read {
+                let read = register.cells[cell].reads[read];
+                reads.push((
+                    self.period * i32::try_from(i)? + self.latency[read.bus],
+                    read.bus,
+                    read.shows(held[cell], register.width),
+                ));
+            }
+            if let Some(cell) = step.write {
+                held[cell] = step.value;
+            }
+        }
+        // As late as a read may come, a period on.
+        let late = self.period;
+        let end = self.period * i32::try_from(steps.len())?
+            + late
+            + self.latency.iter().copied().max().unwrap_or(0);
+        let mut shown: Vec<Vec<u64>> = Vec::new();
+        for tick in 0..=end {
+            let at = tick.div_euclid(self.period);
+            let step = usize::try_from(at).ok().and_then(|at| steps.get(at));
+            if let Some(step) = step {
+                circuit.set(register.data, step.value);
+            }
+            let since = tick - self.offset;
+            let writing = (since.rem_euclid(self.period) < self.open)
+                .then(|| usize::try_from(since.div_euclid(self.period)).ok())
+                .flatten()
+                .and_then(|i| steps.get(i))
+                .and_then(|step| step.write)
+                .map(|cell| register.cells[cell].write);
+            let reading = step
+                .and_then(|step| step.read)
+                .and_then(|(cell, read)| register.cells[cell].reads[read].line);
+            drive(circuit, register, writing, reading);
+            shown.push(buses(circuit, register));
+            circuit.tick();
+        }
+        Ok((0..late)
+            .filter(|&delay| {
+                reads.iter().all(|&(at, bus, shows)| {
+                    usize::try_from(at + delay)
+                        .ok()
+                        .and_then(|t| shown.get(t))
+                        .is_some_and(|buses| buses[bus] == shows)
+                })
+            })
+            .collect())
+    }
 }

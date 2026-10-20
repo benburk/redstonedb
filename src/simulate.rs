@@ -346,6 +346,22 @@ impl Test {
         }
     }
 
+    /// How often the build in `blocks`, its file `data`, timed as
+    /// `timing`, takes a new case, as `throughput::throughput` streams
+    /// them; a register's cases are its accesses, as `register::throughput`
+    /// streams them. Meant for a build whose cases all came out right.
+    pub fn throughput(
+        self,
+        blocks: &Blocks,
+        data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        match self {
+            Test::Register => register::throughput(data, timing),
+            _ => throughput::throughput(blocks, timing),
+        }
+    }
+
     /// Measures when `blocks`' outputs settle, on every core, stopping
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.

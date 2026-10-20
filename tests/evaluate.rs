@@ -180,8 +180,10 @@ fn a_register_is_read_whole_from_its_file() {
     assert_eq!(e.width, Some(8));
     assert_eq!(e.logic, Some(Logic::Stateful));
     assert_eq!(e.synchronized, Some(true));
+    // Measured on a stream of accesses, held to its burnout floor.
     let torches = e.prepared.facts.torches > 0;
-    assert!(e.throughput >= Some(if torches { 3 } else { 2 }));
+    let throughput = e.throughput.expect("its accesses stream");
+    assert!(throughput >= if torches { 3 } else { 2 });
     let Some(Report::Ran(run)) = &e.report else {
         panic!("it ran");
     };
@@ -189,4 +191,18 @@ fn a_register_is_read_whole_from_its_file() {
         assert_eq!(e.stacking.len(), 1);
         assert_eq!(e.stacking[0].west, step.west);
     }
+}
+
+/// Writing one cell of this register changes another, which a round that
+/// writes its cells in one order hides, as the later write puts it right:
+/// each round starts its writes a cell on, so it fails.
+#[test]
+fn a_register_whose_write_disturbs_another_cell_fails() {
+    let e = evaluate(
+        &std::fs::read("tests/fixtures/register-8-write-disturbs.schem")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(e.category, Some("register"));
+    assert!(!e.passes(), "{:?}", e.report);
 }
