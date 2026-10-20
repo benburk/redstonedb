@@ -1478,20 +1478,21 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
                 ""
             }
         ),
-        Stacking::Separate {
-            step,
-            copies,
-            cases,
-            most,
-        } => println!(
-            "        stacks: {copies} copies {} apart each work on their own, all {cases} cases right{}",
-            step.describe(),
-            if most.is_some() {
-                "; one more copy fails"
-            } else {
-                ""
+        Stacking::Separate { ways } => {
+            for way in ways {
+                println!(
+                    "        stacks: {} copies {} apart each work on their own, all {} cases right{}",
+                    way.copies,
+                    way.step.describe(),
+                    way.cases,
+                    if way.most.is_some() {
+                        "; one more copy fails"
+                    } else {
+                        ""
+                    }
+                );
             }
-        ),
+        }
         Stacking::Not { step, reason } => println!(
             "        doesn't stack{}: {reason}",
             step.map(|s| format!(" {} apart", s.describe()))

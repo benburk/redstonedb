@@ -568,10 +568,13 @@ impl Derived {
             Some(Stacking::Stacks { step, .. }) => {
                 self.stacking = vec![step.direction()];
             }
+            Some(Stacking::Separate { ways }) => {
+                self.stacking =
+                    ways.iter().map(|way| way.direction()).collect();
+            }
             Some(
                 Stacking::Registers { step, most, .. }
-                | Stacking::Wider { step, most, .. }
-                | Stacking::Separate { step, most, .. },
+                | Stacking::Wider { step, most, .. },
             ) => {
                 let found = StackDirection {
                     max_copies: most.and_then(|n| i64::try_from(n).ok()),

@@ -7,7 +7,7 @@ use anyhow::Result;
 use super::{
     Broken, Report, Test,
     bench::{Bench, Cases, Hint, Kind, Spec, mask},
-    stacking::{Stacking, Step},
+    stacking::{Apart, Stacking, Step},
 };
 use crate::{
     interface::{self, Interface},
@@ -70,10 +70,10 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
 const EVERY: usize = 16;
 
 /// How copies of the decoder in `data`, whose own cases came out right,
-/// stack: the shortest step west or up, as far as the build reaches and two
-/// past, at which two copies each decode their own bits of A onto their own
-/// outputs, then whether a third does too, so any number do. `None` when it
-/// is no decoder.
+/// stack: each way, west and up, the shortest step, as far as the build
+/// reaches and two past, at which two copies each decode their own bits of
+/// A onto their own outputs, then whether a third does too, so any number
+/// do. `None` when it is no decoder.
 pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let blocks = Blocks::read(data).ok()?;
     let interface = interface::read(&blocks);
@@ -104,25 +104,40 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         let stacked = Blocks::read(&stacked).ok()?;
         apart(&stacked, &interface, (step, copies), inverted)
     };
-    let Some(step) = steps.into_iter().find(|&step| works(step, 2).is_some())
-    else {
+    // The shortest step each way, west and up, at which copies work.
+    let ways: Vec<Apart> = [true, false]
+        .into_iter()
+        .filter_map(|west| {
+            let step = steps
+                .iter()
+                .copied()
+                .filter(|step| (step.west > 0) == west)
+                .find(|&step| works(step, 2).is_some())?;
+            Some(match works(step, 3) {
+                Some(cases) => Apart {
+                    step,
+                    copies: 3,
+                    cases,
+                    most: None,
+                },
+                None => Apart {
+                    step,
+                    copies: 2,
+                    cases: works(step, 2).unwrap_or_default(),
+                    most: Some(2),
+                },
+            })
+        })
+        .collect();
+    if ways.is_empty() {
         return Some(Stacking::Not {
             step: None,
             reason: "No step west or up, as far as it reaches and two past, \
                      makes copies that each decode their own bits of A."
                 .to_owned(),
         });
-    };
-    let (copies, cases, most) = match works(step, 3) {
-        Some(cases) => (3, cases, None),
-        None => (2, works(step, 2).unwrap_or_default(), Some(2)),
-    };
-    Some(Stacking::Separate {
-        step,
-        copies,
-        cases,
-        most,
-    })
+    }
+    Some(Stacking::Separate { ways })
 }
 
 /// Whether `copies` of the decoder whose interface is `single`, stacked

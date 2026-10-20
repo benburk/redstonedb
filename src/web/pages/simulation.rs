@@ -185,9 +185,13 @@ fn found_stack(report: &Report) -> Option<String> {
     };
     Some(match run.stacking.as_ref()? {
         Stacking::Stacks { step, .. } => step.direction().describe(),
+        Stacking::Separate { ways } => ways
+            .iter()
+            .map(|way| way.direction().describe())
+            .collect::<Vec<_>>()
+            .join(", "),
         Stacking::Registers { step, most, .. }
-        | Stacking::Wider { step, most, .. }
-        | Stacking::Separate { step, most, .. } => StackDirection {
+        | Stacking::Wider { step, most, .. } => StackDirection {
             max_copies: most.and_then(|n| i64::try_from(n).ok()),
             ..step.direction()
         }
@@ -232,12 +236,16 @@ pub(super) fn stacking_words(stacking: &Stacking) -> String {
             step.describe(),
             limit(*most, *copies)
         ),
-        Stacking::Separate {
-            step, copies, most, ..
-        } => format!(
-            "Simulated: copies {} apart each work on their own, {copies} of them{}.",
-            step.describe(),
-            limit(*most, *copies)
+        Stacking::Separate { ways } => format!(
+            "Simulated: copies each work on their own, {}.",
+            ways.iter()
+                .map(|way| format!(
+                    "{} apart{}",
+                    way.step.describe(),
+                    limit(way.most, way.copies)
+                ))
+                .collect::<Vec<_>>()
+                .join(", or ")
         ),
         Stacking::Not { step, reason } => match step {
             Some(step) => format!(
@@ -274,10 +282,14 @@ fn stacking_note(stacking: &Stacking, controls: bool) -> Markup {
                 ", all "
                 (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
             },
-            Stacking::Separate { step, copies, cases, most } => p class="mt-3" data-found-stacking {
+            Stacking::Separate { ways } => p class="mt-3" data-found-stacking {
                 strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart each work on their own, all "
-                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
+                @for (i, way) in ways.iter().enumerate() {
+                    @if i > 0 { "; " }
+                    (way.copies) " copies " (way.step.describe()) " apart each work on their own, all "
+                    (grouped(way.cases)) " cases right" (limit(way.copies, way.most))
+                }
+                "."
             },
             // Why not is on the build's Stacks field, on hover.
             Stacking::Not { .. } => {},

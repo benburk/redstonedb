@@ -69,19 +69,34 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
-    /// Copies every `step` side by side each do their own work, as more
-    /// decoders, each with its own input and outputs: `copies` of them, in
-    /// `cases` cases. `most` is as for `Registers`.
-    Separate {
-        step: Step,
-        copies: usize,
-        cases: u64,
-        most: Option<usize>,
-    },
+    /// Copies side by side each do their own work, as more decoders, each
+    /// with its own input and outputs, each way they stack.
+    Separate { ways: Vec<Apart> },
     /// They make no working build of its kind, as an adder whose carries do
     /// not chain or a register with no step west that works, with the step
     /// tried when there was one.
     Not { step: Option<Step>, reason: String },
+}
+
+/// One way copies stack side by side, each doing its own work: every
+/// `step`, `copies` of them, in `cases` cases. `most` is as for
+/// `Stacking::Registers`.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Apart {
+    pub step: Step,
+    pub copies: usize,
+    pub cases: u64,
+    pub most: Option<usize>,
+}
+
+impl Apart {
+    /// The direction it stacks, with the most copies that work.
+    pub fn direction(self) -> StackDirection {
+        StackDirection {
+            max_copies: self.most.and_then(|n| i64::try_from(n).ok()),
+            ..self.step.direction()
+        }
+    }
 }
 
 /// How far each copy sits from the one before.

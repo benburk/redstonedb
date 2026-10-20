@@ -140,6 +140,12 @@ impl Evaluation {
     /// work, and the way its bits run, as copies that add bits run the way
     /// its bits do, which a 1-bit build's lone input cannot show.
     fn stacks(&mut self, stacking: Option<&Stacking>) {
+        // Copies side by side, as more decoders, stack each way they do,
+        // and show nothing of how its bits run.
+        if let Some(Stacking::Separate { ways }) = stacking {
+            self.stacking = ways.iter().map(|way| way.direction()).collect();
+            return;
+        }
         let stepped = match stacking {
             Some(Stacking::Stacks { step, .. }) => Some((step, None, true)),
             Some(Stacking::Wider { step, most, .. }) => {
@@ -147,10 +153,9 @@ impl Evaluation {
             }
             // A register file's copies are more cells, not more bits, so
             // they show nothing of how its bits run.
-            Some(
-                Stacking::Registers { step, most, .. }
-                | Stacking::Separate { step, most, .. },
-            ) => Some((step, *most, false)),
+            Some(Stacking::Registers { step, most, .. }) => {
+                Some((step, *most, false))
+            }
             _ => None,
         };
         if let Some((step, most, bits)) = stepped {
