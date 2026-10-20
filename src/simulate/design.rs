@@ -26,7 +26,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 
-use super::circuit::{Circuit, compiled};
+use super::{
+    adder::Variant,
+    circuit::{Circuit, compiled},
+};
 use crate::{
     interface::{self, Interface, Port},
     schem::{self, Blocks, Direction, Pos},
@@ -52,9 +55,12 @@ const SAMPLED: usize = 1 << EVERY;
 
 /// The design of the adder in `blocks`; `None` when it has no A and B of
 /// one width, takes a signal strength, or has more than 64 input bits.
-pub fn adder_design(blocks: &Blocks) -> Result<Option<Design>> {
+pub fn adder_design(
+    blocks: &Blocks,
+    variant: Variant,
+) -> Result<Option<Design>> {
     let interface = interface::read(blocks);
-    let Some(adder) = Adder::of(&interface) else {
+    let Some(adder) = Adder::of(&interface, variant) else {
         return Ok(None);
     };
     if adder.width == 1 {
@@ -118,10 +124,16 @@ struct Adder {
     carry_out: Option<usize>,
     width: usize,
     cases: Vec<u64>,
+    /// Whether its carries run on B inverted, as a subtractor's do.
+    b_inverted: bool,
+    /// Whether its carries run on its carry in inverted, as a subtractor's
+    /// borrow in, or on a carry in of 1 with none, as a subtractor's
+    /// without a borrow in.
+    carry_flipped: bool,
 }
 
 impl Adder {
-    fn of(interface: &Interface) -> Option<Self> {
+    fn of(interface: &Interface, variant: Variant) -> Option<Self> {
         let find = |ports: &[Port], colour: &str| {
             ports.iter().position(|p| p.block.starts_with(colour))
         };
@@ -158,15 +170,24 @@ impl Adder {
             carry_out: find(&interface.outputs, "pink"),
             width,
             cases,
+            b_inverted: variant.subtract,
+            carry_flipped: variant.subtract != variant.carry_in,
         })
     }
 
+    /// B's bit `i`, as its carries take it.
     fn bit_b(&self, case: u64, i: usize) -> bool {
-        case >> (self.width + i) & 1 == 1
+        (case >> (self.width + i) & 1 == 1) != self.b_inverted
     }
 
-    fn bit_carry_in(&self, case: u64) -> bool {
+    /// The carry in's lever in `case`.
+    fn lever_carry_in(&self, case: u64) -> bool {
         self.carry_in.is_some() && case >> (2 * self.width) & 1 == 1
+    }
+
+    /// The carry in, as its carries take it.
+    fn bit_carry_in(&self, case: u64) -> bool {
+        self.lever_carry_in(case) != self.carry_flipped
     }
 
     /// The carry into bit `i`; the carry out at the width.
@@ -192,7 +213,7 @@ impl Adder {
         let mut values =
             vec![(self.a, case & mask), (self.b, case >> self.width & mask)];
         if let Some(port) = self.carry_in {
-            values.push((port, u64::from(self.bit_carry_in(case))));
+            values.push((port, u64::from(self.lever_carry_in(case))));
         }
         values
     }

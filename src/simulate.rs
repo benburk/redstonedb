@@ -62,7 +62,7 @@ mod stacking;
 mod throughput;
 mod timing;
 
-pub use adder::SIGNED_GREATER_THAN;
+pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled};

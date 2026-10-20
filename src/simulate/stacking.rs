@@ -131,19 +131,30 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         return Some(not(None, reason.to_owned()));
     }
     let width = input_bits(&interface.inputs[ports.a]);
+    // How the copy reads, as a subtractor's, B inverted, so its stack is
+    // read alike.
+    let variant = Test::Adder.check(&blocks, true).map_or_else(
+        |_| adder::Variant::default(),
+        |run| adder::Variant::of(&run.pattern),
+    );
     // A 1-bit adder's carry out need not be where the next copy's carry in
     // goes, as when the copy above covers it, or it may have none, its carry
     // leaving by dust that carry in lands on; short steps are tried with
     // the one from its carry in to its carry out.
     if width == 1 {
-        return Some(search(data, &blocks, step(&interface, &ports).ok()));
+        return Some(search(
+            data,
+            &blocks,
+            step(&interface, &ports).ok(),
+            variant,
+        ));
     }
     let step = match step(&interface, &ports) {
         Ok(step) => step,
         Err(reason) => return Some(not(None, reason)),
     };
     let copies = copies(step, width)?;
-    Some(match stacked(data, step, copies, width) {
+    Some(match stacked(data, step, copies, width, variant) {
         Ok(cases) => Stacking::Stacks {
             step,
             copies,
@@ -159,7 +170,12 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
 /// far as the build reaches. The shortest that works packs the bits
 /// closest, and each wrong one mostly fails a cheap check, so this is
 /// quick.
-fn search(data: &[u8], blocks: &Blocks, first: Option<Step>) -> Stacking {
+fn search(
+    data: &[u8],
+    blocks: &Blocks,
+    first: Option<Step>,
+    variant: adder::Variant,
+) -> Stacking {
     let (low, high) = interface::core(blocks);
     let reach = |axis: usize| high[axis] - low[axis] + 1;
     let longest = (0..3).map(reach).max().unwrap_or(1);
@@ -201,7 +217,7 @@ fn search(data: &[u8], blocks: &Blocks, first: Option<Step>) -> Stacking {
         let Some(copies) = copies(step, 1) else {
             continue;
         };
-        if let Ok(cases) = stacked(data, step, copies, 1) {
+        if let Ok(cases) = stacked(data, step, copies, 1, variant) {
             return Stacking::Stacks {
                 step,
                 copies,
@@ -322,6 +338,7 @@ fn stacked(
     step: Step,
     copies: usize,
     width: usize,
+    variant: adder::Variant,
 ) -> Result<u64, String> {
     let (stacked, _) =
         stack::stack(data, &[(step.direction(), copies)], stack::Buses::own())
@@ -344,6 +361,9 @@ fn stacked(
     let bench = adder::adder(&mut interface)
         .map_err(|err| format!("{copies} copies do not make one adder: {err}"))?
         .bench;
+    // Its seams read as the copy does, as a subtractor's, B inverted.
+    let sum_bits = interface.outputs[bench.outputs[0]].bits.len();
+    let carry_out = bench.outputs.len() > 1;
     let bits = copies * width;
     let widths = bench.widths(&interface);
     if widths[..2] != [bits, bits] {
@@ -355,7 +375,7 @@ fn stacked(
     // Loading it settles it, so one that never settles stops here.
     Circuit::new(&blocks, &interface).map_err(|err| err.to_string())?;
     let seams = seam_cases(bits, width, widths.len() == 3);
-    let sum = |case: &Case| case[0] + case[1] + case[2];
+    let sum = |case: &Case| variant.apply(sum_bits, carry_out, case);
     let seam = sweep(&blocks, &interface, &bench, &seams, None, sum)
         .map_err(|err| err.to_string())?;
     if let Some(wrong) = seam.examples.first() {

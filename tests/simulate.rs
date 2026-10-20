@@ -79,14 +79,13 @@ fn a_carry_lookahead_adder_carries_into_bit_7_wrongly() {
     assert_eq!(run.hint, None);
 }
 
-/// A torch inverts its carry in, which is saved with the lever off, so
-/// every sum is one more or less than it should be, and flipping carry in
-/// puts every sum right.
+/// A torch inverts its carry in, which is saved with the lever off: it
+/// reads as an adder whose carry in is inverted.
 #[test]
-fn a_carry_in_saved_the_wrong_way_round_is_named_as_the_cause() {
+fn a_carry_in_a_torch_inverts_reads_inverted() {
     let run = adder_run(&blocks("vert-3t-cca")).unwrap();
-    assert_eq!(run.wrong, run.cases);
-    assert!(run.hint.unwrap().contains("flipped"));
+    assert_eq!(run.wrong, 0);
+    assert!(run.pattern.contains("+ not "), "{}", run.pattern);
 }
 
 #[test]
@@ -277,9 +276,9 @@ fn a_build_is_known_for_what_it_does() {
     assert_eq!((adder.category, adder.wrong), ("adder", 0));
     let incrementer = simulate::guess(&blocks("inc-8")).unwrap();
     assert_eq!(incrementer.category, "incrementer");
-    // A carry in saved the wrong way round gets every sum wrong, so it is
-    // no adder until fixed.
-    assert!(simulate::guess(&blocks("vert-3t-cca")).is_none());
+    // A carry in a torch inverts is still an adder's.
+    let inverted = simulate::guess(&blocks("vert-3t-cca")).unwrap();
+    assert_eq!((inverted.category, inverted.wrong), ("adder", 0));
 }
 
 /// The barrel giving its least significant bit's 1ss stands on gray, so
@@ -1052,7 +1051,8 @@ fn a_double_density_subtractor_takes_b_from_a() {
         panic!("the subtractor was not simulated");
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "subtractor");
+    // A subtractor is an adder whose B is inverted.
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }
 
 /// However a recognized build is turned or mirrored, an upload lays it
@@ -1065,7 +1065,7 @@ fn a_double_density_subtractor_takes_b_from_a() {
 fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     let fixtures = [
         ("alpha-rca", "adder"),
-        ("dd-cca-sub-16", "subtractor"),
+        ("dd-cca-sub-16", "adder"),
         ("inc-8", "incrementer"),
         ("alu-8-ops-raw", "alu"),
     ];

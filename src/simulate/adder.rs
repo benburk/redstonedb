@@ -54,8 +54,147 @@ pub(super) const SUBTRACT: Arithmetic = Arithmetic {
     a_below: |_| 0,
 };
 
+/// One way an adder's lines may read: as an add, or, B inverted and its
+/// carries borrows, a subtract, A − B less its borrow in; and with its
+/// output, carry in, or carry out inverted, as a torch on each of those
+/// bits gives. Inverting a line does not change what a build is, so a
+/// subtractor is an adder, its B inverted.
+// Each is a line of its own, inverted or not, independent of the rest.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Variant {
+    pub subtract: bool,
+    pub output: bool,
+    pub carry_in: bool,
+    pub carry_out: bool,
+}
+
+impl Variant {
+    /// Every way an adder with a carry in and a carry out, if it has them,
+    /// may read, the plain add first.
+    fn all(carry_in: bool, carry_out: bool) -> Vec<Variant> {
+        let mut all = Vec::new();
+        for subtract in [false, true] {
+            for output in [false, true] {
+                for carry_in in
+                    [false, true].into_iter().take(1 + usize::from(carry_in))
+                {
+                    for carry_out in [false, true]
+                        .into_iter()
+                        .take(1 + usize::from(carry_out))
+                    {
+                        all.push(Variant {
+                            subtract,
+                            output,
+                            carry_in,
+                            carry_out,
+                        });
+                    }
+                }
+            }
+        }
+        all
+    }
+
+    /// Its cases' name, such as `A − B − carry in`, `not (A + B)`, or
+    /// `A + B + not carry in, carry out inverted`, its lines named
+    /// `carry_in` and `carry_out`.
+    fn name(self, carry_in: Option<&str>, carry_out: Option<&str>) -> String {
+        let sign = if self.subtract { '−' } else { '+' };
+        let carry = carry_in.map_or(String::new(), |name| {
+            let not = if self.carry_in { "not " } else { "" };
+            format!(" {sign} {not}{name}")
+        });
+        let sum = format!("A {sign} B{carry}");
+        let sum = if self.output {
+            format!("not ({sum})")
+        } else {
+            sum
+        };
+        match carry_out.filter(|_| self.carry_out) {
+            Some(name) => format!("{sum}, {name} inverted"),
+            None => sum,
+        }
+    }
+
+    /// What it gives for a case of A, B, and the carry in, as an output of
+    /// `sum_bits` bits, which may hold the carry as its top bit, and a
+    /// carry out above them if it has one.
+    pub(super) fn apply(
+        self,
+        sum_bits: usize,
+        carry_out: bool,
+        case: &Case,
+    ) -> u64 {
+        let (a, b) = (case[0], case[1]);
+        let carry = case[2] ^ u64::from(self.carry_in);
+        let mut value = if self.subtract {
+            a.wrapping_sub(b).wrapping_sub(carry)
+        } else {
+            a + b + carry
+        };
+        if self.output {
+            value ^= mask(sum_bits);
+        }
+        if self.carry_out && carry_out {
+            value ^= 1 << sum_bits;
+        }
+        value
+    }
+
+    /// The way an adder whose cases are named `pattern` reads.
+    pub fn of(pattern: &str) -> Variant {
+        Variant {
+            subtract: pattern.starts_with("A − ")
+                || pattern.starts_with("not (A − "),
+            output: pattern.starts_with("not ("),
+            carry_in: pattern.contains("B + not ")
+                || pattern.contains("B − not "),
+            carry_out: pattern.ends_with(" inverted"),
+        }
+    }
+
+    /// The way its lines read as built, whatever way their levers were
+    /// saved: a lever saved on reads as an inverted input, so B or a carry
+    /// in so saved and read inverted again is plain, and one saved off and
+    /// read inverted is inverted.
+    #[must_use]
+    pub fn as_built(self, interface: &Interface) -> Variant {
+        let saved_on = |colour: &str| {
+            interface
+                .inputs
+                .iter()
+                .find(|port| port.block.starts_with(colour))
+                .is_some_and(|port| {
+                    !port.bits.is_empty()
+                        && port.bits.iter().all(|bit| bit.inverted)
+                })
+        };
+        Variant {
+            subtract: self.subtract != saved_on("light blue"),
+            carry_in: self.carry_in != saved_on(lint::CONTROL),
+            ..self
+        }
+    }
+
+    /// Its flags, by name: `subtract`, and each line read inverted.
+    pub fn flags(self) -> Vec<&'static str> {
+        [
+            ("subtract", self.subtract),
+            ("inverted_output", self.output),
+            ("inverted_carry_in", self.carry_in),
+            ("inverted_carry_out", self.carry_out),
+        ]
+        .into_iter()
+        .filter(|&(_, on)| on)
+        .map(|(flag, _)| flag)
+        .collect()
+    }
+}
+
 /// An adder's every sum: A + B, plus its carry in when it has one, into its
-/// output and its carry out.
+/// output and its carry out, any of its lines read inverted, so a
+/// subtractor's every difference too.
 pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     arithmetic(interface, &ADD)
 }
@@ -92,14 +231,38 @@ fn arithmetic(
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let piece = if hex { 4 } else { 8 };
+    // An adder may read any of its lines inverted, a subtractor being one
+    // whose B is; a subtractor's own test reads it as it is.
+    let kinds = if std::ptr::eq(op, &ADD) {
+        let name = |port: Option<usize>, ports: &[Port]| {
+            port.map(|port| ports[port].name.clone())
+        };
+        let lines = (
+            name(ports.carry_in, &interface.inputs),
+            name(ports.carry_out, &interface.outputs),
+        );
+        let sum_bits = interface.outputs[ports.sum].bits.len();
+        Variant::all(carry_in, ports.carry_out.is_some())
+            .into_iter()
+            .map(|variant| {
+                let carry_out = ports.carry_out.is_some();
+                Kind::new(
+                    &variant.name(lines.0.as_deref(), lines.1.as_deref()),
+                    move |case| variant.apply(sum_bits, carry_out, case),
+                )
+            })
+            .collect()
+    } else {
+        vec![Kind::new(&pattern, move |case| {
+            (op.apply)(case[0], case[1], case[2])
+        })]
+    };
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || {
             cases(op, width, carry_in, piece)
         })),
-        kinds: vec![Kind::new(&pattern, move |case| {
-            (op.apply)(case[0], case[1], case[2])
-        })],
+        kinds,
         hint: if carry_in {
             Hint::Flipped(2)
         } else {

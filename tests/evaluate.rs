@@ -305,3 +305,52 @@ fn a_buffer_is_read_whole_from_its_file() {
     let throughput = e.throughput.expect("its writes stream");
     assert!(throughput >= if torches { 3 } else { 2 });
 }
+
+/// Inverting a line does not change what a build is: a subtractor is an
+/// adder whose B is inverted, its carries borrows, flagged so; a carry in
+/// a torch inverts is an inverted carry in; and a register that reads its
+/// cells inverted says so.
+#[test]
+fn inverted_lines_are_flags_not_categories() {
+    let subtractor = evaluate(&uploaded("dd-cca-sub-16")).unwrap();
+    assert_eq!(subtractor.category, Some("adder"));
+    assert!(subtractor.passes(), "{:?}", subtractor.report);
+    assert!(
+        subtractor.flags.iter().any(|f| f == "subtract"),
+        "{:?}",
+        subtractor.flags
+    );
+    assert!(subtractor.design.is_some());
+
+    let raw = std::fs::read("tests/fixtures/vert-3t-cca.schem").unwrap();
+    let file = import::prepare(&raw, None, true, false, false)
+        .unwrap()
+        .data;
+    let inverted = evaluate(&file).unwrap();
+    assert_eq!(inverted.category, Some("adder"));
+    assert!(inverted.passes(), "{:?}", inverted.report);
+    assert!(
+        inverted.flags.iter().any(|f| f == "inverted_carry_in"),
+        "{:?}",
+        inverted.flags
+    );
+    assert!(!inverted.flags.iter().any(|f| f == "subtract"));
+
+    let plain = evaluate(&stored("alpha-rca")).unwrap();
+    assert!(
+        !plain
+            .flags
+            .iter()
+            .any(|f| f.starts_with("inverted") || f == "subtract"),
+        "{:?}",
+        plain.flags
+    );
+
+    let register = evaluate(&uploaded("register-8-inverted")).unwrap();
+    assert_eq!(register.category, Some("register"));
+    assert!(
+        register.flags.iter().any(|f| f == "inverted"),
+        "{:?}",
+        register.flags
+    );
+}

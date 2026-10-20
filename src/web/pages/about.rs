@@ -136,12 +136,12 @@ fn category_part(categories: &[Category]) -> Markup {
     html! {
         (heading("categories", "Categories"))
         p class="mb-3" {
-            "A category is one function. Two builds share a category only when they have the same truth "
-            "table, the same outputs for the same inputs, so either could stand in for the other. A subtractor "
-            "is no adder and a decrementer no incrementer, though each is the other with a torch on every bit "
-            "of a bus. Inverting a few lines, whatever the width, does not split a category: XOR and XNOR "
-            "gates share one, told apart by a flag, as do signed and unsigned comparators and monostables "
-            "that pulse as their input turns on or off."
+            "A category is one function. Two builds share a category when they have the same truth table, "
+            "the same outputs for the same inputs, or would have but for lines inverted, as a torch on every "
+            "bit of a bus inverts it. Inverted lines are flags, not categories: a subtractor is an adder whose "
+            "B is inverted, flagged Subtract, and an adder may read its carry in, carry out, or output inverted; "
+            "XOR and XNOR gates share one category, as do signed and unsigned comparators, monostables that "
+            "pulse as their input turns on or off, and registers that read their cells inverted or not."
         }
         p class="mb-3" {
             "The sidebar groups the categories into sections. A build that fits none of them names its own "
