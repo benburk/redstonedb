@@ -264,8 +264,8 @@ async fn evaluated(
         return Ok(());
     }
     // Nothing measured is typed: what the file shows, its width, encoding,
-    // and the way its bits run when its inputs show it, is read from it,
-    // and the rest the simulation sets once it is stored.
+    // and the way its bits run, is read from it, and the rest the
+    // simulation sets once it is stored.
     details.latency = None;
     details.synchronized = None;
     details.throughput = None;
@@ -280,9 +280,9 @@ async fn evaluated(
             )
         })
         .unwrap_or_default();
-    if let Some(orientation) = read.orientation {
-        details.orientation = orientation;
-    }
+    // A lone bit shows no way its bits run, so it is horizontal until its
+    // copies, if they stack, show otherwise.
+    details.orientation = read.orientation.unwrap_or(Orientation::Horizontal);
     details.encoding = read.encoding;
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()

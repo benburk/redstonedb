@@ -229,8 +229,17 @@ async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
         flags: vec!["carry_in".to_owned()],
         ..given("adder")
     };
+    let typed = Details {
+        orientation: Orientation::Diagonal,
+        ..typed
+    };
     let ready = check(&db, typed).await.unwrap();
     assert_eq!(ready.details.width, Some(8), "the ripple adder's own width");
+    assert_eq!(
+        ready.details.orientation,
+        Orientation::Horizontal,
+        "as its bits run"
+    );
     assert_eq!(ready.details.encoding, Some(Encoding::Binary));
     assert!(ready.details.flags.is_empty());
 }
