@@ -21,8 +21,11 @@ use crate::{interface, schem::Blocks};
 
 /// The fewest random cases the stream a period is found on runs through,
 /// and the long one it is checked on.
-const CASES: usize = 64;
-const LONG: usize = 4096;
+pub(super) const CASES: usize = 64;
+pub(super) const LONG: usize = 4096;
+
+/// The most mixes of each input's telling values a stream begins with.
+const MIXES: usize = 4096;
 
 /// The throughput of the build in `blocks`, timed as `timing`; `None` when
 /// no period up to twice its slowest output keeps every result right.
@@ -49,10 +52,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if latency.len() != interface.outputs.len() {
         return Ok(None);
     }
-    // What each case settles to: its levers set, then its buttons, as a
-    // sequential build's reset and calculate, pressed in the order of their
-    // ticks, each settling in turn.
-    let mut circuit = Circuit::new(blocks, &interface)?;
+    let circuit = Circuit::new(blocks, &interface)?;
     let button: Vec<bool> = (0..interface.inputs.len())
         .map(|p| circuit.is_button(p, 0))
         .collect();
@@ -68,34 +68,56 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if (0..button.len()).any(|p| button[p] && !timed(p)) {
         return Ok(None);
     }
+    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
+    let long = stream(&widths, LONG);
+    shortest(blocks, (&cases, &long), &offset, &latency, 2 * slowest)
+}
+
+/// The shortest period, up to `most`, at which the `short` stream of cases
+/// and then the `long` one each come out as they settle in `blocks`: each
+/// input set, or its button pressed, at its `offset` from A's, and each
+/// output read at its `latency`. Found on the short stream, then checked
+/// on the long one, a period kept only once every case of that comes out
+/// right too.
+pub(super) fn shortest(
+    blocks: &Blocks,
+    (short, long): (&[Vec<u64>], &[Vec<u64>]),
+    offset: &[i32],
+    latency: &[i32],
+    most: i32,
+) -> Result<Option<i32>> {
+    let interface = interface::read(blocks);
+    let mut circuit = Circuit::new(blocks, &interface)?;
+    let button: Vec<bool> = (0..interface.inputs.len())
+        .map(|p| circuit.is_button(p, 0))
+        .collect();
+    // What each case settles to: its levers set, then its buttons, as a
+    // sequential build's reset and calculate, pressed in the order of their
+    // ticks, each settling in turn.
     let mut presses: Vec<usize> =
         (0..button.len()).filter(|&p| button[p]).collect();
     presses.sort_by_key(|&p| offset[p]);
     let expected =
-        settled_cases(&mut circuit, &cases, &button, &presses, latency.len())?;
-    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
-    let short = Stream {
+        settled_cases(&mut circuit, short, &button, &presses, latency.len())?;
+    let quick = Stream {
         blocks,
         interface: &interface,
-        cases: &cases,
+        cases: short,
         expected: &expected,
-        offset: &offset,
-        latency: &latency,
+        offset,
+        latency,
         button: &button,
     };
-    // Found on a short stream, then checked on a long one, a period kept
-    // only once every case of that comes out right too.
-    let long = stream(&widths, LONG);
     let long_expected =
-        settled_cases(&mut circuit, &long, &button, &presses, latency.len())?;
+        settled_cases(&mut circuit, long, &button, &presses, latency.len())?;
     let checked = Stream {
-        cases: &long,
+        cases: long,
         expected: &long_expected,
-        ..short
+        ..quick
     };
-    for period in 1..=2 * slowest {
-        if short.right(period)? {
-            for period in period..=2 * slowest {
+    for period in 1..=most {
+        if quick.right(period)? {
+            for period in period..=most {
                 if checked.right(period)? {
                     return Ok(Some(period));
                 }
@@ -212,7 +234,14 @@ fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
         [0, u64::MAX, 1, 0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa]
             .map(|v| v & mask(w))
     };
-    let mut cases: Vec<Vec<u64>> = vec![Vec::new()];
+    // Every mix only while there are few: past `MIXES`, as for many
+    // control lines, the generator alone.
+    let few = u32::try_from(widths.len())
+        .ok()
+        .and_then(|n| 5_usize.checked_pow(n))
+        .is_some_and(|mixes| mixes <= MIXES);
+    let mut cases: Vec<Vec<u64>> =
+        if few { vec![Vec::new()] } else { Vec::new() };
     for &w in widths {
         cases = cases
             .into_iter()

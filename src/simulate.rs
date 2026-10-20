@@ -63,7 +63,7 @@ mod throughput;
 mod timing;
 
 pub use adder::SIGNED_GREATER_THAN;
-pub use alu::op as alu_op;
+pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled};
 pub use design::{Design, adder_design, design_of};
@@ -264,16 +264,17 @@ impl Test {
     /// state, as `bench::remembers` tells: what is left of each case once
     /// its presses are over, against a fresh copy given only the case's
     /// inputs. A register's or buffer's cases are what it holds once its
-    /// data bus has changed, so passing them is holding state. `None` for
-    /// another test that runs its own way, as an ALU's does.
+    /// data bus has changed, so passing them is holding state; an ALU's is
+    /// told of each of its operations. `None` for a monostable's, which runs
+    /// its own way.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
         if matches!(self, Test::Register | Test::Buffer) {
             return Ok(Some(true));
         }
-        if matches!(
-            self,
-            Test::Alu | Test::Monostable | Test::DualEdgeMonostable
-        ) {
+        if self == Test::Alu {
+            return alu::remembers(blocks).map(Some);
+        }
+        if matches!(self, Test::Monostable | Test::DualEdgeMonostable) {
             return Ok(None);
         }
         let mut interface = interface::read(blocks);
@@ -358,6 +359,7 @@ impl Test {
     ) -> Result<Option<i32>> {
         match self {
             Test::Register => register::throughput(data, timing),
+            Test::Alu => alu::throughput(blocks, timing),
             _ => throughput::throughput(blocks, timing),
         }
     }

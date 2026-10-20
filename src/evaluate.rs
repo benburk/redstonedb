@@ -128,6 +128,11 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         {
             found.flags.push(SIGNED.to_owned());
         }
+        // An ALU's flags are the operations its test checks and the lines
+        // whose meaning is plain.
+        if test == Test::Alu {
+            found.flags = simulate::alu_flags(&found.prepared.blocks)?;
+        }
         let timing =
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;
         found.latency = timing.latency().map(|t| t.max(0).into());

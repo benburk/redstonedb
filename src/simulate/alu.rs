@@ -22,7 +22,7 @@ use anyhow::Result;
 use super::{
     Broken, Run, Timing,
     adder::adder_cases,
-    bench::{Bench, Case, cases, mask, observe, paired, sweep},
+    bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
     circuit::{input_bits, output_bits},
     timing,
 };
@@ -431,6 +431,147 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         slowest.ok_or_else(|| Broken("no operation to time".to_owned()))?;
     timing.synced = synced;
     Ok(timing)
+}
+
+/// The flags the ALU in `blocks` shows: each operation its test checks but
+/// add and subtract, which every ALU is taken to have, and its carry in,
+/// and its carry out, overflow, and zero, whose meaning is plain.
+pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
+    let interface = crate::interface::read(blocks);
+    let alu = ports(&interface)?;
+    let mut flags: Vec<String> = selections(blocks, &interface, &alu)?
+        .iter()
+        .map(|selection| selection.op)
+        .filter(|op| !matches!(*op, "add" | "sub"))
+        .map(str::to_owned)
+        .collect();
+    flags.dedup();
+    let lines = [
+        ("carry_in", alu.carry_in),
+        ("carry_out", alu.carry_out),
+        ("overflow", alu.overflow),
+        ("zero", alu.zero),
+    ];
+    flags.extend(
+        lines
+            .into_iter()
+            .filter(|(_, port)| port.is_some())
+            .map(|(flag, _)| flag.to_owned()),
+    );
+    flags.sort();
+    Ok(flags)
+}
+
+/// Whether the ALU in `blocks`, whose cases all came out right, holds
+/// state, as `bench::remembers` tells of each of its operations, its
+/// control lines held.
+pub fn remembers(blocks: &Blocks) -> Result<bool> {
+    let interface = crate::interface::read(blocks);
+    let alu = ports(&interface)?;
+    for selection in selections(blocks, &interface, &alu)? {
+        let bench = Bench {
+            inputs: vec![alu.a, alu.b],
+            outputs: (0..interface.outputs.len()).collect(),
+            pattern: selection.label.clone(),
+            held: selection.held.clone(),
+            care: u64::MAX,
+            presses: Vec::new(),
+        };
+        if bench::remembers(blocks, &interface, &bench)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// How often the ALU in `blocks`, timed as `timing`, takes a new case, as
+/// `throughput::shortest` streams them: each case A and B, and one of its
+/// operations, its control lines set as a decoder does, timed against the
+/// operands as works best, as a control line is, and a carry in for an
+/// add. The shortest period at any timing of its lines; `None` when none up
+/// to twice its slowest output keeps every result right.
+pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
+    let interface = crate::interface::read(blocks);
+    let alu = ports(&interface)?;
+    let ops = selections(blocks, &interface, &alu)?;
+    if ops.is_empty() {
+        return Ok(None);
+    }
+    let latency: Vec<i32> = timing
+        .outputs
+        .iter()
+        .map(|o| o.latency + o.carried)
+        .collect();
+    if latency.len() != interface.outputs.len() {
+        return Ok(None);
+    }
+    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
+    let short = streamed(&interface, &alu, &ops, super::throughput::CASES);
+    let long = streamed(&interface, &alu, &ops, super::throughput::LONG);
+    let mut best: Option<i32> = None;
+    for offset in -slowest..=slowest {
+        let offsets: Vec<i32> = (0..interface.inputs.len())
+            .map(|port| {
+                if alu.lines.iter().any(|&(line, _)| line == port) {
+                    offset
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let most = best.map_or(2 * slowest, |b| b - 1);
+        if most < 1 {
+            break;
+        }
+        let found = super::throughput::shortest(
+            blocks,
+            (&short, &long),
+            &offsets,
+            &latency,
+            most,
+        )?;
+        if found.is_some() {
+            best = found;
+        }
+    }
+    Ok(best)
+}
+
+/// A fixed stream of `count` cases for `alu`, from a simple generator:
+/// each a value for every input, A and B, an operation's control lines,
+/// and a carry in for an add.
+fn streamed(
+    interface: &Interface,
+    alu: &Alu,
+    ops: &[Selection],
+    count: usize,
+) -> Vec<Vec<u64>> {
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let all = mask(alu.width);
+    (0..count)
+        .map(|_| {
+            let op =
+                &ops[usize::try_from(next() % ops.len() as u64).unwrap_or(0)];
+            let mut case = vec![0; interface.inputs.len()];
+            case[alu.a] = next() & all;
+            case[alu.b] = next() & all;
+            for &(port, value) in &op.held {
+                case[port] = value;
+            }
+            if op.op == "add"
+                && let Some(port) = alu.carry_in
+            {
+                case[port] = next() & 1;
+            }
+            case
+        })
+        .collect()
 }
 
 #[cfg(test)]

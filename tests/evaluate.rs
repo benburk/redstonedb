@@ -206,3 +206,28 @@ fn a_register_whose_write_disturbs_another_cell_fails() {
     assert_eq!(e.category, Some("register"));
     assert!(!e.passes(), "{:?}", e.report);
 }
+
+/// An ALU is read whole from its file: its flags are the operations its
+/// test checks, but add and subtract, and the lines whose meaning is
+/// plain; it never stacks, so its stacking is never searched; and its
+/// throughput is measured on a stream of operations.
+#[test]
+fn an_alu_is_read_whole_from_its_file() {
+    let e = evaluate(&uploaded("alu-8-ops-raw")).unwrap();
+    assert_eq!(e.category, Some("alu"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    for op in ["and", "or", "xor", "nand", "nor", "xnor", "shr", "asr"] {
+        assert!(e.flags.iter().any(|f| f == op), "{op}: {:?}", e.flags);
+    }
+    assert!(!e.flags.iter().any(|f| f == "add" || f == "sub"));
+    assert!(e.stacking.is_empty());
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(run.stacking.is_none(), "an ALU is never searched");
+    let torches = e.prepared.facts.torches > 0;
+    let throughput = e.throughput.expect("its operations stream");
+    assert!(throughput >= if torches { 3 } else { 2 });
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}

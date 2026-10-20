@@ -169,7 +169,12 @@ pub fn behaviour(category: &str) -> Behaviour {
         },
         // Its line may mean either way, so it keeps its own name.
         "inc_dec" => read(Test::IncDec),
-        "alu" => read(Test::Alu),
+        // Its flags are the operations its test finds; copies of it make
+        // no wider one, so it never stacks.
+        "alu" => Behaviour {
+            flags_from_file: true,
+            ..evaluated(Test::Alu, Stacking::Never)
+        },
         // Copies of these make no wider one, so they never stack.
         "absolute_value" => evaluated(Test::AbsoluteValue, Stacking::Never),
         "greater_than" => Behaviour {
