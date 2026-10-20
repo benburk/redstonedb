@@ -231,3 +231,24 @@ fn an_alu_is_read_whole_from_its_file() {
     assert!(throughput >= if torches { 3 } else { 2 });
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
+
+/// Nadd and nsub, add and subtract with the result inverted, are checked
+/// as any operation is, and are flags. This ALU signs two lines both `nadd
+/// nsub`, which cannot tell them apart, so trying its lines finds each.
+#[test]
+fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
+    let e = evaluate(
+        &std::fs::read("tests/fixtures/alu-8-nadd-nsub.schem").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(e.category, Some("alu"));
+    assert!(e.passes(), "{:?}", e.report);
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(run.pattern.contains("nadd ("), "{}", run.pattern);
+    assert!(run.pattern.contains("nsub ("), "{}", run.pattern);
+    for flag in ["nadd", "nsub"] {
+        assert!(e.flags.iter().any(|f| f == flag), "{flag}: {:?}", e.flags);
+    }
+}

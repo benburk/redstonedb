@@ -6,14 +6,21 @@
 //! case. With few enough lines, each other combination of them is tried on
 //! a few telling cases, and one that mostly gives an operation the signs do
 //! not name, three cases in four, as an ALU that adds with every line off
-//! does, is checked on every case too.
+//! does, is checked on every case too. So is one that gives an operation
+//! whose sign chooses the same lines as another's, as two lines both signed
+//! `nadd nsub` do, which the signs cannot tell apart.
 //!
-//! A line named `carry in` is no operation: add takes it, as A + B + carry
-//! in, and the rest hold it off. A status line is checked where its meaning
-//! is plain: a carry out for add and subtract, as the adder gives it, so a
-//! subtract, A + ~B + 1, carries when nothing is borrowed; an overflow, taken
-//! as signed, for add and subtract; an `lsb shift out`, the bit a shift
-//! right drops, for shr and asr; and a zero for every operation.
+//! Nadd and nsub are add and subtract with every bit of the result
+//! inverted, as an ALU that hands its result on through a torch gives them.
+//!
+//! A line named `carry in` is no operation: add and nadd take it, adding
+//! it to A and B, and the rest hold it off. A status line is checked where
+//! its meaning is plain: a carry out for add and subtract, as the adder
+//! gives it, so a subtract, A + ~B + 1, carries when nothing is borrowed;
+//! an overflow, taken as signed, for add and subtract; an `lsb shift out`,
+//! the bit a shift right drops, for shr and asr; and a zero for every
+//! operation. Whether a nadd's or nsub's carry out is inverted too is the
+//! builder's choice, so it is not checked.
 
 use std::sync::atomic::AtomicBool;
 
@@ -29,10 +36,15 @@ use super::{
 use crate::{interface::Interface, lint, schem::Blocks};
 
 /// The operations an ALU may offer, in the order a result lists them.
-const OPS: [&str; 11] = [
-    "add", "sub", "and", "or", "xor", "nand", "nor", "xnor", "shl", "shr",
-    "asr",
+const OPS: [&str; 13] = [
+    "add", "sub", "nadd", "nsub", "and", "or", "xor", "nand", "nor", "xnor",
+    "shl", "shr", "asr",
 ];
+
+/// Whether `op` takes the carry in: an add, its result inverted or not.
+fn takes_carry(op: &str) -> bool {
+    matches!(op, "add" | "nadd")
+}
 
 /// The operation a word on a control line's sign names, such as `shr` for
 /// `rsh`; `None` for any other word.
@@ -54,6 +66,8 @@ fn apply(op: &str, a: u64, b: u64, carry: u64, width: usize) -> u64 {
     match op {
         "add" => a + b + carry,
         "sub" => a.wrapping_sub(b),
+        "nadd" => !(a + b + carry),
+        "nsub" => !a.wrapping_sub(b),
         "and" => a & b,
         "or" => a | b,
         "xor" => a ^ b,
@@ -184,7 +198,7 @@ fn selections(
     interface: &Interface,
     alu: &Alu,
 ) -> Result<Vec<Selection>> {
-    let mut found: Vec<Selection> = OPS
+    let named: Vec<Selection> = OPS
         .into_iter()
         .filter(|op| alu.lines.iter().any(|(_, ops)| ops.contains(op)))
         .map(|op| Selection {
@@ -193,6 +207,24 @@ fn selections(
             label: op.to_owned(),
         })
         .collect();
+    // Operations whose signs choose the same lines, as two lines both
+    // signed `nadd nsub`, are told apart by trying the lines, as one no
+    // sign names is.
+    let mut found: Vec<Selection> = Vec::new();
+    for selection in &named {
+        if named
+            .iter()
+            .filter(|other| other.held == selection.held)
+            .count()
+            == 1
+        {
+            found.push(Selection {
+                op: selection.op,
+                held: selection.held.clone(),
+                label: selection.label.clone(),
+            });
+        }
+    }
     let combinations: u64 = if alu.lines.len() <= 6 {
         1 << alu.lines.len()
     } else {
@@ -295,7 +327,7 @@ fn check_one(
 ) -> Result<Run> {
     let op = selection.op;
     let width = alu.width;
-    let carry = op == "add" && alu.carry_in.is_some();
+    let carry = takes_carry(op) && alu.carry_in.is_some();
     let mut inputs = vec![alu.a, alu.b];
     inputs.extend(alu.carry_in);
     let held: Vec<(usize, u64)> = selection
@@ -407,7 +439,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     for selection in selections(blocks, &interface, &alu)? {
         let mut inputs = vec![alu.a, alu.b];
         let mut held = selection.held.clone();
-        if selection.op == "add"
+        if takes_carry(selection.op)
             && let Some(port) = alu.carry_in
         {
             inputs.push(port);
@@ -564,7 +596,7 @@ fn streamed(
             for &(port, value) in &op.held {
                 case[port] = value;
             }
-            if op.op == "add"
+            if takes_carry(op.op)
                 && let Some(port) = alu.carry_in
             {
                 case[port] = next() & 1;
@@ -593,6 +625,9 @@ mod tests {
         assert_eq!(eight("nand", 0b1100, 0b1010), 0b1111_0111);
         assert_eq!(eight("asr", 0b1000_0010, 0), 0b1100_0001);
         assert_eq!(eight("shr", 0b1000_0010, 0), 0b0100_0001);
+        assert_eq!(eight("nadd", 5, 7), !0b1100 & 0xff);
+        assert_eq!(eight("nsub", 7, 5), 0b1111_1101);
+        assert_eq!(eight("nsub", 5, 7), 0b0000_0001);
         assert!(carry_out("add", 200, 100, 0, 8));
         assert!(carry_out("sub", 5, 3, 0, 8) && !carry_out("sub", 3, 5, 0, 8));
         assert!(overflow("add", 100, 100, 0, 8));
