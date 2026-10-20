@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    MAX_WIDTH, Test,
+    MAX_WIDTH, Report, Test,
     adder::{self, ADD, AdderPorts, adder_ports},
     bench::{Case, mask, sweep},
     circuit::{Circuit, input_bits},
@@ -400,6 +400,77 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
         }
     }
     cases
+}
+
+/// The shortest step up, west, or north, as far as the build reaches,
+/// whose copies of the incrementer or decrementer in `data` make a wider
+/// one under `test`: each copy's carry out, landing on the next's control
+/// line, takes its place, as an adder's carry does. One with no carry out
+/// keeps every copy's own line, so none does. Copies are as many as
+/// `copies` gives, so the stack reaches past what dust carries.
+pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
+    let not = |reason: &str| Stacking::Not {
+        step: None,
+        reason: reason.to_owned(),
+    };
+    let Ok(blocks) = Blocks::read(data) else {
+        return not("Its file could not be read.");
+    };
+    let width = interface::read(&blocks)
+        .inputs
+        .first()
+        .map_or(0, |a| a.bits.len());
+    let (low, high) = interface::core(&blocks);
+    let reach = |axis: usize| i64::from(high[axis] - low[axis] + 1) + 2;
+    let mut steps: Vec<Step> = (1..=reach(1))
+        .map(|up| Step {
+            west: 0,
+            up,
+            north: 0,
+        })
+        .chain((1..=reach(0)).map(|west| Step {
+            west,
+            up: 0,
+            north: 0,
+        }))
+        .chain((1..=reach(2)).map(|north| Step {
+            west: 0,
+            up: 0,
+            north,
+        }))
+        .collect();
+    steps.sort_by_key(|step| step.west + step.up + step.north);
+    let works = |step: Step, copies: usize| {
+        let (stacked, _) = stack::stack(
+            data,
+            &[(step.direction(), copies)],
+            stack::Buses::own(),
+        )
+        .ok()?;
+        let blocks = Blocks::read(&stacked).ok()?;
+        let bits = interface::read(&blocks).inputs.first()?.bits.len();
+        let Report::Ran(run) = test.run(&blocks) else {
+            return None;
+        };
+        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
+    };
+    for step in steps {
+        let Some(copies) = copies(step, width) else {
+            continue;
+        };
+        if let Some(cases) = works(step, copies) {
+            return Stacking::Stacks {
+                step,
+                copies,
+                bits: width * copies,
+                cases,
+            };
+        }
+    }
+    not(
+        "No step up, west, or north as far as it reaches makes copies \
+         whose carries chain into a wider one.",
+    )
 }
 
 /// The most copies stacked into more bits; a build whose copies work with

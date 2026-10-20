@@ -1,6 +1,12 @@
 //! Reading a build from its file alone.
 
-use app::{evaluate::evaluate, models::schematic::Logic, standardize};
+use app::{
+    evaluate::evaluate,
+    import,
+    models::schematic::{Logic, Orientation},
+    simulate::{Report, Stacking},
+    standardize::{self, Gray},
+};
 
 /// A fixture as the site stores it.
 fn stored(name: &str) -> Vec<u8> {
@@ -81,4 +87,44 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
             .any(|i| i.name == line && i.tick.is_some());
         assert!(timed, "{line}");
     }
+}
+
+#[test]
+fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
+    // Prepared as an upload is, turned the standard way.
+    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let file = import::prepare(&raw, Some(Gray::Keep), true, false, true)
+        .unwrap()
+        .data;
+    let e = evaluate(&file).unwrap();
+    assert_eq!(e.category, Some("xor_xnor_gate"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(1));
+    // A 1-bit gate's lone input can't show its orientation; its copies
+    // stacking west into more bits do.
+    assert_eq!(e.stacking.len(), 1, "{:?}", e.stacking);
+    assert_eq!(e.stacking[0].west, 4);
+    assert_eq!(e.orientation, Some(Orientation::Horizontal));
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+    assert!(e.flags.is_empty(), "an XOR, not an XNOR: {:?}", e.flags);
+}
+
+#[test]
+fn an_incrementer_with_no_carry_out_does_not_stack() {
+    let e = evaluate(&stored("inc-8")).unwrap();
+    assert_eq!(e.category, Some("incrementer"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(
+        matches!(run.stacking, Some(Stacking::Not { .. })),
+        "{:?}",
+        run.stacking
+    );
+    assert!(e.stacking.is_empty());
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
 }

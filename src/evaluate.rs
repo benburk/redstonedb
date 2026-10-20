@@ -12,7 +12,10 @@ use anyhow::Result;
 use crate::{
     import::{self, Prepared},
     interface,
-    models::schematic::{Encoding, Logic, Orientation, StackDirection},
+    models::{
+        schematic::{Encoding, Logic, Orientation, StackDirection},
+        simulation::XNOR_FLAG,
+    },
     simulate::{
         self, Design, Report, Stacking, Test, adder_design, throughput,
     },
@@ -94,11 +97,25 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         } else {
             test.stacking(&found.prepared.data)
         };
-        if let Some(Stacking::Stacks { step, .. }) = &run.stacking {
-            found.stacking = vec![step.direction()];
+        // Copies that work run the way its bits do, which a 1-bit build's
+        // lone input cannot show; a gate's work only up to so many.
+        let stepped = match &run.stacking {
+            Some(Stacking::Stacks { step, .. }) => Some((step, None)),
+            Some(Stacking::Wider { step, most, .. }) => Some((step, *most)),
+            _ => None,
+        };
+        if let Some((step, most)) = stepped {
+            found.stacking = vec![StackDirection {
+                max_copies: most.and_then(|n| i64::try_from(n).ok()),
+                ..step.direction()
+            }];
             if let Some(orientation) = step.orientation() {
                 found.orientation = Some(orientation);
             }
+        }
+        // A gate's cases say whether it is an XNOR.
+        if test == Test::XorXnor && run.pattern == simulate::XNOR {
+            found.flags.push(XNOR_FLAG.to_owned());
         }
         let timing =
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;

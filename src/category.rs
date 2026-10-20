@@ -149,12 +149,18 @@ pub fn behaviour(category: &str) -> Behaviour {
             },
             ..read(Test::CarryOut)
         },
+        // Its copies chain as an adder's, its carry out the next's
+        // increment.
         "incrementer" => Behaviour {
             lines: lone("increment", CARRY_OUT),
+            stacking: Stacking::Inferred,
+            evaluated: true,
             ..read(Test::Incrementer)
         },
         "decrementer" => Behaviour {
             lines: lone("decrement", "borrow out"),
+            stacking: Stacking::Inferred,
+            evaluated: true,
             ..read(Test::Decrementer)
         },
         // Its line may mean either way, so it keeps its own name.
@@ -171,7 +177,8 @@ pub fn behaviour(category: &str) -> Behaviour {
         },
         // Its copies add bits, each with its own A, B, and output.
         "xor_xnor_gate" => Behaviour {
-            stacking: Stacking::Found,
+            stacking: Stacking::Inferred,
+            evaluated: true,
             ..read(Test::XorXnor)
         },
         "register" => Behaviour {

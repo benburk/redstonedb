@@ -388,7 +388,7 @@ pub fn simulated_flags(category: &str) -> &'static [&'static str] {
 const SIGNED: &str = "signed";
 
 /// The flag of an XOR/XNOR gate whose every bit is inverted, an XNOR.
-const XNOR_FLAG: &str = "xnor";
+pub const XNOR_FLAG: &str = "xnor";
 
 /// The flag of a monostable that pulses as A turns off, not on.
 const FALLING_EDGE: &str = "falling_edge";
@@ -452,6 +452,7 @@ impl Derived {
             derived.latency = e.latency;
             derived.synchronized = e.synchronized;
             derived.stacking.clone_from(&e.stacking);
+            derived.flags.clone_from(&e.flags);
             derived.throughput = e.throughput;
             if let Some(design) = &e.design {
                 design.name.clone_into(&mut derived.design);
