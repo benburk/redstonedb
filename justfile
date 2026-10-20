@@ -27,9 +27,10 @@ check:
     tailwindcss --input styles/app.css --minify | cmp - static/app.css
     ! rg -l '[^\n]\z' --multiline .
 
-# Run the test suite
+# Run the test suite, noting the files it passed on
 test:
     cargo test --workspace
+    @./deploy/tested.sh mark
 
 # Build static/app.css from styles/app.css
 css:
@@ -47,8 +48,10 @@ build: css
 serve port=`free-port`: css
     PORT={{ port }} cargo run --bin redstone-database
 
-# Test, then build the committed HEAD on the server and restart the site
-deploy: test
+# Test, unless the suite passed on exactly these files, then build the
+# committed HEAD on the server and restart the site
+deploy:
+    @./deploy/tested.sh head || just test
     ./deploy/deploy.sh
 
 # Replace the local database with a copy of the live one
