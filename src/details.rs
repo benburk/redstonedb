@@ -263,14 +263,31 @@ async fn evaluated(
     if !category::behaviour(&category.name).evaluated {
         return Ok(());
     }
+    // Nothing measured is typed: what the file shows, its width, encoding,
+    // and the way its bits run when its inputs show it, is read from it,
+    // and the rest the simulation sets once it is stored.
     details.latency = None;
     details.synchronized = None;
     details.throughput = None;
     details.logic = None;
     details.design = Some("other".to_owned());
+    details.flags.clear();
+    let read = crate::schem::Blocks::read(build.data)
+        .map(|blocks| {
+            crate::import::derived(
+                &category.name,
+                &crate::interface::read(&blocks),
+            )
+        })
+        .unwrap_or_default();
+    if let Some(orientation) = read.orientation {
+        details.orientation = orientation;
+    }
+    details.encoding = read.encoding;
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
+    details.width = width;
     let label = category.label.to_lowercase();
     // Named for what it seems meant to be, it goes up off the list.
     let off_list = |why: String| {

@@ -56,8 +56,14 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     };
     for (const [what, attribute] of Object.entries(decides)) {
       const derived = form.querySelector(`[data-derived-${what}]`);
-      if (!derived) continue;
       const typed = form.querySelector(`[data-typed-${what}]`);
+      // A file that shows nothing of it, as a 1-bit build's lone input
+      // shows no orientation, leaves the typed field, unless the category
+      // is one the simulation works out, below.
+      if (!derived) {
+        if (typed && !typed.hasAttribute("data-standard-only")) typed.hidden = false;
+        continue;
+      }
       derived.hidden = !has(attribute);
       if (!derived.hidden) typed.hidden = true;
       else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
@@ -83,9 +89,17 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       designs ||= mine;
     }
     if (design.selectedOptions[0]?.disabled) design.value = "other";
-    // A category such as adder has its design, throughput, and logic worked
-    // out by the simulation, so none is asked for.
+    // A category such as adder has every measured detail worked out from
+    // its file and by the simulation: its width, orientation, encoding,
+    // flags, design, throughput, and logic, so none is asked for.
     const evaluated = has("data-evaluated");
+    if (evaluated) {
+      for (const field of form.querySelectorAll(
+        "[data-typed-width], [data-typed-orientation], [data-typed-encoding], [data-flags-for]",
+      )) {
+        field.hidden = true;
+      }
+    }
     designField.hidden = !designs || evaluated;
     const throughput = form.querySelector("[data-throughput-field]");
     if (throughput && evaluated) throughput.hidden = true;

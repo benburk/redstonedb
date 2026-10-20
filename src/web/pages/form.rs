@@ -119,12 +119,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
             input type="number" name="pulse" value=(f.pulse) min="1"
                 inputmode="numeric" placeholder="such as 3" class="input";
         }
-        // For a category such as adder, whose measured details all come from
-        // the simulation; form.js shows it.
-        p data-evaluated-note hidden class="text-muted" {
-            "Its design, latency, throughput, stacking, and whether it holds state are worked out by the simulation, "
-            "and it must pass its test; one that fails, or that the simulator can't run, goes up under a category of its own."
-        }
+        (evaluated_note())
         // Shown once the chosen category has designs to choose from.
         label class="field" data-design-field hidden[!has_designs] {
             span { "Design" }
@@ -179,6 +174,18 @@ fn flag_group(
                     }
                 }
             }
+        }
+    }
+}
+
+/// For a category such as adder, whose measured details all come from its
+/// file and the simulation; form.js shows it.
+fn evaluated_note() -> Markup {
+    html! {
+        p data-evaluated-note hidden class="text-muted" {
+            "Its width, orientation, encoding, flags, design, latency, throughput, stacking, and whether it holds state "
+            "are worked out from its file and by the simulation, and it must pass its test; one that fails, or that the "
+            "simulator can't run, goes up under a category of its own."
         }
     }
 }

@@ -216,3 +216,21 @@ async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
     );
     assert!(check(&db, given("adder")).await.is_ok());
 }
+
+/// Nothing measured is typed for a category the simulation works out: a
+/// typed width, encoding, and flags give way to what the file shows, and
+/// the simulation sets the flags once the build is stored.
+#[tokio::test]
+async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        width: Some(3),
+        encoding: Some(Encoding::Hex),
+        flags: vec!["carry_in".to_owned()],
+        ..given("adder")
+    };
+    let ready = check(&db, typed).await.unwrap();
+    assert_eq!(ready.details.width, Some(8), "the ripple adder's own width");
+    assert_eq!(ready.details.encoding, Some(Encoding::Binary));
+    assert!(ready.details.flags.is_empty());
+}
