@@ -265,8 +265,8 @@ impl Test {
     /// its presses are over, against a fresh copy given only the case's
     /// inputs. A register's or buffer's cases are what it holds once its
     /// data bus has changed, so passing them is holding state; an ALU's is
-    /// told of each of its operations. `None` for a monostable's, which runs
-    /// its own way.
+    /// told of each of its operations; a monostable, a pulse generator,
+    /// holds none.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
         if matches!(self, Test::Register | Test::Buffer) {
             return Ok(Some(true));
@@ -274,8 +274,10 @@ impl Test {
         if self == Test::Alu {
             return alu::remembers(blocks).map(Some);
         }
+        // A pulse generator's pulse is its input's change, not a held
+        // value, so it holds no state.
         if matches!(self, Test::Monostable | Test::DualEdgeMonostable) {
-            return Ok(None);
+            return Ok(Some(false));
         }
         let mut interface = interface::read(blocks);
         let spec = self.spec(blocks, &mut interface)?;
@@ -358,7 +360,15 @@ impl Test {
         timing: &Timing,
     ) -> Result<Option<i32>> {
         match self {
-            Test::Register => register::throughput(data, timing),
+            Test::Register => {
+                register::throughput(data, timing, register::Kind::Register)
+            }
+            Test::Buffer => {
+                register::throughput(data, timing, register::Kind::Buffer)
+            }
+            Test::Monostable | Test::DualEdgeMonostable => {
+                monostable::throughput(blocks, timing)
+            }
             Test::Alu => alu::throughput(blocks, timing),
             _ => throughput::throughput(blocks, timing),
         }

@@ -270,6 +270,7 @@ async fn evaluated(
     details.synchronized = None;
     details.throughput = None;
     details.logic = None;
+    details.pulse = None;
     details.design = Some("other".to_owned());
     details.flags.clear();
     let read = crate::schem::Blocks::read(build.data)

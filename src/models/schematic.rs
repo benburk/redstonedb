@@ -824,15 +824,14 @@ pub async fn set_details(
     if ready.evaluated {
         sqlx::query!(
             "UPDATE schematic SET category = ?, built_on = ?,
-                description = ?, given_name = ?, at_least = ?, pulse = ?,
-                bytes = ?, edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                description = ?, given_name = ?, at_least = ?, bytes = ?,
+                edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
              WHERE id = ?",
             details.category,
             details.built_on,
             details.description,
             details.given_name,
             details.at_least,
-            details.pulse,
             details.bytes,
             id,
         )

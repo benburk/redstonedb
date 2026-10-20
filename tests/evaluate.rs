@@ -267,3 +267,41 @@ fn an_inverter_is_read_whole_from_its_file() {
     assert!(e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
+
+/// A monostable is read whole from its file: its pulse, whether it rests
+/// on, and the edge it pulses on come from its test; a pulse generator
+/// holds no state; and its throughput is how often it can be triggered,
+/// each trigger giving its whole pulse.
+#[test]
+fn a_monostable_is_read_whole_from_its_file() {
+    for (name, category, flags) in [
+        ("monostable-3", "monostable", &[][..]),
+        ("monostable-3-inverted", "monostable", &["inverted"][..]),
+        ("monostable-3-falling", "monostable", &["falling_edge"][..]),
+        ("monostable-3-dual-edge", "dual_edge_monostable", &[][..]),
+    ] {
+        let e = evaluate(&uploaded(name)).unwrap();
+        assert_eq!(e.category, Some(category), "{name}");
+        assert!(e.passes(), "{name}: {:?}", e.report);
+        assert_eq!(e.pulse, Some(3), "{name}");
+        assert_eq!(e.flags, flags, "{name}");
+        assert_eq!(e.logic, Some(Logic::Stateless), "{name}");
+        // A pulse of 3 ticks can't be triggered again before it ends.
+        let throughput =
+            e.throughput.expect("it can be triggered over and over");
+        assert!(throughput > 3, "{name}: {throughput}");
+    }
+}
+
+/// A buffer holds what it is written, so it holds state, and its
+/// throughput is how often a cell can take a new value.
+#[test]
+fn a_buffer_is_read_whole_from_its_file() {
+    let e = evaluate(&uploaded("buffer-2-button")).unwrap();
+    assert_eq!(e.category, Some("buffer"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.logic, Some(Logic::Stateful));
+    let torches = e.prepared.facts.torches > 0;
+    let throughput = e.throughput.expect("its writes stream");
+    assert!(throughput >= if torches { 3 } else { 2 });
+}

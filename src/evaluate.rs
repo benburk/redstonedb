@@ -14,9 +14,11 @@ use crate::{
     interface,
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection},
-        simulation::{SIGNED, XNOR_FLAG},
+        simulation::{FALLING_EDGE, INVERTED, SIGNED, XNOR_FLAG},
     },
-    simulate::{self, Design, Report, Stacking, Test, adder_design},
+    simulate::{
+        self, Design, Edge, Report, Run, Stacking, Test, Timing, adder_design,
+    },
 };
 
 /// Everything worked out from a build's file.
@@ -44,6 +46,8 @@ pub struct Evaluation {
     /// Whether it holds state: whether what its test leaves on its outputs
     /// differs from a fresh copy given the same inputs.
     pub logic: Option<Logic>,
+    /// A monostable's pulse, in ticks.
+    pub pulse: Option<i64>,
 }
 
 impl Evaluation {
@@ -77,6 +81,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         throughput: None,
         design: None,
         logic: None,
+        pulse: None,
         prepared,
     };
     let Some(test) = category.and_then(|c| Test::of(c, found.width)) else {
@@ -95,48 +100,12 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         } else {
             test.stacking(&found.prepared.data)
         };
-        // Copies that work run the way its bits do, which a 1-bit build's
-        // lone input cannot show; a gate's work only up to so many.
-        let stepped = match &run.stacking {
-            Some(Stacking::Stacks { step, .. }) => Some((step, None, true)),
-            Some(Stacking::Wider { step, most, .. }) => {
-                Some((step, *most, true))
-            }
-            // A register file's copies are more cells, not more bits, so
-            // they show nothing of how its bits run.
-            Some(Stacking::Registers { step, most, .. }) => {
-                Some((step, *most, false))
-            }
-            _ => None,
-        };
-        if let Some((step, most, bits)) = stepped {
-            found.stacking = vec![StackDirection {
-                max_copies: most.and_then(|n| i64::try_from(n).ok()),
-                ..step.direction()
-            }];
-            if let Some(orientation) = step.orientation().filter(|_| bits) {
-                found.orientation = Some(orientation);
-            }
-        }
-        // A gate's cases say whether it is an XNOR, and a comparator's
-        // whether it reads its operands signed.
-        if test == Test::XorXnor && run.pattern == simulate::XNOR {
-            found.flags.push(XNOR_FLAG.to_owned());
-        }
-        if test == Test::GreaterThan
-            && run.pattern == simulate::SIGNED_GREATER_THAN
-        {
-            found.flags.push(SIGNED.to_owned());
-        }
-        // An ALU's flags are the operations its test checks and the lines
-        // whose meaning is plain.
-        if test == Test::Alu {
-            found.flags = simulate::alu_flags(&found.prepared.blocks)?;
-        }
+        found.stacks(run.stacking.as_ref());
         let timing =
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;
         found.latency = timing.latency().map(|t| t.max(0).into());
         found.synchronized = Some(timing.synced);
+        found.flagged(test, run, &timing)?;
         // A torch burns out switched too often, which the simulator does
         // not model: the game takes a new input no sooner than every third
         // tick through torches, or every second without.
@@ -162,4 +131,66 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     }
     found.report = Some(report);
     Ok(found)
+}
+
+impl Evaluation {
+    /// Takes the stacking its search found: its step, the most copies that
+    /// work, and the way its bits run, as copies that add bits run the way
+    /// its bits do, which a 1-bit build's lone input cannot show.
+    fn stacks(&mut self, stacking: Option<&Stacking>) {
+        let stepped = match stacking {
+            Some(Stacking::Stacks { step, .. }) => Some((step, None, true)),
+            Some(Stacking::Wider { step, most, .. }) => {
+                Some((step, *most, true))
+            }
+            // A register file's copies are more cells, not more bits, so
+            // they show nothing of how its bits run.
+            Some(Stacking::Registers { step, most, .. }) => {
+                Some((step, *most, false))
+            }
+            _ => None,
+        };
+        if let Some((step, most, bits)) = stepped {
+            self.stacking = vec![StackDirection {
+                max_copies: most.and_then(|n| i64::try_from(n).ok()),
+                ..step.direction()
+            }];
+            if let Some(orientation) = step.orientation().filter(|_| bits) {
+                self.orientation = Some(orientation);
+            }
+        }
+    }
+
+    /// Takes the flags its `test`'s cases, `run`, and its `timing` show: a
+    /// gate's whether it is an XNOR, a comparator's whether it reads its
+    /// operands signed, an ALU's its operations and plain lines, and a
+    /// monostable's pulse and whether it rests on or pulses as A turns off.
+    fn flagged(
+        &mut self,
+        test: Test,
+        run: &Run,
+        timing: &Timing,
+    ) -> Result<()> {
+        if test == Test::XorXnor && run.pattern == simulate::XNOR {
+            self.flags.push(XNOR_FLAG.to_owned());
+        }
+        if test == Test::GreaterThan
+            && run.pattern == simulate::SIGNED_GREATER_THAN
+        {
+            self.flags.push(SIGNED.to_owned());
+        }
+        if test == Test::Alu {
+            self.flags = simulate::alu_flags(&self.prepared.blocks)?;
+        }
+        if let Some(pulse) = timing.pulse {
+            self.pulse = Some(pulse.ticks.into());
+            if pulse.inverted {
+                self.flags.push(INVERTED.to_owned());
+            }
+            if pulse.edge == Edge::Falling {
+                self.flags.push(FALLING_EDGE.to_owned());
+            }
+        }
+        Ok(())
+    }
 }

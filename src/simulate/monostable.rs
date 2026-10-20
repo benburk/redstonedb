@@ -528,6 +528,166 @@ pub fn time(
     })
 }
 
+/// How many times a monostable is triggered to find its throughput, and
+/// to check it.
+const TRIGGERS: usize = 32;
+const LONG_TRIGGERS: usize = 256;
+
+/// How often the monostable in `blocks`, timed as `timing`, can be
+/// triggered: A turns on and off over and over, a trigger every period, on
+/// for as long of it as works best, every bit together. Each trigger must
+/// give each bit exactly one pulse of its length, starting no later than
+/// its timing found, and the other edge nothing; a dual-edge one, whose
+/// every edge triggers, is triggered every period on each edge in turn.
+/// The shortest period that holds for a few triggers and then for many;
+/// `None` when none up to twice its latency does.
+pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
+    let Some(pulse) = timing.pulse else {
+        return Ok(None);
+    };
+    let Some(output) = timing.outputs.first() else {
+        return Ok(None);
+    };
+    let mut interface = interface::read(blocks);
+    interface::name_lines(Test::Monostable.name(), blocks, &mut interface);
+    let outputs = output_bits(&interface)?;
+    let width = interface.inputs[0].bits.len();
+    let all = mask(width);
+    // Each bit's latest start, from A changing, where the site reads it.
+    let latest: Vec<i32> = output
+        .bits
+        .iter()
+        .map(|bit| bit.first_change + output.carried)
+        .collect();
+    let rest = if pulse.inverted { all } else { 0 };
+    let dual = pulse.edge == Edge::Both;
+    let most = 2 * output.latency.max(1) + 2;
+    for period in 1..=most {
+        // A dual-edge one is triggered by each edge, a period apart; another
+        // by one edge a period, on for some of it.
+        let ons: Vec<i32> = if dual {
+            vec![period]
+        } else {
+            (1..period).collect()
+        };
+        for on in ons {
+            let right = |triggers: usize| -> Result<bool> {
+                let stream = Retriggered {
+                    period,
+                    on,
+                    dual,
+                    edge: pulse.edge,
+                    ticks: pulse.ticks,
+                    latest: &latest,
+                    rest,
+                };
+                stream.right(blocks, &interface, &outputs, triggers)
+            };
+            if right(TRIGGERS)? && right(LONG_TRIGGERS)? {
+                return Ok(Some(period));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// A monostable triggered over and over: a trigger every `period`, A on
+/// for `on` ticks of each cycle.
+struct Retriggered<'a> {
+    period: i32,
+    on: i32,
+    dual: bool,
+    edge: Edge,
+    ticks: i32,
+    latest: &'a [i32],
+    rest: u64,
+}
+
+impl Retriggered<'_> {
+    /// Whether `triggers` triggers each give each bit one pulse of its
+    /// length, no later than its latest start, and nothing else.
+    fn right(
+        &self,
+        blocks: &Blocks,
+        interface: &Interface,
+        outputs: &[(usize, usize)],
+        triggers: usize,
+    ) -> Result<bool> {
+        let mut circuit = Circuit::new(blocks, interface)?;
+        let all = mask(outputs.len());
+        circuit.set(0, 0);
+        circuit.settle()?;
+        // Each tick A changes, and whether it turns on.
+        let cycle = if self.dual {
+            2 * self.period
+        } else {
+            self.period
+        };
+        let cycles = if self.dual {
+            triggers.div_ceil(2)
+        } else {
+            triggers
+        };
+        let mut changes: Vec<(i32, bool)> = Vec::new();
+        for i in 0..i32::try_from(cycles)? {
+            let start = i * cycle;
+            changes.push((start, true));
+            changes.push((
+                start + if self.dual { self.period } else { self.on },
+                false,
+            ));
+        }
+        let edges: Vec<i32> = changes
+            .iter()
+            .filter(|&&(_, on)| self.edge.triggers(on))
+            .map(|&(at, _)| at)
+            .collect();
+        let latest = self.latest.iter().copied().max().unwrap_or(0);
+        let end =
+            changes.last().map_or(0, |&(at, _)| at) + latest + self.ticks + 2;
+        let mut shown = Vec::new();
+        let mut next = 0;
+        for tick in 0..=end {
+            while let Some(&(at, on)) = changes.get(next)
+                && at == tick
+            {
+                circuit.set(0, if on { all } else { 0 });
+                next += 1;
+            }
+            shown.push(read(&circuit, outputs) ^ self.rest);
+            circuit.tick();
+        }
+        // Each bit's pulses, as when it leaves its rest and how long for.
+        for (bit, &latest) in self.latest.iter().enumerate() {
+            let mut pulses: Vec<(i32, i32)> = Vec::new();
+            let mut from = None;
+            for (tick, &value) in (0..).zip(&shown) {
+                let away = value >> bit & 1 == 1;
+                match (away, from) {
+                    (true, None) => from = Some(tick),
+                    (false, Some(start)) => {
+                        pulses.push((start, tick - start));
+                        from = None;
+                    }
+                    _ => {}
+                }
+            }
+            if from.is_some() || pulses.len() != edges.len() {
+                return Ok(false);
+            }
+            let each =
+                pulses.iter().zip(&edges).all(|(&(start, ticks), &edge)| {
+                    ticks == self.ticks
+                        && (edge..=edge + latest).contains(&start)
+                });
+            if !each {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
 /// Whether copies of the monostable in `data`, whose own cases came out
 /// right, stack west into a wider one: the shortest step west, up to two
 /// past its width, at which two copies give the same pulse on each bit,

@@ -124,9 +124,8 @@ pub fn behaviour(category: &str) -> Behaviour {
     // with its own.
     let monostable = |test| Behaviour {
         lines: Lines::Result("pulse"),
-        stacking: Stacking::Found,
         copies: Copies::OwnOutputs,
-        ..read(test)
+        ..evaluated(test, Stacking::Inferred)
     };
     let lone = |control, status| Lines::Lone {
         control,
@@ -195,8 +194,7 @@ pub fn behaviour(category: &str) -> Behaviour {
         // Its copies add bits, as its cells cannot share a bus.
         "buffer" => Behaviour {
             lines: Lines::Buffer,
-            stacking: Stacking::Found,
-            ..read(Test::Buffer)
+            ..evaluated(Test::Buffer, Stacking::Inferred)
         },
         "monostable" => monostable(Test::Monostable),
         "dual_edge_monostable" => monostable(Test::DualEdgeMonostable),

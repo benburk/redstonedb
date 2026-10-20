@@ -1484,11 +1484,17 @@ const LONG_STEPS: usize = 1024;
 /// sooner than its bus's latency: a read that follows another may take
 /// longer, as the bus lets go of the last. The shortest period that holds, at some timing of its
 /// writes, on a short stream and then a long one; `None` when none up to
-/// twice its slowest read, write, or data does.
-pub fn throughput(data: &[u8], timing: &Timing) -> Result<Option<i32>> {
+/// twice its slowest read, write, or data does. A buffer, which has no
+/// reads, is written every period, a cell at random, and its cell's bus
+/// must show what it was given, as its timing counts from a write.
+pub fn throughput(
+    data: &[u8],
+    timing: &Timing,
+    kind: Kind,
+) -> Result<Option<i32>> {
     let blocks = Blocks::read(data)?;
     let interface = interface::read(&blocks);
-    let (_, register) = ports(&blocks, &interface, Kind::Register)?;
+    let (_, register) = ports(&blocks, &interface, kind)?;
     // Its writes' buttons as levers on the same blocks.
     let writes: Vec<Pos> = register
         .cells
@@ -1525,8 +1531,8 @@ pub fn throughput(data: &[u8], timing: &Timing) -> Result<Option<i32>> {
         .max()
         .unwrap_or(1)
         .max(1);
-    let short = accesses(&register, STEPS);
-    let long = accesses(&register, LONG_STEPS);
+    let short = accesses(&register, STEPS, kind);
+    let long = accesses(&register, LONG_STEPS, kind);
     let right = |stream: Stream, steps: &[Access]| -> Result<Vec<i32>> {
         let interface = interface::read(&levered);
         let mut circuit = Circuit::new(&levered, &interface)?;
@@ -1569,8 +1575,9 @@ struct Access {
 
 /// A fixed stream of `count` accesses to `register`, from a simple
 /// generator: each writes a cell or reads one, at random, as a register
-/// file may not read one cell while it writes another.
-fn accesses(register: &Register, count: usize) -> Vec<Access> {
+/// file may not read one cell while it writes another; a buffer's each
+/// write a cell and look at what it shows.
+fn accesses(register: &Register, count: usize, kind: Kind) -> Vec<Access> {
     let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
     let mut next = move || {
         state ^= state << 13;
@@ -1583,6 +1590,13 @@ fn accesses(register: &Register, count: usize) -> Vec<Access> {
         .map(|_| {
             let value = next() & mask(register.width);
             let cell = pick(register.cells.len(), next());
+            if kind == Kind::Buffer {
+                return Access {
+                    value,
+                    write: Some(cell),
+                    read: Some((cell, 0)),
+                };
+            }
             if next() & 1 == 0 {
                 Access {
                     value,
@@ -1655,9 +1669,13 @@ impl Stream<'_> {
             circuit.settle()?;
         }
         // Each read's start, bus, and what it should show, from what was
-        // written before it.
+        // written before it, or a buffer's, which shows what it is given,
+        // with it.
         let mut reads: Vec<(i32, usize, u64)> = Vec::new();
         for (i, step) in steps.iter().enumerate() {
+            if let (Some(cell), None) = (step.write, register.reads.first()) {
+                held[cell] = step.value;
+            }
             if let Some((cell, read)) = step.read {
                 let read = register.cells[cell].reads[read];
                 reads.push((

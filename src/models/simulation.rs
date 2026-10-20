@@ -389,7 +389,7 @@ async fn refresh_evaluated(
 
 /// The flag of a monostable whose output rests on, so its pulse turns it
 /// off.
-const INVERTED: &str = "inverted";
+pub const INVERTED: &str = "inverted";
 
 /// The flags of `category` its simulation sets, by name.
 pub fn simulated_flags(category: &str) -> &'static [&'static str] {
@@ -409,7 +409,7 @@ pub const SIGNED: &str = "signed";
 pub const XNOR_FLAG: &str = "xnor";
 
 /// The flag of a monostable that pulses as A turns off, not on.
-const FALLING_EDGE: &str = "falling_edge";
+pub const FALLING_EDGE: &str = "falling_edge";
 
 /// The details worked out from a build's file and its simulation, over
 /// what was typed, as they stand or are to be.
@@ -471,6 +471,9 @@ impl Derived {
             derived.synchronized = e.synchronized;
             derived.stacking.clone_from(&e.stacking);
             derived.flags.clone_from(&e.flags);
+            if e.pulse.is_some() {
+                derived.pulse = e.pulse;
+            }
             derived.throughput = e.throughput;
             if let Some(design) = &e.design {
                 design.name.clone_into(&mut derived.design);

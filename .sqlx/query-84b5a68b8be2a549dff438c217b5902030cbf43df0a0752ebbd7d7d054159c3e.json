@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic SET category = ?, built_on = ?,\n                description = ?, given_name = ?, at_least = ?, bytes = ?,\n                edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "84b5a68b8be2a549dff438c217b5902030cbf43df0a0752ebbd7d7d054159c3e"
+}
