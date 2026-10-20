@@ -83,6 +83,7 @@ pub struct Role {
 pub fn roles(
     data: &[u8],
     ways: &[StackDirection],
+    buses: stack::Buses,
 ) -> Result<BTreeMap<Pos, Role>> {
     let file = Blocks::read(data)?;
     let interface = interface::read(&file);
@@ -100,7 +101,7 @@ pub fn roles(
     let mut worlds =
         vec![World::new(Blocks::read(data)?, vec![[0, 0, 0]], &outputs)];
     for &way in ways {
-        let stacked = Blocks::read(&copies(data, way)?)?;
+        let stacked = Blocks::read(&copies(data, way, buses)?)?;
         worlds.push(World::new(stacked, shifts(way)?, &outputs));
     }
     // Where `p` stands in each copy of a world that still holds its block,
@@ -142,7 +143,10 @@ pub fn roles(
         let output = outputs.contains(&p);
         let building = schem::short(state).ends_with("_concrete")
             || schem::short(state).ends_with("glass");
+        // A gray block marks what only a stack's first copy keeps, so it
+        // does its work in a stack, as its later copies leave it out.
         if !building
+            || lint::first_copy_only(schem::short(state))
             || inputs.contains(&p)
             || (output && !lint::is_output(schem::short(state)))
         {
@@ -179,11 +183,12 @@ pub fn changed(
     before: &[u8],
     after: &[u8],
     ways: &[StackDirection],
+    buses: stack::Buses,
 ) -> Result<Vec<String>> {
     let mut found = Vec::new();
-    for (old, new) in circuits(before, ways)?
+    for (old, new) in circuits(before, ways, buses)?
         .into_iter()
-        .zip(circuits(after, ways)?)
+        .zip(circuits(after, ways, buses)?)
     {
         let positions: BTreeSet<&Pos> =
             old.kinds.keys().chain(new.kinds.keys()).collect();
@@ -207,17 +212,27 @@ pub fn changed(
 
 /// A hash of the circuit of the build in `data`, alone and stacked each of
 /// `ways`: two files with the same key compute the same, stacked the same.
-pub fn circuit_key(data: &[u8], ways: &[StackDirection]) -> Result<String> {
-    let keys: Vec<String> =
-        circuits(data, ways)?.iter().map(Compiled::key).collect();
+pub fn circuit_key(
+    data: &[u8],
+    ways: &[StackDirection],
+    buses: stack::Buses,
+) -> Result<String> {
+    let keys: Vec<String> = circuits(data, ways, buses)?
+        .iter()
+        .map(Compiled::key)
+        .collect();
     Ok(crate::import::sha256(keys.join(" ").as_bytes()))
 }
 
 /// The circuit of the build in `data` alone, then stacked each of `ways`.
-fn circuits(data: &[u8], ways: &[StackDirection]) -> Result<Vec<Compiled>> {
+fn circuits(
+    data: &[u8],
+    ways: &[StackDirection],
+    buses: stack::Buses,
+) -> Result<Vec<Compiled>> {
     let mut found = vec![compiled(&Blocks::read(data)?)?];
     for &way in ways {
-        found.push(compiled(&Blocks::read(&copies(data, way)?)?)?);
+        found.push(compiled(&Blocks::read(&copies(data, way, buses)?)?)?);
     }
     Ok(found)
 }
@@ -274,10 +289,16 @@ fn shifts(way: StackDirection) -> Result<Vec<Pos>> {
         .collect())
 }
 
-/// Copies of the build in `data` stacked `way`, as the site stacks them.
-fn copies(data: &[u8], way: StackDirection) -> Result<Vec<u8>> {
+/// Copies of the build in `data` stacked `way`, as the site stacks them,
+/// sharing its buses as `buses` says, as a register file's copies share
+/// their data bus.
+fn copies(
+    data: &[u8],
+    way: StackDirection,
+    buses: stack::Buses,
+) -> Result<Vec<u8>> {
     let copies = usize::try_from(count(way))?;
-    Ok(stack::stack(data, &[(way, copies)], stack::Buses::own())?.0)
+    Ok(stack::stack(data, &[(way, copies)], buses)?.0)
 }
 
 const HORIZONTAL: [Direction; 4] = [

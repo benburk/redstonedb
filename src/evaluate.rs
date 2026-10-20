@@ -100,16 +100,23 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         // Copies that work run the way its bits do, which a 1-bit build's
         // lone input cannot show; a gate's work only up to so many.
         let stepped = match &run.stacking {
-            Some(Stacking::Stacks { step, .. }) => Some((step, None)),
-            Some(Stacking::Wider { step, most, .. }) => Some((step, *most)),
+            Some(Stacking::Stacks { step, .. }) => Some((step, None, true)),
+            Some(Stacking::Wider { step, most, .. }) => {
+                Some((step, *most, true))
+            }
+            // A register file's copies are more cells, not more bits, so
+            // they show nothing of how its bits run.
+            Some(Stacking::Registers { step, most, .. }) => {
+                Some((step, *most, false))
+            }
             _ => None,
         };
-        if let Some((step, most)) = stepped {
+        if let Some((step, most, bits)) = stepped {
             found.stacking = vec![StackDirection {
                 max_copies: most.and_then(|n| i64::try_from(n).ok()),
                 ..step.direction()
             }];
-            if let Some(orientation) = step.orientation() {
+            if let Some(orientation) = step.orientation().filter(|_| bits) {
                 found.orientation = Some(orientation);
             }
         }

@@ -260,18 +260,19 @@ impl Test {
         }
     }
 
-    /// Whether the build in `blocks` holds state, as `bench::remembers`
-    /// tells: what is left of each case once its presses are over, against
-    /// a fresh copy given only the case's inputs. `None` for a test that
-    /// runs its own way, as a register's does.
+    /// Whether the build in `blocks`, whose cases all came out right, holds
+    /// state, as `bench::remembers` tells: what is left of each case once
+    /// its presses are over, against a fresh copy given only the case's
+    /// inputs. A register's or buffer's cases are what it holds once its
+    /// data bus has changed, so passing them is holding state. `None` for
+    /// another test that runs its own way, as an ALU's does.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
+        if matches!(self, Test::Register | Test::Buffer) {
+            return Ok(Some(true));
+        }
         if matches!(
             self,
-            Test::Alu
-                | Test::Register
-                | Test::Buffer
-                | Test::Monostable
-                | Test::DualEdgeMonostable
+            Test::Alu | Test::Monostable | Test::DualEdgeMonostable
         ) {
             return Ok(None);
         }

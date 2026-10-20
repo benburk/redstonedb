@@ -25,6 +25,7 @@ use crate::{
     simulate::{
         Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
     },
+    stack,
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -88,17 +89,24 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// How build `s`'s copies stacked share its buses, as its category and the
+/// way its bits run say.
+fn buses(s: &Schematic) -> stack::Buses {
+    stack::Buses::of(&s.category, s.orientation)
+}
+
 /// Moves build `id`'s stored result to its file `data`, whose hash is
-/// `sha256`, when that holds the same circuit, stacked each of `ways`, as
-/// the result ran on, so the file is not simulated again. Returns the
-/// circuit's key, `None` when it could not be compiled.
+/// `sha256`, when that holds the same circuit, stacked each of `ways` with
+/// its buses as `buses` says, as the result ran on, so the file is not
+/// simulated again. Returns the circuit's key, `None` when it could not be
+/// compiled.
 async fn adopt(
     db: &SqlitePool,
     id: &str,
     (data, sha256): (&[u8], &str),
-    ways: &[StackDirection],
+    (ways, buses): (&[StackDirection], stack::Buses),
 ) -> Result<Option<String>> {
-    let Ok(key) = roles::circuit_key(data, ways) else {
+    let Ok(key) = roles::circuit_key(data, ways, buses) else {
         return Ok(None);
     };
     sqlx::query!(
@@ -268,7 +276,7 @@ pub async fn refresh(
         .await?
         .context("schematic vanished")?;
     if !again {
-        adopt(db, id, (&data, &s.sha256), &s.stacking).await?;
+        adopt(db, id, (&data, &s.sha256), (&s.stacking, buses(&s))).await?;
     }
     if s.conventional && category::behaviour(&s.category).evaluated {
         return refresh_evaluated(db, &s, data, again).await;
@@ -304,7 +312,12 @@ pub async fn refresh(
     match (test, ran) {
         (None, _) => clear(&mut *tx, id).await?,
         (Some(_), Some((test, report))) => {
-            let key = roles::circuit_key(&data, &derived.stacking).ok();
+            let key = roles::circuit_key(
+                &data,
+                &derived.stacking,
+                stack::Buses::of(&s.category, derived.orientation),
+            )
+            .ok();
             let file = (s.sha256.as_str(), key.as_deref());
             set(&mut *tx, id, test, file, &report).await?;
         }
@@ -359,7 +372,12 @@ async fn refresh_evaluated(
     derived.save(&mut tx, s).await?;
     match (Test::of(&s.category, derived.width), &report) {
         (Some(test), Some(report)) => {
-            let key = roles::circuit_key(&data, &derived.stacking).ok();
+            let key = roles::circuit_key(
+                &data,
+                &derived.stacking,
+                stack::Buses::of(&s.category, derived.orientation),
+            )
+            .ok();
             let file = (s.sha256.as_str(), key.as_deref());
             set(&mut *tx, &s.id, test, file, report).await?;
         }
@@ -667,7 +685,7 @@ pub async fn refresh_timing(
             .await?
             .context("schematic vanished")?;
         let cancel = Arc::new(AtomicBool::new(false));
-        let key = roles::circuit_key(&data, &s.stacking).ok();
+        let key = roles::circuit_key(&data, &s.stacking, buses(&s)).ok();
         run.timing = Some(time(test, data, cancel).await?);
         measured = Some((test, key));
     }

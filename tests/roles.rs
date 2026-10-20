@@ -6,7 +6,7 @@ use app::{
     roles::{self, Need, Role},
     schem::{self, Blocks, Pos},
     simulate::{Report, Test},
-    standardize,
+    stack, standardize,
 };
 
 /// A fixture as the site stores it.
@@ -59,7 +59,7 @@ fn unused(roles: &BTreeMap<Pos, Role>) -> Vec<Pos> {
 #[test]
 fn a_block_holding_only_dust_that_leads_nowhere_is_unused() {
     let (data, stub) = with_stub(&stored("rca-slice-capped"));
-    let found = unused(&roles::roles(&data, &[]).unwrap());
+    let found = unused(&roles::roles(&data, &[], stack::Buses::own()).unwrap());
     assert!(found.contains(&stub));
     assert!(found.contains(&schem::step(stub, schem::Direction::Up)));
 }
@@ -68,14 +68,18 @@ fn a_block_holding_only_dust_that_leads_nowhere_is_unused() {
 fn torches_keep_their_blocks_and_the_cleaned_adder_still_adds() {
     let data = stored("rca-slice-capped");
     let blocks = Blocks::read(&data).unwrap();
-    let roles = roles::roles(&data, &[]).unwrap();
+    let roles = roles::roles(&data, &[], stack::Buses::own()).unwrap();
     for (pos, state) in blocks.iter() {
         if let Some(base) = schem::torch_block(pos, state) {
             assert_ne!(roles.get(&base).map(|r| r.need), Some(Need::Unused));
         }
     }
     let cleaned = without(&data, unused(&roles));
-    assert!(roles::changed(&data, &cleaned, &[]).unwrap().is_empty());
+    assert!(
+        roles::changed(&data, &cleaned, &[], stack::Buses::own())
+            .unwrap()
+            .is_empty()
+    );
     let test = Test::of("adder", Some(1)).unwrap();
     let report = test.run(&Blocks::read(&cleaned).unwrap());
     assert!(matches!(report, Report::Ran(run) if run.wrong == 0));
@@ -90,5 +94,9 @@ fn taking_out_a_torchs_block_changes_the_circuit() {
         .find_map(|(pos, state)| schem::torch_block(pos, state))
         .unwrap();
     let broken = without(&data, [base]);
-    assert!(!roles::changed(&data, &broken, &[]).unwrap().is_empty());
+    assert!(
+        !roles::changed(&data, &broken, &[], stack::Buses::own())
+            .unwrap()
+            .is_empty()
+    );
 }

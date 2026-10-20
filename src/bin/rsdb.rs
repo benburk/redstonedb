@@ -1210,7 +1210,8 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
         let data = version::current_file(db, id)
             .await?
             .context("schematic vanished")?;
-        let pruned = match prune_file(&data, &s.stacking) {
+        let buses = app::stack::Buses::of(&s.category, s.orientation);
+        let pruned = match prune_file(&data, &s.stacking, buses) {
             Ok(Some(pruned)) => pruned,
             Ok(None) => continue,
             Err(err) => {
@@ -1254,8 +1255,12 @@ struct Pruned {
 /// The build in `data`, stacking each of `ways`, without its unused
 /// blocks, once compiling it before and after shows every link as it was;
 /// `None` when it has none.
-fn prune_file(data: &[u8], ways: &[StackDirection]) -> Result<Option<Pruned>> {
-    let gone: BTreeMap<_, String> = app::roles::roles(data, ways)?
+fn prune_file(
+    data: &[u8],
+    ways: &[StackDirection],
+    buses: app::stack::Buses,
+) -> Result<Option<Pruned>> {
+    let gone: BTreeMap<_, String> = app::roles::roles(data, ways, buses)?
         .into_iter()
         .filter(|(_, role)| role.need == app::roles::Need::Unused)
         .map(|(pos, _)| (pos, app::schem::AIR.to_owned()))
@@ -1264,7 +1269,7 @@ fn prune_file(data: &[u8], ways: &[StackDirection]) -> Result<Option<Pruned>> {
         return Ok(None);
     }
     let file = standardize::edit(data, &gone)?;
-    let changed = app::roles::changed(data, &file, ways)?;
+    let changed = app::roles::changed(data, &file, ways, buses)?;
     if let Some(first) = changed.first() {
         bail!(
             "{} parts of its circuit would change, such as {first}",
