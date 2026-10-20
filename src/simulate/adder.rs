@@ -608,9 +608,10 @@ mod tests {
     #[test]
     fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {
         let (cases, paired) = adder_cases(16, true, 8);
-        // Each byte with and without a carry, less two the high byte
-        // repeats: A's low byte all set, with or without carry in.
-        assert_eq!(cases.len() as u64 - paired, 4 * (1 << 16) - 2);
+        // Each byte with and without a carry, and the high byte with a
+        // borrow through the low, less three it repeats: A's low byte all
+        // set or all clear, with or without carry in.
+        assert_eq!(cases.len() as u64 - paired, 5 * (1 << 16) - 3);
         // A carry from carry in through the low byte into the high one.
         assert!(cases.contains(&[0x00FF, 0x0F00, 1]));
         // The longest carry: all ones plus one.
