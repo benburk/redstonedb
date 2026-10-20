@@ -203,8 +203,7 @@ pub fn behaviour(category: &str) -> Behaviour {
         // Its copies add bits, sharing its control line.
         "inverter" => Behaviour {
             lines: Lines::Control("invert"),
-            stacking: Stacking::Found,
-            ..read(Test::Inverter)
+            ..evaluated(Test::Inverter, Stacking::Inferred)
         },
         "multiplier" => Behaviour {
             flags_from_file: true,

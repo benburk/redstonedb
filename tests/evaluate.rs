@@ -252,3 +252,18 @@ fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
         assert!(e.flags.iter().any(|f| f == flag), "{flag}: {:?}", e.flags);
     }
 }
+
+/// An inverter is read whole from its file: its copies stack west into
+/// more bits, sharing its control line, which gives its orientation, and
+/// its throughput is measured.
+#[test]
+fn an_inverter_is_read_whole_from_its_file() {
+    let e = evaluate(&uploaded("inverter-1")).unwrap();
+    assert_eq!(e.category, Some("inverter"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.stacking.len(), 1, "{:?}", e.stacking);
+    assert!(e.stacking[0].west > 0);
+    assert_eq!(e.orientation, Some(Orientation::Horizontal));
+    assert!(e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
