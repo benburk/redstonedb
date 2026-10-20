@@ -128,3 +128,43 @@ fn an_incrementer_with_no_carry_out_does_not_stack() {
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
+
+/// A fixture prepared as an upload is, whitened and turned the standard
+/// way.
+fn uploaded(name: &str) -> Vec<u8> {
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+        .unwrap()
+        .data
+}
+
+/// A comparator or absolute value is read whole from its file, a
+/// comparator's sign from its cases; copies of either make no wider one,
+/// so neither is searched for stacking.
+#[test]
+fn a_comparison_and_an_absolute_value_are_read_whole_from_their_files() {
+    for (name, category, flags) in [
+        ("gt-8", "greater_than", &[][..]),
+        ("gt-8-signed", "greater_than", &["signed"][..]),
+        ("abs-8", "absolute_value", &[][..]),
+    ] {
+        let e = evaluate(&uploaded(name)).unwrap();
+        assert_eq!(e.category, Some(category), "{name}");
+        assert!(e.passes(), "{name}: {:?}", e.report);
+        assert_eq!(e.width, Some(8), "{name}");
+        assert_eq!(e.flags, flags, "{name}");
+        assert!(e.stacking.is_empty(), "{name}");
+        let Some(Report::Ran(run)) = &e.report else {
+            panic!("{name} ran");
+        };
+        assert!(run.stacking.is_none(), "{name} is never searched");
+        assert!(e.latency.is_some() && e.throughput.is_some(), "{name}");
+        assert_eq!(e.logic, Some(Logic::Stateless), "{name}");
+    }
+    // An equality comparator whose bit 0 is too weak to count is one, but
+    // fails, so it has no timing.
+    let weak = evaluate(&uploaded("eq-8-weak-bit-0")).unwrap();
+    assert_eq!(weak.category, Some("equality"));
+    assert!(!weak.passes());
+    assert_eq!((weak.latency, weak.throughput), (None, None));
+}

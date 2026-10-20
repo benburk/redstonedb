@@ -385,7 +385,7 @@ pub fn simulated_flags(category: &str) -> &'static [&'static str] {
 }
 
 /// The flag of a comparator that reads its operands in two's complement.
-const SIGNED: &str = "signed";
+pub const SIGNED: &str = "signed";
 
 /// The flag of an XOR/XNOR gate whose every bit is inverted, an XNOR.
 pub const XNOR_FLAG: &str = "xnor";

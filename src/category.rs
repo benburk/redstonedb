@@ -113,6 +113,13 @@ pub fn behaviour(category: &str) -> Behaviour {
         reads_file: true,
         ..tested(test)
     };
+    // A category whose every detail `evaluate` works out, its stacking as
+    // `stacking` says.
+    let evaluated = |test, stacking| Behaviour {
+        stacking,
+        evaluated: true,
+        ..read(test)
+    };
     // A monostable's lone output needs no sign; its copies add bits, each
     // with its own.
     let monostable = |test| Behaviour {
@@ -141,46 +148,40 @@ pub fn behaviour(category: &str) -> Behaviour {
             lines: lone(BORROW_IN, BORROW_OUT),
             ..read(Test::Subtractor)
         },
+        // Its copies chain as an adder's, its carry out the next's carry in.
         "carry_out" => Behaviour {
             lines: Lines::Lone {
                 control: CARRY_IN,
                 status: CARRY_OUT,
                 lone_output: true,
             },
-            ..read(Test::CarryOut)
+            ..evaluated(Test::CarryOut, Stacking::Inferred)
         },
         // Its copies chain as an adder's, its carry out the next's
         // increment.
         "incrementer" => Behaviour {
             lines: lone("increment", CARRY_OUT),
-            stacking: Stacking::Inferred,
-            evaluated: true,
-            ..read(Test::Incrementer)
+            ..evaluated(Test::Incrementer, Stacking::Inferred)
         },
         "decrementer" => Behaviour {
             lines: lone("decrement", "borrow out"),
-            stacking: Stacking::Inferred,
-            evaluated: true,
-            ..read(Test::Decrementer)
+            ..evaluated(Test::Decrementer, Stacking::Inferred)
         },
         // Its line may mean either way, so it keeps its own name.
         "inc_dec" => read(Test::IncDec),
         "alu" => read(Test::Alu),
-        "absolute_value" => read(Test::AbsoluteValue),
+        // Copies of these make no wider one, so they never stack.
+        "absolute_value" => evaluated(Test::AbsoluteValue, Stacking::Never),
         "greater_than" => Behaviour {
             lines: Lines::Result("A > B"),
-            ..read(Test::GreaterThan)
+            ..evaluated(Test::GreaterThan, Stacking::Never)
         },
         "equality" => Behaviour {
             lines: Lines::Result("A = B"),
-            ..read(Test::Equality)
+            ..evaluated(Test::Equality, Stacking::Never)
         },
         // Its copies add bits, each with its own A, B, and output.
-        "xor_xnor_gate" => Behaviour {
-            stacking: Stacking::Inferred,
-            evaluated: true,
-            ..read(Test::XorXnor)
-        },
+        "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
         "register" => Behaviour {
             lines: Lines::Register,
             stacking: Stacking::Found,

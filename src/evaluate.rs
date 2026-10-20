@@ -14,7 +14,7 @@ use crate::{
     interface,
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection},
-        simulation::XNOR_FLAG,
+        simulation::{SIGNED, XNOR_FLAG},
     },
     simulate::{
         self, Design, Report, Stacking, Test, adder_design, throughput,
@@ -113,9 +113,15 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
                 found.orientation = Some(orientation);
             }
         }
-        // A gate's cases say whether it is an XNOR.
+        // A gate's cases say whether it is an XNOR, and a comparator's
+        // whether it reads its operands signed.
         if test == Test::XorXnor && run.pattern == simulate::XNOR {
             found.flags.push(XNOR_FLAG.to_owned());
+        }
+        if test == Test::GreaterThan
+            && run.pattern == simulate::SIGNED_GREATER_THAN
+        {
+            found.flags.push(SIGNED.to_owned());
         }
         let timing =
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;

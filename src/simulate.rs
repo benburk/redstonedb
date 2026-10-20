@@ -338,7 +338,7 @@ impl Test {
             Test::DualEdgeMonostable => monostable::stacking(data, true),
             Test::Inverter => inverter::stacking(data),
             Test::XorXnor => gate::stacking(data),
-            Test::Incrementer | Test::Decrementer => {
+            Test::Incrementer | Test::Decrementer | Test::CarryOut => {
                 Some(stacking::chained(data, self))
             }
             _ => None,

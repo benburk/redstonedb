@@ -403,9 +403,9 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
 }
 
 /// The shortest step up, west, or north, as far as the build reaches,
-/// whose copies of the incrementer or decrementer in `data` make a wider
-/// one under `test`: each copy's carry out, landing on the next's control
-/// line, takes its place, as an adder's carry does. One with no carry out
+/// whose copies of the incrementer, decrementer, or carry out in `data`
+/// make a wider one under `test`: each copy's carry out, landing on the
+/// next's control line, takes its place, as an adder's carry does. One with no carry out
 /// keeps every copy's own line, so none does. Copies are as many as
 /// `copies` gives, so the stack reaches past what dust carries.
 pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
@@ -448,11 +448,21 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
         )
         .ok()?;
         let blocks = Blocks::read(&stacked).ok()?;
-        let bits = interface::read(&blocks).inputs.first()?.bits.len();
+        // Copies that overlap may read as a bus wider than any test, so
+        // only a stack of the bits its copies add is run.
+        let stacked = interface::read(&blocks);
+        let wide = |port: &interface::Port| {
+            port.bits.len() > usize::try_from(MAX_WIDTH).unwrap_or(0)
+        };
+        if stacked.inputs.first()?.bits.len() != width * copies
+            || stacked.inputs.iter().any(wide)
+        {
+            return None;
+        }
         let Report::Ran(run) = test.run(&blocks) else {
             return None;
         };
-        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
+        (run.wrong == 0).then_some(run.cases)
     };
     for step in steps {
         let Some(copies) = copies(step, width) else {
