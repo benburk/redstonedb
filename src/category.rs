@@ -179,6 +179,10 @@ pub fn behaviour(category: &str) -> Behaviour {
         },
         // Its copies add bits, each with its own A, B, and output.
         "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
+        "nand_xnor_gate" => evaluated(Test::NandXnor, Stacking::Inferred),
+        // Copies of these make no wider one, so they never stack.
+        "decoder" => evaluated(Test::Decoder, Stacking::Never),
+        "barrel_shifter" => evaluated(Test::BarrelShifter, Stacking::Never),
         "register" => Behaviour {
             lines: Lines::Register,
             copies: Copies::SharedBuses,

@@ -51,6 +51,7 @@ mod alu;
 mod bench;
 mod circuit;
 mod converters;
+mod decoder;
 mod design;
 mod gate;
 mod incrementer;
@@ -58,6 +59,7 @@ mod inverter;
 mod monostable;
 mod multiplier;
 mod register;
+mod shifter;
 mod stacking;
 mod throughput;
 mod timing;
@@ -66,8 +68,10 @@ pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled};
+pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, adder_design, design_of};
 pub use gate::XNOR;
+pub use shifter::flags as shifter_flags;
 pub use stacking::{Stacking, Step};
 pub use throughput::throughput;
 pub use timing::{
@@ -82,6 +86,13 @@ pub enum Test {
     /// The sums of A, B, and any carry in, or, B inverted, the differences
     /// of A and B, less any borrow in, any line read inverted.
     Adder,
+    /// A's every value into one bit of an output, the one A names.
+    Decoder,
+    /// A nand B and A xnor B, on outputs of their own.
+    NandXnor,
+    /// A shifted or rotated by an amount its lines give, the way its other
+    /// lines choose.
+    BarrelShifter,
     /// A plus 1, or plus its control line.
     Incrementer,
     /// A minus 1, or minus its control line.
@@ -129,8 +140,11 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 18] = [
+    pub const ALL: [Test; 21] = [
         Test::Adder,
+        Test::Decoder,
+        Test::NandXnor,
+        Test::BarrelShifter,
         Test::Incrementer,
         Test::Decrementer,
         Test::IncDec,
@@ -171,6 +185,9 @@ impl Test {
     pub fn name(self) -> &'static str {
         match self {
             Test::Adder => "adder",
+            Test::Decoder => "decoder",
+            Test::NandXnor => "nand_xnor_gate",
+            Test::BarrelShifter => "barrel_shifter",
             Test::Incrementer => "incrementer",
             Test::Decrementer => "decrementer",
             Test::IncDec => "inc_dec",
@@ -197,7 +214,10 @@ impl Test {
     /// runs again.
     pub fn version(self) -> i64 {
         match self {
-            Test::Incrementer
+            Test::Decoder
+            | Test::NandXnor
+            | Test::BarrelShifter
+            | Test::Incrementer
             | Test::Decrementer
             | Test::IncDec
             | Test::Multiplier
@@ -242,6 +262,7 @@ impl Test {
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
         match self {
             Test::Alu => alu::check(blocks, quick),
+            Test::BarrelShifter => shifter::check(blocks, quick),
             Test::Register => {
                 register::check(blocks, register::Kind::Register, quick)
             }
@@ -272,6 +293,9 @@ impl Test {
         if self == Test::Alu {
             return alu::remembers(blocks).map(Some);
         }
+        if self == Test::BarrelShifter {
+            return shifter::remembers(blocks).map(Some);
+        }
         // A pulse generator's pulse is its input's change, not a held
         // value, so it holds no state.
         if matches!(self, Test::Monostable | Test::DualEdgeMonostable) {
@@ -291,6 +315,8 @@ impl Test {
     ) -> Result<bench::Spec> {
         match self {
             Test::Adder => adder::adder(interface),
+            Test::Decoder => decoder::spec(interface),
+            Test::NandXnor => gate::nand_xnor(interface),
             Test::CarryOut => adder::carry_out(interface),
             Test::GreaterThan => adder::greater_than(interface),
             Test::Equality => adder::equality(interface),
@@ -311,6 +337,7 @@ impl Test {
             }
             Test::XorXnor => gate::spec(interface),
             Test::Alu
+            | Test::BarrelShifter
             | Test::Register
             | Test::Buffer
             | Test::Monostable
@@ -339,6 +366,7 @@ impl Test {
             Test::DualEdgeMonostable => monostable::stacking(data, true),
             Test::Inverter => inverter::stacking(data),
             Test::XorXnor => gate::stacking(data),
+            Test::NandXnor => gate::nand_xnor_stacking(data),
             Test::Incrementer | Test::Decrementer | Test::CarryOut => {
                 Some(stacking::chained(data, self))
             }
@@ -367,6 +395,7 @@ impl Test {
                 monostable::throughput(blocks, timing)
             }
             Test::Alu => alu::throughput(blocks, timing),
+            Test::BarrelShifter => shifter::throughput(blocks, timing),
             _ => throughput::throughput(blocks, timing),
         }
     }
@@ -377,6 +406,7 @@ impl Test {
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         match self {
             Test::Alu => alu::time(blocks, cancel),
+            Test::BarrelShifter => shifter::time(blocks, cancel),
             Test::Register => {
                 register::time(blocks, register::Kind::Register, cancel)
             }
@@ -548,8 +578,11 @@ pub struct Wrong {
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
 /// comes before an equality comparator, as a 1-bit one is A xnor B.
-const GUESSED: [Test; 16] = [
+const GUESSED: [Test; 19] = [
     Test::Adder,
+    Test::Decoder,
+    Test::NandXnor,
+    Test::BarrelShifter,
     Test::Inverter,
     Test::XorXnor,
     Test::Incrementer,

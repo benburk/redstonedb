@@ -184,6 +184,14 @@ impl Evaluation {
         if test == Test::Alu {
             self.flags = simulate::alu_flags(&self.prepared.blocks)?;
         }
+        // A barrel shifter's are the shifts its lines give, and a
+        // decoder's whether its outputs are inverted.
+        if test == Test::BarrelShifter {
+            self.flags = simulate::shifter_flags(&self.prepared.blocks)?;
+        }
+        if test == Test::Decoder && run.pattern == simulate::DECODER_INVERTED {
+            self.flags.push(INVERTED.to_owned());
+        }
         // An adder's lines read inverted, as a subtractor's B is, and a
         // register's or buffer's reads.
         if test == Test::Adder {

@@ -354,3 +354,52 @@ fn inverted_lines_are_flags_not_categories() {
         register.flags
     );
 }
+
+/// A decoder is read whole from its file: each value of A turns its own
+/// output bit on, or, as this one, off, the rest on; it never stacks.
+#[test]
+fn a_decoder_is_read_whole_from_its_file() {
+    let e = evaluate(&stored("decoder-4-inverted")).unwrap();
+    assert_eq!(e.category, Some("decoder"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(4));
+    assert_eq!(e.flags, ["inverted"]);
+    assert!(e.stacking.is_empty());
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
+/// A NAND+XNOR gate gives both on outputs of their own, and stacks west
+/// into more bits as an XOR gate does.
+#[test]
+fn a_nand_xnor_gate_is_read_whole_from_its_file() {
+    let e = evaluate(&stored("nand-xnor-1")).unwrap();
+    assert_eq!(e.category, Some("nand_xnor_gate"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(1));
+    assert_eq!(e.stacking.len(), 1, "{:?}", e.stacking);
+    assert_eq!(e.orientation, Some(Orientation::Horizontal));
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
+/// A barrel shifter's shifts are found by trying its lines at every
+/// amount on every value of A: this one shifts left, and a combination of
+/// its lines that shifts only some values is no shift of it.
+#[test]
+fn a_barrel_shifters_shifts_are_found_by_its_lines() {
+    let e = evaluate(&stored("barrel-shifter-8")).unwrap();
+    assert_eq!(e.category, Some("barrel_shifter"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(
+        run.pattern.contains("A << n (shift left on)"),
+        "{}",
+        run.pattern
+    );
+    assert!(e.stacking.is_empty());
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}

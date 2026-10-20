@@ -65,6 +65,89 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     })
 }
 
+/// A NAND+XNOR gate's cases, its NAND output and its XNOR output read
+/// together, in the order its outputs come.
+const NAND_XNOR: &str = "A nand B, A xnor B";
+const XNOR_NAND: &str = "A xnor B, A nand B";
+
+/// A NAND+XNOR gate's every case, or with too many, each byte's and the
+/// test patterns: two operand buses of one width into two outputs as wide,
+/// one each bit A nand B and the other A xnor B, whichever way round they
+/// come.
+pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
+    let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
+    else {
+        broken!(
+            "A NAND+XNOR gate takes two operands and no lines, but this has \
+             {} inputs.",
+            interface.inputs.len()
+        );
+    };
+    let &[first, second] =
+        (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
+    else {
+        broken!(
+            "A NAND+XNOR gate has two outputs, but this has {}.",
+            interface.outputs.len()
+        );
+    };
+    let width = interface.inputs[a].bits.len();
+    let bits = |port: usize| interface.outputs[port].bits.len();
+    if interface.inputs[b].bits.len() != width
+        || bits(first) != width
+        || bits(second) != width
+    {
+        broken!(
+            "A NAND+XNOR gate's operands and two outputs have the same \
+             number of bits, but this one's differ."
+        );
+    }
+    let all = mask(width);
+    let nand = move |case: &[u64; 3]| !(case[0] & case[1]) & all;
+    let xnor = move |case: &[u64; 3]| !(case[0] ^ case[1]) & all;
+    Ok(Spec {
+        bench: Bench::new(vec![a, b], vec![first, second], NAND_XNOR),
+        cases: Cases::Combinations(Box::new(move || {
+            adder_cases(width, false, 8)
+        })),
+        kinds: vec![
+            Kind::new(NAND_XNOR, move |case| nand(case) | xnor(case) << width),
+            Kind::new(XNOR_NAND, move |case| xnor(case) | nand(case) << width),
+        ],
+        hint: Hint::None,
+        by_digit: false,
+    })
+}
+
+/// How copies of the NAND+XNOR gate in `data` stack west into a wider one,
+/// as an XOR gate's do.
+pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
+    let blocks = Blocks::read(data).ok()?;
+    let interface = interface::read(&blocks);
+    nand_xnor(&interface).ok()?;
+    let width = interface.inputs[0].bits.len();
+    let (low, high) = interface::measured(&blocks);
+    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let buses =
+        stack::Buses::of(Test::NandXnor.name(), Orientation::Horizontal);
+    let works = |blocks: &Blocks, copies: usize| {
+        let Report::Ran(run) = Test::NandXnor.run(blocks) else {
+            return None;
+        };
+        let bits = interface::read(blocks).inputs.first()?.bits.len();
+        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
+    };
+    Some(stacking::west_into_bits(
+        data,
+        reach,
+        width,
+        buses,
+        works,
+        "No step west, up to two past its width, makes copies whose bits \
+         together give A nand B and A xnor B.",
+    ))
+}
+
 /// How copies of the gate in `data` stack west into a wider one, each
 /// adding its bits to A, B, and the output, as the inverter's do; `None`
 /// when it is not a gate.
