@@ -261,6 +261,13 @@ impl Schematic {
 
     /// What the build is: its given name, or else its category.
     fn what(&self) -> String {
+        // A subtractor is an adder whose B is inverted, called by what it
+        // does.
+        let subtracts = self.category == "adder"
+            && self.flags.iter().any(|flag| flag.name == "subtract");
+        if subtracts {
+            return "Subtractor".to_owned();
+        }
         self.given_name
             .clone()
             .unwrap_or_else(|| self.category_label())
@@ -1210,6 +1217,18 @@ mod tests {
         let mut uploaded = cla;
         uploaded.uploader = Some("someone".to_owned());
         assert!(user(None, false, Role::User).may_edit(&uploaded));
+    }
+
+    #[test]
+    fn an_adder_that_subtracts_is_named_a_subtractor() {
+        let mut subtractor = cla();
+        subtractor.flags = vec![Flag {
+            category: "adder".to_owned(),
+            name: "subtract".to_owned(),
+            label: String::new(),
+        }];
+        assert_eq!(subtractor.name(), "8-bit Carry Lookahead Subtractor");
+        assert_eq!(cla().name(), "8-bit Carry Lookahead Adder");
     }
 
     #[test]

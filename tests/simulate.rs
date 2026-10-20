@@ -1032,7 +1032,7 @@ fn a_double_density_subtractor_takes_b_from_a() {
     let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
         .unwrap()
         .blocks;
-    assert!(lint::check_for(&blocks, "subtractor").is_empty());
+    assert!(lint::check_for(&blocks, "adder").is_empty());
     let read = interface::read(&blocks);
     for port in read.inputs.iter().chain(&read.outputs) {
         let heights: Vec<i32> =
@@ -1044,10 +1044,11 @@ fn a_double_density_subtractor_takes_b_from_a() {
         );
     }
     assert_eq!(
-        import::derived_flags("subtractor", &read),
-        Some(vec!["borrow_in".to_owned()])
+        import::derived_flags("adder", &read),
+        Some(vec!["carry_in".to_owned()])
     );
-    let Report::Ran(run) = Test::Subtractor.run(&blocks) else {
+    // A subtractor is an adder whose B is inverted.
+    let Report::Ran(run) = Test::Adder.run(&blocks) else {
         panic!("the subtractor was not simulated");
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
@@ -1112,7 +1113,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     let laid = upload(&scrambled);
     assert_eq!(laid.turn, mirrored);
     assert!(laid.turn.words().starts_with("Mirrored"));
-    assert!(Test::Subtractor.run(&laid.blocks).passed());
+    assert!(Test::Adder.run(&laid.blocks).passed());
 }
 
 /// A comparison fixture as an upload standardizes it.

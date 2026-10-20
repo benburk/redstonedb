@@ -83,8 +83,8 @@ async fn only_a_named_category_keeps_a_given_name() {
     let db = setup_test_db().await;
     let bussing = check(&db, given("Bussing")).await.unwrap();
     assert_eq!(bussing.details.given_name.as_deref(), Some("Bus Crossing"));
-    let subtractor = check(&db, given("subtractor")).await.unwrap();
-    assert_eq!(subtractor.details.given_name, None);
+    let inc_dec = check(&db, given("inc_dec")).await.unwrap();
+    assert_eq!(inc_dec.details.given_name, None);
 }
 
 #[tokio::test]
@@ -94,8 +94,8 @@ async fn only_a_category_ranked_by_a_measure_keeps_it() {
     let ram = check(&db, given("ram")).await.unwrap();
     assert_eq!(ram.details.category, "ram");
     assert_eq!((ram.details.bytes, ram.details.at_least), (Some(32), None));
-    let subtractor = check(&db, given("Subtractor")).await.unwrap();
-    assert_eq!(subtractor.details.bytes, None);
+    let inc_dec = check(&db, given("INC_DEC")).await.unwrap();
+    assert_eq!(inc_dec.details.bytes, None);
 }
 
 #[tokio::test]
@@ -144,7 +144,7 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
     let db = setup_test_db().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
-        ..given("subtractor")
+        ..given("inc_dec")
     };
     let refused = check(&db, tagged.clone()).await.err().unwrap();
     assert!(refused.contains("only an admin"), "{refused}");
@@ -165,7 +165,7 @@ async fn a_build_date_still_to_come_is_refused() {
     let db = setup_test_db().await;
     let dated = |date: &str| Details {
         built_on: Some(date.to_owned()),
-        ..given("subtractor")
+        ..given("inc_dec")
     };
     let kept = check(&db, dated("2024-02-29")).await.unwrap();
     assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));

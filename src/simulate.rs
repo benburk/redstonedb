@@ -79,10 +79,9 @@ pub use timing::{
 /// number few enough, else every case of each byte and the test patterns.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
-    /// The sums of A, B, and any carry in.
+    /// The sums of A, B, and any carry in, or, B inverted, the differences
+    /// of A and B, less any borrow in, any line read inverted.
     Adder,
-    /// The differences of A and B, less any borrow in.
-    Subtractor,
     /// A plus 1, or plus its control line.
     Incrementer,
     /// A minus 1, or minus its control line.
@@ -130,9 +129,8 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 19] = [
+    pub const ALL: [Test; 18] = [
         Test::Adder,
-        Test::Subtractor,
         Test::Incrementer,
         Test::Decrementer,
         Test::IncDec,
@@ -173,7 +171,6 @@ impl Test {
     pub fn name(self) -> &'static str {
         match self {
             Test::Adder => "adder",
-            Test::Subtractor => "subtractor",
             Test::Incrementer => "incrementer",
             Test::Decrementer => "decrementer",
             Test::IncDec => "inc_dec",
@@ -200,9 +197,7 @@ impl Test {
     /// runs again.
     pub fn version(self) -> i64 {
         match self {
-            Test::Adder
-            | Test::Subtractor
-            | Test::Incrementer
+            Test::Incrementer
             | Test::Decrementer
             | Test::IncDec
             | Test::Multiplier
@@ -221,6 +216,9 @@ impl Test {
             // Than with the flag Signed, where it was once a category of its
             // own; a gate's copies are searched for how they stack.
             Test::Register | Test::GreaterThan | Test::XorXnor => 2,
+            // An adder reads any of its lines inverted, a subtractor's B
+            // among them, and borrows through each byte too.
+            Test::Adder => 3,
         }
     }
 
@@ -293,7 +291,6 @@ impl Test {
     ) -> Result<bench::Spec> {
         match self {
             Test::Adder => adder::adder(interface),
-            Test::Subtractor => adder::subtractor(interface),
             Test::CarryOut => adder::carry_out(interface),
             Test::GreaterThan => adder::greater_than(interface),
             Test::Equality => adder::equality(interface),
@@ -551,9 +548,8 @@ pub struct Wrong {
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
 /// comes before an equality comparator, as a 1-bit one is A xnor B.
-const GUESSED: [Test; 17] = [
+const GUESSED: [Test; 16] = [
     Test::Adder,
-    Test::Subtractor,
     Test::Inverter,
     Test::XorXnor,
     Test::Incrementer,

@@ -140,13 +140,6 @@ pub fn behaviour(category: &str) -> Behaviour {
             evaluated: true,
             ..read(Test::Adder)
         },
-        // Its lines are named for borrowing, as it takes B away; its
-        // stacking is its builders' to give, as only an adder's is searched.
-        "subtractor" => Behaviour {
-            flags_from_file: true,
-            lines: lone(BORROW_IN, BORROW_OUT),
-            ..read(Test::Subtractor)
-        },
         // Its copies chain as an adder's, its carry out the next's carry in.
         "carry_out" => Behaviour {
             lines: Lines::Lone {
@@ -224,12 +217,6 @@ const CARRY_IN: &str = crate::lint::CARRY_IN[0];
 
 /// The name an unsigned carry out goes by; see `lint::CARRY_OUT`.
 const CARRY_OUT: &str = crate::lint::CARRY_OUT[0];
-
-/// The name an unsigned borrow in goes by; see `lint::BORROW_IN`.
-const BORROW_IN: &str = crate::lint::BORROW_IN[0];
-
-/// The name an unsigned borrow out goes by; see `lint::BORROW_OUT`.
-const BORROW_OUT: &str = crate::lint::BORROW_OUT[0];
 
 impl Lines {
     /// Whether a lone control or status line may go without a sign.

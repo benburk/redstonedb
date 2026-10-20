@@ -29,30 +29,30 @@ pub(super) struct Arithmetic {
     /// What it gives for A, B, and its carry or borrow in, before it is cut
     /// to the outputs' bits, so a borrow out is a difference's sign.
     apply: fn(u64, u64, u64) -> u64,
-    /// A's bits below a piece of its cases, from their mask, such that the
-    /// carry or borrow in runs through them: all set for an add, which B's
-    /// clear bits then carry through, and clear for a subtract, which they
-    /// then borrow through.
-    a_below: fn(u64) -> u64,
 }
 
 pub(super) const ADD: Arithmetic = Arithmetic {
     a: "An adder",
-    line_in: &lint::CARRY_IN,
-    line_out: &lint::CARRY_OUT,
+    line_in: &CARRY_OR_BORROW_IN,
+    line_out: &CARRY_OR_BORROW_OUT,
     sign: '+',
     apply: |a, b, c| a + b + c,
-    a_below: |mask| mask,
 };
 
-pub(super) const SUBTRACT: Arithmetic = Arithmetic {
-    a: "A subtractor",
-    line_in: &lint::BORROW_IN,
-    line_out: &lint::BORROW_OUT,
-    sign: '−',
-    apply: |a, b, c| a.wrapping_sub(b).wrapping_sub(c),
-    a_below: |_| 0,
-};
+/// What an adder's lone lines may be signed: its carry in and out, or, as a
+/// subtractor's, its borrows; unsigned, they go by the first.
+const CARRY_OR_BORROW_IN: [&str; 4] = [
+    lint::CARRY_IN[0],
+    lint::CARRY_IN[1],
+    lint::BORROW_IN[0],
+    lint::BORROW_IN[1],
+];
+const CARRY_OR_BORROW_OUT: [&str; 4] = [
+    lint::CARRY_OUT[0],
+    lint::CARRY_OUT[1],
+    lint::BORROW_OUT[0],
+    lint::BORROW_OUT[1],
+];
 
 /// One way an adder's lines may read: as an add, or, B inverted and its
 /// carries borrows, a subtract, A − B less its borrow in; and with its
@@ -101,6 +101,19 @@ impl Variant {
     /// `carry_in` and `carry_out`.
     fn name(self, carry_in: Option<&str>, carry_out: Option<&str>) -> String {
         let sign = if self.subtract { '−' } else { '+' };
+        // A subtract's unsigned lines are its borrows.
+        let borrow = |name: &str, carry: &str, borrow: &'static str| {
+            if self.subtract && name == carry {
+                borrow.to_owned()
+            } else {
+                name.to_owned()
+            }
+        };
+        let carry_in = carry_in
+            .map(|name| borrow(name, lint::CARRY_IN[0], lint::BORROW_IN[0]));
+        let carry_out = carry_out
+            .map(|name| borrow(name, lint::CARRY_OUT[0], lint::BORROW_OUT[0]));
+        let (carry_in, carry_out) = (carry_in.as_deref(), carry_out.as_deref());
         let carry = carry_in.map_or(String::new(), |name| {
             let not = if self.carry_in { "not " } else { "" };
             format!(" {sign} {not}{name}")
@@ -199,12 +212,6 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     arithmetic(interface, &ADD)
 }
 
-/// A subtractor's every difference: A − B, less its borrow in when it has
-/// one, into its output and its borrow out, on when A is the smaller.
-pub(super) fn subtractor(interface: &mut Interface) -> Result<Spec> {
-    arithmetic(interface, &SUBTRACT)
-}
-
 /// Every case of an adder or subtractor, as `op` says. When every case is
 /// wrong, its carry or borrow in flipped is tried, since a lever saved the
 /// wrong way round does that. A hex build, slower to run, takes each
@@ -260,7 +267,7 @@ fn arithmetic(
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || {
-            cases(op, width, carry_in, piece)
+            cases(width, carry_in, piece)
         })),
         kinds,
         hint: if carry_in {
@@ -542,29 +549,27 @@ pub(super) fn adder_cases(
     carry_in: bool,
     piece: usize,
 ) -> (Vec<Case>, u64) {
-    cases(&ADD, width, carry_in, piece)
+    cases(width, carry_in, piece)
 }
 
 /// The cases an adder or subtractor too wide to try every combination of
 /// is checked on, as A, B, and carry or borrow in, with how many pair the
 /// test patterns. Each piece of `piece` bits, a byte or a hex digit, takes
 /// every value of A and B, with a carry or borrow into it and without: the
-/// bits below are as `op` sets A's, B's clear, and carry or borrow in, or
-/// B's lowest bit when there is no line for it, runs through them. Then
-/// every pairing of `patterns`, with carry or borrow in each way.
-fn cases(
-    op: &Arithmetic,
-    width: usize,
-    carry_in: bool,
-    piece: usize,
-) -> (Vec<Case>, u64) {
+/// bits below are A's all set or all clear, B's clear, so a carry in, or
+/// B's lowest bit when there is no line for it, carries through them, or a
+/// borrow borrows through them. Then every pairing of `patterns`, with
+/// carry or borrow in each way.
+fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
     let mut cases = Distinct::default();
     for low in (0..width).step_by(piece) {
         let bits = (width - low).min(piece);
-        for carry in [false, true] {
-            let a_below = (op.a_below)(mask(low));
+        // A's bits below all set, which B's clear bits carry the carry in
+        // through, and all clear, which a subtract borrows through.
+        for (carry, a_below) in [(false, 0), (true, mask(low)), (true, 0)] {
             let below = match (low, carry, carry_in) {
                 (0, true, false) => continue,
+                (0, _, _) if a_below != 0 => continue,
                 (0, _, _) => (0, 0, carry),
                 (_, false, _) => (mask(low), 0, false),
                 (_, true, true) => (a_below, 0, true),
@@ -617,14 +622,14 @@ mod tests {
     }
 
     #[test]
-    fn a_wide_subtractor_borrows_through_each_byte() {
+    fn a_wide_adder_borrows_through_each_byte_as_a_subtractor() {
         // The longest borrow: nothing less borrow in.
-        let (tried, _) = cases(&SUBTRACT, 16, true, 8);
+        let (tried, _) = cases(16, true, 8);
         assert!(tried.contains(&[0x0000, 0x0000, 1]));
         // From borrow in through the low byte into the high one.
         assert!(tried.contains(&[0x0F00, 0x0000, 1]));
         // Without a borrow in line, B's lowest bit makes the borrow.
-        let (tried, _) = cases(&SUBTRACT, 16, false, 8);
+        let (tried, _) = cases(16, false, 8);
         assert!(tried.contains(&[0x0F00, 0x0001, 0]));
     }
 
@@ -714,24 +719,19 @@ mod tests {
             port("cout", "pink concrete", true, 1),
         );
         assert!(ports(subtract).is_err());
-        // A subtractor's are its borrows, and a carry sign is not one.
+        // A subtractor's are its borrows, signed so or not.
         let mut borrows = carries(
             port("unnamed control", "magenta concrete", false, 1),
             port("bout", "pink concrete", true, 1),
         );
-        let found = adder_ports(&mut borrows, &SUBTRACT).unwrap();
+        let found = adder_ports(&mut borrows, &ADD).unwrap();
         assert_eq!(
             (
                 borrows.inputs[found.carry_in.unwrap()].name.as_str(),
                 borrows.outputs[found.carry_out.unwrap()].name.as_str()
             ),
-            ("borrow in", "bout")
+            ("carry in", "bout")
         );
-        let mut carrying = carries(
-            port("cin", "magenta concrete", true, 1),
-            port("bout", "pink concrete", true, 1),
-        );
-        assert!(adder_ports(&mut carrying, &SUBTRACT).is_err());
         let two = carries(
             port("unnamed control", "magenta concrete", false, 2),
             port("cout", "pink concrete", true, 1),
