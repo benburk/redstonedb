@@ -305,7 +305,7 @@ pub fn meant<'a>(
 ) -> Option<&'a Category> {
     Category::find(categories, name).or_else(|| {
         let name = Category::name_of(categories, name);
-        let (meant, _) = simulation::meant_by(&name)?;
+        let meant = simulation::meant_by(&name)?;
         Category::find(categories, meant)
     })
 }
@@ -318,6 +318,19 @@ pub struct Unrecognized {
     pub why: String,
     /// Named for what it seems meant to be, such as `8-bit adder`.
     pub name: String,
+}
+
+/// The category off the list a build not recognized as one of `category`
+/// goes up under, named for what it seems meant to be, such as `8-bit
+/// adder`: from the category's name rather than its label, which may hold
+/// characters no name may, as `XOR/XNOR Gate` does, so
+/// `simulation::meant_by` reads it back.
+pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
+    let words = category.name.replace('_', " ");
+    width.map_or_else(
+        || format!("unrecognized {words}"),
+        |w| format!("{w}-bit {words}"),
+    )
 }
 
 /// Why `build` is not recognized as a build of `category`, one whose
@@ -338,8 +351,7 @@ pub async fn unrecognized(
         .flatten();
     let label = category.label.to_lowercase();
     let off = |why: String| {
-        let name =
-            width.map_or_else(|| label.clone(), |w| format!("{w}-bit {label}"));
+        let name = off_list_name(category, width);
         Ok(Some(Unrecognized { why, name }))
     };
     if !build.conventional {

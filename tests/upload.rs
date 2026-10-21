@@ -165,3 +165,26 @@ async fn a_new_version_that_is_recognized_moves_a_build_up() {
         "a build on the list stays where it is"
     );
 }
+
+/// Every category the site recognizes builds of names its off-list stand-in
+/// so it reads back, whatever its label holds, as XOR/XNOR Gate's slash.
+#[tokio::test]
+async fn an_off_list_name_reads_back_as_its_category() {
+    let categories = categories().await;
+    let evaluated = categories
+        .iter()
+        .filter(|c| app::category::behaviour(&c.name).evaluated);
+    for category in evaluated {
+        for width in [Some(8), None] {
+            let name = details::off_list_name(category, width);
+            let slug = app::models::tag::name(&name);
+            assert!(app::models::tag::valid_name(&slug), "{slug}");
+            assert_eq!(
+                app::models::simulation::meant_by(&slug),
+                Some(category.name.as_str()),
+                "{slug}"
+            );
+            assert!(Category::find(&categories, &name).is_none(), "{name}");
+        }
+    }
+}

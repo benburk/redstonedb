@@ -82,7 +82,7 @@ pub fn schematic_page(
                 }
             }
             (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
-            @if let Some((meant, _)) = crate::models::simulation::meant_by(&s.category) {
+            @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
                 @let label = meant.replace('_', " ");
                 p class="mt-12 max-w-prose text-muted" {
                     "Off the list until it's recognized as " (super::article(&label)) ": "

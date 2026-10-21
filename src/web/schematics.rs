@@ -408,7 +408,7 @@ pub struct Panel {
 /// category, as recognizing it would, so its page lists the conventions
 /// it breaks.
 fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
-    if let Some((meant, _)) = simulation::meant_by(&s.category)
+    if let Some(meant) = simulation::meant_by(&s.category)
         && let Ok(standard) =
             import::prepare(data, Some(Gray::Keep), true, s.keeps_paste, true)
     {

@@ -131,15 +131,16 @@ async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
 }
 
 /// The listed category an off-list one named for what it seems meant to
-/// be, such as `8-bit_register`, stands in for, when the simulation works
-/// out that category's builds, with the width its name gives; such a build
-/// goes up off the list while it is not recognized as one.
-pub fn meant_by(category: &str) -> Option<(&str, i64)> {
-    let (bits, meant) = category.split_once("-bit_")?;
-    let bits = bits.parse().ok()?;
-    category::behaviour(meant)
-        .evaluated
-        .then_some((meant, bits))
+/// be, such as `8-bit_register`, or `unrecognized_register` when its width
+/// could not be read, stands in for, when the simulation works out that
+/// category's builds; such a build goes up off the list while it is not
+/// recognized as one. See `details::off_list_name`.
+pub fn meant_by(category: &str) -> Option<&str> {
+    let meant = category.strip_prefix("unrecognized_").or_else(|| {
+        let (bits, meant) = category.split_once("-bit_")?;
+        bits.parse::<u32>().ok().map(|_| meant)
+    })?;
+    category::behaviour(meant).evaluated.then_some(meant)
 }
 
 /// The test build `s` is held to: its category's at its width, or for one
@@ -147,7 +148,7 @@ pub fn meant_by(category: &str) -> Option<(&str, i64)> {
 /// keeps it from being recognized as one.
 pub fn test_for(s: &Schematic) -> Option<Test> {
     match meant_by(&s.category) {
-        Some((meant, bits)) => Test::of(meant, Some(bits)),
+        Some(meant) => category::behaviour(meant).test,
         None => Test::of(&s.category, s.width),
     }
 }
@@ -304,7 +305,7 @@ pub async fn refresh(
     if s.conventional && category::behaviour(&s.category).evaluated {
         return refresh_evaluated(db, &s, data, again).await;
     }
-    if let Some((meant, _)) = meant_by(&s.category) {
+    if let Some(meant) = meant_by(&s.category) {
         return refresh_off_list(db, &s, &data, meant, again).await;
     }
     let mut derived = Derived::of(&s);
