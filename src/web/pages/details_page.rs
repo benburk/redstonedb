@@ -10,7 +10,6 @@ use maud::{Markup, html};
 use crate::{
     import::Analysis,
     models::{schematic::Schematic, user::User},
-    orient::Turn,
     simulate::{Guess, Report},
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
@@ -42,16 +41,17 @@ pub enum File<'a> {
         /// The stored build most like it, with how alike, if any is
         /// similar.
         similar: Option<(&'a Schematic, u32)>,
-        /// Whether the file keeps where its uploader's `//paste` put it.
-        keep_paste: bool,
+        /// Whether the blocks read for it break the conventions, so are
+        /// not read by them.
         unconventional: bool,
+        /// Why it could not be standardized, if it could not, so can't be
+        /// recognized.
+        unstandard: Option<&'a str>,
         /// What it seems to be, which the category and design start as.
         guess: Option<&'a Guess>,
         /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
         /// with how many.
         swapped: &'a [(String, usize)],
-        /// How it was turned and mirrored to lie the standard way.
-        turn: Turn,
         /// How many hoppers it has, kept unless the uploader asks to swap
         /// them.
         hoppers: usize,
@@ -225,14 +225,6 @@ fn swap_checks(page: &DetailsPage) -> Markup {
                 " quick cases, so its category starts as that. Change it if it's something else."
             }, false))
         }
-        @if let File::Upload { turn, .. } = &page.file {
-            @if !turn.is_none() {
-                (check("turned", State::Pass, &html! {
-                    (turn.words())
-                    " so A is entered from the south and its least significant bits sit at the south-east-bottom corner."
-                }, false))
-            }
-        }
         @if let File::Upload { swapped, .. } = &page.file {
             @if !swapped.is_empty() {
                 (check("swapped", State::Pass, &html! {
@@ -255,7 +247,7 @@ fn swap_checks(page: &DetailsPage) -> Markup {
 }
 
 /// `word` after `a` or `an`, such as `an adder`.
-fn article(word: &str) -> String {
+pub fn article(word: &str) -> String {
     match word.chars().next() {
         Some('a' | 'e' | 'i' | 'o' | 'u') => format!("an {word}"),
         _ => format!("a {word}"),
@@ -294,20 +286,13 @@ fn swap_button(what: &str, label: &str) -> Markup {
 }
 
 /// What holds up publishing, decided here rather than as the page runs:
-/// its kind, for `form.js`, and why. Broken conventions hold it up only
-/// until “follows its own layout” is ticked.
+/// its kind, for `form.js`, and why. Broken conventions hold nothing up:
+/// they only keep a build from being recognized.
 fn blocked(page: &DetailsPage) -> Option<(&'static str, &'static str)> {
-    let violations = !page.analysis.violations.is_empty();
     match &page.file {
         File::Upload {
             duplicate: Some(_), ..
         } => Some(("duplicate", "This file is already on the site.")),
-        File::Upload {
-            unconventional: false,
-            ..
-        } if violations => {
-            Some(("conventions", "Fix the building conventions first."))
-        }
         File::Version { refusals, .. } if !refusals.is_empty() => {
             Some(("version", "This file can't replace the build."))
         }
@@ -319,7 +304,6 @@ fn blocked(page: &DetailsPage) -> Option<(&'static str, &'static str)> {
 /// stands: those decided here, then the simulation and its timing, which
 /// `form.js` runs and updates.
 fn checks(page: &DetailsPage) -> Markup {
-    let violations = &page.analysis.violations;
     let unconventional = match &page.file {
         File::Upload { unconventional, .. } => *unconventional,
         File::Stored { s, .. } | File::Version { s, .. } => !s.conventional,
@@ -373,28 +357,7 @@ fn checks(page: &DetailsPage) -> Markup {
                         }, false))
                     }
                 }
-                @if unconventional {
-                    (check("conventions", State::Wait, &html! {
-                        "Follows its own layout, so the building conventions are not checked."
-                    }, false))
-                } @else if violations.is_empty() {
-                    (check("conventions", State::Pass, &html! { "Follows the building conventions." }, false))
-                } @else {
-                    (check("conventions", State::Fail, &html! {
-                        @match violations.len() {
-                            1 => "Breaks a building convention: ",
-                            n => { "Breaks " (n) " building conventions: " }
-                        }
-                        "choose the file again with Standardize ticked, fix them in-game, or tick "
-                        "“follows its own layout” below if it is a display or similar."
-                        details class="mt-1 text-ink" {
-                            summary class="cursor-pointer text-danger" {
-                                "Show " @if violations.len() == 1 { "it" } @else { "them" }
-                            }
-                            div class="mt-1" { (violation_list(violations)) }
-                        }
-                    }, false))
-                }
+                (conventions_check(page, unconventional))
                 (swap_checks(page))
                 @match stored {
                     Some(report) => {
@@ -413,7 +376,59 @@ fn checks(page: &DetailsPage) -> Markup {
                         (check("timing", State::Wait, &html! {}, true))
                     }
                 }
+                // Whether it goes up as its category or off the list,
+                // which `form.js` shows from the simulation's result.
+                (check("filing", State::Wait, &html! {}, true))
             }
+        }
+    }
+}
+
+/// Whether the file keeps the building conventions: for an upload, a
+/// break only keeps it from being recognized; for a stored build, it
+/// holds up a new version.
+fn conventions_check(page: &DetailsPage, unconventional: bool) -> Markup {
+    let violations = &page.analysis.violations;
+    html! {
+        @if let File::Upload { unstandard: Some(why), .. } = &page.file {
+            (check("conventions", State::Warn, &html! {
+                "Can't be recognized as it is: " (why) "."
+            }, false))
+        } @else if let File::Upload { unconventional: false, .. } = &page.file && !violations.is_empty() {
+            (check("conventions", State::Warn, &html! {
+                @match violations.len() {
+                    1 => "Breaks a building convention, ",
+                    n => { "Breaks " (n) " building conventions, " }
+                }
+                "so it can't be recognized until "
+                @if violations.len() == 1 { "it's" } @else { "they're" }
+                " fixed. "
+                details class="mt-1 text-ink" {
+                    summary class="cursor-pointer" {
+                        "Show " @if violations.len() == 1 { "it" } @else { "them" }
+                    }
+                    div class="mt-1" { (violation_list(violations)) }
+                }
+            }, false))
+        } @else if unconventional {
+            (check("conventions", State::Wait, &html! {
+                "Follows its own layout, so the building conventions are not checked."
+            }, false))
+        } @else if violations.is_empty() {
+            (check("conventions", State::Pass, &html! { "Follows the building conventions." }, false))
+        } @else {
+            (check("conventions", State::Fail, &html! {
+                @match violations.len() {
+                    1 => "Breaks a building convention: ",
+                    n => { "Breaks " (n) " building conventions: " }
+                }
+                details class="mt-1 text-ink" {
+                    summary class="cursor-pointer text-danger" {
+                        "Show " @if violations.len() == 1 { "it" } @else { "them" }
+                    }
+                    div class="mt-1" { (violation_list(violations)) }
+                }
+            }, false))
         }
     }
 }
@@ -451,7 +466,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
                         }
                     }
                 }
-                (file_fields(Some("details-form"), matches!(page.file, File::Upload { .. }), page.schemati))
+                (file_fields(Some("details-form"), page.schemati))
                 @if let Some(message) = page.choosing.filter(|message| !message.is_empty()) {
                     p role="alert" class="text-danger" { (message) }
                 }
@@ -497,15 +512,18 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             data-simulated[stored_result] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
-                File::Upload { data, keep_paste, .. } => {
+                // Carried as its builder made it, so tested standardized.
+                File::Upload { data, .. } => {
                     input type="hidden" name="data" value=(data);
-                    // Not `keep_paste`, the box for a file chosen in its place.
-                    @if *keep_paste {
-                        input type="hidden" name="file_keeps_paste" value="yes";
-                    }
+                    input type="hidden" name="as_built" value="yes";
                 }
-                File::Version { data, note, .. } => {
+                File::Version { s, data, note, .. } => {
                     input type="hidden" name="data" value=(data);
+                    // An off-list build's is as built, to be tested as the
+                    // category it may move up to.
+                    @if crate::models::catalogue::Category::find(&page.choices.categories, &s.category).is_none() {
+                        input type="hidden" name="as_built" value="yes";
+                    }
                     label class="field" {
                         span { "What it fixes " span class="font-normal" { "(optional)" } }
                         textarea name="note" rows="2" maxlength="500" class="input py-2 leading-prose" { (note) }
@@ -516,17 +534,6 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             (fields(page.form, page.choices, &page.derived))
             // Only an admin may name a tag not yet on the list.
             (tag_picker(&page.choices.tags, &page.form.tags, page.fixed, user.is_admin()))
-            @if let File::Upload { unconventional, .. } = &page.file
-                && (!page.analysis.violations.is_empty() || *unconventional)
-            {
-                label class="flex items-start gap-2" {
-                    input type="checkbox" name="unconventional" value="yes" data-unconventional
-                        checked[*unconventional] class="mt-1 size-4 appearance-auto";
-                    span {
-                        "This build follows its own layout, such as a display, so the building conventions do not apply to it."
-                    }
-                }
-            }
             div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                 button type="submit" class="btn btn-primary" data-publish
                     data-blocked=[blocked.map(|(kind, _)| kind)] disabled[blocked.is_some()] { (label) }

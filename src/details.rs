@@ -251,15 +251,20 @@ async fn ready(
 
 /// For a build of a category whose measured details all come from
 /// `evaluate`, drops those typed, as the simulation sets them once it is
-/// stored, and refuses the build unless it is recognized: conventional,
-/// of a width its test reads, simulated, and passing. One that is not can
-/// only go up under a category of its own, off the list, named for what
-/// it seems meant to be, as 8-bit adder.
+/// stored, and refuses the build unless it is recognized, as
+/// [`unrecognized`] says.
 async fn evaluated(
     category: &Category,
     details: &mut Details,
     build: Build<'_>,
 ) -> Result<(), Stop> {
+    if let Some(off) = unrecognized(category, build).await? {
+        return Err(Stop::Refused(format!(
+            "{}, so it can't go up as one: give it a category of its own, \
+             such as {}, or fix it first.",
+            off.why, off.name
+        )));
+    }
     if !category::behaviour(&category.name).evaluated {
         return Ok(());
     }
@@ -285,37 +290,84 @@ async fn evaluated(
     // copies, if they stack, show otherwise.
     details.orientation = read.orientation.unwrap_or(Orientation::Horizontal);
     details.encoding = read.encoding;
+    details.width = simulation::derived_width(&category.name, true, build.data)
+        .ok()
+        .flatten();
+    Ok(())
+}
+
+/// The listed category `name` means: one of `categories` as typed, or the
+/// one an off-list name such as `8-bit adder` stands in for, which a build
+/// goes up under while it is not recognized as an adder.
+pub fn meant<'a>(
+    categories: &'a [Category],
+    name: &str,
+) -> Option<&'a Category> {
+    Category::find(categories, name).or_else(|| {
+        let name = Category::name_of(categories, name);
+        let (bits, rest) = name.split_once("-bit_")?;
+        bits.parse::<u32>().ok()?;
+        Category::find(categories, rest)
+    })
+}
+
+/// Why a build is not recognized as one of `category`, and the category
+/// off the list it goes up under instead.
+pub struct Unrecognized {
+    /// A sentence without its full stop, such as `It does not pass the
+    /// adder test`.
+    pub why: String,
+    /// Named for what it seems meant to be, such as `8-bit adder`.
+    pub name: String,
+}
+
+/// Why `build` is not recognized as a build of `category`, one whose
+/// measured details all come from `evaluate`: it must be conventional,
+/// keep every building convention, take no signal-strength input, be of a
+/// width its test reads, and pass it. `None` when it is, or when the
+/// category is not one `evaluate` works out. The `Err` says it could not
+/// be simulated at all.
+pub async fn unrecognized(
+    category: &Category,
+    build: Build<'_>,
+) -> Result<Option<Unrecognized>, String> {
+    if !category::behaviour(&category.name).evaluated {
+        return Ok(None);
+    }
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
-    details.width = width;
     let label = category.label.to_lowercase();
-    // Named for what it seems meant to be, it goes up off the list.
-    let off_list = |why: String| {
+    let off = |why: String| {
         let name =
             width.map_or_else(|| label.clone(), |w| format!("{w}-bit {label}"));
-        Err(Stop::Refused(format!(
-            "{why}, so it can't go up as one: give it a category of its own, \
-             such as {name}, or fix it first."
-        )))
+        Ok(Some(Unrecognized { why, name }))
     };
     if !build.conventional {
-        return off_list(format!(
+        return off(format!(
             "The {label} test reads the building conventions, which it does \
              not follow"
         ));
     }
+    let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
+        return off(format!("The {label} test can't read its file"));
+    };
     // Until the simulator has a good way to drive one, a strength is no
     // input a recognized build may take.
-    if crate::schem::Blocks::read(build.data)
-        .is_ok_and(|blocks| !crate::interface::dust_inputs(&blocks).is_empty())
-    {
-        return off_list(format!(
+    if !crate::interface::dust_inputs(&blocks).is_empty() {
+        return off(format!(
             "The {label} test takes no signal-strength inputs"
         ));
     }
+    let broken = crate::lint::check_for(&blocks, &category.name).len();
+    if broken > 0 {
+        return off(match broken {
+            1 => "It breaks a building convention".to_owned(),
+            n => format!("It breaks {n} building conventions"),
+        });
+    }
     let Some(test) = Test::of(&category.name, width) else {
-        return off_list(match width {
+        return off(match width {
             None => format!(
                 "The {label} test can't read its width from its inputs and \
                  outputs"
@@ -323,20 +375,17 @@ async fn evaluated(
             Some(w) => format!("The {label} test does not run at {w} bits"),
         });
     };
-    let report =
-        simulation::run(test, build.data.to_vec())
-            .await
-            .map_err(|err| {
-                Stop::Refused(format!("It could not be simulated: {err}."))
-            })?;
+    let report = simulation::run(test, build.data.to_vec())
+        .await
+        .map_err(|err| format!("It could not be simulated: {err}."))?;
     match report {
-        _ if report.passed() => Ok(()),
+        _ if report.passed() => Ok(None),
         // A block the simulator does not model, as a piston.
-        Report::Skipped { reason } => off_list(format!(
+        Report::Skipped { reason } => off(format!(
             "{} The {label} test can't run on it",
             reason.trim()
         )),
-        _ => off_list(format!("It does not pass the {label} test")),
+        _ => off(format!("It does not pass the {label} test")),
     }
 }
 

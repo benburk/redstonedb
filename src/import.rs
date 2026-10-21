@@ -9,13 +9,15 @@ use sqlx::SqlitePool;
 
 use crate::{
     category::{self, Lines},
-    details::Ready,
+    details::{self, Ready, Unrecognized},
     interface::{self, Interface, Port},
     lint::{self, Violation},
+    models::catalogue::Category,
     models::schematic::{self, Encoding, New, Orientation},
-    models::version,
+    models::{simulation, version},
     orient::{self, Turn},
     schem::{self, Blocks, Size},
+    simulate::{self, Report, Test},
     standardize::{self, Gray},
     works_from::{self, WorksFrom},
 };
@@ -93,6 +95,22 @@ pub fn prepare(
         sha256,
         swapped,
         turn,
+    })
+}
+
+/// `file` as its builder made it, as an upload the site does not recognize
+/// is kept: prepared as `prepare` does without standardizing or turning
+/// it, and counted as following the conventions only when it breaks none,
+/// so is measured without its interface layers.
+pub fn as_built(file: &[u8]) -> Result<Prepared> {
+    let plain = prepare(file, None, false, false, false)?;
+    if !lint::check(&plain.blocks).is_empty() {
+        return Ok(plain);
+    }
+    let conventional = prepare(&plain.data, None, true, false, false)?;
+    Ok(Prepared {
+        swapped: plain.swapped,
+        ..conventional
     })
 }
 
@@ -394,6 +412,173 @@ fn orientation(port: &Port) -> Option<Orientation> {
     } else {
         Some(Orientation::Diagonal)
     }
+}
+
+/// An uploaded file made ready both ways it may be kept.
+pub struct Upload {
+    /// As its builder made it, which a build the site does not recognize
+    /// keeps; see `import::as_built`.
+    pub original: Prepared,
+    /// Standardized and turned to lie the standard way, its gray blocks
+    /// kept until publishing decides, as a recognized build is kept; or
+    /// why it cannot be, as when it marks no inputs.
+    pub standard: Result<Prepared, String>,
+}
+
+impl Upload {
+    pub fn read(file: &[u8]) -> anyhow::Result<Self> {
+        let original = as_built(file)?;
+        let standard =
+            prepare(&original.data, Some(Gray::Keep), true, false, true)
+                .map_err(|err| format!("{err:#}"));
+        Ok(Upload { original, standard })
+    }
+
+    /// The file the site reads its inputs and outputs from: the standard
+    /// one, when there is one.
+    pub fn read_as(&self) -> &Prepared {
+        self.standard.as_ref().unwrap_or(&self.original)
+    }
+}
+
+/// Which of an upload's files a build of the category it is given keeps.
+pub enum Kept {
+    /// As built, the build not being one the site recognizes, with why
+    /// not when its category is one the site works out.
+    Original(Option<Unrecognized>),
+    /// Standardized, with its gray blocks settled, as a build of the
+    /// listed category named `category`, which an off-list name such as
+    /// `8-bit adder` stands in for.
+    Standard {
+        file: Box<Prepared>,
+        category: String,
+    },
+}
+
+/// Which of `upload`'s files a build given as `category` keeps: the
+/// standard one, its gray settled, when it is recognized as the listed
+/// category `category` means, as `details::meant` reads it; else the
+/// original. The `Err` says it could not be simulated.
+pub async fn kept(
+    categories: &[Category],
+    category: &str,
+    upload: &Upload,
+) -> anyhow::Result<Result<Kept, String>> {
+    let Some(meant) = details::meant(categories, category)
+        .filter(|c| category::behaviour(&c.name).evaluated)
+    else {
+        return Ok(Ok(Kept::Original(None)));
+    };
+    let unrecognized = match &upload.standard {
+        Ok(standard) => {
+            details::unrecognized(meant, details::Build::of(standard)).await
+        }
+        // Read as built, it can only say it breaks the conventions.
+        Err(_) => {
+            details::unrecognized(
+                meant,
+                details::Build {
+                    data: &upload.original.data,
+                    conventional: false,
+                },
+            )
+            .await
+        }
+    };
+    Ok(match unrecognized {
+        Err(message) => Err(message),
+        Ok(Some(off)) => Ok(Kept::Original(Some(off))),
+        Ok(None) => match &upload.standard {
+            Ok(standard) => Ok(Kept::Standard {
+                file: Box::new(gray_settled(standard, &meant.name).await?),
+                category: meant.name.clone(),
+            }),
+            Err(_) => Ok(Kept::Original(None)),
+        },
+    })
+}
+
+/// A recognized build's standardized file, `standard`, with its gray
+/// blocks, which mark what only a stack's first copy keeps, kept when its
+/// copies stack with them left out of all but the first, and whitened
+/// when they do not, or when its category never stacks.
+pub async fn gray_settled(
+    standard: &Prepared,
+    category: &str,
+) -> anyhow::Result<Prepared> {
+    let gray = standard
+        .blocks
+        .iter()
+        .any(|(_, state)| lint::first_copy_only(schem::short(state)));
+    let rewrapped = || {
+        prepare(
+            &standard.data,
+            None,
+            standard.conventional,
+            standard.keeps_paste,
+            false,
+        )
+    };
+    if !gray {
+        return rewrapped();
+    }
+    let width = simulation::derived_width(category, true, &standard.data)?;
+    let stacks = match Test::of(category, width) {
+        Some(test)
+            if category::behaviour(category).stacking
+                != category::Stacking::Never =>
+        {
+            let report = simulation::run(test, standard.data.clone()).await?;
+            matches!(&report, Report::Ran(run) if run.stacking.as_ref()
+                .is_some_and(|s| !matches!(s, simulate::Stacking::Not { .. })))
+        }
+        _ => false,
+    };
+    if stacks {
+        return rewrapped();
+    }
+    prepare(
+        &standard.data,
+        Some(Gray::Whiten),
+        standard.conventional,
+        standard.keeps_paste,
+        false,
+    )
+}
+
+/// A build off the list, as `category` names it, moved up by its new
+/// version `file`: when that is recognized as the listed category the
+/// name means, as an 8-bit adder's as an adder, the file standardized and
+/// turned to lie the standard way, its gray settled, as an upload's is,
+/// with that category. `None` for a build on the list, or one its version
+/// does not move up.
+pub async fn moved_up<'a>(
+    categories: &'a [Category],
+    category: &str,
+    file: &Prepared,
+    keep_paste: bool,
+) -> Result<Option<(Prepared, &'a Category)>> {
+    if Category::find(categories, category).is_some() {
+        return Ok(None);
+    }
+    let Some(meant) = details::meant(categories, category)
+        .filter(|c| category::behaviour(&c.name).evaluated)
+    else {
+        return Ok(None);
+    };
+    let Ok(candidate) =
+        prepare(&file.data, Some(Gray::Keep), true, keep_paste, true)
+    else {
+        return Ok(None);
+    };
+    let recognized =
+        details::unrecognized(meant, details::Build::of(&candidate))
+            .await
+            .is_ok_and(|off| off.is_none());
+    if !recognized {
+        return Ok(None);
+    }
+    Ok(Some((gray_settled(&candidate, &meant.name).await?, meant)))
 }
 
 #[cfg(test)]

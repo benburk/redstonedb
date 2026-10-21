@@ -109,7 +109,7 @@ impl StackRow {
 }
 
 /// A details form's values, every field as text; empty means unknown.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Form {
     /// The category as typed: a standard one by its name or label, in any
     /// capitals, or else a name of the builder's own.

@@ -312,10 +312,10 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 // passing result means latency and synchronized are measured, so their
 // fields give way to a note.
 //
-// The checks panel follows along, and the button waits for the cases'
-// result, though not the timing, which carries on after publishing. It
-// also stays held for anything the server found, such as a duplicate,
-// except broken conventions once “follows its own layout” is ticked.
+// The checks panel follows along, saying whether the build goes up as its
+// category or off the list, and the button waits for the cases' result,
+// though not the timing, which carries on after publishing. It also stays
+// held for anything the server found, such as a duplicate.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
   const results = () => document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
@@ -324,7 +324,6 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const timingNote = form.querySelector("[data-timing-note]");
   const button = form.querySelector("[data-publish]");
   const reason = form.querySelector("[data-gate-reason]");
-  const unconventional = form.querySelector("[data-unconventional]");
   const blockedReason = reason.textContent;
   const key = () => `${category.value.trim().toLowerCase()}/${width.value}`;
   let asked = form.hasAttribute("data-simulated") ? key() : null;
@@ -332,9 +331,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   let running = 0;
 
   const gate = () => {
-    const kind = button.dataset.blocked;
-    const blocked = kind !== undefined
-      && !(kind === "conventions" && unconventional?.checked);
+    const blocked = button.dataset.blocked !== undefined;
     button.disabled = blocked || running > 0;
     reason.textContent = blocked
       ? blockedReason
@@ -342,10 +339,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       ? "Waiting for the simulation…"
       : "";
   };
-  unconventional?.addEventListener("change", gate);
 
-  // One line of the checks panel: its state, `pass`, `fail`, `run`, or
-  // `wait`, and its words; no state hides it.
+  // One line of the checks panel: its state, `pass`, `warn`, `fail`,
+  // `run`, or `wait`, and its words; no state hides it.
   const spinner = document.createElement("span");
   spinner.className =
     "inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none";
@@ -359,7 +355,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     line.classList.toggle("text-muted", state === "run" || state === "wait");
     const icon = line.querySelector("[data-icon]");
     icon.replaceChildren(
-      state === "run" ? spinner.cloneNode() : { pass: "✓", fail: "✗", wait: "○" }[state],
+      state === "run" ? spinner.cloneNode() : { pass: "✓", warn: "!", fail: "✗", wait: "○" }[state],
     );
     line.querySelector("[data-text]").textContent = text;
   };
@@ -383,7 +379,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     const shown = fresh ? results() : null;
     const skipped = shown?.querySelector("[data-skipped]") != null;
     const passed = shown?.querySelector("[data-measures-timing]") != null;
-    const measures = (tested && !skipped) || passed;
+    // One that fails goes up off the list, described by hand.
+    const ran = shown?.querySelector("#simulation") != null;
+    const measures = ran ? passed : tested && !skipped;
     timingFields.hidden = measures;
     timingNote.hidden = !measures;
     for (const input of timingFields.querySelectorAll("input")) {
@@ -414,6 +412,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   // The checks once a result is in.
   const settled = () => {
     measured();
+    const filing = results().querySelector("[data-filing]");
+    if (filing) mark("filing", filing.dataset.filing, filing.textContent);
+    else mark("filing", null);
     const section = results().querySelector("#simulation");
     if (!section) {
       mark(
@@ -440,6 +441,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       measured(false);
       mark("simulation", "run", "Simulating every case…");
       mark("timing", null);
+      mark("filing", null);
       clearTimeout(waiting);
       waiting = setTimeout(() => {
         const note = document.createElement("p");

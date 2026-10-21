@@ -18,13 +18,13 @@ use sqlx::SqlitePool;
 
 use crate::{
     app_state::AppState,
-    details,
+    category, details,
     error::AppError,
     extractors::{
         fixi::Fixi,
         session::{Admin, SignedIn},
     },
-    import::Analysis,
+    import::{self, Analysis, Prepared},
     leaderboard,
     models::{
         catalogue::{self, Category},
@@ -34,7 +34,9 @@ use crate::{
         version::{self, Replacing},
     },
     schem::Blocks,
-    search, stack, standardize, thumbnail,
+    search, stack,
+    standardize::{self, Gray},
+    thumbnail,
     version::{Checked, check as check_version},
 };
 
@@ -551,15 +553,9 @@ pub async fn save(
             note: &note,
         })
     };
-    let refused = if checked.as_ref().is_some_and(|c| !c.refusals.is_empty()) {
-        Some(
-            "The new version can't replace the build, as the checks say."
-                .to_owned(),
-        )
-    } else {
-        let new_data = checked.as_ref().map(|c| c.prepared.data.as_slice());
-        saved(db, &user, &s, &form, new_data).await?.err()
-    };
+    let (kept, refused) =
+        save_details(db, &user, &s, &form, checked.as_ref()).await?;
+    let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
     if let Some(message) = refused {
         return show_edit(
             db,
@@ -572,12 +568,12 @@ pub async fn save(
         )
         .await;
     }
-    if let Some(checked) = &checked {
+    if let Some(prepared) = new_prepared {
         let how = Replacing::NextVersion {
             added_by: Some(user.id),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
         };
-        version::replace(db, &id, &checked.prepared, how).await?;
+        version::replace(db, &id, prepared, how).await?;
         tracing::info!(id, by = user.username, "new version");
     }
     // A new file, category, or width may call for a test, or another.
@@ -594,7 +590,18 @@ async fn chosen_version(
     posted: &upload::Posted,
 ) -> Result<Checked, String> {
     let chosen = posted.chosen().await?;
-    check_version(db, s, &chosen.file, chosen.standardize)
+    // A listed build that follows the conventions is kept standardized,
+    // its gray settled once it is saved; one off the list as built, until
+    // a version it is recognized by moves it up.
+    let listed = Category::find(
+        &catalogue::categories(db)
+            .await
+            .map_err(|err| err.to_string())?,
+        &s.category,
+    )
+    .is_some();
+    let standardize = (s.conventional && listed).then_some(Gray::Keep);
+    check_version(db, s, &chosen.file, standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
 }
@@ -633,15 +640,84 @@ pub async fn delete(
     Ok(Redirect::to("/").into_response())
 }
 
+/// Checks and stores `user`'s edit of build `s`, with the new version
+/// `checked` when one waits: the file it is kept as, when that differs
+/// from the one checked, and why the edit was refused, if it was. A build
+/// its version moves up goes under the category the version passes.
+async fn save_details(
+    db: &SqlitePool,
+    user: &User,
+    s: &Schematic,
+    form: &Form,
+    checked: Option<&Checked>,
+) -> Result<(Option<Prepared>, Option<String>), AppError> {
+    if checked.is_some_and(|c| !c.refusals.is_empty()) {
+        let why = "The new version can't replace the build, as the checks say.";
+        return Ok((None, Some(why.to_owned())));
+    }
+    let kept = match checked {
+        Some(checked) => {
+            version_kept(db, s, &form.category, &checked.prepared).await?
+        }
+        None => None,
+    };
+    let (kept, moved_to) = kept.map_or((None, None), |(p, to)| (Some(p), to));
+    let moved;
+    let saving = match moved_to {
+        Some(category) => {
+            moved = Form {
+                category,
+                ..form.clone()
+            };
+            &moved
+        }
+        None => form,
+    };
+    let new = kept.as_ref().or(checked.map(|c| &c.prepared));
+    let refused = saved(db, user, s, saving, new).await?.err();
+    Ok((kept, refused))
+}
+
+/// The file a new version, `prepared`, is kept as, and the category build
+/// `s` goes up under with it, when either differs from what was given:
+/// a build off the list whose new version is recognized as the listed
+/// category its name means, as an 8-bit adder's as an adder, moves up,
+/// its file standardized and turned to lie the standard way, as an
+/// upload's is; a recognized build's gray is settled as an upload's is.
+/// Only a build whose category, as `category` gives it, is unchanged
+/// moves up.
+async fn version_kept(
+    db: &SqlitePool,
+    s: &Schematic,
+    category: &str,
+    prepared: &Prepared,
+) -> anyhow::Result<Option<(Prepared, Option<String>)>> {
+    let categories = catalogue::categories(db).await?;
+    let evaluated = |c: &&Category| category::behaviour(&c.name).evaluated;
+    if Category::name_of(&categories, category) == s.category
+        && let Some((moved, to)) =
+            import::moved_up(&categories, &s.category, prepared, s.keeps_paste)
+                .await?
+    {
+        return Ok(Some((moved, Some(to.name.clone()))));
+    }
+    match Category::find(&categories, category).filter(evaluated) {
+        Some(c) if prepared.conventional => {
+            Ok(Some((import::gray_settled(prepared, &c.name).await?, None)))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Checks and stores `user`'s edit of build `s`, or says why it was
-/// refused. A new version's file, `new_data`, is what the stacking must
-/// fit, when there is one.
+/// refused. A new version's file, `new`, is what the stacking must fit,
+/// when there is one.
 async fn saved(
     db: &SqlitePool,
     user: &User,
     s: &Schematic,
     form: &Form,
-    new_data: Option<&[u8]>,
+    new: Option<&Prepared>,
 ) -> Result<Result<(), String>, AppError> {
     let categories = catalogue::categories(db).await?;
     let given = match form.parse(&categories) {
@@ -649,15 +725,14 @@ async fn saved(
         Err(message) => return Ok(Err(message)),
     };
     let stored;
-    let data = if let Some(data) = new_data {
-        data
+    let build = if let Some(new) = new {
+        details::Build::of(new)
     } else {
         stored = version::current_file(db, &s.id).await?.unwrap_or_default();
-        &stored
-    };
-    let build = details::Build {
-        data,
-        conventional: s.conventional,
+        details::Build {
+            data: &stored,
+            conventional: s.conventional,
+        }
     };
     match details::check(db, given, build, user.is_admin()).await? {
         Ok(ready) => Ok(Ok(schematic::set_details(db, &s.id, &ready).await?)),

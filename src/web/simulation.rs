@@ -19,7 +19,9 @@ use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
+    category, details,
     error::AppError,
+    import::Upload,
     models::{
         catalogue::{self, Category},
         schematic,
@@ -94,8 +96,10 @@ pub fn timing_url(simulate: &str) -> String {
     format!("{simulate}?step=timing")
 }
 
-/// The cases or the timing for the file being uploaded, carried in the
-/// form's `data`.
+/// The cases or the timing for the file being uploaded, or a stored
+/// build's next version, carried in the form's `data`. A file carried as
+/// its builder made it, as the form's `as_built` says, is tested
+/// standardized, as it is kept once recognized, with where it goes up.
 pub async fn upload(
     State(state): State<AppState>,
     user_opt: Option<User>,
@@ -103,10 +107,81 @@ pub async fn upload(
     body: Bytes,
 ) -> Result<Response, AppError> {
     let (pairs, data) = upload_file(user_opt.as_ref(), &body)?;
+    let (data, filing) = if form::first(&pairs, "as_built") == "yes" {
+        readied(&state, &pairs, &data).await?
+    } else {
+        (data, None)
+    };
     match step {
-        Step::Cases => cases(&state, &pairs, data, None).await,
+        Step::Cases => cases(&state, &pairs, data, None, filing).await,
         Step::Timing => timing(&state, &pairs, data, None).await,
     }
+}
+
+/// A file as its builder made it, `data`, as the form's category tests it:
+/// standardized when that is a category the site recognizes builds of,
+/// as it is kept once recognized, else as built; with a note, for the
+/// checks, saying whether it goes up as that category or off the list.
+async fn readied(
+    state: &AppState,
+    pairs: &[(String, String)],
+    data: &[u8],
+) -> Result<(Vec<u8>, Option<Markup>), AppError> {
+    let Ok(upload) = Upload::read(data) else {
+        return Ok((data.to_vec(), None));
+    };
+    let categories = catalogue::categories(&state.db).await?;
+    let typed = Form::read(pairs).category;
+    let Some(meant) = details::meant(&categories, &typed)
+        .filter(|c| category::behaviour(&c.name).evaluated)
+    else {
+        return Ok((upload.original.data, None));
+    };
+    let label = meant.label.to_lowercase();
+    let off = |off: details::Unrecognized| {
+        filing_note(
+            false,
+            &format!(
+                "{}, so it goes up as {}, off the list, with its own blocks \
+                 and the details you give. Fix it and upload a new version \
+                 to move it up.",
+                off.why, off.name
+            ),
+        )
+    };
+    // Read as built, it can only say it breaks the conventions.
+    let (data, unrecognized) = if let Ok(standard) = upload.standard {
+        let build = details::Build::of(&standard);
+        let found = details::unrecognized(meant, build).await;
+        (standard.data, found)
+    } else {
+        let build = details::Build {
+            data: &upload.original.data,
+            conventional: false,
+        };
+        let found = details::unrecognized(meant, build).await;
+        (upload.original.data, found)
+    };
+    let note = match unrecognized {
+        Ok(Some(found)) => Some(off(found)),
+        Ok(None) => Some(filing_note(
+            true,
+            &format!(
+                "Recognized as {}, so it goes up standardized, with every \
+                 detail measured.",
+                pages::article(&label)
+            ),
+        )),
+        Err(_) => None,
+    };
+    Ok((data, note))
+}
+
+/// Where a build goes up, for `form.js` to show in the checks: as its
+/// category when `recognized`, else off the list, as `text` says.
+fn filing_note(recognized: bool, text: &str) -> Markup {
+    let state = if recognized { "pass" } else { "warn" };
+    html! { p data-filing=(state) hidden { (text) } }
 }
 
 /// The cases or the timing for stored build `id` under the category and
@@ -121,7 +196,7 @@ pub async fn stored(
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
     let pairs = form::pairs(&body);
     match step {
-        Step::Cases => cases(&state, &pairs, data, Some(&s)).await,
+        Step::Cases => cases(&state, &pairs, data, Some(&s), None).await,
         Step::Timing => timing(&state, &pairs, data, Some(&s)).await,
     }
 }
@@ -176,9 +251,13 @@ async fn test(
 ) -> Result<Option<Test>, AppError> {
     let form = Form::read(pairs);
     let categories = catalogue::categories(&state.db).await?;
-    let category = Category::name_of(&categories, &form.category);
-    let conventional = form::first(pairs, "unconventional") != "yes";
-    let derived = simulation::derived_width(&category, conventional, data)?;
+    // An off-list name such as 8-bit adder is tested as an adder, to show
+    // what keeps it from being one.
+    let category = details::meant(&categories, &form.category).map_or_else(
+        || Category::name_of(&categories, &form.category),
+        |c| c.name.clone(),
+    );
+    let derived = simulation::derived_width(&category, true, data)?;
     let width = derived.or_else(|| form.width.trim().parse().ok());
     Ok(Test::of(&category, width))
 }
@@ -201,13 +280,15 @@ async fn cases(
     pairs: &[(String, String)],
     data: Vec<u8>,
     s: Option<&schematic::Schematic>,
+    filing: Option<Markup>,
 ) -> Result<Response, AppError> {
     let simulate = match s {
         Some(s) => format!("/schematics/{}/simulation", s.id),
         None => "/upload/simulation".to_owned(),
     };
     let panel = |content: &Markup| {
-        pages::simulation_results(&simulate, content).into_response()
+        let content = html! { (filing.clone().unwrap_or_default()) (content) };
+        pages::simulation_results(&simulate, &content).into_response()
     };
     let Some(test) = test(state, pairs, &data).await? else {
         return Ok(panel(&html! {}));

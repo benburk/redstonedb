@@ -6,20 +6,12 @@ use maud::{Markup, html};
 
 use crate::models::user::User;
 
-use super::{
-    Connection, PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base,
-    schemati,
-};
+use super::{Connection, PAGE_TITLE, TABLE_CELL, TABLE_HEAD, base, schemati};
 
 /// The fields for choosing a file, the same wherever one is chosen: the
-/// file or a Schemati link, and how to prepare it. `form` names the form
-/// they belong to when they stand outside it; `keep_paste` offers keeping
-/// where the file pastes from, which a new version takes from its build.
-pub(super) fn file_fields(
-    form: Option<&str>,
-    keep_paste: bool,
-    schemati: &Connection,
-) -> Markup {
+/// file or a Schemati link. `form` names the form they belong to when they
+/// stand outside it.
+pub(super) fn file_fields(form: Option<&str>, schemati: &Connection) -> Markup {
     html! {
         label class="field" {
             span { "Schematic file" }
@@ -35,38 +27,6 @@ pub(super) fn file_fields(
             }
         }
         (schemati::own_file_field(schemati, form))
-        @if keep_paste {
-            label class="flex items-start gap-2" {
-                input type="checkbox" name="keep_paste" value="yes" form=[form] class="mt-1 size-4 appearance-auto";
-                span {
-                    "Keep its paste position"
-                    span class="block text-meta text-muted" {
-                        "Unticked, " code { "//paste" } " puts you one block south of the build's south-east bottom corner, as for every build here. "
-                        "Tick it to paste the build where you copied it from."
-                    }
-                }
-            }
-        }
-        label class="flex items-start gap-2" {
-            input type="checkbox" name="standardize" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
-            span {
-                "Standardize it"
-                span class="block text-meta text-muted" {
-                    "Turns every block that isn't redstone, an input, or an output white. Glass, slabs, and stairs become white stained glass. "
-                    "Turns the build so A's levers face south, and mirrors it when that's what makes it read right as what it seems to be, such as an adder with its lowest bit at its west end."
-                }
-            }
-        }
-        label class="flex items-start gap-2 pl-6" {
-            input type="checkbox" name="whiten_gray" value="yes" checked form=[form] class="mt-1 size-4 appearance-auto";
-            span {
-                "Turn gray blocks white too"
-                span class="block text-meta text-muted" {
-                    "Gray marks parts only the first copy of a stack keeps, such as an input's driver. "
-                    "Untick this if your stackable build uses gray that way."
-                }
-            }
-        }
     }
 }
 
@@ -82,14 +42,24 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
 
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     class="mb-10 flex flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-                    (file_fields(None, true, connection))
+                    (file_fields(None, connection))
                     @if !message.is_empty() {
                         p role="alert" class="text-danger" { (message) }
                     }
                     div { button type="submit" class="btn btn-primary" { "Preview" } }
                 }
-                (schemati_guide())
-                (marking_guide())
+                p class="mb-6 max-w-prose text-muted" {
+                    "The site tries to recognize it. A build it recognizes goes up standardized, with every detail measured; "
+                    "any other keeps its own blocks, and you describe it."
+                }
+                details class="mb-4 max-w-prose" {
+                    summary class="cursor-pointer font-semibold" { "Getting a file from Open Redstone" }
+                    div class="mt-3" { (schemati_guide()) }
+                }
+                details class="max-w-prose" {
+                    summary class="cursor-pointer font-semibold" { "Marking a build so it's recognized" }
+                    div class="mt-3" { (marking_guide()) }
+                }
             }
         },
     )
@@ -99,8 +69,7 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
 /// server.
 fn schemati_guide() -> Markup {
     html! {
-        section aria-labelledby="schemati-heading" class="mb-10 max-w-prose leading-prose" {
-            h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-3" } { "From Open Redstone" }
+        section class="leading-prose" {
             ol class="flex list-decimal flex-col gap-1.5 pl-5" {
                 li { "Select the build with " code { "//wand" } ", then run " code { "//copy" } "." }
                 li { "Run " code { "//save <name>" } " to keep it in Schemati." }
@@ -167,7 +136,7 @@ const MARKINGS: [Marking; 7] = [
         role: "First copy only",
         colours: &[("bg-[#373a3e]", "gray")],
         block: "concrete or stained glass",
-        rule: "Parts only the first copy of a stack keeps, such as an input's driver. Stacking leaves them out of later copies.",
+        rule: "Parts only the first copy of a stack keeps, such as an input's driver. Kept gray only if the build stacks with them left out of later copies; otherwise turned white.",
     },
     Marking {
         role: "Everything else",
@@ -181,8 +150,7 @@ const MARKINGS: [Marking; 7] = [
 /// `conventions.md`, kept to what an upload needs.
 fn marking_guide() -> Markup {
     html! {
-        section aria-labelledby="guide-heading" {
-            h2 id="guide-heading" class={ (SECTION_TITLE) " mb-1" } { "How to mark a build" }
+        section {
             p class="mb-4 max-w-prose text-muted" {
                 "The site reads a build's inputs and outputs from its colours and signs."
             }
@@ -225,7 +193,7 @@ fn marking_guide() -> Markup {
                 li { "To name a bus, put a sign on any of its blocks, such as " code { "addend" } "." }
                 li { "Place each lever so it touches only its input block." }
                 li { "Save every lever off. A lever saved on makes its input inverted." }
-                li { "A build with its own layout, such as a display, needs none of this. Tick “follows its own layout” on the next page." }
+                li { "A build with its own layout, such as a display, needs none of this: it keeps its own blocks." }
             }
         }
     }

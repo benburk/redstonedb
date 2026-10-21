@@ -228,8 +228,6 @@ fn file_actions(index: usize, name: &str) -> Markup {
             // Publishing previews it as the upload page does a chosen file.
             form action="/upload/preview" method="post" enctype="multipart/form-data" class="contents" {
                 input type="hidden" name="schemati_file" value=(name);
-                input type="hidden" name="standardize" value="yes";
-                input type="hidden" name="whiten_gray" value="yes";
                 button type="submit" class="btn btn-quiet" { "Publish" }
             }
             button type="button" commandfor=(rename) command="show-modal" class="btn btn-quiet" { "Rename" }

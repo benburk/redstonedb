@@ -1,7 +1,13 @@
 //! Uploading a build: choose a file, preview what the site reads from it,
-//! fill in its details, and publish. The preview carries the prepared file
-//! in a hidden field, so nothing is stored until publishing, which checks
-//! the file again.
+//! fill in its details, and publish. The preview carries the file as its
+//! builder made it in a hidden field, so nothing is stored until
+//! publishing, which checks the file again.
+//!
+//! A build the site recognizes, passing its category's test, is kept
+//! standardized, as every such build lies and is coloured the same way;
+//! any other is kept with its own blocks, under a category of its own
+//! named for what it seems meant to be, until a new version that passes
+//! moves it up.
 
 use axum::{
     body::Bytes,
@@ -15,7 +21,7 @@ use crate::{
     details,
     error::AppError,
     extractors::session::SignedIn,
-    import::{self, Analysis, Prepared},
+    import::{self, Kept, Upload},
     interface,
     models::{
         catalogue,
@@ -27,7 +33,7 @@ use crate::{
     schem::Blocks,
     schemati,
     simulate::{self, Guess},
-    standardize::{self, Gray},
+    standardize,
 };
 
 use super::{
@@ -45,9 +51,6 @@ async fn from_schemati(link: &str) -> Result<Bytes, String> {
 /// fetched from a Schemati link.
 pub(super) struct Sent {
     pub file: Bytes,
-    /// Standardizing, and what to do with gray blocks, if asked.
-    pub standardize: Option<Gray>,
-    pub keep_paste: bool,
 }
 
 /// A multipart form as sent: its text fields, in order, and the file
@@ -109,8 +112,7 @@ impl Posted {
     }
 
     /// The file chosen in the form: its `file`, or else the file behind
-    /// its `schemati` link, with its `standardize`, `whiten_gray`, and
-    /// `keep_paste` ticks. Says what went wrong when there is no file.
+    /// its `schemati` link. Says what went wrong when there is no file.
     pub async fn chosen(&self) -> Result<Sent, String> {
         // A file chosen wins over a link pasted.
         let link = self.get("schemati").trim();
@@ -124,16 +126,7 @@ impl Posted {
                 );
             }
         };
-        let gray = if self.get("whiten_gray").is_empty() {
-            Gray::Keep
-        } else {
-            Gray::Whiten
-        };
-        Ok(Sent {
-            file,
-            standardize: (!self.get("standardize").is_empty()).then_some(gray),
-            keep_paste: !self.get("keep_paste").is_empty(),
-        })
+        Ok(Sent { file })
     }
 
     /// Takes as the form's file the one its `schemati_file` names in
@@ -208,42 +201,36 @@ async fn upload_page(
     Ok(pages::upload(user, message, &connection).into_response())
 }
 
-/// Reads the chosen file, standardizes it if asked, and shows what the
-/// site makes of it with a details form to fill in.
+/// Reads the chosen file and shows what the site makes of it, with a
+/// details form to fill in.
 pub async fn preview(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
-    let Sent {
-        file,
-        standardize,
-        keep_paste,
-    } = match received(&state, &user, &mut multipart).await {
+    let Sent { file } = match received(&state, &user, &mut multipart).await {
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let orient = standardize.is_some();
-    let prepared =
-        match import::prepare(&file, standardize, true, keep_paste, orient) {
-            Ok(prepared) => prepared,
-            Err(err) => {
-                let message = format!("Could not read that file: {err:#}.");
-                return upload_page(&state, &user, &message).await;
-            }
-        };
+    let upload = match Upload::read(&file) {
+        Ok(upload) => upload,
+        Err(err) => {
+            let message = format!("Could not read that file: {err:#}.");
+            return upload_page(&state, &user, &message).await;
+        }
+    };
     // What it seems to be starts the category and design.
-    let guess = guessed(&prepared.data).await;
+    let guess = guessed(&upload.read_as().data).await;
     let form = Form::suggested(
         guess.as_ref(),
-        &interface::read(&prepared.blocks),
-        &prepared.size,
+        &interface::read(&upload.read_as().blocks),
+        &upload.read_as().size,
     );
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
     };
-    show_preview(&state, &user, &prepared, &form, said).await
+    show_preview(&state, &user, &upload, &form, said).await
 }
 
 /// The stored build most like an upload's `blocks`, if any is similar.
@@ -281,8 +268,6 @@ pub async fn publish(
         )
         .await;
     };
-    let conventional = posted.get("unconventional").is_empty();
-    let keep_paste = !posted.get("file_keeps_paste").is_empty();
     // A swap changes the file and shows it again, keeping the details.
     let swapping = posted.get("swap") == "hopper";
     let data = if swapping {
@@ -296,25 +281,21 @@ pub async fn publish(
     } else {
         data
     };
-    // The preview's file already lies the standard way.
-    let prepared =
-        match import::prepare(&data, None, conventional, keep_paste, false) {
-            Ok(prepared) => prepared,
-            Err(err) => {
-                let message = format!("Could not read that file: {err:#}.");
-                return upload_page(&state, &user, &message).await;
-            }
-        };
+    let upload = match Upload::read(&data) {
+        Ok(upload) => upload,
+        Err(err) => {
+            let message = format!("Could not read that file: {err:#}.");
+            return upload_page(&state, &user, &message).await;
+        }
+    };
     if posted.choosing() {
-        return chosen_instead(&state, &user, &mut posted, prepared, form)
-            .await;
+        return chosen_instead(&state, &user, &mut posted, upload, form).await;
     }
     if swapping {
-        return show_preview(&state, &user, &prepared, &form, Said::default())
+        return show_preview(&state, &user, &upload, &form, Said::default())
             .await;
     }
-    let refused = match publish_checked(&state, &user, &prepared, &form).await?
-    {
+    let refused = match publish_checked(&state, &user, &upload, &form).await? {
         Ok(id) => {
             simulation::refresh_soon(&state.db, &id);
             similarity::refresh_soon(&state.db);
@@ -328,7 +309,7 @@ pub async fn publish(
         message: &refused,
         ..Said::default()
     };
-    show_preview(&state, &user, &prepared, &form, said).await
+    show_preview(&state, &user, &upload, &form, said).await
 }
 
 /// The preview of the file newly chosen on the preview page, in place of
@@ -340,7 +321,7 @@ async fn chosen_instead(
     state: &AppState,
     user: &User,
     posted: &mut Posted,
-    current: Prepared,
+    current: Upload,
     form: Form,
 ) -> Result<Response, AppError> {
     let chosen = match posted.fetch_own(&state.db, user).await {
@@ -348,16 +329,10 @@ async fn chosen_instead(
         Err(message) => Err(message),
     };
     let read = chosen.and_then(|chosen| {
-        import::prepare(
-            &chosen.file,
-            chosen.standardize,
-            current.conventional,
-            chosen.keep_paste,
-            chosen.standardize.is_some(),
-        )
-        .map_err(|err| format!("Could not read that file: {err:#}."))
+        Upload::read(&chosen.file)
+            .map_err(|err| format!("Could not read that file: {err:#}."))
     });
-    let prepared = match read {
+    let upload = match read {
         Ok(prepared) => prepared,
         Err(message) => {
             let said = Said {
@@ -367,18 +342,18 @@ async fn chosen_instead(
             return show_preview(state, user, &current, &form, said).await;
         }
     };
-    let guess = guessed(&prepared.data).await;
+    let guess = guessed(&upload.read_as().data).await;
     let suggested = Form::suggested(
         guess.as_ref(),
-        &interface::read(&prepared.blocks),
-        &prepared.size,
+        &interface::read(&upload.read_as().blocks),
+        &upload.read_as().size,
     );
     let form = form.keeping_credits(suggested);
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
     };
-    show_preview(state, user, &prepared, &form, said).await
+    show_preview(state, user, &upload, &form, said).await
 }
 
 /// What a file seems to be, from a quick run of the tests it fits.
@@ -392,42 +367,43 @@ async fn guessed(data: &[u8]) -> Option<Guess> {
     .flatten()
 }
 
-/// Stores the upload and returns its id, or says why it was refused.
+/// Stores the upload and returns its id, or says why it was refused. A
+/// build not recognized as the category it is given goes up with its own
+/// blocks under a category of its own, named for what it seems meant to
+/// be, as `details::unrecognized` names it.
 async fn publish_checked(
     state: &AppState,
     user: &User,
-    prepared: &Prepared,
+    upload: &Upload,
     form: &Form,
 ) -> Result<Result<String, String>, AppError> {
     let db = &state.db;
     let categories = catalogue::categories(db).await?;
-    let given = match form.parse(&categories) {
+    let mut given = match form.parse(&categories) {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
+    };
+    let kept = match import::kept(&categories, &given.category, upload).await? {
+        Ok(kept) => kept,
+        Err(message) => return Ok(Err(message)),
+    };
+    let prepared = match &kept {
+        Kept::Standard { file, category } => {
+            given.category.clone_from(category);
+            file
+        }
+        Kept::Original(off) => {
+            if let Some(off) = off {
+                given.category.clone_from(&off.name);
+            }
+            &upload.original
+        }
     };
     let build = details::Build::of(prepared);
     let ready = match details::check(db, given, build, user.is_admin()).await? {
         Ok(ready) => ready,
         Err(message) => return Ok(Err(message)),
     };
-    let analysis = Analysis::of(
-        &prepared.blocks,
-        &ready.category.name,
-        prepared.conventional,
-    );
-    match analysis.violations.len() {
-        0 => {}
-        1 => {
-            return Ok(Err(
-                "It breaks a building convention, listed below.".to_owned()
-            ));
-        }
-        n => {
-            return Ok(Err(format!(
-                "It breaks {n} building conventions, listed below."
-            )));
-        }
-    }
     Ok(import::store(db, prepared, &ready, Some(user.id), None).await?)
 }
 
@@ -441,18 +417,24 @@ struct Said<'a> {
     choosing: Option<&'a str>,
 }
 
-/// The preview page for a prepared file, with the details form as `form`
-/// has it.
+/// The preview page for an upload, with the details form as `form` has it.
 async fn show_preview(
     state: &AppState,
     user: &User,
-    prepared: &Prepared,
+    upload: &Upload,
     form: &Form,
     said: Said<'_>,
 ) -> Result<Response, AppError> {
-    let duplicate = version::holder(&state.db, &prepared.sha256)
+    let prepared = &upload.original;
+    // Either file may be the one kept.
+    let mut duplicate = version::holder(&state.db, &prepared.sha256)
         .await?
         .map(|(id, _)| id);
+    if let (None, Ok(standard)) = (&duplicate, &upload.standard) {
+        duplicate = version::holder(&state.db, &standard.sha256)
+            .await?
+            .map(|(id, _)| id);
+    }
     let size = &prepared.size;
     let similar = closest(
         &state.db,
@@ -465,16 +447,15 @@ async fn show_preview(
         size: [size.x, size.y, size.z],
         duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
-        keep_paste: prepared.keeps_paste,
-        unconventional: !prepared.conventional,
+        unconventional: !upload.read_as().conventional,
+        unstandard: upload.standard.as_ref().err().map(String::as_str),
         swapped: &prepared.swapped,
-        turn: prepared.turn,
         guess: said.guess,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
     };
     let shown = form::Shown {
         file,
-        blocks: Some(&prepared.blocks),
+        blocks: Some(&upload.read_as().blocks),
         message: said.message,
         choosing: said.choosing,
     };

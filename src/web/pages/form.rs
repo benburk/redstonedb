@@ -183,9 +183,8 @@ fn flag_group(
 fn evaluated_note() -> Markup {
     html! {
         p data-evaluated-note hidden class="text-muted" {
-            "Its width, orientation, encoding, flags, design, latency, throughput, stacking, and whether it holds state "
-            "are worked out from its file and by the simulation, and it must pass its test; one that fails, or that the "
-            "simulator can't run, goes up under a category of its own."
+            "Every measured detail is worked out by the simulation. "
+            "If it fails its test, it goes up off the list instead, and you describe it."
         }
     }
 }

@@ -166,13 +166,14 @@ pub async fn replace(
     let (x, y, z) = (size.x, size.y, size.z);
     sqlx::query!(
         "UPDATE schematic SET size_x = ?, size_y = ?, size_z = ?,
-            torches = ?, works_from = ?, works_from_by = ?,
+            conventional = ?, torches = ?, works_from = ?, works_from_by = ?,
             edited_at = iif(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                 edited_at)
          WHERE id = ?",
         x,
         y,
         z,
+        file.conventional,
         facts.torches,
         facts.works_from.release,
         facts.works_from.because,
