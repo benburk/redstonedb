@@ -182,16 +182,31 @@ fn port_detail(entry: &PortEntry, inputs: bool) -> String {
     }
     said.join(" · ")
 }
-/// Each broken convention with where in the file it is.
+/// Each broken convention, once however often it is broken, with where in
+/// the file each break is.
 pub(super) fn violation_list(violations: &[Violation]) -> Markup {
+    let mut grouped: Vec<(&str, Vec<[i32; 3]>)> = Vec::new();
+    for violation in violations {
+        let at = violation.pos.into_iter();
+        match grouped.iter_mut().find(|(m, _)| *m == violation.message) {
+            Some((_, places)) => places.extend(at),
+            None => grouped.push((&violation.message, at.collect())),
+        }
+    }
     html! {
-        ul class="flex flex-col gap-1.5" {
-            @for violation in violations {
-                li class="flex gap-3" {
-                    span class="w-24 shrink-0 text-muted tabular-nums" {
-                        @if let Some([x, y, z]) = violation.pos { (x) ", " (y) ", " (z) }
+        ul class="flex flex-col gap-3" {
+            @for (message, places) in &grouped {
+                li {
+                    (message)
+                    @if !places.is_empty() {
+                        span class="block text-meta text-muted tabular-nums" {
+                            @if places.len() > 1 { (places.len()) " places: " } @else { "At " }
+                            @for (i, [x, y, z]) in places.iter().enumerate() {
+                                @if i > 0 { "; " }
+                                (x) ", " (y) ", " (z)
+                            }
+                        }
                     }
-                    span { (violation.message) }
                 }
             }
         }

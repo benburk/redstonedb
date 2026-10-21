@@ -68,7 +68,7 @@ pub async fn poll(
     let poll = format!("/schematics/{id}/simulation");
     Ok((
         [("FX-Redraw", "build-banner build-info")],
-        pages::simulation_section(&report, Waiting::Polled(&poll)),
+        pages::simulation_section(&report, pages::waiting(&s, &poll)),
     )
         .into_response())
 }

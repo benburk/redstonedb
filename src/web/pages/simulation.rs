@@ -109,6 +109,9 @@ pub enum Waiting<'a> {
     /// On a build's page, measured in the background: asked of this
     /// address every few seconds until it is ready.
     Polled(&'a str),
+    /// Never measured, as for a build off the list, which is only tested
+    /// to show what keeps it from being recognized.
+    Untimed,
 }
 
 /// What simulating a build found: the cases tried and how many came out
@@ -152,11 +155,11 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {
                         (timing_section(timing))
-                    } @else {
-                        @let (action, method, trigger, target, form) = match waiting {
-                            Waiting::Posted(url) => (url.to_owned(), "post", "load", None, Some("details-form")),
-                            Waiting::Polled(url) => (format!("{url}?have=cases"), "get", "poll", Some("#simulation"), None),
-                        };
+                    } @else if let Some((action, method, trigger, target, form)) = match waiting {
+                        Waiting::Posted(url) => Some((url.to_owned(), "post", "load", None, Some("details-form"))),
+                        Waiting::Polled(url) => Some((format!("{url}?have=cases"), "get", "poll", Some("#simulation"), None)),
+                        Waiting::Untimed => None,
+                    } {
                         div data-timing-pending fx-action=(action) fx-method=(method) fx-trigger=(trigger)
                             fx-target=[target] data-form=[form] data-every="3000" class="mt-6" {
                             p class="flex items-center gap-2 text-muted" {

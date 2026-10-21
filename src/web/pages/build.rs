@@ -101,7 +101,7 @@ pub fn schematic_page(
             @let poll = format!("{path}/simulation");
             @match simulation {
                 Status::Done(report) | Status::Pending(Some(report)) => {
-                    (simulation_section(report, Waiting::Polled(&poll)))
+                    (simulation_section(report, waiting(s, &poll)))
                 }
                 Status::Pending(None) => (cases_pending(&poll)),
                 Status::Untested => {}
@@ -113,6 +113,16 @@ pub fn schematic_page(
             (version::versions_section(s, versions))
         },
     )
+}
+
+/// How build `s`'s page waits on its timing, asked of `poll`: never, for
+/// one off the list, which is only tested.
+pub fn waiting<'a>(s: &Schematic, poll: &'a str) -> Waiting<'a> {
+    if crate::models::simulation::meant_by(&s.category).is_some() {
+        Waiting::Untimed
+    } else {
+        Waiting::Polled(poll)
+    }
 }
 
 /// Beside a build's title, what its simulation says, as a badge: passes,
@@ -251,6 +261,10 @@ impl Sources {
         Sources {
             category: if report.is_some_and(Report::failed) {
                 Source::Unconfirmed("fails simulation")
+            } else if crate::models::simulation::meant_by(&s.category).is_some()
+            {
+                // Passing or not, it is off the list until recognized.
+                Source::Unconfirmed("not recognized")
             } else {
                 checked(false, passed)
             },
@@ -419,14 +433,16 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
 
 /// `content` with `note` in a small popup above it while it is hovered or
 /// focused, and as its description for a screen reader. `id` names the
-/// note, once on the page.
+/// note, once on the page. Hidden, it takes no room, and on a phone it
+/// shows along the foot of the screen, so one near the edge never widens
+/// the page.
 fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
     html! {
         span tabindex="0" aria-describedby=(id)
             class="group relative inline-block cursor-help rounded-control focus-visible:outline-2 focus-visible:outline-boundary" {
             (content)
             span id=(id) role="tooltip"
-                class="pointer-events-none invisible absolute bottom-full left-0 z-20 mb-1.5 w-max max-w-xs rounded-control bg-ink px-2.5 py-1.5 text-meta font-normal text-canvas opacity-0 shadow-overlay transition-opacity duration-150 ease-calm group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 motion-reduce:transition-none" {
+                class="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden w-max max-w-xs max-desktop:fixed max-desktop:inset-x-4 max-desktop:top-auto max-desktop:bottom-4 max-desktop:mb-0 max-desktop:w-auto max-desktop:max-w-none rounded-control bg-ink px-2.5 py-1.5 text-meta font-normal text-canvas shadow-overlay transition-[opacity,display] transition-discrete duration-150 ease-calm group-hover:block group-focus-within:block starting:opacity-0 motion-reduce:transition-none" {
                 (note)
             }
         }

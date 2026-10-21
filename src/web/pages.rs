@@ -41,7 +41,7 @@ mod users;
 mod version;
 
 pub use about::{Checked, about, conventions, simulation_guide, sorting};
-pub use build::{FileRead, build_banner, build_info, schematic_page};
+pub use build::{FileRead, build_banner, build_info, schematic_page, waiting};
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;
 use layout::base;
@@ -250,7 +250,9 @@ fn size(s: &Schematic) -> String {
 /// comes first.
 fn beside_viewer(file: &str, side: &Markup) -> Markup {
     html! {
-        div class="grid items-start gap-8 desktop:grid-cols-[var(--container-form)_minmax(0,1fr)]" {
+        // One column on a phone, no wider than the screen, so a wide table
+        // scrolls in its own box rather than widening the page.
+        div class="grid grid-cols-[minmax(0,1fr)] items-start gap-8 desktop:grid-cols-[var(--container-form)_minmax(0,1fr)]" {
             div class="desktop:sticky desktop:top-4 desktop:order-last" {
                 (viewer_3d(file))
             }
