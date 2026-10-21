@@ -70,6 +70,12 @@
     @apply bg-canvas font-sans text-body text-ink antialiased;
   }
 
+  /* While the sidebar is open over a phone's page, the page stays put, so
+     a scroll meant for the sidebar never moves it, nor the browser's bars. */
+  html:has(#sidebar:popover-open) {
+    overflow: hidden;
+  }
+
   input,
   select,
   textarea {

@@ -124,8 +124,11 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
         }
     };
     html! {
+        // On a phone, a panel held to the screen's top and bottom rather
+        // than sized to it, so it never changes height as the browser's
+        // bars come and go, and its scrolling stays its own.
         nav id="sidebar" popover aria-label="Site"
-            class="inset-y-0 left-0 m-0 h-dvh w-72 max-w-[85vw] flex-col border-r border-line bg-sidebar text-ink shadow-overlay backdrop:bg-black/30 open:flex desktop:sticky desktop:top-0 desktop:flex desktop:h-screen desktop:w-60 desktop:max-w-none desktop:shrink-0 desktop:shadow-none" {
+            class="inset-y-0 left-0 m-0 h-auto max-h-none w-72 overscroll-contain max-w-[85vw] flex-col border-r border-line bg-sidebar text-ink shadow-overlay backdrop:bg-black/30 open:flex desktop:sticky desktop:top-0 desktop:flex desktop:h-screen desktop:w-60 desktop:max-w-none desktop:shrink-0 desktop:shadow-none" {
             // On a phone, its top matches the bar's, its button where the
             // bar's was.
             div class="flex min-h-14 shrink-0 items-center gap-3 px-4 desktop:min-h-0 desktop:px-5.5 desktop:pt-4 desktop:pb-4" {
@@ -137,7 +140,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
             }
             // The site's pages scroll between the brand and the account,
             // which stay put.
-            div data-sidebar class="min-h-0 flex-1 overflow-y-auto px-3 pb-4 [scrollbar-gutter:stable]" {
+            div data-sidebar class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-gutter:stable]" {
                 ul class="flex flex-col gap-0.5" {
                     (link("/", icons::HOME, "Home", current("/")))
                     (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
