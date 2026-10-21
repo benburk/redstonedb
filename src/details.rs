@@ -305,6 +305,15 @@ async fn evaluated(
              not follow"
         ));
     }
+    // Until the simulator has a good way to drive one, a strength is no
+    // input a recognized build may take.
+    if crate::schem::Blocks::read(build.data)
+        .is_ok_and(|blocks| !crate::interface::dust_inputs(&blocks).is_empty())
+    {
+        return off_list(format!(
+            "The {label} test takes no signal-strength inputs"
+        ));
+    }
     let Some(test) = Test::of(&category.name, width) else {
         return off_list(match width {
             None => format!(

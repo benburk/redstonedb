@@ -175,7 +175,8 @@ async fn a_build_date_still_to_come_is_refused() {
 
 /// An adder or multiplier is recognized from its file or goes up under a
 /// category of its own: one the simulator can't run, one that breaks the
-/// conventions its test reads, and one that fails its test are refused.
+/// conventions its test reads, one that fails its test, and one taking a
+/// signal strength as an input are refused.
 #[tokio::test]
 async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
     let db = setup_test_db().await;
@@ -213,6 +214,16 @@ async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
         )
         .await,
         "does not pass the adder test",
+    );
+    off_list(
+        check_file(
+            &db,
+            given("adder"),
+            &std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap(),
+            true,
+        )
+        .await,
+        "signal-strength inputs",
     );
     assert!(check(&db, given("adder")).await.is_ok());
 }

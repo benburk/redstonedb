@@ -50,6 +50,7 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 - The dust's one open end, the side that leads nowhere, is where power enters, so it marks where a driver goes, as a lever's face does. It may face any side, unlike A's levers; give each input's dust an open end of its own, so a driver there feeds that input alone.
 - One colour is one bus, so an operand's blocks are either all levered or all signal-strength.
 - The derived drive and the `4ss` strength sign do not apply: the strength is the value.
+- For now no category the site recognizes takes one: such a build goes up under a category of its own, until the simulator has a good way to drive a strength.
 
 ### How an input must be driven
 
