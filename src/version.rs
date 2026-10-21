@@ -18,7 +18,7 @@ use crate::{
     lint,
     models::{schematic::Schematic, version},
     schem::{self, Blocks, Pos},
-    standardize::{self, Gray},
+    standardize::Gray,
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless
@@ -58,8 +58,9 @@ impl Comparison {
 /// a layer. A redstone component, a sign, or a container is compared as it
 /// is, without the power a resave changes, such as dust's strength or a
 /// torch being lit; a lever's position is kept, being an input's setting.
-/// Any other block is compared only as solid or see-through, so a block
-/// recoloured, such as marked as an input or turned gray, is unchanged.
+/// Any other block is compared only as a block, so one recoloured, such as
+/// marked as an input or turned gray, or turned from solid to see-through
+/// or back, as glass to show the circuit, is unchanged.
 pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
     let old = solid(old);
     let new = solid(new);
@@ -98,8 +99,7 @@ fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
 }
 
 /// `state` as a new version is compared by: a component, sign, or
-/// container without its power, and any other block only as solid or
-/// see-through.
+/// container without its power, and any other block only as a block.
 fn compared(state: &str) -> String {
     let name = schem::short(state);
     if lint::is_component(name)
@@ -107,10 +107,8 @@ fn compared(state: &str) -> String {
         || schem::slots(state).is_some()
     {
         schem::unpowered(state)
-    } else if standardize::see_through(name) {
-        "see-through".to_owned()
     } else {
-        "solid".to_owned()
+        "block".to_owned()
     }
 }
 
