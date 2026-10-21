@@ -39,12 +39,12 @@ fn refused(old: &[u8], new: &[u8]) -> Vec<String> {
 fn a_one_block_fix_is_a_new_version() {
     let old = stored("alpha-rca");
     let blocks = Blocks::read(&old).unwrap();
-    // A block of plain white concrete turned to white glass.
+    // A block of plain white concrete taken out.
     let (pos, _) = blocks
         .iter()
         .find(|(_, state)| *state == "minecraft:white_concrete")
         .unwrap();
-    let new = edited(&old, pos, "minecraft:white_stained_glass");
+    let new = edited(&old, pos, "minecraft:air");
     let comparison = compare(&blocks, &Blocks::read(&new).unwrap());
     assert_eq!(comparison.changed, 1);
     assert!(refused(&old, &new).is_empty());
