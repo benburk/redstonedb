@@ -338,7 +338,7 @@ pub fn build_info(
             @match file {
                 _ if !s.conventional => {
                     p class="text-meta text-muted" {
-                        "Follows its own layout, so its inputs and outputs are not read and it is not linted."
+                        "Doesn't follow the building conventions, so its inputs and outputs are not read and it is not linted."
                     }
                 }
                 Ok(file) => (interface_section(&file.analysis)),

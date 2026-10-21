@@ -412,7 +412,7 @@ fn conventions_check(page: &DetailsPage, unconventional: bool) -> Markup {
             }, false))
         } @else if unconventional {
             (check("conventions", State::Wait, &html! {
-                "Follows its own layout, so the building conventions are not checked."
+                "Doesn't follow the building conventions, so they are not checked."
             }, false))
         } @else if violations.is_empty() {
             (check("conventions", State::Pass, &html! { "Follows the building conventions." }, false))

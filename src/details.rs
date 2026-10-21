@@ -297,17 +297,16 @@ async fn evaluated(
 }
 
 /// The listed category `name` means: one of `categories` as typed, or the
-/// one an off-list name such as `8-bit adder` stands in for, which a build
-/// goes up under while it is not recognized as an adder.
+/// one an off-list name such as `8-bit adder` stands in for, as
+/// `simulation::meant_by` reads it.
 pub fn meant<'a>(
     categories: &'a [Category],
     name: &str,
 ) -> Option<&'a Category> {
     Category::find(categories, name).or_else(|| {
         let name = Category::name_of(categories, name);
-        let (bits, rest) = name.split_once("-bit_")?;
-        bits.parse::<u32>().ok()?;
-        Category::find(categories, rest)
+        let (meant, _) = simulation::meant_by(&name)?;
+        Category::find(categories, meant)
     })
 }
 
