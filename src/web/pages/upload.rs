@@ -154,7 +154,7 @@ fn marking_guide() -> Markup {
             p class="mb-4 max-w-prose text-muted" {
                 "The site reads a build's inputs and outputs from its colours and signs."
             }
-            div class="overflow-x-auto" {
+            div class="relative overflow-x-auto" {
                 table class="w-full border-collapse" {
                     thead {
                         tr {

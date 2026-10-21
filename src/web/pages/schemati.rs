@@ -193,7 +193,7 @@ fn open(folder: &Folder) -> Markup {
                 "Your Schemati folder is empty. In game, " code { "//save <name>" } " adds to it."
             }
         } @else {
-            div class="overflow-x-auto" {
+            div class="relative overflow-x-auto" {
                 table class="w-full border-collapse" {
                     thead {
                         tr {

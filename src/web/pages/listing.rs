@@ -657,7 +657,7 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
     // Columns a phone has no room for; the name and its tags come first.
     let secondary = "hidden desktop:table-cell";
     html! {
-                div class="overflow-x-auto" {
+                div class="relative overflow-x-auto" {
                     table class="w-full border-collapse" {
                         thead {
                             tr {

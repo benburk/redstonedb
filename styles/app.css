@@ -66,8 +66,10 @@
 }
 
 @layer base {
+  /* A word too long for its line, as a link pasted into a description,
+     breaks rather than widening the page. */
   body {
-    @apply bg-canvas font-sans text-body text-ink antialiased;
+    @apply bg-canvas font-sans text-body text-ink antialiased wrap-break-word;
   }
 
   /* While the sidebar is open over a phone's page, the page stays put, so

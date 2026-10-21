@@ -14,7 +14,10 @@ pub fn versions_section(s: &Schematic, versions: &[Version]) -> Markup {
         @if versions.len() > 1 {
             section aria-labelledby="versions-heading" class="mt-12 max-w-calm" {
                 h2 id="versions-heading" class={ (SECTION_TITLE) " mb-3" } { "Versions" }
-                div class="overflow-x-auto" {
+                // Relative, so the hidden caption and heading, placed
+                // absolutely, scroll with the table rather than widening
+                // the page.
+                div class="relative overflow-x-auto" {
                     table class="w-full border-collapse" {
                         caption class="sr-only" { "Versions" }
                         thead {

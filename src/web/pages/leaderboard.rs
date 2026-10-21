@@ -416,7 +416,7 @@ fn ranking(
 ) -> Markup {
     let numbered = placed.iter().any(|(place, _)| *place > 0);
     html! {
-        div class="overflow-x-auto" {
+        div class="relative overflow-x-auto" {
             table class="w-full border-collapse" {
                 thead {
                     tr {

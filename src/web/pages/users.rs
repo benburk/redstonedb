@@ -56,7 +56,7 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }
             }
-            div class="max-w-calm overflow-x-auto" {
+            div class="relative max-w-calm overflow-x-auto" {
                 table class="w-full border-collapse" {
                     thead {
                         tr {

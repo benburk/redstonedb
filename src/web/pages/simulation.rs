@@ -378,7 +378,7 @@ pub fn timing_section(timing: &Timing) -> Markup {
             data-summary=(timing_summary(timing)) {
             h3 id="timing-heading" class="mb-2 font-semibold" { "Timing" }
             (timing_intro(timing))
-            div class="overflow-x-auto" {
+            div class="relative overflow-x-auto" {
                 table class="w-full border-collapse" {
                     caption class="sr-only" { "When each output settles" }
                     thead {
@@ -491,7 +491,7 @@ fn bit_timing(output: &OutputTiming) -> Markup {
     html! {
         details class="mt-4" {
             summary class="cursor-pointer font-semibold" { (output.name) ", bit by bit" }
-            div class="mt-2 overflow-x-auto" {
+            div class="relative mt-2 overflow-x-auto" {
                 table class="w-full border-collapse" {
                     caption class="sr-only" { (output.name) ", bit by bit" }
                     thead {
@@ -547,7 +547,7 @@ fn simulation_failures(run: &Run) -> Markup {
             }
         }
         h3 class="mt-6 mb-2 font-semibold" { "First wrong cases" }
-        div class="overflow-x-auto" {
+        div class="relative overflow-x-auto" {
             table class="w-full border-collapse" {
                 caption class="sr-only" { "First wrong cases" }
                 thead {
@@ -602,7 +602,7 @@ fn cell_faults(run: &Run) -> Markup {
     let buses = run.outputs.len() > 1;
     html! {
         h3 class="mt-6 mb-2 font-semibold" { "Cells" }
-        div class="overflow-x-auto" {
+        div class="relative overflow-x-auto" {
             table class="w-full border-collapse" {
                 caption class="sr-only" { "Cells" }
                 thead {
@@ -624,7 +624,7 @@ fn cell_faults(run: &Run) -> Markup {
             }
         }
         h3 class="mt-6 mb-2 font-semibold" { "Faults" }
-        div class="overflow-x-auto" {
+        div class="relative overflow-x-auto" {
             table class="w-full border-collapse" {
                 caption class="sr-only" { "Faults" }
                 thead {

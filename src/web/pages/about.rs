@@ -410,7 +410,7 @@ fn checked_table(checked: &[Checked]) -> Markup {
         }
     };
     html! {
-    div class="overflow-x-auto" {
+    div class="relative overflow-x-auto" {
         table class="w-full border-collapse" {
             caption class="sr-only" { "What the site works out for each category it simulates" }
             thead {
