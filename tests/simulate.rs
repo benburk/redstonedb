@@ -33,6 +33,16 @@ fn adder_run(blocks: &Blocks) -> Result<Box<Run>, Report> {
     }
 }
 
+/// The `broken` conventions but for how input blocks are wired: fixtures
+/// from before that rule, kept for what they show of the simulation.
+fn but_inputs(broken: &[lint::Violation]) -> Vec<String> {
+    broken
+        .iter()
+        .map(ToString::to_string)
+        .filter(|m| !m.contains("input block"))
+        .collect()
+}
+
 #[test]
 fn a_ripple_carry_adder_gets_every_sum_right() {
     let report = Test::Adder.run(&blocks("alpha-rca"));
@@ -740,7 +750,7 @@ fn a_register_whose_reads_are_not_gated_fails() {
 #[test]
 fn a_buffer_shows_what_it_holds_without_a_read() {
     let (_, blocks) = register("buffer-2-button");
-    assert!(lint::check_for(&blocks, "buffer").is_empty());
+    assert!(but_inputs(&lint::check_for(&blocks, "buffer")).is_empty());
     let mut read = interface::read(&blocks);
     interface::name_lines("buffer", &blocks, &mut read);
     let names: Vec<&str> =
@@ -1086,10 +1096,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
                 let turn = orient::Turn { mirrored, quarters };
                 let scrambled = orient::turned(&standard.data, turn).unwrap();
                 let blocks = upload(&scrambled).blocks;
-                let broken: Vec<String> = lint::check(&blocks)
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
+                let broken = but_inputs(&lint::check(&blocks));
                 assert!(broken.is_empty(), "{name} {turn:?}: {broken:?}");
                 let guess = simulate::guess(&blocks).unwrap();
                 assert_eq!(
@@ -1131,7 +1138,7 @@ fn comparison(name: &str) -> Blocks {
 #[test]
 fn a_greater_than_comparator_compares_unsigned() {
     let blocks = comparison("gt-8");
-    assert!(lint::check_for(&blocks, "greater_than").is_empty());
+    assert!(but_inputs(&lint::check_for(&blocks, "greater_than")).is_empty());
     let Report::Ran(run) = Test::GreaterThan.run(&blocks) else {
         panic!("the comparator was not simulated");
     };
@@ -1165,7 +1172,7 @@ fn a_comparator_with_its_sign_bits_inverted_compares_signed() {
 #[test]
 fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
     let blocks = comparison("eq-8-weak-bit-0");
-    assert!(lint::check_for(&blocks, "equality").is_empty());
+    assert!(but_inputs(&lint::check_for(&blocks, "equality")).is_empty());
     let Report::Ran(run) = Test::Equality.run(&blocks) else {
         panic!("the comparator was not simulated");
     };

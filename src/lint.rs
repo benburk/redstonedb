@@ -130,6 +130,7 @@ pub fn check(blocks: &Blocks) -> Vec<Violation> {
     forbidden(blocks, &mut found);
     levers(blocks, &mut found);
     inputs(blocks, &mut found);
+    input_wiring(blocks, &mut found);
     names(blocks, &mut found);
     order_marks(blocks, &mut found);
     found.extend(
@@ -315,11 +316,12 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     .to_owned(),
             );
         }
-        // A's levers face south, so builds line up; the other operands'
-        // may be on any side, but not on top or underneath.
+        // A's levers face south, so builds line up; the other inputs' may
+        // be on any side, but not on top or underneath.
         let operand = block
             .strip_suffix("_concrete")
             .is_some_and(|colour| INPUT_COLOURS.contains(&colour));
+        let input = is_input(block);
         let primary = block == format!("{}_concrete", INPUT_COLOURS[0]);
         if primary && lever.side != Direction::South {
             say(
@@ -330,14 +332,14 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     lever.side
                 ),
             );
-        } else if operand
-            && matches!(lever.side, Direction::Up | Direction::Down)
+        } else if input && matches!(lever.side, Direction::Up | Direction::Down)
         {
+            let who = if operand { "operand" } else { "control line's" };
             say(
                 found,
                 Some(lever.pos),
                 format!(
-                    "operand lever is on the {} of its block; it goes on a \
+                    "{who} {what} is on the {} of its block; it goes on a \
                      side, north, south, east, or west",
                     if lever.side == Direction::Up {
                         "top"
@@ -361,6 +363,85 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
                     ),
                 );
             }
+        }
+    }
+}
+
+/// What touches an input block with a lever or button: its switch powers
+/// it, and it feeds at most one dust, on one of its other sides, so wiring
+/// it up puts one driver into one wire. Dust on top or underneath, a second
+/// dust, anything else that would power it, as a repeater or comparator
+/// pointed into it or a torch beneath it, and any other component, such as
+/// a redstone block or a target, break that. Torches hung on it or standing
+/// on it, repeaters and comparators that read it, and other inputs' levers
+/// and buttons, which power only their own blocks, are fine.
+fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
+    for switch in blocks.switches() {
+        let pos = switch.block;
+        if !is_input(schem::short(blocks.get(pos))) {
+            continue;
+        }
+        let mut dust = 0;
+        for direction in Direction::ALL {
+            let next = schem::step(pos, direction);
+            if next == switch.pos {
+                continue;
+            }
+            let state = blocks.get(next);
+            let name = schem::short(state);
+            let pointed = || Direction::facing(state) == Some(direction);
+            let problem = match name {
+                "redstone_wire" => match direction {
+                    Direction::Up => Some("has dust on top".to_owned()),
+                    Direction::Down => Some("has dust under it".to_owned()),
+                    _ => {
+                        dust += 1;
+                        None
+                    }
+                },
+                "redstone_torch" | "redstone_wall_torch"
+                    if direction == Direction::Down =>
+                {
+                    Some("has a torch under it, which powers it".to_owned())
+                }
+                "repeater" | "comparator" if pointed() => Some(format!(
+                    "has a {name} pointed into it, which powers it"
+                )),
+                "redstone_torch"
+                | "redstone_wall_torch"
+                | "repeater"
+                | "comparator"
+                | "lever"
+                | "air" => None,
+                _ if name.ends_with("sign")
+                    || name.ends_with("_button")
+                    || !is_component(name)
+                    || schem::slots(state).is_some() =>
+                {
+                    None
+                }
+                _ => Some(format!("touches a {}", name.replace('_', " "))),
+            };
+            if let Some(problem) = problem {
+                say(
+                    found,
+                    Some(pos),
+                    format!(
+                        "input block {problem}; an input feeds one dust, on \
+                         a side, besides any torches"
+                    ),
+                );
+            }
+        }
+        if dust > 1 {
+            say(
+                found,
+                Some(pos),
+                format!(
+                    "input block touches {dust} dust; an input feeds one dust, \
+                     on a side, besides any torches"
+                ),
+            );
         }
     }
 }

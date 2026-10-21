@@ -73,12 +73,43 @@ fn corner_markers_sit_one_block_off_each_corner() {
     assert_eq!(standardize::tidy(&marked).unwrap(), slice("alpha-cla"));
 }
 
+/// An input block feeds one dust, on a side, besides any torches: the
+/// alpha CLA's run their dust over their tops, and a comparator's inputs
+/// feed two dust each.
 #[test]
-fn conventional_build_passes_lint() {
-    let violations = lint::check(&blocks("alpha-cla"));
-    let messages: Vec<String> =
-        violations.iter().map(ToString::to_string).collect();
-    assert!(messages.is_empty(), "{messages:#?}");
+fn an_input_block_feeds_one_dust_on_a_side() {
+    let complaints = |name| -> Vec<String> {
+        lint::check(&blocks(name))
+            .iter()
+            .map(|v| v.message.clone())
+            .collect()
+    };
+    let cla = complaints("alpha-cla");
+    assert_eq!(cla.len(), 17, "{cla:#?}");
+    assert!(
+        cla.iter()
+            .all(|m| m.starts_with("input block has dust on top"))
+    );
+    let gt = complaints("gt-8");
+    assert_eq!(gt.len(), 16, "{gt:#?}");
+    assert!(
+        gt.iter()
+            .all(|m| m.starts_with("input block touches 2 dust"))
+    );
+    let capped = complaints("cca-8-repeated-out");
+    assert!(
+        capped
+            .iter()
+            .any(|m| m.contains("touches a redstone block")),
+        "{capped:#?}"
+    );
+    // Torches on its sides and top, and the levers of the inputs beside
+    // it, are fine.
+    let vertical = complaints("vert-3t-cca");
+    assert!(
+        !vertical.iter().any(|m| m.starts_with("input block")),
+        "{vertical:#?}"
+    );
 }
 
 #[test]

@@ -41,8 +41,9 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 - A buffer is a register without reads: each cell shows what it holds on its own yellow bus all the time. Its data in is lime, and each cell has a write on a magenta line, a button, or a lever that passes data in through while it is on. A lone write needs no sign; with several, buttons are writes, and a lever beside a button is a read, which makes it a register.
 - An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
 - The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
+- An input block feeds at most one dust, on one of its sides other than its lever's, so wiring it up puts one driver into one wire. No dust lies on top of it or underneath, and nothing else powers it: no repeater or comparator points into it, no torch stands under it, and no other component, such as a redstone block or a target, touches it. Torches hung on it or standing on it, repeaters and comparators reading it, and the levers of the inputs beside it are fine, as many as it takes.
 - The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
-- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. Standardizing an upload turns the build about the vertical so they are, wherever they started. The other operands' levers may be on any side, north, south, east, or west, but not on top or underneath.
+- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. Standardizing an upload turns the build about the vertical so they are, wherever they started. Every other input's lever or button may be on any side, north, south, east, or west, but not on top or underneath.
 
 ### Signal-strength inputs
 
