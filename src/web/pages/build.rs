@@ -34,6 +34,9 @@ const VERIFIED: &str = r#"<svg viewBox="0 0 20 20" fill="currentColor" aria-hidd
 /// What a stored build's file says about it.
 pub struct FileRead {
     pub analysis: Analysis,
+    /// Whether it takes a signal strength as an input, which keeps it
+    /// from being recognized.
+    pub strength_inputs: bool,
     /// How its stacking looks, each way it stacks.
     pub stacking: Vec<crate::stack::Review>,
 }
@@ -79,6 +82,22 @@ pub fn schematic_page(
                 }
             }
             (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
+            @if let Some((meant, _)) = crate::models::simulation::meant_by(&s.category) {
+                @let label = meant.replace('_', " ");
+                p class="mt-12 max-w-prose text-muted" {
+                    "Off the list until it's recognized as " (super::article(&label)) ": "
+                    @if file.as_ref().is_ok_and(|file| file.strength_inputs) {
+                        "it takes signal-strength inputs, which no recognized build may until the simulator can drive them. "
+                    } @else {
+                        "it must keep the building conventions and pass the " (label) " test. "
+                        "What it gets wrong is below. "
+                    }
+                    @if viewer.is_some_and(|v| v.may_edit(s)) {
+                        a href={ (path) "/versions/new" } { "A new version" }
+                    } @else { "A new version" }
+                    " that fixes it moves it up."
+                }
+            }
             @let poll = format!("{path}/simulation");
             @match simulation {
                 Status::Done(report) | Status::Pending(Some(report)) => {

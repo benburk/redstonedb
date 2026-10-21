@@ -26,6 +26,7 @@ use crate::{
         Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
     },
     stack,
+    standardize::Gray,
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -129,10 +130,32 @@ async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The listed category an off-list one named for what it seems meant to
+/// be, such as `8-bit_register`, stands in for, when the simulation works
+/// out that category's builds, with the width its name gives; such a build
+/// goes up off the list while it is not recognized as one.
+pub fn meant_by(category: &str) -> Option<(&str, i64)> {
+    let (bits, meant) = category.split_once("-bit_")?;
+    let bits = bits.parse().ok()?;
+    category::behaviour(meant)
+        .evaluated
+        .then_some((meant, bits))
+}
+
+/// The test build `s` is held to: its category's at its width, or for one
+/// off the list, the test of the category it stands in for, to say what
+/// keeps it from being recognized as one.
+pub fn test_for(s: &Schematic) -> Option<Test> {
+    match meant_by(&s.category) {
+        Some((meant, bits)) => Test::of(meant, Some(bits)),
+        None => Test::of(&s.category, s.width),
+    }
+}
+
 /// Build `s`'s stored result, when it is for its file and the test its
 /// category and width call for now.
 pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
-    match Test::of(&s.category, s.width) {
+    match test_for(s) {
         Some(test) => stored(db, &s.id, &s.sha256, test).await,
         None => Ok(None),
     }
@@ -281,6 +304,9 @@ pub async fn refresh(
     if s.conventional && category::behaviour(&s.category).evaluated {
         return refresh_evaluated(db, &s, data, again).await;
     }
+    if let Some((meant, _)) = meant_by(&s.category) {
+        return refresh_off_list(db, &s, &data, meant, again).await;
+    }
     let mut derived = Derived::of(&s);
     if s.conventional {
         derived.read(&s.category, &Blocks::read(&data)?);
@@ -325,6 +351,48 @@ pub async fn refresh(
     }
     tx.commit().await?;
     Ok(report)
+}
+
+/// Brings build `s`, off the list while it is not recognized as the
+/// category `meant` it stands in for, up to date with its file `data`:
+/// that category's test run on the file standardized, as recognizing it
+/// would, to show what keeps it from being one. Nothing else is set from
+/// the result, its details being its builder's.
+async fn refresh_off_list(
+    db: &SqlitePool,
+    s: &Schematic,
+    data: &[u8],
+    meant: &str,
+    again: bool,
+) -> Result<Option<Report>> {
+    let Some(test) = test_for(s) else {
+        return Ok(None);
+    };
+    if !again && let Some(report) = current(db, s).await? {
+        return Ok(Some(report));
+    }
+    let standard =
+        import::prepare(data, Some(Gray::Keep), true, s.keeps_paste, true);
+    let report = match standard {
+        Ok(standard) => {
+            let width = derived_width(meant, true, &standard.data)?;
+            match Test::of(meant, width) {
+                Some(test) => run(test, standard.data).await?,
+                None => Report::Skipped {
+                    reason: format!(
+                        "The {} test can't read its width from its inputs \
+                         and outputs.",
+                        meant.replace('_', " ")
+                    ),
+                },
+            }
+        }
+        Err(err) => Report::Skipped {
+            reason: format!("It can't be standardized: {err:#}."),
+        },
+    };
+    set(db, &s.id, test, (s.sha256.as_str(), None), &report).await?;
+    Ok(Some(report))
 }
 
 /// Brings build `s`, of a category whose details all come from
@@ -678,8 +746,11 @@ pub async fn refresh_timing(
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
     };
-    // `refresh` timed it already, with everything else.
-    if s.conventional && category::behaviour(&s.category).evaluated {
+    // `refresh` timed it already, with everything else; an off-list build
+    // is only tested, to show what is wrong with it.
+    if s.conventional && category::behaviour(&s.category).evaluated
+        || meant_by(&s.category).is_some()
+    {
         return Ok(Some(report));
     }
     let mut measured = None;
@@ -747,10 +818,14 @@ pub enum Status {
 /// Where build `s`'s simulation stands, starting it in the background when
 /// something is missing and nothing is under way.
 pub async fn status(db: &SqlitePool, s: &Schematic) -> Result<Status> {
-    if Test::of(&s.category, s.width).is_none() {
+    if test_for(s).is_none() {
         return Ok(Status::Untested);
     }
     match current(db, s).await? {
+        // An off-list build is not timed.
+        Some(report) if meant_by(&s.category).is_some() => {
+            Ok(Status::Done(report))
+        }
         Some(report) if !report.passed() || report.timing().is_some() => {
             Ok(Status::Done(report))
         }

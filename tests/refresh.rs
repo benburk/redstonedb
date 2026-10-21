@@ -147,6 +147,31 @@ async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
     assert!(other.is_ok(), "{:?}", other.err());
 }
 
+/// Off the list, it is held to the adder test all the same, so its page
+/// shows what keeps it from being one, though nothing else is set from it.
+#[tokio::test]
+async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "8-bit adder".to_owned(),
+        latency: Some(99),
+        ..Details::default()
+    };
+    let id = store(&db, "cca-8-dust-out", typed).await;
+    let report = simulation::refresh(&db, &id, false)
+        .await
+        .unwrap()
+        .expect("it is tested");
+    assert!(report.failed(), "the fixture fails the adder test");
+    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(s.category, "8-bit_adder");
+    assert_eq!(s.latency, Some(99), "its typed details stay");
+    assert!(matches!(
+        simulation::status(&db, &s).await.unwrap(),
+        simulation::Status::Done(_)
+    ));
+}
+
 #[tokio::test]
 async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     let db = setup_test_db().await;

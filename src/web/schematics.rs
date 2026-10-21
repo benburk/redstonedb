@@ -402,6 +402,21 @@ pub struct Panel {
     panel: Option<String>,
 }
 
+/// What build `s`'s page shows of its file, `data`, with `blocks`: as its
+/// category reads it, or for one off the list while it is not recognized
+/// as the category it stands in for, standardized and read as that
+/// category, as recognizing it would, so its page lists the conventions
+/// it breaks.
+fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
+    if let Some((meant, _)) = simulation::meant_by(&s.category)
+        && let Ok(standard) =
+            import::prepare(data, Some(Gray::Keep), true, s.keeps_paste, true)
+    {
+        return Analysis::of(&standard.blocks, meant, true);
+    }
+    Analysis::of(blocks, &s.category, s.conventional)
+}
+
 /// A build's page, or the one part of it fixi asks for, loading only what
 /// that part shows.
 pub async fn detail(
@@ -430,7 +445,8 @@ pub async fn detail(
     let data = version::current_file(db, &id).await?.unwrap_or_default();
     let file = Blocks::read(&data)
         .map(|blocks| pages::FileRead {
-            analysis: Analysis::of(&blocks, &s.category, s.conventional),
+            analysis: read_for_page(&s, &data, &blocks),
+            strength_inputs: !crate::interface::dust_inputs(&blocks).is_empty(),
             stacking: s
                 .stacking
                 .iter()
