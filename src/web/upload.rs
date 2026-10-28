@@ -30,6 +30,7 @@ use crate::{
         user::User,
         version,
     },
+    probe,
     schem::Blocks,
     schemati,
     simulate::{self, Guess},
@@ -212,7 +213,7 @@ pub async fn preview(
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let upload = match Upload::read(&file) {
+    let upload = match Upload::read(&recognized(&file).await) {
         Ok(upload) => upload,
         Err(err) => {
             let message = format!("Could not read that file: {err:#}.");
@@ -331,10 +332,11 @@ async fn chosen_instead(
         Ok(()) => posted.chosen().await,
         Err(message) => Err(message),
     };
-    let read = chosen.and_then(|chosen| {
-        Upload::read(&chosen.file)
-            .map_err(|err| format!("Could not read that file: {err:#}."))
-    });
+    let read = match chosen {
+        Ok(chosen) => Upload::read(&recognized(&chosen.file).await)
+            .map_err(|err| format!("Could not read that file: {err:#}.")),
+        Err(message) => Err(message),
+    };
     let upload = match read {
         Ok(prepared) => prepared,
         Err(message) => {
@@ -357,6 +359,22 @@ async fn chosen_instead(
         ..Said::default()
     };
     show_preview(state, user, &upload, &form, said).await
+}
+
+/// What the check by function makes of the file `data`, off the async
+/// workers, as probing takes a second or two.
+async fn recognition(data: &[u8]) -> anyhow::Result<probe::Recognition> {
+    let data = data.to_vec();
+    tokio::task::spawn_blocking(move || probe::recognize(&data)).await?
+}
+
+/// The file `data` with its inputs and outputs coloured in, when the check
+/// by function recognizes it, so the rest of the site reads them; else as
+/// it came.
+async fn recognized(data: &[u8]) -> Vec<u8> {
+    recognition(data)
+        .await
+        .map_or_else(|_| data.to_vec(), |r| r.file)
 }
 
 /// What a file seems to be, from a quick run of the tests it fits.
@@ -443,6 +461,8 @@ async fn show_preview(
             .await?
             .map(|(id, _)| id);
     }
+    // Its roles, if recognized, are coloured in already; this says so.
+    let recognition = recognition(&prepared.data).await?;
     let size = &prepared.size;
     let similar = closest(
         &state.db,
@@ -460,6 +480,8 @@ async fn show_preview(
         swapped: &prepared.swapped,
         guess: said.guess,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
+        recognized: recognition.found.as_deref(),
+        problems: &recognition.problems,
     };
     let shown = form::Shown {
         file,

@@ -468,3 +468,48 @@ pub fn colour(data: &[u8], layout: &Layout) -> anyhow::Result<Vec<u8>> {
         .collect();
     crate::standardize::edit(data, &changes)
 }
+
+/// What the check by function makes of an uploaded file: the file with its
+/// roles coloured in, when it is recognized as an adder, else as it came;
+/// what was found; and what only its builder can put right.
+pub struct Recognition {
+    pub file: Vec<u8>,
+    pub found: Option<String>,
+    pub problems: Vec<String>,
+}
+
+/// The file in `data` inspected and, if nothing is wrong with its levers
+/// and outputs, probed as an adder.
+pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
+    let blocks = Blocks::read(data)?;
+    let report = inspect::inspect(&blocks);
+    let mut problems: Vec<String> =
+        report.errors.iter().map(|p| p.message.clone()).collect();
+    if !problems.is_empty() {
+        return Ok(Recognition {
+            file: data.to_vec(),
+            found: None,
+            problems,
+        });
+    }
+    match adder(&blocks, &report) {
+        Ok(probed) => Ok(Recognition {
+            file: colour(data, &probed.layout)?,
+            found: Some(format!(
+                "an adder, {}: all {} cases right, {}",
+                probed.layout.describe(),
+                probed.run.cases,
+                probed.run.pattern
+            )),
+            problems,
+        }),
+        Err(why) => {
+            problems.push(why);
+            Ok(Recognition {
+                file: data.to_vec(),
+                found: None,
+                problems,
+            })
+        }
+    }
+}

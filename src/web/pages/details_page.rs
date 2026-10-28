@@ -55,6 +55,11 @@ pub enum File<'a> {
         /// How many hoppers it has, kept unless the uploader asks to swap
         /// them.
         hoppers: usize,
+        /// What the check by function recognized it as, with where its
+        /// inputs and outputs are, if it did.
+        recognized: Option<&'a str>,
+        /// What only its builder can put right, by that check.
+        problems: &'a [String],
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
@@ -357,7 +362,11 @@ fn checks(page: &DetailsPage) -> Markup {
                         }, false))
                     }
                 }
-                (conventions_check(page, unconventional))
+                @if let File::Upload { recognized, problems, .. } = &page.file {
+                    (recognition_check(*recognized, problems))
+                } @else {
+                    (conventions_check(page, unconventional))
+                }
                 (swap_checks(page))
                 @match stored {
                     Some(report) => {
@@ -380,6 +389,26 @@ fn checks(page: &DetailsPage) -> Markup {
                 // which `form.js` shows from the simulation's result.
                 (check("filing", State::Wait, &html! {}, true))
             }
+        }
+    }
+}
+
+/// What the check by function made of an upload: recognized, with its
+/// inputs and outputs found and coloured in, or what only its builder can
+/// put right.
+fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
+    html! {
+        @if let Some(found) = recognized {
+            (check("recognized", State::Pass, &html! {
+                "Recognized as " (found) ". Its inputs and outputs are coloured in for it."
+            }, false))
+        } @else {
+            (check("recognized", State::Warn, &html! {
+                "Not recognized, so it goes up as built, off the list, until it's fixed:"
+                ul class="mt-1 flex list-disc flex-col gap-1 pl-5 text-ink" {
+                    @for problem in problems { li { (problem) } }
+                }
+            }, false))
         }
     }
 }
