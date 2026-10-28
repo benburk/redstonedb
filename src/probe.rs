@@ -131,6 +131,37 @@ fn both(bits: &[Pos]) -> [Vec<Pos>; 2] {
     [forward, back]
 }
 
+/// The run's bits from the end its step leaves, so parallel runs come
+/// the same way round.
+fn ordered(run: &Run) -> Vec<Pos> {
+    let mut bits = run.bits.clone();
+    if run.step.iter().sum::<i32>() < 0 {
+        bits.reverse();
+    }
+    bits
+}
+
+/// Two parallel runs of one length as one bus whose bits alternate between
+/// them: either run first, either way round.
+fn interleaved(x: &Run, y: &Run) -> Vec<Vec<Pos>> {
+    if x.bits.len() != y.bits.len() {
+        return Vec::new();
+    }
+    let (xs, ys) = (ordered(x), ordered(y));
+    let mut found = Vec::new();
+    for (first, second) in [(&xs, &ys), (&ys, &xs)] {
+        for back in [false, true] {
+            let (mut f, mut s) = (first.clone(), second.clone());
+            if back {
+                f.reverse();
+                s.reverse();
+            }
+            found.push(f.iter().zip(&s).flat_map(|(a, b)| [*a, *b]).collect());
+        }
+    }
+    found
+}
+
 fn split(runs: &[Run]) -> (Vec<&Run>, Vec<Pos>) {
     let buses = runs.iter().filter(|run| run.bits.len() > 1).collect();
     let lones = runs
@@ -156,8 +187,9 @@ fn sizes(runs: &[Run]) -> String {
 
 /// Every way the input runs could be A, B, and a carry in: two equal buses
 /// and at most one lone lever; one bus of both, halved or interleaved; a
-/// bus with the carry in at one end, in line with it; or, for one bit, two
-/// or three lone levers.
+/// bus with the carry in at one end, in line with it; four equal buses,
+/// each operand two of them with its bits alternating; or, for one bit,
+/// two or three lone levers.
 fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
     let (buses, lones) = split(runs);
     let mut pairs: Vec<Operands> = Vec::new();
@@ -193,6 +225,24 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
                 x.bits.iter().skip(1).step_by(2).copied().collect();
             add(&even, &odd, carry);
         }
+        // Each operand two parallel lines, its bits alternating between
+        // them, as a build adding twice its height's bits does.
+        ([w, x, y, z], _)
+            if lones.len() <= 1
+                && [x, y, z].iter().all(|r| r.bits.len() == w.bits.len()) =>
+        {
+            let carry = lones.first().copied();
+            for ((p, q), (r, t)) in
+                [((w, x), (y, z)), ((w, y), (x, z)), ((w, z), (x, y))]
+            {
+                for a in interleaved(p, q) {
+                    for b in interleaved(r, t) {
+                        pairs.push((a.clone(), b.clone(), carry));
+                        pairs.push((b, a.clone(), carry));
+                    }
+                }
+            }
+        }
         ([], [p, q]) => add(&[*p], &[*q], None),
         ([], [p, q, r]) => {
             for (x, y, carry) in [(p, q, r), (p, r, q), (q, r, p)] {
@@ -213,7 +263,8 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
 
 /// Every way the output runs could be an adder's sum of `width` bits and a
 /// carry out: a bus and at most one lone output; a bus one longer, its last
-/// bit the carry out or the sum's top bit; or, for one bit, lone outputs.
+/// bit the carry out or the sum's top bit; two equal buses, the sum's bits
+/// alternating between them; or, for one bit, lone outputs.
 fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
     let (buses, lones) = split(runs);
     let mut found = Vec::new();
@@ -227,6 +278,15 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
             for bits in both(&sum.bits) {
                 found.push((bits[..width].to_vec(), Some(bits[width])));
                 found.push((bits, None));
+            }
+        }
+        ([x, y], _)
+            if lones.len() <= 1
+                && x.bits.len() == y.bits.len()
+                && x.bits.len() * 2 == width =>
+        {
+            for bits in interleaved(x, y) {
+                found.push((bits, lones.first().copied()));
             }
         }
         ([], [_]) if width == 1 => {
@@ -313,6 +373,28 @@ pub fn adder(
             layout.describe()
         ));
     }
+    // A and B the other way round may add too, read more plainly, as a
+    // subtractor's A − B rather than not (B − A − 1).
+    let swapped = Layout {
+        a: layout.b.clone(),
+        b: layout.a.clone(),
+        ..layout.clone()
+    };
+    let inversions = |pattern: &str| pattern.matches("not").count();
+    let quick = |layout: &Layout| {
+        Test::Adder
+            .check_with(blocks, layout.interface(blocks), true)
+            .ok()
+            .filter(|run| run.wrong == 0)
+    };
+    let layout = match (quick(&layout), quick(&swapped)) {
+        (Some(run), Some(other))
+            if inversions(&other.pattern) < inversions(&run.pattern) =>
+        {
+            swapped
+        }
+        _ => layout,
+    };
     let run = Test::Adder
         .check_with(blocks, layout.interface(blocks), false)
         .map_err(|err| format!("Its test couldn't run: {err}"))?;
