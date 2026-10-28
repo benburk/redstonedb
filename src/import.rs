@@ -199,12 +199,14 @@ pub fn measure(blocks: &Blocks, conventional: bool) -> Result<Size> {
 }
 
 /// Stores a new build, its file as prepared and its details as checked,
-/// and returns its id; the `Err` says the file is already stored.
+/// uploaded by `uploaded_by` from IP address `uploaded_from`, and returns
+/// its id; the `Err` says the file is already stored.
 pub async fn store(
     db: &SqlitePool,
     prepared: &Prepared,
     ready: &Ready,
     uploaded_by: Option<uuid::Uuid>,
+    uploaded_from: Option<&str>,
     imported_by: Option<&str>,
 ) -> Result<Result<String, String>, sqlx::Error> {
     if let Some((id, _)) = version::holder(db, &prepared.sha256).await? {
@@ -217,6 +219,7 @@ pub async fn store(
         ready,
         file: prepared,
         uploaded_by,
+        uploaded_from,
         imported_by,
     };
     Ok(Ok(schematic::insert(db, &new).await?))

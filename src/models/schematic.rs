@@ -759,6 +759,8 @@ pub struct New<'a> {
     pub ready: &'a Ready,
     pub file: &'a Prepared,
     pub uploaded_by: Option<uuid::Uuid>,
+    /// The IP address it was uploaded from.
+    pub uploaded_from: Option<&'a str>,
     /// The in-game name of whoever imported it with `rsdb`.
     pub imported_by: Option<&'a str>,
 }
@@ -810,7 +812,8 @@ pub async fn insert(
     )
     .fetch_one(&mut *tx)
     .await?;
-    version::first(&mut tx, &id, file, new.uploaded_by).await?;
+    version::first(&mut tx, &id, file, new.uploaded_by, new.uploaded_from)
+        .await?;
     set_lists(&mut tx, &id, new.ready).await?;
     tx.commit().await?;
     Ok(id)

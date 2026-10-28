@@ -84,15 +84,17 @@ pub(super) async fn first(
     id: &str,
     file: &Prepared,
     added_by: Option<Uuid>,
+    added_from: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "INSERT INTO schematic_version
-            (schematic_id, version, data, sha256, added_by)
-         VALUES (?, 1, ?, ?, ?)",
+            (schematic_id, version, data, sha256, added_by, added_from)
+         VALUES (?, 1, ?, ?, ?, ?)",
         id,
         file.data,
         file.sha256,
-        added_by
+        added_by,
+        added_from
     )
     .execute(&mut *tx)
     .await?;
@@ -102,10 +104,12 @@ pub(super) async fn first(
 /// How a new file takes the place of a build's current one.
 #[derive(Clone, Copy)]
 pub enum Replacing<'a> {
-    /// As its next version, uploaded by `added_by` with a `note` saying
-    /// what it changed. The build counts as edited.
+    /// As its next version, uploaded by `added_by` from IP address
+    /// `added_from` with a `note` saying what it changed. The build counts
+    /// as edited.
     NextVersion {
         added_by: Option<Uuid>,
+        added_from: Option<&'a str>,
         note: Option<&'a str>,
     },
     /// In its current version's place, as `rsdb reread` and `rsdb replace`
@@ -131,17 +135,23 @@ pub async fn replace(
     .fetch_one(&mut *tx)
     .await?;
     let (version, edited) = match how {
-        Replacing::NextVersion { added_by, note } => {
+        Replacing::NextVersion {
+            added_by,
+            added_from,
+            note,
+        } => {
             let version = current + 1;
             sqlx::query!(
                 "INSERT INTO schematic_version
-                    (schematic_id, version, data, sha256, added_by, note)
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                    (schematic_id, version, data, sha256, added_by,
+                    added_from, note)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
                 id,
                 version,
                 file.data,
                 file.sha256,
                 added_by,
+                added_from,
                 note
             )
             .execute(&mut *tx)

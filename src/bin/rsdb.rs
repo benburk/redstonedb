@@ -737,11 +737,12 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         }
     }
     let imported_by = args.details.imported_by.as_deref();
-    let id =
-        match import::store(db, &prepared, &ready, None, imported_by).await? {
-            Ok(id) => id,
-            Err(message) => bail!("{message}"),
-        };
+    let id = match import::store(db, &prepared, &ready, None, None, imported_by)
+        .await?
+    {
+        Ok(id) => id,
+        Err(message) => bail!("{message}"),
+    };
     // Simulated before its name is printed, as the width the name leads
     // with may be read from the file then.
     let tested = simulation::refresh(db, &id, false).await?.is_some();
@@ -1069,6 +1070,7 @@ async fn new_version(
     }
     let how = Replacing::NextVersion {
         added_by: None,
+        added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
     };
     let number = version::replace(db, &id, &checked.prepared, how).await?;
@@ -1279,6 +1281,7 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
         }
         let how = Replacing::NextVersion {
             added_by: None,
+            added_from: None,
             note: Some("Unused blocks taken out"),
         };
         version::replace(db, id, &checked.prepared, how).await?;

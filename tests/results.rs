@@ -37,7 +37,7 @@ async fn results_are_taken_only_while_the_build_is_as_it_was() {
         .await
         .unwrap()
         .unwrap();
-    let id = import::store(&db, &prepared, &ready, None, None)
+    let id = import::store(&db, &prepared, &ready, None, None, None)
         .await
         .unwrap()
         .unwrap();

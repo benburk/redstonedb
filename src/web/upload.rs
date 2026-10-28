@@ -20,7 +20,7 @@ use crate::{
     app_state::AppState,
     details,
     error::AppError,
-    extractors::session::SignedIn,
+    extractors::{client_ip::ClientIp, session::SignedIn},
     import::{self, Kept, Upload},
     interface,
     models::{
@@ -252,6 +252,7 @@ async fn closest(
 pub async fn publish(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
+    ClientIp(ip): ClientIp,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
     let mut posted = match posted(&mut multipart).await {
@@ -295,8 +296,11 @@ pub async fn publish(
         return show_preview(&state, &user, &upload, &form, Said::default())
             .await;
     }
-    let refused = match publish_checked(&state, &user, &upload, &form).await? {
+    let published =
+        publish_checked(&state, &user, ip.as_deref(), &upload, &form).await?;
+    let refused = match published {
         Ok(id) => {
+            tracing::info!(id, by = user.username, ip, "upload");
             simulation::refresh_soon(&state.db, &id);
             similarity::refresh_soon(&state.db);
             return Ok(
@@ -366,13 +370,15 @@ async fn guessed(data: &[u8]) -> Option<Guess> {
     .flatten()
 }
 
-/// Stores the upload and returns its id, or says why it was refused. A
+/// Stores the upload, from IP address `ip`, and returns its id, or says
+/// why it was refused. A
 /// build not recognized as the category it is given goes up with its own
 /// blocks under a category of its own, named for what it seems meant to
 /// be, as `details::unrecognized` names it.
 async fn publish_checked(
     state: &AppState,
     user: &User,
+    ip: Option<&str>,
     upload: &Upload,
     form: &Form,
 ) -> Result<Result<String, String>, AppError> {
@@ -403,7 +409,7 @@ async fn publish_checked(
         Ok(ready) => ready,
         Err(message) => return Ok(Err(message)),
     };
-    Ok(import::store(db, prepared, &ready, Some(user.id), None).await?)
+    Ok(import::store(db, prepared, &ready, Some(user.id), ip, None).await?)
 }
 
 /// What the preview says beside the form: why publishing was refused,

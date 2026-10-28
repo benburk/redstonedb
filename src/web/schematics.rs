@@ -22,6 +22,7 @@ use crate::{
     category, details,
     error::AppError,
     extractors::{
+        client_ip::ClientIp,
         fixi::Fixi,
         session::{Admin, SignedIn},
     },
@@ -533,6 +534,7 @@ pub async fn save(
     Path(id): Path<String>,
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
+    ClientIp(ip): ClientIp,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
     let db = &state.db;
@@ -602,10 +604,11 @@ pub async fn save(
     if let Some(prepared) = new_prepared {
         let how = Replacing::NextVersion {
             added_by: Some(user.id),
+            added_from: ip.as_deref(),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
         };
         version::replace(db, &id, prepared, how).await?;
-        tracing::info!(id, by = user.username, "new version");
+        tracing::info!(id, by = user.username, ip, "new version");
     }
     // A new file, category, or width may call for a test, or another.
     simulation::refresh_soon(db, &id);

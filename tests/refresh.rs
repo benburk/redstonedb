@@ -39,7 +39,7 @@ async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
         .await
         .expect("the database answers")
         .expect("the details keep the rules");
-    import::store(db, &prepared, &ready, None, None)
+    import::store(db, &prepared, &ready, None, None, None)
         .await
         .expect("the database answers")
         .expect("the file is new")
@@ -214,6 +214,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     let prepared = import::prepare(&new, None, true, false, false).unwrap();
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,
+        added_from: None,
         note: None,
     };
     app::models::version::replace(&db, &id, &prepared, how)
