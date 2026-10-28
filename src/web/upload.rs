@@ -409,7 +409,10 @@ async fn publish_checked(
         Ok(ready) => ready,
         Err(message) => return Ok(Err(message)),
     };
-    Ok(import::store(db, prepared, &ready, Some(user.id), ip, None).await?)
+    Ok(
+        import::store(db, prepared, &ready, Some(user.id), ip, None, None)
+            .await?,
+    )
 }
 
 /// What the preview says beside the form: why publishing was refused,

@@ -48,6 +48,11 @@ enum Command {
     /// build on the list, by function: levers in, yellow outputs, what
     /// the site would fix and what only the builder can
     Inspect(Inspect),
+    /// Add the builds of a category from another copy of the database,
+    /// such as a pull of the live one, the colour-free way: each probed,
+    /// its roles coloured in, standardized, and stored under its own id with
+    /// its details, credits, and tags; what can't be is listed with why
+    Rebuild(Rebuild),
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
@@ -193,6 +198,22 @@ enum Command {
         #[arg(long)]
         token: Option<String>,
     },
+}
+
+#[derive(Args)]
+struct Rebuild {
+    /// The copy of the database to take the builds from
+    from: PathBuf,
+    /// The category to rebuild, probed as it; only adders are, so far
+    #[arg(long, default_value = "adder")]
+    category: String,
+    /// A folder of fixed files, each named for the start of its build's
+    /// id, such as `44935d21.schem`, taken in place of the stored file
+    #[arg(long)]
+    fixed: Option<PathBuf>,
+    /// A build to leave out, by the start of its id; repeatable
+    #[arg(long = "skip")]
+    skip: Vec<String>,
 }
 
 #[derive(Args)]
@@ -426,6 +447,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
+        Command::Rebuild(args) => rebuild(db, &args).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
@@ -750,8 +772,16 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         }
     }
     let imported_by = args.details.imported_by.as_deref();
-    let id = match import::store(db, &prepared, &ready, None, None, imported_by)
-        .await?
+    let id = match import::store(
+        db,
+        &prepared,
+        &ready,
+        None,
+        None,
+        imported_by,
+        None,
+    )
+    .await?
     {
         Ok(id) => id,
         Err(message) => bail!("{message}"),
@@ -1034,6 +1064,125 @@ async fn list(
 /// Lints a file, or a stored schematic as a build of its category when no
 /// such file exists. A file's category is unknown, so a lone unsigned
 /// control or status line passes.
+/// Adds each build of `args.category` from the database at `args.from`
+/// that isn't here yet, as `rebuild_one` does, and says how each went.
+async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
+    if args.category != "adder" {
+        bail!("only adders are probed so far");
+    }
+    let from =
+        SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
+            .await?;
+    let (mut built, mut refused) = (0, 0);
+    for s in schematic::all(&from).await? {
+        if s.category != args.category {
+            continue;
+        }
+        let name = format!("{}  {}", &s.id[..8], s.filename());
+        if args.skip.iter().any(|skip| s.id.starts_with(skip.as_str())) {
+            println!("{name}: left out");
+            continue;
+        }
+        if schematic::get(db, &s.id).await?.is_some() {
+            println!("{name}: here already");
+            continue;
+        }
+        let fixed = args
+            .fixed
+            .as_ref()
+            .map(|dir| dir.join(format!("{}.schem", &s.id[..8])))
+            .filter(|path| path.exists());
+        let data = match &fixed {
+            Some(path) => fs::read(path)?,
+            None => version::current_file(&from, &s.id)
+                .await?
+                .context("schematic vanished")?,
+        };
+        let from_file = if fixed.is_some() { " (fixed file)" } else { "" };
+        match rebuild_one(db, &from, &s, &data).await? {
+            Ok(()) => {
+                built += 1;
+                println!("{name}{from_file}: rebuilt");
+            }
+            Err(why) => {
+                refused += 1;
+                println!("{name}{from_file}: {why}");
+            }
+        }
+    }
+    println!("\n{built} rebuilt, {refused} refused");
+    Ok(())
+}
+
+/// Stores build `s` of database `from`, its file `data`: inspected and
+/// probed as an adder, its roles coloured in, standardized, and checked as
+/// an upload is, under its own id, with its details, credits, tags,
+/// uploader, date added, and downloads; then simulated. The `Err` says why
+/// it can't be.
+async fn rebuild_one(
+    db: &SqlitePool,
+    from: &SqlitePool,
+    s: &schematic::Schematic,
+    data: &[u8],
+) -> Result<Result<(), String>> {
+    let blocks = app::schem::Blocks::read(data)?;
+    let report = app::inspect::inspect(&blocks);
+    if let Some(problem) = report.errors.first() {
+        return Ok(Err(problem.message.clone()));
+    }
+    let probed = match app::probe::adder(&blocks, &report) {
+        Ok(probed) => probed,
+        Err(why) => return Ok(Err(why)),
+    };
+    let coloured = app::probe::colour(data, &probed.layout)?;
+    let prepared =
+        import::prepare(&coloured, Some(Gray::Keep), true, false, true)?;
+    let ready = match details::check(
+        db,
+        Details::of(s),
+        details::Build::of(&prepared),
+        true,
+    )
+    .await?
+    {
+        Ok(ready) => ready,
+        Err(why) => return Ok(Err(why)),
+    };
+    // The uploader, when their account is here too.
+    let uploader: Option<uuid::Uuid> =
+        sqlx::query_scalar("SELECT uploaded_by FROM schematic WHERE id = ?")
+            .bind(&s.id)
+            .fetch_one(from)
+            .await?;
+    let uploader = match uploader {
+        Some(id) if User::get_by_id(db, id).await?.is_some() => Some(id),
+        _ => None,
+    };
+    let stored = import::store(
+        db,
+        &prepared,
+        &ready,
+        uploader,
+        None,
+        s.imported_by.as_deref(),
+        Some(&s.id),
+    )
+    .await?;
+    if let Err(why) = stored {
+        return Ok(Err(why));
+    }
+    sqlx::query(
+        "UPDATE schematic SET added_at = ?, downloads = ? WHERE id = ?",
+    )
+    .bind(&s.added_at)
+    .bind(s.downloads)
+    .bind(&s.id)
+    .execute(db)
+    .await?;
+    simulation::refresh(db, &s.id, false).await?;
+    Ok(Ok(()))
+}
+
 /// Prints what `inspect` finds of one file or build, or of every build on
 /// the list, with a count of each problem and of the builds it stops.
 async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {

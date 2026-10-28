@@ -208,6 +208,7 @@ pub async fn store(
     uploaded_by: Option<uuid::Uuid>,
     uploaded_from: Option<&str>,
     imported_by: Option<&str>,
+    id: Option<&str>,
 ) -> Result<Result<String, String>, sqlx::Error> {
     if let Some((id, _)) = version::holder(db, &prepared.sha256).await? {
         return Ok(Err(format!(
@@ -221,6 +222,7 @@ pub async fn store(
         uploaded_by,
         uploaded_from,
         imported_by,
+        id,
     };
     Ok(Ok(schematic::insert(db, &new).await?))
 }

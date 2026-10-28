@@ -39,7 +39,7 @@ async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
         .await
         .expect("the database answers")
         .expect("the details keep the rules");
-    import::store(db, &prepared, &ready, None, None, None)
+    import::store(db, &prepared, &ready, None, None, None, None)
         .await
         .expect("the database answers")
         .expect("the file is new")

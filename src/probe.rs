@@ -414,3 +414,57 @@ pub fn adder(
     }
     Ok(Probed { layout, run })
 }
+
+/// The colours the site marks roles with, as its colour reader takes them.
+const MARKS: [&str; 9] = [
+    "lime",
+    "light_blue",
+    "cyan",
+    "blue",
+    "magenta",
+    "yellow",
+    "orange",
+    "brown",
+    "pink",
+];
+
+/// The file in `data` with `layout`'s roles marked in colour, as the rest
+/// of the site reads them: A lime, B light blue, carry in magenta, the sum
+/// yellow, and carry out pink. Every other block of one of those colours
+/// turns white, so none is taken for an input or output. A block keeps its
+/// kind, stained glass staying glass, as dust treats it differently.
+pub fn colour(data: &[u8], layout: &Layout) -> anyhow::Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let mut roles: HashMap<Pos, &str> = HashMap::new();
+    roles.extend(layout.a.iter().map(|&p| (p, "lime")));
+    roles.extend(layout.b.iter().map(|&p| (p, "light_blue")));
+    roles.extend(layout.carry_in.map(|p| (p, "magenta")));
+    roles.extend(layout.sum.iter().map(|&p| (p, "yellow")));
+    roles.extend(layout.carry_out.map(|p| (p, "pink")));
+    let recoloured = |pos: Pos, name: &str| -> Option<String> {
+        let glass = name.ends_with("_stained_glass");
+        let colour = match roles.get(&pos) {
+            Some(colour) => *colour,
+            None if MARKS.iter().any(|c| {
+                ["_concrete", "_wool", "_terracotta", "_stained_glass"]
+                    .iter()
+                    .any(|kind| name == format!("{c}{kind}"))
+            }) =>
+            {
+                "white"
+            }
+            None => return None,
+        };
+        let kind = if glass { "stained_glass" } else { "concrete" };
+        Some(format!("minecraft:{colour}_{kind}"))
+    };
+    let changes = blocks
+        .iter()
+        .filter_map(|(pos, state)| {
+            let name = schem::short(state);
+            let want = recoloured(pos, name)?;
+            (want != state).then_some((pos, want))
+        })
+        .collect();
+    crate::standardize::edit(data, &changes)
+}

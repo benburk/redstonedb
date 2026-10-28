@@ -763,10 +763,13 @@ pub struct New<'a> {
     pub uploaded_from: Option<&'a str>,
     /// The in-game name of whoever imported it with `rsdb`.
     pub imported_by: Option<&'a str>,
+    /// The id to store it under, as a build rebuilt from another copy of
+    /// the database keeps its own; `None` makes one.
+    pub id: Option<&'a str>,
 }
 
 /// Stores a new build, with its file as its first version, and returns its
-/// generated id.
+/// id, the one given or a generated one.
 pub async fn insert(
     db: &SqlitePool,
     new: &New<'_>,
@@ -776,14 +779,15 @@ pub async fn insert(
     let (x, y, z) = (size.x, size.y, size.z);
     let mut tx = db.begin().await?;
     let id = sqlx::query_scalar!(
-        r#"INSERT INTO schematic (category, width, orientation, encoding,
+        r#"INSERT INTO schematic (id, category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
             logic, throughput, at_least, pulse, bytes, torches, works_from,
             works_from_by, keeps_paste, uploaded_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?)
          RETURNING id as "id!""#,
+        new.id,
         details.category,
         details.width,
         details.orientation,
