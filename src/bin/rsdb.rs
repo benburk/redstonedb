@@ -1086,6 +1086,9 @@ async fn inspect_command(
             for fix in &report.fixes {
                 println!("  fix: {fix}");
             }
+            for note in &report.notes {
+                println!("  note: {note}");
+            }
         }
         let mut rules = BTreeSet::new();
         for problem in &report.errors {

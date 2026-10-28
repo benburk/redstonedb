@@ -47,6 +47,8 @@ const HORIZONTAL: [Direction; 4] = [
 pub struct Report {
     pub fixes: Vec<String>,
     pub errors: Vec<Problem>,
+    /// What else it found, such as which inputs need strong power.
+    pub notes: Vec<String>,
     /// The inputs and outputs, grouped into buses and lone lines.
     pub inputs: Vec<Run>,
     pub outputs: Vec<Run>,
@@ -94,7 +96,7 @@ pub fn inspect(blocks: &Blocks) -> Report {
         runs(&lamps.iter().map(|&pos| (pos, ())).collect::<Vec<_>>());
     let hard = inputs.iter().filter(|input| input.hard).count();
     if !inputs.is_empty() {
-        report.fixes.push(format!(
+        report.notes.push(format!(
             "{hard} of {} inputs drive dust, so a bus drives them through \
              repeaters",
             inputs.len()
@@ -556,7 +558,7 @@ fn no_room(
                 powering(blocks, next, block)
                     .map(|p| {
                         format!(
-                            ", powered by the {} at {}",
+                            ", powered by the {} at {},",
                             words(short(blocks, p)),
                             place(p)
                         )
