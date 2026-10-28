@@ -24,7 +24,11 @@ fn configure_logging() {
         .with_ansi(std::io::stdout().is_terminal())
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .or_else(|_| EnvFilter::try_new("app=info,tower_http=info"))
+                .or_else(|_| {
+                    EnvFilter::try_new(
+                        "app=info,redstone_database=info,tower_http=info",
+                    )
+                })
                 .unwrap(),
         )
         .init();
@@ -94,7 +98,7 @@ async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], port()));
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
 
-    info!("Starting server on {addr}");
+    info!("Serving on http://{addr}");
 
     axum::serve(listener, app).await.expect("Failed to serve");
 }
