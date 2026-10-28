@@ -51,7 +51,7 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
         &html! {
             h1 class={ (PAGE_TITLE) " mb-2" } { "Users" }
             p class="mb-6 max-w-prose text-muted" {
-                "Mods edit any build; admins also delete builds and set roles. Confirm a Minecraft name only once you know it is theirs: it lets them edit the builds crediting it."
+                "Mods edit any build; admins also delete builds and set roles. A confirmed Minecraft name lets its account edit builds crediting it, so confirm only names you know are theirs."
             }
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }

@@ -1,10 +1,10 @@
 # Building conventions
 
-Each schematic should follow one default building convention, so builds line up when combined and their names describe them consistently. `rsdb lint` checks these conventions, and so does the upload page: a build that breaks one is not recognized, so it goes up with its own blocks under a category off the list, named for what it seems meant to be, until a new version that keeps them moves it up; [features.md](features.md) lists the checks still to come.
+Every schematic follows one default convention, so builds combine cleanly and their names describe them consistently. `rsdb lint` and the upload page check it. A build that breaks one is not recognized: it goes up with its own blocks under a category off the list, named for what it seems meant to be, until a conforming new version moves it up. [features.md](features.md) lists checks still to come.
 
 ## Block palette
 
-Builds use only whitelisted blocks. Each interface role has its own block, so a block's role can be read from its colour: inputs and outputs are bright colours that stand out against white. Red is left to redstone dust and torches.
+Only whitelisted blocks. Each interface role has its own block, so colour gives role; inputs and outputs stand out bright against white. Red is left to dust and torches.
 
 | Role         | Block                                   |
 | ------------ | --------------------------------------- |
@@ -16,71 +16,91 @@ Builds use only whitelisted blocks. Each interface role has its own block, so a 
 | Status line  | pink concrete or glass                  |
 | First copy   | gray concrete or stained glass          |
 
-- Cool colours are inputs and warm colours outputs. Each family runs lightest first: inputs from green to blue, A to D, and outputs from yellow to brown, first to third. Each colour is one bus. Magenta and pink are the exceptions: each magenta block is its own control line, and each pink block its own status line, named by its own sign, unless one sign names a row of them, below.
+- Cool colours are inputs, warm outputs, each lightest first: inputs green to blue (A to D), outputs yellow to brown (first to third). Each colour is one bus. Each magenta block is its own control line and each pink block its own status line, named by its own sign, unless one sign names a row of them.
 - An output colour may be stained glass where the output needs a transparent block.
-- Every solid block that is not an input or output is white. Whether a block is hard-powered, soft-powered, or a blocker follows from the components around it, so import can derive it rather than read it from a colour. White is the lightest choice, against which both powered and unpowered dust read clearly.
-- White stained glass replaces slabs and glowstone wherever a transparent block is needed. Check whether it behaves the same in every place they are used, such as dust placement and one-way upward transmission. Where it doesn't, decide whether that use gets an exception.
-- Plain glass is not in the palette, so the WorldEdit corner markers a download can add are never mistaken for part of the build.
-- Observers are not allowed: the simulator does not model them, so a build with one could never be checked.
-- A is green and B is blue, which stay apart under red-green colour blindness.
-- Inputs get one colour per operand, not one per power requirement. How each input must be driven is derived from the build; see Inputs.
-- Magenta was chosen over orange after an in-game comparison: dust reads better on it when powered and slightly worse when unpowered, and both states count.
-- Gray marks logic only the first copy of a stack keeps, such as what a stackable build's least significant bit alone needs; see Stacking. Gray stands out against white, and dust reads on it both powered and unpowered, which red would not.
-- Colours are semantic, not aesthetic. Because no two roles share a block, export can recolour each role to a user's palette.
+- Every other solid block is white; import derives hard-powered, soft-powered, and blocker from the surrounding components. Powered and unpowered dust both read clearly on white.
+- White stained glass replaces slabs and glowstone. Open: check it behaves the same wherever they are used, such as dust placement and one-way upward transmission, and decide exceptions where it doesn't.
+- No plain glass, so a download's WorldEdit corner markers are never mistaken for the build.
+- No observers: the simulator doesn't model them.
+- A green and B blue stay apart under red-green colour blindness.
+- One colour per operand, not per power requirement; drive is derived (see Inputs).
+- Magenta beat orange in game: dust reads better on it powered, slightly worse unpowered, and both states count.
+- Gray marks logic only a stack's first copy keeps, such as what the least significant bit alone needs (see Stacking). Dust reads on gray powered and unpowered; on red it would not.
+- Colours are semantic, not aesthetic. No two roles share a block, so export can recolour each role to a user's palette.
 
 ## Inputs
 
-- Each input bit is a block of concrete with a lever on it: lime for every bit of A, light blue for B, cyan for C, blue for D, and magenta for every control line, such as a clock, enable, carry-in, or ALU op line. A further operand, such as the addend of a fused multiply-add, is C.
-- All of one operand colour is one input. Unnamed, the operands take letters in colour order, so the first present is A. A sign naming any block of an operand's colour, such as `addend`, names that whole input, so a colour takes one name. Each magenta block is its own control line, named by its own sign.
-- A row of control lines, such as a memory's read lines, one per word for a decoder of the builder's own, is named by one sign on any line of the row: the lines run in a straight line, evenly spaced, and are numbered from the one nearest the south-east-bottom corner, as `read 0` to `read 15`. A second sign starts another row, such as the write lines. Pink status lines may form a row the same way. A memory may instead take a binary address, as an operand bus, and decode it itself.
-- An adder's lines, and a carry out's, need no signs, their roles being plain: its one control line, if it has one, is its carry in, and its one status line its carry out. A sign on either must name it so, as `carry in` or `cin`, or `carry out` or `cout`; a control line named anything else, such as `subtract`, makes it a build of another category, such as an ALU. An adder with more than one of either is broken. A subtractor's lone lines need no signs either: its control line is its borrow in, taking 1 more away, and its status line its borrow out, on when it takes away more than A; a sign on either names it so, as `borrow in` or `bin`, or `borrow out` or `bout`. An incrementer's and a decrementer's lone lines need no signs either: an incrementer's control line is its increment and its status line its carry out, and a decrementer's its decrement and borrow out. A comparison's one output, yellow or pink, is its result, `A > B` or `A = B`, and needs no sign either, and so is a monostable's, its pulse. An inverter's lone control line needs no sign either: it is its invert. Every other category signs every line.
-- An ALU's control line's sign names the operations it takes part in, separated by spaces and lines, never commas, as `and nand sub`: choosing an operation flips every line that names it from where its lever was saved, so a line saved on goes off. One operation may be named on several lines. The operations are `add`, `sub`, `and`, `or`, `xor`, `nand`, `nor`, `xnor`, `shl`, `shr`, and `asr`; `rsh` and `lsh` read as `shr` and `shl`. A line named `carry in` or `cin` is a carry in, which an add takes. Its status lines are named for what they show: `carry out`, the adder's carry out, for a subtract, A + ~B + 1, on when it borrows nothing; `overflow`, a signed overflow of an add or subtract; `lsb shift out`, the bit a shift right drops; and `zero`, a result of 0. Standardizing takes commas out of every sign.
-- An input colour with no lever on it is not allowed, unless it is a signal-strength input; other solid blocks are white. Standardizing keeps an input colour with a lever, as concrete, and input-colour concrete with dust on top, and whitens the rest.
-- A control line may use a button instead of a lever, for a pulse such as a reset or a calculate line. Operand bits always use levers.
-- A register is one or more cells of a CPU's register file. Its data in is lime and its data out yellow, one bus for each read port, and each cell has a write and a read on magenta lines: a button writes, a lever reads. Those need no signs, since unsigned lines with buttons and lines with levers together read as writes and reads; a line signed `write` or `read` is one, whatever drives it. A cell's output is on its bus only while its read is on, as every cell shares the bus. A read may be inverted, reading with its lever as saved, and an output may be inverted, the bus showing the complement of what the cell holds and resting at all ones; the simulator finds both. The simulator finds which read goes with which write itself, so cells may be staggered, as two to a slice.
-- A buffer is a register without reads: each cell shows what it holds on its own yellow bus all the time. Its data in is lime, and each cell has a write on a magenta line, a button, or a lever that passes data in through while it is on. A lone write needs no sign; with several, buttons are writes, and a lever beside a button is a read, which makes it a register.
-- An inverted input is saved with its lever on. No torch is needed, and the lever's position marks the inversion.
-- The lever touches nothing but its input block. Wiring a build up replaces each lever with a driver pointed into the input block, so the circuit must not rely on the lever powering anything else directly.
-- An input block feeds at most one dust, on one of its sides other than its lever's, so wiring it up puts one driver into one wire. No dust lies on top of it or underneath, and nothing else powers it: no repeater or comparator points into it, no torch stands under it, and no other component, such as a redstone block or a target, touches it. Torches hung on it or standing on it, repeaters and comparators reading it, and the levers of the inputs beside it are fine, as many as it takes.
-- The face the lever is on is the face power enters from, so the lever also marks where a driver goes.
-- Every A lever is on the south side of its block, as in the stored adders: the side a player faces north to look at. Standardizing an upload turns the build about the vertical so they are, wherever they started. Every other input's lever or button may be on any side, north, south, east, or west, but not on top or underneath.
+- Each input bit is a concrete block with a lever: lime A, light blue B, cyan C, blue D, magenta for each control line (clock, enable, carry in, ALU op). A further operand, such as a fused multiply-add's addend, is C.
+- One operand colour is one input. Unnamed operands take letters in colour order, so the first present is A. A sign on any block of the colour, such as `addend`, names the whole input; a colour takes one name.
+- One sign on any line of a row of control lines names the row, such as a memory's read lines, one per word for the builder's own decoder. The lines run straight, evenly spaced, numbered from the one nearest the south-east-bottom corner: `read 0` to `read 15`. A second sign starts another row, such as the write lines. Pink status lines may form rows the same way. A memory may instead take a binary address as an operand bus and decode it itself.
+- Lone lines with a plain role need no sign. Every other category signs every line.
+
+| Category    | Control line      | Status line or output  |
+| ----------- | ----------------- | ---------------------- |
+| Adder       | carry in (`cin`)  | carry out (`cout`)     |
+| Carry out   | carry in (`cin`)  | carry out (`cout`)     |
+| Subtractor  | borrow in (`bin`) | borrow out (`bout`)    |
+| Incrementer | increment         | carry out              |
+| Decrementer | decrement         | borrow out             |
+| Comparison  |                   | result, yellow or pink |
+| Monostable  |                   | pulse                  |
+| Inverter    | invert            |                        |
+
+- A sign on an adder's or subtractor's lone line must name it as above. An adder control line named anything else, such as `subtract`, makes it another category, such as an ALU; more than one of either line breaks it. Borrow in takes 1 more away; borrow out is on when it takes away more than A. A comparison's result is `A > B` or `A = B`.
+- An ALU control line's sign names the operations it takes part in, separated by spaces or lines, never commas: `and nand sub`. Choosing an operation flips every line naming it from its saved position, so a line saved on goes off. An operation may be on several lines. Operations: `add`, `sub`, `and`, `or`, `xor`, `nand`, `nor`, `xnor`, `shl`, `shr`, `asr`; `rsh` and `lsh` read as `shr` and `shl`. A line named `carry in` or `cin` is a carry in, which add takes. Standardizing takes commas out of every sign. ALU status lines:
+
+| Name            | Shows                                                 |
+| --------------- | ----------------------------------------------------- |
+| `carry out`     | adder carry out; for sub, A + ~B + 1, on if no borrow |
+| `overflow`      | signed overflow of add or sub                         |
+| `lsb shift out` | the bit a shift right drops                           |
+| `zero`          | result 0                                              |
+
+- An input colour without a lever is not allowed, except a signal-strength input. Standardizing keeps input-colour blocks with a lever, as concrete, and input-colour concrete with dust on top, and whitens the rest.
+- A control line may use a button for a pulse, such as reset or calculate. Operand bits always use levers.
+- A register is one or more cells of a CPU register file. Data in is lime; data out yellow, one bus per read port. Each cell has a write and a read on magenta lines: a button writes, a lever reads. Unsigned button and lever lines read as writes and reads; a line signed `write` or `read` is one whatever drives it. A cell drives the shared bus only while its read is on. A read may be inverted (reads with its lever as saved); an output may be inverted (bus shows the complement, resting at all ones). The simulator finds both and pairs reads with writes itself, so cells may be staggered, as two to a slice.
+- A buffer is a register without reads: each cell shows its value on its own yellow bus all the time. Data in is lime; each cell's write is a magenta line with a button, or a lever that passes data through while on. A lone write needs no sign. With several, buttons are writes and a lever beside a button is a read, which makes it a register.
+- An inverted input is saved lever on, with no torch; the lever marks the inversion.
+- The lever touches only its input block. Wiring replaces it with a driver into that block, so nothing may rely on the lever powering it directly.
+- An input block feeds at most one dust, on a side other than its lever's, so wiring puts one driver into one wire. No dust on top or underneath. Nothing else powers it: no repeater or comparator into it, no torch under it, no other component touching it, such as a redstone block or target. Any number of torches hung or standing on it, repeaters and comparators reading it, and neighbouring inputs' levers are fine.
+- The lever's face is where power enters, so it marks where a driver goes.
+- Every A lever is on its block's south side, as in the stored adders: the side a player facing north sees. Standardizing turns an upload about the vertical to make it so. Other inputs' levers or buttons go on any side, north, south, east, or west, never top or bottom.
 
 ### Signal-strength inputs
 
-- A signal-strength input takes a value from 0 to 15 as its strength, which no lever can give. Each bit is a block of its operand's colour with no lever and dust on top, and each block is one hex digit, four bits of the build's width.
-- The dust's one open end, the side that leads nowhere, is where power enters, so it marks where a driver goes, as a lever's face does. It may face any side, unlike A's levers; give each input's dust an open end of its own, so a driver there feeds that input alone.
-- One colour is one bus, so an operand's blocks are either all levered or all signal-strength.
-- The derived drive and the `4ss` strength sign do not apply: the strength is the value.
-- For now no category the site recognizes takes one: such a build goes up under a category of its own, until the simulator has a good way to drive a strength.
+- Takes a value 0–15 as its strength, which no lever can give. Each bit is an operand-colour block with no lever and dust on top; each block is one hex digit, four bits of the build's width.
+- The dust's one open end, leading nowhere, is where power enters and a driver goes. It may face any side, unlike A's levers. Give each input its own open end, so its driver feeds it alone.
+- One colour is one bus, so an operand is all levered or all signal-strength.
+- The derived drive and `4ss` sign don't apply: the strength is the value.
+- No recognized category takes one yet; such a build goes under its own category until the simulator can drive a strength well.
 
 ### How an input must be driven
 
-Import derives this from the build, so nothing in-world marks it.
+Import derives this; nothing in-world marks it.
 
-- Hard-powered: dust touches the input block, on top, beside, or below. Only a strongly powered block powers dust, so a driver must be a repeater, comparator, or torch.
-- Soft-powered: nothing but torches, repeaters, comparators, and mechanisms touches the input block. These respond to a weakly powered block, so any signal into the block works, including dust.
-- A lever strongly powers its block at 15, so a saved build always works under hard power. The derivation only decides whether weaker drivers work too.
-- Required strength: the input block must be powered at strength 1 or more, unless a sign on one of the operand's input blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. The value applies to every bit of the operand.
-- Required strength is a minimum, so it does not describe signal-strength inputs, whose strength is their value; see Signal-strength inputs.
-- The simulator drives every input with a lever, at full hard power, so it checks neither fact yet. It could derive both: drive each input with weak power at strength 1, 2, and so on up to 15, and take the weakest that gives the right outputs. If none does, the input needs hard power. The sign would then become a check rather than the source.
+- Hard-powered: dust touches the block, on top, beside, or below. Only a strongly powered block powers dust, so the driver must be a repeater, comparator, or torch.
+- Soft-powered: only torches, repeaters, comparators, and mechanisms touch the block. They respond to weak power, so any signal works, dust included.
+- A lever strongly powers its block at 15, so a saved build always works hard-powered; the derivation only decides whether weaker drivers work too.
+- Required strength is 1 or more unless a sign on one of the operand's blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. It applies to every bit of the operand, and as a minimum doesn't describe signal-strength inputs.
+- The simulator drives every input by lever at full hard power, so it checks neither yet. It could: drive each input weakly at 1, 2, up to 15, and take the weakest that gives right outputs; if none, it needs hard power. The sign would then be a check, not the source.
 
 ### Signal strengths
 
-- A fixed signal strength, such as a 1ss, comes from a barrel of redstone dust read by a comparator. A barrel is a solid block and repeats in every copy of a stack.
-- Furnaces, cauldrons, and cakes are not allowed. The site swaps each for a barrel giving the same strength whenever it takes in a file, and the upload page says so. A furnace conducts as a barrel does, so the swap changes nothing else.
-- A hopper is allowed, but only as a fixed strength: the simulator reads what it holds and moves no items. The upload page offers to swap it for a barrel giving the same strength.
-- A strength only a stack's first copy needs, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Stacking.
+- A fixed strength, such as 1ss, is a barrel of redstone dust read by a comparator. A barrel is solid and repeats in every stack copy.
+- No furnaces, cauldrons, or cakes. Every file the site takes in has each swapped for a barrel of the same strength, and the upload page says so. A furnace conducts as a barrel does, so nothing else changes.
+- Hoppers are allowed only as a fixed strength: the simulator reads their contents and moves no items. The upload page offers a same-strength barrel instead.
+- A strength only the first copy needs, such as a 1ss feeding its carry, is a barrel on gray.
 
 ## Outputs
 
-- Every output bit is yellow, orange, or brown concrete, or the same colour of stained glass where it needs a transparent block. All of one colour is one bus. Unnamed, a lone bus is `output` and several are `output 1`, `output 2`, `output 3` in colour order; a sign naming any block of a colour, such as `low` or `remainder`, names that whole bus. When the buses make one value, as a 16-bit product from two 8-bit halves, yellow holds the lowest bits.
-- A status line, such as `carry out`, `overflow`, or `zero`, is pink concrete or glass, each block its own line named by its own sign. A status name on any other output colour is an error. Standardizing turns a block whose sign names a status output pink, as older builds marked them on yellow; `rsdb reread` did so for the stored builds.
-- Every output bit's block carries the component that leads the output out of the build: dust, a repeater, or a comparator standing on it. The bit is on while that component is, however the block below is powered. A block with nothing on it, such as one powered by dust run into its side or a torch beneath it, is not an output, and the simulator fails a build with one.
-- Redstone lamps are allowed as ordinary components but do not mark outputs.
+- Every output bit is yellow, orange, or brown concrete, or that colour of stained glass where it needs a transparent block. One colour is one bus. Unnamed, a lone bus is `output`; several are `output 1` to `output 3` in colour order. A sign on any block, such as `low` or `remainder`, names the whole bus. When buses make one value, such as a 16-bit product from two 8-bit halves, yellow holds the lowest bits.
+- A status line, such as `carry out`, `overflow`, or `zero`, is pink concrete or glass, each block its own line with its own sign. A status name on another output colour is an error. Standardizing turns a block signed with a status output pink, since older builds used yellow; `rsdb reread` did so for stored builds.
+- Each output block carries the component leading the output out: dust, a repeater, or a comparator on it. The bit is on while that component is, however the block below is powered. A block with nothing on it, such as one powered by dust into its side or a torch beneath, is not an output, and the simulator fails the build.
+- Redstone lamps are ordinary components and don't mark outputs.
 
 ## Signs
 
-Signs carry machine-readable labels. Import reads them, so a build's interface can be extracted without a human. Everything else, latency included, is metadata in the database.
+Import reads signs to extract a build's interface without a human. Everything else, latency included, is database metadata.
 
 | Where              | First line           | Further lines      |
 | ------------------ | -------------------- | ------------------ |
@@ -90,50 +110,53 @@ Signs carry machine-readable labels. Import reads them, so a build's interface c
 | Output colour, any | bus name, if any     |                    |
 | End of a bus       | `lsb` or `msb`       |                    |
 
-- A status name ends in `out`, as `carry out`, `cout`, or `shift out`, or is `overflow`, `zero`, `negative`, `ready`, or `done`.
+- A status name ends in `out` (`carry out`, `cout`, `shift out`) or is `overflow`, `zero`, `negative`, `ready`, or `done`.
 - Each further line is one token, such as `4ss`.
-- Signs stay in the file and are read again whenever it is. Rewriting or stripping them on export is planned; see [features.md](features.md).
+- Signs stay in the file and are reread with it. Rewriting or stripping them on export is planned; see [features.md](features.md).
 
 ## Bit order
 
-- Each bus's least significant bit is the bit nearest the south-east-bottom corner of the bounding box. The other bits count up from it along the way the bus runs, the axis its bits spread furthest along, and two bits level along it count from the nearer.
-- So a horizontal bus counts up from its east end, and a vertical bus from its bottom, even when its bits zig-zag between columns, as a double density adder's alternate from one layer to the next.
-- Standardizing an upload mirrors it east for west, which keeps A's levers south, when the mirrored build gets more of the quick cases of what it seems to be right, such as an adder, subtractor, or ALU whose least significant bits sit at its west end. It never turns a build upside down, which redstone does not survive.
-- A bus that counts the other way says so with a sign reading `lsb` on its least significant end, or `msb` on its most significant one. Either word alone on a line is a mark, not a name, and belongs on an end of the bus. One such sign orders every bus running alongside it that has none of its own, so a build whose least significant bits all sit at the top needs only one bus signed.
+- A bus's least significant bit is nearest the box's south-east-bottom corner. Bits count up along the bus's axis, the one its bits spread furthest along; of two bits level along it, the nearer comes first.
+- So horizontal buses count from the east end and vertical buses from the bottom, even when bits zig-zag between columns, as a double density adder's alternate layers.
+- Standardizing mirrors an upload east for west, keeping A's levers south, when the mirror gets more quick cases right for what it seems to be, such as an adder, subtractor, or ALU with its least significant bits at the west end. It never flips a build upside down, which redstone doesn't survive.
+- A bus counting the other way has a sign reading `lsb` on its least significant end or `msb` on its most significant end. Either word alone on a line is a mark, not a name, and belongs on a bus end. One such sign orders every unsigned bus alongside it, so a build with all least significant bits on top needs one bus signed.
 
 ## Stacking
 
-- A stackable build is saved as one slice: the fewest bits that repeat, such as one bit of a ripple carry adder or a register, or two or four bits of a staggered design.
-- A slice may stack along several directions, each with its own step and most copies. Copies count up from the south-east-bottom corner, so they go west, up, north, or a mix, such as west and up for a diagonal build. A register might stack 7 times west for more bits and 3 times north for more registers.
-- Copies along the way the build's bits run add bits: west for a horizontal build, up for a vertical one, west and up for a diagonal one. Copies along any other direction are parallel copies and leave the width alone.
-- The site stacks a build as a player can in game, with `//rstack` and a few fixups:
-  1. Break the parts only the first copy keeps, listed below: its gray blocks and what rests on them, the inputs the copy before feeds, such as a carry in, and for copies across a register's or RAM's bits, its data levers and the data blocks that would land on a block of the copy before; each with its lever, signs, and the dust on it.
-  2. `//rstack` the rest, as many copies as wanted, each step apart.
-  3. Put the broken parts back on the first copy, into air only (`//gmask air`, then `//paste -a`), so a later copy's block stands over them too.
-  4. Turn every copy's labelled outputs and status lines but the last copy's white, and take off their signs, unless each copy keeps its own, as a monostable's do.
-- Stacking pastes each copy over the copies before it, as `//rstack` does: where copies overlap, the later copy's block stands, air never replaces anything, and dust that meets joins. A build may rely on that, as a carry out capped by a block the next copy covers.
-- Later copies leave out the inputs the copy before feeds: a control line that lands within the build on a block or beside redstone that could feed it, such as the magenta block of a carry in beside the dust carrying the carry out, and an input block outside the build's core that lands in the copy before's core, such as a memory's input layer, with any lever, button, or sign on them. A torch on them is logic, such as one inverting a carry in, so it stays where the copy before has a solid block in their place, such as the carry out it continues, to hang on. A control line that lands past the copy before, or on air with no redstone around it, as a register's own does, stays.
-- Copies along a build's bits, west for a horizontal build, up for a vertical one, west and up for a diagonal one, are new bits, each with its own data inputs and outputs. Copies across a register's or RAM's bits are more registers or words sharing its data buses, driven and read only at the first copy's end, so its data inputs and outputs never collide: only the first copy keeps its data levers, and a later copy's lime or yellow block that lands on a block of the copy before, such as the block or dust its data runs through, is left out, with the dust on it, the copy before's block standing. A later copy's other data blocks are plain blocks, shown white. Other categories' copies keep their own data inputs and outputs either way. Registers stack west.
-- Every copy but the last turns its labelled outputs and status lines, such as a carry out, signed or not, white and drops their signs, since the next copy takes them over. A monostable's copies each keep theirs, as each pink line is its own bit's pulse.
-- Only the first copy keeps gray blocks and the dust, torches, repeaters, comparators, levers, signs, and barrels resting on them. Logic the least significant bit alone needs goes on gray, and a signal strength it alone takes, such as a 1ss feeding its carry, comes from a barrel standing on gray; see Signal strengths. An upload the site recognizes keeps its gray only when its copies stack with the gray parts left out of all but the first, and has it whitened otherwise, as when its category never stacks (`rsdb add --standardize --keep-gray` keeps it regardless).
-- The site tests whether an adder that adds right stacks: the step comes from how its bits are spaced, carried on past the last one, or for a 1-bit adder the shortest step up, west, or north whose copies add right, its carry in to its carry out winning a tie, and enough copies must add right together that one sits between two others and the stack reaches a copy past the 15 blocks dust carries a signal, as a 1-bit slice 2 wide takes 9 and an 8-bit adder 16 high takes 3. One that does is taken to stack any number of times, and the site sets an adder's stacking from what it found: that step with no limit on copies, or none, in place of any typed. A register's copies are searched for too: the shortest step west at which two copies store and read right, as more cells or more bits, then the most copies that do, up to 16. So are a buffer's, as more bits only, since its cells show all the time and cannot share a bus; a later copy that keeps its own write button on the shared write line is left as it is, and only the first copy's is pressed. And a monostable's, as more bits, each giving its pulse alone, at the shortest step west up to two past its width: a 1-wide one may need a gap between copies. A stacking found replaces its builder's west step; none found keeps what its builder gave.
-- A later copy's block stands over a different block of the copy before, as in game. Where the simulation does not find a build's stacking, its page lists, as warnings, each spot where two copies disagree this way, such as a barrel replaced by concrete or dust cut by a block, and containers giving different strengths; and whether two copies make a bigger build of its shape: copies the way its bits run double each data bus, and copies any other way keep each bus's width, or each tap it, and, if it has control lines, add their own. Neither holds up saving. When copies disagree, the page also gives the shortest step the same way, short of the build's length, at which overlapping copies hold the same blocks, as trying `//rstack` at each step would find.
-- A stackable build's page gives the in-game steps for each way it stacks: the `//rstack` command, and when it has parts only its first copy keeps, the build without them and those parts alone to download, the parts pasted back from the same spot with `//paste -a`.
+- A stackable build is saved as one slice: the fewest bits that repeat, such as one bit of a ripple carry adder or register, or two or four bits of a staggered design.
+- A slice may stack along several directions, each with its own step and most copies. Copies count up from the south-east-bottom corner: west, up, north, or a mix, such as west and up for a diagonal build. A register might stack 7 times west for bits and 3 times north for registers.
+- Copies along the bits, west for horizontal, up for vertical, west and up for diagonal, are new bits with their own data inputs and outputs. Copies any other way are parallel copies and keep the width.
+- The site stacks as a player can, with `//rstack` and fixups:
+  1. Break the parts only the first copy keeps: gray blocks and what rests on them; inputs the copy before feeds, such as a carry in; and, for copies across a register's or RAM's bits, its data levers and the data blocks that would land on a block of the copy before. Each goes with its lever, signs, and dust.
+  2. `//rstack` the rest, as many copies as wanted, a step apart.
+  3. Paste the broken parts back on the first copy into air only (`//gmask air`, then `//paste -a`), so a later copy's block stands over them.
+  4. Whiten the labelled outputs and status lines, signed or not, such as a carry out, of every copy but the last, and remove their signs; the next copy takes them over. A monostable's copies keep theirs, as each pink line is its own bit's pulse.
+- Each copy pastes over earlier ones, as with `//rstack`: the later block stands, air never replaces anything, and meeting dust joins. A build may rely on this, as a carry out capped by a block the next copy covers.
+- Later copies leave out inputs the copy before feeds, with their levers, buttons, and signs: a control line landing within the build on a block or beside redstone that could feed it, such as a carry in's magenta block beside the dust carrying the carry out; and an input block outside the build's core landing in the copy before's core, such as a memory's input layer. A torch on one is logic, such as one inverting a carry in, so it stays where the copy before has a solid block there to hang on, such as the carry out it continues. A control line landing past the copy before, or on air with no redstone near, as a register's own does, stays.
+- Copies across a register's or RAM's bits are more registers or words sharing its data buses, driven and read only at the first copy's end, so data inputs and outputs never collide. Only the first copy keeps data levers. A later copy's lime or yellow block landing on a block of the copy before, such as the block or dust its data runs through, is left out with its dust. Its other data blocks are plain, shown white. Other categories' copies keep their own data inputs and outputs. Registers stack west.
+- Only the first copy keeps gray blocks and the dust, torches, repeaters, comparators, levers, signs, and barrels on them. Put logic only the least significant bit needs on gray, and a strength it alone takes in a barrel on gray. A recognized upload keeps gray only when its copies stack with gray parts left out of all but the first; otherwise it is whitened, as when its category never stacks. `rsdb add --standardize --keep-gray` keeps it regardless.
+- The site finds stacking itself for these categories. A stacking found replaces the builder's west step; none found keeps the builder's.
+  - Adder that adds right: the step is its bit spacing carried past the last bit, or for a 1-bit adder the shortest step up, west, or north whose copies add right, carry in to carry out winning a tie. Enough copies must add right that one sits between two others and the stack reaches a copy past dust's 15-block range: a 1-bit slice 2 wide takes 9, an 8-bit adder 16 high takes 3. An adder that stacks gets that step with unlimited copies; one that doesn't gets none. Either replaces any typed stacking.
+  - Register: the shortest step west at which two copies store and read right, as more cells or bits, then the most copies that do, up to 16.
+  - Buffer: likewise, as more bits only, since its cells show all the time and can't share a bus. A later copy's own write button on the shared write line is left; only the first copy's is pressed.
+  - Monostable: as more bits, each pulsing alone, at the shortest step west up to two past its width; a 1-wide one may need a gap.
+- Where simulation doesn't find a stacking, the build's page warns at each spot two copies disagree, such as a barrel replaced by concrete, dust cut by a block, or containers giving different strengths. It also says whether two copies make a bigger build of its shape: copies along the bits double each data bus; copies any other way keep each bus's width, or each tap it, and add their own control lines. Neither blocks saving. When copies disagree, the page gives the shortest step that way, short of the build's length, where overlapping copies hold the same blocks.
+- A stackable build's page gives in-game steps for each direction: the `//rstack` command and, when it has first-copy-only parts, downloads of the build without them and of those parts alone, pasted back from the same spot with `//paste -a`.
 
 ## Saved state
 
-- Every input is saved at logical 0: a normal input with its lever off, an inverted input with its lever on.
+- Every input is saved at logical 0: a normal input lever off, an inverted one lever on.
 
-Some builds, such as displays, follow their own layout. They are stored with `--conventional false`, which exempts them from everything here. An upload that breaks a convention is stored the same way, keeping its own blocks.
+Builds with their own layout, such as displays, are stored with `--conventional false`, exempt from everything here. An upload that breaks a convention is stored the same way, keeping its own blocks.
 
 ## Bounding box
 
-- A stored schematic's box fits its blocks tightly. Import takes out any glass corner markers, such as the 32 glass blocks older builds carried or WorldEdit's single corner blocks, and trims every empty layer.
-- The build's size is that box, less any outer layer that holds nothing but its interface: input blocks with their levers, dust, signs, and torches. Such a layer only carries the inputs, so it does not make the build bigger. So input blocks can sit in their own layer, with their levers on the south side, without making the build bigger.
-- Sizes read height × width × depth, as the build looks from the south: up, then west to east, then north to south.
-- Positions count from the box's first block, its north-west-bottom corner.
-- Every file the site stores or hands out pastes the same way: `//paste` puts the build so the player stands one block south of its south-east-bottom corner, just outside it, with the build reaching west and north from in front of them, from their feet up, and the position the uploader copied it from is dropped. `rsdb add --keep-paste` instead keeps where a file pastes from. Either way, cropping, stacking, and corner markers keep the build where it pastes, relative to the player.
-- A download can add a glass block off each corner of the box, diagonally, so WorldEdit can select the build by them without the glass touching it.
+- A stored box fits its blocks tightly. Import removes glass corner markers, such as older builds' 32 glass blocks or WorldEdit's single corner blocks, and trims empty layers.
+- Size is that box less any outer layer holding only interface: input blocks with their levers, dust, signs, and torches. So input blocks can sit in their own layer, levers south, without enlarging the build.
+- Sizes read height × width × depth, seen from the south: up, west to east, north to south.
+- Positions count from the box's north-west-bottom corner.
+- Every stored or served file pastes the same way: `//paste` puts the player one block south of the build's south-east-bottom corner, the build reaching west and north in front of them from their feet up. The uploader's copy position is dropped; `rsdb add --keep-paste` keeps it. Either way, cropping, stacking, and corner markers keep the build where it pastes relative to the player.
+- A download can add a glass block diagonally off each box corner, so WorldEdit can select the build without the glass touching it.
 
 ## Layout proposals
 
