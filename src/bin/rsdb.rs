@@ -47,7 +47,7 @@ enum Command {
     /// Check a .schem file, or a stored build by id, or with neither every
     /// build on the list, the colour-free way: levers in, lamps out, what
     /// the site would fix and what only the builder can
-    Inspect { file_or_id: Option<String> },
+    Inspect(Inspect),
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
@@ -193,6 +193,14 @@ enum Command {
         #[arg(long)]
         token: Option<String>,
     },
+}
+
+#[derive(Args)]
+struct Inspect {
+    file_or_id: Option<String>,
+    /// Only the builds of this category, probed as it, such as adder
+    #[arg(long)]
+    category: Option<String>,
 }
 
 #[derive(Args)]
@@ -417,9 +425,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
     match command {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
-        Command::Inspect { file_or_id } => {
-            inspect_command(db, file_or_id.as_deref()).await
-        }
+        Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
@@ -1030,10 +1036,9 @@ async fn list(
 /// control or status line passes.
 /// Prints what `inspect` finds of one file or build, or of every build on
 /// the list, with a count of each problem and of the builds it stops.
-async fn inspect_command(
-    db: &SqlitePool,
-    file_or_id: Option<&str>,
-) -> Result<()> {
+async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
+    let (file_or_id, category) =
+        (args.file_or_id.as_deref(), args.category.as_deref());
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     match file_or_id {
         Some(path) if fs::exists(path)? => {
@@ -1054,7 +1059,9 @@ async fn inspect_command(
                 .map(|c| c.name)
                 .collect();
             for s in schematic::all(db).await? {
-                if !listed.contains(&s.category) {
+                if !listed.contains(&s.category)
+                    || category.is_some_and(|c| c != s.category)
+                {
                     continue;
                 }
                 let data = version::current_file(db, &s.id)
@@ -1069,7 +1076,8 @@ async fn inspect_command(
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
     for (name, data) in &files {
-        let report = app::inspect::inspect_file(data)?;
+        let adder = category == Some("adder");
+        let report = app::inspect::inspect_file(data, adder)?;
         let buses = |runs: &[app::inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())

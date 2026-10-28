@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use mchprs_blocks::{
-    BlockFace, BlockPos,
+    BlockPos,
     block_entities::{BlockEntity, ContainerType},
     blocks::Block,
 };
@@ -53,10 +53,11 @@ pub struct Circuit {
     compiler: Option<Compiler>,
     /// How each input port is driven, in the order of `Interface::inputs`.
     inputs: Vec<Drive>,
-    /// Each output port's blocks, least significant first, in the order of
-    /// `Interface::outputs`, and whether it shows a digit per block.
+    /// Where each output port's bits are read, least significant first, in
+    /// the order of `Interface::outputs`, and whether it shows a digit per
+    /// bit.
     outputs: Vec<(Vec<BlockPos>, bool)>,
-    /// The comparators beside an output block. Redpiler leaves their
+    /// The comparators an output is read from. Redpiler leaves their
     /// strength in the world as it was saved, so `settle` sets it.
     comparators: Vec<BlockPos>,
 }
@@ -126,12 +127,13 @@ impl Circuit {
                     .iter()
                     .map(|bit| {
                         // A bit is read only by what stands on its block,
-                        // the component carrying it out of the build, never
-                        // by the block's own power.
-                        let above =
-                            world.get_block(at(bit.pos).offset(BlockFace::Top));
+                        // the component carrying it out of the build, or
+                        // by what drives its lamp, never by the block's own
+                        // power.
+                        let reading =
+                            at(crate::interface::reading(blocks, bit.pos));
                         let read = matches!(
-                            above,
+                            world.get_block(reading),
                             Block::RedstoneWire(_)
                                 | Block::Repeater(_)
                                 | Block::Comparator(_)
@@ -146,7 +148,7 @@ impl Circuit {
                                 port.name
                             );
                         }
-                        Ok(at(bit.pos))
+                        Ok(reading)
                     })
                     .collect::<Result<_>>()?;
                 Ok((blocks, digits && shows_digits(port)))
@@ -155,8 +157,10 @@ impl Circuit {
         let comparators = outputs
             .iter()
             .flat_map(|(blocks, _)| blocks)
-            .flat_map(|pos| BlockFace::values().map(|side| pos.offset(side)))
-            .filter(|&pos| matches!(world.get_block(pos), Block::Comparator(_)))
+            .filter(|&&pos| {
+                matches!(world.get_block(pos), Block::Comparator(_))
+            })
+            .copied()
             .collect();
         let compiler = if digits {
             None
@@ -374,7 +378,7 @@ impl Circuit {
     pub fn get(&self, port: usize) -> u64 {
         let (blocks, digits) = &self.outputs[port];
         blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
-            let top = pos.offset(BlockFace::Top);
+            let top = pos;
             let (on, strength) = match self.world.get_block(top) {
                 Block::RedstoneWire(wire) => (wire.power > 0, wire.power),
                 Block::Repeater(repeater) => {
@@ -404,10 +408,7 @@ impl Circuit {
     /// its every block take to carry it out of the build, the least of
     /// them, which its value shows that much later than it arrives.
     pub fn carried(&self) -> Vec<i32> {
-        let delay = |pos: BlockPos| match self
-            .world
-            .get_block(pos.offset(BlockFace::Top))
-        {
+        let delay = |pos: BlockPos| match self.world.get_block(pos) {
             Block::Repeater(repeater) => i32::from(repeater.delay),
             Block::Comparator(_) => 1,
             _ => 0,
@@ -679,7 +680,11 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
     let read: HashSet<Pos> = crate::interface::read(blocks)
         .outputs
         .iter()
-        .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
+        .flat_map(|p| {
+            p.bits
+                .iter()
+                .map(|b| crate::interface::reading(blocks, b.pos))
+        })
         .collect();
     compiled_reading(blocks, &read)
 }

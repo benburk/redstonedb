@@ -704,7 +704,7 @@ fn lamp_spots(
 /// of it or pointed into it, a repeater, comparator, or observer pointed
 /// into it, a torch beside or under it, a lever, button, or redstone block
 /// beside it, or a solid block beside it that is powered.
-fn lighting(blocks: &Blocks, pos: Pos) -> Vec<Pos> {
+pub fn lighting(blocks: &Blocks, pos: Pos) -> Vec<Pos> {
     Direction::ALL
         .iter()
         .map(|&side| schem::step(pos, side))
@@ -1058,8 +1058,9 @@ pub fn lamps_follow(
 
 /// The check of the file in `data`, as `inspect` makes it, then proven:
 /// lamps put in for outputs marked by colour change nothing else of the
-/// circuit, and every lamp follows its driver.
-pub fn inspect_file(data: &[u8]) -> Result<Report> {
+/// circuit, and every lamp follows its driver. With `adder`, and a lamp on
+/// every output, it is then probed as an adder.
+pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
     let blocks = Blocks::read(data)?;
     let mut report = inspect(&blocks);
     let (lamped, moved) = if report.added.is_empty() {
@@ -1098,6 +1099,25 @@ pub fn inspect_file(data: &[u8]) -> Result<Report> {
             .map(|a| (shift(a.lamp), shift(a.driver)))
             .collect()
     };
+    let lamps_missing = report
+        .errors
+        .iter()
+        .any(|p| matches!(p.rule, "no room for a lamp" | "no outputs"));
+    if adder && !lamps_missing {
+        let lamped_blocks = Blocks::read(&lamped)?;
+        let found = inspect(&lamped_blocks);
+        match crate::probe::adder(&lamped_blocks, &found) {
+            Ok(probed) => report.notes.push(format!(
+                "It adds, as {}: all {} cases right, {}.",
+                probed.layout.describe(),
+                probed.run.cases,
+                probed.run.pattern
+            )),
+            Err(message) => {
+                problem(&mut report, "not an adder", Vec::new(), message);
+            }
+        }
+    }
     if !pairs.is_empty() {
         match lamps_follow(&lamped, &pairs, 256) {
             Ok(wrong) => {

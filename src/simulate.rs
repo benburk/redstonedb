@@ -257,6 +257,20 @@ impl Test {
         }
     }
 
+    /// The test's cases run on `blocks` through `interface`, as probing
+    /// finds it rather than as colours mark it, or with `quick` a few
+    /// telling ones. For the tests driven by a spec only, such as an
+    /// adder's.
+    pub fn check_with(
+        self,
+        blocks: &Blocks,
+        mut interface: Interface,
+        quick: bool,
+    ) -> Result<Run> {
+        let spec = self.spec(blocks, &mut interface)?;
+        spec.check(blocks, &interface, quick)
+    }
+
     /// The test's cases run on `blocks`, or with `quick` a few telling
     /// ones, quick enough for a guess at what a build is.
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
