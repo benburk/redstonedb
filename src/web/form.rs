@@ -301,20 +301,44 @@ impl Form {
         }
     }
 
-    /// The details for a newly chosen file: `suggested`, what the new file
-    /// suggests, from its category on, as a first upload's are, with what
-    /// this form says of who made the build and when, which a new file
-    /// does not change: its builders, contributors, build date,
-    /// description, own name, and tags.
-    pub fn keeping_credits(self, suggested: Form) -> Form {
+    /// The details for a newly chosen file: this form as sent, every
+    /// field filled in kept, and only those left empty taken from
+    /// `suggested`, what the new file suggests.
+    pub fn keeping_sent(self, suggested: Form) -> Form {
+        let or = |sent: String, suggested: String| {
+            if sent.trim().is_empty() {
+                suggested
+            } else {
+                sent
+            }
+        };
+        let stack_rows = if self.stack_rows.iter().all(|r| r.step.is_empty()) {
+            suggested.stack_rows
+        } else {
+            self.stack_rows
+        };
         Form {
-            built_on: self.built_on,
-            description: self.description,
-            given_name: self.given_name,
+            category: or(self.category, suggested.category),
+            width: or(self.width, suggested.width),
+            orientation: or(self.orientation, suggested.orientation),
+            encoding: or(self.encoding, suggested.encoding),
+            latency: or(self.latency, suggested.latency),
+            synchronized: self.synchronized.or(suggested.synchronized),
+            built_on: or(self.built_on, suggested.built_on),
+            description: or(self.description, suggested.description),
+            given_name: or(self.given_name, suggested.given_name),
+            logic: or(self.logic, suggested.logic),
+            throughput: or(self.throughput, suggested.throughput),
+            bytes: or(self.bytes, suggested.bytes),
+            at_least: or(self.at_least, suggested.at_least),
+            pulse: or(self.pulse, suggested.pulse),
+            design: or(self.design, suggested.design),
+            flags: self.flags,
+            stackable: self.stackable,
+            stack_rows,
             builders: self.builders,
             contributors: self.contributors,
             tags: self.tags,
-            ..suggested
         }
     }
 
@@ -520,13 +544,12 @@ mod tests {
         }
     }
 
-    /// A new file's details are worked out afresh, its category guessed
-    /// from it rather than kept, but who made it stays.
+    /// A new file keeps every detail filled in, and fills only the empty
+    /// ones from what it suggests.
     #[test]
-    fn a_new_file_keeps_its_credits_but_not_its_category() {
+    fn a_new_file_keeps_the_details_sent() {
         let sent = Form {
             category: "adder".to_owned(),
-            width: "8".to_owned(),
             design: "carry_lookahead".to_owned(),
             latency: "6".to_owned(),
             builders: vec!["Sam".to_owned()],
@@ -536,14 +559,15 @@ mod tests {
         };
         let suggested = Form {
             category: "monostable".to_owned(),
-            width: "1".to_owned(),
+            width: "8".to_owned(),
             design: "other".to_owned(),
             ..Form::default()
         };
-        let form = sent.keeping_credits(suggested);
-        assert_eq!(form.category, "monostable");
-        assert_eq!((form.width.as_str(), form.design.as_str()), ("1", "other"));
-        assert!(form.latency.is_empty());
+        let form = sent.keeping_sent(suggested);
+        assert_eq!(form.category, "adder");
+        assert_eq!(form.design, "carry_lookahead");
+        assert_eq!(form.latency, "6");
+        assert_eq!(form.width, "8");
         assert_eq!(form.builders, ["Sam"]);
         assert_eq!(form.description, "Fast.");
         assert_eq!(form.tags, ["pistonless"]);

@@ -313,10 +313,9 @@ pub async fn publish(
 }
 
 /// The preview of the file newly chosen on the preview page, in place of
-/// `current`, with its details worked out afresh, as a first upload's are,
-/// so its category is guessed from the new file rather than kept, but
-/// with the credits sent in `form`; or `current` again, with the details
-/// as sent and why the new one could not be read.
+/// `current`, with the details sent in `form` kept and only the empty ones
+/// filled from the new file; or `current` again, with the details as sent
+/// and why the new one could not be read.
 async fn chosen_instead(
     state: &AppState,
     user: &User,
@@ -348,7 +347,7 @@ async fn chosen_instead(
         &interface::read(&upload.read_as().blocks),
         &upload.read_as().size,
     );
-    let form = form.keeping_credits(suggested);
+    let form = form.keeping_sent(suggested);
     let said = Said {
         guess: guess.as_ref(),
         ..Said::default()
