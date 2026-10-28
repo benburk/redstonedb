@@ -117,6 +117,11 @@ impl User {
             })
     }
 
+    /// Whether the account may delete any build: a mod's or admin's.
+    pub fn can_delete(&self) -> bool {
+        self.role >= Role::Mod
+    }
+
     pub fn is_admin(&self) -> bool {
         self.role == Role::Admin
     }

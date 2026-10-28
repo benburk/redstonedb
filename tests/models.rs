@@ -88,14 +88,16 @@ async fn a_taken_username_moves_to_its_new_owner() {
 async fn roles_rank_user_mod_admin() {
     let db = setup_test_db().await;
     let user = sign_in(&db, "1", "steve").await;
-    for (role, can_edit, admin) in [
+    // A mod edits and deletes any build; only an admin sets roles.
+    for (role, moderates, admin) in [
         (Role::User, false, false),
         (Role::Mod, true, false),
         (Role::Admin, true, true),
     ] {
         User::set_role(&db, user.id, role).await.unwrap();
         let user = User::get_by_id(&db, user.id).await.unwrap().unwrap();
-        assert_eq!(user.can_edit(), can_edit);
+        assert_eq!(user.can_edit(), moderates);
+        assert_eq!(user.can_delete(), moderates);
         assert_eq!(user.is_admin(), admin);
     }
 }

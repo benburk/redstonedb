@@ -69,7 +69,7 @@ pub fn schematic_page(
                     (build_banner(s, report, simulating))
                 }
                 div class="flex gap-2" {
-                    @if viewer.is_some_and(User::is_admin) {
+                    @if viewer.is_some_and(User::can_delete) {
                         button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
                         (delete_dialog(s))
                     }

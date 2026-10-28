@@ -55,6 +55,26 @@ impl FromRequestParts<AppState> for SignedIn {
     }
 }
 
+/// The signed-in account, when it is a mod's or an admin's. Anyone else
+/// signed in is refused; anyone signed out is sent to the login page.
+pub struct Moderator(pub User);
+
+impl FromRequestParts<AppState> for Moderator {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let SignedIn(user) = SignedIn::from_request_parts(parts, state).await?;
+        if user.can_delete() {
+            Ok(Moderator(user))
+        } else {
+            Err(AppError::Forbidden)
+        }
+    }
+}
+
 /// The signed-in account, when it is an admin's. Anyone else signed in is
 /// refused; anyone signed out is sent to the login page.
 pub struct Admin(pub User);

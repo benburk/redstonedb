@@ -24,7 +24,7 @@ use crate::{
     extractors::{
         client_ip::ClientIp,
         fixi::Fixi,
-        session::{Admin, SignedIn},
+        session::{Moderator, SignedIn},
     },
     import::{self, Analysis, Prepared},
     leaderboard,
@@ -662,15 +662,15 @@ async fn attached(
     })
 }
 
-/// Deletes a build for good, with its tags, credits, and stacking; admins
-/// only.
+/// Deletes a build for good, with its tags, credits, and stacking; mods
+/// and admins only.
 pub async fn delete(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Admin(admin): Admin,
+    Moderator(by): Moderator,
 ) -> Result<Response, AppError> {
     schematic::delete(&state.db, &id).await?;
-    tracing::info!(id, by = admin.username, "deleted a build");
+    tracing::info!(id, by = by.username, "deleted a build");
     Ok(Redirect::to("/").into_response())
 }
 
