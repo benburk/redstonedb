@@ -232,7 +232,7 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
         ([], [_]) if width == 1 => {
             return Err("It has one output. A 1-bit adder is a slice of a \
                         wider one, so it has its sum and its carry out, on a \
-                        yellow block each."
+                        coloured block each."
                 .to_owned());
         }
         ([], [p, q]) if width == 1 => {
@@ -242,7 +242,7 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
         _ => {
             return Err(format!(
                 "Its outputs don't make an adder's. A {width}-bit adder has \
-                 its sum on {width} yellow blocks in a line, with at most one \
+                 its sum on {width} outputs in a line, with at most one \
                  more for carry out; its outputs fall into runs of {}.",
                 sizes(runs)
             ));

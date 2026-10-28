@@ -1,6 +1,6 @@
 //! The check of a build by its function rather than its colours: its
 //! inputs are its levers and stone buttons, found wherever they are, and
-//! its outputs blocks of yellow concrete, each read through the dust or
+//! its outputs lone coloured blocks, each read through the dust or
 //! repeater on it. What the site can put right itself, it does and lists;
 //! what only the builder can, it names with the blocks at fault.
 //!
@@ -17,9 +17,10 @@
 //! - The lever's spot takes a repeater pointed into the input block, so a
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it.
-//! - Every output, data or status, is a block of yellow concrete with dust
-//!   or a repeater on top, which is what is read. Yellow concrete marks
-//!   nothing else.
+//! - Every output, data or status, is a coloured block with dust or a
+//!   repeater on top, which is what is read, and no block of its colour
+//!   touching it, even diagonally. Any colour but white, a build's plain
+//!   block, and gray, which marks logic only a stack's first copy keeps.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -31,8 +32,6 @@ use crate::{
     lint,
     schem::{self, Blocks, Direction, Pos, Switch},
 };
-
-const YELLOW: &str = "yellow_concrete";
 
 /// What the check found: what it puts right, and what it can't.
 #[derive(Default, Debug)]
@@ -395,63 +394,62 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: blocks of yellow concrete, each read through the dust or
-/// repeater on it. Output blocks of the old status and bus colours become
-/// yellow, as which output is which is found by probing.
+/// The outputs: coloured blocks, each with dust or a repeater on top,
+/// which is what is read, and no block of its own colour touching it, even
+/// diagonally. Any colour marks one but white and gray: white is a build's
+/// plain block, and gray marks logic only a stack's first copy keeps.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();
-    let marked: Vec<(Pos, &str)> = blocks
+    let found: Vec<Pos> = blocks
         .iter()
-        .map(|(pos, state)| (pos, schem::short(state)))
-        .filter(|(pos, name)| lint::is_output(name) && !switched.contains(pos))
+        .filter(|&(pos, state)| {
+            let name = schem::short(state);
+            marks(name)
+                && !switched.contains(&pos)
+                && matches!(
+                    short(blocks, schem::step(pos, Direction::Up)),
+                    "redstone_wire" | "repeater"
+                )
+                && lone(blocks, pos, name)
+        })
+        .map(|(pos, _)| pos)
         .collect();
-    if marked.is_empty() {
+    if found.is_empty() {
         problem(
             report,
             "no outputs",
             Vec::new(),
-            "It has no outputs. Mark each output bit, data or status, with \
-             a block of yellow concrete with its dust or repeater on top."
+            "It has no outputs. Put each output's dust or repeater on a \
+             coloured block, any colour but white or gray, with no block of \
+             its colour touching it."
                 .to_owned(),
         );
-        return Vec::new();
     }
-    let recoloured = marked.iter().filter(|(_, name)| *name != YELLOW).count();
-    if recoloured > 0 {
-        report.fixes.push(format!(
-            "{recoloured} output blocks of other colours become yellow \
-             concrete"
-        ));
-    }
-    for &(pos, name) in &marked {
-        let top = schem::step(pos, Direction::Up);
-        let at = place(pos);
-        match short(blocks, top) {
-            "redstone_wire" | "repeater" => {}
-            "comparator" => problem(
-                report,
-                "output read by a comparator",
-                vec![pos, top],
-                format!(
-                    "The output at {at} is read by the comparator on it, \
-                     which is for signal strengths, not taken yet."
-                ),
-            ),
-            _ => problem(
-                report,
-                "output not read",
-                vec![pos],
-                format!(
-                    "The {} at {at} has no dust or repeater on top. Yellow \
-                     concrete marks an output, read by the dust or repeater \
-                     on it; use another block where it isn't one.",
-                    words(name)
-                ),
-            ),
-        }
-    }
-    marked.into_iter().map(|(pos, _)| pos).collect()
+    found
+}
+
+/// Whether a block of kind `name` can mark an output: a coloured one,
+/// neither white nor gray.
+fn marks(name: &str) -> bool {
+    let coloured = ["_concrete", "_wool", "_terracotta", "_stained_glass"]
+        .iter()
+        .any(|kind| name.ends_with(kind));
+    coloured && !name.starts_with("white_") && !name.starts_with("gray_")
+}
+
+/// Whether no block of kind `name` touches `pos`, even at a corner.
+fn lone(blocks: &Blocks, pos: Pos, name: &str) -> bool {
+    let near = -1..=1;
+    !near.clone().any(|dx| {
+        near.clone().any(|dy| {
+            near.clone().any(|dz| {
+                [dx, dy, dz] != [0, 0, 0]
+                    && short(blocks, [pos[0] + dx, pos[1] + dy, pos[2] + dz])
+                        == name
+            })
+        })
+    })
 }
 
 /// The positions grouped into runs: lines of evenly spaced bits, the
