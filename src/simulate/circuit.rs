@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use mchprs_blocks::{
-    BlockPos,
+    BlockFace, BlockPos,
     block_entities::{BlockEntity, ContainerType},
     blocks::Block,
 };
@@ -53,11 +53,10 @@ pub struct Circuit {
     compiler: Option<Compiler>,
     /// How each input port is driven, in the order of `Interface::inputs`.
     inputs: Vec<Drive>,
-    /// Where each output port's bits are read, least significant first, in
-    /// the order of `Interface::outputs`, and whether it shows a digit per
-    /// bit.
+    /// Each output port's blocks, least significant first, in the order of
+    /// `Interface::outputs`, and whether it shows a digit per block.
     outputs: Vec<(Vec<BlockPos>, bool)>,
-    /// The comparators an output is read from. Redpiler leaves their
+    /// The comparators beside an output block. Redpiler leaves their
     /// strength in the world as it was saved, so `settle` sets it.
     comparators: Vec<BlockPos>,
 }
@@ -127,13 +126,12 @@ impl Circuit {
                     .iter()
                     .map(|bit| {
                         // A bit is read only by what stands on its block,
-                        // the component carrying it out of the build, or
-                        // by what drives its lamp, never by the block's own
-                        // power.
-                        let reading =
-                            at(crate::interface::reading(blocks, bit.pos));
+                        // the component carrying it out of the build, never
+                        // by the block's own power.
+                        let above =
+                            world.get_block(at(bit.pos).offset(BlockFace::Top));
                         let read = matches!(
-                            world.get_block(reading),
+                            above,
                             Block::RedstoneWire(_)
                                 | Block::Repeater(_)
                                 | Block::Comparator(_)
@@ -148,7 +146,7 @@ impl Circuit {
                                 port.name
                             );
                         }
-                        Ok(reading)
+                        Ok(at(bit.pos))
                     })
                     .collect::<Result<_>>()?;
                 Ok((blocks, digits && shows_digits(port)))
@@ -157,10 +155,8 @@ impl Circuit {
         let comparators = outputs
             .iter()
             .flat_map(|(blocks, _)| blocks)
-            .filter(|&&pos| {
-                matches!(world.get_block(pos), Block::Comparator(_))
-            })
-            .copied()
+            .flat_map(|pos| BlockFace::values().map(|side| pos.offset(side)))
+            .filter(|&pos| matches!(world.get_block(pos), Block::Comparator(_)))
             .collect();
         let compiler = if digits {
             None
@@ -354,13 +350,12 @@ impl Circuit {
         }
     }
 
-    /// Whether the component at `pos`, a torch, repeater, comparator,
-    /// lever, dust, or lamp, is on, as of the last `settle`.
+    /// Whether the component at `pos`, a torch, repeater, comparator, or
+    /// lever, is on, as of the last `settle`.
     pub fn on(&self, pos: Pos) -> bool {
         match self.world.get_block(at(pos)) {
             Block::RedstoneTorch { lit }
-            | Block::RedstoneWallTorch { lit, .. }
-            | Block::RedstoneLamp { lit } => lit,
+            | Block::RedstoneWallTorch { lit, .. } => lit,
             Block::Repeater(repeater) => repeater.powered,
             Block::Comparator(comparator) => comparator.powered,
             Block::Lever { powered, .. }
@@ -378,7 +373,7 @@ impl Circuit {
     pub fn get(&self, port: usize) -> u64 {
         let (blocks, digits) = &self.outputs[port];
         blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
-            let top = pos;
+            let top = pos.offset(BlockFace::Top);
             let (on, strength) = match self.world.get_block(top) {
                 Block::RedstoneWire(wire) => (wire.power > 0, wire.power),
                 Block::Repeater(repeater) => {
@@ -408,7 +403,10 @@ impl Circuit {
     /// its every block take to carry it out of the build, the least of
     /// them, which its value shows that much later than it arrives.
     pub fn carried(&self) -> Vec<i32> {
-        let delay = |pos: BlockPos| match self.world.get_block(pos) {
+        let delay = |pos: BlockPos| match self
+            .world
+            .get_block(pos.offset(BlockFace::Top))
+        {
             Block::Repeater(repeater) => i32::from(repeater.delay),
             Block::Comparator(_) => 1,
             _ => 0,
@@ -677,24 +675,6 @@ impl Compiled {
 
 /// The circuit of `blocks`; see [`Compiled`].
 pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
-    let read: HashSet<Pos> = crate::interface::read(blocks)
-        .outputs
-        .iter()
-        .flat_map(|p| {
-            p.bits
-                .iter()
-                .map(|b| crate::interface::reading(blocks, b.pos))
-        })
-        .collect();
-    compiled_reading(blocks, &read)
-}
-
-/// The circuit of `blocks`, with the links into the dust at `read`, which
-/// is read as its outputs; see [`Compiled`].
-pub fn compiled_reading<S: std::hash::BuildHasher>(
-    blocks: &Blocks,
-    read: &HashSet<Pos, S>,
-) -> Result<Compiled> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
     settle_world(&mut world, size)?;
@@ -725,6 +705,11 @@ pub fn compiled_reading<S: std::hash::BuildHasher>(
             .first()
             .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
     };
+    let read: HashSet<Pos> = crate::interface::read(blocks)
+        .outputs
+        .iter()
+        .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
+        .collect();
     let kinds = graph
         .node_indices()
         .filter(|&i| graph[i].ty != NodeType::Wire)

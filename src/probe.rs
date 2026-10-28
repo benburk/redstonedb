@@ -1,5 +1,5 @@
-//! What a build's levers and lamps are, found by how it behaves rather than
-//! by colour: each way its runs of levers and lamps could be an adder's
+//! What a build's levers and outputs are, found by how it behaves rather than
+//! by colour: each way its runs of levers and outputs could be an adder's
 //! A, B, carry in, sum, and carry out, with each bus either way round, is
 //! tried with the adder's test, and the one that adds is kept.
 
@@ -211,9 +211,9 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
     Ok(pairs)
 }
 
-/// Every way the lamp runs could be an adder's sum of `width` bits and a
-/// carry out: a bus and at most one lone lamp; a bus one longer, its last
-/// bit the carry out or the sum's top bit; or, for one bit, lone lamps.
+/// Every way the output runs could be an adder's sum of `width` bits and a
+/// carry out: a bus and at most one lone output; a bus one longer, its last
+/// bit the carry out or the sum's top bit; or, for one bit, lone outputs.
 fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
     let (buses, lones) = split(runs);
     let mut found = Vec::new();
@@ -230,9 +230,9 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
             }
         }
         ([], [_]) if width == 1 => {
-            return Err("It has one lamp. A 1-bit adder is a slice of a \
-                        wider one, so it shows its sum and its carry out, on \
-                        a lamp each."
+            return Err("It has one output. A 1-bit adder is a slice of a \
+                        wider one, so it has its sum and its carry out, on a \
+                        yellow block each."
                 .to_owned());
         }
         ([], [p, q]) if width == 1 => {
@@ -241,9 +241,9 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
         }
         _ => {
             return Err(format!(
-                "Its lamps don't make an adder's outputs. A {width}-bit \
-                 adder shows its sum on {width} lamps in a line, with at \
-                 most one more for carry out; its lamps fall into runs of {}.",
+                "Its outputs don't make an adder's. A {width}-bit adder has \
+                 its sum on {width} yellow blocks in a line, with at most one \
+                 more for carry out; its outputs fall into runs of {}.",
                 sizes(runs)
             ));
         }
@@ -251,7 +251,7 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
     Ok(found)
 }
 
-/// The adder `blocks` is, found from `report`'s runs of levers and lamps:
+/// The adder `blocks` is, found from `report`'s runs of levers and outputs:
 /// of every layout they could make, the one whose quick test gets fewest
 /// wrong, then tested in full; or why none adds.
 pub fn adder(
@@ -308,7 +308,7 @@ pub fn adder(
     };
     if wrong > 0 {
         return Err(format!(
-            "No way of reading its levers and lamps as an adder adds right. \
+            "No way of reading its levers and outputs as an adder adds right. \
              The closest, {}, gets {wrong} of {cases} telling cases wrong.",
             layout.describe()
         ));

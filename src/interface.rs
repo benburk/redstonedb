@@ -338,18 +338,6 @@ fn open_end(blocks: &Blocks, pos: Pos) -> Option<Direction> {
     }
 }
 
-/// Where output bit `pos` is read: from the dust or repeater driving it,
-/// for a lamp, directly or through one block; else from what stands on its block, the component carrying
-/// it out of the build.
-pub fn reading(blocks: &Blocks, pos: Pos) -> Pos {
-    if schem::id(blocks.get(pos)) == "minecraft:redstone_lamp"
-        && let Some(driver) = crate::inspect::lamp_driver(blocks, pos)
-    {
-        return driver;
-    }
-    schem::step(pos, Direction::Up)
-}
-
 pub fn read(blocks: &Blocks) -> Interface {
     let feeds = feeds(blocks);
     let signs = blocks.sign_texts();

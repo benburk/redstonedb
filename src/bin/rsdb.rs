@@ -45,7 +45,7 @@ enum Command {
     /// taken out and the box fitted first
     Lint { file_or_id: String },
     /// Check a .schem file, or a stored build by id, or with neither every
-    /// build on the list, the colour-free way: levers in, lamps out, what
+    /// build on the list, by function: levers in, yellow outputs, what
     /// the site would fix and what only the builder can
     Inspect(Inspect),
     /// Run a stored build's test and timing again, or with no id every
