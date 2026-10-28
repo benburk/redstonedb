@@ -414,6 +414,16 @@ fn cube_color(name: &str) -> Rgba {
         return dye_color(dye);
     }
     match name {
+        "glass" => [200, 222, 232, 90],
+        // The solid blocks a palette may build with.
+        "stone" => [125, 125, 125, 255],
+        "smooth_stone" => [158, 158, 158, 255],
+        "stone_bricks" => [122, 121, 122, 255],
+        "smooth_quartz" | "quartz_block" => [235, 229, 222, 255],
+        "white_wool" => [234, 236, 237, 255],
+        "white_terracotta" => [210, 178, 161, 255],
+        "polished_andesite" => [132, 134, 133, 255],
+        "polished_diorite" => [192, 193, 194, 255],
         "redstone_block" => [175, 25, 5, 255],
         "observer" => [95, 95, 95, 255],
         "barrel" => [134, 98, 58, 255],
