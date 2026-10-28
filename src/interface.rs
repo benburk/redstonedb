@@ -339,13 +339,13 @@ fn open_end(blocks: &Blocks, pos: Pos) -> Option<Direction> {
 }
 
 /// Where output bit `pos` is read: from the dust or repeater driving it,
-/// for a lamp; else from what stands on its block, the component carrying
+/// for a lamp, directly or through one block; else from what stands on its block, the component carrying
 /// it out of the build.
 pub fn reading(blocks: &Blocks, pos: Pos) -> Pos {
     if schem::id(blocks.get(pos)) == "minecraft:redstone_lamp"
-        && let [driver] = crate::inspect::lighting(blocks, pos).as_slice()
+        && let Some(driver) = crate::inspect::lamp_driver(blocks, pos)
     {
-        return *driver;
+        return driver;
     }
     schem::step(pos, Direction::Up)
 }

@@ -451,6 +451,41 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         };
         match lighting.as_slice() {
             [driver] if readable(*driver) => {}
+            [block] if solid(short(blocks, *block)) => {
+                let sources = sources(blocks, *block, lamp);
+                match sources.as_slice() {
+                    [source] if readable(*source) => {}
+                    _ => problem(
+                        report,
+                        "lamp's block has other drivers",
+                        [vec![lamp, *block], sources.clone()].concat(),
+                        format!(
+                            "The lamp at {at} is lit through the {} at {}, \
+                             which {}. A lamp lit through a block is read \
+                             from the one dust or repeater powering that \
+                             block.",
+                            words(short(blocks, *block)),
+                            place(*block),
+                            if sources.is_empty() {
+                                "nothing powers".to_owned()
+                            } else {
+                                format!(
+                                    "is powered by {}",
+                                    sources
+                                        .iter()
+                                        .map(|&d| format!(
+                                            "the {} at {}",
+                                            words(short(blocks, d)),
+                                            place(d)
+                                        ))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
+                            }
+                        ),
+                    ),
+                }
+            }
             [] => problem(
                 report,
                 "lamp has no driver",
@@ -764,6 +799,37 @@ fn powered(blocks: &Blocks, pos: Pos, besides: Pos) -> bool {
     })
 }
 
+/// Where lamp `lamp` is read: the one dust or repeater lighting it, or
+/// lighting the one solid block that lights it; `None` when it has no such
+/// one driver.
+pub fn lamp_driver(blocks: &Blocks, lamp: Pos) -> Option<Pos> {
+    let readable = |pos: Pos| {
+        matches!(
+            short(blocks, pos),
+            "redstone_wire" | "repeater" | "comparator"
+        )
+    };
+    match lighting(blocks, lamp).as_slice() {
+        [driver] if readable(*driver) => Some(*driver),
+        [block] if solid(short(blocks, *block)) => {
+            match sources(blocks, *block, lamp).as_slice() {
+                [source] if readable(*source) => Some(*source),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Everything powering solid block `pos`, other than `besides`.
+fn sources(blocks: &Blocks, pos: Pos, besides: Pos) -> Vec<Pos> {
+    Direction::ALL
+        .iter()
+        .map(|&side| schem::step(pos, side))
+        .filter(|&next| next != besides && lights_block(blocks, next, pos))
+        .collect()
+}
+
 /// What powers solid block `pos`, other than `besides`, if anything does.
 fn powering(blocks: &Blocks, pos: Pos, besides: Pos) -> Option<Pos> {
     Direction::ALL
@@ -1074,10 +1140,7 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
             .outputs
             .iter()
             .flat_map(|run| run.bits.iter().copied())
-            .filter_map(|lamp| match lighting(&blocks, lamp).as_slice() {
-                [driver] => Some((lamp, *driver)),
-                _ => None,
-            })
+            .filter_map(|lamp| Some((lamp, lamp_driver(&blocks, lamp)?)))
             .collect()
     } else {
         let changes = circuit_changes(data, &lamped, moved, &report.added)?;
