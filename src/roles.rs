@@ -77,6 +77,42 @@ pub struct Role {
     pub uses: Vec<Use>,
 }
 
+/// A build's file with its unused blocks taken out, and where they were.
+pub struct Pruned {
+    pub file: Vec<u8>,
+    pub gone: Vec<Pos>,
+}
+
+/// The build in `data`, stacking each of `ways`, without its unused
+/// blocks, once compiling it before and after shows every link as it was;
+/// `None` when it has none.
+pub fn prune(
+    data: &[u8],
+    ways: &[StackDirection],
+    buses: stack::Buses,
+) -> Result<Option<Pruned>> {
+    let gone: BTreeMap<Pos, String> = roles(data, ways, buses)?
+        .into_iter()
+        .filter(|(_, role)| role.need == Need::Unused)
+        .map(|(pos, _)| (pos, schem::AIR.to_owned()))
+        .collect();
+    if gone.is_empty() {
+        return Ok(None);
+    }
+    let file = crate::standardize::edit(data, &gone)?;
+    let changed = changed(data, &file, ways, buses)?;
+    if let Some(first) = changed.first() {
+        anyhow::bail!(
+            "{} parts of its circuit would change, such as {first}",
+            changed.len()
+        );
+    }
+    Ok(Some(Pruned {
+        file,
+        gone: gone.into_keys().collect(),
+    }))
+}
+
 /// What each building block of the build in `data` is for, by position,
 /// with its unused dust, read alone and stacked each of `ways`. Inputs and
 /// blocks carrying a sign's text are left out, as they always stay.

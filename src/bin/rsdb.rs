@@ -53,6 +53,10 @@ enum Command {
     /// its roles coloured in, standardized, and stored under its own id with
     /// its details, credits, and tags; what can't be is listed with why
     Rebuild(Rebuild),
+    /// For a recognized build that passes its test, or with no id every
+    /// one: take out its unused blocks, as a new version, and keep what
+    /// each building block must be, for palettes
+    Finish { id: Option<String> },
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
@@ -448,6 +452,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Rebuild(args) => rebuild(db, &args).await,
+        Command::Finish { id } => finish(db, id.as_deref()).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
@@ -1064,6 +1069,28 @@ async fn list(
 /// Lints a file, or a stored schematic as a build of its category when no
 /// such file exists. A file's category is unknown, so a lone unsigned
 /// control or status line passes.
+/// Runs `simulation::finish` on build `id`, or on every build, and says
+/// which gained a version.
+async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
+    let ids = match id {
+        Some(prefix) => vec![resolve(db, prefix).await?],
+        None => schematic::all(db)
+            .await?
+            .into_iter()
+            .map(|s| s.id)
+            .collect(),
+    };
+    for id in &ids {
+        let before = load(db, id).await?.sha256;
+        simulation::finish(db, id).await?;
+        let s = load(db, id).await?;
+        if s.sha256 != before {
+            println!("{}  {}: unused blocks taken out", &id[..8], s.filename());
+        }
+    }
+    Ok(())
+}
+
 /// Adds each build of `args.category` from the database at `args.from`
 /// that isn't here yet, as `rebuild_one` does, and says how each went.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
@@ -1180,6 +1207,7 @@ async fn rebuild_one(
     .execute(db)
     .await?;
     simulation::refresh(db, &s.id, false).await?;
+    simulation::finish(db, &s.id).await?;
     Ok(Ok(()))
 }
 
@@ -1504,7 +1532,7 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
             .await?
             .context("schematic vanished")?;
         let buses = app::stack::Buses::of(&s.category, s.orientation);
-        let pruned = match prune_file(&data, &s.stacking, buses) {
+        let pruned = match app::roles::prune(&data, &s.stacking, buses) {
             Ok(Some(pruned)) => pruned,
             Ok(None) => continue,
             Err(err) => {
@@ -1521,7 +1549,12 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
         blocks += pruned.gone.len();
         let verb = if dry_run { "would" } else { "pruned" };
         let n = pruned.gone.len();
-        println!("{verb} {name}: {n} blocks: {}", pruned.gone.join(" "));
+        let gone: Vec<String> = pruned
+            .gone
+            .iter()
+            .map(|[x, y, z]| format!("{x},{y},{z}"))
+            .collect();
+        println!("{verb} {name}: {n} blocks: {}", gone.join(" "));
         if dry_run {
             continue;
         }
@@ -1538,43 +1571,6 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
     let verb = if dry_run { "would take" } else { "took" };
     println!("{verb} {blocks} blocks out of {builds} builds");
     Ok(())
-}
-
-/// A build's file with its unused blocks taken out, and where they were.
-struct Pruned {
-    file: Vec<u8>,
-    gone: Vec<String>,
-}
-
-/// The build in `data`, stacking each of `ways`, without its unused
-/// blocks, once compiling it before and after shows every link as it was;
-/// `None` when it has none.
-fn prune_file(
-    data: &[u8],
-    ways: &[StackDirection],
-    buses: app::stack::Buses,
-) -> Result<Option<Pruned>> {
-    let gone: BTreeMap<_, String> = app::roles::roles(data, ways, buses)?
-        .into_iter()
-        .filter(|(_, role)| role.need == app::roles::Need::Unused)
-        .map(|(pos, _)| (pos, app::schem::AIR.to_owned()))
-        .collect();
-    if gone.is_empty() {
-        return Ok(None);
-    }
-    let file = standardize::edit(data, &gone)?;
-    let changed = app::roles::changed(data, &file, ways, buses)?;
-    if let Some(first) = changed.first() {
-        bail!(
-            "{} parts of its circuit would change, such as {first}",
-            changed.len()
-        );
-    }
-    let gone = gone
-        .keys()
-        .map(|[x, y, z]| format!("{x},{y},{z}"))
-        .collect();
-    Ok(Some(Pruned { file, gone }))
 }
 
 /// One build's simulation result, on a line or a few.

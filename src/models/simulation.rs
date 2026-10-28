@@ -796,13 +796,69 @@ pub fn refresh_soon(db: &SqlitePool, id: &str) {
     tokio::spawn(async move {
         let refreshed = async {
             refresh(&db, &id, false).await?;
-            refresh_timing(&db, &id, false).await
+            refresh_timing(&db, &id, false).await?;
+            finish(&db, &id).await
         };
         if let Err(err) = refreshed.await {
             tracing::error!(id, "simulating a build: {err:#}");
         }
         REFRESHING.lock().expect("the list is whole").remove(&id);
     });
+}
+
+/// For a recognized build whose test passes, its unused blocks taken out,
+/// as a new version once compiling it shows the circuit unchanged, and
+/// then what each of its building blocks must be, solid, transparent, or
+/// either, kept with its version, for palettes. Any other build is left as
+/// it came.
+pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
+    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    if !(s.conventional && category::behaviour(&s.category).evaluated) {
+        return Ok(());
+    }
+    if !current(db, &s).await?.is_some_and(|report| report.passed()) {
+        return Ok(());
+    }
+    let data = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    if let Some(pruned) = roles::prune(&data, &s.stacking, buses(&s))? {
+        let checked = crate::version::check(db, &s, &pruned.file, None).await?;
+        if checked.refusals.is_empty() {
+            let how = version::Replacing::NextVersion {
+                added_by: None,
+                added_from: None,
+                note: Some("Unused blocks taken out"),
+            };
+            version::replace(db, id, &checked.prepared, how).await?;
+            // The same circuit, so its result carries over unsimulated.
+            refresh(db, id, false).await?;
+        }
+    }
+    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let data = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    let mut needs: std::collections::BTreeMap<&str, Vec<[i32; 3]>> =
+        std::collections::BTreeMap::new();
+    for (pos, role) in roles::roles(&data, &s.stacking, buses(&s))? {
+        if role.need != roles::Need::Unused {
+            needs.entry(role.need.name()).or_default().push(pos);
+        }
+    }
+    let needs = serde_json::to_string(&needs)?;
+    sqlx::query!(
+        "UPDATE schematic_version SET needs = ?
+         WHERE schematic_id = ? AND version = (
+             SELECT max(version) FROM schematic_version WHERE schematic_id = ?
+         )",
+        needs,
+        id,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Where build `s`'s simulation stands.
