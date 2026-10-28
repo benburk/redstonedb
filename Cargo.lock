@@ -381,6 +381,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "color_quant"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00c1c79b421ca69d94677a49b2ccf389dab3409952aed790594de8fa03b07989"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1964,6 +1970,7 @@ dependencies = [
  "axum-extra",
  "base64 0.23.1",
  "clap",
+ "color_quant",
  "dotenvy",
  "fastnbt",
  "flate2",
@@ -1973,6 +1980,7 @@ dependencies = [
  "mchprs_redpiler",
  "mchprs_redstone",
  "mchprs_world",
+ "png",
  "pulldown-cmark",
  "reqwest",
  "serde",

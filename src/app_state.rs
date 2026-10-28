@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use axum::body::Bytes;
 use sqlx::SqlitePool;
 
 use crate::{discord, mojang};
@@ -15,6 +16,10 @@ pub type Heads = Arc<Mutex<HashMap<String, (Instant, Vec<u8>)>>>;
 /// for a name no player has, with when each was asked.
 pub type Players =
     Arc<Mutex<HashMap<String, (Instant, Option<mojang::Profile>)>>>;
+
+/// Thumbnails rendered, as PNGs, by their file's SHA-256. Kept until the
+/// site restarts: one for each build's current file is a few megabytes.
+pub type Thumbnails = Arc<Mutex<HashMap<String, Bytes>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,4 +33,6 @@ pub struct AppState {
     /// Players looked up, so Mojang is asked about each name at most every
     /// few hours.
     pub players: Players,
+    /// Rendered thumbnails, so each file is drawn once.
+    pub thumbnails: Thumbnails,
 }

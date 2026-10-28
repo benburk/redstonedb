@@ -4,6 +4,7 @@
 //! comparators, and levers are small boxes.
 
 use anyhow::{Context, Result};
+use color_quant::NeuQuant;
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 use crate::schem::{self, Blocks, Direction, Pos};
@@ -82,9 +83,51 @@ pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
             }
         }
     }
-    pixmap
-        .encode_png()
-        .context("could not encode the thumbnail")
+    encode(&pixmap)
+}
+
+/// `pixmap` as a PNG of at most 256 colours. Its flat faces need few, and
+/// a palette makes the file about a quarter the size of full colour.
+fn encode(pixmap: &Pixmap) -> Result<Vec<u8>> {
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    // Every 3rd pixel trains the palette: as good as all of them here, at
+    // a third of the time.
+    let quant = NeuQuant::new(3, 256, &rgba);
+    let indices: Vec<u8> = rgba
+        .chunks_exact(4)
+        .map(|pixel| {
+            // The background stays fully transparent, not the nearest
+            // palette colour.
+            if pixel[3] == 0 {
+                quant.index_of(&[0; 4])
+            } else {
+                quant.index_of(pixel)
+            }
+        })
+        .map(|index| u8::try_from(index).expect("256 colours at most"))
+        .collect();
+    let mut png = Vec::new();
+    let mut encoder =
+        png::Encoder::new(&mut png, pixmap.width(), pixmap.height());
+    encoder.set_color(png::ColorType::Indexed);
+    encoder.set_palette(quant.color_map_rgb());
+    encoder.set_trns(quant.color_map_alpha());
+    encoder.set_compression(png::Compression::High);
+    let mut writer = encoder
+        .write_header()
+        .context("could not encode the thumbnail")?;
+    writer
+        .write_image_data(&indices)
+        .context("could not encode the thumbnail")?;
+    writer.finish().context("could not encode the thumbnail")?;
+    Ok(png)
 }
 
 /// Every block with something to draw, far blocks first so near ones

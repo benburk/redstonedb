@@ -8,6 +8,7 @@ use std::{
 };
 
 use axum::{
+    body::Bytes,
     extract::{Multipart, Path, Query, RawQuery, State},
     http::{Method, header},
     response::{IntoResponse, Redirect, Response},
@@ -367,7 +368,8 @@ fn facets(
 
 /// An isometric picture of the build. Cards link to it with the file's hash
 /// in the query, so a changed file gets a new URL and this one can be
-/// cached for good.
+/// cached for good. Each file is drawn once, off the async workers, as
+/// drawing one takes tens of milliseconds.
 pub async fn thumbnail(
     Path(id): Path<String>,
     State(state): State<AppState>,
@@ -375,7 +377,20 @@ pub async fn thumbnail(
     let data = version::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let png = thumbnail::render(&Blocks::read(&data)?)?;
+    let sha256 = import::sha256(&data);
+    let cached = state.thumbnails.lock().unwrap().get(&sha256).cloned();
+    let png = if let Some(png) = cached {
+        png
+    } else {
+        let png = tokio::task::spawn_blocking(move || {
+            thumbnail::render(&Blocks::read(&data)?)
+        })
+        .await
+        .map_err(anyhow::Error::from)??;
+        let png = Bytes::from(png);
+        state.thumbnails.lock().unwrap().insert(sha256, png.clone());
+        png
+    };
     Ok((
         [
             (header::CONTENT_TYPE, "image/png"),

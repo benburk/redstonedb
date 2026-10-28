@@ -89,7 +89,7 @@ fn results(found: &Found) -> Markup {
                 @for (s, permille) in found.builds {
                     li class="group relative flex items-center gap-4 border-b border-line py-3" {
                         img src={ "/schematics/" (s.id) "/thumbnail.png?v=" (&s.sha256[..12.min(s.sha256.len())]) }
-                            alt="" loading="lazy" width="96" height="72"
+                            alt="" loading="lazy" decoding="async" width="96" height="72"
                             class="aspect-[4/3] w-24 shrink-0 rounded-control bg-sidebar object-contain";
                         div class="flex min-w-0 flex-1 flex-col gap-0.5" {
                             a href={ "/schematics/" (s.id) }

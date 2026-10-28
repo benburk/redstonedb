@@ -304,7 +304,7 @@ pub fn home_index(index: &Index) -> Markup {
                             tags: &[],
                         }.href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                            img src=(thumbnail_src(tile.best)) alt="" loading="lazy" width="640" height="480"
+                            img src=(thumbnail_src(tile.best)) alt="" loading="lazy" decoding="async" width="640" height="480"
                                 class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                             div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
                                 h4 class="flex items-baseline justify-between gap-2 font-semibold" {
@@ -622,7 +622,7 @@ fn card(s: &Schematic, note: &Markup) -> Markup {
                 // links sit above it.
                 li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
                     img src=(thumbnail_src(s))
-                        alt="" loading="lazy" width="640" height="480"
+                        alt="" loading="lazy" decoding="async" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                     div class="flex flex-1 flex-col gap-2 p-4" {
                         h2 class="text-section font-semibold" {
