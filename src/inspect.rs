@@ -6,7 +6,8 @@
 //! The rules:
 //!
 //! - An input is a lever, or a stone button for a pulse, on a side of a
-//!   solid block, its input block. The lever touches nothing else that
+//!   solid block, its input block. Other buttons' longer pulses are
+//!   errors, never swapped, as a build may rely on them. The lever touches nothing else that
 //!   carries power.
 //! - The input block drives dust, torches, and repeaters, at most one dust,
 //!   and nothing else powers or touches it. One that drives dust is hard:
@@ -190,11 +191,19 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
     let at = place(lever);
+    // Buttons' pulses differ in length, which a build may rely on, so one
+    // is never swapped for another.
     if switch.button && name != "stone_button" {
-        report.fixes.push(format!(
-            "the {} at {at} becomes a stone button",
-            words(&name)
-        ));
+        problem(
+            report,
+            "button not stone",
+            vec![lever],
+            format!(
+                "The {} at {at} gives a longer pulse than a stone button. \
+                 Pulse inputs use stone buttons.",
+                words(&name)
+            ),
+        );
     }
     if matches!(switch.side, Direction::Up | Direction::Down) {
         let where_ = if switch.side == Direction::Up {
