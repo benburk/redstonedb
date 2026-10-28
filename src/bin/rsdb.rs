@@ -1,7 +1,7 @@
 //! Command-line access to the schematic database named by `DATABASE_URL`.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     io::Write as _,
     path::{Path, PathBuf},
@@ -44,6 +44,10 @@ enum Command {
     /// building conventions, as an upload would: with any corner markers
     /// taken out and the box fitted first
     Lint { file_or_id: String },
+    /// Check a .schem file, or a stored build by id, or with neither every
+    /// build on the list, the colour-free way: levers in, lamps out, what
+    /// the site would fix and what only the builder can
+    Inspect { file_or_id: Option<String> },
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
@@ -413,6 +417,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
     match command {
         Command::Add(args) => add(db, &args).await,
         Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
+        Command::Inspect { file_or_id } => {
+            inspect_command(db, file_or_id.as_deref()).await
+        }
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
@@ -1021,6 +1028,85 @@ async fn list(
 /// Lints a file, or a stored schematic as a build of its category when no
 /// such file exists. A file's category is unknown, so a lone unsigned
 /// control or status line passes.
+/// Prints what `inspect` finds of one file or build, or of every build on
+/// the list, with a count of each problem and of the builds it stops.
+async fn inspect_command(
+    db: &SqlitePool,
+    file_or_id: Option<&str>,
+) -> Result<()> {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    match file_or_id {
+        Some(path) if fs::exists(path)? => {
+            files.push((path.to_owned(), fs::read(path)?));
+        }
+        Some(prefix) => {
+            let id = resolve(db, prefix).await?;
+            let s = load(db, &id).await?;
+            let data = version::current_file(db, &id)
+                .await?
+                .context("schematic vanished")?;
+            files.push((format!("{}  {}", &id[..8], s.filename()), data));
+        }
+        None => {
+            let listed: Vec<String> = catalogue::categories(db)
+                .await?
+                .into_iter()
+                .map(|c| c.name)
+                .collect();
+            for s in schematic::all(db).await? {
+                if !listed.contains(&s.category) {
+                    continue;
+                }
+                let data = version::current_file(db, &s.id)
+                    .await?
+                    .context("schematic vanished")?;
+                files.push((format!("{}  {}", &s.id[..8], s.filename()), data));
+            }
+        }
+    }
+    let one = files.len() == 1;
+    let mut problems: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut clean = 0;
+    for (name, data) in &files {
+        let report = app::inspect::inspect(&app::schem::Blocks::read(data)?);
+        let buses = |runs: &[app::inspect::Run]| {
+            runs.iter()
+                .map(|run| run.bits.len().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        println!(
+            "{name}: {} errors; inputs {}; outputs {}",
+            report.errors.len(),
+            buses(&report.inputs),
+            buses(&report.outputs)
+        );
+        if one {
+            for fix in &report.fixes {
+                println!("  fix: {fix}");
+            }
+        }
+        let mut rules = BTreeSet::new();
+        for problem in &report.errors {
+            println!("  {}", problem.message);
+            *problems.entry(problem.rule).or_default() += 1;
+            rules.insert(problem.rule);
+        }
+        for rule in &rules {
+            *stopped.entry(rule).or_default() += 1;
+        }
+        clean += usize::from(report.errors.is_empty());
+    }
+    if !one {
+        println!("\n{clean} of {} builds have no errors", files.len());
+        for (rule, builds) in &stopped {
+            println!("{builds:4} builds  {:5} times  {rule}", problems[rule]);
+        }
+    }
+    Ok(())
+}
+
 async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
     let (data, category) = if fs::exists(file_or_id)? {
         (fs::read(file_or_id)?, String::new())

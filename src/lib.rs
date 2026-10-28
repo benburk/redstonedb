@@ -14,6 +14,7 @@ pub mod evaluate;
 pub mod extractors;
 pub mod head;
 pub mod import;
+pub mod inspect;
 pub mod interface;
 pub mod leaderboard;
 pub mod lint;
