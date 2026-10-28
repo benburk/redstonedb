@@ -78,7 +78,8 @@ pub struct Tile<'a> {
 }
 
 /// How many categories with builds a section needs for a heading of its
-/// own on the home page; a smaller one's go under Other.
+/// own on the home page; a smaller one's go under Other, unless no section
+/// has that many.
 const SECTION_SIZE: usize = 2;
 
 /// The home page before anything is searched for.
@@ -596,11 +597,22 @@ fn tile_groups<'t>(
             .filter(|t| t.section == Some(section))
             .collect()
     };
-    let headed: Vec<Section> = Section::ALL
+    let big: Vec<Section> = Section::ALL
         .iter()
         .copied()
         .filter(|&section| in_section(section).len() >= SECTION_SIZE)
         .collect();
+    // With no section big enough, as while few categories have builds,
+    // each keeps its heading, rather than every tile going under Other.
+    let headed = if big.is_empty() {
+        Section::ALL
+            .iter()
+            .copied()
+            .filter(|&section| !in_section(section).is_empty())
+            .collect()
+    } else {
+        big
+    };
     let mut groups: Vec<_> = headed
         .iter()
         .map(|&section| (section.label(), section.name(), in_section(section)))
