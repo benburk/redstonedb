@@ -229,7 +229,12 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
                 found.push((bits, None));
             }
         }
-        ([], [p]) if width == 1 => found.push((vec![*p], None)),
+        ([], [_]) if width == 1 => {
+            return Err("It has one lamp. A 1-bit adder is a slice of a \
+                        wider one, so it shows its sum and its carry out, on \
+                        a lamp each."
+                .to_owned());
+        }
         ([], [p, q]) if width == 1 => {
             found.push((vec![*p], Some(*q)));
             found.push((vec![*q], Some(*p)));
