@@ -52,6 +52,8 @@ pub struct Listing<'a> {
     /// Tag filters, each needing a match; commas within one give choices.
     pub tags: &'a [String],
     pub facets: &'a [Facet],
+    /// The viewer's palette's key, for its thumbnails, if they chose one.
+    pub palette: Option<&'a str>,
 }
 
 /// One category in the home page's sidebar.
@@ -89,6 +91,8 @@ pub struct Index<'a> {
     pub recent: &'a [(&'a Schematic, usize)],
     /// How many builds there are in all.
     pub total: usize,
+    /// The viewer's palette's key, for its thumbnails, if they chose one.
+    pub palette: Option<&'a str>,
 }
 
 /// Where the home page's links lead: its layout, search, and category.
@@ -305,7 +309,7 @@ pub fn home_index(index: &Index) -> Markup {
                             tags: &[],
                         }.href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                            img src=(thumbnail_src(tile.best)) alt="" loading="lazy" decoding="async" width="640" height="480"
+                            img src=(thumbnail_src(tile.best, index.palette)) alt="" loading="lazy" decoding="async" width="640" height="480"
                                 class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                             div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
                                 h4 class="flex items-baseline justify-between gap-2 font-semibold" {
@@ -331,7 +335,7 @@ pub fn home_index(index: &Index) -> Markup {
                             @if named > 1 {
                                 p class="text-meta text-muted" { (named) " builds by this name" }
                             }
-                        }))
+                        }, index.palette))
                     }
                 }
             }
@@ -501,7 +505,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                     "No builds match. " (search_help()) " Remove a term to widen the search."
                 }
             } @else if view == View::Cards {
-                (cards(shown, terms))
+                (cards(shown, terms, listing.palette))
             } @else {
                 (table(shown, terms))
             }
@@ -560,12 +564,16 @@ fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
 }
 
 /// Builds as cards, each noting the width `terms` ask for when it reaches
-/// it only by stacking.
-pub(super) fn cards(schematics: &[Schematic], terms: &[Term]) -> Markup {
+/// it only by stacking, pictured in the viewer's `palette`.
+pub(super) fn cards(
+    schematics: &[Schematic],
+    terms: &[Term],
+    palette: Option<&str>,
+) -> Markup {
     html! {
         ul class=(CARDS) {
             @for s in schematics {
-                (card(s, &stacked_note(s, terms)))
+                (card(s, &stacked_note(s, terms), palette))
             }
         }
     }
@@ -575,10 +583,12 @@ pub(super) fn cards(schematics: &[Schematic], terms: &[Term]) -> Markup {
 const CARDS: &str =
     "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5";
 
-/// The picture of `s`, at an address that changes with its file.
-fn thumbnail_src(s: &Schematic) -> String {
+/// The picture of `s`, at an address that changes with its file and with
+/// the viewer's `palette`.
+fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
+    let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
     format!(
-        "/schematics/{}/thumbnail.png?v={}",
+        "/schematics/{}/thumbnail.png?v={}{palette}",
         s.id,
         &s.sha256[..12.min(s.sha256.len())]
     )
@@ -627,13 +637,14 @@ fn tile_groups<'t>(
     groups
 }
 
-/// Build `s` as a card, with `note` under its tags.
-fn card(s: &Schematic, note: &Markup) -> Markup {
+/// Build `s` as a card, with `note` under its tags, pictured in the
+/// viewer's `palette`.
+fn card(s: &Schematic, note: &Markup, palette: Option<&str>) -> Markup {
     html! {
                 // The title's link covers the whole card; the tag and name
                 // links sit above it.
                 li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                    img src=(thumbnail_src(s))
+                    img src=(thumbnail_src(s, palette))
                         alt="" loading="lazy" decoding="async" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                     div class="flex flex-1 flex-col gap-2 p-4" {

@@ -173,6 +173,8 @@ pub struct ProfileBuilds {
     pub contributed: Vec<Schematic>,
     /// Uploaded by the account through the site.
     pub uploaded: Vec<Schematic>,
+    /// The viewer's palette's key, for thumbnails, if they chose one.
+    pub palette: Option<String>,
 }
 
 /// An account's page: the builds it built, helped with, and uploaded. Its
@@ -218,13 +220,13 @@ pub fn profile(
                         Some(name) => { "No builds credit " (name) " as builder yet." }
                     }
                 }
-            }))
+            }, builds.palette.as_deref()))
             section aria-labelledby="uploads-heading" {
                 h2 id="uploads-heading" class={ (SECTION_TITLE) " mb-3" } { "Uploads" }
                 @if builds.uploaded.is_empty() {
                     p class="text-muted" { "No uploads yet." }
                 } @else {
-                    (cards(&builds.uploaded, &[]))
+                    (cards(&builds.uploaded, &[], builds.palette.as_deref()))
                 }
             }
         },

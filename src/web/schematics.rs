@@ -35,6 +35,7 @@ use crate::{
         user::User,
         version::{self, Replacing},
     },
+    palette::{self, Palette},
     schem::Blocks,
     search, stack,
     standardize::{self, Gray},
@@ -137,10 +138,12 @@ async fn index(
 ) -> Result<Response, AppError> {
     let all = schematic::all(&state.db).await?;
     let categories = catalogue::categories(&state.db).await?;
+    let palette = palette::key_for(&state.db, viewer).await?;
     let index = pages::Index {
         tiles: &tiles(&categories, &all),
         recent: &recent(&all),
         total: all.len(),
+        palette: palette.as_deref(),
     };
     if fixi {
         return Ok(([("FX-Replace-Url", "/")], pages::home_index(&index))
@@ -249,6 +252,7 @@ async fn listing(
             .collect()
     };
     order(&mut shown, &query.sort);
+    let palette = palette::key_for(&state.db, viewer).await?;
     let listing = pages::Listing {
         shown: &shown,
         total,
@@ -260,6 +264,7 @@ async fn listing(
         category: &query.category,
         tags: &query.tags,
         facets: &facets,
+        palette: palette.as_deref(),
     };
     // A search as it is typed redraws only the results, and puts the
     // search in the address, so Back and reloading keep it.
@@ -374,11 +379,31 @@ fn facets(
 pub async fn thumbnail(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    viewer: Option<User>,
 ) -> Result<Response, AppError> {
     let data = version::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let sha256 = import::sha256(&data);
+    // A recognized build is drawn in the viewer's palette, if they chose
+    // one, and kept apart from others' pictures of it.
+    let palette = match &viewer {
+        Some(user) => palette::of(&state.db, user.id).await?,
+        None => None,
+    };
+    let painted = match &palette {
+        Some(palette) => palette::needs(&state.db, &id)
+            .await?
+            .map(|needs| (palette, needs)),
+        None => None,
+    };
+    let (data, key) = match &painted {
+        Some((palette, needs)) => (
+            palette::apply(&data, needs, palette)?,
+            format!("{}-{}", import::sha256(&data), palette.key()),
+        ),
+        None => (data.clone(), import::sha256(&data)),
+    };
+    let sha256 = key;
     let cached = state.thumbnails.lock().unwrap().get(&sha256).cloned();
     let png = if let Some(png) = cached {
         png
@@ -392,10 +417,16 @@ pub async fn thumbnail(
         state.thumbnails.lock().unwrap().insert(sha256, png.clone());
         png
     };
+    // The address names the palette, but who may see it is the viewer's.
+    let cache = if painted.is_some() {
+        "private, max-age=31536000, immutable"
+    } else {
+        "public, max-age=31536000, immutable"
+    };
     Ok((
         [
             (header::CONTENT_TYPE, "image/png"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, cache),
         ],
         png,
     )
@@ -880,13 +911,19 @@ impl Download {
 pub async fn download(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    viewer: Option<User>,
     method: Method,
     Query(asked): Query<Download>,
 ) -> Result<Response, AppError> {
     // The 3D viewer's fetch, and a HEAD request, is no download.
     let preview = asked.preview.is_some();
     let counted = !preview && method == Method::GET;
-    let (filename, data) = export(&state.db, &id, &asked, counted).await?;
+    let palette = match &viewer {
+        Some(user) => palette::of(&state.db, user.id).await?,
+        None => None,
+    };
+    let (filename, data) =
+        export(&state.db, &id, &asked, counted, palette.as_ref()).await?;
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {
@@ -898,17 +935,46 @@ pub async fn download(
 }
 
 /// Build `id`'s file as `asked`, with its name, counted as a download if
-/// `counted`.
+/// `counted`, in `palette` if it is a recognized build's.
 pub(super) async fn export(
     db: &SqlitePool,
     id: &str,
     asked: &Download,
     counted: bool,
+    palette: Option<&Palette>,
 ) -> Result<(String, Vec<u8>), AppError> {
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
+    // Its blocks before any stacking, by position; its colours after, as
+    // stacking finds buses by them.
+    let palette = match palette {
+        Some(palette) => palette::needs(db, id).await?.map(|n| (palette, n)),
+        None => None,
+    };
+    let data = match &palette {
+        Some((palette, needs)) => palette::blocks_in(&data, needs, palette)?,
+        None => data,
+    };
+    let (filename, data) = shaped(db, id, s, data, asked, counted).await?;
+    let data = match &palette {
+        Some((palette, _)) => palette::colour(&data, palette)?,
+        None => data,
+    };
+    Ok((filename, data))
+}
+
+/// Build `s`'s file `data` as `asked`: a part, copies stacked, or as it is,
+/// with corner markers if asked; counted as a download if `counted`.
+async fn shaped(
+    db: &SqlitePool,
+    id: &str,
+    s: Schematic,
+    data: Vec<u8>,
+    asked: &Download,
+    counted: bool,
+) -> Result<(String, Vec<u8>), AppError> {
     if let Some(part) = asked.part {
         let direction = s
             .stacking

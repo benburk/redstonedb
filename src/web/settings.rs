@@ -8,8 +8,11 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState, error::AppError, extractors::session::SignedIn,
+    app_state::AppState,
+    error::AppError,
+    extractors::session::SignedIn,
     models::user::User,
+    palette::{self, Palette},
 };
 
 use super::{
@@ -42,13 +45,57 @@ pub(super) async fn page(
     said: &Said<'_>,
 ) -> Result<Response, AppError> {
     let folder = own_folder_quickly(&state.db, user).await?;
+    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
     Ok(pages::settings(
         user,
         &connection(folder.as_ref()),
         said.minecraft,
         said.schemati,
+        &chosen,
     )
     .into_response())
+}
+
+/// The palette form: every field, or `reset` to go back to the site's.
+#[derive(Deserialize)]
+pub struct PaletteForm {
+    prefer: Option<String>,
+    solid: Option<String>,
+    transparent: Option<String>,
+    a: Option<String>,
+    b: Option<String>,
+    control: Option<String>,
+    output: Option<String>,
+    status: Option<String>,
+    reset: Option<String>,
+}
+
+/// Keeps the viewer's palette, or goes back to the site's: as the site's
+/// when it is the same, so nothing is made over for it.
+pub async fn set_palette(
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+    Form(form): Form<PaletteForm>,
+) -> Result<Response, AppError> {
+    let site = Palette::default();
+    let chosen = Palette {
+        prefer_solid: form.prefer.as_deref() != Some("transparent"),
+        solid: form.solid.unwrap_or(site.solid.clone()),
+        transparent: form.transparent.unwrap_or(site.transparent.clone()),
+        colours: [
+            ("a", form.a),
+            ("b", form.b),
+            ("control", form.control),
+            ("output", form.output),
+            ("status", form.status),
+        ]
+        .into_iter()
+        .filter_map(|(key, colour)| Some((key.to_owned(), colour?)))
+        .collect(),
+    };
+    let keep = form.reset.is_none() && chosen.valid() && chosen != site;
+    palette::set(&state.db, user.id, keep.then_some(&chosen)).await?;
+    Ok(Redirect::to("/settings#palette-heading").into_response())
 }
 
 #[derive(Deserialize)]

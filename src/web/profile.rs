@@ -84,6 +84,7 @@ async fn show(
         uploaded: pick(&|s| {
             s.uploader.as_deref() == Some(account.username.as_str())
         }),
+        palette: crate::palette::key_for(&state.db, viewer).await?,
     };
     Ok(pages::profile(viewer, account, &builds).into_response())
 }

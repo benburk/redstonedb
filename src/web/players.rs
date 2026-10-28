@@ -83,6 +83,9 @@ pub async fn show(
             built: &pick(|s| &s.builders),
             contributed: &pick(|s| &s.contributors),
             records,
+            palette: crate::palette::key_for(&state.db, user_opt.as_ref())
+                .await?
+                .as_deref(),
         },
     )
     .into_response())

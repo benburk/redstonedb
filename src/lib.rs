@@ -21,6 +21,7 @@ pub mod lint;
 pub mod models;
 pub mod mojang;
 pub mod orient;
+pub mod palette;
 pub mod probe;
 pub mod roles;
 pub mod schem;

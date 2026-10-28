@@ -397,8 +397,15 @@ pub async fn send(
     let session = User::schemati_session(&state.db, user.id).await?;
     let sent = match session {
         Some(session) => {
-            let (filename, data) =
-                schematics::export(&state.db, &id, &asked, true).await?;
+            let palette = crate::palette::of(&state.db, user.id).await?;
+            let (filename, data) = schematics::export(
+                &state.db,
+                &id,
+                &asked,
+                true,
+                palette.as_ref(),
+            )
+            .await?;
             let name = schemati::file_name(&filename);
             put(&session, &name, data).await.map_err(sentence)
         }

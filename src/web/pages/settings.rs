@@ -2,7 +2,10 @@
 
 use maud::{Markup, html};
 
-use crate::models::user::User;
+use crate::{
+    models::user::User,
+    palette::{self, Palette},
+};
 
 use super::{
     Connection, PAGE_TITLE, SECTION_TITLE, SWITCHES, base,
@@ -17,6 +20,7 @@ pub fn settings(
     connection: &Connection,
     minecraft: &str,
     schemati: &str,
+    chosen: &Palette,
 ) -> Markup {
     base(
         Some(user),
@@ -27,6 +31,7 @@ pub fn settings(
                 h1 class={ (PAGE_TITLE) " mb-8" } { "Settings" }
                 (minecraft_section(user, minecraft))
                 (schemati_section(connection, schemati))
+                (palette_section(chosen))
                 (theme_section())
             }
         },
@@ -103,6 +108,52 @@ fn schemati_section(connection: &Connection, message: &str) -> Markup {
 
 /// The choice of a light or dark theme, or the system's, which a script
 /// keeps in this browser and applies on every page.
+/// The blocks recognized builds are shown and downloaded in, as `chosen`.
+fn palette_section(chosen: &Palette) -> Markup {
+    let words = |name: &str| name.replace('_', " ");
+    let select = |name: &str, label: &str, options: &[&str], current: &str| {
+        html! {
+            label class="field" {
+                span { (label) }
+                select name=(name) class="input" {
+                    @for option in options {
+                        option value=(option) selected[*option == current] { (words(option)) }
+                    }
+                }
+            }
+        }
+    };
+    html! {
+        section aria-labelledby="palette-heading" class="mt-12" {
+            h2 id="palette-heading" class={ (SECTION_TITLE) " mb-1" } { "Palette" }
+            p class="mb-4 max-w-prose text-muted" {
+                "The blocks recognized builds are shown and downloaded in. A block that must be solid or transparent stays so; one that may be either takes the kind you prefer."
+            }
+            form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
+                fieldset class="flex flex-col gap-1" {
+                    legend class="mb-1 font-semibold" { "Blocks that may be either kind" }
+                    @for (value, label) in [("solid", "Solid"), ("transparent", "Transparent")] {
+                        label class="flex items-center gap-2" {
+                            input type="radio" name="prefer" value=(value)
+                                checked[(value == "solid") == chosen.prefer_solid];
+                            (label)
+                        }
+                    }
+                }
+                (select("solid", "Solid block", &palette::SOLID, &chosen.solid))
+                (select("transparent", "Transparent block", &palette::TRANSPARENT, &chosen.transparent))
+                @for (key, label, site) in palette::ROLES {
+                    (select(key, label, &palette::COLOURS, chosen.colours.get(key).map_or(site, String::as_str)))
+                }
+                div class="flex gap-2" {
+                    button type="submit" class="btn btn-primary" { "Save" }
+                    button type="submit" name="reset" value="yes" formnovalidate class="btn btn-quiet" { "Back to the site's" }
+                }
+            }
+        }
+    }
+}
+
 fn theme_section() -> Markup {
     let choice = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
