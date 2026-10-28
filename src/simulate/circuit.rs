@@ -350,12 +350,13 @@ impl Circuit {
         }
     }
 
-    /// Whether the component at `pos`, a torch, repeater, comparator, or
-    /// lever, is on, as of the last `settle`.
+    /// Whether the component at `pos`, a torch, repeater, comparator,
+    /// lever, dust, or lamp, is on, as of the last `settle`.
     pub fn on(&self, pos: Pos) -> bool {
         match self.world.get_block(at(pos)) {
             Block::RedstoneTorch { lit }
-            | Block::RedstoneWallTorch { lit, .. } => lit,
+            | Block::RedstoneWallTorch { lit, .. }
+            | Block::RedstoneLamp { lit } => lit,
             Block::Repeater(repeater) => repeater.powered,
             Block::Comparator(comparator) => comparator.powered,
             Block::Lever { powered, .. }
@@ -675,6 +676,20 @@ impl Compiled {
 
 /// The circuit of `blocks`; see [`Compiled`].
 pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
+    let read: HashSet<Pos> = crate::interface::read(blocks)
+        .outputs
+        .iter()
+        .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
+        .collect();
+    compiled_reading(blocks, &read)
+}
+
+/// The circuit of `blocks`, with the links into the dust at `read`, which
+/// is read as its outputs; see [`Compiled`].
+pub fn compiled_reading<S: std::hash::BuildHasher>(
+    blocks: &Blocks,
+    read: &HashSet<Pos, S>,
+) -> Result<Compiled> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
     settle_world(&mut world, size)?;
@@ -705,11 +720,6 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
             .first()
             .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
     };
-    let read: HashSet<Pos> = crate::interface::read(blocks)
-        .outputs
-        .iter()
-        .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
-        .collect();
     let kinds = graph
         .node_indices()
         .filter(|&i| graph[i].ty != NodeType::Wire)

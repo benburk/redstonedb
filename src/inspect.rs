@@ -27,11 +27,16 @@
 //! dust or repeater on top, has a lamp put where that dust or repeater
 //! points.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use anyhow::Result;
 
 use crate::{
+    interface::{Bit, Interface, Port},
     lint,
     schem::{self, Blocks, Direction, Pos, Switch},
+    simulate::{self, Circuit},
+    standardize,
 };
 
 const LAMP: &str = "minecraft:redstone_lamp";
@@ -50,6 +55,8 @@ pub struct Report {
     pub errors: Vec<Problem>,
     /// What else it found, such as which inputs need strong power.
     pub notes: Vec<String>,
+    /// The lamps it would add for outputs marked by colour.
+    pub added: Vec<Added>,
     /// The inputs and outputs, grouped into buses and lone lines.
     pub inputs: Vec<Run>,
     pub outputs: Vec<Run>,
@@ -63,6 +70,14 @@ pub struct Problem {
     /// The blocks at fault.
     pub at: Vec<Pos>,
     pub message: String,
+}
+
+/// A lamp put in for an output marked by colour, and the dust or repeater
+/// on that output, which drives it.
+#[derive(Debug, Clone, Copy)]
+pub struct Added {
+    pub lamp: Pos,
+    pub driver: Pos,
 }
 
 /// Inputs or outputs in a line, evenly spaced, from one end to the other;
@@ -514,21 +529,53 @@ fn old_outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         }
     }
     let best = ways.iter().max_by_key(|(_, n)| **n).map(|(way, _)| *way);
-    let mut lamps = Vec::new();
+    let mut chosen = Vec::new();
     let mut failed = Vec::new();
     for (block, options) in spots {
         // The block itself first: the file keeps its size.
-        let chosen = options
+        let pick = options
             .iter()
             .find(|(way, _)| *way == Direction::Down)
             .or_else(|| {
                 options.iter().find(|(way, _)| Some(way.name()) == best)
             })
             .or(options.first());
-        match chosen {
-            Some(&(_, spot)) => lamps.push(spot),
+        match pick {
+            Some(&(_, spot)) => chosen.push((block, spot)),
             None => failed.push(block),
         }
+    }
+    // A neighbouring output was let be beside a spot as a lamp to be; one
+    // that keeps its block, as its lamp went elsewhere, may light the spot,
+    // which then can't be used. Taking one away may undo another.
+    loop {
+        let replaced: HashSet<Pos> = chosen
+            .iter()
+            .filter(|(block, spot)| block == spot)
+            .map(|&(block, _)| block)
+            .collect();
+        let lit = chosen.iter().position(|&(block, spot)| {
+            let reader = schem::step(block, Direction::Up);
+            Direction::ALL.iter().any(|&side| {
+                let next = schem::step(spot, side);
+                next != reader
+                    && marked_set.contains(&next)
+                    && !replaced.contains(&next)
+                    && lights(blocks, next, spot)
+            })
+        });
+        match lit {
+            Some(i) => failed.push(chosen.remove(i).0),
+            None => break,
+        }
+    }
+    let mut lamps = Vec::new();
+    for (block, spot) in chosen {
+        lamps.push(spot);
+        report.added.push(Added {
+            lamp: spot,
+            driver: schem::step(block, Direction::Up),
+        });
     }
     if !lamps.is_empty() {
         report.fixes.push(format!(
@@ -634,7 +681,12 @@ fn lamp_spots(
     ways.into_iter()
         .map(|way| (way, schem::step(reader, way)))
         .filter(|&(_, spot)| {
-            let free = spot == block || short(blocks, spot) == "air";
+            // A new block on dust would cut the dust's climb past it; the
+            // output block itself, already solid, cuts nothing.
+            let free = spot == block
+                || (short(blocks, spot) == "air"
+                    && short(blocks, schem::step(spot, Direction::Down))
+                        != "redstone_wire");
             // The block itself must light nothing else, as nothing reads a
             // lamp; and nothing but the reader may light the spot.
             free && (spot != block || !read_by_anything(blocks, block))
@@ -675,7 +727,8 @@ fn lights(blocks: &Blocks, from: Pos, to: Pos) -> bool {
         }
         "lever" | "redstone_block" => true,
         _ if name.ends_with("_button") => true,
-        _ if solid(name) && name != "redstone_lamp" => {
+        // A target conducts as a solid block does.
+        _ if (solid(name) || name == "target") && name != "redstone_lamp" => {
             powered(blocks, from, to)
         }
         _ => false,
@@ -819,4 +872,251 @@ fn steps() -> Vec<Pos> {
         steps.extend([[s, s, 0], [-s, s, 0], [0, s, s], [0, s, -s]]);
     }
     steps
+}
+
+/// A lamp's block state as placed: unlit, as the simulator lights it.
+const LAMP_STATE: &str = "minecraft:redstone_lamp[lit=false]";
+
+/// The file with `added`'s lamps put in, its box grown to hold them, and
+/// how far its old positions moved.
+pub fn with_lamps(data: &[u8], added: &[Added]) -> Result<(Vec<u8>, Pos)> {
+    let changes = added
+        .iter()
+        .map(|a| (a.lamp, LAMP_STATE.to_owned()))
+        .collect();
+    standardize::edit_grown(data, &changes)
+}
+
+/// What putting lamps in changed of the circuit, its components and the
+/// links into them, besides the lamps, at `lamps` in `after`, whose old
+/// positions moved by `moved`: empty when it computes the same.
+pub fn circuit_changes(
+    before: &[u8],
+    after: &[u8],
+    moved: Pos,
+    added: &[Added],
+) -> Result<Vec<String>> {
+    let shift = |p: Pos| [0, 1, 2].map(|axis| p[axis] + moved[axis]);
+    let back = |p: Pos| [0, 1, 2].map(|axis| p[axis] - moved[axis]);
+    let lamps: HashSet<Pos> = added.iter().map(|a| shift(a.lamp)).collect();
+    let lamps = &lamps;
+    // The dust driving each lamp is what the tests read.
+    let drivers: HashSet<Pos> = added.iter().map(|a| a.driver).collect();
+    let old = simulate::compiled_reading(&Blocks::read(before)?, &drivers)?;
+    let new = simulate::compiled_reading(
+        &Blocks::read(after)?,
+        &drivers.iter().map(|&p| shift(p)).collect::<HashSet<Pos>>(),
+    )?;
+    let new_kinds: BTreeMap<Pos, String> = new
+        .kinds
+        .into_iter()
+        .filter(|(p, _)| !lamps.contains(p))
+        .map(|(p, kind)| (back(p), kind))
+        .collect();
+    // Links into components only: dust is read through what it feeds.
+    // Links into components only: dust is read through what it feeds. The
+    // lamps, in the new file's positions, are left out of it.
+    let links = |links: BTreeMap<simulate::Link, u8>,
+                 kinds: &BTreeMap<Pos, String>,
+                 lamps: &HashSet<Pos>,
+                 map: &dyn Fn(Pos) -> Pos| {
+        links
+            .into_iter()
+            .filter(|((from, to, _), _)| {
+                !lamps.contains(from) && !lamps.contains(to)
+            })
+            .map(|((from, to, side), ss)| ((map(from), map(to), side), ss))
+            .filter(|((_, to, _), _)| {
+                kinds.contains_key(to) || drivers.contains(to)
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    let old_links = links(old.links, &old.kinds, &HashSet::new(), &|p| p);
+    let new_links = links(new.links, &new_kinds, lamps, &back);
+    let mut found = Vec::new();
+    let positions: BTreeSet<&Pos> =
+        old.kinds.keys().chain(new_kinds.keys()).collect();
+    for p in positions {
+        if old.kinds.get(p) != new_kinds.get(p) {
+            found.push(format!("the component at {}", place(*p)));
+        }
+    }
+    let all: BTreeSet<_> = old_links.keys().chain(new_links.keys()).collect();
+    for (from, to, _) in all
+        .into_iter()
+        .filter(|k| old_links.get(k) != new_links.get(k))
+    {
+        found.push(format!("the link from {} to {}", place(*from), place(*to)));
+    }
+    found.dedup();
+    Ok(found)
+}
+
+/// Where each lamp, once the build settles, is lit with its driver off or
+/// dark with it on, or stays dark while its driver is on for more than a
+/// tick or two, over a run of `rounds` random settings of every lever and
+/// presses of every button, watched tick by tick.
+pub fn lamps_follow(
+    data: &[u8],
+    pairs: &[(Pos, Pos)],
+    rounds: usize,
+) -> Result<Vec<String>> {
+    const LAG: usize = 2;
+    let blocks = Blocks::read(data)?;
+    let switches: Vec<Switch> = blocks
+        .switches()
+        .into_iter()
+        .filter(|s| !matches!(s.side, Direction::Up | Direction::Down))
+        .collect();
+    let interface = Interface {
+        inputs: switches
+            .iter()
+            .map(|s| Port {
+                name: String::new(),
+                block: String::new(),
+                labelled: true,
+                bits: vec![Bit {
+                    pos: s.block,
+                    entry: Some(s.side),
+                    hard: false,
+                    inverted: s.on,
+                }],
+                strength: 0,
+                words: Vec::new(),
+                signal_strength: false,
+            })
+            .collect(),
+        outputs: Vec::new(),
+    };
+    let mut circuit = Circuit::new(&blocks, &interface)?;
+    let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut random = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let mut wrong: BTreeMap<Pos, String> = BTreeMap::new();
+    // Each driver's last few states, newest last.
+    let mut history: Vec<Vec<bool>> =
+        pairs.iter().map(|_| Vec::new()).collect();
+    let mut check = |circuit: &Circuit,
+                     history: &mut Vec<Vec<bool>>,
+                     settled: bool| {
+        for (i, &(lamp, driver)) in pairs.iter().enumerate() {
+            let (lit, on) = (circuit.on(lamp), circuit.on(driver));
+            let past = &mut history[i];
+            past.push(on);
+            if past.len() > LAG + 1 {
+                past.remove(0);
+            }
+            // Between settled states a lamp may light while its dust shows
+            // off: dust can carry a pulse shorter than a tick, which the
+            // lamp holds; that glitch is the build's, not the lamp's.
+            let fault = if settled {
+                (lit != on).then_some(if lit { "lit" } else { "dark" })
+            } else if !lit && past.len() > LAG && past.iter().all(|&was| was) {
+                Some("dark")
+            } else {
+                None
+            };
+            if let Some(fault) = fault {
+                let driver_state = if on { "on" } else { "off" };
+                wrong.entry(lamp).or_insert_with(|| {
+                    format!(
+                        "The lamp at {} stayed {fault} while the {} at {} \
+                         driving it was {driver_state}.",
+                        place(lamp),
+                        words(short(&blocks, driver)),
+                        place(driver)
+                    )
+                });
+            }
+        }
+    };
+    for _ in 0..rounds {
+        let bits = random();
+        for (i, switch) in switches.iter().enumerate() {
+            if switch.button {
+                if (bits >> (i % 64)).trailing_zeros() >= 2 {
+                    circuit.press(i, 0);
+                }
+            } else {
+                circuit.set(i, bits >> (i % 64) & 1);
+            }
+        }
+        let mut ticks = 0;
+        while circuit.pending() && ticks < 1000 {
+            circuit.tick();
+            check(&circuit, &mut history, false);
+            ticks += 1;
+        }
+        check(&circuit, &mut history, true);
+    }
+    Ok(wrong.into_values().collect())
+}
+
+/// The check of the file in `data`, as `inspect` makes it, then proven:
+/// lamps put in for outputs marked by colour change nothing else of the
+/// circuit, and every lamp follows its driver.
+pub fn inspect_file(data: &[u8]) -> Result<Report> {
+    let blocks = Blocks::read(data)?;
+    let mut report = inspect(&blocks);
+    let (lamped, moved) = if report.added.is_empty() {
+        (data.to_vec(), [0; 3])
+    } else {
+        with_lamps(data, &report.added)?
+    };
+    let shift = |p: Pos| [0, 1, 2].map(|axis| p[axis] + moved[axis]);
+    let pairs: Vec<(Pos, Pos)> = if report.added.is_empty() {
+        report
+            .outputs
+            .iter()
+            .flat_map(|run| run.bits.iter().copied())
+            .filter_map(|lamp| match lighting(&blocks, lamp).as_slice() {
+                [driver] => Some((lamp, *driver)),
+                _ => None,
+            })
+            .collect()
+    } else {
+        let changes = circuit_changes(data, &lamped, moved, &report.added)?;
+        if !changes.is_empty() {
+            problem(
+                &mut report,
+                "lamps change the circuit",
+                Vec::new(),
+                format!(
+                    "Putting lamps on its outputs would change its circuit: \
+                     {}.",
+                    changes.join(", ")
+                ),
+            );
+        }
+        report
+            .added
+            .iter()
+            .map(|a| (shift(a.lamp), shift(a.driver)))
+            .collect()
+    };
+    if !pairs.is_empty() {
+        match lamps_follow(&lamped, &pairs, 256) {
+            Ok(wrong) => {
+                for message in wrong {
+                    problem(
+                        &mut report,
+                        "lamp doesn't follow its driver",
+                        Vec::new(),
+                        message,
+                    );
+                }
+            }
+            Err(err) => problem(
+                &mut report,
+                "can't simulate",
+                Vec::new(),
+                format!("The simulator can't run it: {err:#}"),
+            ),
+        }
+    }
+    Ok(report)
 }

@@ -1069,7 +1069,7 @@ async fn inspect_command(
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
     for (name, data) in &files {
-        let report = app::inspect::inspect(&app::schem::Blocks::read(data)?);
+        let report = app::inspect::inspect_file(data)?;
         let buses = |runs: &[app::inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())

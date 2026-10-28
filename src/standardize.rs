@@ -203,6 +203,36 @@ pub fn edit(data: &[u8], changes: &BTreeMap<Pos, String>) -> Result<Vec<u8>> {
     rebox(data, &grid, [0, 0, 0], blocks.size)
 }
 
+/// The file with each block of `changes` put in place, as `edit` does, its
+/// box grown to hold any outside it; and where the old box's first block
+/// now is, which every old position moves by.
+pub fn edit_grown(
+    data: &[u8],
+    changes: &BTreeMap<Pos, String>,
+) -> Result<(Vec<u8>, Pos)> {
+    let blocks = Blocks::read(data)?;
+    let mut grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    let (mut low, mut high) = ([0; 3], blocks.size.map(|n| n - 1));
+    for (&pos, state) in changes {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(pos[axis]);
+            high[axis] = high[axis].max(pos[axis]);
+        }
+        if state == AIR {
+            grid.remove(&pos);
+        } else {
+            grid.insert(pos, state.clone());
+        }
+    }
+    let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
+    let moved = low.map(|n| -n);
+    Ok((rebox(data, &grid, low, size)?, moved))
+}
+
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
 
 /// `state` at `pos` facing the usual way where its facing does nothing, so

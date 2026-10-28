@@ -67,7 +67,7 @@ mod timing;
 pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
-pub use circuit::{Circuit, Compiled, Link, compiled};
+pub use circuit::{Circuit, Compiled, Link, compiled, compiled_reading};
 pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, adder_design, design_of};
 pub use gate::XNOR;
