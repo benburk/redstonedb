@@ -485,6 +485,18 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     let report = inspect::inspect(&blocks);
     let mut problems: Vec<String> =
         report.errors.iter().map(|p| p.message.clone()).collect();
+    if problems.is_empty() {
+        problems.extend(inspect::not_bus_drivable(data)?.into_iter().map(
+            |lever| {
+                format!(
+                    "A repeater in place of the lever at {}, pointed into its \
+                 block, wouldn't drive the build as the lever does, so a bus \
+                 couldn't drive that input.",
+                    inspect::place(lever)
+                )
+            },
+        ));
+    }
     if !problems.is_empty() {
         return Ok(Recognition {
             file: data.to_vec(),
