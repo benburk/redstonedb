@@ -72,8 +72,9 @@ pub fn schemati_folder(
     }
 }
 
-/// The viewer's Schemati files to choose one from, the only one chosen
-/// already; or why there are none to choose. `form` names the form they belong to when they stand
+/// The viewer's Schemati files to choose one from, the newest chosen
+/// already when Schemati says which it is, or the only one; or why there
+/// are none to choose. `form` names the form they belong to when they stand
 /// outside it.
 pub(super) fn own_file_field(
     connection: &Connection,
@@ -86,10 +87,11 @@ pub(super) fn own_file_field(
                 fieldset {
                     legend class="mb-2 font-semibold" { "From your Schemati" }
                     div class="flex max-h-80 flex-col overflow-y-auto" {
-                        @for name in &folder.files {
+                        @for (index, name) in folder.files.iter().enumerate() {
                             label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection" {
                                 input type="radio" name="schemati_file" value=(name) form=[form]
-                                    checked[folder.files.len() == 1] class="accent-brand";
+                                    checked[index == 0 && (folder.dated || folder.files.len() == 1)]
+                                    class="accent-brand";
                                 span class="min-w-0 truncate" { (name) }
                             }
                         }

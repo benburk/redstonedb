@@ -146,8 +146,12 @@ pub fn file_name(name: &str) -> String {
 pub struct Folder {
     /// Their in-game name, as Schemati greets them.
     pub player: String,
-    /// Their files' names, sorted.
+    /// Their files' names: newest first when Schemati says when each was
+    /// last saved, else by name.
     pub files: Vec<String>,
+    /// Whether Schemati said when each was saved, so the first is the
+    /// newest.
+    pub dated: bool,
 }
 
 /// The folder of the player whose session `session` is.
@@ -327,20 +331,36 @@ async fn body(mut response: Response) -> Result<Vec<u8>, String> {
 }
 
 /// The player and files on Schemati's listing page: the name greeted in
-/// its first `<span>`, and each file in an element `id="fileName<n>"`.
+/// its first `<span>`, and each file in an element `id="fileName<n>"`,
+/// with when it was last saved, in milliseconds, if the element says so
+/// in a `data-modified` attribute.
 fn listing(page: &str) -> Folder {
     let player = between(page, "<span>", "</span>")
         .map(unescape)
         .unwrap_or_default();
-    let mut files: Vec<String> = page
+    let mut files: Vec<(Option<u64>, String)> = page
         .split("id=\"fileName")
         .skip(1)
-        .filter_map(|rest| between(rest, ">", "<"))
-        .map(unescape)
-        .filter(|name| valid_name(name))
+        .filter_map(|rest| {
+            let (tag, after) = rest.split_once('>')?;
+            let name = unescape(after.split_once('<')?.0);
+            let modified = between(tag, "data-modified=\"", "\"")
+                .and_then(|millis| millis.parse().ok());
+            Some((modified, name))
+        })
+        .filter(|(_, name)| valid_name(name))
         .collect();
-    files.sort();
-    Folder { player, files }
+    let dated = !files.is_empty() && files.iter().all(|(m, _)| m.is_some());
+    if dated {
+        files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    } else {
+        files.sort_by(|a, b| a.1.cmp(&b.1));
+    }
+    Folder {
+        player,
+        files: files.into_iter().map(|(_, name)| name).collect(),
+        dated,
+    }
 }
 
 /// The error on one of Schemati's error pages: its content's first
@@ -452,8 +472,21 @@ mod tests {
                     "1.schem".to_owned(),
                     "stuffs.schematic".to_owned()
                 ],
+                dated: false,
             }
         );
+    }
+
+    /// When Schemati says when each file was saved, the newest comes first.
+    #[test]
+    fn a_dated_listing_puts_the_newest_first() {
+        let page = r#"<p><span>embizone</span>'s schematics:</p>
+            <div class="fileEntryName middleAlign" id="fileName0" data-modified="100">a.schem</div>
+            <div class="fileEntryName middleAlign" id="fileName1" data-modified="300">b.schem</div>
+            <div class="fileEntryName middleAlign" id="fileName2" data-modified="200">c.schem</div>"#;
+        let folder = listing(page);
+        assert!(folder.dated);
+        assert_eq!(folder.files, ["b.schem", "c.schem", "a.schem"]);
     }
 
     #[test]
