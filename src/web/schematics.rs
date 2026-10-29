@@ -407,7 +407,7 @@ pub async fn thumbnail(
     let sha256 = key;
     let cached = state.thumbnails.lock().unwrap().get(&sha256);
     // From memory, else as drawn before and kept beside the database, else
-    // drawn now, with the textures it needs fetched first.
+    // drawn now, fetching the game's files it needs that aren't kept.
     let kept = std::path::Path::new(thumbnail::DRAWN_DIR)
         .join(format!("{}-{sha256}.webp", thumbnail::RENDERER));
     let png = if let Some(png) = cached {
@@ -422,16 +422,9 @@ pub async fn thumbnail(
         webp
     } else {
         let blocks = Blocks::read(&data)?;
-        thumbnail::fetch(
-            &state.http,
-            &state.textures,
-            &thumbnail::needed(&blocks),
-        )
-        .await;
-        let textures = Arc::clone(&state.textures);
+        let renderer = Arc::clone(&state.renderer);
         let webp = tokio::task::spawn_blocking(move || {
-            let textures = textures.read().expect("the textures are whole");
-            thumbnail::render_with(&blocks, &textures)
+            thumbnail::render_with(&blocks, &renderer)
         })
         .await
         .map_err(anyhow::Error::from)??;

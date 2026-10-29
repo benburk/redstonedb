@@ -129,7 +129,7 @@ fn port_list(heading: &str, entries: &[PortEntry], inputs: bool) -> Markup {
                 @for entry in entries {
                     @let port = entry.ports[0];
                     @let dye = port.block.strip_suffix(" concrete").unwrap_or(&port.block).replace(' ', "_");
-                    @let [r, g, b, _] = crate::thumbnail::dye_color(&dye);
+                    @let [r, g, b, _] = blockrender::dye_color(&dye);
                     li class="flex items-start gap-2" {
                         span aria-hidden="true" class="mt-1.5 inline-block size-3 shrink-0 rounded-[3px] border border-line"
                             style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}

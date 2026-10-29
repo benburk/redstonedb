@@ -267,6 +267,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "blockrender"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1979,6 +1987,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64 0.23.1",
+ "blockrender",
  "clap",
  "dotenvy",
  "fastnbt",

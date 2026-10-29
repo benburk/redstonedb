@@ -55,14 +55,17 @@ async fn main() {
     // background.
     app::models::similarity::refresh_soon(&db);
 
+    let http = reqwest::Client::new();
     let state = AppState {
         db,
         discord: discord::Config::from_env(),
-        http: reqwest::Client::new(),
+        renderer: std::sync::Arc::new(app::thumbnail::Renderer::new(
+            app::thumbnail::Assets::new(http.clone()),
+        )),
+        http,
         heads: std::sync::Arc::default(),
         players: std::sync::Arc::default(),
         thumbnails: std::sync::Arc::default(),
-        textures: std::sync::Arc::default(),
     };
 
     let trace_layer = TraceLayer::new_for_http()
