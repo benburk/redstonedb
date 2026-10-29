@@ -75,7 +75,7 @@ fn corner_markers_sit_one_block_off_each_corner() {
 
 /// An input block feeds one dust, on a side, besides any torches: the
 /// alpha CLA's run their dust over their tops, and a comparator's inputs
-/// feed two dust each.
+/// feed two dust each. A redstone block capping one is fine.
 #[test]
 fn an_input_block_feeds_one_dust_on_a_side() {
     let complaints = |name| -> Vec<String> {
@@ -98,9 +98,7 @@ fn an_input_block_feeds_one_dust_on_a_side() {
     );
     let capped = complaints("cca-8-repeated-out");
     assert!(
-        capped
-            .iter()
-            .any(|m| m.contains("touches a redstone block")),
+        !capped.iter().any(|m| m.starts_with("input block")),
         "{capped:#?}"
     );
     // Torches on its sides and top, and the levers of the inputs beside
