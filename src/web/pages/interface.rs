@@ -371,8 +371,8 @@ fn port_entries(ports: &[Port]) -> Vec<PortEntry<'_>> {
         .collect()
 }
 
-/// What an input takes beyond its power, such as a strength or its levers
-/// being saved on, and lines signed twice.
+/// What an input takes beyond its power, such as a strength, and lines
+/// signed twice.
 fn notes(entry: &PortEntry, input: bool) -> String {
     let port = entry.ports[0];
     let mut said: Vec<String> = entry
@@ -381,17 +381,10 @@ fn notes(entry: &PortEntry, input: bool) -> String {
         .map(|name| format!("{name} signed twice"))
         .collect();
     if input && !port.signal_strength {
-        let bits: Vec<&Bit> =
-            entry.ports.iter().flat_map(|p| p.bits.iter()).collect();
         let strength =
             entry.ports.iter().map(|p| p.strength).max().unwrap_or(1);
         if strength > 1 {
             said.push(format!("strength ≥ {strength}"));
-        }
-        if bits.iter().all(|b| b.inverted) {
-            said.push("saved on".to_owned());
-        } else if bits.iter().any(|b| b.inverted) {
-            said.push("some bits saved on".to_owned());
         }
     }
     said.join(" · ")
