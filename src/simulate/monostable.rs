@@ -226,6 +226,7 @@ fn run(found: &Cases, dual: bool) -> Run {
         wrong_bits: wrong_bits.into_iter().collect(),
         examples,
         hint,
+        inverted: Vec::new(),
         cells: Vec::new(),
         faults: Vec::new(),
         timing: None,

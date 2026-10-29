@@ -6,8 +6,8 @@
 use anyhow::Result;
 
 use super::{
-    Broken,
-    bench::{Bench, Case, Cases, Distinct, Hint, Kind, Spec, mask, patterns},
+    Broken, Run,
+    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::{
     interface::{Interface, Port},
@@ -167,27 +167,20 @@ impl Variant {
         }
     }
 
-    /// The way its lines read as built, whatever way their levers were
-    /// saved: a lever saved on reads as an inverted input, so B or a carry
-    /// in so saved and read inverted again is plain, and one saved off and
-    /// read inverted is inverted.
-    #[must_use]
-    pub fn as_built(self, interface: &Interface) -> Variant {
-        let saved_on = |colour: &str| {
-            interface
-                .inputs
-                .iter()
-                .find(|port| port.block.starts_with(colour))
-                .is_some_and(|port| {
-                    !port.bits.is_empty()
-                        && port.bits.iter().all(|bit| bit.inverted)
-                })
-        };
-        Variant {
-            subtract: self.subtract != saved_on("light blue"),
-            carry_in: self.carry_in != saved_on(lint::CONTROL),
-            ..self
-        }
+    /// The lines of `run`, an adder's, that it reads inverted, by name: the
+    /// carry in, the output, and the carry out. A subtract's B is read as
+    /// it is, subtracting being its function.
+    pub fn lines(self, run: &Run) -> Vec<String> {
+        [
+            (run.inputs.get(2), self.carry_in),
+            (run.outputs.first(), self.output),
+            (run.outputs.get(1), self.carry_out),
+        ]
+        .into_iter()
+        .filter_map(|(signal, inverted)| {
+            Some(signal?.name.clone()).filter(|_| inverted)
+        })
+        .collect()
     }
 
     /// Its flags, by name: `subtract`, and each line read inverted.
@@ -212,9 +205,8 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     arithmetic(interface, &ADD)
 }
 
-/// Every case of an adder or subtractor, as `op` says. When every case is
-/// wrong, its carry or borrow in flipped is tried, since a lever saved the
-/// wrong way round does that. A hex build, slower to run, takes each
+/// Every case of an adder or subtractor, as `op` says, an adder's kinds
+/// each way its lines may read inverted. A hex build, slower to run, takes each
 /// digit's every case when there are too many to try every one, and a
 /// binary one each byte's.
 fn arithmetic(
@@ -233,7 +225,9 @@ fn arithmetic(
         }
         None => format!("A {sign} B"),
     };
-    let bench = Bench::new(inputs, outputs, &pattern);
+    let mut bench = Bench::new(inputs, outputs, &pattern);
+    // An adder's kinds name each way its lines may read inverted.
+    bench.invertible = !std::ptr::eq(op, &ADD);
     let width = bench.widths(interface)[0];
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
@@ -270,11 +264,6 @@ fn arithmetic(
             cases(width, carry_in, piece)
         })),
         kinds,
-        hint: if carry_in {
-            Hint::Flipped(2)
-        } else {
-            Hint::None
-        },
         by_digit: hex,
     })
 }
@@ -310,7 +299,6 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
         kinds: vec![Kind::new(&pattern, move |case| {
             (case[0] + case[1] + case[2]) >> width & 1
         })],
-        hint: Hint::None,
         by_digit: false,
     })
 }
@@ -340,7 +328,6 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
                 )
             }),
         ],
-        hint: Hint::None,
         by_digit: false,
     })
 }
@@ -356,7 +343,6 @@ pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
             adder_cases(width, false, 8)
         })),
         kinds: vec![Kind::new("A = B", |case| u64::from(case[0] == case[1]))],
-        hint: Hint::None,
         by_digit: false,
     })
 }

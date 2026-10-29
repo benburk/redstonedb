@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::{
     Broken, Report, Test,
-    bench::{Bench, Cases, Hint, Kind, Spec, mask},
+    bench::{Bench, Cases, Kind, Spec, mask},
     stacking::{Apart, Stacking, Step},
 };
 use crate::{
@@ -61,7 +61,6 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
             Kind::new(ON, |case| 1 << case[0]),
             Kind::new(INVERTED, move |case| !(1 << case[0]) & all),
         ],
-        hint: Hint::None,
         by_digit: false,
     })
 }
@@ -224,7 +223,6 @@ fn apart(
         bench: Bench::new(vec![a], vec![out], ON),
         cases: Cases::Combinations(Box::new(cases)),
         kinds: vec![Kind::new(ON, move |case| decode(case[0]))],
-        hint: Hint::None,
         by_digit: false,
     };
     let run = spec.check(blocks, &interface, false).ok()?;

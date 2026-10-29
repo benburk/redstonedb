@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 
 use super::{
     Broken, Stacking, Test,
-    bench::{Bench, Case, Cases, Hint, Kind, Spec, mask},
+    bench::{Bench, Case, Cases, Kind, Spec, mask},
     circuit::output_bits,
     converters::byte_cases,
     stacking,
@@ -53,8 +53,6 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         kinds: vec![Kind::new(&pattern, move |case| {
             case[0] ^ if case[1] == 1 { mask(width) } else { 0 }
         })],
-        // Every case wrong is a line saved the wrong way round.
-        hint: Hint::Flipped(1),
         by_digit: false,
     })
 }

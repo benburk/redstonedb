@@ -1,9 +1,12 @@
 //! Reading a build from its file alone.
 
+use std::collections::BTreeMap;
+
 use app::{
     evaluate::evaluate,
     import,
     models::schematic::{Logic, Orientation},
+    schem::Blocks,
     simulate::{Report, Stacking},
     standardize::{self, Gray},
 };
@@ -140,12 +143,14 @@ fn uploaded(name: &str) -> Vec<u8> {
 
 /// A comparator or absolute value is read whole from its file, a
 /// comparator's sign from its cases; copies of either make no wider one,
-/// so neither is searched for stacking.
+/// so neither is searched for stacking. A comparator signed only by its
+/// sign bits' levers saved on is unsigned, as how a lever was saved says
+/// nothing.
 #[test]
 fn a_comparison_and_an_absolute_value_are_read_whole_from_their_files() {
     for (name, category, flags) in [
-        ("gt-8", "greater_than", &[][..]),
-        ("gt-8-signed", "greater_than", &["signed"][..]),
+        ("gt-8", "greater_than", &[] as &[&str]),
+        ("gt-8-signed", "greater_than", &[][..]),
         ("abs-8", "absolute_value", &[][..]),
     ] {
         let e = evaluate(&uploaded(name)).unwrap();
@@ -205,6 +210,28 @@ fn a_register_whose_write_disturbs_another_cell_fails() {
     .unwrap();
     assert_eq!(e.category, Some("register"));
     assert!(!e.passes(), "{:?}", e.report);
+}
+
+/// An ALU's control lines read inverted where they are, whatever way their
+/// levers were saved: with every lever saved off, they are found from what
+/// its lever settings give.
+#[test]
+fn an_alus_inverted_lines_are_found_with_its_levers_saved_off() {
+    let data = uploaded("alu-8-ops-raw");
+    let blocks = Blocks::read(&data).unwrap();
+    let off: BTreeMap<[i32; 3], String> = blocks
+        .iter()
+        .filter(|(_, state)| {
+            state.contains("lever") && state.contains("powered=true")
+        })
+        .map(|(pos, state)| {
+            (pos, state.replace("powered=true", "powered=false"))
+        })
+        .collect();
+    assert!(!off.is_empty());
+    let e = evaluate(&standardize::edit(&data, &off).unwrap()).unwrap();
+    assert_eq!(e.category, Some("alu"));
+    assert!(e.passes(), "{:?}", e.report);
 }
 
 /// An ALU is read whole from its file: its flags are the operations its

@@ -28,7 +28,6 @@ pub(super) enum Inverts {
 /// if it says any are.
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (category, flag) {
-        ("adder", "subtract") => Inverts::Input("light blue"),
         ("adder", "inverted_carry_in") => Inverts::Input(lint::CONTROL),
         ("adder", "inverted_output") => Inverts::OutputsBut(lint::STATUS),
         ("adder", "inverted_carry_out") => Inverts::Output(lint::STATUS),
@@ -63,28 +62,61 @@ fn inverted_by<'f>(
     })
 }
 
+/// Which of a build's lines read inverted: those its `flags`, of its
+/// `category`, say are, and those its test `found` are, by name.
+pub(super) struct Inversions<'a> {
+    pub category: &'a str,
+    pub flags: &'a [String],
+    pub found: &'a [String],
+}
+
+/// Whether a line reads inverted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inverted<'f> {
+    /// As this flag says, which finds the builds that share it.
+    Flagged(&'f str),
+    /// As its test found, with no flag to say so.
+    Found,
+    No,
+}
+
+impl Inversions<'_> {
+    /// Whether `entry` reads inverted.
+    fn of(&self, entry: &PortEntry, input: bool) -> Inverted<'_> {
+        let port = entry.ports[0];
+        match inverted_by(self.category, self.flags, port, input) {
+            Some(flag) => Inverted::Flagged(flag),
+            None if entry
+                .ports
+                .iter()
+                .any(|p| self.found.contains(&p.name)) =>
+            {
+                Inverted::Found
+            }
+            None => Inverted::No,
+        }
+    }
+}
+
 /// The build's inputs and outputs, read from the file, each a row: a bus
 /// by its bits, and a row of numbered lines, such as a memory's `read 0`
 /// to `read 15`, as one. With its `timing`, each input says when it
 /// switches for the build to stay synced and each output when it changes
-/// and settles, in ticks from the first input, t = 0. When its `flags`
-/// say a line of its `category` is read inverted, each line says whether
-/// it is.
+/// and settles, in ticks from the first input, t = 0. When any line reads
+/// inverted, each says whether it does.
 pub(super) fn interface_section(
     analysis: &Analysis,
     timing: Option<&Timing>,
-    (category, flags): (&str, &[String]),
+    inversions: &Inversions,
 ) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
-    let inverted = |entry: &PortEntry, input: bool| {
-        inverted_by(category, flags, entry.ports[0], input)
-    };
+    let inverted = |entry: &PortEntry, input: bool| inversions.of(entry, input);
     let any_inverted = port_entries(inputs)
         .iter()
-        .any(|e| inverted(e, true).is_some())
+        .any(|e| inverted(e, true) != Inverted::No)
         || port_entries(outputs)
             .iter()
-            .any(|e| inverted(e, false).is_some());
+            .any(|e| inverted(e, false) != Inverted::No);
     let timed_in = |entry: &PortEntry| {
         let timing = timing?;
         let i = timing
@@ -217,15 +249,16 @@ fn line_cell(entry: &PortEntry, input: bool) -> Markup {
     }
 }
 
-/// Whether a line is read inverted, by the `flag` that says so, which
-/// finds the builds that share it.
-fn inverted_cell(flag: Option<&str>) -> Markup {
+/// Whether a line reads inverted, a yes by a flag finding the builds that
+/// share it.
+fn inverted_cell(inverted: Inverted) -> Markup {
     html! {
-        @match flag {
-            Some(flag) => td class=(TABLE_CELL) {
+        @match inverted {
+            Inverted::Flagged(flag) => td class=(TABLE_CELL) {
                 a href=(super::search_href(flag)) title="Find builds that share it" { "Yes" }
             },
-            None => td class={ (TABLE_CELL) " text-muted" } { "No" },
+            Inverted::Found => td class=(TABLE_CELL) { "Yes" },
+            Inverted::No => td class={ (TABLE_CELL) " text-muted" } { "No" },
         }
     }
 }

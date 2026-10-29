@@ -837,6 +837,29 @@ pub fn entity_pos(entity: &Value) -> Option<Pos> {
     }
 }
 
+/// A comparator's block entity putting out `strength`; any other entity
+/// as it is.
+pub fn with_output_signal(entity: &Value, strength: u8) -> Value {
+    let mut entity = entity.clone();
+    let Value::Compound(outer) = &mut entity else {
+        return entity;
+    };
+    if !matches!(outer.get("Id"), Some(Value::String(id)) if id.ends_with("comparator"))
+    {
+        return entity;
+    }
+    let fields = if matches!(outer.get("Data"), Some(Value::Compound(_))) {
+        let Some(Value::Compound(data)) = outer.get_mut("Data") else {
+            unreachable!("checked above");
+        };
+        data
+    } else {
+        outer
+    };
+    fields.insert("OutputSignal".to_owned(), Value::Int(i32::from(strength)));
+    entity
+}
+
 pub fn with_pos(entity: &Value, pos: Pos) -> Value {
     let mut entity = entity.clone();
     if let Value::Compound(fields) = &mut entity {

@@ -19,7 +19,7 @@ use super::{
     Choices, PAGE_TITLE, SECTION_TITLE, base, beside_viewer,
     form::{fields, tag_picker},
     grouped,
-    interface::{interface_section, violation_list},
+    interface::{Inversions, interface_section, violation_list},
     simulation::{
         Waiting, simulation_results, simulation_section, simulation_summary,
         timing_summary,
@@ -156,7 +156,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (file_chooser(page))
                 (details_form(user, page))
             }))
-            div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, ("", &[]))) }
+            div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, &Inversions { category: "", flags: &[], found: &[] })) }
             // Redrawn as the category and width call for a test.
             @let simulate = simulate_url(page);
             @let timing = super::super::simulation::timing_url(&simulate);

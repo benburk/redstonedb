@@ -227,6 +227,7 @@ fn selections(
                     .collect(),
                 care: u64::MAX,
                 presses: Vec::new(),
+                invertible: false,
             };
             let got = observe(blocks, interface, &bench, &telling, None)?;
             for (case, &got) in telling.iter().zip(&got) {
@@ -317,6 +318,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
             held,
             care: u64::MAX,
             presses: Vec::new(),
+            invertible: false,
         };
         let widths = [shifter.width];
         let (cases, exhaustive, patterns) = if quick {
@@ -394,6 +396,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
             held,
             care: u64::MAX,
             presses: Vec::new(),
+            invertible: false,
         };
         if bench::remembers(blocks, &interface, &bench)? {
             return Ok(true);

@@ -334,6 +334,10 @@ pub async fn refresh(
     if let Some(report) = &report {
         derived.decide(&s, report);
     }
+    let (data, sha256) = match &ran {
+        Some((_, report)) => at_zero(db, &s, data, report).await?,
+        None => (data, s.sha256.clone()),
+    };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, &s).await?;
     match (test, ran) {
@@ -345,13 +349,54 @@ pub async fn refresh(
                 stack::Buses::of(&s.category, derived.orientation),
             )
             .ok();
-            let file = (s.sha256.as_str(), key.as_deref());
+            let file = (sha256.as_str(), key.as_deref());
             set(&mut *tx, id, test, file, &report).await?;
         }
         (Some(_), None) => {}
     }
     tx.commit().await?;
     Ok(report)
+}
+
+/// Build `s`'s file `data` with each input at logical 0, once `report`, a
+/// fresh result, passed: its levers on for each line found to read
+/// inverted and off for every other, whatever way they were saved, and
+/// every component at rest with them. Put in its current version's place
+/// when that changes it, as the same build. The file and its hash as they
+/// then stand.
+async fn at_zero(
+    db: &SqlitePool,
+    s: &Schematic,
+    data: Vec<u8>,
+    report: &Report,
+) -> Result<(Vec<u8>, String)> {
+    let kept = |data| Ok((data, s.sha256.clone()));
+    if !report.passed() || !s.conventional {
+        return kept(data);
+    }
+    let category = meant_by(&s.category).unwrap_or(&s.category).to_owned();
+    let inverted = report.inverted().to_vec();
+    let (conventional, keeps_paste) = (s.conventional, s.keeps_paste);
+    let was = data.clone();
+    let fixed = tokio::task::spawn_blocking(move || {
+        let fixed =
+            crate::standardize::levers_at_zero(&was, &category, &inverted)?;
+        if fixed == was {
+            return Ok(None);
+        }
+        import::prepare(&fixed, None, conventional, keeps_paste, false)
+            .map(Some)
+    })
+    .await?;
+    // A file that can't be settled, as one with a clock, is kept as saved.
+    match fixed {
+        Ok(Some(prepared)) if prepared.sha256 != s.sha256 => {
+            version::replace(db, &s.id, &prepared, version::Replacing::InPlace)
+                .await?;
+            Ok((prepared.data, prepared.sha256))
+        }
+        _ => kept(data),
+    }
 }
 
 /// Brings build `s`, off the list while it is not recognized as the
@@ -437,6 +482,10 @@ async fn refresh_evaluated(
         .await??
     };
     let derived = Derived::evaluated(s, &e);
+    let (data, sha256) = match &report {
+        Some(report) => at_zero(db, s, data, report).await?,
+        None => (data, s.sha256.clone()),
+    };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
     match (Test::of(&s.category, derived.width), &report) {
@@ -447,7 +496,7 @@ async fn refresh_evaluated(
                 stack::Buses::of(&s.category, derived.orientation),
             )
             .ok();
-            let file = (s.sha256.as_str(), key.as_deref());
+            let file = (sha256.as_str(), key.as_deref());
             set(&mut *tx, &s.id, test, file, report).await?;
         }
         _ => clear(&mut *tx, &s.id).await?,

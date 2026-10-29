@@ -75,7 +75,8 @@ fn a_carry_lookahead_adder_carries_into_bit_7_wrongly() {
     let run = adder_run(&blocks("alpha-cla")).unwrap();
     assert_eq!(run.wrong, 8192);
     let first = &run.examples[0];
-    assert_eq!(first.inputs, [95, 1, 0]);
+    // Its carry in reads inverted: off, it adds one.
+    assert_eq!(first.inputs, [95, 0, 0]);
     assert_eq!(
         (&*first.expected, &*first.got),
         (&[96, 0][..], &[224, 0][..])
@@ -178,7 +179,8 @@ fn an_adders_lone_lines_need_no_signs() {
     assert!(unsigned_line(&lint::check_for(&blocks, "multiplier")));
     let run = adder_run(&blocks).unwrap();
     assert_eq!((run.cases, run.wrong), (1 << 17, 0));
-    assert_eq!(run.pattern, "A + B + carry in");
+    // Its carry in adds one with its lever off.
+    assert_eq!(run.pattern, "A + B + not carry in");
 }
 
 /// An 8-bit adder that repeats every 16 blocks up, as `//rstack up 1 16`
@@ -437,9 +439,10 @@ fn an_output_is_timed_where_it_reaches_its_repeaters() {
     assert_eq!(timing.latency(), Some(3));
 }
 
-/// Its sum leaves by dust on each yellow block. For 2 + 2, the carry
-/// reaches bit 2 at strength 1, which powers the block beside it but
-/// leaves the dust on top dark, so the bit is off, as in-game.
+/// Its sum leaves by dust on each yellow block. For 2 + 2 + 1, its carry in
+/// reading inverted, the carry reaches bit 2 at strength 1, which powers
+/// the block beside it but leaves the dust on top dark, so the bit is off,
+/// as in-game.
 #[test]
 fn an_output_is_read_from_the_dust_on_its_block() {
     let Report::Ran(run) = Test::Adder.run(&blocks("cca-8-dust-out")) else {
@@ -449,7 +452,7 @@ fn an_output_is_read_from_the_dust_on_its_block() {
     let wrong = &run.examples[0];
     assert_eq!(
         (wrong.inputs.as_slice(), wrong.got[0], wrong.expected[0]),
-        ([2, 2, 0].as_slice(), 0, 4)
+        ([2, 2, 0].as_slice(), 1, 5)
     );
 }
 
@@ -502,17 +505,16 @@ fn a_converter_is_known_for_what_it_does() {
     assert_eq!((guess.category, guess.wrong), ("bcd_to_binary", 0));
 }
 
-/// Saved with bit 2 of A's lever on, which reads as an inverted input, so
-/// nearly every case comes out 4 off; driven plainly, every one is right.
+/// Saved with bit 2 of A's lever on by mistake: how a lever was saved says
+/// nothing, so every case is right.
 #[test]
-fn a_lever_saved_on_by_mistake_is_named() {
+fn a_lever_saved_on_by_mistake_changes_nothing() {
     let report = Test::BcdToBinary.run(&blocks("bcd2bin-10-lever-on"));
     let Report::Ran(run) = &report else {
         panic!("the converter was not simulated: {report:?}");
     };
-    assert_eq!(run.wrong, 232);
-    let hint = run.hint.as_deref().unwrap_or_default();
-    assert!(hint.contains("bit 2 of A"), "{hint}");
+    assert_eq!(run.wrong, 0);
+    assert!(run.inverted.is_empty(), "{:?}", run.inverted);
 }
 
 /// From Schemati: eleven control lines, seven saved on, each sign naming
@@ -863,16 +865,16 @@ fn a_register_whose_reads_are_saved_reading_passes() {
     assert_eq!(run.pattern, "each of 2 cells written, then read");
 }
 
-/// Its data levers saved on, so each cell takes the complement of what the
-/// test writes, and its reads show the complement: an inverted output.
+/// Its data levers saved on: how a lever was saved says nothing, so each
+/// cell takes what the test writes and its reads show it, plainly.
 #[test]
-fn a_register_whose_output_is_inverted_passes() {
+fn a_register_whose_data_levers_are_saved_on_reads_plainly() {
     let blocks = with_levers_on("lime");
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
     assert_eq!((run.cases, run.wrong), (3 * 256, 0));
-    assert_eq!(run.pattern, "each of 2 cells written, then read inverted");
+    assert_eq!(run.pattern, "each of 2 cells written, then read");
 }
 
 /// A register whose reads show each cell inverted, on a bus resting at all
@@ -1166,16 +1168,16 @@ fn a_greater_than_comparator_compares_unsigned() {
     assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
 }
 
-/// The unsigned comparator with both its sign bits' levers saved on, so
-/// each top bit reaches it inverted: in two's complement, that shifts every
-/// value up by 128, keeping their order, so it compares signed, and right.
+/// The unsigned comparator with both its sign bits' levers saved on. How a
+/// lever was saved says nothing, so it compares unsigned: signed, its sign
+/// bits would need inverting in the circuit.
 #[test]
-fn a_comparator_with_its_sign_bits_inverted_compares_signed() {
+fn a_comparator_signed_only_by_its_levers_compares_unsigned() {
     let blocks = comparison("gt-8-signed");
     let Report::Ran(run) = Test::GreaterThan.run(&blocks) else {
         panic!("the comparator was not simulated");
     };
-    assert_eq!(run.pattern, simulate::SIGNED_GREATER_THAN);
+    assert_eq!(run.pattern, "A > B");
     assert_eq!((run.cases, run.wrong), (1 << 16, 0));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
 }
@@ -1486,4 +1488,45 @@ fn a_loop_that_loses_all_it_could_carry_holds_nothing() {
     let adder = simulate::compiled(&blocks("barrel-leak-adder")).unwrap();
     assert!(adder.kinds.values().any(|k| k == "Constant { ss: 1 }"));
     assert!(adder.memory().is_empty());
+}
+
+/// A build is stored with each input at logical 0, its levers flicked to
+/// it whatever way they were saved, and the circuit at rest with them.
+/// This adder reads its carry in inverted, its lever saved on: saved off,
+/// it is flicked back on, its torch and dust settling as they were, and
+/// flicking it again changes nothing.
+#[test]
+fn a_build_is_stored_with_its_inputs_at_logical_0() {
+    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
+    let saved =
+        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let blocks = Blocks::read(&saved).unwrap();
+    let lever = blocks
+        .iter()
+        .find(|(_, state)| {
+            state.starts_with("minecraft:lever")
+                && state.contains("powered=true")
+        })
+        .map(|(pos, _)| pos)
+        .expect("its carry in's lever is saved on");
+    let off: std::collections::BTreeMap<_, _> = [(
+        lever,
+        blocks.get(lever).replace("powered=true", "powered=false"),
+    )]
+    .into();
+    let saved_off = standardize::edit(&saved, &off).unwrap();
+    let inverted = ["carry in".to_owned()];
+    let fixed =
+        standardize::levers_at_zero(&saved_off, "adder", &inverted).unwrap();
+    let at_zero = Blocks::read(&fixed).unwrap();
+    assert!(at_zero.get(lever).contains("powered=true"));
+    let settled =
+        standardize::levers_at_zero(&saved, "adder", &inverted).unwrap();
+    let as_saved = Blocks::read(&settled).unwrap();
+    for (pos, state) in as_saved.iter() {
+        assert_eq!(at_zero.get(pos), state, "{pos:?}");
+    }
+    let again =
+        standardize::levers_at_zero(&fixed, "adder", &inverted).unwrap();
+    assert_eq!(again, fixed);
 }

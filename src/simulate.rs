@@ -67,7 +67,7 @@ mod timing;
 pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
-pub use circuit::{Circuit, Compiled, Link, compiled};
+pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, adder_design, design_of};
 pub use gate::XNOR;
@@ -213,6 +213,8 @@ impl Test {
     /// result says, makes every stored result of the test stale, so each
     /// runs again.
     pub fn version(self) -> i64 {
+        // Every test drives its levers from off, how one was saved saying
+        // nothing, and finds which lines read inverted.
         match self {
             Test::Decoder
             | Test::NandXnor
@@ -230,15 +232,15 @@ impl Test {
             | Test::Equality
             | Test::Monostable
             | Test::DualEdgeMonostable
-            | Test::Inverter => 1,
+            | Test::Inverter => 2,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
             // own; a gate's copies are searched for how they stack.
-            Test::Register | Test::GreaterThan | Test::XorXnor => 2,
+            Test::Register | Test::GreaterThan | Test::XorXnor => 3,
             // An adder reads any of its lines inverted, a subtractor's B
             // among them, and borrows through each byte too.
-            Test::Adder => 3,
+            Test::Adder => 4,
         }
     }
 
@@ -294,7 +296,12 @@ impl Test {
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
-                spec.check(blocks, &interface, quick)
+                let mut run = spec.check(blocks, &interface, quick)?;
+                // An adder's kinds name the lines it reads inverted.
+                if self == Test::Adder {
+                    run.inverted = adder::Variant::of(&run.pattern).lines(&run);
+                }
+                Ok(run)
             }
         }
     }
@@ -477,6 +484,14 @@ impl Report {
         }
     }
 
+    /// The lines its test found read inverted, by name.
+    pub fn inverted(&self) -> &[String] {
+        match self {
+            Report::Ran(run) => &run.inverted,
+            _ => &[],
+        }
+    }
+
     /// When its outputs settle, once measured.
     pub fn timing(&self) -> Option<&Timing> {
         match self {
@@ -515,6 +530,9 @@ pub struct Run {
     /// What would make every case right, when one change does, such as
     /// flipping carry in.
     pub hint: Option<String>,
+    /// The lines found to read inverted, powered meaning 0, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inverted: Vec<String>,
     /// For a failing register or buffer, its cells' controls, by the
     /// number its faults give each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -631,11 +649,14 @@ pub struct Guess {
     pub pattern: String,
     pub cases: u64,
     pub wrong: u64,
+    /// How many of its lines it reads inverted.
+    pub inverted: usize,
 }
 
 /// What the build in `blocks` seems to be: of the tests its inputs and
 /// outputs fit, the one whose telling values come out right most often, if
-/// three in four do. Quick enough to run before anyone says what it is,
+/// three in four do, reading the fewest lines inverted on a tie, as a
+/// comparator is a carry out with B inverted. Quick enough to run before anyone says what it is,
 /// even for a hex build, which runs slower.
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
     // An ALU's lines are tried only when their signs name operations, as
@@ -672,12 +693,15 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                 pattern: run.pattern,
                 cases: run.cases,
                 wrong: run.wrong,
+                inverted: run.inverted.len(),
             })
         })
         // Three in four right, so a build with a few wrong bits is still
         // known for what it is.
         .filter(|guess| (guess.cases - guess.wrong) * 4 >= guess.cases * 3)
-        .min_by_key(|guess| guess.wrong * 1000 / guess.cases.max(1))
+        .min_by_key(|guess| {
+            (guess.wrong * 1000 / guess.cases.max(1), guess.inverted)
+        })
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 
 use super::{
     Broken,
-    bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Hint, Kind, Spec},
+    bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
     bench::{mask, patterns},
 };
 use crate::{
@@ -33,7 +33,6 @@ pub(super) fn binary_to_bcd(interface: &Interface) -> Result<Spec> {
         bench,
         cases: Cases::Combinations(Box::new(move || binary_cases(width))),
         kinds: vec![Kind::new("A in BCD", |case| to_bcd(case[0]))],
-        hint: Hint::SavedOn,
         by_digit: false,
     })
 }
@@ -51,7 +50,6 @@ pub(super) fn bcd_to_binary(interface: &Interface) -> Result<Spec> {
             bcd_values(width, result, quick)
         })),
         kinds: vec![Kind::new("A from BCD", |case| from_bcd(case[0]))],
-        hint: Hint::SavedOn,
         by_digit: false,
     })
 }
@@ -68,7 +66,6 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
         bench,
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
         kinds: vec![Kind::new("|A|", move |case| absolute(case[0], width))],
-        hint: Hint::SavedOn,
         by_digit: false,
     })
 }

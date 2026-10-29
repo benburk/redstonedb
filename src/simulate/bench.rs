@@ -41,6 +41,9 @@ pub(super) struct Bench {
     /// Control lines pressed in order once each case's inputs settle, each
     /// settling in turn, as a sequential multiplier's reset and calculate.
     pub presses: Vec<usize>,
+    /// Whether each line may read inverted, which judging tries; not
+    /// where the kinds name the lines that are, as an adder's do.
+    pub invertible: bool,
 }
 
 impl Bench {
@@ -54,6 +57,7 @@ impl Bench {
             held: Vec::new(),
             care: u64::MAX,
             presses: Vec::new(),
+            invertible: true,
         }
     }
 
@@ -83,7 +87,6 @@ pub(super) struct Spec {
     /// incrementer may add or subtract, so it holds each kind, and the
     /// one the build gets most right names its cases.
     pub kinds: Vec<Kind>,
-    pub hint: Hint,
     /// Whether the cases, when there are too many to try every one, take
     /// each hex digit's every value rather than each byte's, as a hex
     /// adder's do.
@@ -122,19 +125,6 @@ pub(super) enum Cases {
     Only(Box<dyn Fn(bool) -> (Vec<u64>, bool)>),
 }
 
-/// What a test tries when cases come out wrong, to name the likely cause.
-#[derive(Clone, Copy)]
-pub(super) enum Hint {
-    None,
-    /// When every case is wrong, the 1-bit input at this place in each case
-    /// driven the other way round, as its lever saved the wrong way does.
-    Flipped(usize),
-    /// When some are wrong, each of A's bits whose lever is saved on driven
-    /// as a plain input: a lever saved on reads as an inverted input, so one
-    /// left on by mistake gets most cases wrong.
-    SavedOn,
-}
-
 impl Spec {
     /// Runs the cases through `blocks`, whose interface is `interface`, or
     /// with `quick` a few telling ones, and judges what came out against
@@ -161,26 +151,9 @@ impl Spec {
             Cases::Combinations(structured) => cases(&widths, structured),
         };
         let got = observe(blocks, interface, &self.bench, &cases, None)?;
-        let (kind, run) = self
-            .kinds
-            .iter()
-            .map(|kind| {
-                let mut run =
-                    judge(interface, &self.bench, &cases, &got, &kind.expected);
-                run.pattern.clone_from(&kind.pattern);
-                (kind, run)
-            })
-            .min_by_key(|(_, run)| run.wrong)
+        let run = best(interface, &self.bench, &self.kinds, &cases, &got)
             .context("a test has something to check")?;
         let mut run = run.covering(exhaustive, patterns);
-        run.hint = self.hint.find(
-            blocks,
-            interface,
-            &self.bench,
-            &cases,
-            &run,
-            &kind.expected,
-        )?;
         run.by_digit = self.by_digit && !run.exhaustive;
         Ok(run)
     }
@@ -226,54 +199,6 @@ impl Spec {
             values,
             cancel,
         )
-    }
-}
-
-impl Hint {
-    /// The likely cause of `run`'s wrong cases, when one change puts every
-    /// case right, as a sentence.
-    fn find(
-        self,
-        blocks: &Blocks,
-        interface: &Interface,
-        bench: &Bench,
-        cases: &[Case],
-        run: &Run,
-        expected: &dyn Fn(&Case) -> u64,
-    ) -> Result<Option<String>> {
-        let right = |flip| {
-            sweep(blocks, interface, bench, cases, Some(flip), expected)
-                .map(|run| run.wrong == 0)
-        };
-        match self {
-            Hint::Flipped(input) if run.wrong == run.cases => {
-                let name = &interface.inputs[bench.inputs[input]].name;
-                Ok(right((input, 1))?.then(|| {
-                    format!(
-                        "Every case is right with {name} flipped, so its \
-                         lever is saved the wrong way round."
-                    )
-                }))
-            }
-            Hint::SavedOn if run.wrong > 0 => {
-                let port = &interface.inputs[bench.inputs[0]];
-                for (bit, _) in
-                    port.bits.iter().enumerate().filter(|(_, b)| b.inverted)
-                {
-                    if right((0, 1 << bit))? {
-                        return Ok(Some(format!(
-                            "Every case is right with bit {bit} of {} as a \
-                             plain input, so its lever is saved on by \
-                             mistake: a lever saved on marks an inverted \
-                             input.",
-                            port.name
-                        )));
-                    }
-                }
-                Ok(None)
-            }
-            _ => Ok(None),
-        }
     }
 }
 
@@ -444,6 +369,167 @@ type Flip = Option<(usize, u64)>;
 /// Runs `cases` through the bench's inputs, driving the bits `flip` gives,
 /// if any, the other way round, and checks each result against `expected`,
 /// cut to as many bits as the outputs hold.
+/// Which of a bench's lines read inverted: a bit per input, in the order
+/// of its inputs, and a bit per output, or one for every output when it
+/// has many, as a decoder's lines.
+#[derive(Clone, Copy, Default)]
+struct Inversion {
+    inputs: u64,
+    outputs: u64,
+}
+
+/// More outputs than this are inverted together or not at all.
+const SEPARATELY_INVERTED: usize = 4;
+
+/// Each way a bench's lines may read inverted, the fewest inverted first:
+/// each binary input, and each output, or every output together.
+fn inversions(bench: &Bench, interface: &Interface) -> Vec<Inversion> {
+    if !bench.invertible {
+        return vec![Inversion::default()];
+    }
+    let inputs: Vec<u64> = (0..bench.inputs.len())
+        .filter(|&i| !interface.inputs[bench.inputs[i]].signal_strength)
+        .map(|i| 1 << i)
+        .collect();
+    let outputs: Vec<u64> = if bench.outputs.len() > SEPARATELY_INVERTED {
+        vec![u64::MAX]
+    } else {
+        (0..bench.outputs.len()).map(|o| 1 << o).collect()
+    };
+    let lines: Vec<(bool, u64)> = inputs
+        .iter()
+        .map(|&bit| (true, bit))
+        .chain(outputs.iter().map(|&bit| (false, bit)))
+        .collect();
+    let mut all: Vec<(u32, Inversion)> = (0..1u64 << lines.len())
+        .map(|chosen| {
+            let mut inversion = Inversion::default();
+            for (i, &(input, bit)) in lines.iter().enumerate() {
+                if chosen >> i & 1 == 1 {
+                    if input {
+                        inversion.inputs |= bit;
+                    } else {
+                        inversion.outputs |= bit;
+                    }
+                }
+            }
+            (chosen.count_ones(), inversion)
+        })
+        .collect();
+    all.sort_by_key(|&(count, _)| count);
+    all.into_iter().map(|(_, inversion)| inversion).collect()
+}
+
+/// Judging enough cases to rule most readings out before judging all.
+const FIRST_LOOK: usize = 256;
+
+/// The kind, and the way its lines read inverted, that `got` gets most
+/// right over `cases`, the fewest lines inverted winning a tie, judged:
+/// each reading first on a few cases, then those that do best there on
+/// all. Reading lines inverted needs no more simulating, as an inverted
+/// input only changes the case a run of the circuit was, and an inverted
+/// output what it should show.
+fn best(
+    interface: &Interface,
+    bench: &Bench,
+    kinds: &[Kind],
+    cases: &[Case],
+    got: &[u64],
+) -> Option<Run> {
+    let widths = bench.widths(interface);
+    let output_widths = bench.output_widths(interface);
+    let flips = |inversion: Inversion| {
+        let mut shift = 0;
+        let mut outputs = 0;
+        for (o, &width) in output_widths.iter().enumerate() {
+            if inversion.outputs >> o & 1 == 1 {
+                outputs |= mask(width) << shift;
+            }
+            shift += width;
+        }
+        outputs
+    };
+    let readings: Vec<(&Kind, Inversion, u64)> = kinds
+        .iter()
+        .flat_map(|kind| {
+            inversions(bench, interface)
+                .into_iter()
+                .map(move |inversion| (kind, inversion, flips(inversion)))
+        })
+        .collect();
+    let expected =
+        |kind, inversion, outputs| reading(kind, &widths, inversion, outputs);
+    let first = cases.len().min(FIRST_LOOK);
+    let looks: Vec<u64> = readings
+        .iter()
+        .map(|&(kind, inversion, outputs)| {
+            judge(
+                interface,
+                bench,
+                &cases[..first],
+                &got[..first],
+                expected(kind, inversion, outputs),
+            )
+            .wrong
+        })
+        .collect();
+    let fewest = *looks.iter().min()?;
+    readings
+        .iter()
+        .zip(&looks)
+        .filter(|&(_, &wrong)| wrong == fewest)
+        .map(|(&(kind, inversion, outputs), _)| {
+            let mut run = judge(
+                interface,
+                bench,
+                cases,
+                got,
+                expected(kind, inversion, outputs),
+            );
+            run.pattern.clone_from(&kind.pattern);
+            let named = |ports: &[usize], on: u64, outputs: bool| {
+                ports
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| on >> i & 1 == 1)
+                    .map(|(_, &port)| {
+                        if outputs {
+                            interface.outputs[port].name.clone()
+                        } else {
+                            interface.inputs[port].name.clone()
+                        }
+                    })
+                    .collect::<Vec<String>>()
+            };
+            run.inverted = named(&bench.inputs, inversion.inputs, false);
+            run.inverted
+                .extend(named(&bench.outputs, inversion.outputs, true));
+            run
+        })
+        // The fewest lines inverted wins a tie, as a kind naming its
+        // inverted lines, such as a decoder's, over the same lines found.
+        .min_by_key(|run| (run.wrong, run.inverted.len()))
+}
+
+/// What `kind` gives for a case, its inputs `inversion` names inverted,
+/// each `widths` bits, and its `outputs` bits flipped.
+fn reading<'k>(
+    kind: &'k Kind,
+    widths: &'k [usize],
+    inversion: Inversion,
+    outputs: u64,
+) -> impl Fn(&Case) -> u64 + 'k {
+    move |case: &Case| {
+        let mut case = *case;
+        for (i, &width) in widths.iter().enumerate() {
+            if inversion.inputs >> i & 1 == 1 {
+                case[i] ^= mask(width);
+            }
+        }
+        (kind.expected)(&case) ^ outputs
+    }
+}
+
 pub(super) fn sweep(
     blocks: &Blocks,
     interface: &Interface,
@@ -512,6 +598,7 @@ pub(super) fn remembers(
         held: bench.held.clone(),
         care: bench.care,
         presses: Vec::new(),
+        invertible: false,
     };
     for (case, &was) in cases.iter().zip(&history) {
         let fresh = observe(blocks, interface, &rest, &[*case], None)?;
@@ -537,7 +624,7 @@ pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {
 
 /// How `got`, what the outputs showed for each of `cases`, compares with
 /// `expected`, cut to as many bits as the outputs hold.
-fn judge(
+pub(super) fn judge(
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
@@ -629,6 +716,7 @@ fn judge(
         wrong_bits,
         examples,
         hint: None,
+        inverted: Vec::new(),
         cells: Vec::new(),
         faults: Vec::new(),
         timing: None,

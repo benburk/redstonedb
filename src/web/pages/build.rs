@@ -21,7 +21,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
-    interface::{interface_section, inverts, violations_section},
+    interface::{Inversions, interface_section, inverts, violations_section},
     name_badges, percent, person_badge, plural, search_link,
     simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
@@ -420,7 +420,11 @@ pub fn build_info(
                         "Doesn't follow the building conventions, so its inputs and outputs are not read and it is not linted."
                     }
                 }
-                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), (&s.category, &flag_names))),
+                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), &Inversions {
+                    category: &s.category,
+                    flags: &flag_names,
+                    found: report.map_or(&[], Report::inverted),
+                })),
                 Err(err) => {
                     p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
                 }

@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 
 use super::{
     Broken,
-    bench::{Bench, Case, Cases, Distinct, Hint, Kind, Spec, mask, patterns},
+    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::{interface::Interface, lint};
 
@@ -88,7 +88,6 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         bench,
         cases: Cases::Combinations(Box::new(move || multiplier_cases(&widths))),
         kinds: vec![Kind::new(pattern, product)],
-        hint: Hint::None,
         by_digit: false,
     })
 }

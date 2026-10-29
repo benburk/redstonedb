@@ -23,7 +23,7 @@
 //!   by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::{Result, ensure};
 
@@ -201,6 +201,47 @@ pub fn edit(data: &[u8], changes: &BTreeMap<Pos, String>) -> Result<Vec<u8>> {
         }
     }
     rebox(data, &grid, [0, 0, 0], blocks.size)
+}
+
+/// The file with each input at logical 0, as every stored build is: the
+/// levers of each line its test found reads `inverted`, by name, as a
+/// build of `category` names its lines, on, every other lever off, and
+/// every component at rest with them.
+pub fn levers_at_zero(
+    data: &[u8],
+    category: &str,
+    inverted: &[String],
+) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let mut lines = interface::read(&blocks);
+    interface::name_lines(category, &blocks, &mut lines);
+    let on: BTreeSet<Pos> = lines
+        .inputs
+        .iter()
+        .filter(|port| inverted.contains(&port.name))
+        .flat_map(|port| &port.bits)
+        .filter_map(|bit| Some(schem::step(bit.pos, bit.entry?)))
+        .filter(|&pos| schem::short(blocks.get(pos)) == "lever")
+        .collect();
+    with_levers(data, &on)
+}
+
+/// The file with every lever off but those at `on`, and every component
+/// at rest with them, as the game settles it: each dust's power, each
+/// torch, repeater, comparator, and lamp, and each comparator's strength.
+pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let (changes, strengths) = crate::simulate::settled(&blocks, on)?;
+    if changes.is_empty() && strengths.is_empty() {
+        return Ok(data.to_vec());
+    }
+    let mut grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    grid.extend(changes);
+    rebox_with(data, &grid, [0, 0, 0], blocks.size, &strengths)
 }
 
 /// The file with each block of `changes` put in place, as `edit` does, its
@@ -437,6 +478,18 @@ fn rebox(
     low: Pos,
     size: Pos,
 ) -> Result<Vec<u8>> {
+    rebox_with(data, grid, low, size, &HashMap::new())
+}
+
+/// As `rebox`, each comparator at a position of `strengths`, in the old
+/// box, putting out its strength.
+fn rebox_with(
+    data: &[u8],
+    grid: &HashMap<Pos, String>,
+    low: Pos,
+    size: Pos,
+    strengths: &HashMap<Pos, u8>,
+) -> Result<Vec<u8>> {
     let shift = |pos: Pos| [0, 1, 2].map(|axis| pos[axis] - low[axis]);
     let inside =
         |pos: Pos| (0..3).all(|axis| (0..size[axis]).contains(&pos[axis]));
@@ -451,9 +504,14 @@ fn rebox(
         .take_entities()
         .iter()
         .filter_map(|entity| {
-            let pos = shift(schem::entity_pos(entity)?);
+            let was = schem::entity_pos(entity)?;
+            let pos = shift(was);
+            let entity = match strengths.get(&was) {
+                Some(&strength) => schem::with_output_signal(entity, strength),
+                None => entity.clone(),
+            };
             (inside(pos) && placed.contains_key(&pos))
-                .then(|| schem::with_pos(&schem::plain_sign(entity), pos))
+                .then(|| schem::with_pos(&schem::plain_sign(&entity), pos))
         })
         .collect();
     nbt.write_blocks(low, size, &placed, entities)?;

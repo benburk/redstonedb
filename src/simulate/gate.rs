@@ -7,7 +7,7 @@ use anyhow::Result;
 use super::{
     Broken, Report, Stacking, Test,
     adder::adder_cases,
-    bench::{Bench, Cases, Hint, Kind, Spec, mask},
+    bench::{Bench, Cases, Kind, Spec, mask},
     stacking,
 };
 use crate::{
@@ -60,7 +60,6 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
             Kind::new(XOR, |case| case[0] ^ case[1]),
             Kind::new(XNOR, move |case| !(case[0] ^ case[1]) & mask(width)),
         ],
-        hint: Hint::None,
         by_digit: false,
     })
 }
@@ -114,7 +113,6 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
             Kind::new(NAND_XNOR, move |case| nand(case) | xnor(case) << width),
             Kind::new(XNOR_NAND, move |case| xnor(case) | nand(case) << width),
         ],
-        hint: Hint::None,
         by_digit: false,
     })
 }

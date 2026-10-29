@@ -47,7 +47,7 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 | Inverter    | invert            |                        |
 
 - A sign on an adder's or subtractor's lone line must name it as above. An adder control line named anything else, such as `subtract`, makes it another category, such as an ALU; more than one of either line breaks it. Borrow in takes 1 more away; borrow out is on when it takes away more than A. A comparison's result is `A > B` or `A = B`.
-- An ALU control line's sign names the operations it takes part in, separated by spaces or lines, never commas: `and nand sub`. Choosing an operation flips every line naming it from its saved position, so a line saved on goes off. An operation may be on several lines. Operations: `add`, `sub`, `and`, `or`, `xor`, `nand`, `nor`, `xnor`, `shl`, `shr`, `asr`; `rsh` and `lsh` read as `shr` and `shl`. A line named `carry in` or `cin` is a carry in, which add takes. Standardizing takes commas out of every sign. ALU status lines:
+- An ALU control line's sign names the operations it takes part in, separated by spaces or lines, never commas: `and nand sub`. Choosing an operation turns on every line naming it; a line the simulator finds reads inverted is on with its lever off. An operation may be on several lines. Operations: `add`, `sub`, `and`, `or`, `xor`, `nand`, `nor`, `xnor`, `shl`, `shr`, `asr`; `rsh` and `lsh` read as `shr` and `shl`. A line named `carry in` or `cin` is a carry in, which add takes. Standardizing takes commas out of every sign. ALU status lines:
 
 | Name            | Shows                                                 |
 | --------------- | ----------------------------------------------------- |
@@ -58,9 +58,9 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 
 - An input colour without a lever is not allowed, except a signal-strength input. Standardizing keeps input-colour blocks with a lever, as concrete, and input-colour concrete with dust on top, and whitens the rest.
 - A control line may use a button for a pulse, such as reset or calculate. Operand bits always use levers.
-- A register is one or more cells of a CPU register file. Data in is lime; data out yellow, one bus per read port. Each cell has a write and a read on magenta lines: a button writes, a lever reads. Unsigned button and lever lines read as writes and reads; a line signed `write` or `read` is one whatever drives it. A cell drives the shared bus only while its read is on. A read may be inverted (reads with its lever as saved); an output may be inverted (bus shows the complement, resting at all ones). The simulator finds both and pairs reads with writes itself, so cells may be staggered, as two to a slice.
+- A register is one or more cells of a CPU register file. Data in is lime; data out yellow, one bus per read port. Each cell has a write and a read on magenta lines: a button writes, a lever reads. Unsigned button and lever lines read as writes and reads; a line signed `write` or `read` is one whatever drives it. A cell drives the shared bus only while its read is on. A read may be inverted (reads with its lever off); an output may be inverted (bus shows the complement, resting at all ones). The simulator finds both and pairs reads with writes itself, so cells may be staggered, as two to a slice.
 - A buffer is a register without reads: each cell shows its value on its own yellow bus all the time. Data in is lime; each cell's write is a magenta line with a button, or a lever that passes data through while on. A lone write needs no sign. With several, buttons are writes and a lever beside a button is a read, which makes it a register.
-- An inverted input is saved lever on, with no torch; the lever marks the inversion.
+- An input may read inverted, powered meaning 0, with no torch on its block. The simulator finds which lines do by testing, whatever way their levers were saved.
 - The lever touches only its input block. Wiring replaces it with a driver into that block, so nothing may rely on the lever powering it directly.
 - An input block feeds at most two dusts, on sides other than its lever's. No dust on top or underneath. Nothing else powers it: no repeater or comparator into it, no torch under it, no other component touching it, such as a redstone block beside it; a target or redstone block on top is fine. Any number of torches hung or standing on it, repeaters and comparators reading it, and neighbouring inputs' levers are fine.
 - The lever's face is where power enters, so it marks where a driver goes.
@@ -145,7 +145,7 @@ Import reads signs to extract a build's interface without a human. Everything el
 
 ## Saved state
 
-- Every input is saved at logical 0: a normal input lever off, an inverted one lever on.
+- Every input is stored at logical 0: a plain input's lever off, an inverted one's on, the circuit at rest with them. The site sets them once its test finds which lines read inverted, whatever way an upload saved them; the simulator drives every lever from off.
 
 Builds with their own layout, such as displays, are stored with `--conventional false`, exempt from everything here. An upload that breaks a convention is stored the same way, keeping its own blocks.
 

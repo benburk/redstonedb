@@ -57,8 +57,8 @@ struct Line {
     bit: usize,
     pos: Pos,
     button: bool,
-    /// A read that reads as saved, and stops when its lever is flipped:
-    /// inverted, though saved as if not.
+    /// A read that reads with its lever off, and stops when it is on:
+    /// inverted.
     active_low: bool,
 }
 
@@ -256,8 +256,8 @@ fn check_on(blocks: &Blocks, kind: Kind, quick: bool) -> Result<(Run, Shape)> {
     Ok((run, shape))
 }
 
-/// The cells' controls, and each fault the cells show from the build as
-/// saved, as the writes and reads that show it: a cell that reads wrong
+/// The cells' controls, and each fault the cells show from the build with
+/// its levers off, as the writes and reads that show it: a cell that reads wrong
 /// after a write into it alone, and a cell that reads differently after
 /// another is written. The value written into another cell is narrowed to
 /// a single bit set, or else clear, so the steps point at the bit that
@@ -416,8 +416,8 @@ fn telling(width: usize) -> Vec<u64> {
     values
 }
 
-/// The register's ports, and its circuit settled as saved, with its cells
-/// found.
+/// The register's ports, and its circuit settled with its levers off,
+/// with its cells found.
 fn ports(
     blocks: &Blocks,
     interface: &Interface,
@@ -530,10 +530,10 @@ fn ports(
 
 /// The cells, each write with the reads that show what it wrote, and
 /// how. With every cell holding 0 and then each alone holding all ones,
-/// the buses are read with every read as saved and with each flipped
-/// alone. A read whose flipping changes how the cell shows is the cell's,
-/// on the bus where it does: a plain one when it shows the cell flipped,
-/// and an inverted one, `active_low`, when it shows it as saved. It is
+/// the buses are read with every read lever off and with each on alone.
+/// A read whose lever changes how the cell shows is the cell's, on the
+/// bus where it does: a plain one when it shows the cell with its lever
+/// on, and an inverted one, `active_low`, when it shows it off. It is
 /// an inverted output when the cell's all ones show as all zeros. When a
 /// read shows more than one cell or none, as when reads are not gated,
 /// writes and reads pair in order, if they number the same.
@@ -691,7 +691,7 @@ fn held(
     Ok(cells)
 }
 
-/// What the buses show with every read as saved, and with each flipped
+/// What the buses show with every read lever off, and with each on
 /// alone.
 fn look(
     circuit: &mut Circuit,
@@ -730,7 +730,7 @@ fn write(
 }
 
 /// Turns on the levers `on`, reads or a write, and the rest off, without
-/// settling. An inverted read is on as saved, so off is flipped.
+/// settling. An inverted read is on with its lever off.
 fn set_reads(circuit: &mut Circuit, register: &Register, on: &[Line]) {
     let wanted = |line: &Line| on.iter().any(|other| other.is(line));
     for &port in &register.controls {
@@ -874,6 +874,18 @@ impl Tally {
                 .collect(),
             examples: self.examples,
             hint: None,
+            // A read that reads with its lever off reads inverted.
+            inverted: {
+                let mut reads: Vec<String> = register
+                    .cells
+                    .iter()
+                    .flat_map(|cell| &cell.reads)
+                    .filter_map(|read| read.line.filter(|line| line.active_low))
+                    .map(|line| interface.inputs[line.port].name.clone())
+                    .collect();
+                reads.dedup();
+                reads
+            },
             cells: Vec::new(),
             faults: Vec::new(),
             timing: None,

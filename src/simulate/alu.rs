@@ -1,8 +1,8 @@
 //! Testing an ALU: two operands, A and B, and control lines that choose an
 //! operation. A control line's sign names the operations it takes part in,
-//! as `and nand sub`, and choosing one turns on every line that names it,
-//! flipping its lever from where it was saved, so a line saved on, which
-//! is inverted, goes off. Each operation the signs name is checked on every
+//! as `and nand sub`, and choosing one turns on every line that names it:
+//! its lever on, or off for a line found to read inverted, as `polarized`
+//! finds them. Each operation the signs name is checked on every
 //! case. With few enough lines, each other combination of them is tried on
 //! a few telling cases, and one that mostly gives an operation the signs do
 //! not name, three cases in four, as an ALU that adds with every line off
@@ -22,7 +22,10 @@
 //! operation. Whether a nadd's or nsub's carry out is inverted too is the
 //! builder's choice, so it is not checked.
 
-use std::sync::atomic::AtomicBool;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::atomic::AtomicBool,
+};
 
 use anyhow::Result;
 
@@ -99,6 +102,11 @@ struct Alu {
     /// The bit a shift right drops, as `lsb shift out` names it.
     shift_out: Option<usize>,
     zero: Option<usize>,
+    /// Which control lines read inverted, on with their lever off, in the
+    /// order of `lines`.
+    inverted: Vec<bool>,
+    /// Whether the carry in reads inverted.
+    carry_inverted: bool,
 }
 
 /// Reads an ALU's ports: two operands of one width, a carry in if a
@@ -161,14 +169,226 @@ fn ports(interface: &Interface) -> Result<Alu> {
         b,
         width,
         carry_in,
-        lines,
         data,
         data_bits,
         carry_out: find(&|i| says(i, &["carry", "out"]) || says(i, &["cout"])),
         overflow: find(&|i| says(i, &["overflow"])),
         shift_out: find(&|i| says(i, &["shift", "out"])),
         zero: find(&|i| says(i, &["zero"])),
+        inverted: vec![false; lines.len()],
+        carry_inverted: false,
+        lines,
     })
+}
+
+/// What an ALU's lever settings give on the telling cases, each looked
+/// at once.
+struct Looks<'a> {
+    blocks: &'a Blocks,
+    interface: &'a Interface,
+    alu: &'a Alu,
+    telling: Vec<Case>,
+    /// What each setting, a bit per control line, gave, its carry in's
+    /// lever off.
+    seen: HashMap<u64, Vec<u64>>,
+}
+
+impl Looks<'_> {
+    /// What `levers` give, looked at once.
+    fn look(&mut self, levers: u64) -> Result<&[u64]> {
+        if !self.seen.contains_key(&levers) {
+            let alu = self.alu;
+            let bench = Bench {
+                inputs: vec![alu.a, alu.b],
+                outputs: alu.data.clone(),
+                pattern: String::new(),
+                held: (0..alu.lines.len())
+                    .map(|k| (alu.lines[k].0, levers >> k & 1))
+                    .chain(alu.carry_in.map(|port| (port, 0)))
+                    .collect(),
+                care: u64::MAX,
+                presses: Vec::new(),
+                invertible: false,
+            };
+            let got = observe(
+                self.blocks,
+                self.interface,
+                &bench,
+                &self.telling,
+                None,
+            )?;
+            self.seen.insert(levers, got);
+        }
+        Ok(&self.seen[&levers])
+    }
+
+    /// How many telling cases `got` gives `op` right with `carry` added.
+    fn right_with(&self, op: &str, got: &[u64], carry: u64) -> usize {
+        let width = self.alu.width;
+        self.telling
+            .iter()
+            .zip(got)
+            .filter(|&(case, &got)| {
+                apply(op, case[0], case[1], carry, width) & mask(width)
+                    == got & mask(width)
+            })
+            .count()
+    }
+
+    /// How many telling cases `got` gives `op` right, an add with the carry
+    /// in either way.
+    fn right(&self, op: &str, got: &[u64]) -> usize {
+        (0..=u64::from(takes_carry(op)))
+            .map(|carry| self.right_with(op, got, carry))
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// The levers choosing `op` on `alu`, a bit per control line, its lines
+/// read as `inverted`.
+fn levers(alu: &Alu, op: &str, inverted: u64) -> u64 {
+    (0..alu.lines.len()).fold(0u64, |levers, k| {
+        let on = u64::from(alu.lines[k].1.contains(&op));
+        levers | (on ^ (inverted >> k & 1)) << k
+    })
+}
+
+/// An ALU's ports, and which of its lines read inverted, found from what
+/// lever settings give on the telling cases. Every line plain, and each as
+/// its lever was saved, are the first readings tried. Each setting looked
+/// at that gives a named operation names a reading too: the lines that
+/// operation turns on, flipped where the levers are on. Each reading is
+/// tried on every named operation, until one gives them all; when none is
+/// left, the settings one line from the best reading's are looked at. Its
+/// carry in reads inverted when its add, the carry's lever off, adds one.
+fn polarized(blocks: &Blocks, interface: &Interface) -> Result<Alu> {
+    let mut alu = ports(interface)?;
+    let named: Vec<&'static str> = OPS
+        .into_iter()
+        .filter(|op| alu.lines.iter().any(|(_, ops)| ops.contains(op)))
+        .collect();
+    let count = alu.lines.len();
+    let saved = (0..count).fold(0u64, |saved, k| {
+        let port = &interface.inputs[alu.lines[k].0];
+        let on = !port.bits.is_empty() && port.bits.iter().all(|b| b.inverted);
+        saved | u64::from(on) << k
+    });
+    let (inverted, carry_inverted) = {
+        let mut looks = Looks {
+            blocks,
+            interface,
+            alu: &alu,
+            telling: paired(&[alu.width, alu.width]).0,
+            seen: HashMap::new(),
+        };
+        let inverted = search(&mut looks, &named, saved)?;
+        let carry_inverted = alu.carry_in.is_some()
+            && carry_inverted(&mut looks, &named, inverted)?;
+        (inverted, carry_inverted)
+    };
+    alu.inverted = (0..count).map(|k| inverted >> k & 1 == 1).collect();
+    alu.carry_inverted = carry_inverted;
+    Ok(alu)
+}
+
+/// Whether an ALU's carry in reads inverted, its control lines read as
+/// `inverted`: whether an add, the carry's lever off, adds one. The add is
+/// a named operation's, or with none, the first any setting of at most
+/// six lines gives, as one no sign names.
+fn carry_inverted(
+    looks: &mut Looks,
+    named: &[&'static str],
+    inverted: u64,
+) -> Result<bool> {
+    let alu = looks.alu;
+    let settings: Vec<u64> = match named.iter().find(|op| takes_carry(op)) {
+        Some(op) => vec![levers(alu, op, inverted)],
+        None if alu.lines.len() <= 6 => (0..1u64 << alu.lines.len())
+            .map(|on| on ^ inverted)
+            .collect(),
+        None => vec![inverted],
+    };
+    let enough = looks.telling.len() * 3;
+    for setting in settings {
+        let got = looks.look(setting)?.to_vec();
+        for op in ["add", "nadd"] {
+            let (off, on) =
+                (looks.right_with(op, &got, 0), looks.right_with(op, &got, 1));
+            if off.max(on) * 4 >= enough {
+                return Ok(on > off);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// The reading of an ALU's control lines, a bit per line inverted, that
+/// gives the most of its `named` operations' telling cases right, the
+/// fewest inverted on a tie, searched as `polarized` says from every line
+/// plain and from `saved`.
+fn search(
+    looks: &mut Looks,
+    named: &[&'static str],
+    saved: u64,
+) -> Result<u64> {
+    let alu = looks.alu;
+    let perfect = named.len() * looks.telling.len();
+    let mut readings = vec![0, saved];
+    let mut tried: HashSet<u64> = HashSet::new();
+    let mut widened: HashSet<u64> = HashSet::new();
+    let mut best = (0, 0u64);
+    loop {
+        while let Some(reading) = readings.pop() {
+            if !tried.insert(reading) {
+                continue;
+            }
+            let mut total = 0;
+            for op in named {
+                let got = looks.look(levers(alu, op, reading))?.to_vec();
+                total += looks.right(op, &got);
+            }
+            let fewer = reading.count_ones() < best.1.count_ones();
+            if total > best.0 || total == best.0 && fewer {
+                best = (total, reading);
+            }
+            if total == perfect {
+                return Ok(reading);
+            }
+        }
+        for (&setting, got) in &looks.seen {
+            for op in named {
+                if looks.right(op, got) == looks.telling.len() {
+                    readings.push(setting ^ levers(alu, op, 0));
+                }
+            }
+        }
+        readings.retain(|reading| !tried.contains(reading));
+        if readings.is_empty() {
+            if !widened.insert(best.1) {
+                return Ok(best.1);
+            }
+            for k in 0..alu.lines.len() {
+                for op in named {
+                    looks.look(levers(alu, op, best.1 ^ 1 << k))?;
+                }
+            }
+        }
+    }
+}
+
+impl Alu {
+    /// The lines it reads inverted, by name.
+    fn inverted_lines(&self, interface: &Interface) -> Vec<String> {
+        self.lines
+            .iter()
+            .zip(&self.inverted)
+            .filter(|&(_, &inverted)| inverted)
+            .map(|(&(port, _), _)| port)
+            .chain(self.carry_in.filter(|_| self.carry_inverted))
+            .map(|port| interface.inputs[port].name.clone())
+            .collect()
+    }
 }
 
 /// One operation and the control lines that choose it.
@@ -181,13 +401,17 @@ struct Selection {
     label: String,
 }
 
-/// Every line off but those in `on`, with the carry in held off.
+/// The levers setting every line off but those in `on`, an inverted
+/// line's lever on when it is off, with the carry in held off.
 fn hold(alu: &Alu, on: impl Fn(usize) -> bool) -> Vec<(usize, u64)> {
     alu.lines
         .iter()
         .enumerate()
-        .map(|(k, &(port, _))| (port, u64::from(on(k))))
-        .chain(alu.carry_in.map(|port| (port, 0)))
+        .map(|(k, &(port, _))| (port, u64::from(on(k) != alu.inverted[k])))
+        .chain(
+            alu.carry_in
+                .map(|port| (port, u64::from(alu.carry_inverted))),
+        )
         .collect()
 }
 
@@ -243,6 +467,7 @@ fn selections(
             held: held.clone(),
             care: u64::MAX,
             presses: Vec::new(),
+            invertible: false,
         };
         let got = observe(blocks, interface, &bench, &telling, None)?;
         let right = |op: &str| {
@@ -293,7 +518,7 @@ fn selections(
 /// `quick` a few telling ones of each.
 pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     let interface = crate::interface::read(blocks);
-    let alu = ports(&interface)?;
+    let alu = polarized(blocks, &interface)?;
     let found = selections(blocks, &interface, &alu)?;
     let mut runs = Vec::new();
     for selection in &found {
@@ -308,6 +533,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
         .map(|s| s.label.as_str())
         .collect::<Vec<_>>()
         .join(", ");
+    merged.inverted = alu.inverted_lines(&interface);
     Ok(merged)
 }
 
@@ -328,13 +554,15 @@ fn check_one(
     let op = selection.op;
     let width = alu.width;
     let carry = takes_carry(op) && alu.carry_in.is_some();
+    // An operation taking the carry in drives it as a case; any other
+    // holds it at 0, its lever as `hold` sets it.
     let mut inputs = vec![alu.a, alu.b];
-    inputs.extend(alu.carry_in);
+    inputs.extend(alu.carry_in.filter(|_| carry));
     let held: Vec<(usize, u64)> = selection
         .held
         .iter()
         .copied()
-        .filter(|&(port, _)| Some(port) != alu.carry_in)
+        .filter(|&(port, _)| !carry || Some(port) != alu.carry_in)
         .collect();
     let arithmetic = matches!(op, "add" | "sub");
     let statuses: Vec<Status> = [
@@ -365,6 +593,7 @@ fn check_one(
         held,
         care,
         presses: Vec::new(),
+        invertible: false,
     };
     let widths: Vec<usize> = if carry {
         vec![width, width, 1]
@@ -379,12 +608,14 @@ fn check_one(
         cases(&widths, || adder_cases(width, carry, 8))
     };
     let data_bits = alu.data_bits;
+    let carry_inverted = u64::from(carry && alu.carry_inverted);
     let expected = |case: &Case| {
-        let result = apply(op, case[0], case[1], case[2], width) & mask(width);
+        let carry = case[2] ^ carry_inverted;
+        let result = apply(op, case[0], case[1], carry, width) & mask(width);
         statuses.iter().enumerate().fold(
             result,
             |value, (k, &(_, _, status))| {
-                let on = status(op, case[0], case[1], case[2], width);
+                let on = status(op, case[0], case[1], carry, width);
                 value | u64::from(on) << (data_bits + k)
             },
         )
@@ -433,7 +664,7 @@ fn zero(op: &str, a: u64, b: u64, carry: u64, width: usize) -> bool {
 /// only when every operation's result is.
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let interface = crate::interface::read(blocks);
-    let alu = ports(&interface)?;
+    let alu = polarized(blocks, &interface)?;
     let mut slowest: Option<Timing> = None;
     let mut synced = true;
     for selection in selections(blocks, &interface, &alu)? {
@@ -470,7 +701,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
 /// and its carry out, overflow, and zero, whose meaning is plain.
 pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
     let interface = crate::interface::read(blocks);
-    let alu = ports(&interface)?;
+    let alu = polarized(blocks, &interface)?;
     let mut flags: Vec<String> = selections(blocks, &interface, &alu)?
         .iter()
         .map(|selection| selection.op)
@@ -499,7 +730,7 @@ pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
 /// control lines held.
 pub fn remembers(blocks: &Blocks) -> Result<bool> {
     let interface = crate::interface::read(blocks);
-    let alu = ports(&interface)?;
+    let alu = polarized(blocks, &interface)?;
     for selection in selections(blocks, &interface, &alu)? {
         let bench = Bench {
             inputs: vec![alu.a, alu.b],
@@ -508,6 +739,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
             held: selection.held.clone(),
             care: u64::MAX,
             presses: Vec::new(),
+            invertible: false,
         };
         if bench::remembers(blocks, &interface, &bench)? {
             return Ok(true);
@@ -524,7 +756,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
 /// to twice its slowest output keeps every result right.
 pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     let interface = crate::interface::read(blocks);
-    let alu = ports(&interface)?;
+    let alu = polarized(blocks, &interface)?;
     let ops = selections(blocks, &interface, &alu)?;
     if ops.is_empty() {
         return Ok(None);

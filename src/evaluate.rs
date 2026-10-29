@@ -201,8 +201,7 @@ impl Evaluation {
         // An adder's lines read inverted, as a subtractor's B is, and a
         // register's or buffer's reads.
         if test == Test::Adder {
-            let interface = interface::read(&self.prepared.blocks);
-            let variant = AdderVariant::of(&run.pattern).as_built(&interface);
+            let variant = AdderVariant::of(&run.pattern);
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
         }

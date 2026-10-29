@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::{
     Broken,
-    bench::{Bench, Case, Cases, Distinct, Hint, Kind, Spec, mask, patterns},
+    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::{interface::Interface, lint};
 
@@ -47,7 +47,6 @@ pub(super) fn spec(
             incrementer_cases(&widths)
         })),
         kinds,
-        hint: Hint::None,
         by_digit: false,
     })
 }

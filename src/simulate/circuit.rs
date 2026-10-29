@@ -2,7 +2,7 @@
 //! levers, buttons, or barrels, and its outputs read from their blocks.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     panic::AssertUnwindSafe,
     sync::Arc,
 };
@@ -72,8 +72,6 @@ enum Drive {
 /// presses.
 struct Lever {
     pos: BlockPos,
-    /// Saved on, so that on means a 0.
-    inverted: bool,
     on: bool,
     button: bool,
 }
@@ -205,7 +203,7 @@ impl Circuit {
         match &mut self.inputs[port] {
             Drive::Levers(levers) => {
                 for (i, lever) in levers.iter_mut().enumerate() {
-                    let on = (value >> i & 1 == 1) != lever.inverted;
+                    let on = value >> i & 1 == 1;
                     if lever.on != on && !lever.button {
                         if let Some(compiler) = &mut self.compiler {
                             compiler.on_use_block(lever.pos);
@@ -743,13 +741,19 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
 }
 
 /// An MCHPRS world holding `blocks` as they were saved, `MARGIN` blocks in
-/// from its west and north sides, not yet settled.
+/// from its west and north sides, not yet settled, every lever off: how a
+/// lever was saved says nothing, and each line's test finds whether it
+/// reads inverted.
 fn world(blocks: &Blocks) -> Result<TestWorld> {
     let chunks = |n: i32| (n + 15) / 16;
     let [x, y, z] = world_size(blocks);
     let mut world = TestWorld::new(chunks(x), chunks(y), chunks(z));
     for (pos, state) in blocks.iter() {
-        world.set_block(at(pos), block(state)?);
+        let mut block = block(state)?;
+        if let Block::Lever { powered, .. } = &mut block {
+            *powered = false;
+        }
+        world.set_block(at(pos), block);
     }
     for (&pos, &output_strength) in &blocks.comparators {
         world.set_block_entity(
@@ -777,6 +781,93 @@ fn world(blocks: &Blocks) -> Result<TestWorld> {
         );
     }
     Ok(world)
+}
+
+/// The components whose power a file saves in their state.
+const POWERED: [&str; 8] = [
+    "redstone_wire",
+    "repeater",
+    "comparator",
+    "redstone_torch",
+    "redstone_wall_torch",
+    "redstone_lamp",
+    "target",
+    "observer",
+];
+
+/// The properties of a component's state that say how it is powered.
+const POWER: [&str; 4] = ["power", "powered", "lit", "locked"];
+
+/// What `blocks` comes to rest as with every lever off but those at `on`,
+/// as the game settles it: each block whose state changes, as its state
+/// with its power alone changed, and each comparator whose strength does.
+pub fn settled(
+    blocks: &Blocks,
+    on: &BTreeSet<Pos>,
+) -> Result<(BTreeMap<Pos, String>, HashMap<Pos, u8>)> {
+    let mut world = world(blocks)?;
+    for &pos in on {
+        let mut block = world.get_block(at(pos));
+        if let Block::Lever { powered, .. } = &mut block {
+            *powered = true;
+            world.set_block(at(pos), block);
+        }
+    }
+    settle_world(&mut world, world_size(blocks))?;
+    let mut changes = BTreeMap::new();
+    for (pos, state) in blocks.iter() {
+        let short = schem::short(state);
+        let block = world.get_block(at(pos));
+        let now = if short == "lever" {
+            set_properties(state, &[("powered", on.contains(&pos).to_string())])
+        } else if POWERED.contains(&short) {
+            let properties = block.properties();
+            let power: Vec<(&str, String)> = POWER
+                .into_iter()
+                .filter_map(|key| Some((key, properties.get(key)?.clone())))
+                .collect();
+            set_properties(state, &power)
+        } else {
+            continue;
+        };
+        if now != state {
+            changes.insert(pos, now);
+        }
+    }
+    let strengths = blocks
+        .comparators
+        .iter()
+        .filter_map(|(&pos, &was)| {
+            let BlockEntity::Comparator { output_strength } =
+                world.get_block_entity(at(pos))?
+            else {
+                return None;
+            };
+            (*output_strength != was).then_some((pos, *output_strength))
+        })
+        .collect();
+    Ok((changes, strengths))
+}
+
+/// `state` with each of `properties` it has set to its value.
+fn set_properties(state: &str, properties: &[(&str, String)]) -> String {
+    let Some((id, rest)) = state.split_once('[') else {
+        return state.to_owned();
+    };
+    let fields: Vec<String> = rest
+        .trim_end_matches(']')
+        .split(',')
+        .map(|field| match field.split_once('=') {
+            Some((key, _)) => {
+                match properties.iter().find(|(k, _)| *k == key) {
+                    Some((_, value)) => format!("{key}={value}"),
+                    None => field.to_owned(),
+                }
+            }
+            None => field.to_owned(),
+        })
+        .collect();
+    format!("{id}[{}]", fields.join(","))
 }
 
 /// The world's size: the build's, with `MARGIN` on each side across.
@@ -856,8 +947,7 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
             };
             Ok(Lever {
                 pos: at(pos),
-                inverted: bit.inverted,
-                on: bit.inverted,
+                on: false,
                 button,
             })
         })
