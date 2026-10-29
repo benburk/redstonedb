@@ -125,7 +125,10 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
             data-state=(if report.failed() { "fail" } else { "pass" })
             data-summary=(simulation_summary(report))
             data-stack=[found_stack(report)] {
-            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-2" } { "Simulation" }
+            // Timing is measured only on a pass, and says it was simulated.
+            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-2" } {
+                @if report.passed() { "Timing" } @else { "Simulation" }
+            }
             @match report {
                 Report::Skipped { reason } => p class="text-muted" { "Not simulated: " (reason) },
                 Report::Broken { reason } => p class="text-danger" { strong { "Broken: " } (reason) },
@@ -269,17 +272,9 @@ fn timing_intro(timing: &Timing) -> Markup {
 }
 
 pub fn timing_section(timing: &Timing) -> Markup {
-    let case: Vec<String> = timing
-        .inputs
-        .iter()
-        .zip(&timing.slowest_case)
-        .map(|(input, value)| format!("{}={value}", input.name))
-        .collect();
     html! {
-        section aria-labelledby="timing-heading" class="mt-6"
-            data-timing data-state=(if timing.synced { "pass" } else { "fail" })
+        div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
             data-summary=(timing_summary(timing)) {
-            h3 id="timing-heading" class="mb-2 font-semibold" { "Timing" }
             (timing_intro(timing))
             div class="relative overflow-x-auto" {
                 table class="w-full border-collapse" {
@@ -315,10 +310,6 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 dd {
                     @if timing.synced { "✓" } @else { strong class="text-danger" { "✗" } }
                 }
-                dt class="text-muted" { "Settles, p50 / p99 / max" }
-                dd { (timing.median) "t / " (timing.p99) "t / " (timing.slowest) "t" }
-                dt class="text-muted" { "Slowest case" }
-                dd { (case.join(", ")) }
                 @for output in timing.outputs.iter().filter(|o| o.staggered > 0) {
                     dt class="text-muted" { "Bits apart, " (output.name) }
                     dd class="text-danger" { (grouped(output.staggered)) " changes" }
