@@ -429,7 +429,7 @@ pub fn build_info(
             @if let Some(description) = &s.description {
                 section aria-labelledby="description-heading" {
                     h2 id="description-heading" class={ (SECTION_TITLE) " mb-2" } { "Description" }
-                    p class="leading-prose whitespace-pre-line" { (description) }
+                    div class="rich max-w-prose leading-prose break-words" { (super::description::render(description)) }
                 }
             }
             @if !similar.is_empty() {

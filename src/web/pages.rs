@@ -23,6 +23,7 @@ const SWITCHES: &str =
 
 mod about;
 mod build;
+mod description;
 mod details_page;
 mod form;
 mod icons;

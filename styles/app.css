@@ -191,6 +191,35 @@
     @apply bg-danger text-on-danger;
   }
 
+  /* A build's description, its writer's inline marks drawn as
+     mdwriter draws a document's: code on an inset ground with no padding
+     to push the line off its grid, links underlined, a quote ruled at
+     its left edge and muted. */
+  .rich {
+    & p + p,
+    & p + blockquote,
+    & blockquote + p,
+    & blockquote + blockquote {
+      @apply mt-3;
+    }
+
+    & blockquote {
+      @apply border-l-2 border-line pl-3 text-muted;
+    }
+
+    & code {
+      @apply rounded-[0.25rem] bg-line font-mono text-[0.9em];
+    }
+
+    & a {
+      @apply text-brand underline underline-offset-2;
+    }
+
+    & s {
+      @apply text-muted;
+    }
+  }
+
   /* A page written in Markdown, such as the building conventions, whose
      elements carry no classes of their own. */
   .doc {
