@@ -413,7 +413,41 @@ fn cube_color(name: &str) -> Rgba {
     if let Some(dye) = name.strip_suffix("_concrete") {
         return dye_color(dye);
     }
+    // Wool is a little lighter than concrete, terracotta duller.
+    if let Some(dye) = name.strip_suffix("_wool") {
+        return shade(dye_color(dye), 1.15);
+    }
+    if let Some(dye) = name.strip_suffix("_terracotta") {
+        let [r, g, b, a] = dye_color(dye);
+        let mix = |c: u8| u8::midpoint(c, 150);
+        return shade(
+            [
+                mix(r),
+                mix(g).saturating_sub(15),
+                mix(b).saturating_sub(30),
+                a,
+            ],
+            0.85,
+        );
+    }
     match name {
+        "terracotta" => [152, 94, 67, 255],
+        "oak_planks" => [162, 130, 78, 255],
+        "spruce_planks" => [114, 84, 48, 255],
+        "birch_planks" => [192, 175, 121, 255],
+        "jungle_planks" => [160, 115, 80, 255],
+        "acacia_planks" => [168, 90, 50, 255],
+        "dark_oak_planks" => [66, 43, 20, 255],
+        "mangrove_planks" => [117, 54, 48, 255],
+        "cherry_planks" => [226, 178, 172, 255],
+        "bamboo_planks" => [193, 173, 80, 255],
+        "crimson_planks" => [101, 48, 70, 255],
+        "warped_planks" => [43, 104, 99, 255],
+        "cobblestone" => [118, 118, 118, 255],
+        "polished_granite" => [154, 106, 89, 255],
+        "deepslate_tiles" => [54, 54, 55, 255],
+        "polished_blackstone" => [53, 48, 56, 255],
+        "smooth_sandstone" => [223, 214, 170, 255],
         "glass" => [200, 222, 232, 90],
         // The solid blocks a palette may build with.
         "stone" => [125, 125, 125, 255],
@@ -431,6 +465,33 @@ fn cube_color(name: &str) -> Rgba {
         "piston" | "sticky_piston" | "piston_head" => [160, 140, 100, 255],
         _ => [150, 150, 150, 255],
     }
+}
+
+/// A block's icon for picking it: a small cube from the south-east and
+/// above, its faces shaded as a thumbnail's are, as a PNG.
+pub fn icon(name: &str) -> Result<Vec<u8>> {
+    const SIZE: u16 = 32;
+    let mut pixmap = Pixmap::new(u32::from(SIZE), u32::from(SIZE))
+        .context("icon size is zero")?;
+    let colour = cube_color(name);
+    let (c, half, quarter) = (16.0, 13.0, 6.5);
+    let top = [c, c - 2.0 * quarter + 1.0];
+    let (left, right) =
+        ([c - half, c - quarter + 1.0], [c + half, c - quarter + 1.0]);
+    let middle = [c, c + 1.0];
+    let drop = |[x, y]: [f32; 2]| [x, y + 2.0 * half - 2.0 * quarter];
+    face(&mut pixmap, [top, right, middle, left], shade(colour, TOP));
+    face(
+        &mut pixmap,
+        [left, middle, drop(middle), drop(left)],
+        shade(colour, SOUTH),
+    );
+    face(
+        &mut pixmap,
+        [middle, right, drop(right), drop(middle)],
+        shade(colour, EAST),
+    );
+    pixmap.encode_png().context("could not encode the icon")
 }
 
 /// Minecraft's concrete colours, by dye, such as `light_blue`.

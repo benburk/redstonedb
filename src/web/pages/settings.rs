@@ -108,28 +108,37 @@ fn schemati_section(connection: &Connection, message: &str) -> Markup {
 
 /// The choice of a light or dark theme, or the system's, which a script
 /// keeps in this browser and applies on every page.
-/// The blocks recognized builds are shown and downloaded in, as `chosen`.
+/// The blocks recognized builds are shown and downloaded in, as `chosen`,
+/// picked by their icons, with palettes people like to start from.
 fn palette_section(chosen: &Palette) -> Markup {
-    let words = |name: &str| name.replace('_', " ");
-    let select = |name: &str, label: &str, options: &[&str], current: &str| {
-        html! {
-            label class="field" {
-                span { (label) }
-                select name=(name) class="input" {
-                    @for option in options {
-                        option value=(option) selected[*option == current] { (words(option)) }
-                    }
-                }
-            }
-        }
+    let plain = |groups: Vec<(&'static str, Vec<String>)>| -> Vec<(&'static str, Vec<(String, String)>)> {
+        groups
+            .into_iter()
+            .map(|(group, blocks)| {
+                (group, blocks.into_iter().map(|b| (b.clone(), b)).collect())
+            })
+            .collect()
     };
+    let colours: Vec<(&str, Vec<(String, String)>)> = vec![(
+        "Concrete",
+        palette::colours()
+            .map(|dye| (dye.to_owned(), format!("{dye}_concrete")))
+            .collect(),
+    )];
     html! {
         section aria-labelledby="palette-heading" class="mt-12" {
             h2 id="palette-heading" class={ (SECTION_TITLE) " mb-1" } { "Palette" }
             p class="mb-4 max-w-prose text-muted" {
                 "The blocks recognized builds are shown and downloaded in. A block that must be solid or transparent stays so; one that may be either takes the kind you prefer."
             }
-            form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
+            form action="/settings/palette" method="post" class="flex flex-col gap-6" {
+                div class="flex flex-wrap items-center gap-2" {
+                    span class="font-semibold" { "Start from" }
+                    @for (key, name, _) in palette::presets() {
+                        button type="submit" name="preset" value=(key) formnovalidate class="btn btn-quiet" { (name) }
+                    }
+                    button type="submit" name="reset" value="yes" formnovalidate class="btn btn-quiet" { "The site's own" }
+                }
                 fieldset class="flex flex-col gap-1" {
                     legend class="mb-1 font-semibold" { "Blocks that may be either kind" }
                     @for (value, label) in [("solid", "Solid"), ("transparent", "Transparent")] {
@@ -140,14 +149,45 @@ fn palette_section(chosen: &Palette) -> Markup {
                         }
                     }
                 }
-                (select("solid", "Solid block", &palette::SOLID, &chosen.solid))
-                (select("transparent", "Transparent block", &palette::TRANSPARENT, &chosen.transparent))
+                (picker("solid", "Solid block", &plain(palette::solid()), &chosen.solid))
+                (picker("transparent", "Transparent block", &plain(palette::transparent()), &chosen.transparent))
                 @for (key, label, site) in palette::ROLES {
-                    (select(key, label, &palette::COLOURS, chosen.colours.get(key).map_or(site, String::as_str)))
+                    (picker(key, label, &colours, chosen.colours.get(key).map_or(site, String::as_str)))
                 }
-                div class="flex gap-2" {
-                    button type="submit" class="btn btn-primary" { "Save" }
-                    button type="submit" name="reset" value="yes" formnovalidate class="btn btn-quiet" { "Back to the site's" }
+                div { button type="submit" class="btn btn-primary" { "Save" } }
+            }
+        }
+    }
+}
+
+/// A choice of blocks by their icons, under their groups' names: each a
+/// value sent as `name` and the block pictured for it, `current` chosen.
+fn picker(
+    name: &str,
+    legend: &str,
+    groups: &[(&str, Vec<(String, String)>)],
+    current: &str,
+) -> Markup {
+    let words = |name: &str| name.replace('_', " ");
+    html! {
+        fieldset class="flex flex-col gap-2" {
+            legend class="mb-1 font-semibold" {
+                (legend) ": " span class="font-normal text-muted" { (words(current)) }
+            }
+            @for (group, choices) in groups {
+                div {
+                    p class="mb-1 text-meta text-muted" { (group) }
+                    div class="flex flex-wrap gap-1" {
+                        @for (value, block) in choices {
+                            label title=(words(block))
+                                class="cursor-pointer rounded-control border-2 border-transparent p-0.5 hover:border-boundary has-checked:border-brand has-focus-visible:outline-2 has-focus-visible:outline-brand" {
+                                input type="radio" name=(name) value=(value)
+                                    checked[value == current] class="sr-only";
+                                img src={ "/blocks/" (block) ".png" } alt=(words(block))
+                                    width="32" height="32" loading="lazy" class="block";
+                            }
+                        }
+                    }
                 }
             }
         }

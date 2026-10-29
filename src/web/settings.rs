@@ -56,6 +56,26 @@ pub(super) async fn page(
     .into_response())
 }
 
+/// A block's icon, for the palette picker: only of a block a palette may
+/// name.
+pub async fn block_icon(
+    axum::extract::Path(file): axum::extract::Path<String>,
+) -> Result<Response, AppError> {
+    let name = file.strip_suffix(".png").ok_or(AppError::NotFound)?;
+    if !palette::every_block().any(|block| block == name) {
+        return Err(AppError::NotFound);
+    }
+    let png = crate::thumbnail::icon(name)?;
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "image/png"),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        png,
+    )
+        .into_response())
+}
+
 /// The palette form: every field, or `reset` to go back to the site's.
 #[derive(Deserialize)]
 pub struct PaletteForm {
@@ -68,6 +88,8 @@ pub struct PaletteForm {
     output: Option<String>,
     status: Option<String>,
     reset: Option<String>,
+    /// A preset's key, to take its palette whole.
+    preset: Option<String>,
 }
 
 /// Keeps the viewer's palette, or goes back to the site's: as the site's
@@ -92,6 +114,13 @@ pub async fn set_palette(
         .into_iter()
         .filter_map(|(key, colour)| Some((key.to_owned(), colour?)))
         .collect(),
+    };
+    let chosen = match form.preset.as_deref() {
+        Some(key) => palette::presets()
+            .into_iter()
+            .find(|(k, ..)| *k == key)
+            .map_or(chosen, |(.., preset)| preset),
+        None => chosen,
     };
     let keep = form.reset.is_none() && chosen.valid() && chosen != site;
     palette::set(&state.db, user.id, keep.then_some(&chosen)).await?;

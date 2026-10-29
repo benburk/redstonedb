@@ -4,8 +4,9 @@
 //! colours; a palette swaps those for the viewer's choices, each block of a
 //! build that may be either kind becoming the kind the viewer prefers.
 //!
-//! Building blocks stay plain, white, light gray, or uncoloured, as a lone
-//! coloured block with dust on it marks an output.
+//! Any full block may be the solid one, and any glass the transparent one:
+//! an output's mark is a kind of block used for nothing else, so a build of
+//! coloured wool or glass is still read right if it comes back.
 
 use std::collections::BTreeMap;
 
@@ -19,42 +20,105 @@ use crate::{
     standardize,
 };
 
-/// The solid blocks a palette may build with.
-pub const SOLID: [&str; 11] = [
-    "white_concrete",
-    "light_gray_concrete",
+/// Minecraft's dyes, in its own order.
+pub const DYES: [&str; 16] = [
+    "white",
+    "light_gray",
+    "gray",
+    "black",
+    "brown",
+    "red",
+    "orange",
+    "yellow",
+    "lime",
+    "green",
+    "cyan",
+    "light_blue",
+    "blue",
+    "purple",
+    "magenta",
+    "pink",
+];
+
+const WOODS: [&str; 11] = [
+    "oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove",
+    "cherry", "bamboo", "crimson", "warped",
+];
+
+const STONES: [&str; 12] = [
     "stone",
     "smooth_stone",
     "stone_bricks",
-    "smooth_quartz",
-    "quartz_block",
-    "white_wool",
-    "white_terracotta",
+    "cobblestone",
     "polished_andesite",
     "polished_diorite",
+    "polished_granite",
+    "deepslate_tiles",
+    "polished_blackstone",
+    "smooth_sandstone",
+    "smooth_quartz",
+    "quartz_block",
 ];
 
-/// The transparent blocks a palette may build with.
-pub const TRANSPARENT: [&str; 3] =
-    ["white_stained_glass", "glass", "light_gray_stained_glass"];
+/// The solid blocks a palette may build with, by group: any full block
+/// that carries power as concrete does.
+pub fn solid() -> Vec<(&'static str, Vec<String>)> {
+    let dyed =
+        |kind: &str| DYES.iter().map(|d| format!("{d}_{kind}")).collect();
+    vec![
+        ("Concrete", dyed("concrete")),
+        ("Wool", dyed("wool")),
+        (
+            "Terracotta",
+            std::iter::once("terracotta".to_owned())
+                .chain(DYES.iter().map(|d| format!("{d}_terracotta")))
+                .collect(),
+        ),
+        (
+            "Planks",
+            WOODS.iter().map(|w| format!("{w}_planks")).collect(),
+        ),
+        ("Stone", STONES.iter().map(|&s| s.to_owned()).collect()),
+    ]
+}
 
-/// The colours a role may be marked with: any but white and gray, which
+/// The transparent blocks a palette may build with, by group.
+pub fn transparent() -> Vec<(&'static str, Vec<String>)> {
+    vec![(
+        "Glass",
+        std::iter::once("glass".to_owned())
+            .chain(DYES.iter().map(|d| format!("{d}_stained_glass")))
+            .collect(),
+    )]
+}
+
+/// Every block a palette may name, of either kind.
+pub fn every_block() -> impl Iterator<Item = String> {
+    solid()
+        .into_iter()
+        .chain(transparent())
+        .flat_map(|(_, blocks)| blocks)
+}
+
+/// The colours a role may be marked with: any dye but white and gray, which
 /// mark plain blocks and a stack's first copy's logic.
-pub const COLOURS: [&str; 13] = [
-    "lime",
-    "light_blue",
-    "magenta",
-    "yellow",
-    "pink",
-    "orange",
-    "red",
-    "green",
-    "cyan",
-    "blue",
-    "purple",
-    "brown",
-    "black",
-];
+pub fn colours() -> impl Iterator<Item = &'static str> {
+    DYES.into_iter().filter(|d| !matches!(*d, "white" | "gray"))
+}
+
+/// Palettes people like, each with a key and a name.
+pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
+    vec![(
+        "gray-lime",
+        "Gray concrete and lime glass, glass by default",
+        Palette {
+            prefer_solid: false,
+            solid: "gray_concrete".to_owned(),
+            transparent: "lime_stained_glass".to_owned(),
+            ..Palette::default()
+        },
+    )]
+}
 
 /// The roles a palette colours, each with the site's own colour for it.
 pub const ROLES: [(&str, &str, &str); 5] = [
@@ -81,8 +145,8 @@ impl Default for Palette {
     fn default() -> Self {
         Palette {
             prefer_solid: true,
-            solid: SOLID[0].to_owned(),
-            transparent: TRANSPARENT[0].to_owned(),
+            solid: "white_concrete".to_owned(),
+            transparent: "white_stained_glass".to_owned(),
             colours: ROLES
                 .iter()
                 .map(|&(key, _, colour)| (key.to_owned(), colour.to_owned()))
@@ -94,11 +158,16 @@ impl Default for Palette {
 impl Palette {
     /// Whether every choice is one a palette may make.
     pub fn valid(&self) -> bool {
-        SOLID.contains(&self.solid.as_str())
-            && TRANSPARENT.contains(&self.transparent.as_str())
+        let among = |groups: Vec<(&str, Vec<String>)>, block: &str| {
+            groups
+                .iter()
+                .any(|(_, blocks)| blocks.iter().any(|b| b == block))
+        };
+        among(solid(), &self.solid)
+            && among(transparent(), &self.transparent)
             && self.colours.iter().all(|(key, colour)| {
                 ROLES.iter().any(|(k, ..)| k == key)
-                    && COLOURS.contains(&colour.as_str())
+                    && colours().any(|c| c == colour)
             })
     }
 

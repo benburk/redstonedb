@@ -243,6 +243,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/settings", get(settings::show))
         .route("/settings/minecraft", post(settings::set_minecraft_name))
         .route("/settings/palette", post(settings::set_palette))
+        .route("/blocks/{file}", get(settings::block_icon))
         .route("/schemati", get(schemati::show))
         .route("/schemati/session", post(schemati::connect))
         .route("/schemati/session/delete", post(schemati::disconnect))
