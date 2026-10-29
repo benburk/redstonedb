@@ -265,7 +265,7 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
                         @for (key, name, preset) in palette::presets() {
                             li { (preset_choice("preset", key, name, &preset)) }
                         }
-                        li { (preset_choice("reset", "yes", "The site's own", &Palette::default())) }
+                        li { (preset_choice("reset", "yes", "Default", &Palette::default())) }
                     }
                 }
             }
