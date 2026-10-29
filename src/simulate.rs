@@ -257,6 +257,12 @@ impl Test {
         }
     }
 
+    /// A few telling cases of the test run on `blocks`, as its colours mark
+    /// its lines: enough to tell one reading of a build from another.
+    pub fn quick(self, blocks: &Blocks) -> Result<Run> {
+        self.check(blocks, true)
+    }
+
     /// The test's cases run on `blocks` through `interface`, as probing
     /// finds it rather than as colours mark it, or with `quick` a few
     /// telling ones. For the tests driven by a spec only, such as an

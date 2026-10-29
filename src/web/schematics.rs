@@ -554,18 +554,22 @@ pub async fn detail(
     .into_response())
 }
 
-/// For build `s`, filed off the list as an adder, what keeps it from being
-/// recognized as one by the check by function on its file `data`: one
-/// line for each fault. Empty for any other build.
+/// For build `s`, filed off the list as an adder or a register, what keeps
+/// it from being recognized as one by the check by function on its file
+/// `data`: one line for each fault. Empty for any other build.
 async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
-    if crate::models::simulation::meant_by(&s.category) != Some("adder") {
+    let Some(meant) = crate::models::simulation::meant_by(&s.category)
+        .filter(|meant| ["adder", "register"].contains(meant))
+        .map(str::to_owned)
+    else {
         return Vec::new();
-    }
+    };
     let data = data.to_vec();
     // Probing simulates, so off the async threads.
-    let recognized =
-        tokio::task::spawn_blocking(move || crate::probe::recognize(&data))
-            .await;
+    let recognized = tokio::task::spawn_blocking(move || {
+        crate::probe::recognize_as(&data, Some(&meant))
+    })
+    .await;
     match recognized {
         Ok(Ok(recognition)) => recognition.problems,
         Ok(Err(err)) => vec![err.to_string()],

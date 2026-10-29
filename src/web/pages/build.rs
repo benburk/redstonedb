@@ -34,8 +34,8 @@ const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from
 /// What a stored build's file says about it.
 pub struct FileRead {
     pub analysis: Analysis,
-    /// For a build off the list as one of a category the check by function
-    /// recognizes, each fault that keeps it from being recognized.
+    /// For a build off the list as an adder or a register, which the check
+    /// by function recognizes, each fault that keeps it from being one.
     pub unrecognized: Vec<String>,
     /// Whether it takes a signal strength as an input, which keeps it
     /// from being recognized.

@@ -455,13 +455,19 @@ const MARKS: [&str; 9] = [
 /// turns white, so none is taken for an input or output. A block keeps its
 /// kind, stained glass staying glass, as dust treats it differently.
 pub fn colour(data: &[u8], layout: &Layout) -> anyhow::Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
     let mut roles: HashMap<Pos, &str> = HashMap::new();
     roles.extend(layout.a.iter().map(|&p| (p, "lime")));
     roles.extend(layout.b.iter().map(|&p| (p, "light_blue")));
     roles.extend(layout.carry_in.map(|p| (p, "magenta")));
     roles.extend(layout.sum.iter().map(|&p| (p, "yellow")));
     roles.extend(layout.carry_out.map(|p| (p, "pink")));
+    paint(data, &roles)
+}
+
+/// The file in `data` with each block of `roles` in its colour, and every
+/// other block of a colour that marks a role turned white.
+fn paint(data: &[u8], roles: &HashMap<Pos, &str>) -> anyhow::Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
     let recoloured = |pos: Pos, name: &str| -> Option<String> {
         let glass = name.ends_with("_stained_glass");
         let colour = match roles.get(&pos) {
@@ -499,9 +505,47 @@ pub struct Recognition {
     pub problems: Vec<String>,
 }
 
+/// The file in `data` with what the simulator does not model but redstone
+/// treats as a plain block in its place: a slab, stairs, or glowstone as
+/// white stained glass, which redstone sees through as it does them, and a
+/// furnace, cauldron, or cake as a barrel giving the same strength. Every
+/// colour stays, so no input or output is lost, as standardizing would
+/// whiten an output it does not know.
+pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let data = crate::standardize::barrels(data, &[])?;
+    let blocks = Blocks::read(&data)?;
+    let changes: std::collections::BTreeMap<Pos, String> = blocks
+        .iter()
+        .filter(|&(_, state)| {
+            let name = schem::short(state);
+            name.ends_with("_slab")
+                || name.ends_with("_stairs")
+                || name == "glowstone"
+        })
+        .map(|(pos, _)| (pos, "minecraft:white_stained_glass".to_owned()))
+        .collect();
+    if changes.is_empty() {
+        return Ok(data);
+    }
+    crate::standardize::edit(&data, &changes)
+}
+
 /// The file in `data` inspected and, if nothing is wrong with its levers
-/// and outputs, probed as an adder.
+/// and outputs, probed as an adder, then as a register.
 pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
+    recognize_as(data, None)
+}
+
+/// As `recognize`, probing only as `meant`, `adder` or `register`, when
+/// given. Probed as both and recognized as neither, its faults are the
+/// register's when it has a button, which only a register's writes are,
+/// else the adder's.
+pub fn recognize_as(
+    data: &[u8],
+    meant: Option<&str>,
+) -> anyhow::Result<Recognition> {
+    let simulated = simulatable(data)?;
+    let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
     let report = inspect::inspect(&blocks);
     let mut problems: Vec<String> =
@@ -513,31 +557,209 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
             },
         ));
     }
+    let unrecognized = |problems| Recognition {
+        file: data.to_vec(),
+        found: None,
+        problems,
+    };
     if !problems.is_empty() {
-        return Ok(Recognition {
-            file: data.to_vec(),
-            found: None,
-            problems,
-        });
+        return Ok(unrecognized(problems));
     }
-    match adder(&blocks, &report) {
-        Ok(probed) => Ok(Recognition {
-            file: colour(data, &probed.layout)?,
-            found: Some(format!(
-                "an adder, {}: all {} cases right, {}",
-                probed.layout.describe(),
-                probed.run.cases,
-                probed.run.pattern
-            )),
-            problems,
-        }),
-        Err(why) => {
-            problems.push(why);
-            Ok(Recognition {
-                file: data.to_vec(),
-                found: None,
-                problems,
-            })
+    let mut adder_fault = None;
+    if meant != Some("register") {
+        match adder(&blocks, &report) {
+            Ok(probed) => {
+                return Ok(Recognition {
+                    file: colour(data, &probed.layout)?,
+                    found: Some(format!(
+                        "an adder, {}: all {} cases right, {}",
+                        probed.layout.describe(),
+                        probed.run.cases,
+                        probed.run.pattern
+                    )),
+                    problems,
+                });
+            }
+            Err(why) => adder_fault = Some(why),
         }
+    }
+    let mut register_fault = None;
+    if meant != Some("adder") {
+        match register(data, &report) {
+            Ok(probed) => {
+                return Ok(Recognition {
+                    found: Some(format!(
+                        "a register: all {} cases right, {}",
+                        probed.run.cases, probed.run.pattern
+                    )),
+                    file: probed.file,
+                    problems,
+                });
+            }
+            Err(why) => register_fault = Some(why),
+        }
+    }
+    let buttons = blocks.switches().iter().any(|switch| switch.button);
+    let fault = match (adder_fault, register_fault) {
+        (Some(adder), Some(register)) => {
+            if buttons {
+                register
+            } else {
+                adder
+            }
+        }
+        (Some(only), None) | (None, Some(only)) => only,
+        (None, None) => String::new(),
+    };
+    problems.push(fault);
+    Ok(unrecognized(problems))
+}
+
+/// A register as probing found it: its data bus in, its controls, writes
+/// on buttons and reads on levers, its data bus out, the file with them
+/// coloured as the register test reads them, and that test's run.
+pub struct RegisterProbed {
+    pub data_in: Vec<Pos>,
+    pub controls: Vec<Pos>,
+    pub data_out: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The register the file in `data` is, from `report`'s levers and outputs:
+/// its one output line the data bus out, an input line as wide the data
+/// bus in, and every other switch a control; each way of choosing the bus
+/// in coloured and run through the register test, quick cases first. Or
+/// why none holds.
+pub fn register(
+    data: &[u8],
+    report: &inspect::Report,
+) -> Result<RegisterProbed, String> {
+    let [out] = report.outputs.as_slice() else {
+        return Err(format!(
+            "Output bus: line lengths {}",
+            lengths(&report.outputs)
+        ));
+    };
+    let width = out.bits.len();
+    let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
+    let buttons: Vec<Pos> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| switch.button)
+        .map(|switch| switch.block)
+        .collect();
+    let every: Vec<Pos> = report
+        .inputs
+        .iter()
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    // A data line is levers; a lone button is a write.
+    let buses: Vec<&Run> = report
+        .inputs
+        .iter()
+        .filter(|run| {
+            run.bits.len() == width
+                && run.bits.iter().all(|bit| !buttons.contains(bit))
+        })
+        .collect();
+    if buses.is_empty() {
+        return Err(format!("Data bus: no line of {width} levers"));
+    }
+    let mut why = String::new();
+    for bus in buses {
+        let controls: Vec<Pos> = every
+            .iter()
+            .filter(|bit| !bus.bits.contains(bit))
+            .copied()
+            .collect();
+        if !controls.iter().any(|bit| buttons.contains(bit)) {
+            "Controls: no write button".clone_into(&mut why);
+            continue;
+        }
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(bus.bits.iter().map(|&p| (p, "lime")));
+        roles.extend(controls.iter().map(|&p| (p, "magenta")));
+        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match Test::Register.quick(&coloured) {
+            Ok(run) if run.wrong == 0 => {}
+            Ok(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+                continue;
+            }
+            Err(err) => {
+                why = format!("Test couldn't run: {err}");
+                continue;
+            }
+        }
+        match Test::Register.run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(RegisterProbed {
+                    data_in: bus.bits.clone(),
+                    controls,
+                    data_out: out.bits.clone(),
+                    file,
+                    run: *run,
+                });
+            }
+            simulate::Report::Ran(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    /// The fixture `name` with its input colours, lime and magenta, turned
+    /// white, as a build without colour conventions is.
+    fn uncoloured(name: &str) -> Vec<u8> {
+        let data =
+            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+        let blocks = Blocks::read(&data).unwrap();
+        let changes: BTreeMap<Pos, String> = blocks
+            .iter()
+            .filter(|&(_, state)| {
+                ["lime", "magenta"]
+                    .iter()
+                    .any(|c| schem::short(state).starts_with(c))
+            })
+            .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
+            .collect();
+        crate::standardize::edit(&data, &changes).unwrap()
+    }
+
+    #[test]
+    fn a_register_is_found_from_its_levers_and_buttons() {
+        let data = uncoloured("register-8-2-cells");
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a register")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
+        let as_adder = recognize_as(&data, Some("adder")).unwrap();
+        assert!(as_adder.found.is_none());
     }
 }

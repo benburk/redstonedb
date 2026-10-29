@@ -211,7 +211,8 @@ enum Command {
 struct Rebuild {
     /// The copy of the database to take the builds from
     from: PathBuf,
-    /// The category to rebuild, probed as it; only adders are, so far
+    /// The category to rebuild, probed as it; only adders and registers
+    /// are, so far
     #[arg(long, default_value = "adder")]
     category: String,
     /// A folder of fixed files, each named for the start of its build's
@@ -1137,8 +1138,8 @@ async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
 /// under the category if they pass now. With `args.other`, what can't be
 /// rebuilt goes in off the list as `keep_off_list` does.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
-    if args.category != "adder" {
-        bail!("only adders are probed so far");
+    if !["adder", "register"].contains(&args.category.as_str()) {
+        bail!("only adders and registers are probed so far");
     }
     let from =
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
@@ -1301,9 +1302,10 @@ async fn store_as_before(
 }
 
 /// Stores build `s` of database `from`, its file `data`: inspected and
-/// probed as an adder, its roles coloured in, standardized, and checked as
-/// an upload is, under its own id, with its details, credits, tags,
-/// uploader, date added, and downloads; then simulated. The `Err` says why
+/// probed as its category, an adder or a register, its roles coloured in,
+/// standardized, and checked as an upload is, under its own id, with its
+/// details, credits, tags, uploader, date added, and downloads; then
+/// simulated. The `Err` says why
 /// it can't be.
 async fn rebuild_one(
     db: &SqlitePool,
@@ -1311,16 +1313,24 @@ async fn rebuild_one(
     s: &schematic::Schematic,
     data: &[u8],
 ) -> Result<Result<(), String>> {
+    let data = app::probe::simulatable(data)?;
+    let data = data.as_slice();
     let blocks = app::schem::Blocks::read(data)?;
     let report = app::inspect::inspect(&blocks);
     if let Some(problem) = report.errors.first() {
         return Ok(Err(problem.message.clone()));
     }
-    let probed = match app::probe::adder(&blocks, &report) {
-        Ok(probed) => probed,
-        Err(why) => return Ok(Err(why)),
+    let coloured = if s.category == "register" {
+        match app::probe::register(data, &report) {
+            Ok(probed) => probed.file,
+            Err(why) => return Ok(Err(why)),
+        }
+    } else {
+        match app::probe::adder(&blocks, &report) {
+            Ok(probed) => app::probe::colour(data, &probed.layout)?,
+            Err(why) => return Ok(Err(why)),
+        }
     };
-    let coloured = app::probe::colour(data, &probed.layout)?;
     let prepared =
         import::prepare(&coloured, Some(Gray::Keep), true, false, true)?;
     let ready = match details::check(
