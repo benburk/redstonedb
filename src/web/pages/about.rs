@@ -8,7 +8,9 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use crate::{
     category::Stacking,
+    guide,
     models::{catalogue::Category, user::User},
+    web::guide_image,
 };
 
 use super::{
@@ -51,53 +53,81 @@ pub fn about(viewer: Option<&User>) -> Markup {
 }
 
 /// What an upload needs and what the site does with it: the terms a build
-/// is taken on, read before uploading.
+/// is taken on, read before uploading, each rule pictured by the examples
+/// in [`crate::guide`].
 pub fn before_upload(viewer: Option<&User>) -> Markup {
     base(
         viewer,
         "Before you upload",
         "/about/uploading",
         &html! {
-            div class="max-w-prose leading-prose" {
+            div class="max-w-calm leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "Before you upload" }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What a build needs" }
-                ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
-                    li {
-                        strong { "Inputs: " }
-                        "a lever on the side of a solid block, or a stone button for a pulse. "
-                        "The block drives at most one dust, besides torches and repeaters, and nothing else touches it. "
-                        "A repeater must fit where the lever is, so a bus can drive it."
+                (rule(
+                    "Inputs",
+                    "a lever on the side of a solid block, or a stone button for a pulse. \
+                     The block drives at most one dust, besides torches and repeaters, and nothing else touches it. \
+                     A repeater must fit where the lever is, so a bus can drive it.",
+                    &["input", "input-two-dusts", "repeater"],
+                ))
+                (rule(
+                    "Outputs",
+                    "the dust or repeater carrying each one out sits on a coloured block, any colour but white or gray, \
+                     that no block of its colour touches.",
+                    &["output", "outputs-touching"],
+                ))
+                (rule(
+                    "Buses",
+                    "each in a line, evenly spaced: straight, or rising one block per block across. \
+                     A bus may also be two such lines, its bits alternating.",
+                    &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
+                ))
+                (rule(
+                    "Gray",
+                    "marks parts only the first copy of a stack keeps, such as an input's driver.",
+                    &["gray"],
+                ))
+                p class="mt-6 mb-4 max-w-prose" { "No other colours, signs, or bit-order marks are needed." }
+                div class="max-w-prose" {
+                    h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
+                    ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
+                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes, adders so far." }
+                        li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
+                        li { "Measures latency, throughput, and how copies stack." }
+                        li { "Shows it in each viewer's block theme." }
                     }
-                    li {
-                        strong { "Outputs: " }
-                        "the dust or repeater carrying each one out sits on a coloured block, any colour but white or gray, "
-                        "that no block of its colour touches."
+                    p class="mb-4" {
+                        "A build it can't recognize goes up as built, off the list, with what's wrong listed. "
+                        "A fixed new version moves it up."
                     }
-                    li {
-                        strong { "Buses: " }
-                        "each in a line, evenly spaced: straight, or rising one block per block across. "
-                        "A bus may also be two such lines, its bits alternating."
-                    }
-                    li {
-                        strong { "Gray: " }
-                        "marks parts only the first copy of a stack keeps, such as an input's driver."
-                    }
-                }
-                p class="mb-4" { "No other colours, signs, or bit-order marks are needed." }
-                h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
-                ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                    li { "Finds the inputs and outputs, and tests the build as each category it recognizes, adders so far." }
-                    li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
-                    li { "Measures latency, throughput, and how copies stack." }
-                    li { "Shows it in each viewer's block theme." }
-                }
-                p class="mb-4" {
-                    "A build it can't recognize goes up as built, off the list, with what's wrong listed. "
-                    "A fixed new version moves it up."
                 }
             }
         },
     )
+}
+
+/// One rule a build keeps: its name, what it says, and pictures of the
+/// examples `names`, each captioned with whether it passes.
+fn rule(name: &str, text: &str, names: &[&str]) -> Markup {
+    let examples = guide::examples();
+    html! {
+        p class="mt-6 mb-3 max-w-prose" { strong { (name) ": " } (text) }
+        div class="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3" {
+            @for example in names.iter().filter_map(|&n| examples.iter().find(|e| e.name == n)) {
+                figure class="m-0 flex flex-col gap-1.5" {
+                    @if let Some(src) = guide_image(example.name) {
+                        img class="aspect-[8/5] w-full" src=(src) width="480" height="300"
+                            loading="lazy" alt=(example.caption);
+                    }
+                    figcaption class="text-meta text-muted" {
+                        strong { @if example.kept { "Passes. " } @else { "Fails. " } }
+                        (example.caption)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The building conventions, from `conventions.md` as the site was built.

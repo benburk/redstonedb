@@ -209,8 +209,7 @@ impl Blocks {
     }
 
     /// A schematic of `size` holding `states` by position, air elsewhere,
-    /// for a test to read as it would a file.
-    #[cfg(test)]
+    /// as a test or an example builds one.
     pub fn from_grid(size: Pos, states: &HashMap<Pos, String>) -> Self {
         let mut palette = vec![AIR.to_owned()];
         let [width, height, length] = size;

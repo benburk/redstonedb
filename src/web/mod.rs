@@ -126,26 +126,63 @@ const ASSETS: [Asset; 7] = [
     CSS, FIXI_JS, APP_JS, FORM_JS, SIDEBAR_JS, THEME_JS, VIEWER_JS,
 ];
 
+/// A Before you upload picture, drawn by `rsdb guide-images static/guide`.
+macro_rules! guide_image {
+    ($name:literal) => {
+        Asset::new(
+            concat!("/guide/", $name, ".webp"),
+            "image/webp",
+            include_bytes!(concat!("../../static/guide/", $name, ".webp")),
+        )
+    };
+}
+
+/// The Before you upload pictures, one for each of [`crate::guide::examples`].
+const GUIDE: [Asset; 10] = [
+    guide_image!("input"),
+    guide_image!("input-two-dusts"),
+    guide_image!("repeater"),
+    guide_image!("output"),
+    guide_image!("outputs-touching"),
+    guide_image!("bus-straight"),
+    guide_image!("bus-diagonal"),
+    guide_image!("bus-alternating"),
+    guide_image!("bus-uneven"),
+    guide_image!("gray"),
+];
+
+/// Where pages link the Before you upload picture of example `name`.
+pub fn guide_image(name: &str) -> Option<String> {
+    let path = format!("/guide/{name}.webp");
+    GUIDE
+        .iter()
+        .find(|asset| asset.path == path)
+        .map(|asset| asset.url())
+}
+
 /// The static assets, served without request logging.
 pub fn static_router() -> Router<AppState> {
-    ASSETS.into_iter().fold(Router::new(), |router, asset| {
-        router.route(
-            asset.path,
-            get(move || async move {
-                (
-                    [
-                        (header::CONTENT_TYPE, asset.content_type),
-                        // Its address names its version, so it never changes.
-                        (
-                            header::CACHE_CONTROL,
-                            "public, max-age=31536000, immutable",
-                        ),
-                    ],
-                    asset.contents,
-                )
-            }),
-        )
-    })
+    ASSETS
+        .into_iter()
+        .chain(GUIDE)
+        .fold(Router::new(), |router, asset| {
+            router.route(
+                asset.path,
+                get(move || async move {
+                    (
+                        [
+                            (header::CONTENT_TYPE, asset.content_type),
+                            // Its address names its version, so it never changes.
+                            (
+                                header::CACHE_CONTROL,
+                                "public, max-age=31536000, immutable",
+                            ),
+                        ],
+                        asset.contents,
+                    )
+                }),
+            )
+        })
 }
 
 /// `text` for an `FX-Notice` header, which `static/app.js` shows: percent-

@@ -57,6 +57,9 @@ enum Command {
     /// one: take out its unused blocks, as a new version, and keep what
     /// each building block must be, for palettes
     Finish { id: Option<String> },
+    /// Draw the Before you upload page's example builds into `dir`, one
+    /// WebP each, named for the example
+    GuideImages { dir: PathBuf },
     /// Run a stored build's test and timing again, or with no id every
     /// build with a test, as is needed once the simulator changes
     Simulate { id: Option<String> },
@@ -453,6 +456,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Rebuild(args) => rebuild(db, &args).await,
         Command::Finish { id } => finish(db, id.as_deref()).await,
+        Command::GuideImages { dir } => guide_images(&dir).await,
         Command::Simulate { id } => simulate(db, id.as_deref()).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
@@ -472,13 +476,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
         }
-        Command::Search { terms } => {
-            let terms = search::parse(&terms.join(" "));
-            for s in search::matching(&terms, schematic::all(db).await?) {
-                println!("{}  {}", &s.id[..8], s.filename());
-            }
-            Ok(())
-        }
+        Command::Search { terms } => search_command(db, &terms).await,
         Command::Reread => reread(db).await,
         Command::Replace(args) => replace(db, &args).await,
         Command::Respell => respell(db).await,
@@ -545,6 +543,15 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             define_tag(db, &name, kind, token.as_deref()).await
         }
     }
+}
+
+/// Prints the id and file name of each build matching `terms`.
+async fn search_command(db: &SqlitePool, terms: &[String]) -> Result<()> {
+    let terms = search::parse(&terms.join(" "));
+    for s in search::matching(&terms, schematic::all(db).await?) {
+        println!("{}  {}", &s.id[..8], s.filename());
+    }
+    Ok(())
 }
 
 /// Prints every account's role and username.
@@ -1069,6 +1076,33 @@ async fn list(
 /// Lints a file, or a stored schematic as a build of its category when no
 /// such file exists. A file's category is unknown, so a lone unsigned
 /// control or status line passes.
+/// Draws each of `app::guide`'s examples into `dir`, as the page shows
+/// them, fetching the game's files as thumbnails do.
+async fn guide_images(dir: &Path) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    let assets = app::thumbnail::Assets::new(reqwest::Client::new());
+    let dir = dir.to_owned();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let renderer = app::thumbnail::Renderer::new(assets);
+        let view = blockrender::View {
+            width: 480,
+            height: 300,
+            padding: 12.0,
+        };
+        for example in app::guide::examples() {
+            let webp = app::thumbnail::render_view(
+                &example.schematic(),
+                &renderer,
+                view,
+            )?;
+            fs::write(dir.join(format!("{}.webp", example.name)), webp)?;
+            println!("{}", example.name);
+        }
+        Ok(())
+    })
+    .await?
+}
+
 /// Runs `simulation::finish` on build `id`, or on every build, and says
 /// which gained a version.
 async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {

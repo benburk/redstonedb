@@ -107,6 +107,15 @@ pub fn render_with<A: blockrender::Assets>(
         height: u32::from(HEIGHT),
         padding: PADDING,
     };
+    render_view(blocks, renderer, view)
+}
+
+/// The build as a WebP drawn as `view` says.
+pub fn render_view<A: blockrender::Assets>(
+    blocks: &Blocks,
+    renderer: &blockrender::Renderer<A>,
+    view: blockrender::View,
+) -> Result<Vec<u8>> {
     let pixmap = renderer
         .render(blocks.iter(), view)
         .context("thumbnail size is zero")?;

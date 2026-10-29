@@ -12,6 +12,7 @@ pub mod discord;
 pub mod error;
 pub mod evaluate;
 pub mod extractors;
+pub mod guide;
 pub mod head;
 pub mod import;
 pub mod inspect;
