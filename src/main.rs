@@ -103,9 +103,6 @@ async fn main() {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
 
     info!("Serving on http://{addr}");
-    if let Some(url) = tailnet_url(addr.port()) {
-        info!("On the tailnet at {url}");
-    }
 
     axum::serve(listener, app).await.expect("Failed to serve");
 }
@@ -118,21 +115,4 @@ fn header_layer(
         name,
         HeaderValue::from_static(value),
     )
-}
-
-/// The tailnet address `port` answers on, when `tailscale serve` carries it,
-/// as it does every port `free-port` hands out on crimson: read from the
-/// mapping, so it is offered only when something stands behind it.
-fn tailnet_url(port: u16) -> Option<String> {
-    let output = std::process::Command::new("tailscale")
-        .args(["serve", "status"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let suffix = format!(":{port}");
-    text.lines()
-        .filter_map(|line| line.trim().strip_prefix("https://"))
-        .filter_map(|rest| rest.split_whitespace().next())
-        .find(|address| address.ends_with(&suffix))
-        .map(|address| format!("https://{address}"))
 }
