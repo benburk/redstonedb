@@ -20,20 +20,43 @@ impl OptionalFromRequestParts<AppState> for User {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Option<Self>, Self::Rejection> {
-        let Some(session_id) = extract_session_id(parts, state).await else {
-            return Ok(None);
-        };
-        let Some(session) = Session::get_by_id(&state.db, session_id).await?
-        else {
-            return Ok(None);
-        };
-        if is_session_expired(&session, session_id, &state.db).await {
-            return Ok(None);
+        match signed_in(parts, state).await? {
+            Some(user) => Ok(Some(user)),
+            // `just serve` runs a debug build: signed in without Discord.
+            None if cfg!(debug_assertions) => dev_user(state).await,
+            None => Ok(None),
         }
-        let user = User::get_by_id(&state.db, session.user_id).await?;
-        Span::current().record("user_id", session.user_id.to_string());
-        Ok(user)
     }
+}
+
+/// The account whose live session the request carries.
+async fn signed_in(
+    parts: &mut Parts,
+    state: &AppState,
+) -> Result<Option<User>, AppError> {
+    let Some(session_id) = extract_session_id(parts, state).await else {
+        return Ok(None);
+    };
+    let Some(session) = Session::get_by_id(&state.db, session_id).await? else {
+        return Ok(None);
+    };
+    if is_session_expired(&session, session_id, &state.db).await {
+        return Ok(None);
+    }
+    let user = User::get_by_id(&state.db, session.user_id).await?;
+    Span::current().record("user_id", session.user_id.to_string());
+    Ok(user)
+}
+
+/// On a development build, the account `DEV_USER` names, `embizone`
+/// unless set; set empty, nobody, to see the site signed out.
+async fn dev_user(state: &AppState) -> Result<Option<User>, AppError> {
+    let name =
+        dotenvy::var("DEV_USER").unwrap_or_else(|_| "embizone".to_owned());
+    if name.is_empty() {
+        return Ok(None);
+    }
+    Ok(User::get_by_username(&state.db, &name).await?)
 }
 
 /// The signed-in account, for a page that needs one; anyone else is sent
