@@ -22,8 +22,10 @@
 //! - Every output, data or status, is a coloured block with dust or a
 //!   repeater on top, which is what is read, and no block of its colour
 //!   touching it, even diagonally, of a kind used for nothing else. Any
-//!   colour but white, a build's plain block, and gray, which marks logic
-//!   only a stack's first copy keeps.
+//!   colour but white, a build's plain block; gray, which marks logic only
+//!   a stack's first copy keeps; and the input colours, lime, light blue,
+//!   cyan, blue, and magenta, so a block left over from an input, or a
+//!   signal-strength input's, is never read as an output.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -377,8 +379,10 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
 
 /// The outputs: coloured blocks, each with dust or a repeater on top,
 /// which is what is read, and no block of its own colour touching it, even
-/// diagonally, of a kind every block of which is so. Any colour marks one but white and gray: white is a build's
-/// plain block, and gray marks logic only a stack's first copy keeps.
+/// diagonally, of a kind every block of which is so. Any colour marks one
+/// but white, gray, and the input colours: white is a build's plain block,
+/// gray marks logic only a stack's first copy keeps, and an input colour
+/// an input, even one whose switch has moved.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();
@@ -414,12 +418,17 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
 }
 
 /// Whether a block of kind `name` can mark an output: a coloured one,
-/// neither white nor gray.
+/// neither white, gray, nor an input colour.
 fn marks(name: &str) -> bool {
-    let coloured = ["_concrete", "_wool", "_terracotta", "_stained_glass"]
+    let Some(colour) = ["_concrete", "_wool", "_terracotta", "_stained_glass"]
         .iter()
-        .any(|kind| name.ends_with(kind));
-    coloured && !name.starts_with("white_") && !name.starts_with("gray_")
+        .find_map(|kind| name.strip_suffix(kind))
+    else {
+        return false;
+    };
+    !matches!(colour, "white" | "gray")
+        && colour != lint::CONTROL
+        && !lint::INPUT_COLOURS.contains(&colour)
 }
 
 /// Whether no block of kind `name` touches `pos`, even at a corner.
@@ -672,5 +681,36 @@ mod tests {
             faults_with("redstone_block", false),
             ["Input at (0, 1, 1): touches redstone block"]
         );
+    }
+
+    /// A lone block with dust on top is an output when it is an output's
+    /// colour, never when it is an input's, as one left over from an input
+    /// whose switch moved.
+    #[test]
+    fn only_a_block_not_of_an_input_colour_marks_an_output() {
+        let outputs = |block: &str| {
+            let states: HashMap<Pos, String> = [
+                ([0, 0, 0], block),
+                (
+                    [0, 1, 0],
+                    "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
+                ),
+            ]
+            .into_iter()
+            .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+            .collect();
+            inspect(&Blocks::from_grid([1, 2, 1], &states))
+                .outputs
+                .len()
+        };
+        assert_eq!(outputs("yellow_concrete"), 1);
+        assert_eq!(outputs("red_wool"), 1);
+        for block in [
+            "magenta_concrete",
+            "lime_concrete",
+            "light_blue_stained_glass",
+        ] {
+            assert_eq!(outputs(block), 0, "{block}");
+        }
     }
 }

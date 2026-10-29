@@ -73,8 +73,8 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 ))
                 (rule(
                     "Outputs",
-                    "the dust or repeater carrying each one out sits on a coloured block, any colour but white or gray, \
-                     that no block of its colour touches.",
+                    "the dust or repeater carrying each one out sits on a coloured block, any colour but white, gray, \
+                     or an input's lime, light blue, cyan, blue, or magenta, that no block of its colour touches.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
