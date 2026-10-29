@@ -72,39 +72,40 @@ pub fn schemati_folder(
     }
 }
 
-/// A file chooser's choice of a file from the viewer's Schemati folder,
-/// sent as `schemati_file` with `form`, or a link to connect it.
+/// The viewer's Schemati files to choose one from, the only one chosen
+/// already; or why there are none to choose. `form` names the form they belong to when they stand
+/// outside it.
 pub(super) fn own_file_field(
     connection: &Connection,
     form: Option<&str>,
 ) -> Markup {
-    let help = "text-meta font-normal text-muted";
+    let note = "text-muted";
     html! {
         @match connection {
             Connection::Open(folder) if !folder.files.is_empty() => {
-                label class="field" {
-                    span { "Or a file from your Schemati" }
-                    select name="schemati_file" form=[form] aria-describedby="own-schemati-help" class="input" {
-                        option value="" { "None" }
+                fieldset {
+                    legend class="mb-2 font-semibold" { "From your Schemati" }
+                    div class="flex max-h-80 flex-col overflow-y-auto" {
                         @for name in &folder.files {
-                            option value=(name) { (name) }
+                            label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection" {
+                                input type="radio" name="schemati_file" value=(name) form=[form]
+                                    checked[folder.files.len() == 1] class="accent-brand";
+                                span class="min-w-0 truncate" { (name) }
+                            }
                         }
-                    }
-                    span id="own-schemati-help" class=(help) {
-                        "What " (folder.player) " saved with " code { "//save" } ". A file or link chosen above is used instead."
                     }
                 }
             }
-            Connection::Open(_) => p class=(help) {
-                "Your Schemati folder is empty. In game, " code { "//save <name>" } " adds to it."
+            Connection::Open(_) => p class=(note) {
+                "Your Schemati folder is empty. " code { "//save <name>" } " in game adds to it."
             },
-            Connection::Unset => p class=(help) {
-                a href="/settings" { "Connect your Schemati" } " in Settings to choose from its files here."
+            Connection::Unset => p class=(note) {
+                a href="/settings" { "Connect your Schemati" } " to pick from your files."
             },
-            Connection::Forgotten => p class=(help) {
-                "Schemati has forgotten your session. " a href="/settings" { "Give it a new one" } " in Settings to choose from its files here."
+            Connection::Forgotten => p class=(note) {
+                "Your Schemati session expired. " a href="/settings" { "Give a new one" } "."
             },
-            Connection::Unreachable(why) => p class=(help) { "Your Schemati files: " (why) },
+            Connection::Unreachable(why) => p class=(note) { "Schemati: " (why) },
         }
     }
 }

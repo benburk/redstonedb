@@ -40,7 +40,9 @@ mod upload;
 mod users;
 mod version;
 
-pub use about::{Checked, about, conventions, simulation_guide, sorting};
+pub use about::{
+    Checked, about, before_upload, conventions, simulation_guide, sorting,
+};
 pub use build::{FileRead, build_banner, build_info, schematic_page, waiting};
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;

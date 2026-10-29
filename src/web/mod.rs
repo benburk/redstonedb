@@ -258,6 +258,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/about", get(about))
         .route("/about/categories", get(about::categories))
         .route("/about/conventions", get(about::conventions))
+        .route("/about/uploading", get(about::before_upload))
         .route("/about/simulation", get(about::simulation))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))

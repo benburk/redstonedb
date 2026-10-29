@@ -21,6 +21,11 @@ pub async fn about(user_opt: Option<User>) -> impl IntoResponse {
     pages::about(user_opt.as_ref())
 }
 
+/// What an upload needs and what the site does with it.
+pub async fn before_upload(user_opt: Option<User>) -> impl IntoResponse {
+    pages::before_upload(user_opt.as_ref())
+}
+
 /// The building conventions every build follows.
 pub async fn conventions(user_opt: Option<User>) -> impl IntoResponse {
     pages::conventions(user_opt.as_ref())
