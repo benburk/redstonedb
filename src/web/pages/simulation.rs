@@ -254,19 +254,7 @@ fn timing_intro(timing: &Timing) -> Markup {
                     "Writes, in ticks from a write's button or lever:"
                 }
             }
-        } @else {
-            @let late: Vec<&InputTiming> = timing.inputs.iter().skip(1).filter(|input| input.tick != Some(0)).collect();
-            p class="mb-2 text-meta text-muted tabular-nums" {
-                "t = 0 at A"
-                @for input in late {
-                    ", " (input.name)
-                    @match input.tick {
-                        Some(tick) if tick > 0 => { " ≤ +" (tick) "t" }
-                        Some(tick) => { " ≥ " (tick) "t" }
-                        None => { ": no effect" }
-                    }
-                }
-            }
+
         }
     }
 }
@@ -276,35 +264,6 @@ pub fn timing_section(timing: &Timing) -> Markup {
         div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
             data-summary=(timing_summary(timing)) {
             (timing_intro(timing))
-            div class="relative overflow-x-auto" {
-                table class="w-full border-collapse" {
-                    caption class="sr-only" { "When each output settles" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Output" }
-                            th scope="col" class=(TABLE_HEAD) { "First changes" }
-                            th scope="col" class=(TABLE_HEAD) { "Settles by" }
-                            th scope="col" class=(TABLE_HEAD) { "Glitches" }
-                        }
-                    }
-                    tbody {
-                        @for output in &timing.outputs {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (output.name) }
-                                td class={ (TABLE_CELL) " tabular-nums" } { (tick(output.first_change)) }
-                                td class={ (TABLE_CELL) " tabular-nums font-semibold" } { (tick(output.latency)) }
-                                td class={ (TABLE_CELL) " tabular-nums" } {
-                                    @if output.glitches == 0 {
-                                        "0"
-                                    } @else {
-                                        strong class="text-danger" { (grouped(output.glitches)) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 tabular-nums" {
                 dt class="text-muted" { "Synced" }
                 dd {

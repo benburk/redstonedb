@@ -208,6 +208,11 @@ pub struct InputTiming {
     /// The latest tick it may change, from A's; 0 for A. `None` for an
     /// input no output follows.
     pub tick: Option<i32>,
+    /// For a pulse, as a write button gives, the earliest tick it may
+    /// come, before which it ends too soon; `None` for a line that may
+    /// change as early as it likes.
+    #[serde(default)]
+    pub earliest: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -346,6 +351,7 @@ pub(super) fn measure(
             .map(|(&port, &tick)| InputTiming {
                 name: interface.inputs[port].name.clone(),
                 tick,
+                earliest: None,
             })
             .collect(),
         outputs: output_timings(interface, &together, &carried),
@@ -613,6 +619,7 @@ fn pressed_timing(
         .map(|&port| InputTiming {
             name: interface.inputs[port].name.clone(),
             tick: Some(0),
+            earliest: None,
         })
         .collect();
     if let Some((&calculate, before)) = bench.presses.split_last() {
@@ -620,11 +627,13 @@ fn pressed_timing(
             inputs.push(InputTiming {
                 name: interface.inputs[port].name.clone(),
                 tick: reset,
+                earliest: None,
             });
         }
         inputs.push(InputTiming {
             name: interface.inputs[calculate].name.clone(),
             tick: Some(offset),
+            earliest: None,
         });
     }
     let mut slowest_case = cases

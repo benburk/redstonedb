@@ -964,6 +964,7 @@ pub fn time(
             }
             .to_owned(),
             tick: Some(0),
+            earliest: None,
         }],
         outputs: stats
             .into_iter()

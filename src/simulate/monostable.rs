@@ -497,6 +497,7 @@ pub fn time(
         inputs: vec![InputTiming {
             name: found.input.clone(),
             tick: Some(0),
+            earliest: None,
         }],
         outputs: vec![OutputTiming {
             name: found.output.clone(),

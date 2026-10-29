@@ -7,23 +7,186 @@ use crate::{
     import::Analysis,
     interface::{Bit, Interface, Port},
     lint::Violation,
+    simulate::{InputTiming, OutputTiming, Timing},
 };
 
-use super::SECTION_TITLE;
+use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
 
-/// The build's inputs and outputs, read from the file, a short list of
-/// each: a bus by its bits, and a row of numbered lines, such as a
-/// memory's `read 0` to `read 15`, as one entry.
-pub(super) fn interface_section(analysis: &Analysis) -> Markup {
+/// The build's inputs and outputs, read from the file, each a row: a bus
+/// by its bits, and a row of numbered lines, such as a memory's `read 0`
+/// to `read 15`, as one. With its `timing`, each input says how late it
+/// may switch and each output when it changes and settles, in ticks from
+/// the first input, t = 0.
+pub(super) fn interface_section(
+    analysis: &Analysis,
+    timing: Option<&Timing>,
+) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
+    let timed_in = |entry: &PortEntry| {
+        let timing = timing?;
+        let i = timing
+            .inputs
+            .iter()
+            .position(|input| input.name == entry.ports[0].name)?;
+        Some((i, &timing.inputs[i]))
+    };
+    let timed_out = |entry: &PortEntry| {
+        timing?
+            .outputs
+            .iter()
+            .find(|output| output.name == entry.ports[0].name)
+    };
     html! {
-        section aria-labelledby="interface-heading" {
-            h2 id="interface-heading" class={ (SECTION_TITLE) " mb-3" } { "Inputs and outputs" }
-            div class="grid gap-6 sm:grid-cols-2" {
-                (port_list("Inputs", &port_entries(inputs), true))
-                (port_list("Outputs", &port_entries(outputs), false))
+        section aria-labelledby="interface-heading" class="flex flex-col gap-6" {
+            h2 id="interface-heading" class=(SECTION_TITLE) { "Inputs and outputs" }
+            div class="relative overflow-x-auto" {
+                table class="w-full border-collapse tabular-nums" {
+                    caption class="sr-only" { "Inputs" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Input" }
+                            th scope="col" class=(TABLE_HEAD) { "Bits" }
+                            th scope="col" class=(TABLE_HEAD) { "Power" }
+                            @if timing.is_some() { th scope="col" class=(TABLE_HEAD) { "Delay" } }
+                        }
+                    }
+                    tbody {
+                        @for entry in port_entries(inputs) {
+                            tr {
+                                (line_cell(&entry, true))
+                                td class=(TABLE_CELL) { (bits(&entry)) }
+                                td class=(TABLE_CELL) { (power(&entry)) }
+                                @if timing.is_some() {
+                                    td class=(TABLE_CELL) {
+                                        @match timed_in(&entry) {
+                                            Some((i, input)) => (switch_by(i, input)),
+                                            None => span class="text-muted" { "—" },
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div class="relative overflow-x-auto" {
+                table class="w-full border-collapse tabular-nums" {
+                    caption class="sr-only" { "Outputs" }
+                    thead {
+                        tr {
+                            th scope="col" class=(TABLE_HEAD) { "Output" }
+                            th scope="col" class=(TABLE_HEAD) { "Bits" }
+                            @if timing.is_some() {
+                                th scope="col" class=(TABLE_HEAD) { "First change" }
+                                th scope="col" class=(TABLE_HEAD) { "Settles" }
+                            }
+                        }
+                    }
+                    tbody {
+                        @for entry in port_entries(outputs) {
+                            tr {
+                                (line_cell(&entry, false))
+                                td class=(TABLE_CELL) { (bits(&entry)) }
+                                @if timing.is_some() {
+                                    @match timed_out(&entry) {
+                                        Some(output) => (output_ticks(output)),
+                                        None => {
+                                            td class={ (TABLE_CELL) " text-muted" } { "—" }
+                                            td class={ (TABLE_CELL) " text-muted" } { "—" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+/// A line's name beside a swatch of its marking colour, with what else it
+/// takes, such as a strength or being inverted, beneath.
+fn line_cell(entry: &PortEntry, input: bool) -> Markup {
+    let port = entry.ports[0];
+    let dye = port
+        .block
+        .strip_suffix(" concrete")
+        .unwrap_or(&port.block)
+        .replace(' ', "_");
+    let [r, g, b, _] = blockrender::dye_color(&dye);
+    let notes = notes(entry, input);
+    html! {
+        th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+            span class="flex items-start gap-2" {
+                span aria-hidden="true" class="mt-1.5 inline-block size-3 shrink-0 rounded-[3px] border border-line"
+                    style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}
+                span {
+                    span class="font-semibold" { (entry.name) }
+                    @if !notes.is_empty() {
+                        span class="block text-meta text-muted" { (notes) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How many bits or lines an entry carries.
+fn bits(entry: &PortEntry) -> String {
+    let port = entry.ports[0];
+    if entry.ports.len() > 1 {
+        format!("{} lines", entry.ports.len())
+    } else if port.signal_strength {
+        format!("{} (hex)", port.bits.len() * 4)
+    } else {
+        port.bits.len().to_string()
+    }
+}
+
+/// What powers an input: hard, when dust touches its block, so only a
+/// repeater, comparator, or torch drives it; soft, when dust may.
+fn power(entry: &PortEntry) -> &'static str {
+    let bits: Vec<&Bit> =
+        entry.ports.iter().flat_map(|p| p.bits.iter()).collect();
+    if entry.ports[0].signal_strength {
+        "strength"
+    } else if bits.iter().all(|bit| bit.hard) {
+        "hard"
+    } else if bits.iter().any(|bit| bit.hard) {
+        "mixed"
+    } else {
+        "soft"
+    }
+}
+
+/// When an input, the `i`th timed, may switch: the first is t = 0; another
+/// by its latest tick, or for a pulse its window.
+fn switch_by(i: usize, input: &InputTiming) -> String {
+    match (i, input.earliest, input.tick) {
+        (0, _, _) => "t = 0".to_owned(),
+        (_, Some(earliest), Some(latest)) => {
+            format!("{} to {}", ticks(earliest), ticks(latest))
+        }
+        (_, None, Some(latest)) => format!("≤ {}", ticks(latest)),
+        (_, _, None) => "no effect".to_owned(),
+    }
+}
+
+/// Ticks from t = 0, signed, such as `+3t`, `−1t`, or `0t`.
+fn ticks(t: i32) -> String {
+    match t {
+        0 => "0t".to_owned(),
+        t if t < 0 => format!("−{}t", t.unsigned_abs()),
+        t => format!("+{t}t"),
+    }
+}
+
+/// An output's first change and settling tick, as cells.
+fn output_ticks(output: &OutputTiming) -> Markup {
+    html! {
+        td class=(TABLE_CELL) { (output.first_change) "t" }
+        td class={ (TABLE_CELL) " font-semibold" } { (output.latency) "t" }
     }
 }
 
@@ -118,62 +281,23 @@ fn port_entries(ports: &[Port]) -> Vec<PortEntry<'_>> {
         .collect()
 }
 
-/// A list of input or output entries under `heading`, each with a swatch
-/// of its marking colour, its bits or lines, and, for an input, what it
-/// takes beyond any power.
-fn port_list(heading: &str, entries: &[PortEntry], inputs: bool) -> Markup {
-    html! {
-        div {
-            h3 class="mb-2 text-meta font-semibold text-muted" { (heading) }
-            ul class="flex flex-col gap-1.5" {
-                @for entry in entries {
-                    @let port = entry.ports[0];
-                    @let dye = port.block.strip_suffix(" concrete").unwrap_or(&port.block).replace(' ', "_");
-                    @let [r, g, b, _] = blockrender::dye_color(&dye);
-                    li class="flex items-start gap-2" {
-                        span aria-hidden="true" class="mt-1.5 inline-block size-3 shrink-0 rounded-[3px] border border-line"
-                            style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}
-                        span {
-                            span class="font-semibold" { (entry.name) }
-                            " "
-                            span class="text-meta text-muted" { (port_detail(entry, inputs)) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// What an entry carries, such as `8 bits` or `16 lines`, and for an
-/// input, the strength its signs ask for and whether it is inverted, as
-/// its levers are saved on.
-fn port_detail(entry: &PortEntry, inputs: bool) -> String {
+/// What an input takes beyond its power, such as a strength or being
+/// inverted, as its levers are saved on, and lines signed twice.
+fn notes(entry: &PortEntry, input: bool) -> String {
     let port = entry.ports[0];
-    let mut said = vec![if entry.ports.len() > 1 {
-        format!("{} lines", entry.ports.len())
-    } else if port.signal_strength {
-        format!(
-            "{} bits, a hex digit per block's strength",
-            port.bits.len() * 4
-        )
-    } else if port.bits.len() == 1 {
-        "1 bit".to_owned()
-    } else {
-        format!("{} bits", port.bits.len())
-    }];
-    for name in &entry.repeated {
-        said.push(format!("{name} signed more than once"));
-    }
-    if inputs && !port.signal_strength {
+    let mut said: Vec<String> = entry
+        .repeated
+        .iter()
+        .map(|name| format!("{name} signed twice"))
+        .collect();
+    if input && !port.signal_strength {
         let bits: Vec<&Bit> =
             entry.ports.iter().flat_map(|p| p.bits.iter()).collect();
         let strength =
             entry.ports.iter().map(|p| p.strength).max().unwrap_or(1);
         if strength > 1 {
-            said.push(format!("strength {strength} or more"));
+            said.push(format!("strength ≥ {strength}"));
         }
-        // An input saved with its lever on is inverted: off means 1.
         if bits.iter().all(|b| b.inverted) {
             said.push("inverted".to_owned());
         } else if bits.iter().any(|b| b.inverted) {
@@ -182,6 +306,7 @@ fn port_detail(entry: &PortEntry, inputs: bool) -> String {
     }
     said.join(" · ")
 }
+
 /// Each broken convention, once however often it is broken, with where in
 /// the file each break is.
 pub(super) fn violation_list(violations: &[Violation]) -> Markup {
