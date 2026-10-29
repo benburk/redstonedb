@@ -6,22 +6,85 @@ use maud::{Markup, html};
 use crate::{
     import::Analysis,
     interface::{Bit, Interface, Port},
-    lint::Violation,
+    lint::{self, Violation},
     simulate::{InputTiming, OutputTiming, Timing},
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
 
+/// The lines a flag says are read inverted.
+pub(super) enum Inverts {
+    /// The input of this colour.
+    Input(&'static str),
+    /// The output of this colour.
+    Output(&'static str),
+    /// Every output but the one of this colour.
+    OutputsBut(&'static str),
+    /// Every output.
+    Outputs,
+}
+
+/// Which lines `flag` on a build of `category` says are read inverted,
+/// if it says any are.
+pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
+    Some(match (category, flag) {
+        ("adder", "subtract") => Inverts::Input("light blue"),
+        ("adder", "inverted_carry_in") => Inverts::Input(lint::CONTROL),
+        ("adder", "inverted_output") => Inverts::OutputsBut(lint::STATUS),
+        ("adder", "inverted_carry_out") => Inverts::Output(lint::STATUS),
+        (
+            "register"
+            | "buffer"
+            | "decoder"
+            | "monostable"
+            | "dual_edge_monostable",
+            "inverted",
+        ) => Inverts::Outputs,
+        _ => return None,
+    })
+}
+
+/// The flag, of the build's `flags`, that says `port` is read inverted.
+fn inverted_by<'f>(
+    category: &str,
+    flags: &'f [String],
+    port: &Port,
+    input: bool,
+) -> Option<&'f str> {
+    let coloured = |colour: &str| port.block.starts_with(colour);
+    flags.iter().map(String::as_str).find(|flag| {
+        match inverts(category, flag) {
+            Some(Inverts::Input(colour)) => input && coloured(colour),
+            Some(Inverts::Output(colour)) => !input && coloured(colour),
+            Some(Inverts::OutputsBut(colour)) => !input && !coloured(colour),
+            Some(Inverts::Outputs) => !input,
+            None => false,
+        }
+    })
+}
+
 /// The build's inputs and outputs, read from the file, each a row: a bus
 /// by its bits, and a row of numbered lines, such as a memory's `read 0`
 /// to `read 15`, as one. With its `timing`, each input says when it
 /// switches for the build to stay synced and each output when it changes
-/// and settles, in ticks from the first input, t = 0.
+/// and settles, in ticks from the first input, t = 0. When its `flags`
+/// say a line of its `category` is read inverted, each line says whether
+/// it is.
 pub(super) fn interface_section(
     analysis: &Analysis,
     timing: Option<&Timing>,
+    (category, flags): (&str, &[String]),
 ) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
+    let inverted = |entry: &PortEntry, input: bool| {
+        inverted_by(category, flags, entry.ports[0], input)
+    };
+    let any_inverted = port_entries(inputs)
+        .iter()
+        .any(|e| inverted(e, true).is_some())
+        || port_entries(outputs)
+            .iter()
+            .any(|e| inverted(e, false).is_some());
     let timed_in = |entry: &PortEntry| {
         let timing = timing?;
         let i = timing
@@ -47,6 +110,7 @@ pub(super) fn interface_section(
                             th scope="col" class=(TABLE_HEAD) { "Input" }
                             th scope="col" class=(TABLE_HEAD) { "Bits" }
                             th scope="col" class=(TABLE_HEAD) { "Power" }
+                            @if any_inverted { th scope="col" class=(TABLE_HEAD) { "Inverted" } }
                             @if timing.is_some() { th scope="col" class=(TABLE_HEAD) { "Delay" } }
                         }
                     }
@@ -56,6 +120,7 @@ pub(super) fn interface_section(
                                 (line_cell(&entry, true))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 td class=(TABLE_CELL) { (power(&entry)) }
+                                @if any_inverted { (inverted_cell(inverted(&entry, true))) }
                                 @if timing.is_some() {
                                     td class=(TABLE_CELL) {
                                         @match timed_in(&entry) {
@@ -76,6 +141,7 @@ pub(super) fn interface_section(
                         tr {
                             th scope="col" class=(TABLE_HEAD) { "Output" }
                             th scope="col" class=(TABLE_HEAD) { "Bits" }
+                            @if any_inverted { th scope="col" class=(TABLE_HEAD) { "Inverted" } }
                             @if timing.is_some() {
                                 th scope="col" class=(TABLE_HEAD) { "First change" }
                                 th scope="col" class=(TABLE_HEAD) { "Settles" }
@@ -87,6 +153,7 @@ pub(super) fn interface_section(
                             tr {
                                 (line_cell(&entry, false))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
+                                @if any_inverted { (inverted_cell(inverted(&entry, false))) }
                                 @if timing.is_some() {
                                     @match timed_out(&entry) {
                                         Some(output) => (output_ticks(output)),
@@ -128,6 +195,19 @@ fn line_cell(entry: &PortEntry, input: bool) -> Markup {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Whether a line is read inverted, by the `flag` that says so, which
+/// finds the builds that share it.
+fn inverted_cell(flag: Option<&str>) -> Markup {
+    html! {
+        @match flag {
+            Some(flag) => td class=(TABLE_CELL) {
+                a href=(super::search_href(flag)) title="Find builds that share it" { "Yes" }
+            },
+            None => td class={ (TABLE_CELL) " text-muted" } { "No" },
         }
     }
 }
@@ -284,8 +364,8 @@ fn port_entries(ports: &[Port]) -> Vec<PortEntry<'_>> {
         .collect()
 }
 
-/// What an input takes beyond its power, such as a strength or being
-/// inverted, as its levers are saved on, and lines signed twice.
+/// What an input takes beyond its power, such as a strength or its levers
+/// being saved on, and lines signed twice.
 fn notes(entry: &PortEntry, input: bool) -> String {
     let port = entry.ports[0];
     let mut said: Vec<String> = entry
@@ -302,9 +382,9 @@ fn notes(entry: &PortEntry, input: bool) -> String {
             said.push(format!("strength ≥ {strength}"));
         }
         if bits.iter().all(|b| b.inverted) {
-            said.push("inverted".to_owned());
+            said.push("saved on".to_owned());
         } else if bits.iter().any(|b| b.inverted) {
-            said.push("some bits inverted".to_owned());
+            said.push("some bits saved on".to_owned());
         }
     }
     said.join(" · ")

@@ -21,7 +21,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
-    interface::{interface_section, violations_section},
+    interface::{interface_section, inverts, violations_section},
     name_badges, percent, person_badge, plural, search_link,
     simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
@@ -391,6 +391,19 @@ pub fn build_info(
 ) -> Markup {
     let interface = file.as_ref().ok().map(|file| &file.analysis.interface);
     let sources = Sources::of(s, interface, report);
+    let flag_names: Vec<String> =
+        s.flags.iter().map(|flag| flag.name.clone()).collect();
+    // The inputs and outputs table says which lines are read inverted.
+    let in_table = |flag: &Flag| {
+        s.conventional
+            && file.is_ok()
+            && inverts(&s.category, &flag.name).is_some()
+    };
+    let specs_flags: Vec<Flag> = flags
+        .iter()
+        .filter(|flag| !in_table(flag))
+        .cloned()
+        .collect();
     html! {
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
@@ -404,7 +417,7 @@ pub fn build_info(
                     }
                 }
             }
-            (specs(s, flags, &sources))
+            (specs(s, &specs_flags, &sources))
             (credits(s))
             @match file {
                 _ if !s.conventional => {
@@ -412,7 +425,7 @@ pub fn build_info(
                         "Doesn't follow the building conventions, so its inputs and outputs are not read and it is not linted."
                     }
                 }
-                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing))),
+                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), (&s.category, &flag_names))),
                 Err(err) => {
                     p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
                 }
