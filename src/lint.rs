@@ -368,7 +368,7 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 }
 
 /// What touches an input block with a lever or button: its switch powers
-/// it, and it feeds at most one dust, on one of its other sides, so wiring
+/// it, and it feeds at most two dusts, on its other sides, so wiring
 /// it up puts one driver into one wire. Dust on top or underneath, a second
 /// dust, anything else that would power it, as a repeater or comparator
 /// pointed into it or a torch beneath it, and any other component, such as
@@ -431,19 +431,19 @@ fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
                     found,
                     Some(pos),
                     format!(
-                        "input block {problem}; an input feeds one dust, on \
-                         a side, besides any torches"
+                        "input block {problem}; an input feeds at most two \
+                         dusts, on its sides, besides any torches"
                     ),
                 );
             }
         }
-        if dust > 1 {
+        if dust > 2 {
             say(
                 found,
                 Some(pos),
                 format!(
-                    "input block touches {dust} dust; an input feeds one dust, \
-                     on a side, besides any torches"
+                    "input block touches {dust} dust; an input feeds at most \
+                     two dusts, on its sides, besides any torches"
                 ),
             );
         }

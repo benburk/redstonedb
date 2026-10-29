@@ -86,13 +86,18 @@ pub fn examples() -> Vec<Example> {
             blocks: [input(1, 1), vec![([2, 1, 1], TORCH_EAST)]].concat(),
         },
         Example {
-            name: "input-two-dusts",
-            caption: "An input block driving two dusts.",
+            name: "input-three-dusts",
+            caption: "An input block driving three dusts.",
             kept: false,
-            breaks: Some("input drives two dusts"),
+            breaks: Some("input drives three dusts"),
             blocks: [
                 input(1, 1),
-                vec![([0, 0, 1], WHITE), ([0, 1, 1], DUST_EW)],
+                vec![
+                    ([0, 0, 1], WHITE),
+                    ([0, 1, 1], DUST_EW),
+                    ([2, 0, 1], WHITE),
+                    ([2, 1, 1], DUST_EW),
+                ],
             ]
             .concat(),
         },
@@ -189,7 +194,7 @@ mod tests {
             }
             if example.kept {
                 for rule in [
-                    "input drives two dusts",
+                    "input drives three dusts",
                     "input block wiring",
                     "no room for a repeater",
                     "switch touches redstone",

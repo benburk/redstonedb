@@ -140,7 +140,7 @@ macro_rules! guide_image {
 /// The Before you upload pictures, one for each of [`crate::guide::examples`].
 const GUIDE: [Asset; 10] = [
     guide_image!("input"),
-    guide_image!("input-two-dusts"),
+    guide_image!("input-three-dusts"),
     guide_image!("repeater"),
     guide_image!("output"),
     guide_image!("outputs-touching"),

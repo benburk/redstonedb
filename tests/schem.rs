@@ -73,9 +73,10 @@ fn corner_markers_sit_one_block_off_each_corner() {
     assert_eq!(standardize::tidy(&marked).unwrap(), slice("alpha-cla"));
 }
 
-/// An input block feeds one dust, on a side, besides any torches: the
-/// alpha CLA's run their dust over their tops, and a comparator's inputs
-/// feed two dust each. A redstone block capping one is fine.
+/// An input block feeds at most two dusts, on its sides, besides any
+/// torches: the alpha CLA's run their dust over their tops, while a
+/// comparator's inputs feeding two dust each and a redstone block capping
+/// one are fine.
 #[test]
 fn an_input_block_feeds_one_dust_on_a_side() {
     let complaints = |name| -> Vec<String> {
@@ -91,11 +92,7 @@ fn an_input_block_feeds_one_dust_on_a_side() {
             .all(|m| m.starts_with("input block has dust on top"))
     );
     let gt = complaints("gt-8");
-    assert_eq!(gt.len(), 16, "{gt:#?}");
-    assert!(
-        gt.iter()
-            .all(|m| m.starts_with("input block touches 2 dust"))
-    );
+    assert!(!gt.iter().any(|m| m.starts_with("input block")), "{gt:#?}");
     let capped = complaints("cca-8-repeated-out");
     assert!(
         !capped.iter().any(|m| m.starts_with("input block")),

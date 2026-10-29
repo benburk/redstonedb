@@ -10,7 +10,7 @@
 //!   solid block, its input block. Other buttons' longer pulses are
 //!   errors, never swapped, as a build may rely on them. The lever touches
 //!   nothing else that carries power.
-//! - The input block drives dust, torches, and repeaters, at most one dust,
+//! - The input block drives dust, torches, and repeaters, at most two dusts,
 //!   and nothing else powers it or touches it but plain blocks and, on
 //!   top, a target or redstone block, which never power a solid block. One that drives dust is hard:
 //!   a bus must drive it through a repeater. Comparators reading inputs
@@ -335,14 +335,14 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             );
         }
     }
-    if dust > 1 {
+    if dust > 2 {
         problem(
             report,
-            "input drives two dusts",
+            "input drives three dusts",
             vec![block],
             format!(
                 "The input block at {} drives {dust} dusts. An input \
-                 drives one dust at most, besides torches and repeaters.",
+                 drives two dusts at most, besides torches and repeaters.",
                 place(block)
             ),
         );
