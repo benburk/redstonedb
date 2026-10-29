@@ -10,7 +10,7 @@ use crate::{
     simulate::{InputTiming, OutputTiming, Timing},
 };
 
-use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
+use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, build::hover_note};
 
 /// The lines a flag says are read inverted.
 pub(super) enum Inverts {
@@ -99,28 +99,28 @@ pub(super) fn interface_section(
             .iter()
             .find(|output| output.name == entry.ports[0].name)
     };
+    // One table, inputs then outputs, so their columns line up: each
+    // line's name, its bits, whether it is inverted, then its power and
+    // delay or its first change and settling.
     html! {
         section aria-labelledby="interface-heading" class="flex flex-col gap-6" {
             h2 id="interface-heading" class=(SECTION_TITLE) { "Inputs and outputs" }
-            div class="relative overflow-x-auto" {
+            div class="relative max-desktop:overflow-x-auto" {
                 table class="w-full border-collapse tabular-nums" {
-                    caption class="sr-only" { "Inputs" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Input" }
-                            th scope="col" class=(TABLE_HEAD) { "Bits" }
-                            th scope="col" class=(TABLE_HEAD) { "Power" }
-                            @if any_inverted { th scope="col" class=(TABLE_HEAD) { "Inverted" } }
-                            @if timing.is_some() { th scope="col" class=(TABLE_HEAD) { "Delay" } }
-                        }
-                    }
                     tbody {
+                        tr {
+                            (head("in-name", "Input", None))
+                            (head("in-bits", "Bits", Some(BITS_NOTE)))
+                            @if any_inverted { (head("in-inverted", "Inverted", Some(INVERTED_NOTE))) }
+                            (head("in-power", "Power", Some(POWER_NOTE)))
+                            @if timing.is_some() { (head("in-delay", "Delay", Some(DELAY_NOTE))) }
+                        }
                         @for entry in port_entries(inputs) {
                             tr {
                                 (line_cell(&entry, true))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
-                                td class=(TABLE_CELL) { (power(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, true))) }
+                                td class=(TABLE_CELL) { (power(&entry)) }
                                 @if timing.is_some() {
                                     td class=(TABLE_CELL) {
                                         @match timed_in(&entry) {
@@ -132,23 +132,17 @@ pub(super) fn interface_section(
                             }
                         }
                     }
-                }
-            }
-            div class="relative overflow-x-auto" {
-                table class="w-full border-collapse tabular-nums" {
-                    caption class="sr-only" { "Outputs" }
-                    thead {
+                    tbody {
+                        tr aria-hidden="true" { td class="h-6" {} }
                         tr {
-                            th scope="col" class=(TABLE_HEAD) { "Output" }
-                            th scope="col" class=(TABLE_HEAD) { "Bits" }
-                            @if any_inverted { th scope="col" class=(TABLE_HEAD) { "Inverted" } }
+                            (head("out-name", "Output", None))
+                            (head("out-bits", "Bits", Some(BITS_NOTE)))
+                            @if any_inverted { (head("out-inverted", "Inverted", Some(INVERTED_NOTE))) }
                             @if timing.is_some() {
-                                th scope="col" class=(TABLE_HEAD) { "First change" }
-                                th scope="col" class=(TABLE_HEAD) { "Settles" }
+                                (head("out-first", "First change", Some(FIRST_CHANGE_NOTE)))
+                                (head("out-settles", "Settles", Some(SETTLES_NOTE)))
                             }
                         }
-                    }
-                    tbody {
                         @for entry in port_entries(outputs) {
                             tr {
                                 (line_cell(&entry, false))
@@ -167,6 +161,30 @@ pub(super) fn interface_section(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+const BITS_NOTE: &str = "Bits on the bus, or lines in a numbered row";
+const INVERTED_NOTE: &str = "Yes: powered reads as 0";
+const POWER_NOTE: &str = "Hard: dust touches the input block, so a repeater, comparator, \
+    or torch must drive it. Soft: dust may drive it.";
+const DELAY_NOTE: &str =
+    "Tick to switch it, from the first input, for the outputs to stay synced";
+const FIRST_CHANGE_NOTE: &str = "Ticks from t = 0 until a bit first changes";
+const SETTLES_NOTE: &str =
+    "Ticks from t = 0 until every bit holds its final value";
+
+/// A column's heading, its `note` shown on hover or focus.
+fn head(id: &str, label: &str, note: Option<&str>) -> Markup {
+    html! {
+        th scope="col" class=(TABLE_HEAD) {
+            @match note {
+                Some(note) => (hover_note(id, &html! {
+                    span class="underline decoration-boundary decoration-dotted underline-offset-4" { (label) }
+                }, note)),
+                None => (label),
             }
         }
     }
@@ -261,18 +279,22 @@ fn ticks(t: i32) -> String {
 
 /// An output's first change and settling tick, as cells, the settling
 /// noting on hover the ticks repeaters on its blocks take to carry it out.
-/// A title, as a drawn note would be cut off by the table's scrolling.
 fn output_ticks(output: &OutputTiming) -> Markup {
     html! {
         td class=(TABLE_CELL) { (output.first_change) "t" }
         td class={ (TABLE_CELL) " font-semibold" } {
             @if output.carried > 0 {
-                span class="cursor-help underline decoration-boundary decoration-dotted underline-offset-4"
-                    title=(format!(
+                (hover_note(
+                    &format!("carried-{}", output.name.replace(' ', "-")),
+                    &html! {
+                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { (output.latency) "t" }
+                    },
+                    &format!(
                         "{}t out of the build: +{}t through the repeater on its output block",
                         output.latency + output.carried,
                         output.carried,
-                    )) { (output.latency) "t" }
+                    ),
+                ))
             } @else {
                 (output.latency) "t"
             }

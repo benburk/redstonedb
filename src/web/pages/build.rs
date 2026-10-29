@@ -498,7 +498,7 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
 /// note, once on the page. Hidden, it takes no room, and on a phone it
 /// shows along the foot of the screen, so one near the edge never widens
 /// the page.
-fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
+pub(super) fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
     html! {
         span tabindex="0" aria-describedby=(id)
             class="group relative inline-block cursor-help rounded-control focus-visible:outline-2 focus-visible:outline-boundary" {
