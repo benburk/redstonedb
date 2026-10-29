@@ -34,6 +34,9 @@ const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from
 /// What a stored build's file says about it.
 pub struct FileRead {
     pub analysis: Analysis,
+    /// For a build off the list as one of a category the check by function
+    /// recognizes, each fault that keeps it from being recognized.
+    pub unrecognized: Vec<String>,
     /// Whether it takes a signal strength as an input, which keeps it
     /// from being recognized.
     pub strength_inputs: bool,
@@ -83,20 +86,7 @@ pub fn schematic_page(
             }
             (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
             @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
-                @let label = meant.replace('_', " ");
-                p class="mt-12 max-w-prose text-muted" {
-                    "Off the list until it's recognized as " (super::article(&label)) ": "
-                    @if file.as_ref().is_ok_and(|file| file.strength_inputs) {
-                        "it takes signal-strength inputs, which no recognized build may until the simulator can drive them. "
-                    } @else {
-                        "it must keep the building conventions and pass the " (label) " test. "
-                        "What it gets wrong is below. "
-                    }
-                    @if viewer.is_some_and(|v| v.may_edit(s)) {
-                        a href={ (path) "/versions/new" } { "A new version" }
-                    } @else { "A new version" }
-                    " that fixes it moves it up."
-                }
+                (not_recognized(meant, file))
             }
             @let poll = format!("{path}/simulation");
             @match simulation {
@@ -113,6 +103,35 @@ pub fn schematic_page(
             (version::versions_section(s, versions))
         },
     )
+}
+
+/// Why a build filed off the list as one of category `meant` isn't one:
+/// each fault, one to a line, as the check by function finds them.
+fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
+    let label = meant.replace('_', " ");
+    let strength = file.as_ref().is_ok_and(|file| file.strength_inputs);
+    let faults = file
+        .as_ref()
+        .map(|file| file.unrecognized.as_slice())
+        .unwrap_or_default();
+    html! {
+        section aria-labelledby="unrecognized-heading" class="mt-12 max-w-prose" {
+            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } {
+                "Why it isn't " (super::article(&label))
+            }
+            ul class="flex list-disc flex-col gap-1.5 pl-5" {
+                @if strength {
+                    li { "Takes signal-strength inputs." }
+                }
+                @for fault in faults {
+                    li { (fault) }
+                }
+                @if !strength && faults.is_empty() {
+                    li { "Fails the " (label) " test or breaks a building convention, as below." }
+                }
+            }
+        }
+    }
 }
 
 /// How build `s`'s page waits on its timing, asked of `poll`: never, for

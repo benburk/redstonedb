@@ -511,8 +511,10 @@ pub async fn detail(
         return Ok(pages::build_banner(&s, report, simulating).into_response());
     }
     let data = version::current_file(db, &id).await?.unwrap_or_default();
+    let unrecognized = why_not_recognized(&s, &data).await;
     let file = Blocks::read(&data)
         .map(|blocks| pages::FileRead {
+            unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
             strength_inputs: !crate::interface::dust_inputs(&blocks).is_empty(),
             stacking: s
@@ -550,6 +552,25 @@ pub async fn detail(
         &versions,
     )
     .into_response())
+}
+
+/// For build `s`, filed off the list as an adder, what keeps it from being
+/// recognized as one by the check by function on its file `data`: one
+/// line for each fault. Empty for any other build.
+async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
+    if crate::models::simulation::meant_by(&s.category) != Some("adder") {
+        return Vec::new();
+    }
+    let data = data.to_vec();
+    // Probing simulates, so off the async threads.
+    let recognized =
+        tokio::task::spawn_blocking(move || crate::probe::recognize(&data))
+            .await;
+    match recognized {
+        Ok(Ok(recognition)) => recognition.problems,
+        Ok(Err(err)) => vec![err.to_string()],
+        Err(err) => vec![err.to_string()],
+    }
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits

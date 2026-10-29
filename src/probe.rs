@@ -301,9 +301,10 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
         }
         _ => {
             return Err(format!(
-                "Its outputs don't make an adder's. A {width}-bit adder has \
-                 its sum on {width} outputs in a line, with at most one \
-                 more for carry out; its outputs fall into runs of {}.",
+                "Its outputs don't make an adder's. At {width} bits, an \
+                 adder has its sum on {width} outputs in a line, with at \
+                 most one more for carry out; its outputs fall into runs of \
+                 {}.",
                 sizes(runs)
             ));
         }
