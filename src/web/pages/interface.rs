@@ -259,15 +259,22 @@ fn ticks(t: i32) -> String {
     }
 }
 
-/// An output's first change and settling tick, as cells, with the ticks
-/// repeaters on its blocks take to carry it out.
+/// An output's first change and settling tick, as cells, the settling
+/// noting on hover the ticks repeaters on its blocks take to carry it out.
+/// A title, as a drawn note would be cut off by the table's scrolling.
 fn output_ticks(output: &OutputTiming) -> Markup {
     html! {
         td class=(TABLE_CELL) { (output.first_change) "t" }
-        td class=(TABLE_CELL) {
-            span class="font-semibold" { (output.latency) "t" }
+        td class={ (TABLE_CELL) " font-semibold" } {
             @if output.carried > 0 {
-                span class="block text-meta text-muted" { "+" (output.carried) "t carried out" }
+                span class="cursor-help underline decoration-boundary decoration-dotted underline-offset-4"
+                    title=(format!(
+                        "{}t out of the build: +{}t through the repeater on its output block",
+                        output.latency + output.carried,
+                        output.carried,
+                    )) { (output.latency) "t" }
+            } @else {
+                (output.latency) "t"
             }
         }
     }
