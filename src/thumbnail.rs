@@ -16,7 +16,7 @@ use crate::schem::{self, Blocks, Direction, Pos};
 
 /// Names the way thumbnails are drawn, in their addresses and their kept
 /// files, so drawing them anew changes both.
-pub const RENDERER: &str = "t2";
+pub const RENDERER: &str = "t3";
 
 /// Where drawn thumbnails are kept, beside the database, so a restart
 /// draws none again.
@@ -43,6 +43,9 @@ struct Part {
     faces: [bool; 3],
     /// The texture of each face, top, south, and east, when it has one.
     tex: [Option<Tex>; 3],
+    /// How far it leans for each block it rises, west to east and north
+    /// to south, as a wall torch or a lever's handle does.
+    lean: [f32; 2],
 }
 
 /// A face's texture: the game's texture `name`, the part of it in texels,
@@ -167,6 +170,10 @@ struct Drawn {
     parts: Vec<Part>,
     /// Faces to draw: top, south, east.
     faces: [bool; 3],
+    /// How lit each corner of each face is, top, south, and east, each
+    /// top left, top right, bottom right, and bottom left as its texture
+    /// lies: shaded where blocks meet, as the game shades them.
+    corners: [[f32; 4]; 3],
 }
 
 /// Every block with something to draw, far blocks first so near ones
@@ -190,6 +197,7 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
                         color,
                         faces: [true; 3],
                         tex: [None, None, None],
+                        lean: [0.0; 2],
                     }],
                     true,
                 ),
@@ -204,16 +212,56 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
             };
             let mut parts = parts;
             dress(blocks.get(pos), &mut parts);
-            faces.contains(&true).then_some(Drawn { pos, parts, faces })
+            let corners = if cube {
+                occlusion(pos, &opaque)
+            } else {
+                [[1.0; 4]; 3]
+            };
+            faces.contains(&true).then_some(Drawn {
+                pos,
+                parts,
+                faces,
+                corners,
+            })
         })
         .collect();
     drawn.sort_by_key(|d| d.pos.iter().sum::<i32>());
     drawn
 }
 
+/// How lit the corners of a cube's top, south, and east faces are, by the
+/// three blocks beside each corner on the face's outside: two sides and
+/// the one between them, as the game's smooth lighting goes, darkest where
+/// both sides are filled.
+fn occlusion(pos: Pos, opaque: &impl Fn(Pos) -> bool) -> [[f32; 4]; 3] {
+    const LIGHT: [f32; 4] = [0.55, 0.7, 0.85, 1.0];
+    let at = |offset: [i32; 3]| opaque(schem::add(pos, offset));
+    let level = |side: [i32; 3], other: [i32; 3], corner: [i32; 3]| {
+        let (a, b, c) = (at(side), at(other), at(corner));
+        let filled = if a && b {
+            3
+        } else {
+            usize::from(a) + usize::from(b) + usize::from(c)
+        };
+        LIGHT[3 - filled]
+    };
+    // Each face's corners as its texture lies: steps along its two axes.
+    let top = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+        .map(|(x, z)| level([x, 1, 0], [0, 1, z], [x, 1, z]));
+    let south = [(-1, 1), (1, 1), (1, -1), (-1, -1)]
+        .map(|(x, y)| level([x, 0, 1], [0, y, 1], [x, y, 1]));
+    let east = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+        .map(|(z, y)| level([1, 0, z], [1, y, 0], [1, y, z]));
+    [top, south, east]
+}
+
 /// Projects a point to pixels, scaled and centred so `drawn` fills the
 /// canvas inside its padding.
-fn fit(drawn: &[Drawn]) -> impl Fn([f32; 3]) -> [f32; 2] + use<> {
+fn fit(
+    drawn: &[Drawn],
+    canvas: [f32; 2],
+    padding: f32,
+) -> impl Fn([f32; 3]) -> [f32; 2] + use<> {
     let (mut left, mut top, mut right, mut bottom) =
         (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for d in drawn {
@@ -228,9 +276,9 @@ fn fit(drawn: &[Drawn]) -> impl Fn([f32; 3]) -> [f32; 2] + use<> {
         }
     }
     let (width, height) = (right - left, bottom - top);
-    let [canvas_width, canvas_height] = [WIDTH, HEIGHT].map(f32::from);
-    let scale = ((canvas_width - 2.0 * PADDING) / width)
-        .min((canvas_height - 2.0 * PADDING) / height);
+    let [canvas_width, canvas_height] = canvas;
+    let scale = ((canvas_width - 2.0 * padding) / width)
+        .min((canvas_height - 2.0 * padding) / height);
     let offset = [
         (canvas_width - width * scale) / 2.0 - left * scale,
         (canvas_height - height * scale) / 2.0 - top * scale,
@@ -248,7 +296,12 @@ fn corners(pos: Pos, part: &Part) -> Vec<[f32; 3]> {
     for x in [part.min[0], part.max[0]] {
         for y in [part.min[1], part.max[1]] {
             for z in [part.min[2], part.max[2]] {
-                corners.push([base[0] + x, base[1] + y, base[2] + z]);
+                let rise = y - part.min[1];
+                corners.push([
+                    base[0] + x + part.lean[0] * rise,
+                    base[1] + y,
+                    base[2] + z + part.lean[1] * rise,
+                ]);
             }
         }
     }
@@ -328,6 +381,7 @@ fn target() -> Vec<Part> {
         color: TARGET_PALE,
         faces: [true; 3],
         tex: [None, None, None],
+        lean: [0.0; 2],
     }];
     let rings = [(0.1, TARGET_RED), (0.22, TARGET_PALE), (0.34, TARGET_RED)];
     for face in 0..3 {
@@ -348,6 +402,7 @@ fn target() -> Vec<Part> {
                 color,
                 faces,
                 tex: [None, None, None],
+                lean: [0.0; 2],
             });
         }
     }
@@ -372,15 +427,11 @@ fn shape(state: &str) -> Shape {
         color,
         faces: [true; 3],
         tex: [None, None, None],
-    };
-    // Toward the block a wall torch or lever hangs on.
-    let wall = |reach: f32| {
-        let [dx, _, dz] = direction(property("facing").unwrap_or(""));
-        [-dx * reach, -dz * reach]
+        lean: [0.0; 2],
     };
     match name {
         "air" | "cave_air" | "void_air" => Shape::Empty,
-        _ if name.contains("sign") || name.contains("button") => Shape::Empty,
+        _ if name.contains("sign") => Shape::Empty,
         "redstone_wire" => {
             let (lo, hi, h) = (0.375, 0.625, 0.0625);
             let mut parts = vec![part([lo, 0.0, lo], [hi, h, hi], signal)];
@@ -396,47 +447,21 @@ fn shape(state: &str) -> Shape {
             }
             Shape::Parts(parts)
         }
-        "redstone_torch" | "redstone_wall_torch" => {
-            let ([dx, dz], y) = if name == "redstone_wall_torch" {
-                (wall(0.3), 0.2)
-            } else {
-                ([0.0, 0.0], 0.0)
-            };
-            let (lo, hi) = (0.4375, 0.5625);
-            Shape::Parts(vec![
-                part(
-                    [lo + dx, y, lo + dz],
-                    [hi + dx, y + 0.5, hi + dz],
-                    [120, 90, 50, 255],
-                ),
-                part(
-                    [lo + dx - 0.03, y + 0.5, lo + dz - 0.03],
-                    [hi + dx + 0.03, y + 0.65, hi + dz + 0.03],
-                    signal,
-                ),
-            ])
-        }
-        "repeater" | "comparator" => Shape::Parts(vec![
-            part([0.0; 3], [1.0, 0.125, 1.0], [165, 165, 165, 255]),
-            part([0.4, 0.125, 0.4], [0.6, 0.3, 0.6], signal),
-        ]),
-        "lever" => {
-            let [dx, dz] = if property("face") == Some("wall") {
-                wall(0.35)
-            } else {
-                [0.0, 0.0]
-            };
-            let y = match property("face") {
-                Some("wall") => 0.3,
-                Some("ceiling") => 0.8,
-                _ => 0.0,
-            };
-            Shape::Parts(vec![part(
-                [0.35 + dx, y, 0.35 + dz],
-                [0.65 + dx, y + 0.2, 0.65 + dz],
-                [110, 110, 110, 255],
-            )])
-        }
+        "redstone_torch" | "redstone_wall_torch" => torch(
+            (name == "redstone_wall_torch")
+                .then(|| direction(property("facing").unwrap_or(""))),
+            signal,
+        ),
+        "lever" => lever(
+            property("face").unwrap_or("wall"),
+            direction(property("facing").unwrap_or("")),
+            property("powered") == Some("true"),
+        ),
+        _ if name.ends_with("_button") => button(
+            property("face").unwrap_or("wall"),
+            direction(property("facing").unwrap_or("")),
+            property("powered") == Some("true"),
+        ),
         "redstone_lamp" => Shape::Cube(if lit {
             [240, 200, 130, 255]
         } else {
@@ -451,6 +476,173 @@ fn shape(state: &str) -> Shape {
     }
 }
 
+/// A box from `min` to `max`, leaning `lean` for each block it rises.
+fn leaning(min: [f32; 3], max: [f32; 3], color: Rgba, lean: [f32; 2]) -> Part {
+    Part {
+        min,
+        max,
+        color,
+        faces: [true; 3],
+        tex: [None, None, None],
+        lean,
+    }
+}
+
+/// A torch: a stick two pixels square and ten tall with its flame on top,
+/// standing, or with `out`, the way it points from the wall it hangs on,
+/// leaning out from that wall at the game's angle, its foot near it.
+fn torch(out: Option<[f32; 3]>, flame: Rgba) -> Shape {
+    let [dx, _, dz] = out.unwrap_or([0.0; 3]);
+    let (foot, y, lean) = match out {
+        Some(_) => (-0.31, 0.19, [dx * 0.4, dz * 0.4]),
+        None => (0.0, 0.0, [0.0; 2]),
+    };
+    let (lo, hi, height) = (0.4375, 0.5625, 0.625);
+    let at = |lift: f32| {
+        [
+            0.5 + dx * foot + lean[0] * lift - 0.5,
+            0.5 + dz * foot + lean[1] * lift - 0.5,
+        ]
+    };
+    let [sx, sz] = at(0.0);
+    let [hx, hz] = at(height - 0.125);
+    Shape::Parts(vec![
+        leaning(
+            [lo + sx, y, lo + sz],
+            [hi + sx, y + height - 0.125, hi + sz],
+            [120, 90, 50, 255],
+            lean,
+        ),
+        leaning(
+            [lo + hx, y + height - 0.125, lo + hz],
+            [hi + hx, y + height, hi + hz],
+            flame,
+            lean,
+        ),
+    ])
+}
+
+/// A lever on its block's `face`, `wall`, `floor`, or `ceiling`, `facing`
+/// the way the game says: a cobblestone plate six pixels by eight, three
+/// deep, and a handle tilted 45 degrees, up when off and down when on.
+fn lever(face: &str, facing: [f32; 3], on: bool) -> Shape {
+    let [fx, _, fz] = facing;
+    let stone = [110, 110, 110, 255];
+    let handle = [125, 100, 60, 255];
+    let thick = 0.1875;
+    let reach = 0.44;
+    if face == "wall" {
+        // The plate lies on the wall behind it; the handle leans out.
+        let wall = [
+            0.5 - fx * (0.5 - thick / 2.0),
+            0.5 - fz * (0.5 - thick / 2.0),
+        ];
+        let half = |along: f32, across: f32| {
+            if fx == 0.0 {
+                [across, along]
+            } else {
+                [along, across]
+            }
+        };
+        let [hx, hz] = half(thick / 2.0, 0.1875);
+        let plate = leaning(
+            [wall[0] - hx, 0.25, wall[1] - hz],
+            [wall[0] + hx, 0.75, wall[1] + hz],
+            stone,
+            [0.0; 2],
+        );
+        let out = [fx, fz];
+        let (bottom, lean, start) = if on {
+            (0.5 - reach, [-out[0], -out[1]], reach)
+        } else {
+            (0.5, out, 0.0)
+        };
+        let cx = wall[0] + out[0] * (thick / 2.0 + start);
+        let cz = wall[1] + out[1] * (thick / 2.0 + start);
+        Shape::Parts(vec![
+            plate,
+            leaning(
+                [cx - 0.0625, bottom, cz - 0.0625],
+                [cx + 0.0625, bottom + reach, cz + 0.0625],
+                handle,
+                lean,
+            ),
+        ])
+    } else {
+        let ceiling = face == "ceiling";
+        let (plate_low, handle_low) = if ceiling {
+            (1.0 - thick, 1.0 - thick - reach)
+        } else {
+            (0.0, thick)
+        };
+        let [hx, hz] = if fx == 0.0 {
+            [0.1875, 0.25]
+        } else {
+            [0.25, 0.1875]
+        };
+        let plate = leaning(
+            [0.5 - hx, plate_low, 0.5 - hz],
+            [0.5 + hx, plate_low + thick, 0.5 + hz],
+            stone,
+            [0.0; 2],
+        );
+        // The handle tips toward `facing` when off, away when on, and
+        // hangs below a ceiling's plate.
+        let tip = if on == ceiling { 1.0 } else { -1.0 };
+        let lean = [fx * tip, fz * tip];
+        let start = if ceiling {
+            [-lean[0] * reach, -lean[1] * reach]
+        } else {
+            [0.0, 0.0]
+        };
+        let (cx, cz) = (0.5 + start[0], 0.5 + start[1]);
+        Shape::Parts(vec![
+            plate,
+            leaning(
+                [cx - 0.0625, handle_low, cz - 0.0625],
+                [cx + 0.0625, handle_low + reach, cz + 0.0625],
+                handle,
+                lean,
+            ),
+        ])
+    }
+}
+
+/// A button on its block's `face`, `facing` the way the game says: six
+/// pixels by four, two deep, or one when pressed.
+fn button(face: &str, facing: [f32; 3], pressed: bool) -> Shape {
+    let [fx, _, fz] = facing;
+    let depth = if pressed { 0.0625 } else { 0.125 };
+    let stone = [125, 125, 125, 255];
+    let (min, max) = if face == "wall" {
+        let near = [0.5 - fx * 0.5, 0.5 - fz * 0.5];
+        let far = [near[0] + fx * depth, near[1] + fz * depth];
+        let (wide, tall) = (0.1875, 0.125);
+        let [ax, az] = if fx == 0.0 { [wide, 0.0] } else { [0.0, wide] };
+        (
+            [
+                near[0].min(far[0]) - ax,
+                0.5 - tall,
+                near[1].min(far[1]) - az,
+            ],
+            [
+                near[0].max(far[0]) + ax,
+                0.5 + tall,
+                near[1].max(far[1]) + az,
+            ],
+        )
+    } else {
+        let low = if face == "ceiling" { 1.0 - depth } else { 0.0 };
+        let [hx, hz] = if fx == 0.0 {
+            [0.1875, 0.125]
+        } else {
+            [0.125, 0.1875]
+        };
+        ([0.5 - hx, low, 0.5 - hz], [0.5 + hx, low + depth, 0.5 + hz])
+    };
+    Shape::Parts(vec![leaning(min, max, stone, [0.0; 2])])
+}
+
 /// A slab, filling the upper half of its block if `top`, else the lower.
 fn slab(name: &str, top: bool) -> Shape {
     let (low, high) = if top { (0.5, 1.0) } else { (0.0, 0.5) };
@@ -460,6 +652,7 @@ fn slab(name: &str, top: bool) -> Shape {
         color: cube_color(name),
         faces: [true; 3],
         tex: [None, None, None],
+        lean: [0.0; 2],
     }])
 }
 
@@ -628,8 +821,19 @@ fn dress(state: &str, parts: &mut Vec<Part>) {
             }
         }
         "lever" => {
-            if let Some(base) = parts.first_mut() {
-                base.tex = all(Some(Tex::whole("cobblestone")));
+            if let [plate, handle] = parts.as_mut_slice() {
+                plate.tex = all(Some(Tex::whole("cobblestone")));
+                handle.tex = all(region("lever", [7.0, 6.0, 9.0, 16.0]));
+            }
+        }
+        _ if name.ends_with("_button") => {
+            let block = match name.trim_end_matches("_button") {
+                "stone" => "stone".to_owned(),
+                "polished_blackstone" => "polished_blackstone".to_owned(),
+                wood => format!("{wood}_planks"),
+            };
+            if let Some(button) = parts.first_mut() {
+                button.tex = all(Some(Tex::whole(&block)));
             }
         }
         "target" => {
@@ -684,6 +888,7 @@ fn dust_part(state: &str, parts: &[Part]) -> Part {
             None,
             None,
         ],
+        lean: [0.0; 2],
     }
 }
 
@@ -807,9 +1012,15 @@ fn dust(textures: &Textures, name: &str) -> Option<Vec<Pixmap>> {
 /// its faces in the game's textures where `textures` holds them and in
 /// flat colours where it doesn't.
 pub fn render_with(blocks: &Blocks, textures: &Textures) -> Result<Vec<u8>> {
+    // Drawn at twice the size, then each four pixels averaged to one, for
+    // smooth edges.
     let drawn = visible(blocks);
-    let to_screen = fit(&drawn);
-    let mut pixmap = Pixmap::new(u32::from(WIDTH), u32::from(HEIGHT))
+    let to_screen = fit(
+        &drawn,
+        [f32::from(WIDTH) * 2.0, f32::from(HEIGHT) * 2.0],
+        PADDING * 2.0,
+    );
+    let mut pixmap = Pixmap::new(u32::from(WIDTH) * 2, u32::from(HEIGHT) * 2)
         .context("thumbnail size is zero")?;
     let mut made: HashMap<String, Option<Vec<Pixmap>>> = HashMap::new();
     for d in &drawn {
@@ -824,7 +1035,17 @@ pub fn render_with(blocks: &Blocks, textures: &Textures) -> Result<Vec<u8>> {
                             part.min[axis]
                         }
                 };
-                to_screen([pick(0, dx), pick(1, dy), pick(2, dz)])
+                // A leaning part's top stands off from its foot.
+                let rise = if dy == 1 {
+                    part.max[1] - part.min[1]
+                } else {
+                    0.0
+                };
+                to_screen([
+                    pick(0, dx) + part.lean[0] * rise,
+                    pick(1, dy),
+                    pick(2, dz) + part.lean[1] * rise,
+                ])
             };
             // Each face's corners as its texture lies on it: its top left,
             // top right, bottom right, and bottom left.
@@ -850,15 +1071,18 @@ pub fn render_with(blocks: &Blocks, textures: &Textures) -> Result<Vec<u8>> {
                             .map(|levels| (tex, levels.as_slice()))
                     }
                 });
+                let lit = d.corners[i];
                 if let Some((tex, levels)) = levels {
-                    textured(&mut pixmap, corners, tex, levels, light);
+                    textured(&mut pixmap, corners, tex, levels);
+                    darken(&mut pixmap, corners, light, lit);
                 } else {
                     face(&mut pixmap, corners, shade(part.color, light));
+                    darken(&mut pixmap, corners, 1.0, lit);
                 }
             }
         }
     }
-    Ok(webp(&pixmap))
+    Ok(webp(&halved(&pixmap)))
 }
 
 /// `pixmap` as a lossy WebP: textured faces compress poorly as PNG, and a
@@ -877,15 +1101,90 @@ fn webp(pixmap: &Pixmap) -> Vec<u8> {
     encoder.encode(82.0).to_vec()
 }
 
+/// Darkens the face with `corners`, top left, top right, bottom right, and
+/// bottom left, to `light`, its corners further to `lit`, in a grid of
+/// cells each as lit as its middle, between its corners.
+fn darken(
+    pixmap: &mut Pixmap,
+    corners: [[f32; 2]; 4],
+    light: f32,
+    lit: [f32; 4],
+) {
+    const CELLS: u8 = 4;
+    if light >= 1.0 && lit.iter().all(|&l| l >= 1.0) {
+        return;
+    }
+    let [tl, tr, br, bl] = corners;
+    let at = |across: f32, down: f32| {
+        let mix = |top_left: f32,
+                   top_right: f32,
+                   bottom_right: f32,
+                   bottom_left: f32| {
+            top_left
+                + (top_right - top_left) * across
+                + (bottom_left - top_left) * down
+                + (top_left - top_right + bottom_right - bottom_left)
+                    * across
+                    * down
+        };
+        [
+            mix(tl[0], tr[0], br[0], bl[0]),
+            mix(tl[1], tr[1], br[1], bl[1]),
+        ]
+    };
+    let [lit_tl, lit_tr, lit_br, lit_bl] = lit;
+    let step = 1.0 / f32::from(CELLS);
+    for i in 0..CELLS {
+        for j in 0..CELLS {
+            let (across, down) = (f32::from(i) * step, f32::from(j) * step);
+            let (mid_across, mid_down) =
+                (across + step / 2.0, down + step / 2.0);
+            let shade = lit_tl
+                + (lit_tr - lit_tl) * mid_across
+                + (lit_bl - lit_tl) * mid_down
+                + (lit_tl - lit_tr + lit_br - lit_bl) * mid_across * mid_down;
+            let darkness = 1.0 - light * shade;
+            if darkness < 0.01 {
+                continue;
+            }
+            let mut path = PathBuilder::new();
+            let first = at(across, down);
+            path.move_to(first[0], first[1]);
+            for [x, y] in [
+                at(across + step, down),
+                at(across + step, down + step),
+                at(across, down + step),
+            ] {
+                path.line_to(x, y);
+            }
+            path.close();
+            let Some(path) = path.finish() else { continue };
+            // Cells meet edge to edge, so none is smoothed, which would
+            // leave seams; drawing at twice the size smooths the outline.
+            let mut paint = Paint {
+                anti_alias: false,
+                ..Paint::default()
+            };
+            paint.set_color_rgba8(0, 0, 0, byte(darkness * 255.0));
+            pixmap.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+}
+
 /// Fills the face with `corners`, its texture's top left, top right,
 /// bottom right, and bottom left, with `tex`, at the size of `levels`
-/// nearest its pixels on screen, then darkens it to `light`.
+/// nearest its pixels on screen.
 fn textured(
     pixmap: &mut Pixmap,
     corners: [[f32; 2]; 4],
     tex: &Tex,
     levels: &[Pixmap],
-    light: f32,
 ) {
     let mut corners = corners;
     corners.rotate_left(usize::from(tex.turns % 4));
@@ -941,20 +1240,6 @@ fn textured(
         Transform::identity(),
         None,
     );
-    if light < 1.0 {
-        let mut shade = Paint {
-            anti_alias: true,
-            ..Paint::default()
-        };
-        shade.set_color_rgba8(0, 0, 0, byte((1.0 - light) * 255.0));
-        pixmap.fill_path(
-            &path,
-            &shade,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-    }
 }
 
 /// Where the game's textures are kept once fetched, beside the database,
