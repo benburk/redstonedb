@@ -270,8 +270,8 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
                 }
             }
             fieldset class="flex flex-wrap items-center gap-3" {
-                legend class="sr-only" { "Blocks that may be either kind" }
-                span aria-hidden="true" { "Either kind:" }
+                legend class="sr-only" { "Blocks that work solid or transparent" }
+                span aria-hidden="true" { "Where either works:" }
                 div class={ (SWITCHES) " inline-flex" } {
                     @for (value, label) in [("solid", "Solid"), ("transparent", "Transparent")] {
                         label class=(switch) {

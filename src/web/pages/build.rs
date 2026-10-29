@@ -2,7 +2,7 @@
 //! beside its viewer, each marked where the simulator or the file checked
 //! it, then its simulation, inputs and outputs, stacking, and versions.
 
-use maud::{Markup, PreEscaped, html};
+use maud::{Markup, html};
 
 use crate::{
     category,
@@ -27,9 +27,9 @@ use super::{
     size, stack_guide, version,
 };
 
-/// A seal with a check, Heroicons' `check-badge`: what the simulator or
-/// the file checked, kept apart from a flag's plain check.
-const VERIFIED: &str = r#"<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="inline size-3.5 align-[-2px]"><path fill-rule="evenodd" d="M16.403 12.652a3 3 0 0 0 0-5.304 3 3 0 0 0-3.75-3.751 3 3 0 0 0-5.305 0 3 3 0 0 0-3.751 3.75 3 3 0 0 0 0 5.305 3 3 0 0 0 3.75 3.751 3 3 0 0 0 5.305 0 3 3 0 0 0 3.751-3.75Zm-2.546-4.46a.75.75 0 0 0-1.214-.883l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>"#;
+/// What a build page's "Verified specs" means, on hover.
+const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from simulating \
+    the build or reading its file, not from what its uploader typed. Each new version is measured again.";
 
 /// What a stored build's file says about it.
 pub struct FileRead {
@@ -188,8 +188,8 @@ pub fn build_banner(
     }
 }
 
-/// Where a spec on a build's page comes from, marked beside it, so a
-/// reader can tell what the site checked from what its uploader typed.
+/// Where a spec on a build's page comes from, so a reader can tell what the
+/// site checked from what its uploader typed.
 #[derive(Clone, Copy)]
 enum Source {
     /// Measured or confirmed by the simulation.
@@ -214,6 +214,14 @@ struct Sources {
     /// timing.
     pulse: Source,
     stacking: Source,
+    design: Source,
+    throughput: Source,
+    /// Whether it holds state.
+    logic: Source,
+    /// Whether every spec was measured or read from the file, as for a
+    /// recognized build of a category whose every detail `evaluate` works
+    /// out, once it passes: the page then says so once, not spec by spec.
+    verified: bool,
 }
 
 impl Sources {
@@ -258,16 +266,22 @@ impl Sources {
         } else {
             Source::Given
         };
+        let category_source = if report.is_some_and(Report::failed) {
+            Source::Unconfirmed("fails simulation")
+        } else if crate::models::simulation::meant_by(&s.category).is_some() {
+            // Passing or not, it is off the list until recognized.
+            Source::Unconfirmed("not recognized")
+        } else {
+            checked(false, passed)
+        };
+        if passed
+            && matches!(category_source, Source::Simulated)
+            && category::behaviour(&s.category).evaluated
+        {
+            return Sources::every(Source::Simulated);
+        }
         Sources {
-            category: if report.is_some_and(Report::failed) {
-                Source::Unconfirmed("fails simulation")
-            } else if crate::models::simulation::meant_by(&s.category).is_some()
-            {
-                // Passing or not, it is off the list until recognized.
-                Source::Unconfirmed("not recognized")
-            } else {
-                checked(false, passed)
-            },
+            category: category_source,
             width: checked(
                 derived.width == s.width && s.width.is_some(),
                 passed,
@@ -294,27 +308,62 @@ impl Sources {
                     .is_some_and(|timing| timing.pulse.is_some()),
             ),
             stacking,
+            design: Source::Given,
+            throughput: Source::Given,
+            logic: Source::Given,
+            verified: false,
+        }
+    }
+
+    /// Whether the site checked any spec on the page.
+    fn some_checked(&self) -> bool {
+        [
+            self.category,
+            self.width,
+            self.orientation,
+            self.encoding,
+            self.timing,
+            self.pulse,
+            self.stacking,
+        ]
+        .iter()
+        .any(|source| matches!(source, Source::Simulated | Source::File))
+    }
+
+    /// Every spec from `source`, all verified.
+    fn every(source: Source) -> Self {
+        Sources {
+            category: source,
+            width: source,
+            orientation: source,
+            encoding: source,
+            timing: source,
+            pulse: source,
+            stacking: source,
+            design: source,
+            throughput: source,
+            logic: source,
+            verified: true,
         }
     }
 }
 
 /// `value`, with a check beside it when the simulator or the file checked
-/// it, or why the simulation does not bear it out.
-fn sourced(value: impl maud::Render, source: Source) -> Markup {
-    let mark = |said: &str| {
-        html! {
-            span class="ml-1.5 text-brand" title=(said) {
-                (PreEscaped(VERIFIED))
-                span class="sr-only" { (said) }
-            }
-        }
-    };
+/// `value`, marked when the site didn't check it on a page where it
+/// checked others, and with why when the simulation didn't bear it out.
+/// A checked spec needs no mark: the page's heading says what is.
+fn sourced(
+    value: impl maud::Render,
+    source: Source,
+    sources: &Sources,
+) -> Markup {
     html! {
         (value)
         @match source {
-            Source::Simulated => (mark("Auto-verified by the simulator")),
-            Source::File => (mark("Auto-verified from the file")),
-            Source::Given => {},
+            Source::Simulated | Source::File => {},
+            Source::Given => @if sources.some_checked() {
+                " " span class="text-meta text-muted" { "unverified" }
+            },
             Source::Unconfirmed(why) => {
                 " " a href="#simulation" class="text-meta text-danger" { (why) }
             },
@@ -396,11 +445,11 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
                         _ => Source::Given,
                     };
                     (fact(measure.label(), measure.of(s).map_or_else(unknown, |n| {
-                        sourced(search_link(&measure.words(n), &measure.term(n)), source)
+                        sourced(search_link(&measure.words(n), &measure.term(n)), source, sources)
                     })))
                 }
                 (fact("Latency", s.latency.map_or_else(unknown, |t| {
-                    sourced(super::ticks(t), sources.timing)
+                    sourced(super::ticks(t), sources.timing, sources)
                 })))
                 @match s.per_copy() {
                     // A copy's own shape, beside what it adds.
@@ -421,11 +470,8 @@ fn facts(s: &Schematic, sources: &Sources) -> Markup {
                         "works-from-note",
                         &search_link(from, &format!("version:{}", from.to_lowercase())),
                         &why,
-                    ), Source::File)))
+                    ), Source::File, sources)))
                 }
-            }
-            p class="mt-3 text-meta text-muted" {
-                span class="text-brand" { (PreEscaped(VERIFIED)) } " Auto-verified"
             }
         }
     }
@@ -475,7 +521,15 @@ fn specs(
 ) -> Markup {
     html! {
         section aria-labelledby="specs-heading" {
-            h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } { "Specs" }
+            h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } {
+                @if sources.verified {
+                    (hover_note("specs-note", &html! {
+                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Verified specs" }
+                    }, VERIFIED_NOTE))
+                } @else {
+                    "Specs"
+                }
+            }
             dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
                 // A category off the list has no list of its own to link to.
                 (field("Category", sourced(html! {
@@ -484,17 +538,17 @@ fn specs(
                     } @else {
                         (s.category_label())
                     }
-                }, sources.category)))
+                }, sources.category, sources)))
                 @if let Some(design) = s.design_label() {
-                    (field("Design", search_link(&design, &s.design)))
+                    (field("Design", sourced(search_link(&design, &s.design), sources.design, sources)))
                 }
-                (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation)))
+                (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation, sources)))
                 @if let Some(encoding) = s.encoding {
-                    (field("Encoding", sourced(search_link(encoding.label(), &format!("encoding:{}", encoding.name())), sources.encoding)))
+                    (field("Encoding", sourced(search_link(encoding.label(), &format!("encoding:{}", encoding.name())), sources.encoding, sources)))
                 }
                 // A serial build's throughput is among its measures.
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
-                    (field("Throughput", search_link(&Measure::Throughput.words(t), &format!("throughput:{t}"))))
+                    (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
                 }
                 @let stacks = if s.stacking.is_empty() {
                     flag(false, None)
@@ -511,15 +565,15 @@ fn specs(
                 (field("Stacks", sourced(match found {
                     Some(stacking) => hover_note("stacks-note", &stacks, &stacking_words(stacking)),
                     None => stacks,
-                }, sources.stacking)))
+                }, sources.stacking, sources)))
                 @if let Some(synced) = s.synchronized {
-                    (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing)))
+                    (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing, sources)))
                 }
                 @if let Some(logic) = s.logic {
-                    (field("Stateless", flag(logic == Logic::Stateless, Some(logic.name()))))
+                    (field("Stateless", sourced(flag(logic == Logic::Stateless, Some(logic.name())), sources.logic, sources)))
                 }
                 @if s.pipelined() {
-                    (field("Pipelined", flag(true, Some("pipelined"))))
+                    (field("Pipelined", sourced(flag(true, Some("pipelined")), sources.throughput, sources)))
                 }
                 // A category such as adder reads its flags from the file,
                 // a monostable's Inverted comes with its pulse, and a
@@ -535,7 +589,7 @@ fn specs(
                 };
                 @for each in flags {
                     @let has = s.flags.iter().any(|has| has.name == each.name);
-                    (field(&each.label, sourced(flag(has, has.then_some(each.name.as_str())), read)))
+                    (field(&each.label, sourced(flag(has, has.then_some(each.name.as_str())), read, sources)))
                 }
             }
         }
