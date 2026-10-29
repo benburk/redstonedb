@@ -274,3 +274,12 @@ document.addEventListener("click", (event) => {
     view.querySelector("[data-edit]")?.focus();
   }
 });
+
+// A form with `data-submit-on-pick` goes on as soon as a file is picked in
+// it, from a list or from the computer, rather than waiting for a button.
+document.addEventListener("change", (event) => {
+  const form = event.target.closest("form[data-submit-on-pick]");
+  if (form && (event.target.type === "radio" || event.target.type === "file")) {
+    form.requestSubmit();
+  }
+});

@@ -85,14 +85,15 @@ pub(super) fn own_file_field(
         @match connection {
             Connection::Open(folder) if !folder.files.is_empty() => {
                 fieldset {
-                    legend class="mb-2 font-semibold" { "From your Schemati" }
+                    legend class="sr-only" { "Your Schemati files" }
                     div class="flex max-h-80 flex-col overflow-y-auto" {
                         @for (index, name) in folder.files.iter().enumerate() {
-                            label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection" {
+                            label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection has-focus-visible:outline-2 has-focus-visible:outline-brand" {
                                 input type="radio" name="schemati_file" value=(name) form=[form]
                                     checked[index == 0 && (folder.dated || folder.files.len() == 1)]
-                                    class="accent-brand";
-                                span class="min-w-0 truncate" { (name) }
+                                    class="sr-only";
+                                span class="text-muted" { (super::icons::icon(super::icons::FILE, "size-4")) }
+                                span class="min-w-0 flex-1 truncate" { (name) }
                             }
                         }
                     }
