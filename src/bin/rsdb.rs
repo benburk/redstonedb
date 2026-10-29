@@ -221,6 +221,12 @@ struct Rebuild {
     /// A build to leave out, by the start of its id; repeatable
     #[arg(long = "skip")]
     skip: Vec<String>,
+    /// Put each build that can't be rebuilt, or is left out, in as built,
+    /// off the list, with the details it was given; with them any build
+    /// already off the list under a name holding the category's, such as
+    /// `adder_accumulator`
+    #[arg(long)]
+    other: bool,
 }
 
 #[derive(Args)]
@@ -1128,7 +1134,8 @@ async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
 /// Adds each build of `args.category` from the database at `args.from`
 /// that isn't here yet, as `rebuild_one` does, and says how each went;
 /// those filed off the list as one, such as `8-bit adder`, too, back
-/// under the category if they pass now.
+/// under the category if they pass now. With `args.other`, what can't be
+/// rebuilt goes in off the list as `keep_off_list` does.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     if args.category != "adder" {
         bail!("only adders are probed so far");
@@ -1136,48 +1143,161 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     let from =
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
             .await?;
-    let (mut built, mut refused) = (0, 0);
+    let listed = catalogue::categories(db).await?;
+    let (mut built, mut refused, mut other) = (0, 0, 0);
     for mut s in schematic::all(&from).await? {
         let meant = app::models::simulation::meant_by(&s.category);
-        if s.category != args.category && meant != Some(args.category.as_str())
+        let off_list =
+            catalogue::Category::find(&listed, &s.category).is_none();
+        let akin = off_list && s.category.contains(args.category.as_str());
+        if s.category != args.category
+            && meant != Some(args.category.as_str())
+            && !(args.other && akin)
         {
             continue;
         }
-        args.category.clone_into(&mut s.category);
         let name = format!("{}  {}", &s.id[..8], s.filename());
-        if args.skip.iter().any(|skip| s.id.starts_with(skip.as_str())) {
-            println!("{name}: left out");
-            continue;
-        }
         if schematic::get(db, &s.id).await?.is_some() {
             println!("{name}: here already");
             continue;
         }
-        let fixed = args
-            .fixed
-            .as_ref()
-            .map(|dir| dir.join(format!("{}.schem", &s.id[..8])))
-            .filter(|path| path.exists());
-        let data = match &fixed {
-            Some(path) => fs::read(path)?,
-            None => version::current_file(&from, &s.id)
-                .await?
-                .context("schematic vanished")?,
-        };
-        let from_file = if fixed.is_some() { " (fixed file)" } else { "" };
-        match rebuild_one(db, &from, &s, &data).await? {
-            Ok(()) => {
-                built += 1;
-                println!("{name}{from_file}: rebuilt");
+        // Why it goes in as built, off the list, when it does.
+        let off =
+            if args.skip.iter().any(|skip| s.id.starts_with(skip.as_str())) {
+                if !args.other {
+                    println!("{name}: left out");
+                    continue;
+                }
+                "Left out.".to_owned()
+            } else if meant != Some(args.category.as_str())
+                && s.category != args.category
+            {
+                "Off the list already.".to_owned()
+            } else {
+                let kept = s.clone();
+                args.category.clone_into(&mut s.category);
+                let fixed = args
+                    .fixed
+                    .as_ref()
+                    .map(|dir| dir.join(format!("{}.schem", &s.id[..8])))
+                    .filter(|path| path.exists());
+                let data = match &fixed {
+                    Some(path) => fs::read(path)?,
+                    None => version::current_file(&from, &s.id)
+                        .await?
+                        .context("schematic vanished")?,
+                };
+                let from_file =
+                    if fixed.is_some() { " (fixed file)" } else { "" };
+                match rebuild_one(db, &from, &s, &data).await? {
+                    Ok(()) => {
+                        built += 1;
+                        println!("{name}{from_file}: rebuilt");
+                        continue;
+                    }
+                    Err(why) if args.other => {
+                        s = kept;
+                        format!("{why}{from_file}")
+                    }
+                    Err(why) => {
+                        refused += 1;
+                        println!("{name}{from_file}: {why}");
+                        continue;
+                    }
+                }
+            };
+        match keep_off_list(db, &from, &s, &listed).await? {
+            Ok(category) => {
+                other += 1;
+                println!("{name}: {off} So off the list, as {category}");
             }
             Err(why) => {
                 refused += 1;
-                println!("{name}{from_file}: {why}");
+                println!("{name}: {off} Not off the list either: {why}");
             }
         }
     }
-    println!("\n{built} rebuilt, {refused} refused");
+    println!("\n{built} rebuilt, {other} off the list, {refused} refused");
     Ok(())
+}
+
+/// Stores build `s` of database `from` as it was built and given, its
+/// stored file unchanged but tidied, off the list: under its own
+/// off-list category, or one named for what it is, such as `8-bit adder`,
+/// when it was listed among `listed`; then simulated, to say what keeps
+/// it off. Says where it went, or the `Err` why it couldn't go.
+async fn keep_off_list(
+    db: &SqlitePool,
+    from: &SqlitePool,
+    s: &schematic::Schematic,
+    listed: &[catalogue::Category],
+) -> Result<Result<String, String>> {
+    let data = version::current_file(from, &s.id)
+        .await?
+        .context("schematic vanished")?;
+    let prepared = import::prepare(&data, None, s.conventional, true, false)?;
+    let mut given = Details::of(s);
+    // A category off the list has no designs of its own.
+    if let Some(category) = catalogue::Category::find(listed, &s.category) {
+        given.category = details::off_list_name(category, s.width);
+        given.design = None;
+    }
+    let category = given.category.clone();
+    let ready =
+        match details::check(db, given, details::Build::of(&prepared), true)
+            .await?
+        {
+            Ok(ready) => ready,
+            Err(why) => return Ok(Err(why)),
+        };
+    if let Err(why) = store_as_before(db, from, s, &prepared, &ready).await? {
+        return Ok(Err(why));
+    }
+    simulation::refresh(db, &s.id, false).await?;
+    Ok(Ok(category))
+}
+
+/// Stores build `s` of database `from`, `prepared` and `ready`, under its
+/// own id, with its uploader, when their account is here too, its date
+/// added, and its downloads. The `Err` says why it can't be.
+async fn store_as_before(
+    db: &SqlitePool,
+    from: &SqlitePool,
+    s: &schematic::Schematic,
+    prepared: &import::Prepared,
+    ready: &details::Ready,
+) -> Result<Result<(), String>> {
+    let uploader: Option<uuid::Uuid> =
+        sqlx::query_scalar("SELECT uploaded_by FROM schematic WHERE id = ?")
+            .bind(&s.id)
+            .fetch_one(from)
+            .await?;
+    let uploader = match uploader {
+        Some(id) if User::get_by_id(db, id).await?.is_some() => Some(id),
+        _ => None,
+    };
+    let stored = import::store(
+        db,
+        prepared,
+        ready,
+        uploader,
+        None,
+        s.imported_by.as_deref(),
+        Some(&s.id),
+    )
+    .await?;
+    if let Err(why) = stored {
+        return Ok(Err(why));
+    }
+    sqlx::query(
+        "UPDATE schematic SET added_at = ?, downloads = ? WHERE id = ?",
+    )
+    .bind(&s.added_at)
+    .bind(s.downloads)
+    .bind(&s.id)
+    .execute(db)
+    .await?;
+    Ok(Ok(()))
 }
 
 /// Stores build `s` of database `from`, its file `data`: inspected and
@@ -1214,37 +1334,9 @@ async fn rebuild_one(
         Ok(ready) => ready,
         Err(why) => return Ok(Err(why)),
     };
-    // The uploader, when their account is here too.
-    let uploader: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT uploaded_by FROM schematic WHERE id = ?")
-            .bind(&s.id)
-            .fetch_one(from)
-            .await?;
-    let uploader = match uploader {
-        Some(id) if User::get_by_id(db, id).await?.is_some() => Some(id),
-        _ => None,
-    };
-    let stored = import::store(
-        db,
-        &prepared,
-        &ready,
-        uploader,
-        None,
-        s.imported_by.as_deref(),
-        Some(&s.id),
-    )
-    .await?;
-    if let Err(why) = stored {
+    if let Err(why) = store_as_before(db, from, s, &prepared, &ready).await? {
         return Ok(Err(why));
     }
-    sqlx::query(
-        "UPDATE schematic SET added_at = ?, downloads = ? WHERE id = ?",
-    )
-    .bind(&s.added_at)
-    .bind(s.downloads)
-    .bind(&s.id)
-    .execute(db)
-    .await?;
     simulation::refresh(db, &s.id, false).await?;
     simulation::finish(db, &s.id).await?;
     Ok(Ok(()))
