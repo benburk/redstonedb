@@ -142,17 +142,19 @@ pub fn waiting<'a>(s: &Schematic, poll: &'a str) -> Waiting<'a> {
     }
 }
 
-/// Beside a build's title, what its simulation says, as a badge: passes,
-/// fails, still running, or not simulated, with the counts or the reason
-/// in a popup on hover or focus. A live panel, redrawn when its
+/// Beside a build's title, what its simulation says, as a badge, unless it
+/// passes: fails, still running, or not simulated, with the counts or the
+/// reason in a popup on hover or focus. A live panel, redrawn when its
 /// simulation comes in.
 pub fn build_banner(
     s: &Schematic,
     report: Option<&Report>,
     simulating: bool,
 ) -> Markup {
-    let (label, tone, note) = match report {
-        Some(Report::Ran(run)) if run.wrong > 0 => (
+    let verdict = match report {
+        // A pass needs no badge: it is what puts a build on the list.
+        Some(Report::Ran(run)) if run.wrong == 0 => None,
+        Some(Report::Ran(run)) => Some((
             "Fails simulation",
             "bg-danger/12 text-danger",
             format!(
@@ -161,46 +163,35 @@ pub fn build_banner(
                 grouped(run.cases),
                 run.pattern
             ),
-        ),
-        Some(Report::Ran(run)) => (
-            "Passes simulation",
-            "bg-success/15 text-success",
-            format!(
-                "All {} cases of {} right{}.",
-                grouped(run.cases),
-                run.pattern,
-                if run.timing.is_none() {
-                    "; timing to follow"
-                } else {
-                    ""
-                }
-            ),
-        ),
-        Some(Report::Broken { reason }) => (
+        )),
+        Some(Report::Broken { reason }) => Some((
             "Fails simulation",
             "bg-danger/12 text-danger",
             reason.clone(),
-        ),
+        )),
         Some(Report::Skipped { reason }) => {
-            ("Not simulated", "bg-muted/12 text-muted", reason.clone())
+            Some(("Not simulated", "bg-muted/12 text-muted", reason.clone()))
         }
-        None if simulating => (
+        None if simulating => Some((
             "Simulating…",
             "bg-muted/12 text-muted",
             "Its cases are running; this updates when they finish.".to_owned(),
-        ),
-        None => (
+        )),
+        None => Some((
             "Not simulated",
             "bg-muted/12 text-muted",
             "The simulator has no test for this category yet.".to_owned(),
-        ),
+        )),
     };
-    let pill = html! {
-        span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (tone) } { (label) }
-    };
+    // Kept when empty, as the page redraws it when a simulation finishes.
     html! {
         div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
-            (hover_note("verdict-note", &pill, &note))
+            @if let Some((label, tone, note)) = verdict {
+                @let pill = html! {
+                    span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (tone) } { (label) }
+                };
+                (hover_note("verdict-note", &pill, &note))
+            }
         }
     }
 }
