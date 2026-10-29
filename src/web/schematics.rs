@@ -404,7 +404,7 @@ pub async fn thumbnail(
         None => (data.clone(), import::sha256(&data)),
     };
     let sha256 = key;
-    let cached = state.thumbnails.lock().unwrap().get(&sha256).cloned();
+    let cached = state.thumbnails.lock().unwrap().get(&sha256);
     let png = if let Some(png) = cached {
         png
     } else {

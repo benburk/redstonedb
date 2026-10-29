@@ -17,9 +17,37 @@ pub type Heads = Arc<Mutex<HashMap<String, (Instant, Vec<u8>)>>>;
 pub type Players =
     Arc<Mutex<HashMap<String, (Instant, Option<mojang::Profile>)>>>;
 
-/// Thumbnails rendered, as PNGs, by their file's SHA-256. Kept until the
-/// site restarts: one for each build's current file is a few megabytes.
-pub type Thumbnails = Arc<Mutex<HashMap<String, Bytes>>>;
+/// Thumbnails rendered, as PNGs, by their file's SHA-256 and palette.
+pub type Thumbnails = Arc<Mutex<Drawn>>;
+
+/// The thumbnails drawn last, at most `Drawn::MOST`, about 30 KB each: one
+/// for each build and palette viewed would grow without end as people
+/// choose palettes of their own, so the oldest go first and are drawn
+/// again if asked for.
+#[derive(Default)]
+pub struct Drawn {
+    pictures: HashMap<String, Bytes>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl Drawn {
+    pub const MOST: usize = 1000;
+
+    pub fn get(&self, key: &str) -> Option<Bytes> {
+        self.pictures.get(key).cloned()
+    }
+
+    pub fn insert(&mut self, key: String, png: Bytes) {
+        if self.pictures.insert(key.clone(), png).is_none() {
+            self.order.push_back(key);
+        }
+        while self.order.len() > Self::MOST {
+            if let Some(oldest) = self.order.pop_front() {
+                self.pictures.remove(&oldest);
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,4 +63,20 @@ pub struct AppState {
     pub players: Players,
     /// Rendered thumbnails, so each file is drawn once.
     pub thumbnails: Thumbnails,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_oldest_thumbnail_goes_first() {
+        let mut drawn = Drawn::default();
+        for i in 0..=Drawn::MOST {
+            drawn.insert(i.to_string(), Bytes::from_static(b"png"));
+        }
+        assert!(drawn.get("0").is_none());
+        assert!(drawn.get("1").is_some());
+        assert!(drawn.get(&Drawn::MOST.to_string()).is_some());
+    }
 }
