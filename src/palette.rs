@@ -92,6 +92,47 @@ pub fn transparent() -> Vec<(&'static str, Vec<String>)> {
     )]
 }
 
+/// Where the game's own block textures are fetched from by the viewer's
+/// browser, as the 3D viewer fetches its resource pack: a public copy of
+/// one release's, so the site serves none of them itself.
+const TEXTURES: &str = "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.4/assets/minecraft/textures/block";
+
+/// A block's top and side textures, by name.
+fn textures(block: &str) -> (&str, &str) {
+    match block {
+        "smooth_sandstone" => ("sandstone_top", "sandstone_top"),
+        "smooth_quartz" => ("quartz_block_bottom", "quartz_block_bottom"),
+        "quartz_block" => ("quartz_block_top", "quartz_block_side"),
+        _ => (block, block),
+    }
+}
+
+/// A block's icon for picking it: a cube from the south-east and above in
+/// its own textures, kept pixelated, its sides shaded as a thumbnail's
+/// are, as an SVG.
+pub fn icon(block: &str) -> String {
+    let (top, side) = textures(block);
+    // Each face maps the 16-pixel texture onto its side of an isometric
+    // cube in a 32-unit square.
+    let face = |texture: &str, matrix: &str| {
+        format!(
+            r#"<image href="{TEXTURES}/{texture}.png" width="16" height="16" transform="matrix({matrix})" style="image-rendering:pixelated"/>"#
+        )
+    };
+    format!(
+        concat!(
+            r#"<svg viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true">"#,
+            "{top}{south}{east}",
+            r#"<polygon points="3,10 16,17 16,31 3,24" fill="black" fill-opacity="0.2"/>"#,
+            r#"<polygon points="16,17 29,10 29,24 16,31" fill="black" fill-opacity="0.36"/>"#,
+            "</svg>"
+        ),
+        top = face(top, "0.8125 -0.4375 0.8125 0.4375 3 10"),
+        south = face(side, "0.8125 0.4375 0 0.875 3 10"),
+        east = face(side, "0.8125 -0.4375 0 0.875 16 17"),
+    )
+}
+
 /// Every block a palette may name, of either kind.
 pub fn every_block() -> impl Iterator<Item = String> {
     solid()

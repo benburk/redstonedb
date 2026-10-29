@@ -195,7 +195,7 @@ fn picker(
             button type="button" commandfor=(dialog) command="show-modal"
                 aria-labelledby={ (dialog) "-label " (dialog) "-chosen" }
                 class="inline-flex items-center gap-2 whitespace-nowrap rounded-control border border-line bg-raised px-2 py-1 hover:border-boundary" {
-                span data-picked-icon class="inline-flex size-6" { (maud::PreEscaped(crate::thumbnail::icon(pictured))) }
+                span data-picked-icon class="inline-flex size-6" { (maud::PreEscaped(palette::icon(pictured))) }
                 span id={ (dialog) "-chosen" } data-picked-name { (words(current)) }
             }
             dialog id=(dialog) data-picker aria-labelledby={ (dialog) "-title" }
@@ -214,7 +214,7 @@ fn picker(
                                     input type="radio" name=(name) value=(value)
                                         checked[value == current] class="sr-only";
                                     span class="sr-only" { (words(value)) }
-                                    span class="inline-flex size-8" { (maud::PreEscaped(crate::thumbnail::icon(block))) }
+                                    span class="inline-flex size-8" { (maud::PreEscaped(palette::icon(block))) }
                                 }
                             }
                         }
