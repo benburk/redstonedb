@@ -116,14 +116,14 @@ fn palette_section(chosen: &Palette) -> Markup {
             p class="mb-4 max-w-prose text-muted" {
                 "The blocks recognized builds are shown and downloaded in."
             }
-            (palette_form(chosen, "/settings#palette-heading", "Save"))
+            (palette_form(chosen, "/settings#palette-heading", ""))
         }
     }
 }
 
-/// The palette's form, as `chosen`, going to `next` once saved: presets to
-/// start from, then each block and colour as a button that opens its
-/// picker.
+/// The palette's form, as `chosen`: presets to start from, then each block
+/// and colour as a button that opens its picker. It saves itself as each
+/// changes; `save`, if not empty, names a button going on to `next`.
 pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     let plain = |groups: Vec<(&'static str, Vec<String>)>| -> Vec<(&'static str, Vec<(String, String)>)> {
         groups
@@ -140,7 +140,8 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     ));
     let switch = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
-        form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
+        form action="/settings/palette" method="post" data-autosave="Palette saved"
+            class="flex max-w-form flex-col gap-4" {
             input type="hidden" name="next" value=(next);
             div {
                 button type="button" popovertarget="presets" class="btn btn-quiet" { "Start from a preset ▾" }
@@ -175,7 +176,10 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
                     (picker(key, label, &marks, &mark, &mark))
                 }
             }
-            div { button type="submit" class="btn btn-primary" { (save) } }
+            // It saves itself as it changes; this goes on from it.
+            @if !save.is_empty() {
+                div { a href=(next) class="btn btn-primary" { (save) } }
+            }
         }
     }
 }

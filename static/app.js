@@ -238,3 +238,19 @@ document.addEventListener("change", (event) => {
   }
   dialog.close();
 });
+
+// A form with `data-autosave` saves itself as any of its choices change,
+// saying its value once saved; its buttons still send it whole.
+document.addEventListener("change", async (event) => {
+  const form = event.target.closest("form[data-autosave]");
+  if (!form) return;
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      body: new URLSearchParams(new FormData(form)),
+    });
+    showNotice(response.ok ? form.dataset.autosave : "Could not save. Try again.");
+  } catch {
+    showNotice("Could not save. Try again.");
+  }
+});
