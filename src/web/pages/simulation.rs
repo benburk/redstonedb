@@ -146,10 +146,10 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                             "."
                         }
                     }
-                    @if let Some(stacking) = &run.stacking {
-                        // A build with only input A, as a monostable,
-                        // has no control lines for its copies to share.
-                        (stacking_note(stacking, run.inputs.len() > 1))
+                    // The details form reads whether stacking was found;
+                    // the build's Stacks field says how.
+                    @if run.stacking.as_ref().is_some_and(|stacking| !matches!(stacking, Stacking::Not { .. } | Stacking::Stacks { .. })) {
+                        span hidden data-found-stacking {}
                     }
                     @if run.wrong > 0 {
                         (simulation_failures(run))
@@ -201,103 +201,6 @@ fn found_stack(report: &Report) -> Option<String> {
         .describe(),
         Stacking::Not { reason, .. } => format!("Doesn't stack: {reason}"),
     })
-}
-
-/// What stacking copies found, in a sentence, for the hover on a build's
-/// Stacks field.
-pub(super) fn stacking_words(stacking: &Stacking) -> String {
-    let limit = |most: Option<usize>, copies: usize| match most {
-        Some(_) => format!(", at most {copies}"),
-        None => String::new(),
-    };
-    match stacking {
-        Stacking::Stacks {
-            step, copies, bits, ..
-        } => format!(
-            "Simulated: {copies} copies {} apart make a {bits}-bit adder.",
-            step.describe()
-        ),
-        Stacking::Registers {
-            step,
-            copies,
-            registers,
-            most,
-            ..
-        } => format!(
-            "Simulated: copies {} apart make more registers, {registers} from {copies}{}.",
-            step.describe(),
-            limit(*most, *copies)
-        ),
-        Stacking::Wider {
-            step,
-            copies,
-            bits,
-            most,
-            ..
-        } => format!(
-            "Simulated: copies {} apart make more bits, {bits} from {copies}{}.",
-            step.describe(),
-            limit(*most, *copies)
-        ),
-        Stacking::Separate { ways } => format!(
-            "Simulated: copies each work on their own, {}.",
-            ways.iter()
-                .map(|way| format!(
-                    "{} apart{}",
-                    way.step.describe(),
-                    limit(way.most, way.copies)
-                ))
-                .collect::<Vec<_>>()
-                .join(", or ")
-        ),
-        Stacking::Not { step, reason } => match step {
-            Some(step) => format!(
-                "Copies {} apart don't stack as saved: {reason}",
-                step.describe()
-            ),
-            None => format!("Copies don't stack as saved: {reason}"),
-        },
-    }
-}
-
-fn stacking_note(stacking: &Stacking, controls: bool) -> Markup {
-    let limit = |copies: usize, most: Option<usize>| match most {
-        Some(_) => format!("; a copy more fails, so at most {copies}"),
-        None => ", so any number stack".to_owned(),
-    };
-    html! {
-        @match stacking {
-            Stacking::Stacks { step, copies, bits, cases } => p class="mt-3" {
-                strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart make a " (bits) "-bit adder, all "
-                (grouped(*cases)) " cases right"
-                @if *copies >= 3 { ", so any number stack." } @else { "." }
-            },
-            Stacking::Registers { step, copies, registers, cases, most } => p class="mt-3" data-found-stacking {
-                strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart make " (registers) " registers sharing their data buses, all "
-                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
-            },
-            Stacking::Wider { step, copies, bits, cases, most } => p class="mt-3" data-found-stacking {
-                strong { "Stacks: " }
-                (copies) " copies " (step.describe()) " apart make " (bits) " bits"
-                @if controls { " sharing their control lines" }
-                ", all "
-                (grouped(*cases)) " cases right" (limit(*copies, *most)) "."
-            },
-            Stacking::Separate { ways } => p class="mt-3" data-found-stacking {
-                strong { "Stacks: " }
-                @for (i, way) in ways.iter().enumerate() {
-                    @if i > 0 { "; " }
-                    (way.copies) " copies " (way.step.describe()) " apart each work on their own, all "
-                    (grouped(way.cases)) " cases right" (limit(way.copies, way.most))
-                }
-                "."
-            },
-            // Why not is on the build's Stacks field, on hover.
-            Stacking::Not { .. } => {},
-        }
-    }
 }
 
 /// When a passing build's inputs may change and its outputs settle, from

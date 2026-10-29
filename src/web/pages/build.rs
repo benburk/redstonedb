@@ -23,7 +23,7 @@ use super::{
     PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
     interface::{interface_section, violations_section},
     name_badges, percent, person_badge, plural, search_link,
-    simulation::{Waiting, cases_pending, simulation_section, stacking_words},
+    simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
 };
 
@@ -413,7 +413,7 @@ pub fn build_info(
                     }
                 }
             }
-            (specs(s, flags, &sources, report))
+            (specs(s, flags, &sources))
             (credits(s))
             @match file {
                 _ if !s.conventional => {
@@ -512,30 +512,32 @@ fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
     }
 }
 
-/// One way a build stacks, short, such as `2 west, up to 7`.
+/// One way a build stacks, short, such as `2 wide west, up to 7` or `2
+/// west and 2 up, any number`.
 fn short_stacking(direction: &StackDirection) -> String {
-    let steps: Vec<String> = [
+    let steps: Vec<(i64, &str)> = [
         (direction.west, "west"),
         (direction.up, "up"),
         (direction.north, "north"),
     ]
     .into_iter()
     .filter(|&(n, _)| n > 0)
-    .map(|(n, way)| format!("{n} {way}"))
     .collect();
+    let step = if let [(n, way)] = steps.as_slice() {
+        format!("{n} wide {way}")
+    } else {
+        let each: Vec<String> =
+            steps.iter().map(|(n, way)| format!("{n} {way}")).collect();
+        each.join(" and ")
+    };
     match direction.max_copies {
-        Some(n) => format!("{}, up to {n}", steps.join(" and ")),
-        None => steps.join(" and "),
+        Some(n) => format!("{step}, up to {n}"),
+        None => format!("{step}, any number"),
     }
 }
 
 /// What a build is and how it behaves, beyond its key facts.
-fn specs(
-    s: &Schematic,
-    flags: &[Flag],
-    sources: &Sources,
-    report: Option<&Report>,
-) -> Markup {
+fn specs(s: &Schematic, flags: &[Flag], sources: &Sources) -> Markup {
     html! {
         section aria-labelledby="specs-heading" {
             h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } {
@@ -574,15 +576,7 @@ fn specs(
                         a href="#stacking" { (s.stacking.iter().map(short_stacking).collect::<Vec<_>>().join(" · ")) }
                     }
                 };
-                // What stacking copies found, on hover.
-                @let found = report.and_then(|report| match report {
-                    Report::Ran(run) => run.stacking.as_ref(),
-                    _ => None,
-                });
-                (field("Stacks", sourced(match found {
-                    Some(stacking) => hover_note("stacks-note", &stacks, &stacking_words(stacking)),
-                    None => stacks,
-                }, sources.stacking, sources)))
+                (field("Stacks", sourced(stacks, sources.stacking, sources)))
                 @if let Some(synced) = s.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing, sources)))
                 }
