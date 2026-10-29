@@ -614,9 +614,10 @@ fn register(name: &str) -> (Vec<u8>, Blocks) {
 /// Two staggered cells of an 8-bit register, each a write button and a
 /// read lever on unsigned magenta lines, sharing lime data in and yellow
 /// data out. Each cell takes every value, the bus stays empty with every
-/// read off, and each read shows its cell alone, 6 ticks after its lever;
-/// a write shows 8 ticks after its button, and data passes through a cell
-/// whose write is held open in 4, its latency.
+/// read off, and each read shows its cell alone; a write shows 8 ticks
+/// after its button. Timed from its data changing, its write pressed and
+/// read turned on where they let the data pass soonest, data out settles
+/// at 4, its latency, and each write has a window to be pressed in.
 #[test]
 fn a_register_stores_and_reads_each_cell() {
     let (_, blocks) = register("register-8-2-cells");
@@ -630,12 +631,26 @@ fn a_register_stores_and_reads_each_cell() {
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
-    assert_eq!((timing.read(), timing.synced), (Some(6), true));
+    assert_eq!((timing.read(), timing.synced), (Some(4), true));
     // A write shows 8 ticks after its button, but its latency is data in
-    // to data out, its write held open and read on: 4.
+    // to data out, its controls switched in time: 4.
     assert_eq!(timing.write, Some(8));
     assert_eq!((timing.data, timing.latency()), (Some(4), Some(4)));
-    assert_eq!(timing.start, Start::Read);
+    assert_eq!(timing.start, Start::Input);
+    let names: Vec<&str> = timing
+        .inputs
+        .iter()
+        .map(|input| input.name.as_str())
+        .collect();
+    assert_eq!(names, ["data in", "write 1", "read 1", "write 2", "read 2"]);
+    assert_eq!(timing.inputs[0].tick, Some(0));
+    for write in timing.inputs.iter().filter(|i| i.name.starts_with("write")) {
+        let (Some(earliest), Some(latest)) = (write.earliest, write.tick)
+        else {
+            panic!("{} has no window", write.name);
+        };
+        assert!(earliest < latest, "{}: {earliest} to {latest}", write.name);
+    }
     let guess = simulate::guess(&blocks).unwrap();
     assert_eq!(guess.category, "register");
 }
