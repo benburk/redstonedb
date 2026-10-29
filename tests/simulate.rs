@@ -6,12 +6,11 @@ use app::{
     import, interface, lint,
     models::schematic::{Encoding, Orientation},
     orient,
-    schem::{self, Blocks, Direction},
+    schem::{self, Blocks},
     simulate::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Takes,
         Test,
     },
-    stack,
     standardize::{self, Gray},
 };
 
@@ -183,38 +182,44 @@ fn an_adders_lone_lines_need_no_signs() {
     assert_eq!(run.pattern, "A + B + not carry in");
 }
 
-/// An 8-bit adder that repeats every 16 blocks up, as `//rstack up 1 16`
-/// stacks it, overlapping the copy below. Its comparators read barrels; the
-/// first copy alone keeps its carry in, the gray logic under its least
-/// significant bit, and the barrel on gray giving that bit's 1ss.
+/// An 8-bit adder that repeats every 16 blocks up, its carry in and the
+/// gray logic under its least significant bit inside the slice: a stack is
+/// the slice's box, unchanged, so every copy would keep them, and it does
+/// not stack.
 #[test]
-fn an_8_bit_adder_stacks_into_a_16_bit_one() {
+fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
         .expect("fixture is readable");
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
-    // The step comes from its bits, 2 up each, and two copies make 16
-    // bits, too many to try every sum: each byte's, and the patterns.
+    assert!(matches!(
+        Test::Adder.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
+}
+
+/// A 1-bit ripple carry slice with its carry in's lever on its east face,
+/// outside the box the copies stack: each later copy's carry in block
+/// lands where the copy before's carry leaves, and nine copies 2 west make
+/// a 9-bit adder, every sum right.
+#[test]
+fn an_adder_stacks_by_its_box() {
+    let raw =
+        std::fs::read("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
+    let data = app::probe::simulatable(&raw).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let report = app::inspect::inspect(&blocks);
+    let probed = app::probe::adder(&blocks, &report).unwrap();
+    let coloured = app::probe::colour(&data, &probed.layout).unwrap();
+    let standard =
+        import::prepare(&coloured, Some(Gray::Keep), true, false, true)
+            .unwrap();
     let Some(Stacking::Stacks {
-        step,
-        copies,
-        bits,
-        cases,
-    }) = Test::Adder.stacking(&data)
+        step, copies, bits, ..
+    }) = Test::Adder.stacking(&standard.data)
     else {
         panic!("it does not stack");
     };
-    assert_eq!(step.describe(), "16 up");
-    // Three, so one sits between two others: 24 bits.
-    assert_eq!((copies, bits), (3, 24));
-    assert!(cases > 1 << 18);
-    let (stacked, _) =
-        stack::stack(&data, &[(step.direction(), 2)], stack::Buses::own())
-            .unwrap();
-    let blocks = Blocks::read(&stacked).unwrap();
-    // Timed over the test patterns, as it is too wide to time every value.
-    let timing = Test::Adder.time(&blocks, &AtomicBool::new(false)).unwrap();
-    assert!(timing.patterns);
-    assert_eq!(timing.latency(), Some(4));
+    assert_eq!((step.describe().as_str(), copies, bits), ("2 west", 9, 9));
 }
 
 /// Its outputs are read through the repeaters standing on them, which lead
@@ -293,40 +298,6 @@ fn a_build_is_known_for_what_it_does() {
     assert_eq!((inverted.category, inverted.wrong), ("adder", 0));
 }
 
-/// The barrel giving its least significant bit's 1ss stands on gray, so
-/// only the first copy keeps it; without the gray block, every copy has
-/// one, and adds 1 at its first bit.
-#[test]
-fn a_barrel_on_gray_belongs_to_the_first_copy() {
-    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
-        .expect("fixture is readable");
-    let blocks = Blocks::read(&data).unwrap();
-    let gray = [5, 1, 1];
-    assert!(
-        blocks
-            .get(schem::step(gray, Direction::Up))
-            .starts_with("minecraft:barrel")
-    );
-    let grid: HashMap<_, _> = blocks
-        .iter()
-        .filter(|(pos, state)| *state != schem::AIR && *pos != gray)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    let mut nbt = schem::decode(&data).unwrap();
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
-        .unwrap();
-    let unmarked = schem::encode(nbt).unwrap();
-    let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&unmarked)
-    else {
-        panic!("it stacks without the gray block");
-    };
-    assert!(
-        reason.contains("A 0 + B 0 + carry in 0 gives 65792"),
-        "{reason}"
-    );
-}
-
 /// A carry cancel adder of 8 hex digits: each input block's dust takes a
 /// strength from 0 to 15, so A and B are 32 bits each, too many to try
 /// every sum, and it is slower to run than one of levers. Each digit takes
@@ -356,44 +327,6 @@ fn a_hex_adder_is_driven_digit_by_digit() {
     assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }
 
-/// The dust carrying its carry in to its least significant bit stands on
-/// gray glass. Whitened, every copy keeps the glass and dust, and a later
-/// copy's dust replaces a glass block of the copy before, as `//rstack`
-/// replaces it, so it does not add right as saved.
-#[test]
-fn a_copy_must_not_overwrite_the_copy_before() {
-    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
-        .expect("fixture is readable");
-    let blocks = Blocks::read(&data).unwrap();
-    assert!(
-        blocks
-            .get([2, 1, 2])
-            .starts_with("minecraft:gray_stained_glass")
-    );
-    let grid: HashMap<_, _> = blocks
-        .iter()
-        .filter(|(_, state)| *state != schem::AIR)
-        .map(|(pos, state)| {
-            let state = if pos == [2, 1, 2] {
-                "minecraft:white_stained_glass"
-            } else {
-                state
-            };
-            (pos, state.to_owned())
-        })
-        .collect();
-    let mut nbt = schem::decode(&data).unwrap();
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
-        .unwrap();
-    let whitened = schem::encode(nbt).unwrap();
-    let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&whitened)
-    else {
-        panic!("it stacks with the glass whitened");
-    };
-    assert!(reason.contains("sums wrong"), "{reason}");
-}
-
 /// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,
 /// where the next copy's carry in lands, with no carry out line; a slice
 /// has both its lines, so it fails.
@@ -408,18 +341,17 @@ fn a_slice_without_a_carry_out_fails() {
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry out is capped by
-/// a block that the copy above replaces, as `//rstack` pastes over it, so
-/// its copies chain only when stacked as in-game.
+/// a block that the copy above replaces, as `//rstack` pastes over it; its
+/// carry in shares its bottom layer with its logic, so it sits inside the
+/// box every copy keeps, and it does not stack.
 #[test]
 fn a_copy_may_cover_the_copy_below() {
     let data = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
-    let Some(Stacking::Stacks { step, copies, .. }) =
-        Test::Adder.stacking(&data)
-    else {
-        panic!("it does not stack");
-    };
-    assert_eq!((step.describe().as_str(), copies), ("2 up", 9));
+    assert!(matches!(
+        Test::Adder.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
 }
 
 /// Nothing powers its yellow output blocks: the repeaters standing on
@@ -678,25 +610,16 @@ fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
 }
 
 /// A 1-bit cell whose write line's driver, a torch on a block on a torch
-/// on its input, stands on a gray block, which later copies leave out:
-/// copies 2 west share its read and write lines and make a wider register,
-/// up to 7 bits, past which the write line's dust runs out.
+/// on its input, stands on a gray block inside its box: every copy would
+/// keep it, so copies 2 west make no wider register.
 #[test]
-fn a_register_cell_stacks_west_into_more_bits() {
+fn a_register_cell_with_its_driver_inside_its_box_does_not_stack() {
     let data =
         std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
-    let Some(Stacking::Wider {
-        step,
-        copies,
-        bits,
-        most,
-        ..
-    }) = Test::Register.stacking(&data)
-    else {
-        panic!("the register does not stack into more bits");
-    };
-    assert_eq!(step.describe(), "2 west");
-    assert_eq!((copies, bits, most), (7, 7, Some(7)));
+    assert!(matches!(
+        Test::Register.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
 }
 
 /// The same cell's timing: its bus is empty while its write lever is on,
@@ -790,9 +713,9 @@ fn a_buffer_shows_what_it_holds_without_a_read() {
 }
 
 /// Copies of the buffer 4 west share its write line and make more bits.
-/// Each keeps its own button, its magenta block landing past the copy
-/// before, but only the first copy's is pressed, and from a sixth copy on
-/// it no longer reaches the last one along the line, so five make 10 bits.
+/// Its button, alone on its east face, is the first copy's, and from a
+/// fourth copy on the write no longer reaches the last one along the line,
+/// so three make 6 bits.
 #[test]
 fn a_buffer_stacks_west_into_more_bits() {
     let (data, _) = register("buffer-2-button");
@@ -807,7 +730,7 @@ fn a_buffer_stacks_west_into_more_bits() {
         panic!("the buffer does not stack into more bits");
     };
     assert_eq!(step.describe(), "4 west");
-    assert_eq!((copies, bits, most), (5, 10, Some(5)));
+    assert_eq!((copies, bits, most), (3, 6, Some(3)));
 }
 
 /// A register's cells show only while read, so it is no buffer.
@@ -904,29 +827,20 @@ fn an_inverted_register_reads_and_stacks() {
 }
 
 /// A register whose comparators read hoppers, which carry no power, and
-/// whose data levers share a column with its logic. Stacked 4 west, each
-/// later copy's data blocks land on the copy before's data dust and are
-/// left out, the bus running on through it; three copies make 6 registers.
+/// whose data levers share a column with its logic, so they sit inside the
+/// box every copy keeps, landing on the copy before's data dust: copies 4
+/// west make no register file.
 #[test]
-fn a_register_whose_data_levers_land_on_the_copy_before_stacks() {
+fn a_register_whose_data_levers_are_inside_its_box_does_not_stack() {
     let (data, blocks) = register("register-8-hoppers");
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
     assert_eq!((run.cases, run.wrong), (3 * 256, 0));
-    let Some(Stacking::Registers {
-        step,
-        registers,
-        most,
-        ..
-    }) = Test::Register.stacking(&data)
-    else {
-        panic!("the register does not stack");
-    };
-    assert_eq!(
-        (step.describe(), registers, most),
-        ("4 west".to_owned(), 6, Some(3))
-    );
+    assert!(matches!(
+        Test::Register.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
 }
 
 /// An inverted register built on target blocks, whose data levers sit 4
@@ -1311,10 +1225,8 @@ fn a_falling_edge_monostable_pulses_as_a_turns_off() {
 
 /// A 1-bit inverter: two torches give A and not the line, and not A and
 /// the line, onto one yellow output, so its unsigned magenta line inverts
-/// A. Copies 2 west share one line, which inverts every bit, up to 8 of
-/// them: the line's inverse runs on through every copy's dust, and from a
-/// ninth copy on, too far from the torch driving it, it dies out, so that
-/// copy inverts with the line off.
+/// A. Its line sits inside the box every copy keeps, so copies 2 west
+/// would each have their own and make no wider inverter.
 #[test]
 fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     let (data, blocks) = register("inverter-1");
@@ -1325,15 +1237,10 @@ fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     assert_eq!(run.pattern, "A xor invert");
     assert_eq!((run.cases, run.wrong), (4, 0));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "inverter");
-    let stacking = Test::Inverter.stacking(&data);
-    let Some(Stacking::Wider {
-        step, copies, most, ..
-    }) = stacking
-    else {
-        panic!("the inverter does not stack: {stacking:?}");
-    };
-    assert_eq!(step.describe(), "2 west");
-    assert_eq!((copies, most), (8, Some(8)));
+    assert!(matches!(
+        Test::Inverter.stacking(&data),
+        Some(Stacking::Not { .. })
+    ));
 }
 
 /// Two staggered cells of an 8-bit register, packed so close that the west

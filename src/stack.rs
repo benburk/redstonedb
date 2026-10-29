@@ -1,27 +1,24 @@
 //! Copies of a stackable build joined into one schematic, as a player
-//! stacks it in game:
+//! stacks it in game. A build stacks by its box: the build less the layers
+//! on the face its stack starts from, the east for a stack west, the
+//! bottom for one up, the south for one north, that only the first copy
+//! needs, each block of which is interface, an input or output and what is
+//! on it, or is what the copy before already has where it lands. See
+//! `first_copy`.
 //!
-//! 1. Break the parts only the first copy keeps, each with its levers,
-//!    signs, and the dust on it: gray blocks and what rests on them, such
-//!    as logic the least significant bit alone needs or a barrel giving
-//!    the strength it alone takes; the inputs the copy before feeds, such
-//!    as a carry in; and for copies across a register's bits, which share
-//!    its data buses, its data levers, and the data blocks that would land
-//!    on a block of the copy before. See `first_copy`.
-//! 2. `//rstack` what is left: copy 0 sits at the south-east-bottom corner
-//!    and each later copy one step further along, pasted over the copies
-//!    before it, so copies may overlap, and where they do, the later
-//!    copy's block stands, though air never replaces anything and dust
-//!    that meets joins. A build may rely on that, as a carry out capping
-//!    one copy is covered by the next.
-//! 3. Put the parts from step 1 back on the first copy, into air only, as
-//!    `//gmask air` and `//paste -a` do, so a later copy's block stands
-//!    over them too.
-//! 4. Turn every copy's labelled outputs and status lines but the last
-//!    copy's white, signed or not, and take off their signs, since the
-//!    next copy takes them over, unless each copy keeps its own, as a
-//!    monostable's lone output is its own bit's; and a later copy's data
-//!    blocks on a shared bus, which are plain blocks without their levers.
+//! 1. Paste the first copy whole.
+//! 2. `//rstack` the box: each later copy one step further along, pasted
+//!    over the copies before it, so copies may overlap, and where they do,
+//!    the later copy's block stands, though air never replaces anything
+//!    and dust that meets joins. A build may rely on that, as a carry out
+//!    capping one copy is covered by the next.
+//! 3. Only colours change: every copy's labelled outputs and status lines
+//!    but the last copy's turn white, signed or not, their signs off, since
+//!    the next copy takes them over, unless each copy keeps its own, as a
+//!    monostable's lone output is its own bit's; a later copy's input
+//!    block whose lever stayed with the first copy turns white; and so do a
+//!    later copy's data blocks on a shared bus, read only at the first
+//!    copy's end.
 //!
 //! Where two copies hold different blocks, `review` says so, and finds the
 //! shortest step at which they do not. Several directions stack one after
@@ -183,7 +180,15 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let left_out = first_copy(&blocks, step, shared).all;
+    let left_out = first_copy(&blocks, step).all;
+    // A later copy's input whose switch stays with the first copy is a
+    // plain block.
+    let switched: HashSet<Pos> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| !left_out.contains(&switch.pos))
+        .map(|switch| switch.block)
+        .collect();
     let outputs = if buses.own_outputs {
         Outputs {
             blocks: HashSet::new(),
@@ -193,9 +198,8 @@ fn along(
         labelled_outputs(&blocks)
     };
 
-    // As in game: the first copy whole, then each later copy without the
-    // parts only the first keeps, over the copies before, where its block
-    // stands.
+    // As in game: the first copy whole, then each later copy's box over
+    // the copies before, where its block stands.
     let mut grid: HashMap<Pos, String> = HashMap::new();
     for i in 0..=last {
         let final_copy = i == last;
@@ -206,9 +210,10 @@ fn along(
             {
                 continue;
             }
-            // A later copy's data blocks on a shared bus are plain blocks.
+            let name = schem::short(state);
             let plain = (!final_copy && outputs.blocks.contains(&pos))
-                || (shared && i > 0 && bus(schem::short(state)));
+                || (i > 0 && lint::is_input(name) && !switched.contains(&pos))
+                || (shared && i > 0 && bus(name));
             let state = if plain { WHITE } else { state };
             place(&mut grid, schem::add(pos, shift(i)), state);
         }
@@ -294,15 +299,14 @@ pub fn review(
 ) -> Result<Review> {
     let blocks = Blocks::read(data)?;
     let step = step_of(direction)?;
-    let shared = buses.shared(direction);
-    let first_copy = first_copy(&blocks, step, shared);
+    let first_copy = first_copy(&blocks, step);
     let disagreements = disagreements(&blocks, step, &first_copy);
     let along = buses.along_bits(direction);
     let shape = shape(data, &blocks, direction, along, buses)?;
     let better = if disagreements.is_empty() {
         None
     } else {
-        agreeing(&blocks, direction, shared)
+        agreeing(&blocks, direction)
     };
     Ok(Review {
         direction,
@@ -316,11 +320,7 @@ pub fn review(
 /// The shortest step `direction`'s way, short of the build's length that
 /// way, at which two copies overlap and hold no different blocks anywhere
 /// they do.
-fn agreeing(
-    blocks: &Blocks,
-    direction: StackDirection,
-    shared: bool,
-) -> Option<i64> {
+fn agreeing(blocks: &Blocks, direction: StackDirection) -> Option<i64> {
     let (low, high) = interface::core(blocks);
     let [width, height, length] =
         [0, 1, 2].map(|axis| i64::from(high[axis] - low[axis] + 1));
@@ -345,8 +345,7 @@ fn agreeing(
         let Ok(step) = step_of(candidate) else {
             return false;
         };
-        disagreements(blocks, step, &first_copy(blocks, step, shared))
-            .is_empty()
+        disagreements(blocks, step, &first_copy(blocks, step)).is_empty()
     })
 }
 
@@ -496,11 +495,9 @@ pub fn part(
     data: &[u8],
     direction: StackDirection,
     parts: bool,
-    buses: Buses,
 ) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
-    let first_copy =
-        first_copy(&blocks, step_of(direction)?, buses.shared(direction));
+    let first_copy = first_copy(&blocks, step_of(direction)?);
     let kept = |pos: &Pos| first_copy.all.contains(pos) == parts;
     let grid: HashMap<Pos, String> = blocks
         .iter()
@@ -519,113 +516,18 @@ pub fn part(
     schem::encode(nbt)
 }
 
-/// The inputs a later copy leaves out, a `step` along, since the copy
-/// before feeds them: a control line that lands within it where it could
-/// be fed, on a block or beside redstone, such as a carry in beside the
-/// dust carrying the carry out it continues, and an input block of a layer outside the build's core, as
-/// [`interface::core`] finds it, that lands in the core of the copy before,
-/// as a memory's input layer does; with the levers, buttons, and signs on
-/// them. A torch on one stays where the copy before has a solid block in
-/// its place to hang on, as one inverting a carry in hangs on the carry out
-/// it continues. A control line that lands beyond the copy before, or on
-/// air with no redstone around in it, as a register stacked into more
-/// registers keeps its own, stays, as does an
-/// adder's next bit, which lands in its own input layer.
-///
-/// So does an input or output block of a bus outside the build as it is
-/// measured, less its outer layers of interface and outputs, that lands
-/// within the copy before as measured, or one that lands on any block of
-/// the copy before, as on the block or dust carrying its data, with the
-/// lever on it and the dust, repeater,
-/// or comparator standing on it: the bus runs on through the copy before,
-/// and is driven and read only at the first copy's end, as a register
-/// file's data buses are.
-fn shared_inputs(
-    blocks: &Blocks,
-    step: Pos,
-    shared: bool,
-) -> (Vec<Pos>, Vec<Pos>) {
-    let (low, high) = interface::core(blocks);
-    let in_core = |pos: Pos| {
-        (0..3).all(|axis| (low[axis]..=high[axis]).contains(&pos[axis]))
-    };
-    let within = |pos: Pos| {
-        (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
-    };
-    let (mut inputs, mut buses) = (Vec::new(), Vec::new());
-    for (pos, state) in blocks.iter() {
-        let name = schem::short(state);
-        let landing = schem::add(pos, step);
-        if shared && bus(name) && within(landing) && blocks.get(landing) != AIR
-        {
-            buses.push(pos);
-        } else if (!shared
-            && name == format!("{}_concrete", lint::CONTROL)
-            && within(landing)
-            && fed(blocks, landing))
-            || (lint::is_input(name) && !in_core(pos) && in_core(landing))
-        {
-            inputs.push(pos);
-        }
-    }
-    (inputs, buses)
-}
-
-/// The blocks resting on `marks`, which go with them, a `step` along: the
-/// dust, repeater, or comparator carrying an output out, the levers,
-/// buttons, and signs on them, and a torch on one where the copy before
-/// has no solid block in its place to hang on.
-fn resting_on(
-    blocks: &Blocks,
-    inputs: &HashSet<Pos>,
-    step: Pos,
-) -> HashSet<Pos> {
-    let mut shared = HashSet::new();
-    // What carries an output out stands on it, and goes with it.
-    shared.extend(blocks.iter().filter_map(|(pos, state)| {
-        let below = schem::step(pos, Direction::Down);
-        (matches!(
-            schem::short(state),
-            "redstone_wire" | "repeater" | "comparator"
-        ) && inputs.contains(&below)
-            && lint::is_output(schem::short(blocks.get(below))))
-        .then_some(pos)
-    }));
-    shared.extend(
-        blocks
-            .switches()
-            .into_iter()
-            .filter(|switch| inputs.contains(&switch.block))
-            .map(|switch| switch.pos),
-    );
-    shared.extend(blocks.signs.keys().copied().filter(|&sign| {
-        blocks
-            .sign_block(sign)
-            .is_some_and(|on| inputs.contains(&on))
-    }));
-    shared.extend(blocks.iter().filter_map(|(pos, state)| {
-        let on = schem::torch_block(pos, state)?;
-        (inputs.contains(&on) && !solid(blocks.get(schem::add(on, step))))
-            .then_some(pos)
-    }));
-    shared
-}
-
-/// The parts only the first copy keeps when copies stack a `step` along,
-/// which the stacking procedure breaks before `//rstack` and puts back on
-/// the first copy after.
+/// The layers only the first copy keeps when copies stack a `step` along,
+/// which later copies leave out, so each stacks the build's box: from the
+/// face the stack starts from, the east for one west, the bottom for one
+/// up, the south for one north, each layer whose every block is interface,
+/// or is what the copy before already has where it lands, dust on dust
+/// joining; never so many that the box is shorter than the step.
 pub struct FirstCopy {
-    /// How many gray blocks.
-    pub gray: usize,
-    /// The inputs the copy before feeds, such as a carry in.
-    pub inputs: Vec<Pos>,
-    /// The data input and output blocks whose buses run on through the
-    /// copy before.
-    pub buses: Vec<Pos>,
-    /// The levers on data inputs, when copies share the buses, which only
-    /// the first copy's drive.
-    pub levers: usize,
-    /// Every block broken: these, and what rests on them.
+    /// How many layers, along each way the stack steps.
+    pub layers: usize,
+    /// The levers and buttons among them.
+    pub switches: usize,
+    /// Every block in them.
     pub all: HashSet<Pos>,
 }
 
@@ -635,33 +537,82 @@ impl FirstCopy {
     }
 }
 
-fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
-    let gray = first_copy_only(blocks);
-    let (inputs, buses) = shared_inputs(blocks, step, shared);
-    let marks: HashSet<Pos> = inputs.iter().chain(&buses).copied().collect();
-    let mut all = resting_on(blocks, &marks, step);
-    all.extend(&marks);
-    all.extend(&gray);
-    // On a shared bus, only the first copy's data levers drive it.
-    let mut levers = 0;
-    if shared {
-        for switch in blocks.switches() {
-            if bus(schem::short(blocks.get(switch.block))) {
-                all.insert(switch.pos);
-                levers += 1;
+fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
+    let interface = interface_blocks(blocks);
+    let mut all = HashSet::new();
+    let mut layers = 0;
+    for axis in (0..3).filter(|&axis| step[axis] != 0) {
+        let size = blocks.size[axis];
+        // The first copy sits behind each step.
+        let layer = |n: i32| if step[axis] < 0 { size - 1 - n } else { n };
+        let mut n = 0;
+        while size - n > step[axis].abs() {
+            let fits = blocks
+                .iter()
+                .filter(|&(pos, state)| pos[axis] == layer(n) && state != AIR)
+                .all(|(pos, state)| {
+                    let under = blocks.get(schem::add(pos, step));
+                    interface.contains(&pos)
+                        || under == state
+                        || (schem::short(state) == "redstone_wire"
+                            && schem::short(under) == "redstone_wire")
+                });
+            if !fits {
+                break;
             }
+            all.extend(
+                blocks
+                    .iter()
+                    .filter(|&(pos, state)| {
+                        pos[axis] == layer(n) && state != AIR
+                    })
+                    .map(|(pos, _)| pos),
+            );
+            n += 1;
         }
+        layers += usize::try_from(n).unwrap_or(0);
     }
+    let switches = blocks
+        .switches()
+        .iter()
+        .filter(|switch| all.contains(&switch.pos))
+        .count();
     FirstCopy {
-        gray: blocks
-            .iter()
-            .filter(|&(_, state)| lint::first_copy_only(schem::short(state)))
-            .count(),
-        inputs,
-        buses,
-        levers,
+        layers,
+        switches,
         all,
     }
+}
+
+/// A build's interface: its input and output blocks, the levers, buttons,
+/// and signs on any block, and the dust, repeaters, and comparators
+/// standing on an input or output.
+fn interface_blocks(blocks: &Blocks) -> HashSet<Pos> {
+    let marked = |pos: Pos| {
+        let name = schem::short(blocks.get(pos));
+        lint::is_input(name) || lint::is_output(name)
+    };
+    let mut found: HashSet<Pos> = blocks
+        .iter()
+        .filter(|&(pos, _)| marked(pos))
+        .map(|(p, _)| p)
+        .collect();
+    for switch in blocks.switches() {
+        found.insert(switch.pos);
+        found.insert(switch.block);
+    }
+    for &sign in blocks.signs.keys() {
+        found.insert(sign);
+        found.extend(blocks.sign_block(sign));
+    }
+    found.extend(blocks.iter().filter_map(|(pos, state)| {
+        (matches!(
+            schem::short(state),
+            "redstone_wire" | "repeater" | "comparator"
+        ) && marked(schem::step(pos, Direction::Down)))
+        .then_some(pos)
+    }));
+    found
 }
 
 /// Whether a block id without its namespace marks a bit of a bus: an
@@ -669,66 +620,6 @@ fn first_copy(blocks: &Blocks, step: Pos, shared: bool) -> FirstCopy {
 fn bus(name: &str) -> bool {
     (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
         || lint::is_output(name)
-}
-
-/// Whether something at `pos` in the copy before could feed a later
-/// copy's control line landing there: a block in its place, or redstone
-/// beside it, as the dust carrying a carry out to the next copy's carry
-/// in. A line landing on air with no redstone around is the copy's own.
-fn fed(blocks: &Blocks, pos: Pos) -> bool {
-    let redstone = |state: &str| {
-        matches!(
-            schem::short(state),
-            "redstone_wire"
-                | "repeater"
-                | "comparator"
-                | "redstone_torch"
-                | "redstone_wall_torch"
-                | "observer"
-        )
-    };
-    blocks.get(pos) != AIR
-        || Direction::ALL
-            .into_iter()
-            .any(|side| redstone(blocks.get(schem::step(pos, side))))
-}
-
-/// The blocks only the first copy keeps: gray blocks, and the dust,
-/// torches, repeaters, comparators, levers, buttons, signs, and containers
-/// such as barrels resting on them.
-fn first_copy_only(blocks: &Blocks) -> HashSet<Pos> {
-    let mut only: HashSet<Pos> = blocks
-        .iter()
-        .filter(|&(_, state)| lint::first_copy_only(schem::short(state)))
-        .map(|(pos, _)| pos)
-        .collect();
-    let mut resting: Vec<(Pos, Pos)> = blocks
-        .iter()
-        .filter_map(|(pos, state)| {
-            let on = match schem::short(state) {
-                "redstone_wire" | "repeater" | "comparator" | "barrel"
-                | "hopper" | "furnace" => {
-                    Some(schem::step(pos, Direction::Down))
-                }
-                _ => schem::torch_block(pos, state),
-            };
-            Some((pos, on?))
-        })
-        .collect();
-    resting.extend(blocks.switches().into_iter().map(|s| (s.pos, s.block)));
-    resting.extend(
-        blocks
-            .signs
-            .keys()
-            .filter_map(|&sign| Some((sign, blocks.sign_block(sign)?))),
-    );
-    let on_them: Vec<Pos> = resting
-        .into_iter()
-        .filter(|(_, on)| only.contains(on))
-        .map(|(pos, _)| pos)
-        .collect();
-    only.extend(on_them);
-    only
 }
 
 struct Outputs {
@@ -777,21 +668,6 @@ fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
         _ => state.to_owned(),
     };
     grid.insert(pos, placed);
-}
-
-/// Whether `state` is a solid block rather than a component standing on
-/// or beside one, such as dust, a torch, or a lever.
-fn solid(state: &str) -> bool {
-    let name = schem::short(state);
-    !(name == "air"
-        || name == "redstone_wire"
-        || name == "repeater"
-        || name == "comparator"
-        || name.ends_with("torch")
-        || name == "lever"
-        || name.ends_with("_button")
-        || name.ends_with("sign")
-        || name == "tripwire_hook")
 }
 
 /// Whether `state` would replace a different block at `existing`: anything

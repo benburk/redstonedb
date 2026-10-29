@@ -312,11 +312,12 @@ fn a_register_stacks_two_ways() {
     assert_eq!(size, [15, 12, 12]);
     let interface::Interface { inputs, .. } =
         interface::read(&Blocks::read(&data).unwrap());
-    // Each of the three registers keeps its own read and write lines.
+    // Its read and write lines sit inside the box, so every copy keeps
+    // its own: its copies west are no wider register.
     let controls = inputs
         .iter()
         .filter(|p| p.name == "read" || p.name == "write");
-    assert_eq!(controls.count(), 6);
+    assert_eq!(controls.count(), 28);
 }
 
 #[test]

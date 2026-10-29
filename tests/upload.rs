@@ -122,8 +122,9 @@ async fn an_off_list_name_means_the_category_it_stands_in_for() {
     assert_eq!(meant("eight-bit adder"), None);
 }
 
-/// Gray marks what only a stack's first copy keeps, so it stays only
-/// where the copies stack with it.
+/// Gray stays only where the copies stack with it. This register's gray
+/// driver sits inside the box its copies would stack, so it stacks no way,
+/// and its gray is whitened.
 #[tokio::test]
 async fn gray_stays_only_where_the_copies_stack_with_it() {
     let standard = |name| {
@@ -133,7 +134,7 @@ async fn gray_stays_only_where_the_copies_stack_with_it() {
     let register = standard("register-1-gray-driver");
     assert!(gray(&register.blocks) > 0, "the fixture has gray blocks");
     let kept = import::gray_settled(&register, "register").await.unwrap();
-    assert_eq!(gray(&kept.blocks), gray(&register.blocks));
+    assert_eq!(gray(&kept.blocks), 0);
 
     // Taken for a multiplier, which never stacks, its gray means nothing.
     let whitened = import::gray_settled(&register, "multiplier").await.unwrap();

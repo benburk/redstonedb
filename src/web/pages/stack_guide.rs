@@ -95,51 +95,29 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
                     code { "//gmask air" } " " code { "//paste -a" } " " code { "//gmask" }
                 }
                 dt class=(label) { "First copy" }
-                dd class="text-muted" { (parts(&review.first_copy)) }
+                dd class="text-muted" { (parts(&review.first_copy, direction)) }
             }
         }
     }
 }
 
-/// What only the first copy keeps, in words, such as `8 data input and
-/// output blocks and the input at (3, 1, 5)`.
-fn parts(first_copy: &FirstCopy) -> String {
-    let mut parts = Vec::new();
-    match first_copy.buses.len() {
-        0 => {}
-        1 => parts.push("a data block on a shared bus".to_owned()),
-        n => parts.push(format!("{n} data blocks on shared buses")),
-    }
-    match first_copy.levers {
-        0 => {}
-        1 => parts.push("its data lever".to_owned()),
-        n => parts.push(format!("its {n} data levers")),
-    }
-    match first_copy.gray {
-        0 => {}
-        1 => parts.push("a gray block".to_owned()),
-        n => parts.push(format!("{n} gray blocks")),
-    }
-    // Inputs the copy before feeds, by where they are.
-    let fed: Vec<String> = first_copy
-        .inputs
-        .iter()
-        .map(|[x, y, z]| format!("({x}, {y}, {z})"))
-        .collect();
-    match fed.as_slice() {
-        [] => {}
-        [one] => {
-            parts.push(format!("the input at {one}, fed by the copy before"));
-        }
-        many => parts.push(format!(
-            "the inputs at {}, fed by the copy before",
-            many.join(", ")
-        )),
-    }
-    match parts.as_slice() {
-        [] => "nothing".to_owned(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+/// What only the first copy keeps, in words, such as `its east layer,
+/// with 8 levers`: the layers on the face the stack starts from.
+fn parts(first_copy: &FirstCopy, direction: StackDirection) -> String {
+    let face = match direction.name().as_str() {
+        "west" => "east",
+        "up" => "bottom",
+        "north" => "south",
+        _ => "start",
+    };
+    let layers = match first_copy.layers {
+        1 => format!("its {face} layer"),
+        n => format!("its {n} {face} layers"),
+    };
+    match first_copy.switches {
+        0 => layers,
+        1 => format!("{layers}, with 1 lever"),
+        n => format!("{layers}, with {n} levers"),
     }
 }
 

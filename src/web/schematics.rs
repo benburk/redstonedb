@@ -1027,9 +1027,8 @@ async fn shaped(
             .iter()
             .find(|d| asked.direction.as_deref() == Some(d.name().as_str()))
             .ok_or_else(|| AppError::BadRequest("no such part".to_owned()))?;
-        let buses = stack::Buses::of(&s.category, s.orientation);
         let first = part == Part::First;
-        let data = stack::part(&data, *direction, first, buses)?;
+        let data = stack::part(&data, *direction, first)?;
         let suffix = if first {
             "_first_copy_parts"
         } else {
