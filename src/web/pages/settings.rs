@@ -133,12 +133,11 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
             })
             .collect()
     };
-    let colours: Vec<(&str, Vec<(String, String)>)> = vec![(
-        "Colours",
-        palette::colours()
-            .map(|dye| (dye.to_owned(), format!("{dye}_concrete")))
-            .collect(),
-    )];
+    let mut marks = plain(palette::marks());
+    marks.push((
+        "None",
+        vec![(palette::NONE.to_owned(), palette::NONE.to_owned())],
+    ));
     let switch = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
         form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
@@ -166,9 +165,9 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
             div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2" {
                 (picker("solid", "Solid", &plain(palette::solid()), &chosen.solid, &chosen.solid))
                 (picker("transparent", "Transparent", &plain(palette::transparent()), &chosen.transparent, &chosen.transparent))
-                @for (key, label, site) in palette::ROLES {
-                    @let colour = chosen.colours.get(key).map_or(site, String::as_str);
-                    (picker(key, label, &colours, colour, &format!("{colour}_concrete")))
+                @for (key, label, _) in palette::ROLES {
+                    @let mark = chosen.mark(key).unwrap_or_else(|| palette::NONE.to_owned());
+                    (picker(key, label, &marks, &mark, &mark))
                 }
             }
             div { button type="submit" class="btn btn-primary" { (save) } }

@@ -111,6 +111,14 @@ fn textures(block: &str) -> (&str, &str) {
 /// its own textures, kept pixelated, its sides shaded as a thumbnail's
 /// are, as an SVG.
 pub fn icon(block: &str) -> String {
+    if block == NONE {
+        return concat!(
+            r#"<svg viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true">"#,
+            r#"<polygon points="16,3 29,10 29,24 16,31 3,24 3,10" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-dasharray="2 2"/>"#,
+            "</svg>"
+        )
+        .to_owned();
+    }
     let (top, side) = textures(block);
     // Each face maps the 16-pixel texture onto its side of an isometric
     // cube in a 32-unit square.
@@ -147,6 +155,28 @@ pub fn colours() -> impl Iterator<Item = &'static str> {
     DYES.into_iter().filter(|d| !matches!(*d, "white" | "gray"))
 }
 
+/// What marks no role: its blocks are plain, the palette's own.
+pub const NONE: &str = "none";
+
+/// The blocks a role may be marked with, by group: any coloured concrete,
+/// wool, or terracotta, solid as an input's block must be.
+pub fn marks() -> Vec<(&'static str, Vec<String>)> {
+    let dyed = |kind: &str| colours().map(|d| format!("{d}_{kind}")).collect();
+    vec![
+        ("Concrete", dyed("concrete")),
+        ("Wool", dyed("wool")),
+        ("Terracotta", dyed("terracotta")),
+    ]
+}
+
+/// The dye a block is coloured with, such as `lime` for lime wool.
+fn dye(block: &str) -> Option<&'static str> {
+    DYES.iter()
+        .copied()
+        .filter(|d| block.starts_with(&format!("{d}_")))
+        .max_by_key(|d| d.len())
+}
+
 /// Palettes people like, each with a key and a name.
 pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
     vec![(
@@ -177,7 +207,8 @@ pub struct Palette {
     pub prefer_solid: bool,
     pub solid: String,
     pub transparent: String,
-    /// Each role's colour, by the role's key in `ROLES`.
+    /// The block each role is marked with, or `none`, by the role's key in
+    /// `ROLES`. An older palette's plain colour stands for its concrete.
     pub colours: BTreeMap<String, String>,
 }
 
@@ -190,7 +221,9 @@ impl Default for Palette {
             transparent: "white_stained_glass".to_owned(),
             colours: ROLES
                 .iter()
-                .map(|&(key, _, colour)| (key.to_owned(), colour.to_owned()))
+                .map(|&(key, _, colour)| {
+                    (key.to_owned(), format!("{colour}_concrete"))
+                })
                 .collect(),
         }
     }
@@ -206,10 +239,21 @@ impl Palette {
         };
         among(solid(), &self.solid)
             && among(transparent(), &self.transparent)
-            && self.colours.iter().all(|(key, colour)| {
+            && self.colours.iter().all(|(key, mark)| {
                 ROLES.iter().any(|(k, ..)| k == key)
-                    && colours().any(|c| c == colour)
+                    && (mark == NONE || among(marks(), mark))
             })
+    }
+
+    /// The palette with an older one's plain colours as their concrete.
+    #[must_use]
+    pub fn normalised(mut self) -> Self {
+        for mark in self.colours.values_mut() {
+            if DYES.contains(&mark.as_str()) {
+                *mark = format!("{mark}_concrete");
+            }
+        }
+        self
     }
 
     /// A short name for it, for a picture's address, so each palette's
@@ -219,17 +263,22 @@ impl Palette {
         crate::import::sha256(json.as_bytes())[..12].to_owned()
     }
 
-    /// The colour role `key` is marked with.
-    fn colour(&self, key: &str) -> &str {
-        self.colours.get(key).map_or_else(
-            || {
-                ROLES
-                    .iter()
-                    .find(|(k, ..)| *k == key)
-                    .map_or("", |(.., c)| c)
-            },
-            String::as_str,
-        )
+    /// The block role `key` is marked with, `None` for none.
+    pub fn mark(&self, key: &str) -> Option<String> {
+        let site = || {
+            ROLES
+                .iter()
+                .find(|(k, ..)| *k == key)
+                .map(|(.., c)| format!("{c}_concrete"))
+        };
+        match self.colours.get(key).map(String::as_str) {
+            Some(NONE) => None,
+            Some(mark) if DYES.contains(&mark) => {
+                Some(format!("{mark}_concrete"))
+            }
+            Some(mark) => Some(mark.to_owned()),
+            None => site(),
+        }
     }
 }
 
@@ -286,20 +335,29 @@ pub fn blocks_in(
 /// keeping its kind. By block alone, so it takes a stacked file too, after
 /// stacking, which finds buses by their colours.
 pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
-    let site = Palette::default();
-    if palette.colours == site.colours {
+    if palette.colours == Palette::default().colours {
         return Ok(data.to_vec());
     }
     let blocks = Blocks::read(data)?;
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let name = schem::short(state);
-        for (key, ..) in ROLES {
-            let (from, to) = (site.colour(key), palette.colour(key));
-            for kind in ["_concrete", "_stained_glass"] {
-                if name == format!("{from}{kind}") && from != to {
-                    changes.insert(pos, format!("minecraft:{to}{kind}"));
+        for (key, _, site) in ROLES {
+            let mark = palette.mark(key);
+            // A role's glass stays glass: its colour's, or the palette's
+            // plain glass for an undyed mark or none.
+            let to = if name == format!("{site}_concrete") {
+                mark.unwrap_or_else(|| palette.solid.clone())
+            } else if name == format!("{site}_stained_glass") {
+                match mark.as_deref().and_then(dye) {
+                    Some(dye) => format!("{dye}_stained_glass"),
+                    None => palette.transparent.clone(),
                 }
+            } else {
+                continue;
+            };
+            if to != name {
+                changes.insert(pos, format!("minecraft:{to}"));
             }
         }
     }
