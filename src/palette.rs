@@ -299,8 +299,11 @@ pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
         (
             "unnecessarymb",
             "unnecessarymb",
+            // Blue ice where power means something: wherever a block
+            // passes it on, hard or soft, to dust or a component.
             Palette {
                 hard: Some("blue_ice".to_owned()),
+                soft: Some("blue_ice".to_owned()),
                 ..palette(
                     "stripped_cherry_log[axis=y]",
                     "white_stained_glass",
