@@ -119,13 +119,13 @@ fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
             h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } { "Failed verification" }
             ul class="flex list-disc flex-col gap-1.5 pl-5" {
                 @if strength {
-                    li { "Signal-strength inputs: not taken yet" }
+                    li { "Signal-strength inputs" }
                 }
                 @for fault in faults {
                     li { (fault) }
                 }
                 @if !strength && faults.is_empty() {
-                    li { "Fails the " (label) " test or a building convention; see below" }
+                    li { "Fails " (label) " test or conventions" }
                 }
             }
         }

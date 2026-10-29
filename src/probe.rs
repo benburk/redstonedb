@@ -172,36 +172,55 @@ fn split(runs: &[Run]) -> (Vec<&Run>, Vec<Pos>) {
     (buses, lones)
 }
 
-/// Where `runs`' lone bits are, such as `; strays at (1, 2, 3), (4, 5,
-/// 6)`, when one or two are all that keep the rest in line; else nothing,
-/// as a line's place says little when every line is wrong.
-fn strays(runs: &[Run]) -> String {
+/// Where `runs`' lone bits are, such as `(1, 2, 3), (4, 5, 6)`, when one
+/// or two are all that keep the rest in line.
+fn strays(runs: &[Run]) -> Option<String> {
     let lone: Vec<String> = runs
         .iter()
         .filter(|run| run.bits.len() == 1)
         .map(|run| inspect::place(run.bits[0]))
         .collect();
-    match lone.len() {
-        1 | 2 => format!("; strays at {}", lone.join(", ")),
-        _ => String::new(),
-    }
+    (1..=2).contains(&lone.len()).then(|| lone.join(", "))
 }
 
-/// How many bits `runs` hold in all.
-fn count(runs: &[Run]) -> usize {
-    runs.iter().map(|run| run.bits.len()).sum()
-}
-
-fn sizes(runs: &[Run]) -> String {
-    let mut sizes: Vec<String> =
+/// `runs`' lengths, such as `7, 7, 1, 1`.
+fn lengths(runs: &[Run]) -> String {
+    let each: Vec<String> =
         runs.iter().map(|run| run.bits.len().to_string()).collect();
-    match sizes.len() {
-        0 => "none".to_owned(),
-        1 => sizes.remove(0),
-        _ => {
-            let last = sizes.pop().unwrap_or_default();
-            format!("{} and {last}", sizes.join(", "))
-        }
+    each.join(", ")
+}
+
+/// What is wrong with outputs `runs` as a `width`-bit sum and carry out:
+/// too few; one or two out of line; uneven gaps along the axis they
+/// spread furthest on; or, evenly spaced, not in a line.
+fn output_fault(runs: &[Run], width: usize) -> String {
+    let mut bits: Vec<Pos> =
+        runs.iter().flat_map(|run| run.bits.clone()).collect();
+    if bits.len() < width {
+        return format!("Output bus: {} outputs, need {width}", bits.len());
+    }
+    if let Some(at) = strays(runs) {
+        return format!("Output bus: out of line at {at}");
+    }
+    let extent = |axis: usize| {
+        let (lo, hi) = bits.iter().fold((i32::MAX, i32::MIN), |(lo, hi), b| {
+            (lo.min(b[axis]), hi.max(b[axis]))
+        });
+        hi - lo
+    };
+    let axis = (0..3).max_by_key(|&axis| extent(axis)).unwrap_or(1);
+    bits.sort_by_key(|bit| bit[axis]);
+    let gaps: Vec<i32> =
+        bits.windows(2).map(|w| w[1][axis] - w[0][axis]).collect();
+    if gaps.windows(2).any(|w| w[0] != w[1]) {
+        let gaps: Vec<String> = gaps.iter().map(ToString::to_string).collect();
+        let name = ["x", "y", "z"][axis];
+        format!(
+            "Output bus: uneven spacing, {name} gaps {}",
+            gaps.join(", ")
+        )
+    } else {
+        "Output bus: not in a line".to_owned()
     }
 }
 
@@ -270,12 +289,9 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
             }
         }
         _ => {
-            return Err(format!(
-                "Input buses not aligned: {} levers in lines of {}, not two \
-                 equal lines and a carry in{}",
-                count(runs),
-                sizes(runs),
-                strays(runs)
+            return Err(strays(runs).map_or_else(
+                || format!("Input buses: line lengths {}", lengths(runs)),
+                |at| format!("Input bus: out of line at {at}"),
             ));
         }
     }
@@ -311,23 +327,14 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
             }
         }
         ([], [_]) if width == 1 => {
-            return Err(
-                "One output: a 1-bit adder needs a sum and a carry out"
-                    .to_owned(),
-            );
+            return Err("1 output: need sum and carry out".to_owned());
         }
         ([], [p, q]) if width == 1 => {
             found.push((vec![*p], Some(*q)));
             found.push((vec![*q], Some(*p)));
         }
         _ => {
-            return Err(format!(
-                "Output bus not aligned: {} outputs in lines of {}, not one \
-                 evenly spaced line of {width} and a carry out{}",
-                count(runs),
-                sizes(runs),
-                strays(runs)
-            ));
+            return Err(output_fault(runs, width));
         }
     }
     Ok(found)
@@ -343,9 +350,7 @@ pub fn adder(
     let pairs = operands(&report.inputs)?;
     let width = pairs.first().map_or(0, |(a, _, _)| a.len());
     if Test::of("adder", i64::try_from(width).ok()).is_none() {
-        return Err(format!(
-            "Operands {width} bits wide: only 1 to 32 bits are tested"
-        ));
+        return Err(format!("Width {width}: tested range 1-32"));
     }
     let outs = results(&report.outputs, width)?;
     let mut best: Option<(u64, u64, Layout)> = None;
@@ -388,11 +393,7 @@ pub fn adder(
         ));
     };
     if wrong > 0 {
-        return Err(format!(
-            "Doesn't add: the closest reading, {}, gets {wrong} of {cases} \
-             cases wrong",
-            layout.describe()
-        ));
+        return Err(format!("Doesn't add: {wrong} of {cases} cases wrong"));
     }
     // A and B the other way round may add too, read more plainly, as a
     // subtractor's A − B rather than not (B − A − 1).
@@ -426,10 +427,9 @@ pub fn adder(
             .map(|(bit, n)| format!("{bit} ({n})"))
             .collect();
         return Err(format!(
-            "Doesn't add: {} of {} cases wrong, read as {}; wrong bits {}",
+            "Doesn't add: {} of {} cases wrong; wrong bits {}",
             run.wrong,
             run.cases,
-            layout.describe(),
             bits.join(", ")
         ));
     }
@@ -507,13 +507,11 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     let mut problems: Vec<String> =
         report.errors.iter().map(|p| p.message.clone()).collect();
     if problems.is_empty() {
-        problems
-            .extend(inspect::not_bus_drivable(data)?.into_iter().map(|lever| {
-            format!(
-                "Lever at {}: a repeater in its place doesn't drive the input",
-                inspect::place(lever)
-            )
-        }));
+        problems.extend(inspect::not_bus_drivable(data)?.into_iter().map(
+            |lever| {
+                format!("Lever at {}: not bus-drivable", inspect::place(lever))
+            },
+        ));
     }
     if !problems.is_empty() {
         return Ok(Recognition {

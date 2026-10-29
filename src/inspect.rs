@@ -131,14 +131,6 @@ fn noun(name: &str) -> &'static str {
     }
 }
 
-/// `word` after `a` or `an`, such as `an iron trapdoor`.
-fn a(word: &str) -> String {
-    match word.chars().next() {
-        Some('a' | 'e' | 'i' | 'o' | 'u') => format!("an {word}"),
-        _ => format!("a {word}"),
-    }
-}
-
 /// A full block a lever can hang on and dust stand on.
 fn solid(name: &str) -> bool {
     !lint::is_component(name)
@@ -164,12 +156,7 @@ fn reads_from(blocks: &Blocks, from: Pos, block: Pos) -> bool {
 fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
     let switches = blocks.switches();
     if switches.is_empty() {
-        problem(
-            report,
-            "no inputs",
-            Vec::new(),
-            "No inputs: no levers or stone buttons".to_owned(),
-        );
+        problem(report, "no inputs", Vec::new(), "No inputs".to_owned());
     }
     let mut found = Vec::new();
     for switch in switches {
@@ -197,7 +184,7 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             report,
             "button not stone",
             vec![lever],
-            format!("Button at {at}: {}, not stone", words(&name)),
+            format!("Button at {at}: {} (need stone)", words(&name)),
         );
     }
     if matches!(switch.side, Direction::Up | Direction::Down) {
@@ -210,7 +197,7 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             report,
             "switch on top or bottom",
             vec![lever],
-            format!("{} at {at}: on the {where_} of its block", noun(&name)),
+            format!("{} at {at}: on {where_} of block", noun(&name)),
         );
         return false;
     }
@@ -221,9 +208,9 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             "input block not solid",
             vec![block],
             format!(
-                "{} at {at}: on {}, not a solid block",
+                "{} at {at}: on non-solid {}",
                 noun(&name),
-                a(&words(&block_name))
+                words(&block_name)
             ),
         );
         return false;
@@ -259,7 +246,7 @@ fn lever_touches(blocks: &Blocks, switch: &Switch, report: &mut Report) {
                 "switch touches redstone",
                 vec![lever, next],
                 format!(
-                    "{} at {at}: also powers the {} at {}",
+                    "{} at {at}: touches {} at {}",
                     noun(&name),
                     words(touched),
                     place(next)
@@ -287,7 +274,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         let fault = match next_name {
             "redstone_wire" => match side {
                 Direction::Up => Some(wrong("dust on top")),
-                Direction::Down => Some(wrong("dust under it")),
+                Direction::Down => Some(wrong("dust below")),
                 _ => {
                     dust += 1;
                     drives += 1;
@@ -299,7 +286,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
                     drives += 1;
                     None
                 } else if side == Direction::Down {
-                    Some(wrong("powered by a torch under it"))
+                    Some(wrong("torch below powers it"))
                 } else {
                     None
                 }
@@ -310,14 +297,10 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             }
             "comparator" if reads_from(blocks, next, block) => {
                 compared = true;
-                Some(wrong(
-                    "read by a comparator (signal strengths aren't taken yet)",
-                ))
+                Some(wrong("read by comparator"))
             }
             "repeater" | "comparator" if points_into(blocks, next, block) => {
-                Some(wrong(&format!(
-                    "powered by a {next_name} pointed into it"
-                )))
+                Some(wrong(&format!("{next_name} points into it")))
             }
             "repeater" | "comparator" | "lever" | "air" => None,
             "target" | "redstone_block" if side == Direction::Up => None,
@@ -328,7 +311,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             {
                 None
             }
-            _ => Some(wrong(&format!("touches a {}", words(next_name)))),
+            _ => Some(wrong(&format!("touches {}", words(next_name)))),
         };
         if let Some((at, what)) = fault {
             problem(
@@ -344,10 +327,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             report,
             "input drives three dusts",
             vec![block],
-            format!(
-                "Input at {}: drives {dust} dusts, at most 2",
-                place(block)
-            ),
+            format!("Input at {}: drives {dust} dusts (max 2)", place(block)),
         );
     }
     if drives == 0 && !compared {
@@ -376,9 +356,9 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
             "no room for a repeater",
             vec![lever],
             format!(
-                "{} at {at}: no room for a repeater, {} under it",
+                "{} at {at}: {} below blocks repeater",
                 noun(&name),
-                a(&words(below))
+                words(below)
             ),
         );
     } else if behind_name != "air" && !behind_name.ends_with("sign") {
@@ -387,9 +367,9 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
             "no room for a repeater",
             vec![lever, behind],
             format!(
-                "{} at {at}: no room for a repeater, {} behind it",
+                "{} at {at}: {} behind blocks repeater",
                 noun(&name),
-                a(&words(behind_name))
+                words(behind_name)
             ),
         );
     }
@@ -428,13 +408,7 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         .map(|(pos, _)| pos)
         .collect();
     if found.is_empty() {
-        problem(
-            report,
-            "no outputs",
-            Vec::new(),
-            "No outputs: no lone coloured block with dust or a repeater on top"
-                .to_owned(),
-        );
+        problem(report, "no outputs", Vec::new(), "No outputs".to_owned());
     }
     found
 }
@@ -541,10 +515,7 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
                 &mut report,
                 "lever not bus-drivable",
                 vec![lever],
-                format!(
-                    "Lever at {}: a repeater in its place doesn't drive the input",
-                    place(lever)
-                ),
+                format!("Lever at {}: not bus-drivable", place(lever)),
             );
         }
     }
@@ -699,7 +670,7 @@ mod tests {
         }
         assert_eq!(
             faults_with("redstone_block", false),
-            ["Input at (0, 1, 1): touches a redstone block"]
+            ["Input at (0, 1, 1): touches redstone block"]
         );
     }
 }
