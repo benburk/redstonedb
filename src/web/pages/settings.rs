@@ -108,9 +108,23 @@ fn schemati_section(connection: &Connection, message: &str) -> Markup {
 
 /// The choice of a light or dark theme, or the system's, which a script
 /// keeps in this browser and applies on every page.
-/// The blocks recognized builds are shown and downloaded in, as `chosen`,
-/// picked by their icons, with palettes people like to start from.
+/// The blocks recognized builds are shown and downloaded in, as `chosen`.
 fn palette_section(chosen: &Palette) -> Markup {
+    html! {
+        section aria-labelledby="palette-heading" class="mt-12" {
+            h2 id="palette-heading" class={ (SECTION_TITLE) " mb-1" } { "Palette" }
+            p class="mb-4 max-w-prose text-muted" {
+                "The blocks recognized builds are shown and downloaded in."
+            }
+            (palette_form(chosen, "/settings#palette-heading", "Save"))
+        }
+    }
+}
+
+/// The palette's form, as `chosen`, going to `next` once saved: presets to
+/// start from, then each block and colour as a button that opens its
+/// picker.
+pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     let plain = |groups: Vec<(&'static str, Vec<String>)>| -> Vec<(&'static str, Vec<(String, String)>)> {
         groups
             .into_iter()
@@ -120,71 +134,88 @@ fn palette_section(chosen: &Palette) -> Markup {
             .collect()
     };
     let colours: Vec<(&str, Vec<(String, String)>)> = vec![(
-        "Concrete",
+        "Colours",
         palette::colours()
             .map(|dye| (dye.to_owned(), format!("{dye}_concrete")))
             .collect(),
     )];
+    let switch = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
-        section aria-labelledby="palette-heading" class="mt-12" {
-            h2 id="palette-heading" class={ (SECTION_TITLE) " mb-1" } { "Palette" }
-            p class="mb-4 max-w-prose text-muted" {
-                "The blocks recognized builds are shown and downloaded in. A block that must be solid or transparent stays so; one that may be either takes the kind you prefer."
-            }
-            form action="/settings/palette" method="post" class="flex flex-col gap-6" {
-                div class="flex flex-wrap items-center gap-2" {
-                    span class="font-semibold" { "Start from" }
-                    @for (key, name, _) in palette::presets() {
-                        button type="submit" name="preset" value=(key) formnovalidate class="btn btn-quiet" { (name) }
-                    }
-                    button type="submit" name="reset" value="yes" formnovalidate class="btn btn-quiet" { "The site's own" }
+        form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
+            input type="hidden" name="next" value=(next);
+            div class="flex flex-wrap items-center gap-2" {
+                span { "Start from:" }
+                @for (key, name, _) in palette::presets() {
+                    button type="submit" name="preset" value=(key) class="btn btn-quiet" { (name) }
                 }
-                fieldset class="flex flex-col gap-1" {
-                    legend class="mb-1 font-semibold" { "Blocks that may be either kind" }
+                button type="submit" name="reset" value="yes" class="btn btn-quiet" { "The site's own" }
+            }
+            fieldset class="flex flex-wrap items-center gap-3" {
+                legend class="sr-only" { "Blocks that may be either kind" }
+                span aria-hidden="true" { "Either kind:" }
+                div class={ (SWITCHES) " inline-flex" } {
                     @for (value, label) in [("solid", "Solid"), ("transparent", "Transparent")] {
-                        label class="flex items-center gap-2" {
+                        label class=(switch) {
                             input type="radio" name="prefer" value=(value)
-                                checked[(value == "solid") == chosen.prefer_solid];
+                                checked[(value == "solid") == chosen.prefer_solid] class="sr-only";
                             (label)
                         }
                     }
                 }
-                (picker("solid", "Solid block", &plain(palette::solid()), &chosen.solid))
-                (picker("transparent", "Transparent block", &plain(palette::transparent()), &chosen.transparent))
-                @for (key, label, site) in palette::ROLES {
-                    (picker(key, label, &colours, chosen.colours.get(key).map_or(site, String::as_str)))
-                }
-                div { button type="submit" class="btn btn-primary" { "Save" } }
             }
+            div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2" {
+                (picker("solid", "Solid", &plain(palette::solid()), &chosen.solid, &chosen.solid))
+                (picker("transparent", "Transparent", &plain(palette::transparent()), &chosen.transparent, &chosen.transparent))
+                @for (key, label, site) in palette::ROLES {
+                    @let colour = chosen.colours.get(key).map_or(site, String::as_str);
+                    (picker(key, label, &colours, colour, &format!("{colour}_concrete")))
+                }
+            }
+            div { button type="submit" class="btn btn-primary" { (save) } }
         }
     }
 }
 
-/// A choice of blocks by their icons, under their groups' names: each a
-/// value sent as `name` and the block pictured for it, `current` chosen.
+/// One choice of the palette: its label, and a button with the chosen
+/// block's icon and name that opens a dialog of every choice under its
+/// group's name, each a value sent as `name` and the block pictured for
+/// it. `app.js` shows a new choice on the button and closes the dialog.
 fn picker(
     name: &str,
-    legend: &str,
+    label: &str,
     groups: &[(&str, Vec<(String, String)>)],
     current: &str,
+    pictured: &str,
 ) -> Markup {
     let words = |name: &str| name.replace('_', " ");
+    let dialog = format!("pick-{name}");
     html! {
-        fieldset class="flex flex-col gap-2" {
-            legend class="mb-1 font-semibold" {
-                (legend) ": " span class="font-normal text-muted" { (words(current)) }
+        span id={ (dialog) "-label" } { (label) }
+        div {
+            button type="button" commandfor=(dialog) command="show-modal"
+                aria-labelledby={ (dialog) "-label " (dialog) "-chosen" }
+                class="inline-flex items-center gap-2 whitespace-nowrap rounded-control border border-line bg-raised px-2 py-1 hover:border-boundary" {
+                span data-picked-icon class="inline-flex size-6" { (maud::PreEscaped(crate::thumbnail::icon(pictured))) }
+                span id={ (dialog) "-chosen" } data-picked-name { (words(current)) }
             }
-            @for (group, choices) in groups {
-                div {
-                    p class="mb-1 text-meta text-muted" { (group) }
-                    div class="flex flex-wrap gap-1" {
-                        @for (value, block) in choices {
-                            label title=(words(block))
-                                class="cursor-pointer rounded-control border-2 border-transparent p-0.5 hover:border-boundary has-checked:border-brand has-focus-visible:outline-2 has-focus-visible:outline-brand" {
-                                input type="radio" name=(name) value=(value)
-                                    checked[value == current] class="sr-only";
-                                img src={ "/blocks/" (block) ".png" } alt=(words(block))
-                                    width="32" height="32" loading="lazy" class="block";
+            dialog id=(dialog) data-picker aria-labelledby={ (dialog) "-title" }
+                class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+                div class="mb-3 flex items-center justify-between gap-4" {
+                    h3 id={ (dialog) "-title" } class="font-semibold" { (label) }
+                    button type="button" commandfor=(dialog) command="close" class="btn btn-quiet" { "Done" }
+                }
+                @for (group, choices) in groups {
+                    fieldset class="mb-3" {
+                        legend class="mb-1 text-meta text-muted" { (group) }
+                        div class="flex flex-wrap gap-1" {
+                            @for (value, block) in choices {
+                                label title=(words(block)) data-name=(words(value))
+                                    class="cursor-pointer rounded-control border-2 border-transparent p-0.5 hover:border-boundary has-checked:border-brand has-focus-visible:outline-2 has-focus-visible:outline-brand" {
+                                    input type="radio" name=(name) value=(value)
+                                        checked[value == current] class="sr-only";
+                                    span class="sr-only" { (words(value)) }
+                                    span class="inline-flex size-8" { (maud::PreEscaped(crate::thumbnail::icon(block))) }
+                                }
                             }
                         }
                     }
@@ -214,4 +245,71 @@ fn theme_section() -> Markup {
             }
         }
     }
+}
+
+/// The welcome steps a new account sees once: `step` 1, its Minecraft
+/// name; 2, its Schemati session; 3, its palette, as `chosen`. `message`
+/// says why the last try at a step was refused.
+pub fn welcome(
+    user: &User,
+    step: u8,
+    message: &str,
+    chosen: &Palette,
+) -> Markup {
+    let next = |step: u8| format!("/welcome?step={step}");
+    let skip =
+        |to: &str| html! { a href=(to) class="btn btn-quiet" { "Skip" } };
+    base(
+        Some(user),
+        "Welcome",
+        "/welcome",
+        &html! {
+            div class="max-w-calm" {
+                p class="mb-1 text-meta text-muted" { "Step " (step) " of 3" }
+                @match step {
+                    1 => {
+                        h1 class={ (PAGE_TITLE) " mb-2" } { "Your Minecraft name" }
+                        p class="mb-4 text-muted" { "Links you to the builds credited to it." }
+                        form action="/settings/minecraft" method="post" class="flex max-w-form flex-col gap-3" {
+                            input type="hidden" name="next" value=(next(2));
+                            input name="minecraft_name" aria-label="Your Minecraft name"
+                                value=(user.minecraft_name.as_deref().unwrap_or_default())
+                                pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
+                                placeholder="Your in-game name" class="input";
+                            @if !message.is_empty() { p role="alert" class="text-meta text-danger" { (message) } }
+                            div class="flex gap-2" {
+                                button type="submit" class="btn btn-primary" { "Next" }
+                                (skip(&next(2)))
+                            }
+                        }
+                    }
+                    2 => {
+                        h1 class={ (PAGE_TITLE) " mb-2" } { "Connect Schemati" }
+                        p class="mb-4 text-muted" { "Upload builds straight from your Schemati folder, and send builds to it." }
+                        ol class="mb-4 flex list-decimal flex-col gap-1 pl-5" {
+                            li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
+                            li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
+                            li { "Copy " code { "sessionId" } " and paste it here." }
+                        }
+                        form action="/schemati/session" method="post" class="flex max-w-form flex-col gap-3" {
+                            input type="hidden" name="next" value=(next(3));
+                            input name="session" required autocomplete="off" spellcheck="false"
+                                aria-label="Schemati session" placeholder="e2565926ee94c42943f6a68b88e1fe07"
+                                class="input font-mono";
+                            @if !message.is_empty() { p role="alert" class="text-meta text-danger" { (message) } }
+                            div class="flex gap-2" {
+                                button type="submit" class="btn btn-primary" { "Test and save" }
+                                (skip(&next(3)))
+                            }
+                        }
+                    }
+                    _ => {
+                        h1 class={ (PAGE_TITLE) " mb-2" } { "Your palette" }
+                        p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in. Change it any time in Settings." }
+                        (palette_form(chosen, "/", "Finish"))
+                    }
+                }
+            }
+        },
+    )
 }

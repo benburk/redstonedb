@@ -467,31 +467,27 @@ fn cube_color(name: &str) -> Rgba {
     }
 }
 
-/// A block's icon for picking it: a small cube from the south-east and
-/// above, its faces shaded as a thumbnail's are, as a PNG.
-pub fn icon(name: &str) -> Result<Vec<u8>> {
-    const SIZE: u16 = 32;
-    let mut pixmap = Pixmap::new(u32::from(SIZE), u32::from(SIZE))
-        .context("icon size is zero")?;
+/// A block's icon for picking it: a cube from the south-east and above,
+/// its faces shaded as a thumbnail's are, as an SVG that stays sharp at
+/// any size.
+pub fn icon(name: &str) -> String {
     let colour = cube_color(name);
-    let (c, half, quarter) = (16.0, 13.0, 6.5);
-    let top = [c, c - 2.0 * quarter + 1.0];
-    let (left, right) =
-        ([c - half, c - quarter + 1.0], [c + half, c - quarter + 1.0]);
-    let middle = [c, c + 1.0];
-    let drop = |[x, y]: [f32; 2]| [x, y + 2.0 * half - 2.0 * quarter];
-    face(&mut pixmap, [top, right, middle, left], shade(colour, TOP));
-    face(
-        &mut pixmap,
-        [left, middle, drop(middle), drop(left)],
-        shade(colour, SOUTH),
-    );
-    face(
-        &mut pixmap,
-        [middle, right, drop(right), drop(middle)],
-        shade(colour, EAST),
-    );
-    pixmap.encode_png().context("could not encode the icon")
+    let fill = |light: f32| {
+        let [r, g, b, a] = shade(colour, light);
+        format!("rgb({r} {g} {b} / {:.2})", f32::from(a) / 255.0)
+    };
+    // A cube of side 1 seen isometrically, in a 32-unit square.
+    let faces = [
+        ("16,3 29,10 16,17 3,10", fill(TOP)),
+        ("3,10 16,17 16,31 3,24", fill(SOUTH)),
+        ("16,17 29,10 29,24 16,31", fill(EAST)),
+    ];
+    let [top, south, east] = faces.map(|(points, fill)| {
+        format!(r#"<polygon points="{points}" fill="{fill}"/>"#)
+    });
+    format!(
+        r#"<svg viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true">{top}{south}{east}</svg>"#
+    )
 }
 
 /// Minecraft's concrete colours, by dye, such as `light_blue`.

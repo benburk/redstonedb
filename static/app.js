@@ -224,3 +224,17 @@ for (const dialog of document.querySelectorAll("dialog")) {
     .querySelector('form[method="get"]')
     ?.addEventListener("submit", () => dialog.close());
 }
+
+// A palette's picker: choosing a block in its dialog shows it on the button
+// that opened it and closes the dialog.
+document.addEventListener("change", (event) => {
+  const dialog = event.target.closest("dialog[data-picker]");
+  if (!dialog || event.target.type !== "radio") return;
+  const label = event.target.closest("label");
+  const opener = document.querySelector(`[commandfor="${dialog.id}"][command="show-modal"]`);
+  if (label && opener) {
+    opener.querySelector("[data-picked-icon]").innerHTML = label.querySelector("svg").outerHTML;
+    opener.querySelector("[data-picked-name]").textContent = label.dataset.name;
+  }
+  dialog.close();
+});

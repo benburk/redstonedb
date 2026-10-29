@@ -53,7 +53,7 @@ pub use listing::{
 };
 pub use player::{PlayerPage, player};
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
-pub use settings::settings;
+pub use settings::{settings, welcome};
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,

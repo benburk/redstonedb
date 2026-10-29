@@ -56,26 +56,6 @@ pub(super) async fn page(
     .into_response())
 }
 
-/// A block's icon, for the palette picker: only of a block a palette may
-/// name.
-pub async fn block_icon(
-    axum::extract::Path(file): axum::extract::Path<String>,
-) -> Result<Response, AppError> {
-    let name = file.strip_suffix(".png").ok_or(AppError::NotFound)?;
-    if !palette::every_block().any(|block| block == name) {
-        return Err(AppError::NotFound);
-    }
-    let png = crate::thumbnail::icon(name)?;
-    Ok((
-        [
-            (axum::http::header::CONTENT_TYPE, "image/png"),
-            (axum::http::header::CACHE_CONTROL, "public, max-age=86400"),
-        ],
-        png,
-    )
-        .into_response())
-}
-
 /// The palette form: every field, or `reset` to go back to the site's.
 #[derive(Deserialize)]
 pub struct PaletteForm {
@@ -90,6 +70,7 @@ pub struct PaletteForm {
     reset: Option<String>,
     /// A preset's key, to take its palette whole.
     preset: Option<String>,
+    next: Option<String>,
 }
 
 /// Keeps the viewer's palette, or goes back to the site's: as the site's
@@ -124,12 +105,67 @@ pub async fn set_palette(
     };
     let keep = form.reset.is_none() && chosen.valid() && chosen != site;
     palette::set(&state.db, user.id, keep.then_some(&chosen)).await?;
-    Ok(Redirect::to("/settings#palette-heading").into_response())
+    // A preset or the site's own shows itself on the form; saving goes on.
+    let next = if form.preset.is_some() || form.reset.is_some() {
+        form.next.as_deref().filter(|n| *n != "/").map_or_else(
+            || "/welcome?step=3".to_owned(),
+            |n| onward(Some(n), "/settings#palette-heading"),
+        )
+    } else {
+        onward(form.next.as_deref(), "/settings#palette-heading")
+    };
+    Ok(Redirect::to(&next).into_response())
 }
 
 #[derive(Deserialize)]
 pub struct MinecraftName {
     minecraft_name: Option<String>,
+    next: Option<String>,
+}
+
+/// Where a form goes once saved: `next`, if it is one of the site's
+/// settings or welcome pages or its home, else `fallback`, so a form can't
+/// be made to send anyone elsewhere.
+pub(super) fn onward(next: Option<&str>, fallback: &str) -> String {
+    match next {
+        Some(next)
+            if next == "/"
+                || next.starts_with("/settings")
+                || next.starts_with("/welcome?") =>
+        {
+            next.to_owned()
+        }
+        _ => fallback.to_owned(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct WelcomeStep {
+    step: Option<u8>,
+}
+
+/// A welcome step, as a new account sees at its first login.
+pub async fn welcome(
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+    axum::extract::Query(at): axum::extract::Query<WelcomeStep>,
+) -> Result<Response, AppError> {
+    welcome_page(&state, &user, at.step.unwrap_or(1), "").await
+}
+
+/// Welcome step `step` for `user`, saying `message`, why their last try
+/// at it was refused.
+pub(super) async fn welcome_page(
+    state: &AppState,
+    user: &User,
+    step: u8,
+    message: &str,
+) -> Result<Response, AppError> {
+    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
+    Ok(
+        pages::welcome(user, step.clamp(1, 3), message, &chosen)
+            .into_response(),
+    )
 }
 
 /// Sets or clears the viewer's Minecraft name, as Mojang spells it.
@@ -148,8 +184,12 @@ pub async fn set_minecraft_name(
             Err(message) => Err(message),
         }
     };
+    let next = form.next.as_deref();
     match saved {
-        Ok(()) => Ok(Redirect::to("/settings").into_response()),
+        Ok(()) => Ok(Redirect::to(&onward(next, "/settings")).into_response()),
+        Err(refused) if next.is_some_and(|n| n.starts_with("/welcome")) => {
+            welcome_page(&state, &user, 1, &refused).await
+        }
         Err(refused) => {
             let said = Said {
                 minecraft: &refused,

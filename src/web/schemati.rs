@@ -151,6 +151,7 @@ fn sentence(refusal: Refusal) -> String {
 #[derive(Deserialize)]
 pub struct Given {
     session: String,
+    next: Option<String>,
 }
 
 /// Keeps the session given, once Schemati shows it opens a folder.
@@ -159,21 +160,27 @@ pub async fn connect(
     SignedIn(user): SignedIn,
     Form(given): Form<Given>,
 ) -> Result<Response, AppError> {
-    let session = match schemati::session(&given.session) {
-        Ok(session) => session,
-        Err(message) => return refused_session(&state, &user, &message).await,
+    let next = given.next.as_deref();
+    let welcoming = next.is_some_and(|n| n.starts_with("/welcome"));
+    let refused = match schemati::session(&given.session) {
+        Ok(session) => match schemati::folder(&session).await {
+            Ok(_) => {
+                User::set_schemati_session(&state.db, user.id, Some(&session))
+                    .await?;
+                let to = super::settings::onward(next, "/settings");
+                return Ok(Redirect::to(&to).into_response());
+            }
+            Err(Refusal::LoggedOut) => "Schemati does not know that session. \
+                                        Log in there again and copy the \
+                                        newest one."
+                .to_owned(),
+            Err(Refusal::Said(why)) => why,
+        },
+        Err(message) => message,
     };
-    let refused = match schemati::folder(&session).await {
-        Ok(_) => {
-            User::set_schemati_session(&state.db, user.id, Some(&session))
-                .await?;
-            return Ok(Redirect::to("/settings").into_response());
-        }
-        Err(Refusal::LoggedOut) => "Schemati does not know that session. Log \
-                                    in there again and copy the newest one."
-            .to_owned(),
-        Err(Refusal::Said(why)) => why,
-    };
+    if welcoming {
+        return super::settings::welcome_page(&state, &user, 2, &refused).await;
+    }
     refused_session(&state, &user, &refused).await
 }
 
