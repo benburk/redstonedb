@@ -305,16 +305,29 @@ fn output_strength(entry: &PortEntry, strength: &Strength) -> Markup {
                     &html! {
                         span class="underline decoration-boundary decoration-dotted underline-offset-4" { (weakest) }
                     },
-                    &bits.unwrap_or_default()
-                        .iter()
-                        .enumerate()
-                        .map(|(bit, s)| format!("bit {bit}: {s}"))
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    &bit_runs(bits.unwrap_or_default()),
                 ))
             },
         }
     }
+}
+
+/// Each bit's strength, runs of equal ones together, such as `bit 0: 14,
+/// bits 1–6: 2, bit 7: 1`.
+fn bit_runs(bits: &[u8]) -> String {
+    let mut runs: Vec<String> = Vec::new();
+    let mut start = 0;
+    for i in 1..=bits.len() {
+        if i == bits.len() || bits[i] != bits[start] {
+            runs.push(if i - start == 1 {
+                format!("bit {start}: {}", bits[start])
+            } else {
+                format!("bits {start}–{}: {}", i - 1, bits[start])
+            });
+            start = i;
+        }
+    }
+    runs.join(", ")
 }
 
 /// How many bits or lines an entry carries.

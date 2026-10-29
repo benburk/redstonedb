@@ -82,7 +82,7 @@ Import derives this; nothing in-world marks it.
 - Soft-powered: only torches, repeaters, comparators, and mechanisms touch the block. They respond to weak power, so any signal works, dust included.
 - A lever strongly powers its block at 15, so a saved build always works hard-powered; the derivation only decides whether weaker drivers work too.
 - Required strength is 1 or more unless a sign on one of the operand's blocks, or the control line's sign, says otherwise, such as `4ss` for 4 or more. It applies to every bit of the operand, and as a minimum doesn't describe signal-strength inputs.
-- The simulator drives every input by lever at full hard power, so it checks neither yet. It could: drive each input weakly at 1, 2, up to 15, and take the weakest that gives right outputs; if none, it needs hard power. The sign would then be a check, not the source.
+- The simulator drives a stateless build's data inputs weakly too, every one at one strength, as a comparator pointing into each block would, and takes the weakest that keeps every case right: its Min SS. Control lines stay at a lever's 15. Each data output bit's weakest strength while on is measured with the inputs at their weakest. A strength sign is a claim the measurement checks.
 
 ### Signal strengths
 
