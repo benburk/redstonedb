@@ -28,7 +28,7 @@ pub fn similar_dialog(connection: Option<&Connection>) -> Markup {
                 div {
                     h2 id="similar-heading" class={ (SECTION_TITLE) " mb-1" } { "Find similar builds" }
                     p class="text-meta text-muted" {
-                        "Which builds share the most redstone with a file, turned or mirrored as need be. Nothing is checked or kept."
+                        "Which builds share the most redstone with a file, turned or mirrored as need be."
                     }
                 }
                 label class="field" {

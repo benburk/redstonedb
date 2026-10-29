@@ -123,54 +123,6 @@ pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
     }
 }
 
-/// The form for giving a Schemati session, with how to find one, saying
-/// so first when Schemati has `forgotten` the last.
-pub(super) fn session_form(forgotten: bool) -> Markup {
-    html! {
-        section aria-labelledby="session-heading"
-            class="flex max-w-prose flex-col gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-            h3 id="session-heading" class=(SECTION_TITLE) { "Connect your Schemati" }
-            @if forgotten {
-                p role="alert" class="text-danger" {
-                    "Schemati has forgotten the session you gave, as it does after a day or when you log out there. Give it a new one."
-                }
-            }
-            ol class="flex list-decimal flex-col gap-1.5 pl-5 leading-prose" {
-                li {
-                    "Log in at "
-                    a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" }
-                    " with Discord."
-                }
-                li {
-                    "Open your browser's developer tools with F12, then Storage in Firefox or Application in Chrome, "
-                    "then Cookies, then schemati.openredstone.org."
-                }
-                li { "Copy the value of " code { "sessionId" } " and paste it below." }
-            }
-            form action="/schemati/session" method="post" class="flex flex-col gap-4" {
-                label class="field" {
-                    span { "Schemati session" }
-                    input name="session" required autocomplete="off" spellcheck="false"
-                        placeholder="e2565926ee94c42943f6a68b88e1fe07" class="input font-mono";
-                }
-                div { button type="submit" class="btn btn-primary" { "Connect" } }
-            }
-            p class="text-meta text-muted" {
-                "The session opens your Schemati folder and nothing else. It is kept until you disconnect or give another."
-            }
-        }
-    }
-}
-
-/// The button that forgets the viewer's session.
-pub(super) fn disconnect() -> Markup {
-    html! {
-        form action="/schemati/session/delete" method="post" {
-            button type="submit" class="btn btn-quiet" { "Disconnect" }
-        }
-    }
-}
-
 /// The open folder: its files, each with what can be done to it, and the
 /// form for adding files.
 fn open(folder: &Folder) -> Markup {

@@ -133,6 +133,13 @@
     @apply min-h-10 w-full rounded-control border border-boundary bg-raised px-3 pt-0.5 text-ink placeholder:text-muted focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none aria-invalid:border-danger;
   }
 
+  /* A field edited in place of the value it shows: the value's own height
+     and left edge, so the row neither grows nor shifts, with a line under
+     it to type on. */
+  .inline-input {
+    @apply h-8 min-w-0 flex-1 border-b border-boundary pt-0.5 text-ink placeholder:text-muted focus:border-brand focus:outline-none aria-invalid:border-danger;
+  }
+
   /* Base styles strip the native arrow from a select, so draw one. */
   select.input {
     @apply bg-[length:0.75rem] bg-[position:right_0.75rem_center] bg-no-repeat pr-9;

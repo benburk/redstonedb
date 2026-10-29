@@ -1,4 +1,5 @@
-//! The settings page: the viewer's Minecraft name and Schemati session.
+//! The settings page: a row for each setting, its value beside its name,
+//! edited in place.
 
 use maud::{Markup, html};
 
@@ -8,13 +9,13 @@ use crate::{
 };
 
 use super::{
-    Connection, PAGE_TITLE, SECTION_TITLE, SWITCHES, base,
-    schemati::{disconnect, session_form},
+    Connection, PAGE_TITLE, SWITCHES, base,
+    icons::{HELP, PENCIL, icon},
 };
 
 /// `user`'s settings, with their Schemati session as `connection` says it
-/// stands; `minecraft` and `schemati`, why a change to either section
-/// could not be made, when one could not.
+/// stands; `minecraft` and `schemati`, why a change to either could not be
+/// made, when one could not, which opens that row for editing.
 pub fn settings(
     user: &User,
     connection: &Connection,
@@ -28,97 +29,210 @@ pub fn settings(
         "/settings",
         &html! {
             div class="max-w-calm" {
-                h1 class={ (PAGE_TITLE) " mb-8" } { "Settings" }
-                (minecraft_section(user, minecraft))
-                (schemati_section(connection, schemati))
-                (palette_section(chosen))
-                (theme_section())
+                h1 class={ (PAGE_TITLE) " mb-6" } { "Settings" }
+                dl class="divide-y divide-line" {
+                    (minecraft_row(user, minecraft))
+                    (schemati_row(connection, schemati))
+                    (block_theme_row(chosen))
+                    (appearance_row())
+                }
+            }
+            (session_help())
+        },
+    )
+}
+
+/// One setting: its name, and its value with what changes it, on the page
+/// itself, a line between it and the next.
+fn row(name: &Markup, value: &Markup) -> Markup {
+    html! {
+        div class="flex min-h-row-rich flex-col gap-1 py-2 sm:flex-row sm:items-center sm:gap-6" {
+            dt class="flex items-center gap-1 sm:w-48 sm:shrink-0" { (name) }
+            dd class="min-w-0 flex-1" { (value) }
+        }
+    }
+}
+
+/// The look of a bare icon button at a row's end.
+const ICON_BUTTON: &str = "inline-flex size-8 shrink-0 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink";
+
+/// A value shown with its edit button at the row's end, and the form that
+/// takes its place, open already when `open`, as when its last try was
+/// refused, saying `message`.
+fn editable(
+    what: &str,
+    shown: &Markup,
+    form: &Markup,
+    open: bool,
+    message: &str,
+) -> Markup {
+    html! {
+        div data-editable {
+            div data-view hidden[open] class="flex items-center gap-2" {
+                div class="flex min-w-0 flex-1 items-center gap-2" { (shown) }
+                button type="button" data-edit aria-label={ "Edit " (what) } title="Edit" class=(ICON_BUTTON) {
+                    (icon(PENCIL, "size-4"))
+                }
+            }
+            div data-editor hidden[!open] {
+                (form)
+                @if !message.is_empty() {
+                    p role="alert" class="mt-1 text-meta text-danger" { (message) }
+                }
+            }
+        }
+    }
+}
+
+/// The viewer's Minecraft name, confirmed or not, edited in place.
+fn minecraft_row(user: &User, message: &str) -> Markup {
+    let name = user.minecraft_name.as_deref().unwrap_or_default();
+    let shown = html! {
+        @if name.is_empty() {
+            span class="text-muted" { "Not set" }
+        } @else {
+            span { (name) }
+            @if user.minecraft_verified {
+                span title="Confirmed by an admin" class="inline-flex text-brand" {
+                    (icon(super::icons::CHECK, "size-4"))
+                    span class="sr-only" { "Confirmed" }
+                }
+            }
+        }
+    };
+    let form = html! {
+        form action="/settings/minecraft" method="post" class="flex items-center gap-2" {
+            input type="hidden" name="next" value="/settings";
+            input name="minecraft_name" value=(name) aria-label="Minecraft username"
+                pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
+                aria-invalid=[(!message.is_empty()).then_some("true")]
+                class="inline-input";
+            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
+            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+        }
+    };
+    row(
+        &html! { "Minecraft username" },
+        &editable(
+            "Minecraft username",
+            &shown,
+            &form,
+            !message.is_empty(),
+            message,
+        ),
+    )
+}
+
+/// The viewer's Schemati session: whose folder it opens, or that there is
+/// none, edited in place, with how to find one behind its help button.
+fn schemati_row(connection: &Connection, message: &str) -> Markup {
+    let shown = html! {
+        @match connection {
+            Connection::Unset => span class="text-muted" { "Not connected" },
+            Connection::Forgotten => span class="text-danger" { "Expired" },
+            Connection::Unreachable(why) => span class="text-danger" { (why) },
+            Connection::Open(folder) => span { "Connected as " (folder.player) },
+        }
+    };
+    let form = html! {
+        form action="/schemati/session" method="post" class="flex items-center gap-2" {
+            input type="hidden" name="next" value="/settings";
+            input name="session" required autocomplete="off" spellcheck="false"
+                aria-label="Schemati session ID" placeholder="e2565926ee94c42943f6a68b88e1fe07"
+                class="inline-input font-mono";
+            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
+            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+        }
+    };
+    row(
+        &html! {
+            "Schemati session ID"
+            button type="button" commandfor="session-help" command="show-modal"
+                aria-label="How to find your session ID" title="How to find it"
+                class="inline-flex size-6 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink" {
+                (icon(HELP, "size-4"))
+            }
+        },
+        &editable(
+            "Schemati session ID",
+            &shown,
+            &form,
+            !message.is_empty(),
+            message,
+        ),
+    )
+}
+
+/// How to find a Schemati session ID, in a dialog its help button opens.
+fn session_help() -> Markup {
+    html! {
+        dialog id="session-help" aria-labelledby="session-help-title"
+            class="m-auto max-w-prose rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+            div class="mb-3 flex items-center justify-between gap-4" {
+                h2 id="session-help-title" class="font-semibold" { "Schemati session ID" }
+                button type="button" commandfor="session-help" command="close" class="btn btn-quiet" { "Close" }
+            }
+            ol class="flex list-decimal flex-col gap-1 pl-5" {
+                li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
+                li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
+                li { "Copy " code { "sessionId" } "." }
+            }
+        }
+    }
+}
+
+/// The viewer's block theme, by its blocks, and the dialog that changes it.
+fn block_theme_row(chosen: &Palette) -> Markup {
+    let name = palette::name(chosen);
+    row(
+        &html! { "Block theme" },
+        &html! {
+            div class="flex items-center gap-2" {
+                div class="flex min-w-0 flex-1 items-center gap-2" {
+                    @for block in [&chosen.solid, &chosen.transparent] {
+                        span title=(palette::label(block)) class="inline-flex size-6" { (maud::PreEscaped(palette::icon(block))) }
+                    }
+                    span { (name) }
+                }
+                button type="button" commandfor="block-theme" command="show-modal"
+                    aria-label="Edit block theme" title="Edit" class=(ICON_BUTTON) {
+                    (icon(PENCIL, "size-4"))
+                }
+            }
+            dialog id="block-theme" aria-labelledby="block-theme-title"
+                class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+                div class="mb-4 flex items-center justify-between gap-4" {
+                    h2 id="block-theme-title" class="font-semibold" { "Block theme" }
+                    // Its choices save as they change; done shows them.
+                    a href="/settings" class="btn btn-quiet" { "Done" }
+                }
+                (palette_form(chosen, "/settings", ""))
             }
         },
     )
 }
 
-/// The form for the viewer's Minecraft name, saying whether an admin has
-/// confirmed it, or `message`, why it could not be saved.
-fn minecraft_section(user: &User, message: &str) -> Markup {
-    html! {
-        section aria-labelledby="minecraft-heading" class="mb-12" {
-            h2 id="minecraft-heading" class={ (SECTION_TITLE) " mb-1" } { "Minecraft name" }
-            p class="mb-4 max-w-prose text-muted" {
-                "Links you to the builds credited to it. Once an admin confirms it, you can edit them."
-            }
-            form action="/settings/minecraft" method="post" class="flex max-w-form flex-col gap-2" {
-                label for="minecraft-name" class="sr-only" { "Your Minecraft name" }
-                div class="flex gap-2" {
-                    input id="minecraft-name" name="minecraft_name"
-                        value=(user.minecraft_name.as_deref().unwrap_or_default())
-                        pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
-                        placeholder="Your in-game name"
-                        aria-invalid=[(!message.is_empty()).then_some("true")]
-                        aria-describedby=[(!message.is_empty()).then_some("minecraft-error")]
-                        class="input flex-1";
-                    button type="submit" class="btn btn-quiet" { "Save" }
-                }
-                @if !message.is_empty() {
-                    p id="minecraft-error" role="alert" class="text-meta text-danger" { (message) }
-                } @else if user.minecraft_name.is_some() {
-                    p class="text-meta text-muted" {
-                        @if user.minecraft_verified { "Confirmed by an admin." } @else { "Not yet confirmed by an admin." }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The viewer's Schemati session: who it opens the folder of, with a link
-/// to their files and the button that forgets it, or the form for giving
-/// one; and `message`, why one given was refused.
-fn schemati_section(connection: &Connection, message: &str) -> Markup {
-    html! {
-        section aria-labelledby="schemati-heading" {
-            h2 id="schemati-heading" class={ (SECTION_TITLE) " mb-1" } { "Schemati" }
-            p class="mb-4 max-w-prose text-muted" {
-                "Upload and compare what you " code { "//save" } " on Open Redstone, and send builds there to "
-                code { "//load" } "."
-            }
-            @if !message.is_empty() {
-                p role="alert" class="mb-4 text-danger" { (message) }
-            }
-            @match connection {
-                Connection::Unset => (session_form(false)),
-                Connection::Forgotten => (session_form(true)),
-                Connection::Unreachable(why) => {
-                    p class="mb-4 text-danger" { (why) }
-                    (disconnect())
-                }
-                Connection::Open(folder) => {
-                    div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
-                        p {
-                            "Connected as " strong { (folder.player) } ". "
-                            a href="/schemati" { "Your files" }
+/// The choice of a light or dark site, or the system's, which a script
+/// applies on every page.
+fn appearance_row() -> Markup {
+    let choice = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
+    row(
+        &html! { "Appearance" },
+        &html! {
+            fieldset {
+                legend class="sr-only" { "Appearance" }
+                div class={ (SWITCHES) " inline-flex" } {
+                    @for (value, label) in [("system", "System"), ("light", "Light"), ("dark", "Dark")] {
+                        label class=(choice) {
+                            input type="radio" name="theme" value=(value)
+                                checked[value == "system"] class="sr-only";
+                            (label)
                         }
-                        (disconnect())
                     }
                 }
             }
-        }
-    }
-}
-
-/// The choice of a light or dark theme, or the system's, which a script
-/// keeps in this browser and applies on every page.
-/// The blocks recognized builds are shown and downloaded in, as `chosen`.
-fn palette_section(chosen: &Palette) -> Markup {
-    html! {
-        section aria-labelledby="palette-heading" class="mt-12" {
-            h2 id="palette-heading" class={ (SECTION_TITLE) " mb-1" } { "Palette" }
-            p class="mb-4 max-w-prose text-muted" {
-                "The blocks recognized builds are shown and downloaded in."
-            }
-            (palette_form(chosen, "/settings#palette-heading", ""))
-        }
-    }
+        },
+    )
 }
 
 /// The palette's form, as `chosen`: presets to start from, then each block
@@ -140,7 +254,7 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     ));
     let switch = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
-        form action="/settings/palette" method="post" data-autosave="Palette saved"
+        form action="/settings/palette" method="post" data-autosave="Block theme saved"
             class="flex max-w-form flex-col gap-4" {
             input type="hidden" name="next" value=(next);
             div {
@@ -261,28 +375,6 @@ fn picker(
     }
 }
 
-fn theme_section() -> Markup {
-    let choice = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
-    html! {
-        section aria-labelledby="theme-heading" class="mt-12" {
-            h2 id="theme-heading" class={ (SECTION_TITLE) " mb-1" } { "Theme" }
-            p class="mb-4 max-w-prose text-muted" { "Kept in this browser." }
-            fieldset {
-                legend class="sr-only" { "Theme" }
-                div class={ (SWITCHES) " inline-flex" } {
-                    @for (value, label) in [("system", "System"), ("light", "Light"), ("dark", "Dark")] {
-                        label class=(choice) {
-                            input type="radio" name="theme" value=(value)
-                                checked[value == "system"] class="sr-only";
-                            (label)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// The welcome steps a new account sees once: `step` 1, its Minecraft
 /// name; 2, its Schemati session; 3, its palette, as `chosen`. `message`
 /// says why the last try at a step was refused.
@@ -340,8 +432,8 @@ pub fn welcome(
                         }
                     }
                     _ => {
-                        h1 class={ (PAGE_TITLE) " mb-2" } { "Your palette" }
-                        p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in. Change it any time in Settings." }
+                        h1 class={ (PAGE_TITLE) " mb-2" } { "Block theme" }
+                        p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in." }
                         (palette_form(chosen, "/", "Finish"))
                     }
                 }

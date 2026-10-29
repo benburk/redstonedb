@@ -115,6 +115,17 @@ pub fn transparent() -> Vec<(&'static str, Vec<String>)> {
     ]
 }
 
+/// What to call `palette`: the preset it is, the site's own, or custom.
+pub fn name(palette: &Palette) -> &'static str {
+    if *palette == Palette::default() {
+        return "The site's own";
+    }
+    presets()
+        .into_iter()
+        .find(|(.., preset)| preset == palette)
+        .map_or("Custom", |(_, name, _)| name)
+}
+
 /// How a block reads to people, such as `top quartz slab` or `double
 /// smooth stone slab`.
 pub fn label(block: &str) -> String {

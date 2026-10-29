@@ -20,6 +20,8 @@ pub(super) const LOG_IN: &str = r#"<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2
 pub(super) const LOG_OUT: &str = r#"<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>"#;
 pub(super) const CLOSE: &str =
     r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#;
+pub(super) const PENCIL: &str = r#"<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>"#;
+pub(super) const HELP: &str = r#"<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>"#;
 pub(super) const MENU: &str =
     r#"<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>"#;
 

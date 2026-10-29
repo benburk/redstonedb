@@ -109,10 +109,10 @@ pub async fn set_palette(
     let next = if form.preset.is_some() || form.reset.is_some() {
         form.next.as_deref().filter(|n| *n != "/").map_or_else(
             || "/welcome?step=3".to_owned(),
-            |n| onward(Some(n), "/settings#palette-heading"),
+            |n| onward(Some(n), "/settings"),
         )
     } else {
-        onward(form.next.as_deref(), "/settings#palette-heading")
+        onward(form.next.as_deref(), "/settings")
     };
     Ok(Redirect::to(&next).into_response())
 }

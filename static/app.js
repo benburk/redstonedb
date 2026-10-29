@@ -254,3 +254,23 @@ document.addEventListener("change", async (event) => {
     showNotice("Could not save. Try again.");
   }
 });
+
+// A setting edited in place: its edit button swaps its value for its form,
+// and its cancel button swaps them back, the form as it was.
+document.addEventListener("click", (event) => {
+  const edit = event.target.closest("[data-edit]");
+  const cancel = event.target.closest("[data-cancel]");
+  const editable = (edit || cancel)?.closest("[data-editable]");
+  if (!editable) return;
+  const view = editable.querySelector("[data-view]");
+  const editor = editable.querySelector("[data-editor]");
+  view.hidden = Boolean(edit);
+  editor.hidden = !edit;
+  if (edit) {
+    editor.querySelector("input:not([type=hidden])")?.focus();
+  } else {
+    editor.querySelector("form")?.reset();
+    editor.querySelector("[role=alert]")?.remove();
+    view.querySelector("[data-edit]")?.focus();
+  }
+});
