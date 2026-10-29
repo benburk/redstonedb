@@ -14,9 +14,9 @@ use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
 
 /// The build's inputs and outputs, read from the file, each a row: a bus
 /// by its bits, and a row of numbered lines, such as a memory's `read 0`
-/// to `read 15`, as one. With its `timing`, each input says how late it
-/// may switch and each output when it changes and settles, in ticks from
-/// the first input, t = 0.
+/// to `read 15`, as one. With its `timing`, each input says when it
+/// switches for the build to stay synced and each output when it changes
+/// and settles, in ticks from the first input, t = 0.
 pub(super) fn interface_section(
     analysis: &Analysis,
     timing: Option<&Timing>,
@@ -160,16 +160,13 @@ fn power(entry: &PortEntry) -> &'static str {
     }
 }
 
-/// When an input, the `i`th timed, may switch: the first is t = 0; another
-/// by its latest tick, or for a pulse its window.
+/// When an input, the `i`th timed, switches so its change lands with the
+/// first's: the first at t = 0, another at its offset from it.
 fn switch_by(i: usize, input: &InputTiming) -> String {
-    match (i, input.earliest, input.tick) {
-        (0, _, _) => "t = 0".to_owned(),
-        (_, Some(earliest), Some(latest)) => {
-            format!("{} to {}", ticks(earliest), ticks(latest))
-        }
-        (_, None, Some(latest)) => format!("≤ {}", ticks(latest)),
-        (_, _, None) => "no effect".to_owned(),
+    match (i, input.tick) {
+        (0, _) => "t = 0".to_owned(),
+        (_, Some(tick)) => ticks(tick),
+        (_, None) => "no effect".to_owned(),
     }
 }
 
