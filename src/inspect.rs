@@ -20,8 +20,9 @@
 //!   swapped is the same circuit, the proof by the rules of redstone.
 //! - Every output, data or status, is a coloured block with dust or a
 //!   repeater on top, which is what is read, and no block of its colour
-//!   touching it, even diagonally. Any colour but white, a build's plain
-//!   block, and gray, which marks logic only a stack's first copy keeps.
+//!   touching it, even diagonally, of a kind used for nothing else. Any
+//!   colour but white, a build's plain block, and gray, which marks logic
+//!   only a stack's first copy keeps.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -398,23 +399,34 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
 
 /// The outputs: coloured blocks, each with dust or a repeater on top,
 /// which is what is read, and no block of its own colour touching it, even
-/// diagonally. Any colour marks one but white and gray: white is a build's
+/// diagonally, of a kind every block of which is so. Any colour marks one but white and gray: white is a build's
 /// plain block, and gray marks logic only a stack's first copy keeps.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();
-    let found: Vec<Pos> = blocks
-        .iter()
-        .filter(|&(pos, state)| {
-            let name = schem::short(state);
-            marks(name)
-                && !switched.contains(&pos)
-                && matches!(
-                    short(blocks, schem::step(pos, Direction::Up)),
-                    "redstone_wire" | "repeater"
-                )
-                && lone(blocks, pos, name)
-        })
+    // Each kind of coloured block but the inputs', with its blocks, and
+    // whether each could mark an output: alone, with dust or a repeater on.
+    let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
+    for (pos, state) in blocks.iter() {
+        let name = schem::short(state);
+        if !marks(name) || switched.contains(&pos) {
+            continue;
+        }
+        let read = matches!(
+            short(blocks, schem::step(pos, Direction::Up)),
+            "redstone_wire" | "repeater"
+        );
+        kinds
+            .entry(name)
+            .or_default()
+            .push((pos, read && lone(blocks, pos, name)));
+    }
+    // A kind marks outputs only where every block of it could: one a build
+    // is built of, such as lime glass, also stands where nothing reads it.
+    let found: Vec<Pos> = kinds
+        .into_values()
+        .filter(|members| members.iter().all(|&(_, could)| could))
+        .flatten()
         .map(|(pos, _)| pos)
         .collect();
     if found.is_empty() {
