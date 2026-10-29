@@ -76,27 +76,26 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
             direction.name()
         )
     };
+    let label = "text-muted tabular-nums";
     html! {
-        @if review.first_copy.is_empty() {
-            p {
-                "Paste it and run " code { (command) } " for " (copies) " copies."
-            }
-        } @else {
-            ol class="flex list-decimal flex-col gap-1 pl-5" {
-                li {
-                    "Paste it without its first-copy parts: "
-                    a href=(download("without")) { "download" } "."
+        dl class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1.5" {
+            @if review.first_copy.is_empty() {
+                dt class=(label) { "1  Paste" }
+                dd { "the build" }
+                dt class=(label) { "2  Stack" }
+                dd { code { (command) } " (" (copies) " copies)" }
+            } @else {
+                dt class=(label) { "1  Paste" }
+                dd { a href=(download("without")) { "without first-copy parts" } }
+                dt class=(label) { "2  Stack" }
+                dd { code { (command) } " (" (copies) " copies)" }
+                dt class=(label) { "3  Paste" }
+                dd {
+                    a href=(download("first")) { "first-copy parts" } ", same spot: "
+                    code { "//gmask air" } " " code { "//paste -a" } " " code { "//gmask" }
                 }
-                li {
-                    "Run " code { (command) } " for " (copies) " copies."
-                }
-                li {
-                    "From the same spot, paste the first-copy parts with " code { "//gmask air" } " and "
-                    code { "//paste -a" } ": " a href=(download("first")) { "download" } ". Then " code { "//gmask" } "."
-                }
-            }
-            p class="text-meta text-muted" {
-                "First copy only: " (parts(&review.first_copy)) "."
+                dt class=(label) { "First copy" }
+                dd class="text-muted" { (parts(&review.first_copy)) }
             }
         }
     }

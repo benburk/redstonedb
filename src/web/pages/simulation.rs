@@ -253,14 +253,14 @@ fn timing_intro(timing: &Timing) -> Markup {
             }
         } @else {
             @let late: Vec<&InputTiming> = timing.inputs.iter().skip(1).filter(|input| input.tick != Some(0)).collect();
-            p class="mb-2 text-meta text-muted" {
-                "In ticks from A changing."
+            p class="mb-2 text-meta text-muted tabular-nums" {
+                "t = 0 at A"
                 @for input in late {
-                    " " (input.name)
+                    ", " (input.name)
                     @match input.tick {
-                        Some(tick) if tick > 0 => { " may change up to " (tick) " later." }
-                        Some(tick) => { " must change " (-tick) " earlier." }
-                        None => { " leads to no output." }
+                        Some(tick) if tick > 0 => { " ≤ +" (tick) "t" }
+                        Some(tick) => { " ≥ " (tick) "t" }
+                        None => { ": no effect" }
                     }
                 }
             }
@@ -273,7 +273,7 @@ pub fn timing_section(timing: &Timing) -> Markup {
         .inputs
         .iter()
         .zip(&timing.slowest_case)
-        .map(|(input, value)| format!("{} = {value}", input.name))
+        .map(|(input, value)| format!("{}={value}", input.name))
         .collect();
     html! {
         section aria-labelledby="timing-heading" class="mt-6"
@@ -300,9 +300,9 @@ pub fn timing_section(timing: &Timing) -> Markup {
                                 td class={ (TABLE_CELL) " tabular-nums font-semibold" } { (tick(output.latency)) }
                                 td class={ (TABLE_CELL) " tabular-nums" } {
                                     @if output.glitches == 0 {
-                                        "none"
+                                        "0"
                                     } @else {
-                                        strong class="text-danger" { "in " (grouped(output.glitches)) " changes" }
+                                        strong class="text-danger" { (grouped(output.glitches)) }
                                     }
                                 }
                             }
@@ -310,56 +310,41 @@ pub fn timing_section(timing: &Timing) -> Markup {
                     }
                 }
             }
-            (carried_notes(&timing.outputs))
-            p class="mt-3" {
-                @if timing.synced {
-                    strong { "Synced: " } "each output changes once, all its bits together."
-                } @else {
-                    strong class="text-danger" { "Not synced: " } "an output glitches or its bits change apart."
+            dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 tabular-nums" {
+                dt class="text-muted" { "Synced" }
+                dd {
+                    @if timing.synced { "✓" } @else { strong class="text-danger" { "✗" } }
                 }
+                dt class="text-muted" { "Settles, p50 / p99 / max" }
+                dd { (timing.median) "t / " (timing.p99) "t / " (timing.slowest) "t" }
+                dt class="text-muted" { "Slowest case" }
+                dd { (case.join(", ")) }
+                @for output in timing.outputs.iter().filter(|o| o.staggered > 0) {
+                    dt class="text-muted" { "Bits apart, " (output.name) }
+                    dd class="text-danger" { (grouped(output.staggered)) " changes" }
+                }
+                @for output in timing.outputs.iter().filter(|o| o.carried > 0) {
+                    dt class="text-muted" { "Carried out, " (output.name) }
+                    dd { "+" (output.carried) "t" }
+                }
+                dt class="text-muted" { "Changes tested" }
+                dd { (grouped(timing.changes)) }
             }
             @for output in &timing.outputs {
                 @if let Some(glitch) = &output.glitch {
                     (glitch_example(&output.name, glitch, &timing.inputs))
                 }
-                @if output.staggered > 0 {
-                    p class="mt-2" {
-                        "The bits of " (output.name) " change on different ticks in " (grouped(output.staggered))
-                        " changes, so it shows a value between the old and the new."
-                    }
-                }
-            }
-            p class="mt-2 text-meta text-muted" {
-                "Half the changes settle by tick " (timing.median) ", 99% by " (timing.p99)
-                "; the slowest, " (case.join(", ")) ", by " (timing.slowest) "."
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
                 (bit_timing(output))
             }
-            p class="mt-1 text-meta text-muted" {
-                "Over " (grouped(timing.changes)) " changes, each input alone to "
-                @if timing.patterns { "each test pattern" } @else { "every value" }
-                " and back, and all together; a slower one may hide among those not tried."
-            }
         }
     }
 }
 
-/// What each output timed short of the repeaters or comparators carrying
-/// it out of the build leaves out.
-fn carried_notes(outputs: &[OutputTiming]) -> Markup {
-    html! {
-        @for output in outputs.iter().filter(|o| o.carried > 0) {
-            p class="mt-2 text-muted" {
-                (output.name) " is timed where it reaches the repeaters or comparators standing on its blocks, which carry it out of the build "
-                (output.carried) (if output.carried == 1 { " tick" } else { " ticks" }) " later."
-            }
-        }
-    }
-}
-
-/// The first change from all off in which `name` glitched, tick by tick,
-/// to try in-game.
+/// The first change from all off in which `name` glitched: its value at
+/// each tick from A's change until it settles, the ticks it is wrong
+/// marked, and what it should hold.
 fn glitch_example(
     name: &str,
     glitch: &Glitch,
@@ -368,21 +353,51 @@ fn glitch_example(
     let case: Vec<String> = inputs
         .iter()
         .zip(&glitch.case)
-        .map(|(input, value)| format!("{} = {value}", input.name))
+        .map(|(input, value)| format!("{}={value}", input.name))
         .collect();
-    let steps: Vec<String> = glitch
+    let first = glitch.steps.first().map_or(0, |&(at, _)| at);
+    let last = glitch.steps.last().map_or(0, |&(at, _)| at).max(0);
+    let settled = glitch
         .steps
-        .iter()
-        .map(|&(at, value)| format!("{value} at tick {}", tick(at)))
-        .collect();
+        .last()
+        .map_or(glitch.before, |&(_, value)| value);
+    let at = |t: i32| {
+        glitch
+            .steps
+            .iter()
+            .take_while(|&&(when, _)| when <= t)
+            .last()
+            .map_or(glitch.before, |&(_, value)| value)
+    };
     html! {
-        p class="mt-2" {
-            "For example, from all inputs off to " (case.join(", ")) ", " (name)
-            " starts at " (glitch.before) " and becomes " (steps.join(", then "))
-            @if glitch.pulse() {
-                ": a pulse, where it should stay " (glitch.before) "."
-            } @else {
-                ": it flips back and forth on its way to its new value."
+        p class="mt-4 font-semibold" { "Glitch: " (name) ", all off → " (case.join(", ")) }
+        div class="relative mt-1 overflow-x-auto" {
+            table class="border-collapse tabular-nums" {
+                caption class="sr-only" { "Glitch: " (name) ", tick by tick" }
+                thead {
+                    tr {
+                        th scope="col" class={ (TABLE_HEAD) " text-left" } { "t" }
+                        @for t in 0..=last {
+                            th scope="col" class={ (TABLE_HEAD) " text-center" } { (t) }
+                        }
+                        th scope="col" class={ (TABLE_HEAD) " text-center" } { "expect" }
+                    }
+                }
+                tbody {
+                    tr {
+                        th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (name) }
+                        @for t in 0..=last {
+                            @let value = at(t);
+                            // Before its first change it holds its old value, as it should.
+                            @if t < first || value == settled {
+                                td class={ (TABLE_CELL) " text-center" } { (value) }
+                            } @else {
+                                td class={ (TABLE_CELL) " text-center font-semibold text-danger" } { (value) }
+                            }
+                        }
+                        td class={ (TABLE_CELL) " text-center" } { (settled) }
+                    }
+                }
             }
         }
     }
@@ -402,7 +417,7 @@ fn bit_timing(output: &OutputTiming) -> Markup {
                             th scope="col" class=(TABLE_HEAD) { "Bit" }
                             th scope="col" class=(TABLE_HEAD) { "First changes" }
                             th scope="col" class=(TABLE_HEAD) { "Settles by" }
-                            th scope="col" class=(TABLE_HEAD) { "Changes more than once" }
+                            th scope="col" class=(TABLE_HEAD) { "Glitches" }
                         }
                     }
                     tbody {
@@ -412,7 +427,7 @@ fn bit_timing(output: &OutputTiming) -> Markup {
                                 td class={ (TABLE_CELL) " tabular-nums" } { (tick(bit.first_change)) }
                                 td class={ (TABLE_CELL) " tabular-nums" } { (tick(bit.latency)) }
                                 td class={ (TABLE_CELL) " tabular-nums" } {
-                                    @if bit.glitches == 0 { "never" } @else { "in " (grouped(bit.glitches)) " changes" }
+                                    @if bit.glitches == 0 { "0" } @else { strong class="text-danger" { (grouped(bit.glitches)) } }
                                 }
                             }
                         }
