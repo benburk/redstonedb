@@ -3,7 +3,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     # The commit Cargo.toml pins the MCHPRS crates to; keep the two equal.
     mchprs = {
-      url = "github:MCHPR/MCHPRS/d492e433f2c7de5fd5c71f165cb60f0d912ebf04";
+      url = "github:benburk/MCHPRS/dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c";
       flake = false;
     };
   };

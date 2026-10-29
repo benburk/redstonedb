@@ -3,17 +3,17 @@
     "mchprs": {
       "flake": false,
       "locked": {
-        "lastModified": 1790620194,
-        "narHash": "sha256-6HkI1+BPAF2vHqgw2RsKxu3gYE0O6DX8XlNFVYlg34k=",
-        "owner": "MCHPR",
+        "lastModified": 1793291344,
+        "narHash": "sha256-nqRa5u1tchE5a/UI+NI2jpHRB9s1loRShBLfs1VaVcY=",
+        "owner": "benburk",
         "repo": "MCHPRS",
-        "rev": "d492e433f2c7de5fd5c71f165cb60f0d912ebf04",
+        "rev": "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c",
         "type": "github"
       },
       "original": {
-        "owner": "MCHPR",
+        "owner": "benburk",
         "repo": "MCHPRS",
-        "rev": "d492e433f2c7de5fd5c71f165cb60f0d912ebf04",
+        "rev": "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c",
         "type": "github"
       }
     },
