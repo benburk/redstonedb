@@ -172,6 +172,26 @@ fn split(runs: &[Run]) -> (Vec<&Run>, Vec<Pos>) {
     (buses, lones)
 }
 
+/// Where `runs`' lone bits are, such as `; strays at (1, 2, 3), (4, 5,
+/// 6)`, when one or two are all that keep the rest in line; else nothing,
+/// as a line's place says little when every line is wrong.
+fn strays(runs: &[Run]) -> String {
+    let lone: Vec<String> = runs
+        .iter()
+        .filter(|run| run.bits.len() == 1)
+        .map(|run| inspect::place(run.bits[0]))
+        .collect();
+    match lone.len() {
+        1 | 2 => format!("; strays at {}", lone.join(", ")),
+        _ => String::new(),
+    }
+}
+
+/// How many bits `runs` hold in all.
+fn count(runs: &[Run]) -> usize {
+    runs.iter().map(|run| run.bits.len()).sum()
+}
+
 fn sizes(runs: &[Run]) -> String {
     let mut sizes: Vec<String> =
         runs.iter().map(|run| run.bits.len().to_string()).collect();
@@ -251,10 +271,11 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
         }
         _ => {
             return Err(format!(
-                "Its levers don't make an adder's inputs. An adder takes A \
-                 and B, two buses of levers each in a line, and at most one \
-                 lone lever for carry in; its levers fall into runs of {}.",
-                sizes(runs)
+                "Input buses not aligned: {} levers in lines of {}, not two \
+                 equal lines and a carry in{}",
+                count(runs),
+                sizes(runs),
+                strays(runs)
             ));
         }
     }
@@ -290,10 +311,10 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
             }
         }
         ([], [_]) if width == 1 => {
-            return Err("It has one output. A 1-bit adder is a slice of a \
-                        wider one, so it has its sum and its carry out, on a \
-                        coloured block each."
-                .to_owned());
+            return Err(
+                "One output: a 1-bit adder needs a sum and a carry out"
+                    .to_owned(),
+            );
         }
         ([], [p, q]) if width == 1 => {
             found.push((vec![*p], Some(*q)));
@@ -301,11 +322,11 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
         }
         _ => {
             return Err(format!(
-                "Its outputs don't make an adder's. At {width} bits, an \
-                 adder has its sum on {width} outputs in a line, with at \
-                 most one more for carry out; its outputs fall into runs of \
-                 {}.",
-                sizes(runs)
+                "Output bus not aligned: {} outputs in lines of {}, not one \
+                 evenly spaced line of {width} and a carry out{}",
+                count(runs),
+                sizes(runs),
+                strays(runs)
             ));
         }
     }
@@ -323,8 +344,7 @@ pub fn adder(
     let width = pairs.first().map_or(0, |(a, _, _)| a.len());
     if Test::of("adder", i64::try_from(width).ok()).is_none() {
         return Err(format!(
-            "Its operands are {width} bits wide; adders of 1 to 32 bits are \
-             tested."
+            "Operands {width} bits wide: only 1 to 32 bits are tested"
         ));
     }
     let outs = results(&report.outputs, width)?;
@@ -363,14 +383,14 @@ pub fn adder(
     let Some((wrong, cases, layout)) = best else {
         reasons.dedup();
         return Err(format!(
-            "It can't be run as an adder: {}",
+            "Can't simulate: {}",
             reasons.first().map_or("no layout fits", String::as_str)
         ));
     };
     if wrong > 0 {
         return Err(format!(
-            "No way of reading its levers and outputs as an adder adds right. \
-             The closest, {}, gets {wrong} of {cases} telling cases wrong.",
+            "Doesn't add: the closest reading, {}, gets {wrong} of {cases} \
+             cases wrong",
             layout.describe()
         ));
     }
@@ -398,7 +418,7 @@ pub fn adder(
     };
     let run = Test::Adder
         .check_with(blocks, layout.interface(blocks), false)
-        .map_err(|err| format!("Its test couldn't run: {err}"))?;
+        .map_err(|err| format!("Test couldn't run: {err}"))?;
     if run.wrong > 0 {
         let bits: Vec<String> = run
             .wrong_bits
@@ -406,10 +426,10 @@ pub fn adder(
             .map(|(bit, n)| format!("{bit} ({n})"))
             .collect();
         return Err(format!(
-            "Read as {}, it gets {} of {} cases wrong: {}.",
-            layout.describe(),
+            "Doesn't add: {} of {} cases wrong, read as {}; wrong bits {}",
             run.wrong,
             run.cases,
+            layout.describe(),
             bits.join(", ")
         ));
     }
@@ -487,16 +507,13 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     let mut problems: Vec<String> =
         report.errors.iter().map(|p| p.message.clone()).collect();
     if problems.is_empty() {
-        problems.extend(inspect::not_bus_drivable(data)?.into_iter().map(
-            |lever| {
-                format!(
-                    "A repeater in place of the lever at {}, pointed into its \
-                 block, wouldn't drive the build as the lever does, so a bus \
-                 couldn't drive that input.",
-                    inspect::place(lever)
-                )
-            },
-        ));
+        problems
+            .extend(inspect::not_bus_drivable(data)?.into_iter().map(|lever| {
+            format!(
+                "Lever at {}: a repeater in its place doesn't drive the input",
+                inspect::place(lever)
+            )
+        }));
     }
     if !problems.is_empty() {
         return Ok(Recognition {

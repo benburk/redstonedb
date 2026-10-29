@@ -106,7 +106,7 @@ pub fn schematic_page(
 }
 
 /// Why a build filed off the list as one of category `meant` isn't one:
-/// each fault, one to a line, as the check by function finds them.
+/// each fault the check by function finds, one to a line.
 fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
     let label = meant.replace('_', " ");
     let strength = file.as_ref().is_ok_and(|file| file.strength_inputs);
@@ -116,18 +116,16 @@ fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
         .unwrap_or_default();
     html! {
         section aria-labelledby="unrecognized-heading" class="mt-12 max-w-prose" {
-            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } {
-                "Why it isn't " (super::article(&label))
-            }
+            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } { "Failed verification" }
             ul class="flex list-disc flex-col gap-1.5 pl-5" {
                 @if strength {
-                    li { "Takes signal-strength inputs." }
+                    li { "Signal-strength inputs: not taken yet" }
                 }
                 @for fault in faults {
                     li { (fault) }
                 }
                 @if !strength && faults.is_empty() {
-                    li { "Fails the " (label) " test or breaks a building convention, as below." }
+                    li { "Fails the " (label) " test or a building convention; see below" }
                 }
             }
         }
