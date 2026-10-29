@@ -1169,11 +1169,11 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
                     println!("{name}: left out");
                     continue;
                 }
-                "Left out.".to_owned()
+                "left out".to_owned()
             } else if meant != Some(args.category.as_str())
                 && s.category != args.category
             {
-                "Off the list already.".to_owned()
+                "off the list already".to_owned()
             } else {
                 let kept = s.clone();
                 args.category.clone_into(&mut s.category);
@@ -1210,11 +1210,11 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
         match keep_off_list(db, &from, &s, &listed).await? {
             Ok(category) => {
                 other += 1;
-                println!("{name}: {off} So off the list, as {category}");
+                println!("{name}: {off} → off the list, as {category}");
             }
             Err(why) => {
                 refused += 1;
-                println!("{name}: {off} Not off the list either: {why}");
+                println!("{name}: {off} → refused: {why}");
             }
         }
     }
