@@ -311,18 +311,6 @@ pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
                 )
             },
         ),
-        (
-            "unnecessarymb-hard",
-            "unnecessarymb (hard power only)",
-            Palette {
-                hard: Some("blue_ice".to_owned()),
-                ..palette(
-                    "stripped_cherry_log[axis=y]",
-                    "white_stained_glass",
-                    true,
-                )
-            },
-        ),
     ]
 }
 
