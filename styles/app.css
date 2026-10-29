@@ -137,7 +137,7 @@
      and left edge, so the row neither grows nor shifts, with a line under
      it to type on. */
   .inline-input {
-    @apply h-8 min-w-0 flex-1 border-b border-boundary pt-0.5 text-ink placeholder:text-muted focus:border-brand focus:outline-none aria-invalid:border-danger;
+    @apply h-8 min-w-0 flex-1 border-b border-boundary pt-px text-ink placeholder:text-muted focus:border-brand focus:outline-none aria-invalid:border-danger;
   }
 
   /* Base styles strip the native arrow from a select, so draw one. */
