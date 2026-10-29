@@ -1,13 +1,26 @@
 //! A picture of a build for its card: an isometric view from the south-east
-//! and above, with a flat colour for each block. Full blocks are shaded
-//! cubes, a target block with its rings; dust, torches, repeaters,
-//! comparators, and levers are small boxes.
+//! and above. Each face takes its block's texture from the game, as the 3D
+//! viewer does, when `Textures` holds it, and a flat colour otherwise. Full
+//! blocks are shaded cubes; dust lies flat on its block, tinted by its
+//! power; torches, repeaters, comparators, and levers are small boxes.
+
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{Context, Result};
-use color_quant::NeuQuant;
-use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{
+    FillRule, FilterQuality, Paint, PathBuilder, Pattern, Pixmap, SpreadMode,
+    Stroke, Transform,
+};
 
 use crate::schem::{self, Blocks, Direction, Pos};
+
+/// Names the way thumbnails are drawn, in their addresses and their kept
+/// files, so drawing them anew changes both.
+pub const RENDERER: &str = "t2";
+
+/// Where drawn thumbnails are kept, beside the database, so a restart
+/// draws none again.
+pub const DRAWN_DIR: &str = "thumbnails";
 
 pub const WIDTH: u16 = 640;
 pub const HEIGHT: u16 = 480;
@@ -28,6 +41,124 @@ struct Part {
     /// Its faces to draw, top, south, and east: all of a box, one of a
     /// marking on a block's face.
     faces: [bool; 3],
+    /// The texture of each face, top, south, and east, when it has one.
+    tex: [Option<Tex>; 3],
+}
+
+/// A face's texture: the game's texture `name`, the part of it in texels,
+/// left, top, right, bottom, and how many quarter turns it is turned.
+#[derive(Clone)]
+struct Tex {
+    name: String,
+    uv: [f32; 4],
+    turns: u8,
+}
+
+impl Tex {
+    fn whole(name: &str) -> Self {
+        Tex {
+            name: name.to_owned(),
+            uv: [0.0, 0.0, 16.0, 16.0],
+            turns: 0,
+        }
+    }
+}
+
+/// The game's block textures a picture is drawn with, by name, each with
+/// copies halved in size down to a pixel, so a small face shows its
+/// texture's average rather than a few of its pixels.
+#[derive(Default)]
+pub struct Textures(
+    HashMap<String, Vec<Pixmap>>,
+    std::collections::HashSet<String>,
+);
+
+impl Textures {
+    /// The textures of `names` it lacks and hasn't found missing before.
+    pub fn lacking<'a>(&self, names: &'a BTreeSet<String>) -> Vec<&'a String> {
+        names
+            .iter()
+            .filter(|name| {
+                !self.0.contains_key(*name) && !self.1.contains(*name)
+            })
+            .collect()
+    }
+
+    /// Notes that the game has no texture `name`, so it isn't asked for
+    /// again; its faces take a flat colour.
+    pub fn missing(&mut self, name: &str) {
+        self.1.insert(name.to_owned());
+    }
+
+    /// Takes a texture's PNG, `name` as the game names it.
+    pub fn add(&mut self, name: &str, png: &[u8]) -> Result<()> {
+        let mut pixmap = Pixmap::decode_png(png)?;
+        // An animated texture's frames stand one above the next; the first
+        // is enough.
+        if pixmap.height() > pixmap.width() {
+            let side = pixmap.width();
+            let mut first = Pixmap::new(side, side).context("empty texture")?;
+            first.draw_pixmap(
+                0,
+                0,
+                pixmap.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+            pixmap = first;
+        }
+        let mut levels = vec![pixmap];
+        while let Some(last) = levels.last().filter(|p| p.width() > 1) {
+            levels.push(halved(last));
+        }
+        self.0.insert(name.to_owned(), levels);
+        Ok(())
+    }
+
+    /// Whether it holds texture `name`.
+    pub fn has(&self, name: &str) -> bool {
+        self.0.contains_key(name)
+    }
+}
+
+/// `pixmap` at half its size, each pixel the average of four.
+fn halved(pixmap: &Pixmap) -> Pixmap {
+    let (width, height) =
+        ((pixmap.width() / 2).max(1), (pixmap.height() / 2).max(1));
+    let mut out =
+        Pixmap::new(width, height).expect("a halved texture has pixels");
+    let source = pixmap.pixels();
+    let stride = pixmap.width() as usize;
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let mut sum = [0u32; 4];
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let p = source[(2 * y + dy).min(pixmap.height() as usize - 1)
+                    * stride
+                    + (2 * x + dx).min(stride - 1)];
+                for (total, channel) in sum.iter_mut().zip([
+                    p.red(),
+                    p.green(),
+                    p.blue(),
+                    p.alpha(),
+                ]) {
+                    *total += u32::from(channel);
+                }
+            }
+            let [r, g, b, a] =
+                sum.map(|total| u8::try_from(total / 4).unwrap_or(u8::MAX));
+            if let Some(pixel) = tiny_skia::PremultipliedColorU8::from_rgba(
+                r.min(a),
+                g.min(a),
+                b.min(a),
+                a,
+            ) {
+                out.pixels_mut()[y * width as usize + x] = pixel;
+            }
+        }
+    }
+    out
 }
 
 /// One block to draw, with the faces another opaque block does not cover.
@@ -36,98 +167,6 @@ struct Drawn {
     parts: Vec<Part>,
     /// Faces to draw: top, south, east.
     faces: [bool; 3],
-}
-
-/// The build as a PNG, `WIDTH` by `HEIGHT`, on a transparent background.
-pub fn render(blocks: &Blocks) -> Result<Vec<u8>> {
-    let drawn = visible(blocks);
-    let to_screen = fit(&drawn);
-    let mut pixmap = Pixmap::new(u32::from(WIDTH), u32::from(HEIGHT))
-        .context("thumbnail size is zero")?;
-    for d in &drawn {
-        let base = d.pos.map(coordinate);
-        for part in &d.parts {
-            let at = |dx: usize, dy: usize, dz: usize| {
-                let pick = |axis: usize, high: usize| {
-                    base[axis]
-                        + if high == 1 {
-                            part.max[axis]
-                        } else {
-                            part.min[axis]
-                        }
-                };
-                to_screen([pick(0, dx), pick(1, dy), pick(2, dz)])
-            };
-            let [top, south, east] =
-                [0, 1, 2].map(|face| d.faces[face] && part.faces[face]);
-            if top {
-                face(
-                    &mut pixmap,
-                    [at(0, 1, 0), at(1, 1, 0), at(1, 1, 1), at(0, 1, 1)],
-                    shade(part.color, TOP),
-                );
-            }
-            if south {
-                face(
-                    &mut pixmap,
-                    [at(0, 0, 1), at(1, 0, 1), at(1, 1, 1), at(0, 1, 1)],
-                    shade(part.color, SOUTH),
-                );
-            }
-            if east {
-                face(
-                    &mut pixmap,
-                    [at(1, 0, 0), at(1, 0, 1), at(1, 1, 1), at(1, 1, 0)],
-                    shade(part.color, EAST),
-                );
-            }
-        }
-    }
-    encode(&pixmap)
-}
-
-/// `pixmap` as a PNG of at most 256 colours. Its flat faces need few, and
-/// a palette makes the file about a quarter the size of full colour.
-fn encode(pixmap: &Pixmap) -> Result<Vec<u8>> {
-    let rgba: Vec<u8> = pixmap
-        .pixels()
-        .iter()
-        .flat_map(|p| {
-            let c = p.demultiply();
-            [c.red(), c.green(), c.blue(), c.alpha()]
-        })
-        .collect();
-    // Every 3rd pixel trains the palette: as good as all of them here, at
-    // a third of the time.
-    let quant = NeuQuant::new(3, 256, &rgba);
-    let indices: Vec<u8> = rgba
-        .chunks_exact(4)
-        .map(|pixel| {
-            // The background stays fully transparent, not the nearest
-            // palette colour.
-            if pixel[3] == 0 {
-                quant.index_of(&[0; 4])
-            } else {
-                quant.index_of(pixel)
-            }
-        })
-        .map(|index| u8::try_from(index).expect("256 colours at most"))
-        .collect();
-    let mut png = Vec::new();
-    let mut encoder =
-        png::Encoder::new(&mut png, pixmap.width(), pixmap.height());
-    encoder.set_color(png::ColorType::Indexed);
-    encoder.set_palette(quant.color_map_rgb());
-    encoder.set_trns(quant.color_map_alpha());
-    encoder.set_compression(png::Compression::High);
-    let mut writer = encoder
-        .write_header()
-        .context("could not encode the thumbnail")?;
-    writer
-        .write_image_data(&indices)
-        .context("could not encode the thumbnail")?;
-    writer.finish().context("could not encode the thumbnail")?;
-    Ok(png)
 }
 
 /// Every block with something to draw, far blocks first so near ones
@@ -150,6 +189,7 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
                         max: [1.0; 3],
                         color,
                         faces: [true; 3],
+                        tex: [None, None, None],
                     }],
                     true,
                 ),
@@ -162,6 +202,8 @@ fn visible(blocks: &Blocks) -> Vec<Drawn> {
             } else {
                 [true; 3]
             };
+            let mut parts = parts;
+            dress(blocks.get(pos), &mut parts);
             faces.contains(&true).then_some(Drawn { pos, parts, faces })
         })
         .collect();
@@ -285,6 +327,7 @@ fn target() -> Vec<Part> {
         max: [1.0; 3],
         color: TARGET_PALE,
         faces: [true; 3],
+        tex: [None, None, None],
     }];
     let rings = [(0.1, TARGET_RED), (0.22, TARGET_PALE), (0.34, TARGET_RED)];
     for face in 0..3 {
@@ -304,6 +347,7 @@ fn target() -> Vec<Part> {
                 max,
                 color,
                 faces,
+                tex: [None, None, None],
             });
         }
     }
@@ -327,6 +371,7 @@ fn shape(state: &str) -> Shape {
         max,
         color,
         faces: [true; 3],
+        tex: [None, None, None],
     };
     // Toward the block a wall torch or lever hangs on.
     let wall = |reach: f32| {
@@ -399,8 +444,23 @@ fn shape(state: &str) -> Shape {
         }),
         "glass" => Shape::Cube([200, 225, 235, 80]),
         "target" => Shape::Target,
+        _ if name.ends_with("_slab") && property("type") != Some("double") => {
+            slab(name, property("type") == Some("top"))
+        }
         _ => Shape::Cube(cube_color(name)),
     }
+}
+
+/// A slab, filling the upper half of its block if `top`, else the lower.
+fn slab(name: &str, top: bool) -> Shape {
+    let (low, high) = if top { (0.5, 1.0) } else { (0.0, 0.5) };
+    Shape::Parts(vec![Part {
+        min: [0.0, low, 0.0],
+        max: [1.0, high, 1.0],
+        color: cube_color(name),
+        faces: [true; 3],
+        tex: [None, None, None],
+    }])
 }
 
 /// A full block's colour, by its name without `minecraft:`: stained glass
@@ -512,4 +572,431 @@ fn direction(facing: &str) -> [f32; 3] {
         Some(Direction::East) => [1.0, 0.0, 0.0],
         _ => [0.0; 3],
     }
+}
+
+/// Gives the parts of the block `state` their textures: a full block its
+/// top and side, dust one flat face of its lines tinted by its power, and
+/// torches, repeaters, comparators, levers, and lamps their own.
+fn dress(state: &str, parts: &mut Vec<Part>) {
+    let id = schem::id(state);
+    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    let property = |key| schem::property(state, key);
+    let lit = property("lit") == Some("true")
+        || property("powered") == Some("true")
+        || property("power").is_some_and(|p| p != "0");
+    let all = |tex: Option<Tex>| [tex.clone(), tex.clone(), tex];
+    let region = |name: &str, uv: [f32; 4]| {
+        Some(Tex {
+            name: name.to_owned(),
+            uv,
+            turns: 0,
+        })
+    };
+    let torch = if lit {
+        "redstone_torch"
+    } else {
+        "redstone_torch_off"
+    };
+    match name {
+        "redstone_wire" => *parts = vec![dust_part(state, parts)],
+        "redstone_torch" | "redstone_wall_torch" => {
+            if let [stick, head] = parts.as_mut_slice() {
+                stick.tex = all(region(torch, [7.0, 6.0, 9.0, 16.0]));
+                head.tex = all(region(torch, [7.0, 5.0, 9.0, 7.0]));
+            }
+        }
+        "repeater" | "comparator" => {
+            let on = if lit { "_on" } else { "" };
+            let turns = match property("facing") {
+                Some("east") => 1,
+                Some("south") => 2,
+                Some("west") => 3,
+                _ => 0,
+            };
+            if let [base, light] = parts.as_mut_slice() {
+                let side = region("smooth_stone", [0.0, 14.0, 16.0, 16.0]);
+                base.tex = [
+                    Some(Tex {
+                        name: format!("{name}{on}"),
+                        uv: [0.0, 0.0, 16.0, 16.0],
+                        turns,
+                    }),
+                    side.clone(),
+                    side,
+                ];
+                light.tex = all(region(torch, [7.0, 5.0, 9.0, 7.0]));
+            }
+        }
+        "lever" => {
+            if let Some(base) = parts.first_mut() {
+                base.tex = all(Some(Tex::whole("cobblestone")));
+            }
+        }
+        "target" => {
+            parts.truncate(1);
+            if let Some(cube) = parts.first_mut() {
+                let side = Some(Tex::whole("target_side"));
+                cube.tex = [Some(Tex::whole("target_top")), side.clone(), side];
+            }
+        }
+        _ => {
+            let (top, side) = match name {
+                "redstone_lamp" if lit => {
+                    ("redstone_lamp_on", "redstone_lamp_on")
+                }
+                "barrel" => ("barrel_top", "barrel_side"),
+                _ => crate::palette::textures(name),
+            };
+            if let [cube] = parts.as_mut_slice() {
+                let side = Some(Tex::whole(side));
+                cube.tex = [Some(Tex::whole(top)), side.clone(), side];
+            }
+        }
+    }
+}
+
+/// Dust's one flat face over its block, its texture named for the sides it
+/// joins and its power, as `dust` makes it, its colour that of its `parts`.
+fn dust_part(state: &str, parts: &[Part]) -> Part {
+    let property = |key| schem::property(state, key);
+    let joins: String = ["north", "south", "west", "east"]
+        .iter()
+        .map(|side| {
+            if property(side).is_some_and(|v| v != "none") {
+                '1'
+            } else {
+                '0'
+            }
+        })
+        .collect();
+    let power = property("power").unwrap_or("0");
+    Part {
+        min: [0.0; 3],
+        max: [1.0, 0.0625, 1.0],
+        color: parts.first().map_or([110, 16, 10, 255], |p| p.color),
+        faces: [true, false, false],
+        tex: [
+            Some(Tex {
+                name: format!("dust:{joins}:{power}"),
+                uv: [0.0, 0.0, 16.0, 16.0],
+                turns: 0,
+            }),
+            None,
+            None,
+        ],
+    }
+}
+
+/// `c`, a channel worked out in floating point, as a byte.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn byte(c: f32) -> u8 {
+    c.round().clamp(0.0, 255.0) as u8
+}
+
+/// The game textures a picture of `blocks` is drawn with.
+pub fn needed(blocks: &Blocks) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for d in visible(blocks) {
+        for part in &d.parts {
+            for tex in part.tex.iter().flatten() {
+                if tex.name.starts_with("dust:") {
+                    for base in [
+                        "redstone_dust_dot",
+                        "redstone_dust_line0",
+                        "redstone_dust_line1",
+                    ] {
+                        names.insert(base.to_owned());
+                    }
+                } else {
+                    names.insert(tex.name.clone());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Dust's texture for `name`, `dust:` then which of north, south, west,
+/// and east it joins, as `1` or `0`, then its power: the game's lines and
+/// dot laid together, then tinted from dark to bright red by the power.
+fn dust(textures: &Textures, name: &str) -> Option<Vec<Pixmap>> {
+    let mut fields = name.split(':').skip(1);
+    let joins: Vec<bool> = fields.next()?.chars().map(|c| c == '1').collect();
+    let power: f32 = fields.next()?.parse().ok()?;
+    let level =
+        |name: &str| textures.0.get(name).and_then(|levels| levels.first());
+    let (dot, ns, ew) = (
+        level("redstone_dust_dot")?,
+        level("redstone_dust_line0")?,
+        level("redstone_dust_line1")?,
+    );
+    let (width, size) = (dot.width(), dot.width() as usize);
+    let mut laid = Pixmap::new(width, width)?;
+    let (north_south, west_east) = (joins[0] || joins[1], joins[2] || joins[3]);
+    let straight = north_south != west_east;
+    // Both of the game's line textures run north to south; it turns one for
+    // dust running west to east.
+    let middle = f32::from(u16::try_from(width).unwrap_or(16)) / 2.0;
+    let layers = [
+        (north_south || !west_east, ns, Transform::identity()),
+        (
+            west_east || !north_south,
+            ew,
+            Transform::from_rotate_at(90.0, middle, middle),
+        ),
+        (!straight, dot, Transform::identity()),
+    ];
+    for (shown, layer, turn) in layers {
+        if shown {
+            laid.draw_pixmap(
+                0,
+                0,
+                layer.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                turn,
+                None,
+            );
+        }
+    }
+    // How strongly each texel shows, then a texel wider each way, so a
+    // line a texel or two wide still reads at a thumbnail's size.
+    let shows: Vec<u8> = laid
+        .pixels()
+        .iter()
+        .map(|p| p.demultiply().red().min(p.alpha()))
+        .collect();
+    let at = |x: usize, y: usize| shows[y * size + x];
+    let widened: Vec<u8> = (0..size * size)
+        .map(|i| {
+            let (x, y) = (i % size, i / size);
+            let mut most = at(x, y);
+            if x > 0 {
+                most = most.max(at(x - 1, y));
+            }
+            if x + 1 < size {
+                most = most.max(at(x + 1, y));
+            }
+            if y > 0 {
+                most = most.max(at(x, y - 1));
+            }
+            if y + 1 < size {
+                most = most.max(at(x, y + 1));
+            }
+            most
+        })
+        .collect();
+    // The game's dust runs from a dark red unpowered to a bright one; the
+    // dark end is lifted a little to read against white blocks.
+    let strength = power / 15.0;
+    let red = (0.45 + 0.55 * strength) * 255.0;
+    let green = 0.2 * strength.powi(2) * 255.0;
+    let mut pixmap = Pixmap::new(width, width)?;
+    for (pixel, &alpha) in pixmap.pixels_mut().iter_mut().zip(&widened) {
+        *pixel =
+            tiny_skia::ColorU8::from_rgba(byte(red), byte(green), 0, alpha)
+                .premultiply();
+    }
+    let mut levels = vec![pixmap];
+    while let Some(last) = levels.last().filter(|p| p.width() > 1) {
+        levels.push(halved(last));
+    }
+    Some(levels)
+}
+
+/// The build as a WebP, `WIDTH` by `HEIGHT` on a see-through background,
+/// its faces in the game's textures where `textures` holds them and in
+/// flat colours where it doesn't.
+pub fn render_with(blocks: &Blocks, textures: &Textures) -> Result<Vec<u8>> {
+    let drawn = visible(blocks);
+    let to_screen = fit(&drawn);
+    let mut pixmap = Pixmap::new(u32::from(WIDTH), u32::from(HEIGHT))
+        .context("thumbnail size is zero")?;
+    let mut made: HashMap<String, Option<Vec<Pixmap>>> = HashMap::new();
+    for d in &drawn {
+        let base = d.pos.map(coordinate);
+        for part in &d.parts {
+            let at = |dx: usize, dy: usize, dz: usize| {
+                let pick = |axis: usize, high: usize| {
+                    base[axis]
+                        + if high == 1 {
+                            part.max[axis]
+                        } else {
+                            part.min[axis]
+                        }
+                };
+                to_screen([pick(0, dx), pick(1, dy), pick(2, dz)])
+            };
+            // Each face's corners as its texture lies on it: its top left,
+            // top right, bottom right, and bottom left.
+            let faces = [
+                ([at(0, 1, 0), at(1, 1, 0), at(1, 1, 1), at(0, 1, 1)], TOP),
+                ([at(0, 1, 1), at(1, 1, 1), at(1, 0, 1), at(0, 0, 1)], SOUTH),
+                ([at(1, 1, 1), at(1, 1, 0), at(1, 0, 0), at(1, 0, 1)], EAST),
+            ];
+            for (i, (corners, light)) in faces.into_iter().enumerate() {
+                if !(d.faces[i] && part.faces[i]) {
+                    continue;
+                }
+                let levels = part.tex[i].as_ref().and_then(|tex| {
+                    if tex.name.starts_with("dust:") {
+                        made.entry(tex.name.clone())
+                            .or_insert_with(|| dust(textures, &tex.name))
+                            .as_ref()
+                            .map(|levels| (tex, levels.as_slice()))
+                    } else {
+                        textures
+                            .0
+                            .get(&tex.name)
+                            .map(|levels| (tex, levels.as_slice()))
+                    }
+                });
+                if let Some((tex, levels)) = levels {
+                    textured(&mut pixmap, corners, tex, levels, light);
+                } else {
+                    face(&mut pixmap, corners, shade(part.color, light));
+                }
+            }
+        }
+    }
+    Ok(webp(&pixmap))
+}
+
+/// `pixmap` as a lossy WebP: textured faces compress poorly as PNG, and a
+/// WebP of them is a fraction the size, its see-through background kept.
+fn webp(pixmap: &Pixmap) -> Vec<u8> {
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    let encoder =
+        webp::Encoder::from_rgba(&rgba, pixmap.width(), pixmap.height());
+    encoder.encode(82.0).to_vec()
+}
+
+/// Fills the face with `corners`, its texture's top left, top right,
+/// bottom right, and bottom left, with `tex`, at the size of `levels`
+/// nearest its pixels on screen, then darkens it to `light`.
+fn textured(
+    pixmap: &mut Pixmap,
+    corners: [[f32; 2]; 4],
+    tex: &Tex,
+    levels: &[Pixmap],
+    light: f32,
+) {
+    let mut corners = corners;
+    corners.rotate_left(usize::from(tex.turns % 4));
+    let [tl, tr, br, bl] = corners;
+    let [u0, v0, u1, v1] = tex.uv;
+    let along = |to: [f32; 2], span: f32| {
+        [(to[0] - tl[0]) / span, (to[1] - tl[1]) / span]
+    };
+    let (u, v) = (along(tr, u1 - u0), along(bl, v1 - v0));
+    // Screen pixels to a texel, the fewer of the two ways.
+    let per_texel = u[0].hypot(u[1]).min(v[0].hypot(v[1]));
+    let mut level = 0;
+    while per_texel * f32::from(1u16 << level) < 1.0 && level + 1 < levels.len()
+    {
+        level += 1;
+    }
+    let f = f32::from(1u16 << level);
+    let quality = if level == 0 && per_texel >= 1.0 {
+        FilterQuality::Nearest
+    } else {
+        FilterQuality::Bilinear
+    };
+    let transform = Transform::from_row(
+        u[0] * f,
+        u[1] * f,
+        v[0] * f,
+        v[1] * f,
+        tl[0] - u[0] * u0 - v[0] * v0,
+        tl[1] - u[1] * u0 - v[1] * v0,
+    );
+    let mut path = PathBuilder::new();
+    path.move_to(tl[0], tl[1]);
+    for [x, y] in [tr, br, bl] {
+        path.line_to(x, y);
+    }
+    path.close();
+    let Some(path) = path.finish() else { return };
+    let paint = Paint {
+        anti_alias: true,
+        shader: Pattern::new(
+            levels[level].as_ref(),
+            SpreadMode::Pad,
+            quality,
+            1.0,
+            transform,
+        ),
+        ..Paint::default()
+    };
+    pixmap.fill_path(
+        &path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    if light < 1.0 {
+        let mut shade = Paint {
+            anti_alias: true,
+            ..Paint::default()
+        };
+        shade.set_color_rgba8(0, 0, 0, byte((1.0 - light) * 255.0));
+        pixmap.fill_path(
+            &path,
+            &shade,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// Where the game's textures are kept once fetched, beside the database,
+/// so each is fetched once.
+const TEXTURE_DIR: &str = "textures";
+
+/// Fetches into `textures` those of `names` it lacks: from the folder they
+/// are kept in, else from the public copy the 3D viewer's browser fetches
+/// from, kept for next time.
+pub async fn fetch(
+    http: &reqwest::Client,
+    textures: &std::sync::RwLock<Textures>,
+    names: &BTreeSet<String>,
+) {
+    let lacking: Vec<String> = {
+        let held = textures.read().expect("the textures are whole");
+        held.lacking(names).into_iter().cloned().collect()
+    };
+    for name in lacking {
+        let kept =
+            std::path::Path::new(TEXTURE_DIR).join(format!("{name}.png"));
+        let png = if let Ok(png) = tokio::fs::read(&kept).await {
+            Some(png)
+        } else {
+            let fetched = download(http, &name).await;
+            if let Some(png) = &fetched {
+                let _ = tokio::fs::create_dir_all(TEXTURE_DIR).await;
+                let _ = tokio::fs::write(&kept, png).await;
+            }
+            fetched
+        };
+        let mut held = textures.write().expect("the textures are whole");
+        match png.map(|png| held.add(&name, &png)) {
+            Some(Ok(())) => {}
+            _ => held.missing(&name),
+        }
+    }
+}
+
+/// Texture `name` from the public copy of the game's, if it has one.
+async fn download(http: &reqwest::Client, name: &str) -> Option<Vec<u8>> {
+    let url = format!("{}/{name}.png", crate::palette::TEXTURES);
+    let response = http.get(&url).send().await.ok()?.error_for_status().ok()?;
+    Some(response.bytes().await.ok()?.to_vec())
 }

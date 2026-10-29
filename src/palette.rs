@@ -132,10 +132,10 @@ pub fn label(block: &str) -> String {
 /// Where the game's own block textures are fetched from by the viewer's
 /// browser, as the 3D viewer fetches its resource pack: a public copy of
 /// one release's, so the site serves none of them itself.
-const TEXTURES: &str = "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.4/assets/minecraft/textures/block";
+pub const TEXTURES: &str = "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.4/assets/minecraft/textures/block";
 
 /// A block's top and side textures, by name, its state left out.
-fn textures(block: &str) -> (&str, &str) {
+pub fn textures(block: &str) -> (&str, &str) {
     let name = block.split('[').next().unwrap_or(block);
     match name {
         "smooth_sandstone" => ("sandstone_top", "sandstone_top"),

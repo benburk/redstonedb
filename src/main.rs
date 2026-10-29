@@ -62,6 +62,7 @@ async fn main() {
         heads: std::sync::Arc::default(),
         players: std::sync::Arc::default(),
         thumbnails: std::sync::Arc::default(),
+        textures: std::sync::Arc::default(),
     };
 
     let trace_layer = TraceLayer::new_for_http()

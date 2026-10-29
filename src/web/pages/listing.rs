@@ -588,9 +588,10 @@ const CARDS: &str =
 fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
     let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
     format!(
-        "/schematics/{}/thumbnail.png?v={}{palette}",
+        "/schematics/{}/thumbnail.webp?v={}-{}{palette}",
         s.id,
-        &s.sha256[..12.min(s.sha256.len())]
+        &s.sha256[..12.min(s.sha256.len())],
+        crate::thumbnail::RENDERER
     )
 }
 

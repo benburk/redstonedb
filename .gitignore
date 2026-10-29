@@ -11,3 +11,7 @@ result
 
 # Local database copies made by `just pull-db`.
 backups/
+
+# The game textures thumbnails are drawn with, and drawn thumbnails.
+textures/
+thumbnails/

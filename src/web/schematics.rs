@@ -5,6 +5,7 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    sync::Arc,
 };
 
 use axum::{
@@ -405,17 +406,44 @@ pub async fn thumbnail(
     };
     let sha256 = key;
     let cached = state.thumbnails.lock().unwrap().get(&sha256);
+    // From memory, else as drawn before and kept beside the database, else
+    // drawn now, with the textures it needs fetched first.
+    let kept = std::path::Path::new(thumbnail::DRAWN_DIR)
+        .join(format!("{}-{sha256}.webp", thumbnail::RENDERER));
     let png = if let Some(png) = cached {
         png
+    } else if let Ok(webp) = tokio::fs::read(&kept).await {
+        let webp = Bytes::from(webp);
+        state
+            .thumbnails
+            .lock()
+            .unwrap()
+            .insert(sha256, webp.clone());
+        webp
     } else {
-        let png = tokio::task::spawn_blocking(move || {
-            thumbnail::render(&Blocks::read(&data)?)
+        let blocks = Blocks::read(&data)?;
+        thumbnail::fetch(
+            &state.http,
+            &state.textures,
+            &thumbnail::needed(&blocks),
+        )
+        .await;
+        let textures = Arc::clone(&state.textures);
+        let webp = tokio::task::spawn_blocking(move || {
+            let textures = textures.read().expect("the textures are whole");
+            thumbnail::render_with(&blocks, &textures)
         })
         .await
         .map_err(anyhow::Error::from)??;
-        let png = Bytes::from(png);
-        state.thumbnails.lock().unwrap().insert(sha256, png.clone());
-        png
+        let _ = tokio::fs::create_dir_all(thumbnail::DRAWN_DIR).await;
+        let _ = tokio::fs::write(&kept, &webp).await;
+        let webp = Bytes::from(webp);
+        state
+            .thumbnails
+            .lock()
+            .unwrap()
+            .insert(sha256, webp.clone());
+        webp
     };
     // The address names the palette, but who may see it is the viewer's.
     let cache = if painted.is_some() {
@@ -425,7 +453,7 @@ pub async fn thumbnail(
     };
     Ok((
         [
-            (header::CONTENT_TYPE, "image/png"),
+            (header::CONTENT_TYPE, "image/webp"),
             (header::CACHE_CONTROL, cache),
         ],
         png,

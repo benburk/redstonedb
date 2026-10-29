@@ -220,6 +220,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/leaderboards", get(leaderboards::people))
         .route("/leaderboards/{category}", get(leaderboards::show))
         .route("/schematics/{id}/download", get(schematics::download))
+        .route(
+            "/schematics/{id}/thumbnail.webp",
+            get(schematics::thumbnail),
+        )
         .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))
         .route(
             "/schematics/{id}/edit",

@@ -255,14 +255,11 @@ fn a_lever_on_top_enters_from_above() {
 }
 
 #[test]
-fn thumbnail_is_a_png_of_the_set_size() {
-    let png = app::thumbnail::render(&blocks("alpha-cla")).unwrap();
-    assert_eq!(&png[1..4], b"PNG");
-    let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
-    let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
-    let expected =
-        [app::thumbnail::WIDTH, app::thumbnail::HEIGHT].map(u32::from);
-    assert_eq!([width, height], expected);
+fn thumbnail_is_a_webp_of_the_set_size() {
+    let textures = app::thumbnail::Textures::default();
+    let webp =
+        app::thumbnail::render_with(&blocks("alpha-cla"), &textures).unwrap();
+    assert_eq!((&webp[0..4], &webp[8..12]), (&b"RIFF"[..], &b"WEBP"[..]));
 }
 
 fn direction(text: &str) -> StackDirection {

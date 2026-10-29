@@ -63,6 +63,8 @@ pub struct AppState {
     pub players: Players,
     /// Rendered thumbnails, so each file is drawn once.
     pub thumbnails: Thumbnails,
+    /// The game's textures thumbnails are drawn with, fetched as needed.
+    pub textures: Arc<std::sync::RwLock<crate::thumbnail::Textures>>,
 }
 
 #[cfg(test)]
