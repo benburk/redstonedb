@@ -18,6 +18,9 @@
 //   so it shows the work under way, and closes it once answered.
 // - A form with `data-live` sends as its fields change, typing once it
 //   pauses, and a new send replaces one under way, as a search does.
+// - A button with `data-disclose` shows or hides the elements its
+//   `aria-controls` names, space-separated, its `aria-expanded` saying
+//   which, as an output's bit rows.
 
 const notice = document.getElementById("notice");
 
@@ -281,5 +284,18 @@ document.addEventListener("change", (event) => {
   const form = event.target.closest("form[data-submit-on-pick]");
   if (form && (event.target.type === "radio" || event.target.type === "file")) {
     form.requestSubmit();
+  }
+});
+
+// A disclosure button opens or closes what it controls, wherever a swap
+// put it.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-disclose]");
+  if (!button) return;
+  const open = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(open));
+  for (const id of button.getAttribute("aria-controls").split(" ")) {
+    const controlled = document.getElementById(id);
+    if (controlled) controlled.hidden = !open;
   }
 });

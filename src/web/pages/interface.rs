@@ -10,7 +10,11 @@ use crate::{
     simulate::{InputTiming, OutputTiming, Strength, Timing},
 };
 
-use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, build::hover_note};
+use super::{
+    SECTION_TITLE, TABLE_CELL, TABLE_HEAD,
+    build::hover_note,
+    icons::{CHEVRON_RIGHT, icon},
+};
 
 /// The lines a flag says are read inverted.
 pub(super) enum Inverts {
@@ -151,7 +155,7 @@ pub(super) fn interface_section(
                         }
                         @for entry in port_entries(inputs) {
                             tr {
-                                (line_cell(&entry, true))
+                                (line_cell(&entry, true, None))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, true))) }
                                 @if let Some(strength) = strength {
@@ -186,8 +190,9 @@ pub(super) fn interface_section(
                             }
                         }
                         @for entry in port_entries(outputs) {
+                            @let rows = bit_rows(&entry, timed_out(&entry), strength);
                             tr {
-                                (line_cell(&entry, false))
+                                (line_cell(&entry, false, rows.as_ref().map(|rows| rows.ids.as_str())))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, false))) }
                                 @if let Some(strength) = strength {
@@ -202,6 +207,9 @@ pub(super) fn interface_section(
                                         }
                                     }
                                 }
+                            }
+                            @if let Some(rows) = rows {
+                                (rows.markup(any_inverted, strength.is_some(), timing.is_some()))
                             }
                         }
                     }
@@ -238,9 +246,90 @@ fn head(id: &str, label: &str, note: Option<&str>) -> Markup {
     }
 }
 
+/// A bit row's cell: a table cell, tighter, as the rows are the output's
+/// parts.
+const BIT_CELL: &str = "border-b border-line py-1.5 pr-4 align-top";
+
+/// An output's bits, each a row hidden under the output's own until its
+/// name opens them: each bit's weakest strength while on and its ticks.
+struct BitRows<'a> {
+    /// The rows' ids, space-separated, for the name to open.
+    ids: String,
+    strengths: Option<&'a [u8]>,
+    timing: Option<&'a OutputTiming>,
+}
+
+/// `entry`'s bit rows, for an output of more than one bit whose bits were
+/// measured; `None` for any other.
+fn bit_rows<'a>(
+    entry: &PortEntry,
+    timing: Option<&'a OutputTiming>,
+    strength: Option<&'a Strength>,
+) -> Option<BitRows<'a>> {
+    let port = entry.ports[0];
+    let strengths =
+        strength.and_then(|strength| output_bits_strength(port, strength));
+    let timed = timing.filter(|t| t.bits.len() == port.bits.len());
+    let wide = entry.ports.len() == 1 && port.bits.len() > 1;
+    (wide && (strengths.is_some() || timed.is_some())).then(|| BitRows {
+        ids: (0..port.bits.len())
+            .map(|bit| format!("bits-{}-{bit}", port.name.replace(' ', "-")))
+            .collect::<Vec<_>>()
+            .join(" "),
+        strengths,
+        timing: timed,
+    })
+}
+
+impl BitRows<'_> {
+    fn markup(&self, inverted: bool, strength: bool, timing: bool) -> Markup {
+        html! {
+            @for (bit, id) in self.ids.split(' ').enumerate() {
+                tr id=(id) hidden {
+                    th scope="row" class={ (BIT_CELL) " pl-5 text-left font-normal text-muted" } { "bit " (bit) }
+                    td class=(BIT_CELL) {}
+                    @if inverted { td class=(BIT_CELL) {} }
+                    @if strength {
+                        @match self.strengths.and_then(|bits| bits.get(bit)).filter(|&&s| s > 0) {
+                            Some(s) => td class=(BIT_CELL) { (s) },
+                            None => td class={ (BIT_CELL) " text-muted" } { "—" },
+                        }
+                    }
+                    @if timing {
+                        @match self.timing.and_then(|t| t.bits.get(bit)) {
+                            Some(b) => {
+                                td class=(BIT_CELL) { (b.first_change) "t" }
+                                td class=(BIT_CELL) { (b.latency) "t" }
+                            }
+                            None => {
+                                td class=(BIT_CELL) {}
+                                td class=(BIT_CELL) {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The weakest strength each bit of output `port` showed while on, as
+/// `strength` measured it.
+fn output_bits_strength<'a>(
+    port: &Port,
+    strength: &'a Strength,
+) -> Option<&'a [u8]> {
+    strength
+        .outputs
+        .iter()
+        .find(|(name, _)| *name == port.name)
+        .map(|(_, bits)| bits.as_slice())
+}
+
 /// A line's name beside a swatch of its marking colour, with what else it
-/// takes, such as a strength or being inverted, beneath.
-fn line_cell(entry: &PortEntry, input: bool) -> Markup {
+/// takes, such as a strength or being inverted, beneath. With `opens`, the
+/// name is a button showing or hiding the rows those ids name.
+fn line_cell(entry: &PortEntry, input: bool, opens: Option<&str>) -> Markup {
     let port = entry.ports[0];
     let dye = port
         .block
@@ -255,7 +344,14 @@ fn line_cell(entry: &PortEntry, input: bool) -> Markup {
                 span aria-hidden="true" class="mt-1.5 inline-block size-3 shrink-0 rounded-[3px] border border-line"
                     style={ "background: rgb(" (r) " " (g) " " (b) ")" } {}
                 span {
-                    span class="font-semibold" { (entry.name) }
+                    @match opens {
+                        Some(ids) => button type="button" data-disclose aria-expanded="false" aria-controls=(ids)
+                            class="group inline-flex cursor-pointer items-center gap-1 font-semibold" {
+                            (entry.name)
+                            (icon(CHEVRON_RIGHT, "size-3.5 text-muted transition-transform duration-150 ease-calm group-aria-expanded:rotate-90"))
+                        },
+                        None => span class="font-semibold" { (entry.name) },
+                    }
                     @if !notes.is_empty() {
                         span class="block text-meta text-muted" { (notes) }
                     }
@@ -280,54 +376,17 @@ fn inverted_cell(inverted: Inverted) -> Markup {
 }
 
 /// The weakest strength any bit of output `entry` shows while on, as
-/// `strength` measured it, each bit's on hover when they differ; a dash
-/// for an output it didn't measure, as a status line.
+/// `strength` measured it, each bit's in its row; a dash for an output it
+/// didn't measure, as a status line.
 fn output_strength(entry: &PortEntry, strength: &Strength) -> Markup {
-    let port = entry.ports[0];
-    let bits = strength
-        .outputs
-        .iter()
-        .find(|(name, _)| *name == port.name)
-        .map(|(_, bits)| bits.as_slice());
-    let on: Vec<u8> = bits
-        .unwrap_or_default()
-        .iter()
-        .copied()
-        .filter(|&s| s > 0)
-        .collect();
+    let weakest = output_bits_strength(entry.ports[0], strength)
+        .and_then(|bits| bits.iter().copied().filter(|&s| s > 0).min());
     html! {
-        @match on.iter().min() {
+        @match weakest {
+            Some(weakest) => td class=(TABLE_CELL) { (weakest) },
             None => td class={ (TABLE_CELL) " text-muted" } { "—" },
-            Some(weakest) if on.iter().all(|s| s == weakest) => td class=(TABLE_CELL) { (weakest) },
-            Some(weakest) => td class=(TABLE_CELL) {
-                (hover_note(
-                    &format!("ss-{}", port.name.replace(' ', "-")),
-                    &html! {
-                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { (weakest) }
-                    },
-                    &bit_runs(bits.unwrap_or_default()),
-                ))
-            },
         }
     }
-}
-
-/// Each bit's strength, runs of equal ones together, such as `bit 0: 14,
-/// bits 1–6: 2, bit 7: 1`.
-fn bit_runs(bits: &[u8]) -> String {
-    let mut runs: Vec<String> = Vec::new();
-    let mut start = 0;
-    for i in 1..=bits.len() {
-        if i == bits.len() || bits[i] != bits[start] {
-            runs.push(if i - start == 1 {
-                format!("bit {start}: {}", bits[start])
-            } else {
-                format!("bits {start}–{}: {}", i - 1, bits[start])
-            });
-            start = i;
-        }
-    }
-    runs.join(", ")
 }
 
 /// How many bits or lines an entry carries.

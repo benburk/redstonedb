@@ -24,6 +24,7 @@ pub(super) const PENCIL: &str = r#"<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L
 pub(super) const HELP: &str = r#"<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>"#;
 pub(super) const FILE: &str = r#"<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>"#;
 pub(super) const LINK: &str = r#"<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>"#;
+pub(super) const CHEVRON_RIGHT: &str = r#"<path d="m9 18 6-6-6-6"/>"#;
 pub(super) const MENU: &str =
     r#"<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>"#;
 
