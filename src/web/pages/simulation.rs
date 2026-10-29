@@ -118,8 +118,11 @@ pub enum Waiting<'a> {
 /// right, then, for a failure, which output bits were wrong and the first
 /// wrong cases, or, for a pass, its timing once measured.
 pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
+    let untimed = matches!(waiting, Waiting::Untimed)
+        && matches!(report, Report::Ran(run) if run.wrong == 0 && run.timing.is_none());
     html! {
-        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm"
+        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm has-[[data-timing][hidden]]:hidden"
+            hidden[untimed]
             data-measures-timing[report.passed()]
             data-skipped[matches!(report, Report::Skipped { .. })]
             data-state=(if report.failed() { "fail" } else { "pass" })
@@ -259,10 +262,14 @@ fn timing_intro(timing: &Timing) -> Markup {
     }
 }
 
+/// A synced build's timing, with nothing to say beyond its inputs and
+/// outputs, is hidden, and its section with it.
 pub fn timing_section(timing: &Timing) -> Markup {
+    let quiet =
+        timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
         div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
-            data-summary=(timing_summary(timing)) {
+            data-summary=(timing_summary(timing)) hidden[quiet] {
             (timing_intro(timing))
             dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 tabular-nums" {
                 dt class="text-muted" { "Synced" }
@@ -272,10 +279,6 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 @for output in timing.outputs.iter().filter(|o| o.staggered > 0) {
                     dt class="text-muted" { "Bits apart, " (output.name) }
                     dd class="text-danger" { (grouped(output.staggered)) " changes" }
-                }
-                @for output in timing.outputs.iter().filter(|o| o.carried > 0) {
-                    dt class="text-muted" { "Carried out, " (output.name) }
-                    dd { "+" (output.carried) "t" }
                 }
                 dt class="text-muted" { "Changes tested" }
                 dd { (grouped(timing.changes)) }

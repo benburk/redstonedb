@@ -179,11 +179,17 @@ fn ticks(t: i32) -> String {
     }
 }
 
-/// An output's first change and settling tick, as cells.
+/// An output's first change and settling tick, as cells, with the ticks
+/// repeaters on its blocks take to carry it out.
 fn output_ticks(output: &OutputTiming) -> Markup {
     html! {
         td class=(TABLE_CELL) { (output.first_change) "t" }
-        td class={ (TABLE_CELL) " font-semibold" } { (output.latency) "t" }
+        td class=(TABLE_CELL) {
+            span class="font-semibold" { (output.latency) "t" }
+            @if output.carried > 0 {
+                span class="block text-meta text-muted" { "+" (output.carried) "t carried out" }
+            }
+        }
     }
 }
 
