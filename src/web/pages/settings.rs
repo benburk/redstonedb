@@ -142,12 +142,17 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     html! {
         form action="/settings/palette" method="post" class="flex max-w-form flex-col gap-4" {
             input type="hidden" name="next" value=(next);
-            div class="flex flex-wrap items-center gap-2" {
-                span { "Start from:" }
-                @for (key, name, _) in palette::presets() {
-                    button type="submit" name="preset" value=(key) class="btn btn-quiet" { (name) }
+            div {
+                button type="button" popovertarget="presets" class="btn btn-quiet" { "Start from a preset ▾" }
+                div id="presets" popover
+                    class="m-auto rounded-overlay border border-line bg-raised p-2 text-ink shadow-lg backdrop:bg-black/20" {
+                    ul class="flex flex-col" {
+                        @for (key, name, preset) in palette::presets() {
+                            li { (preset_choice("preset", key, name, &preset)) }
+                        }
+                        li { (preset_choice("reset", "yes", "The site's own", &Palette::default())) }
+                    }
                 }
-                button type="submit" name="reset" value="yes" class="btn btn-quiet" { "The site's own" }
             }
             fieldset class="flex flex-wrap items-center gap-3" {
                 legend class="sr-only" { "Blocks that may be either kind" }
@@ -175,6 +180,34 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     }
 }
 
+/// A preset in the presets menu: a button sending `name` as `value`, with
+/// whose it is and its blocks, solid, transparent, and the kind blocks that
+/// may be either take, at the end.
+fn preset_choice(
+    name: &str,
+    value: &str,
+    label: &str,
+    preset: &Palette,
+) -> Markup {
+    let either = if preset.prefer_solid {
+        "solid"
+    } else {
+        "glass"
+    };
+    html! {
+        button type="submit" name=(name) value=(value)
+            class="flex w-full items-center justify-between gap-6 rounded-control px-3 py-2 text-left hover:bg-selection" {
+            span class="font-semibold" { (label) }
+            span class="flex items-center gap-1 text-meta text-muted" {
+                @for block in [&preset.solid, &preset.transparent] {
+                    span title=(palette::label(block)) class="inline-flex size-6" { (maud::PreEscaped(palette::icon(block))) }
+                }
+                span class="ml-1" { (either) " by default" }
+            }
+        }
+    }
+}
+
 /// One choice of the palette: its label, and a button with the chosen
 /// block's icon and name that opens a dialog of every choice under its
 /// group's name, each a value sent as `name` and the block pictured for
@@ -186,7 +219,7 @@ fn picker(
     current: &str,
     pictured: &str,
 ) -> Markup {
-    let words = |name: &str| name.replace('_', " ");
+    let words = palette::label;
     let dialog = format!("pick-{name}");
     html! {
         span id={ (dialog) "-label" } { (label) }

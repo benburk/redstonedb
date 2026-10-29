@@ -45,9 +45,10 @@ const WOODS: [&str; 11] = [
     "cherry", "bamboo", "crimson", "warped",
 ];
 
-const STONES: [&str; 12] = [
+const STONES: [&str; 13] = [
     "stone",
     "smooth_stone",
+    "smooth_stone_slab[type=double,waterlogged=false]",
     "stone_bricks",
     "cobblestone",
     "polished_andesite",
@@ -82,14 +83,50 @@ pub fn solid() -> Vec<(&'static str, Vec<String>)> {
     ]
 }
 
+/// The slabs a palette may build with in the upper half of a block, as
+/// they hold dust and torches on top and carry no power, as glass does.
+const SLABS: [&str; 8] = [
+    "quartz",
+    "smooth_quartz",
+    "smooth_stone",
+    "stone",
+    "stone_brick",
+    "oak",
+    "spruce",
+    "bamboo_mosaic",
+];
+
 /// The transparent blocks a palette may build with, by group.
 pub fn transparent() -> Vec<(&'static str, Vec<String>)> {
-    vec![(
-        "Glass",
-        std::iter::once("glass".to_owned())
-            .chain(DYES.iter().map(|d| format!("{d}_stained_glass")))
-            .collect(),
-    )]
+    vec![
+        (
+            "Glass",
+            std::iter::once("glass".to_owned())
+                .chain(DYES.iter().map(|d| format!("{d}_stained_glass")))
+                .collect(),
+        ),
+        (
+            "Top slabs",
+            SLABS
+                .iter()
+                .map(|s| format!("{s}_slab[type=top,waterlogged=false]"))
+                .collect(),
+        ),
+    ]
+}
+
+/// How a block reads to people, such as `top quartz slab` or `double
+/// smooth stone slab`.
+pub fn label(block: &str) -> String {
+    let (name, state) = block.split_once('[').unwrap_or((block, ""));
+    let name = name.replace('_', " ");
+    if state.contains("type=top") {
+        format!("top {name}")
+    } else if state.contains("type=double") {
+        format!("double {name}")
+    } else {
+        name
+    }
 }
 
 /// Where the game's own block textures are fetched from by the viewer's
@@ -97,13 +134,24 @@ pub fn transparent() -> Vec<(&'static str, Vec<String>)> {
 /// one release's, so the site serves none of them itself.
 const TEXTURES: &str = "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.4/assets/minecraft/textures/block";
 
-/// A block's top and side textures, by name.
+/// A block's top and side textures, by name, its state left out.
 fn textures(block: &str) -> (&str, &str) {
-    match block {
+    let name = block.split('[').next().unwrap_or(block);
+    match name {
         "smooth_sandstone" => ("sandstone_top", "sandstone_top"),
-        "smooth_quartz" => ("quartz_block_bottom", "quartz_block_bottom"),
-        "quartz_block" => ("quartz_block_top", "quartz_block_side"),
-        _ => (block, block),
+        "smooth_quartz" | "smooth_quartz_slab" => {
+            ("quartz_block_bottom", "quartz_block_bottom")
+        }
+        "quartz_block" | "quartz_slab" => {
+            ("quartz_block_top", "quartz_block_side")
+        }
+        "smooth_stone_slab" => ("smooth_stone", "smooth_stone_slab_side"),
+        "stone_slab" => ("stone", "stone"),
+        "stone_brick_slab" => ("stone_bricks", "stone_bricks"),
+        "oak_slab" => ("oak_planks", "oak_planks"),
+        "spruce_slab" => ("spruce_planks", "spruce_planks"),
+        "bamboo_mosaic_slab" => ("bamboo_mosaic", "bamboo_mosaic"),
+        _ => (name, name),
     }
 }
 
@@ -120,6 +168,9 @@ pub fn icon(block: &str) -> String {
         .to_owned();
     }
     let (top, side) = textures(block);
+    // A top slab is the cube's upper half: its sides half as tall.
+    let half = block.contains("type=top");
+    let (height, bottom) = if half { ("0.4375", 24) } else { ("0.875", 31) };
     // Each face maps the 16-pixel texture onto its side of an isometric
     // cube in a 32-unit square.
     let face = |texture: &str, matrix: &str| {
@@ -131,13 +182,15 @@ pub fn icon(block: &str) -> String {
         concat!(
             r#"<svg viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true">"#,
             "{top}{south}{east}",
-            r#"<polygon points="3,10 16,17 16,31 3,24" fill="black" fill-opacity="0.2"/>"#,
-            r#"<polygon points="16,17 29,10 29,24 16,31" fill="black" fill-opacity="0.36"/>"#,
+            r#"<polygon points="3,10 16,17 16,{bottom} 3,{left}" fill="black" fill-opacity="0.2"/>"#,
+            r#"<polygon points="16,17 29,10 29,{left} 16,{bottom}" fill="black" fill-opacity="0.36"/>"#,
             "</svg>"
         ),
         top = face(top, "0.8125 -0.4375 0.8125 0.4375 3 10"),
-        south = face(side, "0.8125 0.4375 0 0.875 3 10"),
-        east = face(side, "0.8125 -0.4375 0 0.875 16 17"),
+        south = face(side, &format!("0.8125 0.4375 0 {height} 3 10")),
+        east = face(side, &format!("0.8125 -0.4375 0 {height} 16 17")),
+        bottom = bottom,
+        left = bottom - 7,
     )
 }
 
@@ -177,18 +230,42 @@ fn dye(block: &str) -> Option<&'static str> {
         .max_by_key(|d| d.len())
 }
 
-/// Palettes people like, each with a key and a name.
+/// Palettes people like, each with a key, whose it is, and the palette.
 pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
-    vec![(
-        "gray-lime",
-        "Gray concrete and lime glass, glass by default",
-        Palette {
-            prefer_solid: false,
-            solid: "gray_concrete".to_owned(),
-            transparent: "lime_stained_glass".to_owned(),
+    let palette =
+        |solid: &str, transparent: &str, prefer_solid: bool| Palette {
+            prefer_solid,
+            solid: solid.to_owned(),
+            transparent: transparent.to_owned(),
             ..Palette::default()
-        },
-    )]
+        };
+    let top = |slab: &str| format!("{slab}_slab[type=top,waterlogged=false]");
+    vec![
+        (
+            "fearless",
+            "Fearless",
+            palette("gray_concrete", "lime_stained_glass", false),
+        ),
+        (
+            "0ptimo",
+            "0ptimo",
+            palette(
+                "smooth_stone_slab[type=double,waterlogged=false]",
+                &top("quartz"),
+                true,
+            ),
+        ),
+        (
+            "electronfalcon",
+            "electronfalcon",
+            palette("orange_wool", "glass", true),
+        ),
+        (
+            "teddy",
+            "Teddy",
+            palette("gray_terracotta", &top("bamboo_mosaic"), true),
+        ),
+    ]
 }
 
 /// The roles a palette colours, each with the site's own colour for it.

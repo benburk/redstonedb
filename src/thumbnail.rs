@@ -406,6 +406,17 @@ fn shape(state: &str) -> Shape {
 /// A full block's colour, by its name without `minecraft:`: stained glass
 /// see-through in its dye's colour, concrete in its own, and a few others.
 fn cube_color(name: &str) -> Rgba {
+    // A slab is drawn in its block's colour.
+    let name = match name {
+        "quartz_slab" | "smooth_quartz_slab" => "quartz_block",
+        "smooth_stone_slab" => "smooth_stone",
+        "stone_slab" => "stone",
+        "stone_brick_slab" => "stone_bricks",
+        "oak_slab" => "oak_planks",
+        "spruce_slab" => "spruce_planks",
+        "bamboo_mosaic_slab" => "bamboo_mosaic",
+        name => name,
+    };
     if let Some(dye) = name.strip_suffix("_stained_glass") {
         let [r, g, b, _] = dye_color(dye);
         return [r, g, b, 110];
@@ -448,6 +459,7 @@ fn cube_color(name: &str) -> Rgba {
         "deepslate_tiles" => [54, 54, 55, 255],
         "polished_blackstone" => [53, 48, 56, 255],
         "smooth_sandstone" => [223, 214, 170, 255],
+        "bamboo_mosaic" => [190, 170, 78, 255],
         "glass" => [200, 222, 232, 90],
         // The solid blocks a palette may build with.
         "stone" => [125, 125, 125, 255],
