@@ -2,6 +2,7 @@
 
 use axum::{
     extract::{Query, State},
+    http::{HeaderMap, header},
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::{
@@ -25,8 +26,17 @@ pub async fn login(State(state): State<AppState>) -> Response {
     pages::login(state.discord.is_some(), "").into_response()
 }
 
+/// The host a request was sent to, as its browser named it.
+fn host(headers: &HeaderMap) -> Option<&str> {
+    headers.get(header::HOST)?.to_str().ok()
+}
+
 /// Sends the browser to Discord to approve the login.
-pub async fn start(State(state): State<AppState>, jar: CookieJar) -> Response {
+pub async fn start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+) -> Response {
     let Some(discord) = &state.discord else {
         return Redirect::to("/sessions/new").into_response();
     };
@@ -41,7 +51,10 @@ pub async fn start(State(state): State<AppState>, jar: CookieJar) -> Response {
         .build();
     (
         jar.add(cookie),
-        Redirect::to(&discord.authorize_url(&login_state)),
+        Redirect::to(&discord.authorize_url(
+            &login_state,
+            &discord.redirect_uri(host(&headers)),
+        )),
     )
         .into_response()
 }
@@ -58,6 +71,7 @@ pub struct Callback {
 /// logged in, and starts a session for their account.
 pub async fn callback(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Query(callback): Query<Callback>,
 ) -> Response {
@@ -78,7 +92,9 @@ pub async fn callback(
     if expected.as_deref() != Some(returned.as_str()) {
         return refuse(jar, "That login link has expired. Try again.");
     }
-    let profile = match discord.profile(&state.http, &code).await {
+    let redirect_uri = discord.redirect_uri(host(&headers));
+    let profile = match discord.profile(&state.http, &code, &redirect_uri).await
+    {
         Ok(profile) => profile,
         Err(err) => {
             warn!("Discord login failed: {err:#}");
