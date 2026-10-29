@@ -194,7 +194,7 @@ pub fn profile(
         &html! {
             div class="mb-8 flex items-center gap-4" {
                 @if let Some(picture) = account.picture(64) { (picture) }
-                div {
+                div class="min-w-0 flex-1" {
                     h1 class=(PAGE_TITLE) { (account.name()) }
                     p class="text-muted" {
                         "@" (account.username) " · " (account.role.as_str())
@@ -207,6 +207,12 @@ pub fn profile(
                                 span class="text-meta text-muted" { " · not yet confirmed" }
                             }
                         }
+                    }
+                }
+                @if own {
+                    a href="/settings" class="btn btn-quiet shrink-0 gap-2 self-start hover:no-underline" {
+                        (super::icons::icon(super::icons::SETTINGS, "size-4"))
+                        "Settings"
                     }
                 }
             }

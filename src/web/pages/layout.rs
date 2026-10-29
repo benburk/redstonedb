@@ -105,9 +105,9 @@ const SIDEBAR_ICON: &str =
 const SIDEBAR_HEADING: &str =
     "mt-5 mb-1 px-2.5 text-meta font-semibold text-muted";
 
-/// The sidebar, the same on every page: the site's pages, the viewer's
-/// own, and the pages most visits don't need, then at its foot the
-/// account, with settings and logging out, or logging in; `current_path`
+/// The sidebar, the same on every page: under the brand, the viewer's
+/// profile, from which their settings are reached, or logging in; then
+/// the site's pages and the pages most visits don't need; `current_path`
 /// is marked as the page shown. Beside the page on a wide screen, staying
 /// in view, its pages scrolling between its brand and its foot; on a
 /// phone, a panel the header's button opens over the page.
@@ -138,6 +138,27 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                 }
                 (brand(current_path, APP_NAME))
             }
+            div class="shrink-0 px-3 pb-3" {
+                ul {
+                    @match viewer {
+                        None => (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))),
+                        Some(user) => {
+                            @let profile = format!("/users/{}", user.username);
+                            // Settings are the profile's, so it stays marked there.
+                            @let chosen = (current_path == profile || current_path == "/settings").then_some("page");
+                            li {
+                                a href=(profile) aria-current=[chosen] class=(SIDEBAR_LINK) {
+                                    @match user.picture(16) {
+                                        Some(picture) => (picture),
+                                        None => (icon(icons::USER, SIDEBAR_ICON)),
+                                    }
+                                    span class="truncate" { (user.name()) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // The site's pages scroll between the brand and the account,
             // which stay put.
             div data-sidebar class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-gutter:stable]" {
@@ -145,13 +166,8 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/", icons::HOME, "Home", current("/")))
                     (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
                     (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
-                }
-                @if let Some(user) = viewer {
-                    @let profile = format!("/users/{}", user.username);
-                    h2 class=(SIDEBAR_HEADING) { "You" }
-                    ul class="flex flex-col gap-0.5" {
+                    @if viewer.is_some() {
                         (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
-                        (link(&profile, icons::USER, "My builds", current(&profile)))
                     }
                 }
                 h2 class=(SIDEBAR_HEADING) { "About" }
@@ -162,28 +178,6 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/about/conventions", icons::BOOK, "Building conventions", current("/about/conventions")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
-                    }
-                }
-            }
-            div class="shrink-0 border-t border-line px-3 py-3" {
-                @match viewer {
-                    None => ul { (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))) },
-                    Some(user) => {
-                        div class="flex min-w-0 items-center gap-2.5 px-2.5 py-1.5 text-nav text-muted" {
-                            @if let Some(picture) = user.picture(16) { (picture) }
-                            span class="truncate" { (user.name()) }
-                        }
-                        ul class="flex flex-col gap-0.5" {
-                            (link("/settings", icons::SETTINGS, "Settings", current("/settings")))
-                            li {
-                                form action="/logout" method="post" {
-                                    button type="submit" class={ (SIDEBAR_LINK) " cursor-pointer" } {
-                                        (icon(icons::LOG_OUT, SIDEBAR_ICON))
-                                        span { "Log out" }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }

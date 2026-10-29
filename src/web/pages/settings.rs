@@ -36,6 +36,12 @@ pub fn settings(
                     (block_theme_row(chosen))
                     (appearance_row())
                 }
+                form action="/logout" method="post" class="mt-6" {
+                    button type="submit" class="btn btn-quiet gap-2" {
+                        (icon(super::icons::LOG_OUT, "size-4"))
+                        "Log out"
+                    }
+                }
             }
             (session_help())
         },
