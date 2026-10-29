@@ -7,7 +7,7 @@ use crate::{
     import::Analysis,
     interface::{Bit, Interface, Port},
     lint::{self, Violation},
-    simulate::{InputTiming, OutputTiming, Timing},
+    simulate::{InputTiming, OutputTiming, Strength, Timing},
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, build::hover_note};
@@ -107,6 +107,7 @@ impl Inversions<'_> {
 pub(super) fn interface_section(
     analysis: &Analysis,
     timing: Option<&Timing>,
+    strength: Option<&Strength>,
     inversions: &Inversions,
 ) -> Markup {
     let Interface { inputs, outputs } = &analysis.interface;
@@ -144,6 +145,7 @@ pub(super) fn interface_section(
                             (head("in-name", "Input", None))
                             (head("in-bits", "Bits", Some(BITS_NOTE)))
                             @if any_inverted { (head("in-inverted", "Inverted", Some(INVERTED_NOTE))) }
+                            @if strength.is_some() { (head("in-ss", "Min SS", Some(INPUT_SS_NOTE))) }
                             (head("in-power", "Power", Some(POWER_NOTE)))
                             @if timing.is_some() { (head("in-delay", "Delay", Some(DELAY_NOTE))) }
                         }
@@ -152,6 +154,13 @@ pub(super) fn interface_section(
                                 (line_cell(&entry, true))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, true))) }
+                                @if let Some(strength) = strength {
+                                    @if entry.ports[0].block.starts_with(lint::CONTROL) {
+                                        td class={ (TABLE_CELL) " text-muted" } { "—" }
+                                    } @else {
+                                        td class=(TABLE_CELL) { (strength.input) }
+                                    }
+                                }
                                 td class=(TABLE_CELL) { (power(&entry)) }
                                 @if timing.is_some() {
                                     td class=(TABLE_CELL) {
@@ -170,6 +179,7 @@ pub(super) fn interface_section(
                             (head("out-name", "Output", None))
                             (head("out-bits", "Bits", Some(BITS_NOTE)))
                             @if any_inverted { (head("out-inverted", "Inverted", Some(INVERTED_NOTE))) }
+                            @if strength.is_some() { (head("out-ss", "Min SS", Some(OUTPUT_SS_NOTE))) }
                             @if timing.is_some() {
                                 (head("out-first", "First change", Some(FIRST_CHANGE_NOTE)))
                                 (head("out-settles", "Settles", Some(SETTLES_NOTE)))
@@ -180,6 +190,9 @@ pub(super) fn interface_section(
                                 (line_cell(&entry, false))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, false))) }
+                                @if let Some(strength) = strength {
+                                    (output_strength(&entry, strength))
+                                }
                                 @if timing.is_some() {
                                     @match timed_out(&entry) {
                                         Some(output) => (output_ticks(output)),
@@ -200,6 +213,9 @@ pub(super) fn interface_section(
 
 const BITS_NOTE: &str = "Bits on the bus, or lines in a numbered row";
 const INVERTED_NOTE: &str = "Yes: powered reads as 0";
+const INPUT_SS_NOTE: &str = "Weakest signal strength the data inputs work at, all driven \
+    at it together, every case still right";
+const OUTPUT_SS_NOTE: &str = "Weakest signal strength a bit shows while on, the data inputs at their weakest";
 const POWER_NOTE: &str = "Hard: dust touches the input block, so a repeater, comparator, \
     or torch must drive it. Soft: dust may drive it.";
 const DELAY_NOTE: &str =
@@ -259,6 +275,44 @@ fn inverted_cell(inverted: Inverted) -> Markup {
             },
             Inverted::Found => td class=(TABLE_CELL) { "Yes" },
             Inverted::No => td class={ (TABLE_CELL) " text-muted" } { "No" },
+        }
+    }
+}
+
+/// The weakest strength any bit of output `entry` shows while on, as
+/// `strength` measured it, each bit's on hover when they differ; a dash
+/// for an output it didn't measure, as a status line.
+fn output_strength(entry: &PortEntry, strength: &Strength) -> Markup {
+    let port = entry.ports[0];
+    let bits = strength
+        .outputs
+        .iter()
+        .find(|(name, _)| *name == port.name)
+        .map(|(_, bits)| bits.as_slice());
+    let on: Vec<u8> = bits
+        .unwrap_or_default()
+        .iter()
+        .copied()
+        .filter(|&s| s > 0)
+        .collect();
+    html! {
+        @match on.iter().min() {
+            None => td class={ (TABLE_CELL) " text-muted" } { "—" },
+            Some(weakest) if on.iter().all(|s| s == weakest) => td class=(TABLE_CELL) { (weakest) },
+            Some(weakest) => td class=(TABLE_CELL) {
+                (hover_note(
+                    &format!("ss-{}", port.name.replace(' ', "-")),
+                    &html! {
+                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { (weakest) }
+                    },
+                    &bits.unwrap_or_default()
+                        .iter()
+                        .enumerate()
+                        .map(|(bit, s)| format!("bit {bit}: {s}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ))
+            },
         }
     }
 }

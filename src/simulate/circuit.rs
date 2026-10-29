@@ -56,9 +56,6 @@ pub struct Circuit {
     /// Each output port's blocks, least significant first, in the order of
     /// `Interface::outputs`, and whether it shows a digit per block.
     outputs: Vec<(Vec<BlockPos>, bool)>,
-    /// The comparators beside an output block. Redpiler leaves their
-    /// strength in the world as it was saved, so `settle` sets it.
-    comparators: Vec<BlockPos>,
 }
 
 /// How an input port is driven: by a lever per bit, or by a barrel and
@@ -74,6 +71,9 @@ struct Lever {
     pos: BlockPos,
     on: bool,
     button: bool,
+    /// The strength it powers its block at when on: 15, as a lever does,
+    /// unless `drive_at` sets it weaker.
+    power: u8,
 }
 
 /// A comparator pointing into a digit's dust, reading the barrel behind it,
@@ -150,12 +150,6 @@ impl Circuit {
                 Ok((blocks, digits && shows_digits(port)))
             })
             .collect::<Result<_>>()?;
-        let comparators = outputs
-            .iter()
-            .flat_map(|(blocks, _)| blocks)
-            .flat_map(|pos| BlockFace::values().map(|side| pos.offset(side)))
-            .filter(|&pos| matches!(world.get_block(pos), Block::Comparator(_)))
-            .collect();
         let compiler = if digits {
             None
         } else {
@@ -170,7 +164,11 @@ impl Circuit {
                     BlockPos::new(x - 1, y - 1, z - 1),
                 );
                 let ticks = world.to_be_ticked.clone();
-                let options = CompilerOptions::default();
+                // Its levers may be driven at any strength.
+                let options = CompilerOptions {
+                    analog_inputs: true,
+                    ..CompilerOptions::default()
+                };
                 compiler.compile(
                     &world,
                     bounds,
@@ -193,7 +191,6 @@ impl Circuit {
             compiler,
             inputs,
             outputs,
-            comparators,
         })
     }
 
@@ -206,7 +203,8 @@ impl Circuit {
                     let on = value >> i & 1 == 1;
                     if lever.on != on && !lever.button {
                         if let Some(compiler) = &mut self.compiler {
-                            compiler.on_use_block(lever.pos);
+                            let power = if on { lever.power } else { 0 };
+                            compiler.set_power(lever.pos, power);
                         } else {
                             let block = self.world.get_block(lever.pos);
                             mchprs_redstone::on_use(
@@ -237,6 +235,26 @@ impl Circuit {
                 }
             }
         }
+    }
+
+    /// Drives input `port`'s levers at `power` from now on, as a comparator
+    /// pointing into each block would, each on now set so at once. Only
+    /// Redpiler sets a strength, so a build running block by block, as one
+    /// with a signal-strength input does, can't be driven so.
+    pub fn drive_at(&mut self, port: usize, power: u8) -> Result<()> {
+        let Some(compiler) = &mut self.compiler else {
+            bail!("A build running block by block can't be driven weakly.");
+        };
+        let Drive::Levers(levers) = &mut self.inputs[port] else {
+            bail!("A signal-strength input takes its value as its strength.");
+        };
+        for lever in levers.iter_mut().filter(|lever| !lever.button) {
+            lever.power = power;
+            if lever.on {
+                compiler.set_power(lever.pos, power);
+            }
+        }
+        Ok(())
     }
 
     /// Presses the button on bit `bit` of input `port`, as a player does: it
@@ -337,15 +355,6 @@ impl Circuit {
             return;
         };
         compiler.flush(&mut self.world);
-        for &pos in &self.comparators {
-            if let Block::Comparator(comparator) = self.world.get_block(pos) {
-                let output_strength = if comparator.powered { 15 } else { 0 };
-                self.world.set_block_entity(
-                    pos,
-                    BlockEntity::Comparator { output_strength },
-                );
-            }
-        }
     }
 
     /// Whether the component at `pos`, a torch, repeater, comparator, or
@@ -395,6 +404,34 @@ impl Circuit {
                 value | u64::from(on) << i
             }
         })
+    }
+
+    /// The strength each bit of output `port` shows, as of the last
+    /// `settle`, least significant first: the power of the dust standing
+    /// on its block, 15 for a repeater on, or a comparator's strength.
+    pub fn strengths(&self, port: usize) -> Vec<u8> {
+        let (blocks, _) = &self.outputs[port];
+        blocks
+            .iter()
+            .map(|&pos| {
+                let top = pos.offset(BlockFace::Top);
+                match self.world.get_block(top) {
+                    Block::RedstoneWire(wire) => wire.power,
+                    Block::Repeater(repeater) => {
+                        15 * u8::from(repeater.powered)
+                    }
+                    Block::Comparator(_) => {
+                        match self.world.get_block_entity(top) {
+                            Some(BlockEntity::Comparator {
+                                output_strength,
+                            }) => *output_strength,
+                            _ => 0,
+                        }
+                    }
+                    _ => 0,
+                }
+            })
+            .collect()
     }
 
     /// For each output, the ticks the repeaters or comparators standing on
@@ -949,6 +986,7 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
                 pos: at(pos),
                 on: false,
                 button,
+                power: 15,
             })
         })
         .collect()

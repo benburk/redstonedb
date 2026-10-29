@@ -1530,3 +1530,23 @@ fn a_build_is_stored_with_its_inputs_at_logical_0() {
         standardize::levers_at_zero(&fixed, "adder", &inverted).unwrap();
     assert_eq!(again, fixed);
 }
+
+/// Driven weakly, as a comparator into each block would, every data input
+/// at one strength: this carry-cancel adder's operands reach its
+/// comparators through dust, so it needs 5, its outputs leaving through
+/// repeaters at 15; the ripple carry slice needs 8, its sum's dust at 14.
+#[test]
+fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
+    let strength = |name: &str| {
+        let Report::Ran(run) = Test::Adder.run(&blocks(name)) else {
+            panic!("{name} was not simulated");
+        };
+        run.strength.expect("a passing adder is measured")
+    };
+    let cca = strength("cca-8-repeated-out");
+    assert_eq!(cca.input, 5);
+    assert_eq!(cca.outputs, [("output".to_owned(), vec![15; 8])]);
+    let rca = strength("rca-slice-capped");
+    assert_eq!(rca.input, 8);
+    assert_eq!(rca.outputs, [("output".to_owned(), vec![14])]);
+}

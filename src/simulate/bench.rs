@@ -154,6 +154,19 @@ impl Spec {
         let run = best(interface, &self.bench, &self.kinds, &cases, &got)
             .context("a test has something to check")?;
         let mut run = run.covering(exhaustive, patterns);
+        // How weakly its data inputs may be driven, once it gets every case
+        // right; a build that can't be measured so says nothing of it.
+        if !quick && run.wrong == 0 {
+            run.strength = super::strength::measure(
+                blocks,
+                interface,
+                &self.bench,
+                &cases,
+                &got,
+            )
+            .ok()
+            .flatten();
+        }
         run.by_digit = self.by_digit && !run.exhaustive;
         Ok(run)
     }
@@ -717,6 +730,7 @@ pub(super) fn judge(
         examples,
         hint: None,
         inverted: Vec::new(),
+        strength: None,
         cells: Vec::new(),
         faults: Vec::new(),
         timing: None,

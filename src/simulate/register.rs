@@ -886,6 +886,7 @@ impl Tally {
                 reads.dedup();
                 reads
             },
+            strength: None,
             cells: Vec::new(),
             faults: Vec::new(),
             timing: None,

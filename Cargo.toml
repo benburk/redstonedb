@@ -26,10 +26,10 @@ flate2 = "1.1.10"
 form_urlencoded = "1.2.2"
 maud = { version = "0.27.0", features = ["axum"] }
 # MCHPRS's redstone compiler, for simulating builds; not on crates.io.
-mchprs_blocks = { git = "https://github.com/benburk/MCHPRS", rev = "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c" }
-mchprs_redpiler = { git = "https://github.com/benburk/MCHPRS", rev = "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c" }
-mchprs_redstone = { git = "https://github.com/benburk/MCHPRS", rev = "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c" }
-mchprs_world = { git = "https://github.com/benburk/MCHPRS", rev = "dfa65e3ef698d154d5efe4cf361a4950e0c3bf6c", features = ["testing"] }
+mchprs_blocks = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e" }
+mchprs_redpiler = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e" }
+mchprs_redstone = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e" }
+mchprs_world = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e", features = ["testing"] }
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.219", features = ["derive"] }

@@ -61,6 +61,7 @@ mod multiplier;
 mod register;
 mod shifter;
 mod stacking;
+mod strength;
 mod throughput;
 mod timing;
 
@@ -73,6 +74,7 @@ pub use design::{Design, adder_design, design_of};
 pub use gate::XNOR;
 pub use shifter::flags as shifter_flags;
 pub use stacking::{Stacking, Step};
+pub use strength::Strength;
 pub use throughput::throughput;
 pub use timing::{
     BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,
@@ -214,7 +216,8 @@ impl Test {
     /// runs again.
     pub fn version(self) -> i64 {
         // Every test drives its levers from off, how one was saved saying
-        // nothing, and finds which lines read inverted.
+        // nothing, and finds which lines read inverted; a stateless one
+        // measures how weakly its data inputs may be driven.
         match self {
             Test::Decoder
             | Test::NandXnor
@@ -232,15 +235,15 @@ impl Test {
             | Test::Equality
             | Test::Monostable
             | Test::DualEdgeMonostable
-            | Test::Inverter => 2,
+            | Test::Inverter => 3,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
             // own; a gate's copies are searched for how they stack.
-            Test::Register | Test::GreaterThan | Test::XorXnor => 3,
+            Test::Register | Test::GreaterThan | Test::XorXnor => 4,
             // An adder reads any of its lines inverted, a subtractor's B
             // among them, and borrows through each byte too.
-            Test::Adder => 4,
+            Test::Adder => 5,
         }
     }
 
@@ -484,6 +487,14 @@ impl Report {
         }
     }
 
+    /// How weakly its data inputs may be driven, once measured.
+    pub fn strength(&self) -> Option<&Strength> {
+        match self {
+            Report::Ran(run) => run.strength.as_ref(),
+            _ => None,
+        }
+    }
+
     /// The lines its test found read inverted, by name.
     pub fn inverted(&self) -> &[String] {
         match self {
@@ -533,6 +544,10 @@ pub struct Run {
     /// The lines found to read inverted, powered meaning 0, by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inverted: Vec<String>,
+    /// For a stateless build that gets every case right, how weakly its
+    /// data inputs may be driven, and how weak its data outputs then get.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<Strength>,
     /// For a failing register or buffer, its cells' controls, by the
     /// number its faults give each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
