@@ -1126,7 +1126,9 @@ async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
 }
 
 /// Adds each build of `args.category` from the database at `args.from`
-/// that isn't here yet, as `rebuild_one` does, and says how each went.
+/// that isn't here yet, as `rebuild_one` does, and says how each went;
+/// those filed off the list as one, such as `8-bit adder`, too, back
+/// under the category if they pass now.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     if args.category != "adder" {
         bail!("only adders are probed so far");
@@ -1135,10 +1137,13 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
             .await?;
     let (mut built, mut refused) = (0, 0);
-    for s in schematic::all(&from).await? {
-        if s.category != args.category {
+    for mut s in schematic::all(&from).await? {
+        let meant = app::models::simulation::meant_by(&s.category);
+        if s.category != args.category && meant != Some(args.category.as_str())
+        {
             continue;
         }
+        args.category.clone_into(&mut s.category);
         let name = format!("{}  {}", &s.id[..8], s.filename());
         if args.skip.iter().any(|skip| s.id.starts_with(skip.as_str())) {
             println!("{name}: left out");

@@ -11,7 +11,8 @@
 //!   errors, never swapped, as a build may rely on them. The lever touches
 //!   nothing else that carries power.
 //! - The input block drives dust, torches, and repeaters, at most one dust,
-//!   and nothing else powers or touches it. One that drives dust is hard:
+//!   and nothing else powers it or touches it but plain blocks and, on
+//!   top, a target block. One that drives dust is hard:
 //!   a bus must drive it through a repeater. Comparators reading inputs
 //!   are for signal strengths, which are not taken yet.
 //! - The lever's spot takes a repeater pointed into the input block, so a
@@ -315,6 +316,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
                 )))
             }
             "repeater" | "comparator" | "lever" | "air" => None,
+            "target" if side == Direction::Up => None,
             _ if next_name.ends_with("_button")
                 || next_name.ends_with("sign")
                 || !lint::is_component(next_name)
@@ -661,4 +663,45 @@ pub fn not_bus_drivable(data: &[u8]) -> Result<Vec<Pos>> {
         }
     }
     Ok(wrong.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// The input-block faults the check finds in an input, its lever on
+    /// the south and dust to the north, with `top` on its block.
+    fn faults_with_on_top(top: &str) -> Vec<String> {
+        let states: HashMap<Pos, String> = [
+            ([0, 1, 1], "white_concrete"),
+            ([0, 1, 2], "lever[face=wall,facing=south,powered=false]"),
+            ([0, 0, 0], "white_concrete"),
+            (
+                [0, 1, 0],
+                "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
+            ),
+            ([0, 2, 1], top),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        inspect(&Blocks::from_grid([1, 3, 3], &states))
+            .errors
+            .into_iter()
+            .filter(|problem| problem.rule == "input block wiring")
+            .map(|problem| problem.message)
+            .collect()
+    }
+
+    #[test]
+    fn a_plain_block_or_target_may_sit_on_an_input_block() {
+        assert_eq!(faults_with_on_top("stone"), Vec::<String>::new());
+        assert_eq!(faults_with_on_top("target[power=0]"), Vec::<String>::new());
+        assert_eq!(
+            faults_with_on_top("redstone_block"),
+            ["The input block at (0, 1, 1) touches a redstone block."]
+        );
+    }
 }

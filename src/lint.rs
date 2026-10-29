@@ -372,9 +372,10 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 /// it up puts one driver into one wire. Dust on top or underneath, a second
 /// dust, anything else that would power it, as a repeater or comparator
 /// pointed into it or a torch beneath it, and any other component, such as
-/// a redstone block or a target, break that. Torches hung on it or standing
-/// on it, repeaters and comparators that read it, and other inputs' levers
-/// and buttons, which power only their own blocks, are fine.
+/// a redstone block, break that. Torches hung on it or standing on it, a
+/// target on top, repeaters and comparators that read it, and other
+/// inputs' levers and buttons, which power only their own blocks, are
+/// fine.
 fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
     for switch in blocks.switches() {
         let pos = switch.block;
@@ -413,6 +414,7 @@ fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
                 | "comparator"
                 | "lever"
                 | "air" => None,
+                "target" if direction == Direction::Up => None,
                 _ if name.ends_with("sign")
                     || name.ends_with("_button")
                     || !is_component(name)
