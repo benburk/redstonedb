@@ -394,14 +394,9 @@ pub fn build_info(
     let flag_names: Vec<String> =
         s.flags.iter().map(|flag| flag.name.clone()).collect();
     // The inputs and outputs table says which lines are read inverted.
-    let in_table = |flag: &Flag| {
-        s.conventional
-            && file.is_ok()
-            && inverts(&s.category, &flag.name).is_some()
-    };
     let specs_flags: Vec<Flag> = flags
         .iter()
-        .filter(|flag| !in_table(flag))
+        .filter(|flag| inverts(&s.category, &flag.name).is_none())
         .cloned()
         .collect();
     html! {
