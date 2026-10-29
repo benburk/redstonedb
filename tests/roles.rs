@@ -56,12 +56,14 @@ fn unused(roles: &BTreeMap<Pos, Role>) -> Vec<Pos> {
         .collect()
 }
 
+/// Dust that leads nowhere still shapes the dust it joins, so neither it
+/// nor the block under it is ever taken out.
 #[test]
-fn a_block_holding_only_dust_that_leads_nowhere_is_unused() {
+fn a_block_holding_dust_that_leads_nowhere_stays() {
     let (data, stub) = with_stub(&stored("rca-slice-capped"));
     let found = unused(&roles::roles(&data, &[], stack::Buses::own()).unwrap());
-    assert!(found.contains(&stub));
-    assert!(found.contains(&schem::step(stub, schem::Direction::Up)));
+    assert!(!found.contains(&stub));
+    assert!(!found.contains(&schem::step(stub, schem::Direction::Up)));
 }
 
 #[test]
@@ -125,10 +127,10 @@ fn a_gray_block_is_never_unused() {
 }
 
 /// A register file's copies share its data bus, joined by dust up its back
-/// that a lone copy does not use; read as the site stacks it, that dust is
-/// used.
+/// that a lone copy does not use; dust is never unused, so it and its
+/// blocks stay, read alone or as the site stacks it.
 #[test]
-fn the_dust_joining_a_register_files_bus_is_used() {
+fn the_dust_joining_a_register_files_bus_stays() {
     use app::models::schematic::{Orientation, StackDirection};
     let data =
         std::fs::read("tests/fixtures/register-8-shared-bus-stack.schem")
@@ -145,10 +147,7 @@ fn the_dust_joining_a_register_files_bus_is_used() {
             .filter(|&[x, _, z]| (x, z) == (1, 8))
             .count()
     };
-    assert!(
-        unused(stack::Buses::own()) > 0,
-        "a lone copy's bus is its own"
-    );
+    assert_eq!(unused(stack::Buses::own()), 0);
     assert_eq!(
         unused(stack::Buses::of("register", Orientation::Vertical)),
         0

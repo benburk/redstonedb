@@ -13,8 +13,9 @@
 //!
 //! A block that would pass power, cut a step, or step down is needed as
 //! the kind it is. Otherwise it could be either kind if it holds something,
-//! and is unused if it holds nothing. Dust that powers nothing a component
-//! reads and joins at most one thing is unused too, from the ends inwards.
+//! and is unused if it holds nothing. Dust is never unused, even dust that
+//! powers nothing, as a branch shapes the dust it joins, so a block with
+//! dust on it always holds something.
 //! A build that stacks is read stacked as well, as a block can matter only
 //! where copies meet. [`changed`] compiles a build before and after an
 //! edit, the proof that the rules missed nothing.
@@ -114,7 +115,7 @@ pub fn prune(
 }
 
 /// What each building block of the build in `data` is for, by position,
-/// with its unused dust, read alone and stacked each of `ways`. Inputs and
+/// read alone and stacked each of `ways`. Inputs and
 /// blocks carrying a sign's text are left out, as they always stay.
 pub fn roles(
     data: &[u8],
@@ -134,11 +135,10 @@ pub fn roles(
         .flat_map(|p| p.bits.iter().map(|b| b.pos))
         .chain(file.signs.keys().copied())
         .collect();
-    let mut worlds =
-        vec![World::new(Blocks::read(data)?, vec![[0, 0, 0]], &outputs)];
+    let mut worlds = vec![World::new(Blocks::read(data)?, vec![[0, 0, 0]])];
     for &way in ways {
         let stacked = Blocks::read(&copies(data, way, buses)?)?;
-        worlds.push(World::new(stacked, shifts(way)?, &outputs));
+        worlds.push(World::new(stacked, shifts(way)?));
     }
     // Where `p` stands in each copy of a world that still holds its block,
     // as a later copy may cover or leave out an earlier one's.
@@ -150,31 +150,7 @@ pub fn roles(
             .filter(|&q| w.blocks.get(q) == state)
             .collect()
     };
-    // Dust is unused when every world finds it so in every copy.
-    let dead: Vec<HashSet<Pos>> =
-        worlds.iter_mut().map(World::dead_dust).collect();
     let mut found = BTreeMap::new();
-    for (p, state) in file.iter() {
-        let unused = schem::short(state) == "redstone_wire"
-            && !inputs.contains(&p)
-            && worlds
-                .iter()
-                .zip(&dead)
-                .all(|(w, dead)| places(w, p).iter().all(|q| dead.contains(q)));
-        if unused {
-            found.insert(
-                p,
-                Role {
-                    need: Need::Unused,
-                    uses: Vec::new(),
-                },
-            );
-            for w in &mut worlds {
-                let at = places(w, p);
-                w.gone.extend(at);
-            }
-        }
-    }
     for (p, state) in file.iter() {
         let output = outputs.contains(&p);
         let building = schem::short(state).ends_with("_concrete")
@@ -350,31 +326,15 @@ const HORIZONTAL: [Direction; 4] = [
 struct World {
     blocks: Blocks,
     copies: Vec<Pos>,
-    /// Output blocks; dust on one is how the site reads it.
-    outputs: HashSet<Pos>,
-    gone: HashSet<Pos>,
 }
 
 impl World {
-    fn new(blocks: Blocks, copies: Vec<Pos>, outputs: &[Pos]) -> Self {
-        let outputs = copies
-            .iter()
-            .flat_map(|s| outputs.iter().map(|&p| schem::add(p, *s)))
-            .collect();
-        World {
-            blocks,
-            copies,
-            outputs,
-            gone: HashSet::new(),
-        }
+    fn new(blocks: Blocks, copies: Vec<Pos>) -> Self {
+        World { blocks, copies }
     }
 
     fn get(&self, p: Pos) -> &str {
-        if self.gone.contains(&p) {
-            schem::AIR
-        } else {
-            self.blocks.get(p)
-        }
+        self.blocks.get(p)
     }
 
     fn dust(&self, p: Pos) -> bool {
@@ -556,79 +516,5 @@ impl World {
             }
         }
         found
-    }
-
-    /// Whether dust at `q` does something itself: it is on an output block,
-    /// feeds a repeater's back or a comparator, or powers a block a
-    /// component reads.
-    fn dust_used(&self, q: Pos) -> bool {
-        let under = schem::step(q, Direction::Down);
-        if self.outputs.contains(&under)
-            || (self.conductor(under) && self.read(under))
-        {
-            return true;
-        }
-        HORIZONTAL.into_iter().any(|d| {
-            let c = schem::step(q, d);
-            let state = self.get(c);
-            match schem::short(state) {
-                "repeater" => Direction::facing(state)
-                    .is_some_and(|f| schem::step(c, f) == q),
-                "comparator" => self.points(q, d),
-                _ => self.points(q, d) && self.conductor(c) && self.read(c),
-            }
-        })
-    }
-
-    /// How many things dust at `q` joins: dust beside it, a step up, or a
-    /// step down, and components or hard-powered blocks next to it.
-    fn dust_links(&self, q: Pos) -> usize {
-        let up = schem::step(q, Direction::Up);
-        let mut n = 0;
-        for d in HORIZONTAL {
-            let side = schem::step(q, d);
-            let step_up = schem::step(side, Direction::Up);
-            let step_down = schem::step(side, Direction::Down);
-            n += usize::from(self.dust(side));
-            n += usize::from(!self.conductor(up) && self.dust(step_up));
-            n += usize::from(!self.conductor(side) && self.dust(step_down));
-        }
-        for d in Direction::ALL {
-            let r = schem::step(q, d);
-            let component = matches!(
-                schem::short(self.get(r)),
-                "redstone_torch"
-                    | "redstone_wall_torch"
-                    | "repeater"
-                    | "comparator"
-                    | "lever"
-                    | "stone_button"
-                    | "redstone_block"
-            );
-            n += usize::from(component || (self.conductor(r) && self.hard(r)));
-        }
-        n
-    }
-
-    /// The dust that does nothing, from the ends inwards: dust doing
-    /// nothing itself and joining at most one thing. Read with nothing
-    /// taken out yet.
-    fn dead_dust(&mut self) -> HashSet<Pos> {
-        loop {
-            let dead: Vec<Pos> = self
-                .blocks
-                .iter()
-                .map(|(q, _)| q)
-                .filter(|&q| {
-                    self.dust(q)
-                        && !self.dust_used(q)
-                        && self.dust_links(q) <= 1
-                })
-                .collect();
-            if dead.is_empty() {
-                return std::mem::take(&mut self.gone);
-            }
-            self.gone.extend(dead);
-        }
     }
 }
