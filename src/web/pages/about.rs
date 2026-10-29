@@ -67,7 +67,7 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 (rule(
                     "Inputs",
                     "a lever on the side of a solid block, or a stone button for a pulse. \
-                     The block drives at most one dust, besides torches and repeaters, and no other redstone touches it, though a target block may sit on top. \
+                     The block drives at most one dust, besides torches and repeaters, and no other redstone touches it, though a target or redstone block may sit on top. \
                      A repeater must fit where the lever is, so a bus can drive it.",
                     &["input", "input-two-dusts", "repeater"],
                 ))
