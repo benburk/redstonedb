@@ -80,6 +80,20 @@ pub fn solid() -> Vec<(&'static str, Vec<String>)> {
             WOODS.iter().map(|w| format!("{w}_planks")).collect(),
         ),
         ("Stone", STONES.iter().map(|&s| s.to_owned()).collect()),
+        (
+            "Logs",
+            WOODS
+                .iter()
+                .filter(|&&w| w != "bamboo")
+                .map(|w| match *w {
+                    "crimson" | "warped" => {
+                        format!("stripped_{w}_stem[axis=y]")
+                    }
+                    _ => format!("stripped_{w}_log[axis=y]"),
+                })
+                .collect(),
+        ),
+        ("Ice", vec!["packed_ice".to_owned(), "blue_ice".to_owned()]),
     ]
 }
 
@@ -146,9 +160,14 @@ pub fn label(block: &str) -> String {
 pub const TEXTURES: &str = "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.4/assets/minecraft/textures/block";
 
 /// A block's top and side textures, by name, its state left out.
-pub fn textures(block: &str) -> (&str, &str) {
+pub fn textures(block: &str) -> (String, String) {
     let name = block.split('[').next().unwrap_or(block);
-    match name {
+    if name.starts_with("stripped_")
+        && (name.ends_with("_log") || name.ends_with("_stem"))
+    {
+        return (format!("{name}_top"), name.to_owned());
+    }
+    let (top, side) = match name {
         "smooth_sandstone" => ("sandstone_top", "sandstone_top"),
         "smooth_quartz" | "smooth_quartz_slab" => {
             ("quartz_block_bottom", "quartz_block_bottom")
@@ -163,7 +182,8 @@ pub fn textures(block: &str) -> (&str, &str) {
         "spruce_slab" => ("spruce_planks", "spruce_planks"),
         "bamboo_mosaic_slab" => ("bamboo_mosaic", "bamboo_mosaic"),
         _ => (name, name),
-    }
+    };
+    (top.to_owned(), side.to_owned())
 }
 
 /// A block's icon for picking it: a cube from the south-east and above in
@@ -197,9 +217,9 @@ pub fn icon(block: &str) -> String {
             r#"<polygon points="16,17 29,10 29,{left} 16,{bottom}" fill="black" fill-opacity="0.36"/>"#,
             "</svg>"
         ),
-        top = face(top, "0.8125 -0.4375 0.8125 0.4375 3 10"),
-        south = face(side, &format!("0.8125 0.4375 0 {height} 3 10")),
-        east = face(side, &format!("0.8125 -0.4375 0 {height} 16 17")),
+        top = face(&top, "0.8125 -0.4375 0.8125 0.4375 3 10"),
+        south = face(&side, &format!("0.8125 0.4375 0 {height} 3 10")),
+        east = face(&side, &format!("0.8125 -0.4375 0 {height} 16 17")),
         bottom = bottom,
         left = bottom - 7,
     )
@@ -276,6 +296,18 @@ pub fn presets() -> Vec<(&'static str, &'static str, Palette)> {
             "Teddy",
             palette("gray_terracotta", &top("bamboo_mosaic"), true),
         ),
+        (
+            "unnecessarymb",
+            "unnecessarymb",
+            Palette {
+                hard: Some("blue_ice".to_owned()),
+                ..palette(
+                    "stripped_cherry_log[axis=y]",
+                    "white_stained_glass",
+                    true,
+                )
+            },
+        ),
     ]
 }
 
@@ -298,6 +330,14 @@ pub struct Palette {
     /// The block each role is marked with, or `none`, by the role's key in
     /// `ROLES`. An older palette's plain colour stands for its concrete.
     pub colours: BTreeMap<String, String>,
+    /// The solid block for blocks that carry hard power, as from a torch
+    /// under them or a repeater into them; `None` for the solid one.
+    #[serde(default)]
+    pub hard: Option<String>,
+    /// The solid block for blocks that carry soft power, as from dust on
+    /// them; `None` for the solid one.
+    #[serde(default)]
+    pub soft: Option<String>,
 }
 
 impl Default for Palette {
@@ -313,6 +353,8 @@ impl Default for Palette {
                     (key.to_owned(), format!("{colour}_concrete"))
                 })
                 .collect(),
+            hard: None,
+            soft: None,
         }
     }
 }
@@ -327,6 +369,9 @@ impl Palette {
         };
         among(solid(), &self.solid)
             && among(transparent(), &self.transparent)
+            && [&self.hard, &self.soft]
+                .iter()
+                .all(|block| block.as_ref().is_none_or(|b| among(solid(), b)))
             && self.colours.iter().all(|(key, mark)| {
                 ROLES.iter().any(|(k, ..)| k == key)
                     && (mark == NONE || among(marks(), mark))
@@ -394,6 +439,8 @@ pub fn blocks_in(
     if palette.prefer_solid == site.prefer_solid
         && palette.solid == site.solid
         && palette.transparent == site.transparent
+        && palette.hard.is_none()
+        && palette.soft.is_none()
     {
         return Ok(data.to_vec());
     }
@@ -408,11 +455,26 @@ pub fn blocks_in(
     for (need, positions) in needs {
         let block = match need.as_str() {
             "solid" => &palette.solid,
-            "transparent" => &palette.transparent,
-            _ if palette.prefer_solid => &palette.solid,
-            _ => &palette.transparent,
+            "either" if palette.prefer_solid => &palette.solid,
+            "transparent" | "either" => &palette.transparent,
+            _ => continue,
         };
         for &pos in positions.iter().filter(|&&pos| plain(pos)) {
+            changes.insert(pos, format!("minecraft:{block}"));
+        }
+    }
+    // Blocks carrying power take their own block, when the theme gives
+    // one; they are solid already, so each takes the solid one's place.
+    for (power, block) in
+        [("soft_power", &palette.soft), ("hard_power", &palette.hard)]
+    {
+        let Some(block) = block else { continue };
+        for &pos in needs
+            .get(power)
+            .into_iter()
+            .flatten()
+            .filter(|&&pos| plain(pos))
+        {
             changes.insert(pos, format!("minecraft:{block}"));
         }
     }

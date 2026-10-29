@@ -68,6 +68,8 @@ pub struct PaletteForm {
     output: Option<String>,
     status: Option<String>,
     reset: Option<String>,
+    hard: Option<String>,
+    soft: Option<String>,
     /// A preset's key, to take its palette whole.
     preset: Option<String>,
     next: Option<String>,
@@ -95,6 +97,9 @@ pub async fn set_palette(
         .into_iter()
         .filter_map(|(key, colour)| Some((key.to_owned(), colour?)))
         .collect(),
+        // `none` keeps the solid block for blocks carrying power.
+        hard: form.hard.filter(|block| block != palette::NONE),
+        soft: form.soft.filter(|block| block != palette::NONE),
     };
     let chosen = match form.preset.as_deref() {
         Some(key) => palette::presets()

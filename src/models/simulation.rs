@@ -809,7 +809,8 @@ pub fn refresh_soon(db: &SqlitePool, id: &str) {
 /// For a recognized build whose test passes, its unused blocks taken out,
 /// as a new version once compiling it shows the circuit unchanged, and
 /// then what each of its building blocks must be, solid, transparent, or
-/// either, kept with its version, for palettes. Any other build is left as
+/// either, and which carry hard or soft power, kept with its version, for
+/// block themes. Any other build is left as
 /// it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
@@ -844,6 +845,16 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     for (pos, role) in roles::roles(&data, &s.stacking, buses(&s))? {
         if role.need != roles::Need::Unused {
             needs.entry(role.need.name()).or_default().push(pos);
+        }
+        // Which solid blocks carry power, hard or soft, so a block theme can
+        // show them apart; a block that would carry it were it solid but
+        // must not is transparent, and carries none.
+        if role.need == roles::Need::Solid {
+            if role.uses.contains(&roles::Use::HardPower) {
+                needs.entry("hard_power").or_default().push(pos);
+            } else if role.uses.contains(&roles::Use::SoftPower) {
+                needs.entry("soft_power").or_default().push(pos);
+            }
         }
     }
     let needs = serde_json::to_string(&needs)?;

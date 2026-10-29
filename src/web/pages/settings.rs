@@ -285,6 +285,10 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
             div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2" {
                 (picker("solid", "Solid", &plain(palette::solid()), &chosen.solid, &chosen.solid))
                 (picker("transparent", "Transparent", &plain(palette::transparent()), &chosen.transparent, &chosen.transparent))
+                @for (name, label, block) in [("hard", "Hard-powered", &chosen.hard), ("soft", "Soft-powered", &chosen.soft)] {
+                    @let current = block.clone().unwrap_or_else(|| palette::NONE.to_owned());
+                    (picker(name, label, &same_as_solid(palette::solid()), &current, &current))
+                }
                 @for (key, label, _) in palette::ROLES {
                     @let mark = chosen.mark(key).unwrap_or_else(|| palette::NONE.to_owned());
                     (picker(key, label, &marks, &mark, &mark))
@@ -296,6 +300,21 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
             }
         }
     }
+}
+
+/// The solid blocks under their groups, with first a choice of none, which
+/// keeps the theme's solid block, for blocks carrying power.
+fn same_as_solid(
+    groups: Vec<(&'static str, Vec<String>)>,
+) -> Vec<(&'static str, Vec<(String, String)>)> {
+    std::iter::once((
+        "Same as solid",
+        vec![(palette::NONE.to_owned(), palette::NONE.to_owned())],
+    ))
+    .chain(groups.into_iter().map(|(group, blocks)| {
+        (group, blocks.into_iter().map(|b| (b.clone(), b)).collect())
+    }))
+    .collect()
 }
 
 /// A preset in the presets menu: a button sending `name` as `value`, with
