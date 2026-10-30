@@ -364,16 +364,19 @@ fn a_slice_without_a_carry_out_adds() {
 
 /// A 1-bit ripple carry slice two blocks high whose carry out is capped by
 /// a block that the copy above replaces, as `//rstack` pastes over it; its
-/// carry in shares its bottom layer with its logic, so it sits inside the
-/// box every copy keeps, and it does not stack.
+/// carry in shares its bottom layer with its logic, so the box rule keeps
+/// it in every copy, and the box found by testing leaves that layer to the
+/// first copy.
 #[test]
 fn a_copy_may_cover_the_copy_below() {
     let data = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
-    assert!(matches!(
-        Test::Adder.stacking(&data),
-        Some(Stacking::Not { .. })
-    ));
+    let Some(Stacking::Stacks { step, .. }) = Test::Adder.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!(step.describe(), "2 up");
+    assert_eq!(step.faces.map(|faces| faces.low), Some([0, 1, 0]));
 }
 
 /// Nothing powers its yellow output blocks: the repeaters standing on
@@ -630,16 +633,21 @@ fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
 }
 
 /// A 1-bit cell whose write line's driver, a torch on a block on a torch
-/// on its input, stands on a gray block inside its box: every copy would
-/// keep it, so copies 2 west make no wider register.
+/// on its input, stands inside the box the box rule finds, so every such
+/// copy would keep it; the box found by testing leaves the driver's layer,
+/// on the face with its write lever, to the first copy, and copies 2 west
+/// make a wider register, as many as its lines reach.
 #[test]
-fn a_register_cell_with_its_driver_inside_its_box_does_not_stack() {
+fn a_register_cell_with_its_driver_inside_its_box_stacks_without_it() {
     let data =
         std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
-    assert!(matches!(
-        Test::Register.stacking(&data),
-        Some(Stacking::Not { .. })
-    ));
+    let Some(Stacking::Wider { step, most, .. }) =
+        Test::Register.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), most), ("2 west", Some(7)));
+    assert_eq!(step.faces.map(|faces| faces.high), Some([1, 0, 0]));
 }
 
 /// The same cell's timing: its bus is empty while its write lever is on,
@@ -676,16 +684,17 @@ fn a_register_cell_written_by_a_button_is_timed_from_its_release() {
     assert_eq!(timing.latency(), Some(4));
 }
 
-/// The same cell with its driver's block whitened: every copy keeps a
-/// driver, whose torch lands on the copy before's write line, so no step
-/// stacks.
+/// The same cell standardized, its driver's block whitened, stacks the
+/// same way: gray marks nothing, the box found by testing does.
 #[test]
-fn a_register_cell_whose_driver_is_white_does_not_stack() {
+fn a_register_cell_whose_driver_is_white_stacks_the_same() {
     let (data, _) = register("register-1-gray-driver");
-    assert!(matches!(
-        Test::Register.stacking(&data),
-        Some(Stacking::Not { .. })
-    ));
+    let Some(Stacking::Wider { step, .. }) = Test::Register.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!(step.describe(), "2 west");
+    assert!(step.faces.is_some());
 }
 
 /// The same register with barrels of 1 signal strength where its read

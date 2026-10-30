@@ -103,8 +103,13 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
                 .iter()
                 .copied()
                 .filter(|step| (step.west > 0) == west)
-                .flat_map(|step| step.boxes(data))
-                .find(|&step| works(step, 2).is_some())?;
+                .find_map(|step| {
+                    step.find(data, true, buses, |step| {
+                        works(step, 2).ok_or(())
+                    })?
+                    .ok()
+                    .map(|(step, _)| step)
+                })?;
             Some(match works(step, 3) {
                 Some(cases) => Apart {
                     step,

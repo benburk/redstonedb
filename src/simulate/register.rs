@@ -1758,12 +1758,22 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
     };
     let found = (1..=reach)
         .map(|west| Step::new(west, 0, 0))
-        .flat_map(|step| step.boxes(data))
         .flat_map(|step| [(step, false), (step, true)])
         .filter(|&(_, bits)| bits || kind == Kind::Register)
-        .find(|&(step, bits)| {
-            works(step, 2, bits, true).is_some()
-                && works(step, 2, bits, false).is_some()
+        .find_map(|(step, bits)| {
+            let orientation = if bits {
+                Orientation::Horizontal
+            } else {
+                Orientation::Vertical
+            };
+            let buses = stack::Buses::of(kind.name(), orientation);
+            let found = step.find(data, bits, buses, |step| {
+                (works(step, 2, bits, true).is_some()
+                    && works(step, 2, bits, false).is_some())
+                .then_some(())
+                .ok_or(())
+            })?;
+            found.ok().map(|(step, ())| (step, bits))
         });
     let Some((step, bits)) = found else {
         return Some(Stacking::Not {

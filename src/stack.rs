@@ -4,9 +4,9 @@
 //! bottom for one up, the south for one north, that only the first copy
 //! needs, each block of which is interface, an input or output and what is
 //! on it, or is what the copy before already has where it lands. See
-//! `first_copy`. Where its copies don't work, a box leaving out a few more
-//! blocks on any face may, as only testing them tells; see `boxes`. Such a
-//! box is stored with the direction, as its `faces`.
+//! `first_copy`. Where its copies don't work, a box leaving out more of
+//! the build may, as only testing them tells; see `find_box`. Such a box
+//! is stored with the direction, as its `faces`.
 //!
 //! 1. Paste the first copy whole.
 //! 2. `//rstack` the box: each later copy one step further along, pasted
@@ -46,12 +46,6 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
 const GLASS: &str = "minecraft:glass";
-
-/// The most layers a box tried after the box rule's leaves out on a face
-/// beyond it, the most blocks those layers hold, and the most boxes tried.
-const MORE_LAYERS: i32 = 2;
-const FEW: usize = 4;
-const BOXES: usize = 10;
 
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
@@ -661,58 +655,139 @@ fn inside(pos: Pos, [low, high]: [Pos; 2]) -> bool {
     (0..3).all(|axis| low[axis] <= pos[axis] && pos[axis] <= high[axis])
 }
 
-/// The boxes copies stacked `direction` may repeat, to try in turn: the
-/// one the box rule finds, as `None`, then each that leaves out up to
-/// `MORE_LAYERS` more layers on one face, holding at most `FEW` blocks,
-/// the fewest blocks left out first, `BOXES` in all. Whether a box works
-/// only its copies' test can tell.
-pub fn boxes(
+/// The box copies stacked `direction` repeat, found by testing them with
+/// `works`: the box rule's first, then, best first, boxes leaving out more
+/// of it, the fewest blocks left out first, until one works. What only the
+/// first copy keeps drives a control line, as a carry in's lever and what
+/// it powers, so a box grows only off a face whose outer layer holds a
+/// control line's lever or button, a layer at a time. A box whose two
+/// copies lack data bits or control lines the stack needs, copies
+/// `along_bits` doubling every data bus and copies across keeping it and
+/// adding control lines, can only lack more with more left out, so nothing
+/// beyond it is tried; nor is a box shorter than the step. The `Err` is
+/// why the box rule's failed.
+pub fn find_box<T, E>(
     data: &[u8],
     direction: StackDirection,
-) -> Result<Vec<Option<Faces>>> {
+    along_bits: bool,
+    buses: Buses,
+    mut works: impl FnMut(StackDirection) -> Result<T, E>,
+) -> Result<Result<(StackDirection, T), E>> {
     let blocks = Blocks::read(data)?;
     let step = step_of(direction)?;
-    let [low, high] = first_copy(&blocks, step, None).sized;
-    let mut found: Vec<(usize, i32, Faces)> = Vec::new();
-    for axis in 0..3 {
-        for far in [false, true] {
-            for more in 1..=MORE_LAYERS {
-                let mut corners = [low, high];
-                if far {
-                    corners[1][axis] -= more;
-                } else {
-                    corners[0][axis] += more;
-                }
-                // The box still reaches a step along each way it steps.
-                let short = (0..3).any(|axis| {
-                    corners[1][axis] - corners[0][axis] + 1
-                        < step[axis].abs().max(1)
-                });
-                let Some(faces) = Faces::of(corners, blocks.size) else {
-                    continue;
-                };
-                if short {
-                    continue;
-                }
-                let left = blocks
-                    .iter()
-                    .filter(|&(pos, state)| {
-                        state != AIR
-                            && inside(pos, [low, high])
-                            && !inside(pos, corners)
+    let rule = first_copy(&blocks, step, None).sized;
+    let ruled = StackDirection {
+        faces: None,
+        ..direction
+    };
+    let first = match works(ruled) {
+        Ok(found) => return Ok(Ok((ruled, found))),
+        Err(why) => why,
+    };
+    let single = data_bits(&blocks);
+    let wanted = if along_bits { 2 } else { 1 };
+    // Whether two copies repeating this box lack what the stack needs.
+    let lacking = |stacked: StackDirection| -> Result<bool> {
+        let two = Blocks::read(&along(data, stacked, 2, buses)?)?;
+        let (bits, lines) = data_bits(&two);
+        Ok(bits < wanted * single.0 || (!along_bits && lines <= single.1))
+    };
+    let left_out = |corners: [Pos; 2]| -> Vec<Pos> {
+        blocks
+            .iter()
+            .filter(|&(pos, state)| {
+                state != AIR && inside(pos, rule) && !inside(pos, corners)
+            })
+            .map(|(pos, _)| pos)
+            .collect()
+    };
+    // The faces, as an axis and its far end, holding a control line's
+    // switch in their outer layer.
+    let control = format!("{}_concrete", lint::CONTROL);
+    let faces: Vec<(usize, bool)> = (0..3)
+        .flat_map(|axis| [(axis, false), (axis, true)])
+        .filter(|&(axis, far)| {
+            let edge = if far { blocks.size[axis] - 1 } else { 0 };
+            blocks.switches().iter().any(|switch| {
+                switch.pos[axis] == edge
+                    && schem::short(blocks.get(switch.block)) == control
+            })
+        })
+        .collect();
+    let mut queue = std::collections::BinaryHeap::new();
+    let mut seen = HashSet::from([rule]);
+    let mut tried = HashSet::new();
+    let mut grow = |queue: &mut std::collections::BinaryHeap<_>,
+                    corners: [Pos; 2]| {
+        for &(axis, far) in &faces {
+            let mut next = corners;
+            if far {
+                next[1][axis] -= 1;
+            } else {
+                next[0][axis] += 1;
+            }
+            // Copies a step apart leave no gap between their boxes.
+            let short = (0..3).any(|axis| {
+                next[1][axis] - next[0][axis] + 1 < step[axis].abs().max(1)
+            });
+            if !short && seen.insert(next) {
+                let layers: i32 = (0..3)
+                    .map(|axis| {
+                        next[0][axis] - rule[0][axis] + rule[1][axis]
+                            - next[1][axis]
                     })
-                    .count();
-                if (1..=FEW).contains(&left) {
-                    found.push((left, more, faces));
-                }
+                    .sum();
+                let cost = left_out(next).len();
+                queue.push(std::cmp::Reverse((cost, layers, next)));
             }
         }
+    };
+    grow(&mut queue, rule);
+    while let Some(std::cmp::Reverse((_, _, corners))) = queue.pop() {
+        // Boxes that leave out the same blocks stack alike.
+        if !tried.insert(left_out(corners)) {
+            continue;
+        }
+        let Some(faces) = Faces::of(corners, blocks.size) else {
+            continue;
+        };
+        let stacked = StackDirection {
+            faces: Some(faces),
+            ..direction
+        };
+        if lacking(stacked)? {
+            continue;
+        }
+        if let Ok(found) = works(stacked) {
+            return Ok(Ok((stacked, found)));
+        }
+        grow(&mut queue, corners);
     }
-    found.sort_by_key(|&(left, more, _)| (left, more));
-    Ok(std::iter::once(None)
-        .chain(found.into_iter().map(|(_, _, faces)| Some(faces)))
-        .take(BOXES)
-        .collect())
+    Ok(Err(first))
+}
+
+/// How many data bits a build's inputs and outputs have, and how many
+/// control lines its inputs: every bit but those of a labelled port, a
+/// status line, or a control line, which are counted apart.
+fn data_bits(blocks: &Blocks) -> (usize, usize) {
+    let control = format!("{} concrete", lint::CONTROL);
+    let interface = interface::read(blocks);
+    let inputs = interface
+        .inputs
+        .iter()
+        .filter(|port| !port.labelled && port.block != control);
+    let outputs = interface
+        .outputs
+        .iter()
+        .filter(|port| !port.labelled && !port.block.starts_with(lint::STATUS));
+    let bits = inputs.chain(outputs).map(|port| port.bits.len()).sum();
+    let lines = interface
+        .inputs
+        .iter()
+        .filter(|port| port.block == control)
+        .map(|port| port.bits.len())
+        .sum();
+    (bits, lines)
 }
 
 /// A build's interface: its input and output blocks, the levers, buttons,

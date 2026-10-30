@@ -15,8 +15,8 @@
 //! next, and only then the stack's full test.
 //!
 //! Each step is tried with each box its copies may repeat, the box rule's
-//! first, then boxes leaving a few more blocks to the first copy; see
-//! `stack::boxes`. The first box whose copies work goes with the step.
+//! first, then boxes leaving more to the first copy; see `stack::find_box`.
+//! The first box whose copies work goes with the step.
 
 use serde::{Deserialize, Serialize};
 
@@ -136,14 +136,30 @@ impl Step {
         }
     }
 
-    /// The step with each box its copies of the build in `data` may
-    /// repeat, to try in turn; see `stack::boxes`.
-    pub fn boxes(self, data: &[u8]) -> Vec<Step> {
-        stack::boxes(data, self.direction())
-            .unwrap_or_else(|_| vec![None])
-            .into_iter()
-            .map(|faces| Step { faces, ..self })
-            .collect()
+    /// The step with the box its copies of the build in `data` repeat,
+    /// found by `works`, copies `along_bits` or across them, with their
+    /// buses as `buses` says; see `stack::find_box`. The `Err` is why the
+    /// box rule's box failed.
+    pub fn find<T, E>(
+        self,
+        data: &[u8],
+        along_bits: bool,
+        buses: stack::Buses,
+        mut works: impl FnMut(Step) -> Result<T, E>,
+    ) -> Option<Result<(Step, T), E>> {
+        let of = |direction: StackDirection| Step {
+            faces: direction.faces,
+            ..self
+        };
+        let found = stack::find_box(
+            data,
+            self.direction(),
+            along_bits,
+            buses,
+            |direction| works(of(direction)),
+        )
+        .ok()?;
+        Some(found.map(|(direction, t)| (of(direction), t)))
     }
 
     /// The layout copies stacked this way give, as the bits of an adder
@@ -208,23 +224,19 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
     };
     let copies = copies(step, width)?;
     // The box rule's reason stands when no box works.
-    let mut reason = None;
-    for step in step.boxes(data) {
-        match stacked(data, step, copies, width, variant) {
-            Ok(cases) => {
-                return Some(Stacking::Stacks {
-                    step,
-                    copies,
-                    bits: copies * width,
-                    cases,
-                });
-            }
-            Err(why) => {
-                reason.get_or_insert(why);
-            }
-        }
-    }
-    Some(not(Some(step), reason.unwrap_or_default()))
+    let found = step.find(data, true, stack::Buses::own(), |step| {
+        stacked(data, step, copies, width, variant)
+    });
+    Some(match found {
+        Some(Ok((step, cases))) => Stacking::Stacks {
+            step,
+            copies,
+            bits: copies * width,
+            cases,
+        },
+        Some(Err(reason)) => not(Some(step), reason),
+        None => not(Some(step), "Its file could not be read.".to_owned()),
+    })
 }
 
 /// The shortest step whose copies of 1-bit adder `data` add right, of
@@ -258,15 +270,16 @@ fn search(
         let Some(copies) = copies(step, 1) else {
             continue;
         };
-        for step in step.boxes(data) {
-            if let Ok(cases) = stacked(data, step, copies, 1, variant) {
-                return Stacking::Stacks {
-                    step,
-                    copies,
-                    bits: copies,
-                    cases,
-                };
-            }
+        let found = step.find(data, true, stack::Buses::own(), |step| {
+            stacked(data, step, copies, 1, variant)
+        });
+        if let Some(Ok((step, cases))) = found {
+            return Stacking::Stacks {
+                step,
+                copies,
+                bits: copies,
+                cases,
+            };
         }
     }
     Stacking::Not {
@@ -510,15 +523,16 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
         let Some(copies) = copies(step, width) else {
             continue;
         };
-        for step in step.boxes(data) {
-            if let Some(cases) = works(step, copies) {
-                return Stacking::Stacks {
-                    step,
-                    copies,
-                    bits: width * copies,
-                    cases,
-                };
-            }
+        let found = step.find(data, true, stack::Buses::own(), |step| {
+            works(step, copies).ok_or(())
+        });
+        if let Some(Ok((step, cases))) = found {
+            return Stacking::Stacks {
+                step,
+                copies,
+                bits: width * copies,
+                cases,
+            };
         }
     }
     not(
@@ -550,10 +564,14 @@ pub(super) fn west_into_bits(
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         works(&Blocks::read(&stacked).ok()?, copies)
     };
-    let found = (1..=reach)
-        .map(|west| Step::new(west, 0, 0))
-        .flat_map(|step| step.boxes(data))
-        .find(|&step| tried(step, 2).is_some());
+    let found =
+        (1..=reach)
+            .map(|west| Step::new(west, 0, 0))
+            .find_map(|step| {
+                step.find(data, true, buses, |step| tried(step, 2).ok_or(()))?
+                    .ok()
+                    .map(|(step, _)| step)
+            });
     let Some(step) = found else {
         return Stacking::Not {
             step: None,
