@@ -68,6 +68,7 @@ fn stacking_markers_sit_at_opposite_corners_of_the_box() {
         up: 0,
         north: 0,
         max_copies: None,
+        faces: None,
     };
     let marked = stack::with_markers(&data, west).unwrap().unwrap();
     let (before, after) =

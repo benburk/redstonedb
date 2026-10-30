@@ -84,16 +84,8 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let (low, high) = interface::measured(&blocks);
     let reach = |axis: usize| i64::from(high[axis] - low[axis] + 1) + 2;
     let mut steps: Vec<Step> = (1..=reach(0))
-        .map(|west| Step {
-            west,
-            up: 0,
-            north: 0,
-        })
-        .chain((1..=reach(1)).map(|up| Step {
-            west: 0,
-            up,
-            north: 0,
-        }))
+        .map(|west| Step::new(west, 0, 0))
+        .chain((1..=reach(1)).map(|up| Step::new(0, up, 0)))
         .collect();
     steps.sort_by_key(|step| step.west + step.up);
     let buses = stack::Buses::of(Test::Decoder.name(), Orientation::Horizontal);
@@ -111,6 +103,7 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
                 .iter()
                 .copied()
                 .filter(|step| (step.west > 0) == west)
+                .flat_map(|step| step.boxes(data))
                 .find(|&step| works(step, 2).is_some())?;
             Some(match works(step, 3) {
                 Some(cases) => Apart {

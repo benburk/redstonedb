@@ -25,10 +25,14 @@ pub struct Results {
     pub logic: Option<String>,
     pub pulse: Option<i64>,
     pub flags: Vec<String>,
-    /// Each direction it stacks: west, up, north, and the most copies.
-    pub stacking: Vec<(i64, i64, i64, Option<i64>)>,
+    /// Each direction it stacks.
+    pub stacking: Vec<Stacked>,
     pub simulation: Option<Simulation>,
 }
+
+/// A direction a build stacks, as stored: west, up, north, the most
+/// copies, and the box its later copies repeat.
+type Stacked = (i64, i64, i64, Option<i64>, Option<String>);
 
 /// A build's stored simulation result.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -74,7 +78,7 @@ pub async fn export(
         .fetch_all(db)
         .await?;
         let stacking = sqlx::query_as(
-            "SELECT west, up, north, max_copies FROM stack_direction
+            "SELECT west, up, north, max_copies, faces FROM stack_direction
              WHERE schematic_id = ? ORDER BY west, up, north",
         )
         .bind(id)
@@ -205,17 +209,18 @@ async fn write(
         .bind(&r.id)
         .execute(&mut *tx)
         .await?;
-    for &(west, up, north, max_copies) in &r.stacking {
+    for (west, up, north, max_copies, faces) in &r.stacking {
         sqlx::query(
             "INSERT INTO stack_direction
-                (schematic_id, west, up, north, max_copies)
-             VALUES (?, ?, ?, ?, ?)",
+                (schematic_id, west, up, north, max_copies, faces)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&r.id)
         .bind(west)
         .bind(up)
         .bind(north)
         .bind(max_copies)
+        .bind(faces)
         .execute(&mut *tx)
         .await?;
     }

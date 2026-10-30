@@ -1757,11 +1757,8 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
         (run.wrong == 0 && shape == made).then_some(run.cases)
     };
     let found = (1..=reach)
-        .map(|west| Step {
-            west,
-            up: 0,
-            north: 0,
-        })
+        .map(|west| Step::new(west, 0, 0))
+        .flat_map(|step| step.boxes(data))
         .flat_map(|step| [(step, false), (step, true)])
         .filter(|&(_, bits)| bits || kind == Kind::Register)
         .find(|&(step, bits)| {

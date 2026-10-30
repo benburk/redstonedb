@@ -102,7 +102,8 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
 }
 
 /// What only the first copy keeps, in words, such as `its east layer,
-/// with 8 levers`: the layers on the face the stack starts from.
+/// with 8 levers`: the layers on the face the stack starts from, or on
+/// each face its box, found by testing copies, leaves out.
 fn parts(first_copy: &FirstCopy, direction: StackDirection) -> String {
     let face = match direction.name().as_str() {
         "west" => "east",
@@ -110,9 +111,10 @@ fn parts(first_copy: &FirstCopy, direction: StackDirection) -> String {
         "north" => "south",
         _ => "start",
     };
-    let layers = match first_copy.layers {
-        1 => format!("its {face} layer"),
-        n => format!("its {n} {face} layers"),
+    let layers = match (direction.faces, first_copy.layers) {
+        (Some(faces), _) => faces.describe(),
+        (None, 1) => format!("its {face} layer"),
+        (None, n) => format!("its {n} {face} layers"),
     };
     match first_copy.switches {
         0 => layers,
@@ -134,7 +136,7 @@ fn warnings(review: &Review) -> Markup {
                         n => { "at " (n) " spots" }
                     }
                     ", where the next copy, " (way(review.direction)) ", covers a different block. "
-                    "Logic only the first copy needs goes on gray blocks."
+                    "Logic only the first copy needs goes outside the box later copies repeat."
                 }
                 ul class="mt-2 flex list-disc flex-col gap-0.5 pl-5 text-meta" {
                     @for spot in spots.iter().take(LISTED) {

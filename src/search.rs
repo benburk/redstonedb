@@ -559,6 +559,7 @@ mod tests {
                 up: 0,
                 north,
                 max_copies,
+                faces: None,
             }];
             s
         };

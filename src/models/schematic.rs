@@ -59,6 +59,75 @@ pub struct StackDirection {
     pub north: i64,
     /// The most copies that work; `None` for no limit.
     pub max_copies: Option<i64>,
+    /// The box later copies repeat, when testing copies chose it; `None`
+    /// for the one the box rule finds. See `stack`.
+    pub faces: Option<Faces>,
+}
+
+/// A box within a build: how many of its layers it leaves out on each
+/// face, `low` on the west, bottom, and north, `high` on the east, top,
+/// and south, as in the file, whose x counts east, y up, and z south.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct Faces {
+    pub low: [u8; 3],
+    pub high: [u8; 3],
+}
+
+impl Faces {
+    /// The box's least and greatest corner within a build of `size`.
+    pub fn corners(self, size: [i32; 3]) -> [[i32; 3]; 2] {
+        [
+            self.low.map(i32::from),
+            [0, 1, 2].map(|axis| size[axis] - 1 - i32::from(self.high[axis])),
+        ]
+    }
+
+    /// The box with corners `corners` within a build of `size`.
+    pub fn of(corners: [[i32; 3]; 2], size: [i32; 3]) -> Option<Self> {
+        let layers = |n: i32| u8::try_from(n).ok();
+        let low = corners[0].map(layers);
+        let high =
+            [0, 1, 2].map(|axis| layers(size[axis] - 1 - corners[1][axis]));
+        Some(Faces {
+            low: [low[0]?, low[1]?, low[2]?],
+            high: [high[0]?, high[1]?, high[2]?],
+        })
+    }
+
+    /// Such as `the bottom 2 layers and the north 2`, naming each face it
+    /// leaves layers out on.
+    pub fn describe(self) -> String {
+        let named = [
+            (self.low[0], "west"),
+            (self.high[0], "east"),
+            (self.low[1], "bottom"),
+            (self.high[1], "top"),
+            (self.low[2], "north"),
+            (self.high[2], "south"),
+        ];
+        let parts: Vec<String> = named
+            .into_iter()
+            .filter(|&(n, _)| n > 0)
+            .map(|(n, face)| match n {
+                1 => format!("its {face} layer"),
+                n => format!("its {n} {face} layers"),
+            })
+            .collect();
+        match parts.as_slice() {
+            [] => "nothing".to_owned(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
 }
 
 impl StackDirection {
@@ -117,6 +186,7 @@ impl std::str::FromStr for StackDirection {
             up: 0,
             north: 0,
             max_copies: None,
+            faces: None,
         };
         for pair in text.split(',') {
             let (key, value) = pair
@@ -654,7 +724,7 @@ async fn stacking_by_schematic(
 ) -> Result<HashMap<String, Vec<StackDirection>>, sqlx::Error> {
     let mut stacking: HashMap<String, Vec<StackDirection>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_id, west, up, north, max_copies
+        "SELECT schematic_id, west, up, north, max_copies, faces
          FROM stack_direction
          WHERE ?1 IS NULL
             OR schematic_id IN (SELECT value FROM json_each(?1))
@@ -672,6 +742,9 @@ async fn stacking_by_schematic(
                 up: row.up,
                 north: row.north,
                 max_copies: row.max_copies,
+                faces: row
+                    .faces
+                    .and_then(|faces| serde_json::from_str(&faces).ok()),
             });
     }
     Ok(stacking)
@@ -963,14 +1036,19 @@ pub async fn set_stacking(
         .execute(&mut *tx)
         .await?;
     for d in directions {
+        let faces = d
+            .faces
+            .map(|faces| serde_json::to_string(&faces).unwrap_or_default());
         sqlx::query!(
-            "INSERT INTO stack_direction (schematic_id, west, up, north, max_copies)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO stack_direction
+                (schematic_id, west, up, north, max_copies, faces)
+             VALUES (?, ?, ?, ?, ?, ?)",
             id,
             d.west,
             d.up,
             d.north,
             d.max_copies,
+            faces,
         )
         .execute(&mut *tx)
         .await?;
@@ -1277,6 +1355,7 @@ mod tests {
             up: 0,
             north: 3,
             max_copies: None,
+            faces: None,
         };
         let stacked = ram.stacked(&[(north, 4)], [19, 11, 72]);
         assert_eq!(stacked.bytes, Some(128));
@@ -1376,6 +1455,7 @@ mod tests {
             up,
             north,
             max_copies: None,
+            faces: None,
         };
         // Copies 2 up a box 6 high overlap by 4, so each adds 2 high.
         let vertical = Schematic {
@@ -1408,6 +1488,7 @@ mod tests {
             up,
             north,
             max_copies: None,
+            faces: None,
         };
         assert!(way(2, 0, 0).adds_bits(Orientation::Horizontal));
         assert!(way(0, 2, 0).adds_bits(Orientation::Vertical));

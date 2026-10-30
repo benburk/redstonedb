@@ -280,15 +280,26 @@ fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
     }
 }
 
-/// An inverter is read whole from its file: its control line sits inside
-/// the box its copies would stack, so it stacks no way; and its throughput
-/// is measured.
+/// An inverter is read whole from its file: its control line sits on its
+/// east face beside logic the box rule keeps in every copy, so its copies
+/// stack 2 west by a box found by testing, which leaves the east layer to
+/// the first copy, as many as the line reaches; and its throughput is
+/// measured.
 #[test]
 fn an_inverter_is_read_whole_from_its_file() {
     let e = evaluate(&uploaded("inverter-1")).unwrap();
     assert_eq!(e.category, Some("inverter"));
     assert!(e.passes(), "{:?}", e.report);
-    assert!(e.stacking.is_empty(), "{:?}", e.stacking);
+    let [direction] = e.stacking.as_slice() else {
+        panic!("{:?}", e.stacking);
+    };
+    assert_eq!(
+        (
+            direction.describe().as_str(),
+            direction.faces.map(|f| f.high)
+        ),
+        ("2 west per copy, up to 8 copies", Some([1, 0, 0]))
+    );
     assert!(e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
 }

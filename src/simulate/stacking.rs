@@ -13,6 +13,10 @@
 //! read as one adder, then whether the
 //! stack settles, then a few sums whose carry crosses from one copy to the
 //! next, and only then the stack's full test.
+//!
+//! Each step is tried with each box its copies may repeat, the box rule's
+//! first, then boxes leaving a few more blocks to the first copy; see
+//! `stack::boxes`. The first box whose copies work goes with the step.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +29,7 @@ use super::{
 use crate::{
     interface::{self, Interface},
     lint,
-    models::schematic::{Orientation, StackDirection},
+    models::schematic::{Faces, Orientation, StackDirection},
     schem::{Blocks, Pos},
     stack,
 };
@@ -99,12 +103,16 @@ impl Apart {
     }
 }
 
-/// How far each copy sits from the one before.
+/// How far each copy sits from the one before, and the box later copies
+/// repeat.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Step {
     pub west: i64,
     pub up: i64,
     pub north: i64,
+    /// `None` for the box the box rule finds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faces: Option<Faces>,
 }
 
 impl Step {
@@ -114,7 +122,28 @@ impl Step {
             up: self.up,
             north: self.north,
             max_copies: None,
+            faces: self.faces,
         }
+    }
+
+    /// A step `west`, `up`, and `north` with the box rule's box.
+    pub fn new(west: i64, up: i64, north: i64) -> Self {
+        Step {
+            west,
+            up,
+            north,
+            faces: None,
+        }
+    }
+
+    /// The step with each box its copies of the build in `data` may
+    /// repeat, to try in turn; see `stack::boxes`.
+    pub fn boxes(self, data: &[u8]) -> Vec<Step> {
+        stack::boxes(data, self.direction())
+            .unwrap_or_else(|_| vec![None])
+            .into_iter()
+            .map(|faces| Step { faces, ..self })
+            .collect()
     }
 
     /// The layout copies stacked this way give, as the bits of an adder
@@ -178,15 +207,24 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
         Err(reason) => return Some(not(None, reason)),
     };
     let copies = copies(step, width)?;
-    Some(match stacked(data, step, copies, width, variant) {
-        Ok(cases) => Stacking::Stacks {
-            step,
-            copies,
-            bits: copies * width,
-            cases,
-        },
-        Err(reason) => not(Some(step), reason),
-    })
+    // The box rule's reason stands when no box works.
+    let mut reason = None;
+    for step in step.boxes(data) {
+        match stacked(data, step, copies, width, variant) {
+            Ok(cases) => {
+                return Some(Stacking::Stacks {
+                    step,
+                    copies,
+                    bits: copies * width,
+                    cases,
+                });
+            }
+            Err(why) => {
+                reason.get_or_insert(why);
+            }
+        }
+    }
+    Some(not(Some(step), reason.unwrap_or_default()))
 }
 
 /// The shortest step whose copies of 1-bit adder `data` add right, of
@@ -205,30 +243,9 @@ fn search(
     let longest = (0..3).map(reach).max().unwrap_or(1);
     let short = (1..=i64::from(longest)).flat_map(|n| {
         [
-            (
-                1,
-                Step {
-                    west: 0,
-                    up: n,
-                    north: 0,
-                },
-            ),
-            (
-                0,
-                Step {
-                    west: n,
-                    up: 0,
-                    north: 0,
-                },
-            ),
-            (
-                2,
-                Step {
-                    west: 0,
-                    up: 0,
-                    north: n,
-                },
-            ),
+            (1, Step::new(0, n, 0)),
+            (0, Step::new(n, 0, 0)),
+            (2, Step::new(0, 0, n)),
         ]
         .into_iter()
         .filter(move |&(axis, _)| n <= i64::from(reach(axis)))
@@ -241,13 +258,15 @@ fn search(
         let Some(copies) = copies(step, 1) else {
             continue;
         };
-        if let Ok(cases) = stacked(data, step, copies, 1, variant) {
-            return Stacking::Stacks {
-                step,
-                copies,
-                bits: copies,
-                cases,
-            };
+        for step in step.boxes(data) {
+            if let Ok(cases) = stacked(data, step, copies, 1, variant) {
+                return Stacking::Stacks {
+                    step,
+                    copies,
+                    bits: copies,
+                    cases,
+                };
+            }
         }
     }
     Stacking::Not {
@@ -308,11 +327,8 @@ fn step(interface: &Interface, ports: &AdderPorts) -> Result<Step, String> {
         };
         [0, 1, 2].map(|axis| carry_out[axis] - carry_in[axis])
     };
-    let step = Step {
-        west: (-offset[0]).into(),
-        up: offset[1].into(),
-        north: (-offset[2]).into(),
-    };
+    let step =
+        Step::new((-offset[0]).into(), offset[1].into(), (-offset[2]).into());
     if step.west < 0 || step.up < 0 || step.north < 0 {
         return Err(
             "Its bits count east, down, or south, but copies go west, up, \
@@ -320,13 +336,7 @@ fn step(interface: &Interface, ports: &AdderPorts) -> Result<Step, String> {
                 .to_owned(),
         );
     }
-    if step
-        == (Step {
-            west: 0,
-            up: 0,
-            north: 0,
-        })
-    {
+    if step == (Step::new(0, 0, 0)) {
         return Err("Its copies would sit on each other.".to_owned());
     }
     Ok(step)
@@ -467,21 +477,9 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
     let (low, high) = interface::core(&blocks);
     let reach = |axis: usize| i64::from(high[axis] - low[axis] + 1) + 2;
     let mut steps: Vec<Step> = (1..=reach(1))
-        .map(|up| Step {
-            west: 0,
-            up,
-            north: 0,
-        })
-        .chain((1..=reach(0)).map(|west| Step {
-            west,
-            up: 0,
-            north: 0,
-        }))
-        .chain((1..=reach(2)).map(|north| Step {
-            west: 0,
-            up: 0,
-            north,
-        }))
+        .map(|up| Step::new(0, up, 0))
+        .chain((1..=reach(0)).map(|west| Step::new(west, 0, 0)))
+        .chain((1..=reach(2)).map(|north| Step::new(0, 0, north)))
         .collect();
     steps.sort_by_key(|step| step.west + step.up + step.north);
     let works = |step: Step, copies: usize| {
@@ -512,13 +510,15 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
         let Some(copies) = copies(step, width) else {
             continue;
         };
-        if let Some(cases) = works(step, copies) {
-            return Stacking::Stacks {
-                step,
-                copies,
-                bits: width * copies,
-                cases,
-            };
+        for step in step.boxes(data) {
+            if let Some(cases) = works(step, copies) {
+                return Stacking::Stacks {
+                    step,
+                    copies,
+                    bits: width * copies,
+                    cases,
+                };
+            }
         }
     }
     not(
@@ -551,11 +551,8 @@ pub(super) fn west_into_bits(
         works(&Blocks::read(&stacked).ok()?, copies)
     };
     let found = (1..=reach)
-        .map(|west| Step {
-            west,
-            up: 0,
-            north: 0,
-        })
+        .map(|west| Step::new(west, 0, 0))
+        .flat_map(|step| step.boxes(data))
         .find(|&step| tried(step, 2).is_some());
     let Some(step) = found else {
         return Stacking::Not {
@@ -589,7 +586,7 @@ mod tests {
 
     #[test]
     fn a_stack_lies_the_way_it_steps() {
-        let step = |west, up, north| Step { west, up, north };
+        let step = Step::new;
         assert_eq!(step(0, 2, 0).orientation(), Some(Orientation::Vertical));
         assert_eq!(step(5, 0, 0).orientation(), Some(Orientation::Horizontal));
         assert_eq!(step(1, 1, 0).orientation(), Some(Orientation::Diagonal));
@@ -598,7 +595,7 @@ mod tests {
 
     #[test]
     fn enough_copies_reach_past_what_dust_carries() {
-        let step = |west, up| Step { west, up, north: 0 };
+        let step = |west, up| Step::new(west, up, 0);
         // A 1-bit slice 2 wide: 9 copies, 18 blocks.
         assert_eq!(copies(step(2, 0), 1), Some(9));
         // An 8-bit adder 16 high: three, one in the middle.

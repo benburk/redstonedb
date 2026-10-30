@@ -104,6 +104,7 @@ impl StackRow {
             up,
             north,
             max_copies,
+            faces: None,
         }))
     }
 }

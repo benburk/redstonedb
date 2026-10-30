@@ -4,7 +4,9 @@
 //! bottom for one up, the south for one north, that only the first copy
 //! needs, each block of which is interface, an input or output and what is
 //! on it, or is what the copy before already has where it lands. See
-//! `first_copy`.
+//! `first_copy`. Where its copies don't work, a box leaving out a few more
+//! blocks on any face may, as only testing them tells; see `boxes`. Such a
+//! box is stored with the direction, as its `faces`.
 //!
 //! 1. Paste the first copy whole.
 //! 2. `//rstack` the box: each later copy one step further along, pasted
@@ -33,7 +35,7 @@ use anyhow::{Result, ensure};
 
 use crate::{
     category, interface, lint,
-    models::schematic::{Orientation, StackDirection},
+    models::schematic::{Faces, Orientation, StackDirection},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -44,6 +46,12 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
 const GLASS: &str = "minecraft:glass";
+
+/// The most layers a box tried after the box rule's leaves out on a face
+/// beyond it, the most blocks those layers hold, and the most boxes tried.
+const MORE_LAYERS: i32 = 2;
+const FEW: usize = 4;
+const BOXES: usize = 10;
 
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
@@ -181,7 +189,7 @@ fn along(
     // Where copy `i`'s blocks move to in the stacked box.
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
-    let left_out = first_copy(&blocks, step).all;
+    let left_out = first_copy(&blocks, step, direction.faces).all;
     // A later copy's input whose switch stays with the first copy is a
     // plain block.
     let switched: HashSet<Pos> = blocks
@@ -300,7 +308,7 @@ pub fn review(
 ) -> Result<Review> {
     let blocks = Blocks::read(data)?;
     let step = step_of(direction)?;
-    let first_copy = first_copy(&blocks, step);
+    let first_copy = first_copy(&blocks, step, direction.faces);
     let disagreements = disagreements(&blocks, step, &first_copy);
     let along = buses.along_bits(direction);
     let shape = shape(data, &blocks, direction, along, buses)?;
@@ -342,11 +350,12 @@ fn agreeing(blocks: &Blocks, direction: StackDirection) -> Option<i64> {
             up: at(direction.up),
             north: at(direction.north),
             max_copies: None,
+            faces: None,
         };
         let Ok(step) = step_of(candidate) else {
             return false;
         };
-        disagreements(blocks, step, &first_copy(blocks, step)).is_empty()
+        disagreements(blocks, step, &first_copy(blocks, step, None)).is_empty()
     })
 }
 
@@ -498,7 +507,7 @@ pub fn part(
     parts: bool,
 ) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
-    let first_copy = first_copy(&blocks, step_of(direction)?);
+    let first_copy = first_copy(&blocks, step_of(direction)?, direction.faces);
     let kept = |pos: &Pos| first_copy.all.contains(pos) == parts;
     let grid: HashMap<Pos, String> = blocks
         .iter()
@@ -526,7 +535,8 @@ pub fn with_markers(
     direction: StackDirection,
 ) -> Result<Option<Vec<u8>>> {
     let blocks = Blocks::read(data)?;
-    let [low, high] = first_copy(&blocks, step_of(direction)?).sized;
+    let [low, high] =
+        first_copy(&blocks, step_of(direction)?, direction.faces).sized;
     let corner = |far: [bool; 3]| -> Pos {
         [0, 1, 2].map(|axis| if far[axis] { high[axis] } else { low[axis] })
     };
@@ -581,7 +591,27 @@ impl FirstCopy {
     }
 }
 
-fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
+fn first_copy(blocks: &Blocks, step: Pos, faces: Option<Faces>) -> FirstCopy {
+    if let Some(faces) = faces {
+        let sized = faces.corners(blocks.size);
+        let all: HashSet<Pos> = blocks
+            .iter()
+            .filter(|&(pos, state)| state != AIR && !inside(pos, sized))
+            .map(|(pos, _)| pos)
+            .collect();
+        let layers = faces
+            .low
+            .iter()
+            .chain(&faces.high)
+            .map(|&n| usize::from(n))
+            .sum();
+        return FirstCopy {
+            layers,
+            sized,
+            switches: switches_in(blocks, &all),
+            all,
+        };
+    }
     let interface = interface_blocks(blocks);
     let mut all = HashSet::new();
     let mut layers = 0;
@@ -620,17 +650,80 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
             sized[0][axis] += n;
         }
     }
-    let switches = blocks
-        .switches()
-        .iter()
-        .filter(|switch| all.contains(&switch.pos))
-        .count();
     FirstCopy {
         layers,
         sized,
-        switches,
+        switches: switches_in(blocks, &all),
         all,
     }
+}
+
+/// How many of `blocks`' levers and buttons are among `all`.
+fn switches_in(blocks: &Blocks, all: &HashSet<Pos>) -> usize {
+    blocks
+        .switches()
+        .iter()
+        .filter(|switch| all.contains(&switch.pos))
+        .count()
+}
+
+/// Whether `pos` is within the box with corners `corners`.
+fn inside(pos: Pos, [low, high]: [Pos; 2]) -> bool {
+    (0..3).all(|axis| low[axis] <= pos[axis] && pos[axis] <= high[axis])
+}
+
+/// The boxes copies stacked `direction` may repeat, to try in turn: the
+/// one the box rule finds, as `None`, then each that leaves out up to
+/// `MORE_LAYERS` more layers on one face, holding at most `FEW` blocks,
+/// the fewest blocks left out first, `BOXES` in all. Whether a box works
+/// only its copies' test can tell.
+pub fn boxes(
+    data: &[u8],
+    direction: StackDirection,
+) -> Result<Vec<Option<Faces>>> {
+    let blocks = Blocks::read(data)?;
+    let step = step_of(direction)?;
+    let [low, high] = first_copy(&blocks, step, None).sized;
+    let mut found: Vec<(usize, i32, Faces)> = Vec::new();
+    for axis in 0..3 {
+        for far in [false, true] {
+            for more in 1..=MORE_LAYERS {
+                let mut corners = [low, high];
+                if far {
+                    corners[1][axis] -= more;
+                } else {
+                    corners[0][axis] += more;
+                }
+                // The box still reaches a step along each way it steps.
+                let short = (0..3).any(|axis| {
+                    corners[1][axis] - corners[0][axis] + 1
+                        < step[axis].abs().max(1)
+                });
+                let Some(faces) = Faces::of(corners, blocks.size) else {
+                    continue;
+                };
+                if short {
+                    continue;
+                }
+                let left = blocks
+                    .iter()
+                    .filter(|&(pos, state)| {
+                        state != AIR
+                            && inside(pos, [low, high])
+                            && !inside(pos, corners)
+                    })
+                    .count();
+                if (1..=FEW).contains(&left) {
+                    found.push((left, more, faces));
+                }
+            }
+        }
+    }
+    found.sort_by_key(|&(left, more, _)| (left, more));
+    Ok(std::iter::once(None)
+        .chain(found.into_iter().map(|(_, _, faces)| Some(faces)))
+        .take(BOXES)
+        .collect())
 }
 
 /// A build's interface: its input and output blocks, the levers, buttons,

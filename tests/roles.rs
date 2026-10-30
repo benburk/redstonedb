@@ -140,6 +140,7 @@ fn the_dust_joining_a_register_files_bus_stays() {
         up: 0,
         north: 0,
         max_copies: Some(3),
+        faces: None,
     };
     let unused = |buses| {
         unused(&roles::roles(&data, &[way], buses).unwrap())

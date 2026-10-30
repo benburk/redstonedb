@@ -222,6 +222,32 @@ fn an_adder_stacks_by_its_box() {
     assert_eq!((step.describe().as_str(), copies, bits), ("2 west", 9, 9));
 }
 
+/// An 8-bit adder stacking 16 up whose carry in and a barrel only the
+/// first copy needs sit on its north face: the box rule's box keeps the
+/// barrel in every copy, which then all add one, so the box leaving out
+/// the two north layers too is the one whose copies add right.
+#[test]
+fn an_adder_stacks_by_a_box_found_by_testing() {
+    let raw = std::fs::read("tests/fixtures/vert-adder-8-barrel-north.schem")
+        .unwrap();
+    let data = app::probe::simulatable(&raw).unwrap();
+    let blocks = Blocks::read(&data).unwrap();
+    let report = app::inspect::inspect(&blocks);
+    let probed = app::probe::adder(&blocks, &report).unwrap();
+    let coloured = app::probe::colour(&data, &probed.layout).unwrap();
+    let standard =
+        import::prepare(&coloured, Some(Gray::Keep), true, false, true)
+            .unwrap();
+    let Some(Stacking::Stacks { step, bits, .. }) =
+        Test::Adder.stacking(&standard.data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!((step.describe().as_str(), bits), ("16 up", 24));
+    let faces = step.faces.expect("a box found by testing");
+    assert_eq!((faces.low, faces.high), ([0, 2, 2], [0, 0, 0]));
+}
+
 /// Its outputs are read through the repeaters standing on them, which lead
 /// the product out of the build, since nothing powers the yellow blocks.
 #[test]
@@ -1226,8 +1252,9 @@ fn a_falling_edge_monostable_pulses_as_a_turns_off() {
 
 /// A 1-bit inverter: two torches give A and not the line, and not A and
 /// the line, onto one yellow output, so its unsigned magenta line inverts
-/// A. Its line sits inside the box every copy keeps, so copies 2 west
-/// would each have their own and make no wider inverter.
+/// A. Its line sits inside the box the box rule finds, so those copies 2
+/// west would each have their own; a box leaving the east layer, with the
+/// line, to the first copy makes a wider inverter.
 #[test]
 fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     let (data, blocks) = register("inverter-1");
@@ -1238,10 +1265,12 @@ fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     assert_eq!(run.pattern, "A xor invert");
     assert_eq!((run.cases, run.wrong), (4, 0));
     assert_eq!(simulate::guess(&blocks).unwrap().category, "inverter");
-    assert!(matches!(
-        Test::Inverter.stacking(&data),
-        Some(Stacking::Not { .. })
-    ));
+    let Some(Stacking::Wider { step, .. }) = Test::Inverter.stacking(&data)
+    else {
+        panic!("it does not stack");
+    };
+    assert_eq!(step.describe(), "2 west");
+    assert_eq!(step.faces.map(|faces| faces.high), Some([1, 0, 0]));
 }
 
 /// Two staggered cells of an 8-bit register, packed so close that the west
