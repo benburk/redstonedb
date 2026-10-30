@@ -531,15 +531,16 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 /// The file in `data` inspected and, if nothing is wrong with its levers
-/// and outputs, probed as an adder, then as a register.
+/// and outputs, probed as an adder, then as a register, then as an ALU.
 pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     recognize_as(data, None)
 }
 
-/// As `recognize`, probing only as `meant`, `adder` or `register`, when
-/// given. Probed as both and recognized as neither, its faults are the
-/// register's when it has a button, which only a register's writes are,
-/// else the adder's.
+/// As `recognize`, probing only as `meant`, `adder`, `register`, or `alu`,
+/// when given. Probed as each and recognized as none, its faults are the
+/// register's when it has a button, which only a register's writes are;
+/// the ALU's when it has more than one lone lever, its control lines; else
+/// the adder's.
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
@@ -566,7 +567,7 @@ pub fn recognize_as(
         return Ok(unrecognized(problems));
     }
     let mut adder_fault = None;
-    if meant != Some("register") {
+    if meant.is_none() || meant == Some("adder") {
         match adder(&blocks, &report) {
             Ok(probed) => {
                 return Ok(Recognition {
@@ -584,7 +585,7 @@ pub fn recognize_as(
         }
     }
     let mut register_fault = None;
-    if meant != Some("adder") {
+    if meant.is_none() || meant == Some("register") {
         match register(data, &report) {
             Ok(probed) => {
                 return Ok(Recognition {
@@ -599,18 +600,36 @@ pub fn recognize_as(
             Err(why) => register_fault = Some(why),
         }
     }
-    let buttons = blocks.switches().iter().any(|switch| switch.button);
-    let fault = match (adder_fault, register_fault) {
-        (Some(adder), Some(register)) => {
-            if buttons {
-                register
-            } else {
-                adder
+    let mut alu_fault = None;
+    if meant.is_none() || meant == Some("alu") {
+        match alu(data, &report) {
+            Ok(probed) => {
+                return Ok(Recognition {
+                    found: Some(format!(
+                        "an ALU: all {} cases right, {}",
+                        probed.run.cases, probed.run.pattern
+                    )),
+                    file: probed.file,
+                    problems,
+                });
             }
+            Err(why) => alu_fault = Some(why),
         }
-        (Some(only), None) | (None, Some(only)) => only,
-        (None, None) => String::new(),
-    };
+    }
+    let buttons = blocks.switches().iter().any(|switch| switch.button);
+    let lone = report
+        .inputs
+        .iter()
+        .filter(|run| run.bits.len() == 1)
+        .count();
+    let fault = if buttons {
+        register_fault.or(adder_fault).or(alu_fault)
+    } else if lone > 1 {
+        alu_fault.or(adder_fault).or(register_fault)
+    } else {
+        adder_fault.or(register_fault).or(alu_fault)
+    }
+    .unwrap_or_default();
     problems.push(fault);
     Ok(unrecognized(problems))
 }
@@ -722,6 +741,114 @@ pub fn register(
     Err(why)
 }
 
+/// An ALU as probing found it: its operands A and B, its control lines,
+/// its output and status lines, the file with them coloured as the ALU
+/// test reads them, and that test's run.
+pub struct AluProbed {
+    pub a: Vec<Pos>,
+    pub b: Vec<Pos>,
+    pub controls: Vec<Pos>,
+    pub output: Vec<Pos>,
+    pub status: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The ALU the file in `data` is, from `report`'s levers and outputs: its
+/// widest output line its output and each lone output a status line, named
+/// by its sign; two input lines as wide its operands, A first either way
+/// round; and every other lever a control line, each coloured and run
+/// through the ALU test, quick cases first. Or why none holds.
+pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
+    let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
+    else {
+        return Err("Outputs: none".to_owned());
+    };
+    let width = out.bits.len();
+    let status: Vec<Pos> = report
+        .outputs
+        .iter()
+        .filter(|run| run.bits.len() == 1 && run.bits != out.bits)
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    if report
+        .outputs
+        .iter()
+        .any(|run| run.bits != out.bits && run.bits.len() > 1)
+    {
+        return Err(format!(
+            "Outputs: line lengths {}, need one bus and lone status lines",
+            lengths(&report.outputs)
+        ));
+    }
+    let operands: Vec<&Run> = report
+        .inputs
+        .iter()
+        .filter(|run| run.bits.len() == width)
+        .collect();
+    let [first, second] = operands.as_slice() else {
+        return Err(format!(
+            "Operands: {} lines of {width} levers, need A and B",
+            operands.len()
+        ));
+    };
+    let controls: Vec<Pos> = report
+        .inputs
+        .iter()
+        .filter(|run| run.bits.len() != width)
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    let mut why = String::new();
+    for (a, b) in [(first, second), (second, first)] {
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(a.bits.iter().map(|&p| (p, "lime")));
+        roles.extend(b.bits.iter().map(|&p| (p, "light_blue")));
+        roles.extend(controls.iter().map(|&p| (p, "magenta")));
+        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        roles.extend(status.iter().map(|&p| (p, "pink")));
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match Test::Alu.quick(&coloured) {
+            Ok(run) if run.wrong == 0 => {}
+            Ok(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+                continue;
+            }
+            Err(err) => {
+                why = format!("Test couldn't run: {err}");
+                continue;
+            }
+        }
+        match Test::Alu.run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(AluProbed {
+                    a: a.bits.clone(),
+                    b: b.bits.clone(),
+                    controls,
+                    output: out.bits.clone(),
+                    status,
+                    file,
+                    run: *run,
+                });
+            }
+            simulate::Report::Ran(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -744,6 +871,21 @@ mod tests {
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();
         crate::standardize::edit(&data, &changes).unwrap()
+    }
+
+    #[test]
+    fn an_alu_is_found_from_its_levers_and_control_lines() {
+        let data = uncoloured("alu-8-and-xor");
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("an ALU")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     #[test]

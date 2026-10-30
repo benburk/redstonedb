@@ -223,8 +223,8 @@ enum Command {
 struct Rebuild {
     /// The copy of the database to take the builds from
     from: PathBuf,
-    /// The category to rebuild, probed as it; only adders and registers
-    /// are, so far
+    /// The category to rebuild, probed as it: one of the blessed ones,
+    /// adder, register, or alu
     #[arg(long, default_value = "adder")]
     category: String,
     /// A folder of fixed files, each named for the start of its build's
@@ -236,7 +236,7 @@ struct Rebuild {
     skip: Vec<String>,
     /// Put each build that can't be rebuilt, or is left out, in as built,
     /// off the list, with the details it was given; with them any build
-    /// already off the list under a name holding the category's, such as
+    /// already off the list under a name with the category's as a word, such as
     /// `adder_accumulator`
     #[arg(long)]
     other: bool,
@@ -1152,7 +1152,7 @@ async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
 /// under the category if they pass now. With `args.other`, what can't be
 /// rebuilt goes in off the list as `keep_off_list` does.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
-    if !["adder", "register"].contains(&args.category.as_str()) {
+    if !app::category::BLESSED.contains(&args.category.as_str()) {
         bail!("only adders and registers are probed so far");
     }
     let from =
@@ -1164,7 +1164,12 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
         let meant = app::models::simulation::meant_by(&s.category);
         let off_list =
             catalogue::Category::find(&listed, &s.category).is_none();
-        let akin = off_list && s.category.contains(args.category.as_str());
+        // A word of its name, as `adder` of `adder_accumulator`, not
+        // letters within one, as `alu` of `absolute_value`.
+        let akin = off_list
+            && s.category
+                .split(['-', '_'])
+                .any(|word| word == args.category);
         if s.category != args.category
             && meant != Some(args.category.as_str())
             && !(args.other && akin)
@@ -1336,6 +1341,11 @@ async fn rebuild_one(
     }
     let coloured = if s.category == "register" {
         match app::probe::register(data, &report) {
+            Ok(probed) => probed.file,
+            Err(why) => return Ok(Err(why)),
+        }
+    } else if s.category == "alu" {
+        match app::probe::alu(data, &report) {
             Ok(probed) => probed.file,
             Err(why) => return Ok(Err(why)),
         }

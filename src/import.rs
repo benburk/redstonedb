@@ -512,11 +512,12 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
 }
 
 /// The file in `data` with its inputs and outputs coloured by probing,
-/// as an upload's are, for a build meant as an adder or a register: its
-/// inputs are its levers and buttons, whatever colour they sit on. Any
-/// other build, or one probing doesn't recognize, as it is.
+/// as an upload's are, for a build meant as one of a blessed category,
+/// see `category::BLESSED`: its inputs are its levers and buttons,
+/// whatever colour they sit on. Any other build, or one probing doesn't
+/// recognize, as it is.
 pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
-    if !["adder", "register"].contains(&meant) {
+    if !category::BLESSED.contains(&meant) {
         return Ok(data.to_vec());
     }
     let (data, meant) = (data.to_vec(), meant.to_owned());

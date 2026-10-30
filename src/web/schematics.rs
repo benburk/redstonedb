@@ -557,7 +557,7 @@ pub async fn detail(
 /// `data`: one line for each fault. Empty for any other build.
 async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
     let Some(meant) = crate::models::simulation::meant_by(&s.category)
-        .filter(|meant| ["adder", "register"].contains(meant))
+        .filter(|meant| crate::category::BLESSED.contains(meant))
         .map(str::to_owned)
     else {
         return Vec::new();
