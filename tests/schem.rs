@@ -93,9 +93,9 @@ fn stacking_markers_sit_at_opposite_corners_of_the_box() {
 }
 
 /// An input block feeds at most two dusts, on its sides, besides any
-/// torches: the alpha CLA's run their dust over their tops, while a
-/// comparator's inputs feeding two dust each and a redstone block capping
-/// one are fine.
+/// torches: the alpha CLA's operands run their dust over their tops, while
+/// its carry in, a control line, may, and a comparator's inputs feeding two
+/// dust each and a redstone block capping one are fine.
 #[test]
 fn an_input_block_feeds_one_dust_on_a_side() {
     let complaints = |name| -> Vec<String> {
@@ -105,7 +105,7 @@ fn an_input_block_feeds_one_dust_on_a_side() {
             .collect()
     };
     let cla = complaints("alpha-cla");
-    assert_eq!(cla.len(), 17, "{cla:#?}");
+    assert_eq!(cla.len(), 16, "{cla:#?}");
     assert!(
         cla.iter()
             .all(|m| m.starts_with("input block has dust on top"))

@@ -1336,25 +1336,32 @@ async fn rebuild_one(
     let data = data.as_slice();
     let blocks = app::schem::Blocks::read(data)?;
     let report = app::inspect::inspect(&blocks);
-    if let Some(problem) = report.errors.first() {
+    if let Some(problem) = report.faults().next() {
         return Ok(Err(problem.message.clone()));
     }
-    let coloured = if s.category == "register" {
+    // Dust on top of an input is a fault only on a data input.
+    let (coloured, data_inputs) = if s.category == "register" {
         match app::probe::register(data, &report) {
-            Ok(probed) => probed.file,
+            Ok(probed) => (probed.file, probed.data_in),
             Err(why) => return Ok(Err(why)),
         }
     } else if s.category == "alu" {
         match app::probe::alu(data, &report) {
-            Ok(probed) => probed.file,
+            Ok(probed) => (probed.file, [probed.a, probed.b].concat()),
             Err(why) => return Ok(Err(why)),
         }
     } else {
         match app::probe::adder(&blocks, &report) {
-            Ok(probed) => app::probe::colour(data, &probed.layout)?,
+            Ok(probed) => (
+                app::probe::colour(data, &probed.layout)?,
+                [probed.layout.a, probed.layout.b].concat(),
+            ),
             Err(why) => return Ok(Err(why)),
         }
     };
+    if let Some(dust) = report.data_dust(&data_inputs).into_iter().next() {
+        return Ok(Err(dust));
+    }
     let prepared = import::prepare(&coloured, true, true, false, true)?;
     let ready = match details::check(
         db,
@@ -1427,7 +1434,7 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
         };
         println!(
             "{name}: {} errors; inputs {}; outputs {}",
-            report.errors.len(),
+            report.faults().count(),
             buses(&report.inputs),
             buses(&report.outputs)
         );
@@ -1438,9 +1445,17 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
             for note in &report.notes {
                 println!("  note: {note}");
             }
+            // A fault only on a data input, which probing tells apart.
+            for problem in report
+                .errors
+                .iter()
+                .filter(|problem| problem.rule == app::inspect::DUST_ON_TOP)
+            {
+                println!("  note: {}", problem.message);
+            }
         }
         let mut rules = BTreeSet::new();
-        for problem in &report.errors {
+        for problem in report.faults() {
             println!("  {}", problem.message);
             *problems.entry(problem.rule).or_default() += 1;
             rules.insert(problem.rule);
@@ -1448,7 +1463,7 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
         for rule in &rules {
             *stopped.entry(rule).or_default() += 1;
         }
-        clean += usize::from(report.errors.is_empty());
+        clean += usize::from(report.faults().next().is_none());
     }
     if !one {
         println!("\n{clean} of {} builds have no errors", files.len());

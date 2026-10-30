@@ -550,7 +550,7 @@ pub fn recognize_as(
     let blocks = Blocks::read(data)?;
     let report = inspect::inspect(&blocks);
     let mut problems: Vec<String> =
-        report.errors.iter().map(|p| p.message.clone()).collect();
+        report.faults().map(|p| p.message.clone()).collect();
     if problems.is_empty() {
         problems.extend(inspect::not_bus_drivable(data)?.into_iter().map(
             |lever| {
@@ -566,20 +566,34 @@ pub fn recognize_as(
     if !problems.is_empty() {
         return Ok(unrecognized(problems));
     }
+    // What a probe found, unless a data input it found has dust on top,
+    // which only a control line's block may.
+    let accept = |data_inputs: &[Pos], file: Vec<u8>, found: String| {
+        let dust = report.data_dust(data_inputs);
+        if dust.is_empty() {
+            Recognition {
+                file,
+                found: Some(found),
+                problems: Vec::new(),
+            }
+        } else {
+            unrecognized(dust)
+        }
+    };
     let mut adder_fault = None;
     if meant.is_none() || meant == Some("adder") {
         match adder(&blocks, &report) {
             Ok(probed) => {
-                return Ok(Recognition {
-                    file: colour(data, &probed.layout)?,
-                    found: Some(format!(
-                        "an adder, {}: all {} cases right, {}",
-                        probed.layout.describe(),
-                        probed.run.cases,
-                        probed.run.pattern
-                    )),
-                    problems,
-                });
+                let found = format!(
+                    "an adder, {}: all {} cases right, {}",
+                    probed.layout.describe(),
+                    probed.run.cases,
+                    probed.run.pattern
+                );
+                let data_inputs =
+                    [probed.layout.a.clone(), probed.layout.b.clone()].concat();
+                let file = colour(data, &probed.layout)?;
+                return Ok(accept(&data_inputs, file, found));
             }
             Err(why) => adder_fault = Some(why),
         }
@@ -588,14 +602,11 @@ pub fn recognize_as(
     if meant.is_none() || meant == Some("register") {
         match register(data, &report) {
             Ok(probed) => {
-                return Ok(Recognition {
-                    found: Some(format!(
-                        "a register: all {} cases right, {}",
-                        probed.run.cases, probed.run.pattern
-                    )),
-                    file: probed.file,
-                    problems,
-                });
+                let found = format!(
+                    "a register: all {} cases right, {}",
+                    probed.run.cases, probed.run.pattern
+                );
+                return Ok(accept(&probed.data_in, probed.file, found));
             }
             Err(why) => register_fault = Some(why),
         }
@@ -604,14 +615,12 @@ pub fn recognize_as(
     if meant.is_none() || meant == Some("alu") {
         match alu(data, &report) {
             Ok(probed) => {
-                return Ok(Recognition {
-                    found: Some(format!(
-                        "an ALU: all {} cases right, {}",
-                        probed.run.cases, probed.run.pattern
-                    )),
-                    file: probed.file,
-                    problems,
-                });
+                let found = format!(
+                    "an ALU: all {} cases right, {}",
+                    probed.run.cases, probed.run.pattern
+                );
+                let data_inputs = [probed.a, probed.b].concat();
+                return Ok(accept(&data_inputs, probed.file, found));
             }
             Err(why) => alu_fault = Some(why),
         }

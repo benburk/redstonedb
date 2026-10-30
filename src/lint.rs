@@ -364,7 +364,8 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 
 /// What touches an input block with a lever or button: its switch powers
 /// it, and it feeds at most two dusts, on its other sides, so wiring
-/// it up puts one driver into one wire. Dust on top or underneath, a second
+/// it up puts one driver into one wire. Dust underneath, dust on top of a
+/// data input's block (a control line's may have it), a third
 /// dust, anything else that would power it, as a repeater or comparator
 /// pointed into it or a torch beneath it, and any other component, such as
 /// a redstone block beside it, break that. Torches hung on it or standing
@@ -374,9 +375,13 @@ fn levers(blocks: &Blocks, found: &mut Vec<Violation>) {
 fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
     for switch in blocks.switches() {
         let pos = switch.block;
-        if !is_input(schem::short(blocks.get(pos))) {
+        let input = schem::short(blocks.get(pos));
+        if !is_input(input) {
             continue;
         }
+        // A control line's block may drive dust on top; a data input's
+        // may not.
+        let control = input == format!("{CONTROL}_concrete");
         let mut dust = 0;
         for direction in Direction::ALL {
             let next = schem::step(pos, direction);
@@ -388,6 +393,7 @@ fn input_wiring(blocks: &Blocks, found: &mut Vec<Violation>) {
             let pointed = || Direction::facing(state) == Some(direction);
             let problem = match name {
                 "redstone_wire" => match direction {
+                    Direction::Up if control => None,
                     Direction::Up => Some("has dust on top".to_owned()),
                     Direction::Down => Some("has dust under it".to_owned()),
                     _ => {

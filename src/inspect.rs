@@ -102,6 +102,43 @@ pub fn inspect(blocks: &Blocks) -> Report {
     report
 }
 
+/// The rule of dust standing on an input block: fine on a control line's
+/// block, such as a carry in's or a register's write, but not on a data
+/// input's, as an operand's or a register's data bus, which only probing
+/// tells apart, so it is no fault until then.
+pub const DUST_ON_TOP: &str = "dust on top of an input";
+
+impl Report {
+    /// Its faults but dust on top of input blocks, which is a fault only
+    /// on a data input; see `DUST_ON_TOP`.
+    pub fn faults(&self) -> impl Iterator<Item = &Problem> {
+        self.errors
+            .iter()
+            .filter(|problem| problem.rule != DUST_ON_TOP)
+    }
+
+    /// Each fault of dust on top of a block of `data`, the data inputs
+    /// probing found.
+    pub fn data_dust(&self, data: &[Pos]) -> Vec<String> {
+        self.errors
+            .iter()
+            .filter(|problem| {
+                problem.rule == DUST_ON_TOP
+                    && problem
+                        .at
+                        .first()
+                        .is_some_and(|block| data.contains(block))
+            })
+            .map(|problem| {
+                format!(
+                    "Input at {}: dust on top of a data input",
+                    place(problem.at[0])
+                )
+            })
+            .collect()
+    }
+}
+
 fn problem(
     report: &mut Report,
     rule: &'static str,
@@ -273,16 +310,32 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         let state = blocks.get(next);
         let next_name = schem::short(state);
         let wrong = |what: &str| (vec![block, next], what.to_owned());
+        // Dust on top is what a control line's block may drive, though not
+        // a data input's, which only probing tells apart; see
+        // `DUST_ON_TOP`.
+        if next_name == "redstone_wire" && side == Direction::Up {
+            drives += 1;
+            problem(
+                report,
+                DUST_ON_TOP,
+                vec![block, next],
+                format!(
+                    "Input at {}: dust on top, which only a control line's \
+                     block may have",
+                    place(block)
+                ),
+            );
+            continue;
+        }
         let fault = match next_name {
-            "redstone_wire" => match side {
-                Direction::Up => Some(wrong("dust on top")),
-                Direction::Down => Some(wrong("dust below")),
-                _ => {
-                    dust += 1;
-                    drives += 1;
-                    None
-                }
-            },
+            "redstone_wire" if side == Direction::Down => {
+                Some(wrong("dust below"))
+            }
+            "redstone_wire" => {
+                dust += 1;
+                drives += 1;
+                None
+            }
             "redstone_torch" | "redstone_wall_torch" => {
                 if schem::torch_block(next, state) == Some(block) {
                     drives += 1;

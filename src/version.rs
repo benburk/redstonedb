@@ -169,14 +169,14 @@ pub async fn check(
     // function's, as an upload's: inputs are its levers and buttons, not
     // colours.
     if s.conventional {
-        let had: Vec<&str> = inspect::inspect(&current)
-            .errors
-            .iter()
-            .map(|problem| problem.rule)
-            .collect();
-        let found = inspect::inspect(&prepared.blocks).errors;
+        // Dust on top of an input is a fault only on a data input, which
+        // probing a blessed build checks.
+        let current = inspect::inspect(&current);
+        let had: Vec<&str> =
+            current.faults().map(|problem| problem.rule).collect();
+        let found = inspect::inspect(&prepared.blocks);
         let broken: Vec<&str> = found
-            .iter()
+            .faults()
             .filter(|problem| !had.contains(&problem.rule))
             .map(|problem| problem.message.as_str())
             .collect();
