@@ -511,6 +511,28 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
     )
 }
 
+/// The file in `data` with its inputs and outputs coloured by probing,
+/// as an upload's are, for a build meant as an adder or a register: its
+/// inputs are its levers and buttons, whatever colour they sit on. Any
+/// other build, or one probing doesn't recognize, as it is.
+pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
+    if !["adder", "register"].contains(&meant) {
+        return Ok(data.to_vec());
+    }
+    let (data, meant) = (data.to_vec(), meant.to_owned());
+    // Probing simulates, so off the async threads.
+    let coloured = tokio::task::spawn_blocking(move || {
+        match crate::probe::recognize_as(&data, Some(&meant)) {
+            Ok(recognition) if recognition.found.is_some() => recognition.file,
+            // One the simulator can't run, as with a block it doesn't
+            // model, isn't recognized either.
+            _ => data,
+        }
+    })
+    .await?;
+    Ok(coloured)
+}
+
 /// A build off the list, as `category` names it, moved up by its new
 /// version `file`: when that is recognized as the listed category the
 /// name means, as an 8-bit adder's as an adder, the file standardized and
@@ -531,8 +553,8 @@ pub async fn moved_up<'a>(
     else {
         return Ok(None);
     };
-    let Ok(candidate) = prepare(&file.data, true, true, keep_paste, true)
-    else {
+    let coloured = probed(&file.data, &meant.name).await?;
+    let Ok(candidate) = prepare(&coloured, true, true, keep_paste, true) else {
         return Ok(None);
     };
     let recognized =

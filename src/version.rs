@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use crate::{
-    import::{self, Analysis, Prepared},
-    lint,
+    import::{self, Prepared},
+    inspect, lint,
     models::{schematic::Schematic, version},
     schem::{self, Blocks, Pos},
 };
@@ -146,8 +146,15 @@ pub async fn check(
     file: &[u8],
     standardize: bool,
 ) -> anyhow::Result<Checked> {
+    // An adder's or register's inputs are its levers and buttons, coloured
+    // by probing before standardizing, as an upload's are.
+    let coloured = if standardize {
+        import::probed(file, &s.category).await?
+    } else {
+        file.to_vec()
+    };
     let prepared = import::prepare(
-        file,
+        &coloured,
         standardize,
         s.conventional,
         s.keeps_paste,
@@ -157,22 +164,29 @@ pub async fn check(
     let current = Blocks::read(&current)?;
     let comparison = compare(&current, &prepared.blocks);
     let mut refusals = refusals(comparison);
-    // Only conventions the current version keeps count against it, so a
-    // build from before a rule can still be fixed.
-    let violations =
-        |blocks| Analysis::of(blocks, &s.category, s.conventional).violations;
-    let (kept, now) = (violations(&current), violations(&prepared.blocks));
-    let broken: Vec<&str> = now
-        .iter()
-        .map(|v| v.message.as_str())
-        .filter(|message| !kept.iter().any(|k| k.message == *message))
-        .collect();
-    if let Some(first) = broken.first() {
-        refusals.push(format!(
-            "It breaks {} building conventions the current version keeps, \
-             such as: {first}",
-            broken.len()
-        ));
+    // Only problems the current version doesn't have count against it, so
+    // a build from before a rule can still be fixed. They are the check by
+    // function's, as an upload's: inputs are its levers and buttons, not
+    // colours.
+    if s.conventional {
+        let had: Vec<&str> = inspect::inspect(&current)
+            .errors
+            .iter()
+            .map(|problem| problem.rule)
+            .collect();
+        let found = inspect::inspect(&prepared.blocks).errors;
+        let broken: Vec<&str> = found
+            .iter()
+            .filter(|problem| !had.contains(&problem.rule))
+            .map(|problem| problem.message.as_str())
+            .collect();
+        if let Some(first) = broken.first() {
+            refusals.push(format!(
+                "It breaks {} building conventions the current version \
+                 keeps, such as: {first}",
+                broken.len()
+            ));
+        }
     }
     match version::holder(db, &prepared.sha256).await? {
         Some((other, number)) if other == s.id => {

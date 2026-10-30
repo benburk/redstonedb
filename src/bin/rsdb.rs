@@ -1501,9 +1501,33 @@ async fn new_version(
         added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
     };
-    let number = version::replace(db, &id, &checked.prepared, how).await?;
+    // Off the list, a version recognized as the category its name means
+    // moves it up, as on the site.
+    let categories = catalogue::categories(db).await?;
+    let moved = import::moved_up(
+        &categories,
+        &s.category,
+        &checked.prepared,
+        s.keeps_paste,
+    )
+    .await?;
+    let kept = moved.as_ref().map_or(&checked.prepared, |(file, _)| file);
+    let number = version::replace(db, &id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
+    if let Some((file, to)) = &moved {
+        let given = Details {
+            category: to.name.clone(),
+            ..Details::of(&s)
+        };
+        match details::check(db, given, details::Build::of(file), true).await? {
+            Ok(ready) => {
+                schematic::set_details(db, &id, &ready).await?;
+                println!("{name}: moved up as {}", to.name);
+            }
+            Err(why) => println!("{name}: not moved up: {why}"),
+        }
+    }
     if simulation::refresh(db, &id, false).await?.is_some()
         && let Some(report) = simulation::refresh_timing(db, &id, false).await?
     {
@@ -1512,11 +1536,11 @@ async fn new_version(
     Ok(())
 }
 
-/// Runs the test of build `id`, or of every build with one, again, and
-/// stores what it finds.
 /// How many builds `simulate` runs at once.
 const AT_ONCE: usize = 4;
 
+/// Runs the tests of the builds `named`, or with `all` of every build with
+/// one, again, and stores what they find.
 async fn simulate(db: &SqlitePool, named: &[String], all: bool) -> Result<()> {
     ensure!(
         all || !named.is_empty(),
