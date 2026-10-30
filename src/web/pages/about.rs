@@ -92,8 +92,8 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
                     ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes, adders so far." }
-                        li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and, for an adder, register, or ALU, takes out unused ones." }
+                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, registers, ALUs, and decoders so far." }
+                        li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
                         li { "Measures latency, throughput, and how copies stack." }
                         li { "Shows it in each viewer's block theme." }
                     }

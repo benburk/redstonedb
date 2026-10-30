@@ -874,8 +874,14 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
+    // When taking them out would change its circuit, which the proof by
+    // compiling it shows, the blocks found unused are not, so it keeps
+    // them.
     let pruned = if category::BLESSED.contains(&s.category.as_str()) {
-        roles::prune(&data, &s.stacking, buses(&s))?
+        roles::prune(&data, &s.stacking, buses(&s)).unwrap_or_else(|err| {
+            tracing::warn!(id, "keeping its blocks: {err:#}");
+            None
+        })
     } else {
         None
     };

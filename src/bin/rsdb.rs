@@ -224,7 +224,7 @@ struct Rebuild {
     /// The copy of the database to take the builds from
     from: PathBuf,
     /// The category to rebuild, probed as it: one of the blessed ones,
-    /// adder, register, or alu
+    /// adder, register, alu, or decoder
     #[arg(long, default_value = "adder")]
     category: String,
     /// A folder of fixed files, each named for the start of its build's
@@ -234,6 +234,11 @@ struct Rebuild {
     /// A build to leave out, by the start of its id; repeatable
     #[arg(long = "skip")]
     skip: Vec<String>,
+    /// Instead, put every build here not already in as built, off the list,
+    /// whatever its category: its file as it was before any unused blocks
+    /// were taken out, as only a blessed build loses them
+    #[arg(long)]
+    rest: bool,
     /// Put each build that can't be rebuilt, or is left out, in as built,
     /// off the list, with the details it was given; with them any build
     /// already off the list under a name with the category's as a word, such as
@@ -1152,8 +1157,14 @@ async fn finish(db: &SqlitePool, id: Option<&str>) -> Result<()> {
 /// under the category if they pass now. With `args.other`, what can't be
 /// rebuilt goes in off the list as `keep_off_list` does.
 async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
+    if args.rest {
+        return rebuild_rest(db, &args.from).await;
+    }
     if !app::category::BLESSED.contains(&args.category.as_str()) {
-        bail!("only adders and registers are probed so far");
+        bail!(
+            "only the blessed categories are probed: {}",
+            app::category::BLESSED.join(", ")
+        );
     }
     let from =
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
@@ -1226,7 +1237,10 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
                     }
                 }
             };
-        match keep_off_list(db, &from, &s, &listed).await? {
+        let data = version::current_file(&from, &s.id)
+            .await?
+            .context("schematic vanished")?;
+        match keep_off_list(db, &from, &s, &data, &listed).await? {
             Ok(category) => {
                 other += 1;
                 println!("{name}: {off} → off the list, as {category}");
@@ -1241,8 +1255,46 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     Ok(())
 }
 
-/// Stores build `s` of database `from` as it was built and given, its
-/// stored file unchanged but tidied, off the list: under its own
+/// Puts every build of the database at `from` not here in as built, off
+/// the list, as `keep_off_list` does, from its latest file before unused
+/// blocks were taken out, as only a blessed build loses them.
+async fn rebuild_rest(db: &SqlitePool, from: &Path) -> Result<()> {
+    let from =
+        SqlitePool::connect(&format!("sqlite:{}?mode=ro", from.display()))
+            .await?;
+    let listed = catalogue::categories(db).await?;
+    let (mut other, mut refused) = (0, 0);
+    for s in schematic::all(&from).await? {
+        if schematic::get(db, &s.id).await?.is_some() {
+            continue;
+        }
+        let name = format!("{}  {}", &s.id[..8], s.filename());
+        let data: Vec<u8> = sqlx::query_scalar(
+            "SELECT data FROM schematic_version
+             WHERE schematic_id = ?
+               AND coalesce(note, '') <> 'Unused blocks taken out'
+             ORDER BY version DESC LIMIT 1",
+        )
+        .bind(&s.id)
+        .fetch_one(&from)
+        .await?;
+        match keep_off_list(db, &from, &s, &data, &listed).await? {
+            Ok(category) => {
+                other += 1;
+                println!("{name}: off the list, as {category}");
+            }
+            Err(why) => {
+                refused += 1;
+                println!("{name}: refused: {why}");
+            }
+        }
+    }
+    println!("\n{other} off the list, {refused} refused");
+    Ok(())
+}
+
+/// Stores build `s` of database `from`, its file `data`, as it was built
+/// and given, unchanged but tidied, off the list: under its own
 /// off-list category, or one named for what it is, such as `8-bit adder`,
 /// when it was listed among `listed`; then simulated, to say what keeps
 /// it off. Says where it went, or the `Err` why it couldn't go.
@@ -1250,12 +1302,10 @@ async fn keep_off_list(
     db: &SqlitePool,
     from: &SqlitePool,
     s: &schematic::Schematic,
+    data: &[u8],
     listed: &[catalogue::Category],
 ) -> Result<Result<String, String>> {
-    let data = version::current_file(from, &s.id)
-        .await?
-        .context("schematic vanished")?;
-    let prepared = import::prepare(&data, false, s.conventional, true, false)?;
+    let prepared = import::prepare(data, false, s.conventional, true, false)?;
     let mut given = Details::of(s);
     // A category off the list has no designs of its own.
     if let Some(category) = catalogue::Category::find(listed, &s.category) {
@@ -1348,6 +1398,11 @@ async fn rebuild_one(
     } else if s.category == "alu" {
         match app::probe::alu(data, &report) {
             Ok(probed) => (probed.file, [probed.a, probed.b].concat()),
+            Err(why) => return Ok(Err(why)),
+        }
+    } else if s.category == "decoder" {
+        match app::probe::decoder(data, &report) {
+            Ok(probed) => (probed.file, probed.a),
             Err(why) => return Ok(Err(why)),
         }
     } else {

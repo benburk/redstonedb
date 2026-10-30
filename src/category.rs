@@ -38,7 +38,7 @@ pub struct Behaviour {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 3] = ["adder", "register", "alu"];
+pub const BLESSED: [&str; 4] = ["adder", "register", "alu", "decoder"];
 
 /// What a category's unsigned control and status lines are taken to be.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

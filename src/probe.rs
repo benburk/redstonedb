@@ -531,16 +531,15 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 /// The file in `data` inspected and, if nothing is wrong with its levers
-/// and outputs, probed as an adder, then as a register, then as an ALU.
+/// and outputs, probed as an adder, then as a register, an ALU, and a
+/// decoder.
 pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     recognize_as(data, None)
 }
 
-/// As `recognize`, probing only as `meant`, `adder`, `register`, or `alu`,
-/// when given. Probed as each and recognized as none, its faults are the
-/// register's when it has a button, which only a register's writes are;
-/// the ALU's when it has more than one lone lever, its control lines; else
-/// the adder's.
+/// As `recognize`, probing only as `meant`, `adder`, `register`, `alu`, or
+/// `decoder`, when given. Probed as each and recognized as none, its
+/// fault is as `fault_of` chooses.
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
@@ -625,22 +624,56 @@ pub fn recognize_as(
             Err(why) => alu_fault = Some(why),
         }
     }
+    let mut decoder_fault = None;
+    if meant.is_none() || meant == Some("decoder") {
+        match decoder(data, &report) {
+            Ok(probed) => {
+                let found = format!(
+                    "a decoder: all {} cases right, {}",
+                    probed.run.cases, probed.run.pattern
+                );
+                return Ok(accept(&probed.a, probed.file, found));
+            }
+            Err(why) => decoder_fault = Some(why),
+        }
+    }
+    let fault = fault_of(
+        &blocks,
+        &report,
+        meant,
+        [adder_fault, register_fault, alu_fault, decoder_fault],
+    );
+    problems.push(fault);
+    Ok(unrecognized(problems))
+}
+
+/// Of the faults probing found as an adder, a register, an ALU, and a
+/// decoder, the one to show: the decoder's when it has one input line or
+/// is meant as one; the register's when it has a button, which only a
+/// register's writes are; the ALU's when it has more than one lone lever,
+/// its control lines; else the adder's.
+fn fault_of(
+    blocks: &Blocks,
+    report: &inspect::Report,
+    meant: Option<&str>,
+    [adder, register, alu, decoder]: [Option<String>; 4],
+) -> String {
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
         .inputs
         .iter()
         .filter(|run| run.bits.len() == 1)
         .count();
-    let fault = if buttons {
-        register_fault.or(adder_fault).or(alu_fault)
+    if meant == Some("decoder") || report.inputs.len() == 1 {
+        decoder.or(adder).or(register).or(alu)
+    } else if buttons {
+        register.or(adder).or(alu)
     } else if lone > 1 {
-        alu_fault.or(adder_fault).or(register_fault)
+        alu.or(adder).or(register)
     } else {
-        adder_fault.or(register_fault).or(alu_fault)
+        adder.or(register).or(alu)
     }
-    .unwrap_or_default();
-    problems.push(fault);
-    Ok(unrecognized(problems))
+    .unwrap_or_default()
 }
 
 /// A register as probing found it: its data bus in, its controls, writes
@@ -856,6 +889,64 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         }
     }
     Err(why)
+}
+
+/// A decoder as probing found it: its input A, its output, the file with
+/// them coloured as the decoder test reads them, and that test's run.
+pub struct DecoderProbed {
+    pub a: Vec<Pos>,
+    pub output: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The decoder the file in `data` is, from `report`'s levers and outputs:
+/// its one input line A and its one output line, a bit for each of A's
+/// values, coloured and run through the decoder test. Or why it isn't.
+pub fn decoder(
+    data: &[u8],
+    report: &inspect::Report,
+) -> Result<DecoderProbed, String> {
+    let [a] = report.inputs.as_slice() else {
+        return Err(format!(
+            "Input: line lengths {}, need one line A",
+            lengths(&report.inputs)
+        ));
+    };
+    let [out] = report.outputs.as_slice() else {
+        return Err(format!(
+            "Output: line lengths {}, need one line",
+            lengths(&report.outputs)
+        ));
+    };
+    if out.bits.len() != 1 << a.bits.len().min(16) {
+        return Err(format!(
+            "Output: {} bits, need one for each of A's {} values",
+            out.bits.len(),
+            1_usize << a.bits.len().min(16)
+        ));
+    }
+    let mut roles: HashMap<Pos, &str> = HashMap::new();
+    roles.extend(a.bits.iter().map(|&p| (p, "lime")));
+    roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+    let file = paint(data, &roles).map_err(|err| err.to_string())?;
+    let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+    match Test::Decoder.run(&coloured) {
+        simulate::Report::Ran(run) if run.wrong == 0 => Ok(DecoderProbed {
+            a: a.bits.clone(),
+            output: out.bits.clone(),
+            file,
+            run: *run,
+        }),
+        simulate::Report::Ran(run) => Err(format!(
+            "Doesn't hold: {} of {} cases wrong",
+            run.wrong, run.cases
+        )),
+        simulate::Report::Broken { reason }
+        | simulate::Report::Skipped { reason } => {
+            Err(format!("Test couldn't run: {reason}"))
+        }
+    }
 }
 
 #[cfg(test)]
