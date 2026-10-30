@@ -328,16 +328,17 @@ fn a_hex_adder_is_driven_digit_by_digit() {
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,
-/// where the next copy's carry in lands, with no carry out line; a slice
-/// has both its lines, so it fails.
+/// where the next copy's carry in lands, with no carry out line; a carry
+/// out is optional, as a wider adder's is, so it adds.
 #[test]
-fn a_slice_without_a_carry_out_fails() {
+fn a_slice_without_a_carry_out_adds() {
     let data = std::fs::read("tests/fixtures/rca-slice-2-high.schem").unwrap();
     let report = Test::Adder.run(&Blocks::read(&data).unwrap());
-    let Report::Broken { reason } = report else {
-        panic!("it did not fail: {report:?}");
+    let Report::Ran(run) = report else {
+        panic!("it did not run: {report:?}");
     };
-    assert!(reason.ends_with("this has no carry out."), "{reason}");
+    assert_eq!(run.wrong, 0);
+    assert!(run.outputs.iter().all(|signal| signal.name != "carry out"));
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry out is capped by

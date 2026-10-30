@@ -326,8 +326,8 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
                 found.push((bits, lones.first().copied()));
             }
         }
-        ([], [_]) if width == 1 => {
-            return Err("1 output: need sum and carry out".to_owned());
+        ([], [sum]) if width == 1 => {
+            found.push((vec![*sum], None));
         }
         ([], [p, q]) if width == 1 => {
             found.push((vec![*p], Some(*q)));

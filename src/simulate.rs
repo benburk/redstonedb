@@ -218,7 +218,8 @@ impl Test {
         // Every test drives its levers from off, how one was saved saying
         // nothing, and finds which lines read inverted; a stateless one
         // measures how weakly its data inputs may be driven; copies stack
-        // by the slice's box.
+        // by the slice's box, a layer left out whose blocks match the copy
+        // before's as placed, however their power stood.
         match self {
             Test::Decoder
             | Test::NandXnor
@@ -236,15 +237,16 @@ impl Test {
             | Test::Equality
             | Test::Monostable
             | Test::DualEdgeMonostable
-            | Test::Inverter => 4,
+            | Test::Inverter => 5,
             // A register's timing says it counts from a read, where it once
             // said so as a flag; a signed comparator passes as a Greater
             // Than with the flag Signed, where it was once a category of its
             // own; a gate's copies are searched for how they stack.
-            Test::Register | Test::GreaterThan | Test::XorXnor => 5,
+            Test::Register | Test::GreaterThan | Test::XorXnor => 6,
             // An adder reads any of its lines inverted, a subtractor's B
-            // among them, and borrows through each byte too.
-            Test::Adder => 6,
+            // among them, and borrows through each byte too; one of one bit
+            // may leave out its carry out, as a wider one may.
+            Test::Adder => 7,
         }
     }
 

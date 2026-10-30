@@ -520,8 +520,8 @@ pub fn part(
 /// which later copies leave out, so each stacks the build's box: from the
 /// face the stack starts from, the east for one west, the bottom for one
 /// up, the south for one north, each layer whose every block is interface,
-/// or is what the copy before already has where it lands, dust on dust
-/// joining; never so many that the box is shorter than the step.
+/// or is what the copy before already has where it lands, as placed, so
+/// however either's power stood and dust on dust joining; never so many that the box is shorter than the step.
 pub struct FirstCopy {
     /// How many layers, along each way the stack steps.
     pub layers: usize,
@@ -553,9 +553,7 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
                 .all(|(pos, state)| {
                     let under = blocks.get(schem::add(pos, step));
                     interface.contains(&pos)
-                        || under == state
-                        || (schem::short(state) == "redstone_wire"
-                            && schem::short(under) == "redstone_wire")
+                        || schem::as_placed(under) == schem::as_placed(state)
                 });
             if !fits {
                 break;
