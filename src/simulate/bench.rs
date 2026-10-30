@@ -735,6 +735,7 @@ pub(super) fn judge(
         faults: Vec::new(),
         timing: None,
         stacking: None,
+        design: None,
         by_digit: false,
     }
 }

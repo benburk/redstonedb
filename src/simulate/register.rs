@@ -891,6 +891,7 @@ impl Tally {
             faults: Vec::new(),
             timing: None,
             stacking: None,
+            design: None,
         }
     }
 }

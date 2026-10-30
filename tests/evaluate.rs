@@ -45,25 +45,72 @@ fn an_adders_design_comes_from_how_its_carries_are_made() {
     let design = |name| evaluate(&stored(name)).unwrap().design.unwrap();
     let ripple = design("alpha-rca");
     assert_eq!(
-        (ripple.name, ripple.signature.as_str()),
+        (ripple.name.as_str(), ripple.signature.as_str()),
         ("ripple_carry", "rrrrrrrr")
     );
     assert_eq!(design("diag-3t-cca").name, "carry_cancel");
     assert_eq!(design("rca-slice-capped").name, "ripple_carry");
 }
 
+/// Each group's lookahead terms, as `found` of `all`.
+fn terms(groups: &[(usize, usize)]) -> Vec<app::simulate::Terms> {
+    groups
+        .iter()
+        .map(|&(found, all)| app::simulate::Terms { found, all })
+        .collect()
+}
+
 #[test]
-fn a_carry_signature_names_its_design() {
+fn a_carry_signature_and_terms_name_its_design() {
     use app::simulate::design_of;
-    assert_eq!(design_of("~~~~~~~L", false), "carry_cancel");
-    assert_eq!(design_of("~~~~~~~-", false), "carry_cancel");
-    assert_eq!(design_of("~~~~~~~L~~~~~~~s", false), "carry_cancel");
-    assert_eq!(design_of("rLL~~~~L", false), "hybrid");
-    assert_eq!(design_of("L~~~~~~L", false), "hybrid");
-    assert_eq!(design_of("??????~L", false), "other");
-    assert_eq!(design_of("rrrrrrrr", false), "ripple_carry");
-    assert_eq!(design_of("rLLLLLLL", true), "carry_look_everywhere");
-    assert_eq!(design_of("rLLLLLLL", false), "carry_lookahead");
+    // No terms, carries mostly strengths or looked ahead: a carry cancel,
+    // in one group or two, its lowest carries rippling or not.
+    for signature in
+        ["~~~~~~~L", "~~~~~~~-", "rLL~~~~L", "L~~~~~~L", "rLLLLLLL"]
+    {
+        assert_eq!(design_of(signature, &terms(&[(0, 36)])), "carry_cancel");
+    }
+    assert_eq!(
+        design_of("~~~~~~~L~~~~~~~s", &terms(&[(0, 36), (0, 28)])),
+        "carry_cancel"
+    );
+    // Every term of every group: a carry look everywhere, in groups too,
+    // though its sums' comparators read like strengths.
+    assert_eq!(
+        design_of("rLLLLLLL", &terms(&[(36, 36)])),
+        "carry_look_everywhere"
+    );
+    assert_eq!(
+        design_of("~~~~~~~L~~~~~~~s", &terms(&[(36, 36), (28, 28)])),
+        "carry_look_everywhere"
+    );
+    // A look everywhere group below a carry cancel one.
+    assert_eq!(
+        design_of("~~~~~~~L~~~~~~~s", &terms(&[(36, 36), (0, 28)])),
+        "hybrid"
+    );
+    assert_eq!(
+        design_of("rLLLLLLL", &terms(&[(16, 36)])),
+        "carry_lookahead"
+    );
+    // Strengths throughout, its towers making a few short terms.
+    assert_eq!(design_of("~~~~~~~~", &terms(&[(7, 36)])), "carry_cancel");
+    // Two-bit groups skipping a carry, with no terms.
+    assert_eq!(
+        design_of("rrsrsrsr", &terms(&[(0, 4), (0, 1), (0, 1), (0, 0)])),
+        "carry_lookahead"
+    );
+    assert_eq!(design_of("??????~L", &terms(&[(0, 36)])), "other");
+    assert_eq!(design_of("rrrrrrrr", &terms(&[(0, 36)])), "ripple_carry");
+}
+
+#[test]
+fn a_carry_signature_shows_its_groups() {
+    use app::simulate::groups;
+    assert_eq!(groups("~~~~~~~L"), [0..=7]);
+    assert_eq!(groups("~~~~~~~L~~~~~~~s"), [0..=7, 8..=15]);
+    assert_eq!(groups("rLLLLLLL"), [0..=7]);
+    assert_eq!(groups("rrsrsrsr"), [0..=2, 3..=4, 5..=6, 7..=7]);
 }
 
 #[test]

@@ -412,7 +412,7 @@ pub fn build_info(
                     }
                 }
             }
-            (specs(s, &specs_flags, &sources))
+            (specs(s, &specs_flags, &sources, report))
             (credits(s))
             @match file {
                 _ if !s.conventional => {
@@ -540,7 +540,17 @@ fn short_stacking(direction: &StackDirection) -> String {
 }
 
 /// What a build is and how it behaves, beyond its key facts.
-fn specs(s: &Schematic, flags: &[Flag], sources: &Sources) -> Markup {
+fn specs(
+    s: &Schematic,
+    flags: &[Flag],
+    sources: &Sources,
+    report: Option<&Report>,
+) -> Markup {
+    // An adder's design says how big its groups are, as its run found.
+    let group = match report {
+        Some(Report::Ran(run)) => run.design.as_ref().and_then(|d| d.group),
+        _ => None,
+    };
     html! {
         section aria-labelledby="specs-heading" {
             h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } {
@@ -562,7 +572,10 @@ fn specs(s: &Schematic, flags: &[Flag], sources: &Sources) -> Markup {
                     }
                 }, sources.category, sources)))
                 @if let Some(design) = s.design_label() {
-                    (field("Design", sourced(search_link(&design, &s.design), sources.design, sources)))
+                    (field("Design", sourced(html! {
+                        (search_link(&design, &s.design))
+                        @if let Some(group) = group { ", in groups of " (group) }
+                    }, sources.design, sources)))
                 }
                 (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation, sources)))
                 @if let Some(encoding) = s.encoding {

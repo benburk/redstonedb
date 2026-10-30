@@ -129,6 +129,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         if category == Some("adder") {
             let variant = AdderVariant::of(&run.pattern);
             found.design = adder_design(&found.prepared.blocks, variant)?;
+            run.design.clone_from(&found.design);
         }
     }
     found.report = Some(report);

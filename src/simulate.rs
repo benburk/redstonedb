@@ -70,7 +70,7 @@ pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use decoder::INVERTED as DECODER_INVERTED;
-pub use design::{Design, adder_design, design_of};
+pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::XNOR;
 pub use shifter::flags as shifter_flags;
 pub use stacking::{Stacking, Step};
@@ -526,6 +526,10 @@ pub struct Run {
     /// wider one, as `Test::stacking` tries; `None` for a build of another
     /// test, or one too wide to try.
     pub stacking: Option<Stacking>,
+    /// For an adder that gets them all right, how it makes its carries:
+    /// its design, the letter of each carry, its groups and their terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<Design>,
 }
 
 /// A register's or buffer's cell, by the block each control is on: its

@@ -232,6 +232,7 @@ fn run(found: &Cases, dual: bool) -> Run {
         faults: Vec::new(),
         timing: None,
         stacking: None,
+        design: None,
     }
 }
 

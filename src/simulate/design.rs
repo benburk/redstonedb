@@ -13,18 +13,29 @@
 //! - `?`: no component holds it;
 //! - `-`: the carry out of an adder without one.
 //!
+//! Its bits fall into groups, each joined to the next by one carry made
+//! from a run of strengths or ripples below it, as a 16-bit carry cancel's
+//! two groups of 8. A lookahead term is a bit's generate and the transmits
+//! above it within its group, or the carry in and the transmits above it in
+//! the lowest group, and a group has a term when a component holds it.
+//!
 //! A 1-bit adder is a ripple carry. One with a carry no component holds is
-//! other. One whose carries below the top are strengths, but for single
-//! carries joining one block of them to the next, is a carry cancel; one
-//! whose carries all ripple, a ripple carry; one mixing strengths and
-//! lookahead otherwise, a hybrid. The rest look ahead: a carry look
-//! everywhere when every carry has a lookahead term of its own for each
-//! bit below, a generate and the transmits above it, else a carry
+//! other; one whose carries all ripple, a ripple carry. One whose every
+//! group has every term of its own is a carry look everywhere, built of a
+//! torch for each term; one with some groups so and the rest no terms, a
+//! hybrid. One whose carries are mostly strengths, or with no terms at all
+//! mostly strengths or lookahead, is a carry cancel, its carries a signal
+//! strength, its towers making a few short terms at most; the rest
+//! look ahead some other way, as two-bit groups skipping a carry do: carry
 //! lookahead.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    ops::RangeInclusive,
+};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use super::{
     adder::Variant,
@@ -36,15 +47,30 @@ use crate::{
 };
 
 /// How an adder makes its carries.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Design {
     /// The design's name, as stored: `ripple_carry`, `carry_cancel`,
     /// `carry_lookahead`, `carry_look_everywhere`, `hybrid`, or `other`.
-    pub name: &'static str,
+    pub name: String,
     /// A letter per carry, from the carry into bit 1 up to the carry out.
     pub signature: String,
     /// How many components are lookahead terms.
     pub products: usize,
+    /// How many bits each group holds, when it has more than one group
+    /// and they are alike but for the lowest and highest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<usize>,
+    /// Each group's lookahead terms: how many a component holds, of all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terms: Vec<Terms>,
+}
+
+/// A group's lookahead terms: how many have a component of their own, of
+/// how many it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Terms {
+    pub found: usize,
+    pub all: usize,
 }
 
 /// The most input bits every case of is run; past that, `SAMPLED` cases,
@@ -64,52 +90,104 @@ pub fn adder_design(
         return Ok(None);
     };
     if adder.width == 1 {
-        let signature = "r".to_owned();
         return Ok(Some(Design {
-            name: "ripple_carry",
-            signature,
+            name: "ripple_carry".to_owned(),
+            signature: "r".to_owned(),
             products: 0,
+            group: None,
+            terms: Vec::new(),
         }));
     }
     let circuit = Tabled::of(blocks, &interface, &adder)?;
     let signature = circuit.signature(&interface, &adder);
-    let terms = adder.terms();
     let cases = adder.cases.len();
-    let products = circuit
-        .tables
+    let held = |term: &Table| circuit.tables.iter().any(|t| t.is(term, cases));
+    let groups = groups(&signature);
+    let terms: Vec<Terms> = groups
         .iter()
-        .filter(|t| terms.iter().any(|w| t.is(w, cases)))
+        .map(|bits| {
+            let all = adder.terms(bits.clone());
+            Terms {
+                found: all.iter().filter(|term| held(term)).count(),
+                all: all.len(),
+            }
+        })
+        .collect();
+    let products = adder
+        .terms(0..=adder.width - 1)
+        .iter()
+        .filter(|term| held(term))
         .count();
     Ok(Some(Design {
-        name: design_of(&signature, products >= terms.len()),
+        name: design_of(&signature, &terms).to_owned(),
+        group: group_size(&groups),
         signature,
         products,
+        terms,
     }))
 }
 
-/// The design a carry signature names, given whether every lookahead term
-/// has a component of its own.
-pub fn design_of(signature: &str, every_term: bool) -> &'static str {
+/// The groups of bits a carry signature shows, lowest first: a group ends
+/// at a carry looked ahead or skipped to just above a run of strengths, or
+/// skipped to above a ripple, and at the top.
+pub fn groups(signature: &str) -> Vec<RangeInclusive<usize>> {
+    let letters: Vec<char> = signature.chars().collect();
+    let mut groups = Vec::new();
+    let mut low = 0;
+    for (i, &letter) in letters.iter().enumerate() {
+        let below = i.checked_sub(1).map(|j| letters[j]);
+        let ends = i + 1 == letters.len()
+            || (matches!(letter, 'L' | 's') && below == Some('~'))
+            || (letter == 's' && below == Some('r'));
+        if ends {
+            groups.push(low..=i);
+            low = i + 1;
+        }
+    }
+    groups
+}
+
+/// How many bits each of `groups` holds, when there are several and those
+/// between the lowest and highest, or both when there are only two, are
+/// alike; `None` for one group.
+fn group_size(groups: &[RangeInclusive<usize>]) -> Option<usize> {
+    let sizes: Vec<usize> =
+        groups.iter().map(|g| g.end() - g.start() + 1).collect();
+    match sizes.as_slice() {
+        [] | [_] => None,
+        [a, b] => (a == b).then_some(*a),
+        [_, middle @ .., _] => middle
+            .iter()
+            .all(|size| *size == middle[0])
+            .then_some(middle[0]),
+    }
+}
+
+/// The design a carry signature names, given each group's lookahead terms.
+pub fn design_of(signature: &str, terms: &[Terms]) -> &'static str {
     if signature.contains('?') {
         return "other";
     }
+    if signature.chars().all(|c| c == 'r') {
+        return "ripple_carry";
+    }
+    let complete = |t: &Terms| t.all > 0 && t.found == t.all;
+    if !terms.is_empty() && terms.iter().all(complete) {
+        return "carry_look_everywhere";
+    }
+    if terms.iter().any(complete)
+        && terms.iter().all(|t| complete(t) || t.found == 0)
+    {
+        return "hybrid";
+    }
     let body: Vec<char> = signature.chars().take(signature.len() - 1).collect();
-    let strength = |i: usize| body.get(i) == Some(&'~');
-    // Carry cancel blocks: strengths from the first carry, broken only by
-    // single carries joining one block to the next.
-    let blocks = strength(0)
-        && (0..body.len()).all(|i| {
-            strength(i)
-                || (strength(i - 1) && (i + 1 == body.len() || strength(i + 1)))
-        });
-    if blocks {
+    let most = |count: usize| 2 * count > body.len();
+    let strengths = body.iter().filter(|&&c| c == '~').count();
+    let looked = body.iter().filter(|c| matches!(c, '~' | 'L')).count();
+    // A carry cancel's towers may make a few short terms of their own.
+    let none = terms.iter().all(|t| t.found == 0);
+    if most(strengths) || (none && most(looked)) {
         "carry_cancel"
-    } else if signature.chars().all(|c| c == 'r') {
-        "ripple_carry"
-    } else if body.contains(&'~') {
-        "hybrid"
-    } else if every_term {
-        "carry_look_everywhere"
     } else {
         "carry_lookahead"
     }
@@ -218,20 +296,21 @@ impl Adder {
         values
     }
 
-    /// The lookahead terms: a bit's generate and the transmits of the bits
-    /// above it up to some bit, or the carry in and every transmit up to
-    /// one.
-    fn terms(&self) -> Vec<Table> {
+    /// The lookahead terms of the group of `bits`: a bit's generate and
+    /// the transmits of the bits above it in the group up to some bit, or,
+    /// in the lowest group, the carry in and every transmit up to one.
+    fn terms(&self, bits: RangeInclusive<usize>) -> Vec<Table> {
+        let (low, high) = (*bits.start(), *bits.end());
         let mut terms = Vec::new();
-        for j in 0..self.width {
-            for i in j + 1..self.width {
+        for j in low..=high {
+            for i in j + 1..=high {
                 terms.push(self.table(|c| {
                     bit(c, j) && self.bit_b(c, j) && self.transmits(c, j + 1, i)
                 }));
             }
         }
-        if self.carry_in.is_some() {
-            for i in 0..self.width {
+        if self.carry_in.is_some() && low == 0 {
+            for i in 0..=high {
                 terms.push(self.table(|c| {
                     self.bit_carry_in(c) && self.transmits(c, 0, i)
                 }));

@@ -420,7 +420,15 @@ impl Form {
 pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
         categories: catalogue::categories(db).await?,
-        designs: catalogue::designs(db).await?,
+        // A blessed build's design comes from its circuit, so there is
+        // none to choose.
+        designs: catalogue::designs(db)
+            .await?
+            .into_iter()
+            .filter(|design| {
+                !crate::category::BLESSED.contains(&design.category.as_str())
+            })
+            .collect(),
         flags: catalogue::flags(db).await?,
         people: schematic::all_people(db).await?,
         tags: tag::all(db).await?,
