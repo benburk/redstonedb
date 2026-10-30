@@ -8,7 +8,7 @@ use app::{
     models::schematic::{Logic, Orientation},
     schem::Blocks,
     simulate::{Report, Stacking},
-    standardize::{self, Gray},
+    standardize,
 };
 
 /// A fixture as the site stores it.
@@ -70,8 +70,7 @@ fn a_carry_signature_names_its_design() {
 fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     // Standardized, as its file is not in the palette.
     let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file =
-        standardize::standardize(&raw, standardize::Gray::Whiten).unwrap();
+    let file = standardize::standardize(&raw).unwrap();
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("multiplier"));
     assert!(e.passes(), "{:?}", e.report);
@@ -96,9 +95,7 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let file = import::prepare(&raw, Some(Gray::Keep), true, false, true)
-        .unwrap()
-        .data;
+    let file = import::prepare(&raw, true, true, false, true).unwrap().data;
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("xor_xnor_gate"));
     assert!(e.passes(), "{:?}", e.report);
@@ -136,9 +133,7 @@ fn an_incrementer_with_no_carry_out_does_not_stack() {
 /// way.
 fn uploaded(name: &str) -> Vec<u8> {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    import::prepare(&raw, Some(Gray::Whiten), true, false, true)
-        .unwrap()
-        .data
+    import::prepare(&raw, true, true, false, true).unwrap().data
 }
 
 /// A comparator or absolute value is read whole from its file, a
@@ -359,7 +354,7 @@ fn inverted_lines_are_flags_not_categories() {
     assert!(subtractor.design.is_some());
 
     let raw = std::fs::read("tests/fixtures/vert-3t-cca.schem").unwrap();
-    let file = import::prepare(&raw, None, true, false, false)
+    let file = import::prepare(&raw, false, true, false, false)
         .unwrap()
         .data;
     let inverted = evaluate(&file).unwrap();

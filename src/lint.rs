@@ -8,12 +8,8 @@ use crate::{
 };
 
 /// The block palette from `conventions.md`, besides the input and output
-/// colours and gray: white for everything that is none of them.
+/// colours: white for everything that is neither.
 const PALETTE: [&str; 2] = ["white_concrete", "white_stained_glass"];
-
-/// The colour of logic only a stack's first copy keeps, such as what its
-/// least significant bit alone needs.
-const FIRST_COPY: &str = "gray";
 
 /// The operand colours of concrete, in order: lime for A, light blue for B,
 /// cyan for C, blue for D. Lightest first, going from green to blue.
@@ -266,7 +262,6 @@ fn palette(blocks: &Blocks, found: &mut Vec<Violation>) {
     for (pos, state) in blocks.iter() {
         let name = schem::short(state);
         if !PALETTE.contains(&name)
-            && !first_copy_only(name)
             && !is_input(name)
             && !is_output(name)
             && !COMPONENTS.contains(&name)
@@ -634,7 +629,7 @@ pub fn is_component(name: &str) -> bool {
 /// Whether standardizing keeps `name` as it is: a redstone component, an
 /// output block, or a block only a stack's first copy keeps.
 pub fn keeps(name: &str) -> bool {
-    is_component(name) || is_output(name) || first_copy_only(name)
+    is_component(name) || is_output(name)
 }
 
 /// Whether a block id without its namespace is one a barrel stands in for:
@@ -645,16 +640,6 @@ pub fn barrel_stands_in(name: &str) -> bool {
         || name.ends_with("cauldron")
         || name == "cake"
         || name.ends_with("candle_cake")
-}
-
-/// Whether a block id without its namespace is one only a stack's first
-/// copy keeps, with what rests on it: gray concrete or stained glass. A
-/// barrel on gray gives a signal strength the first copy alone needs; any
-/// other repeats in every copy.
-pub fn first_copy_only(name: &str) -> bool {
-    name.strip_suffix("_concrete")
-        .or_else(|| name.strip_suffix("_stained_glass"))
-        == Some(FIRST_COPY)
 }
 
 /// Whether a block id without its namespace, such as `lime_concrete`, is

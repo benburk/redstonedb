@@ -84,9 +84,9 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                     &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
                 ))
                 (rule(
-                    "Gray",
-                    "marks parts only the first copy of a stack keeps, such as an input's driver.",
-                    &["gray"],
+                    "Stacking",
+                    "copies repeat a box of the build; what only the first copy needs, such as a carry in, goes on an outer face.",
+                    &[],
                 ))
                 p class="mt-6 mb-4 max-w-prose" { "No other colours, signs, or bit-order marks are needed." }
                 div class="max-w-prose" {

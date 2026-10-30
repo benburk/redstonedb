@@ -40,7 +40,6 @@ impl Example {
 
 const WHITE: &str = "white_concrete";
 const YELLOW: &str = "yellow_concrete";
-const GRAY: &str = "gray_concrete";
 const LEVER: &str = "lever[face=wall,facing=south,powered=true]";
 const DUST_NS: &str =
     "redstone_wire[east=none,north=side,power=15,south=side,west=none]";
@@ -155,23 +154,6 @@ pub fn examples() -> Vec<Example> {
             kept: false,
             breaks: None,
             blocks: bus(&[0, 2, 5, 7], &[1, 1, 1, 1]),
-        },
-        Example {
-            name: "gray",
-            caption: "Two copies; only the first keeps the gray block and the torch on it.",
-            kept: true,
-            breaks: None,
-            // Two copies of a slice, side by side; only the first has the
-            // gray block and the torch on it that powers its dust.
-            blocks: [
-                input(2, 1),
-                input(5, 1),
-                vec![
-                    ([3, 0, 0], GRAY),
-                    ([3, 1, 0], "redstone_torch[lit=true]"),
-                ],
-            ]
-            .concat(),
         },
     ]
 }

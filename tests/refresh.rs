@@ -33,7 +33,7 @@ async fn setup_test_db() -> SqlitePool {
 async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
-    let prepared = import::prepare(&raw, None, true, false, false)
+    let prepared = import::prepare(&raw, false, true, false, false)
         .expect("fixture prepares");
     let ready = details::check(db, details, Build::of(&prepared), false)
         .await
@@ -126,7 +126,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
 async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
     let db = setup_test_db().await;
     let raw = std::fs::read("tests/fixtures/cca-8-dust-out.schem").unwrap();
-    let prepared = import::prepare(&raw, None, true, false, false).unwrap();
+    let prepared = import::prepare(&raw, false, true, false, false).unwrap();
     let as_adder = Details {
         category: "adder".to_owned(),
         ..Details::default()
@@ -211,7 +211,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
         .unwrap();
     let new = app::schem::encode(nbt).unwrap();
-    let prepared = import::prepare(&new, None, true, false, false).unwrap();
+    let prepared = import::prepare(&new, false, true, false, false).unwrap();
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,
         added_from: None,

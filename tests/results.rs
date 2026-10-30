@@ -28,7 +28,7 @@ async fn setup_test_db() -> SqlitePool {
 async fn results_are_taken_only_while_the_build_is_as_it_was() {
     let db = setup_test_db().await;
     let raw = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
-    let prepared = import::prepare(&raw, None, true, false, false).unwrap();
+    let prepared = import::prepare(&raw, false, true, false, false).unwrap();
     let typed = Details {
         category: "adder".to_owned(),
         ..Details::default()

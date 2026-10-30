@@ -22,8 +22,8 @@
 //! - Every output, data or status, is a coloured block with dust or a
 //!   repeater on top, which is what is read, and no block of its colour
 //!   touching it, even diagonally, of a kind used for nothing else. Any
-//!   colour but white, a build's plain block; gray, which marks logic only
-//!   a stack's first copy keeps; and the input colours, lime, light blue,
+//!   colour but white and gray, a build's plain blocks, and the input
+//!   colours, lime, light blue,
 //!   cyan, blue, and magenta, so a block left over from an input, or a
 //!   signal-strength input's, is never read as an output.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
@@ -380,9 +380,9 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
 /// The outputs: coloured blocks, each with dust or a repeater on top,
 /// which is what is read, and no block of its own colour touching it, even
 /// diagonally, of a kind every block of which is so. Any colour marks one
-/// but white, gray, and the input colours: white is a build's plain block,
-/// gray marks logic only a stack's first copy keeps, and an input colour
-/// an input, even one whose switch has moved.
+/// but white, gray, and the input colours: white and gray are a build's
+/// plain blocks, and an input colour marks an input, even one whose switch
+/// has moved.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();

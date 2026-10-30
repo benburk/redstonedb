@@ -14,11 +14,10 @@ use crate::{
     lint::{self, Violation},
     models::catalogue::Category,
     models::schematic::{self, Encoding, New, Orientation},
-    models::{simulation, version},
+    models::version,
     orient::{self, Turn},
     schem::{self, Blocks, Size},
-    simulate::{self, Report, Test},
-    standardize::{self, Gray},
+    standardize,
     works_from::{self, WorksFrom},
 };
 
@@ -43,8 +42,7 @@ pub struct Prepared {
 
 /// The one way a file becomes the file the site keeps, whether uploaded,
 /// added, or read again: swaps cauldrons and cakes for barrels giving the
-/// same signal strength; standardizes it if asked, gray as `standardize`
-/// says, and in any case takes out corner markers and fits its box
+/// same signal strength; standardizes it if asked, and in any case takes out corner markers and fits its box
 /// tightly; turns a conventional build's status lines pink, as older builds
 /// marked them on yellow; and sets it to paste from one block south of its
 /// south-east-bottom corner unless `keep_paste`, which keeps where its
@@ -52,18 +50,18 @@ pub struct Prepared {
 /// turned and mirrored to lie the standard way, as `orient::orient` does; a
 /// new version is not, as it is compared block by block with the one
 /// before. Then measures it, reads its facts, and hashes it.
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn prepare(
     data: &[u8],
-    standardize: Option<Gray>,
+    standardize: bool,
     conventional: bool,
     keep_paste: bool,
     orient: bool,
 ) -> Result<Prepared> {
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
     let data = standardize::barrels(data, &[])?;
-    let data = if let Some(gray) = standardize {
-        standardize::standardize(&data, gray)
-            .context("cannot standardize it")?
+    let data = if standardize {
+        standardize::standardize(&data).context("cannot standardize it")?
     } else {
         standardize::tidy(&data)?
     };
@@ -103,11 +101,11 @@ pub fn prepare(
 /// it, and counted as following the conventions only when it breaks none,
 /// so is measured without its interface layers.
 pub fn as_built(file: &[u8]) -> Result<Prepared> {
-    let plain = prepare(file, None, false, false, false)?;
+    let plain = prepare(file, false, false, false, false)?;
     if !lint::check(&plain.blocks).is_empty() {
         return Ok(plain);
     }
-    let conventional = prepare(&plain.data, None, true, false, false)?;
+    let conventional = prepare(&plain.data, false, true, false, false)?;
     Ok(Prepared {
         swapped: plain.swapped,
         ..conventional
@@ -424,18 +422,16 @@ pub struct Upload {
     /// As its builder made it, which a build the site does not recognize
     /// keeps; see `import::as_built`.
     pub original: Prepared,
-    /// Standardized and turned to lie the standard way, its gray blocks
-    /// kept until publishing decides, as a recognized build is kept; or
-    /// why it cannot be, as when it marks no inputs.
+    /// Standardized and turned to lie the standard way, as a recognized
+    /// build is kept; or why it cannot be, as when it marks no inputs.
     pub standard: Result<Prepared, String>,
 }
 
 impl Upload {
     pub fn read(file: &[u8]) -> anyhow::Result<Self> {
         let original = as_built(file)?;
-        let standard =
-            prepare(&original.data, Some(Gray::Keep), true, false, true)
-                .map_err(|err| format!("{err:#}"));
+        let standard = prepare(&original.data, true, true, false, true)
+            .map_err(|err| format!("{err:#}"));
         Ok(Upload { original, standard })
     }
 
@@ -451,7 +447,7 @@ pub enum Kept {
     /// As built, the build not being one the site recognizes, with why
     /// not when its category is one the site works out.
     Original(Option<Unrecognized>),
-    /// Standardized, with its gray blocks settled, as a build of the
+    /// Standardized, as a build of the
     /// listed category named `category`, which an off-list name such as
     /// `8-bit adder` stands in for.
     Standard {
@@ -461,7 +457,7 @@ pub enum Kept {
 }
 
 /// Which of `upload`'s files a build given as `category` keeps: the
-/// standard one, its gray settled, when it is recognized as the listed
+/// standard one when it is recognized as the listed
 /// category `category` means, as `details::meant` reads it; else the
 /// original. The `Err` says it could not be simulated.
 pub async fn kept(
@@ -495,7 +491,7 @@ pub async fn kept(
         Ok(Some(off)) => Ok(Kept::Original(Some(off))),
         Ok(None) => match &upload.standard {
             Ok(standard) => Ok(Kept::Standard {
-                file: Box::new(gray_settled(standard, &meant.name).await?),
+                file: Box::new(rewrapped(standard)?),
                 category: meant.name.clone(),
             }),
             Err(_) => Ok(Kept::Original(None)),
@@ -503,48 +499,12 @@ pub async fn kept(
     })
 }
 
-/// A recognized build's standardized file, `standard`, with its gray
-/// blocks, which mark what only a stack's first copy keeps, kept when its
-/// copies stack with them left out of all but the first, and whitened
-/// when they do not, or when its category never stacks.
-pub async fn gray_settled(
-    standard: &Prepared,
-    category: &str,
-) -> anyhow::Result<Prepared> {
-    let gray = standard
-        .blocks
-        .iter()
-        .any(|(_, state)| lint::first_copy_only(schem::short(state)));
-    let rewrapped = || {
-        prepare(
-            &standard.data,
-            None,
-            standard.conventional,
-            standard.keeps_paste,
-            false,
-        )
-    };
-    if !gray {
-        return rewrapped();
-    }
-    let width = simulation::derived_width(category, true, &standard.data)?;
-    let stacks = match Test::of(category, width) {
-        Some(test)
-            if category::behaviour(category).stacking
-                != category::Stacking::Never =>
-        {
-            let report = simulation::run(test, standard.data.clone()).await?;
-            matches!(&report, Report::Ran(run) if run.stacking.as_ref()
-                .is_some_and(|s| !matches!(s, simulate::Stacking::Not { .. })))
-        }
-        _ => false,
-    };
-    if stacks {
-        return rewrapped();
-    }
+/// A recognized build's standardized file, `standard`, as it is kept:
+/// prepared again as it stands, neither standardized nor turned.
+pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
     prepare(
         &standard.data,
-        Some(Gray::Whiten),
+        false,
         standard.conventional,
         standard.keeps_paste,
         false,
@@ -554,7 +514,7 @@ pub async fn gray_settled(
 /// A build off the list, as `category` names it, moved up by its new
 /// version `file`: when that is recognized as the listed category the
 /// name means, as an 8-bit adder's as an adder, the file standardized and
-/// turned to lie the standard way, its gray settled, as an upload's is,
+/// turned to lie the standard way, as an upload's is,
 /// with that category. `None` for a build on the list, or one its version
 /// does not move up.
 pub async fn moved_up<'a>(
@@ -571,8 +531,7 @@ pub async fn moved_up<'a>(
     else {
         return Ok(None);
     };
-    let Ok(candidate) =
-        prepare(&file.data, Some(Gray::Keep), true, keep_paste, true)
+    let Ok(candidate) = prepare(&file.data, true, true, keep_paste, true)
     else {
         return Ok(None);
     };
@@ -583,7 +542,7 @@ pub async fn moved_up<'a>(
     if !recognized {
         return Ok(None);
     }
-    Ok(Some((gray_settled(&candidate, &meant.name).await?, meant)))
+    Ok(Some((rewrapped(&candidate)?, meant)))
 }
 
 #[cfg(test)]

@@ -18,7 +18,6 @@ use crate::{
     lint,
     models::{schematic::Schematic, version},
     schem::{self, Blocks, Pos},
-    standardize::Gray,
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless
@@ -59,7 +58,7 @@ impl Comparison {
 /// is, without the power a resave changes, such as dust's strength or a
 /// torch being lit; a lever's position is kept, being an input's setting.
 /// Any other block is compared only as a block, so one recoloured, such as
-/// marked as an input or turned gray, or turned from solid to see-through
+/// marked as an input, or turned from solid to see-through
 /// or back, as glass to show the circuit, is unchanged.
 pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
     let old = solid(old);
@@ -145,7 +144,7 @@ pub async fn check(
     db: &SqlitePool,
     s: &Schematic,
     file: &[u8],
-    standardize: Option<Gray>,
+    standardize: bool,
 ) -> anyhow::Result<Checked> {
     let prepared = import::prepare(
         file,

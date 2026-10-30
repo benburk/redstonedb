@@ -14,7 +14,6 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 | Control line | magenta concrete                        |
 | Outputs 1–3  | yellow, orange, brown concrete or glass |
 | Status line  | pink concrete or glass                  |
-| First copy   | gray concrete or stained glass          |
 
 - Cool colours are inputs, warm outputs, each lightest first: inputs green to blue (A to D), outputs yellow to brown (first to third). Each colour is one bus. Each magenta block is its own control line and each pink block its own status line, named by its own sign, unless one sign names a row of them.
 - An output colour may be stained glass where the output needs a transparent block.
@@ -25,7 +24,7 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 - A green and B blue stay apart under red-green colour blindness.
 - One colour per operand, not per power requirement; drive is derived (see Inputs).
 - Magenta beat orange in game: dust reads better on it powered, slightly worse unpowered, and both states count.
-- Gray marks logic only a stack's first copy keeps, such as what the least significant bit alone needs (see Stacking). Dust reads on gray powered and unpowered; on red it would not.
+- Gray means nothing: standardizing turns it white like any other plain block, and it never marks an output. What only a stack's first copy needs goes outside the box its later copies repeat (see Stacking).
 - Colours are semantic, not aesthetic. No two roles share a block, so export can recolour each role to a user's palette.
 
 ## Inputs
@@ -89,7 +88,7 @@ Import derives this; nothing in-world marks it.
 - A fixed strength, such as 1ss, is a barrel of redstone dust read by a comparator. A barrel is solid and repeats in every stack copy.
 - No furnaces, cauldrons, or cakes. Every file the site takes in has each swapped for a barrel of the same strength, and the upload page says so. A furnace conducts as a barrel does, so nothing else changes.
 - Hoppers are allowed only as a fixed strength: the simulator reads their contents and moves no items. The upload page offers a same-strength barrel instead.
-- A strength only the first copy needs, such as a 1ss feeding its carry, is a barrel on gray.
+- A strength only the first copy needs, such as a 1ss feeding its carry, is a barrel outside the box later copies repeat, on an outer face.
 
 ## Outputs
 

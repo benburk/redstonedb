@@ -5,6 +5,7 @@ use std::{
     fs,
     io::Write as _,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, bail, ensure};
@@ -23,7 +24,6 @@ use app::{
     mojang, search,
     simulate::{Action, Report, Signal, Stacking, Timing},
     stack,
-    standardize::Gray,
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -116,7 +116,7 @@ enum Command {
     /// torches and the oldest release it works in
     Reread,
     /// Put a file in place of a stored build's, as a fix to the file, such
-    /// as whitening its gray blocks: no version is added and nothing is
+    /// as recolouring its blocks: no version is added and nothing is
     /// compared. Then read it as `reread` does
     Replace(Replace),
     /// Respell every stored Minecraft name as its player spells it, asking
@@ -317,21 +317,12 @@ struct Standardizing {
     /// when that reads right as what it seems to be
     #[arg(long)]
     standardize: bool,
-    /// Keep gray blocks when standardizing, marking logic only a stack's
-    /// first copy keeps, rather than whitening them
-    #[arg(long, requires = "standardize")]
-    keep_gray: bool,
 }
 
 impl Standardizing {
-    /// Whether to standardize, and what to do with gray blocks if so.
-    fn asked(&self) -> Option<Gray> {
-        let gray = if self.keep_gray {
-            Gray::Keep
-        } else {
-            Gray::Whiten
-        };
-        self.standardize.then_some(gray)
+    /// Whether to standardize.
+    fn asked(&self) -> bool {
+        self.standardize
     }
 }
 
@@ -754,7 +745,7 @@ async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
         standardize,
         conventional,
         args.keep_paste,
-        standardize.is_some(),
+        standardize,
     )
     .with_context(|| file.display().to_string())?;
     let mut details = Details {
@@ -961,7 +952,7 @@ async fn reread(db: &SqlitePool) -> Result<()> {
         let stored = version::current_file(db, &s.id)
             .await?
             .context("schematic vanished")?;
-        refile(db, &s, &stored, None).await?;
+        refile(db, &s, &stored, false).await?;
     }
     Ok(())
 }
@@ -975,7 +966,7 @@ async fn refile(
     db: &SqlitePool,
     s: &schematic::Schematic,
     file: &[u8],
-    standardize: Option<Gray>,
+    standardize: bool,
 ) -> Result<()> {
     let prepared = import::prepare(
         file,
@@ -1240,7 +1231,7 @@ async fn keep_off_list(
     let data = version::current_file(from, &s.id)
         .await?
         .context("schematic vanished")?;
-    let prepared = import::prepare(&data, None, s.conventional, true, false)?;
+    let prepared = import::prepare(&data, false, s.conventional, true, false)?;
     let mut given = Details::of(s);
     // A category off the list has no designs of its own.
     if let Some(category) = catalogue::Category::find(listed, &s.category) {
@@ -1335,8 +1326,7 @@ async fn rebuild_one(
             Err(why) => return Ok(Err(why)),
         }
     };
-    let prepared =
-        import::prepare(&coloured, Some(Gray::Keep), true, false, true)?;
+    let prepared = import::prepare(&coloured, true, true, false, true)?;
     let ready = match details::check(
         db,
         Details::of(s),
@@ -1450,7 +1440,7 @@ async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
             .context("schematic vanished")?;
         (data, load(db, &id).await?.category)
     };
-    let prepared = import::prepare(&data, None, true, true, false)?;
+    let prepared = import::prepare(&data, false, true, true, false)?;
     let violations = Analysis::of(&prepared.blocks, &category, true).violations;
     for violation in &violations {
         println!("{violation}");
@@ -1505,6 +1495,9 @@ async fn new_version(
 
 /// Runs the test of build `id`, or of every build with one, again, and
 /// stores what it finds.
+/// How many builds `simulate` runs at once.
+const AT_ONCE: usize = 4;
+
 async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
     let ids = match id {
         Some(prefix) => vec![resolve(db, prefix).await?],
@@ -1516,17 +1509,31 @@ async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
     };
     let one = id.is_some();
     let mut failed = 0;
-    for id in &ids {
-        let start = std::time::Instant::now();
-        let report = match simulation::refresh(db, id, true).await? {
-            Some(_) => simulation::refresh_timing(db, id, true).await?,
-            None => None,
-        };
-        let name = format!("{}  {}", &id[..8], load(db, id).await?.filename());
+    // Each build simulates on its own thread, `AT_ONCE` at a time, and
+    // says how it went as it finishes.
+    simulation::run_at_once(AT_ONCE);
+    let gate = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
+    let mut running = tokio::task::JoinSet::new();
+    for id in ids {
+        let (db, gate) = (db.clone(), Arc::clone(&gate));
+        running.spawn(async move {
+            let _turn = gate.acquire_owned().await?;
+            let start = std::time::Instant::now();
+            let report = match simulation::refresh(&db, &id, true).await? {
+                Some(_) => simulation::refresh_timing(&db, &id, true).await?,
+                None => None,
+            };
+            let name =
+                format!("{}  {}", &id[..8], load(&db, &id).await?.filename());
+            anyhow::Ok((name, report, start.elapsed()))
+        });
+    }
+    while let Some(done) = running.join_next().await {
+        let (name, report, took) = done??;
         match report {
             Some(report) => {
                 print_report(&name, &report);
-                println!("        in {:.1?}", start.elapsed());
+                println!("        in {took:.1?}");
                 failed += usize::from(report.failed());
             }
             None if one => {
@@ -1685,7 +1692,7 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
                 continue;
             }
         };
-        let checked = app::version::check(db, &s, &pruned.file, None).await?;
+        let checked = app::version::check(db, &s, &pruned.file, false).await?;
         if let Some(refusal) = checked.refusals.first() {
             println!("skip    {name}: {refusal}");
             continue;

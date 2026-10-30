@@ -155,10 +155,7 @@ pub fn roles(
         let output = outputs.contains(&p);
         let building = schem::short(state).ends_with("_concrete")
             || schem::short(state).ends_with("glass");
-        // A gray block marks what only a stack's first copy keeps, so it
-        // does its work in a stack, as its later copies leave it out.
         if !building
-            || lint::first_copy_only(schem::short(state))
             || inputs.contains(&p)
             || (output && !lint::is_output(schem::short(state)))
         {

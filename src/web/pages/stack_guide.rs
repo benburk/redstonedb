@@ -145,12 +145,7 @@ fn warnings(review: &Review) -> Markup {
                         li {
                             "(" (x) ", " (y) ", " (z) "): " (spot.earlier) " replaced by the next copy's " (spot.later)
                             ", from (" (fx) ", " (fy) ", " (fz) ")"
-                            @if let Some([ox, oy, oz]) = spot.on {
-                                " on (" (ox) ", " (oy) ", " (oz) "). If only the first copy needs it, make ("
-                                (ox) ", " (oy) ", " (oz) ") gray."
-                            } @else {
-                                "."
-                            }
+                            "."
                         }
                     }
                     @if spots.len() > LISTED {

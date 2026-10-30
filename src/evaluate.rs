@@ -60,7 +60,7 @@ impl Evaluation {
 
 /// Reads the build in `file`.
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
-    let prepared = import::prepare(file, None, true, true, false)?;
+    let prepared = import::prepare(file, false, true, true, false)?;
     let blocks = &prepared.blocks;
     let category = simulate::guess(blocks).map(|guess| guess.category);
     let interface = interface::read(blocks);

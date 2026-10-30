@@ -103,29 +103,6 @@ fn taking_out_a_torchs_block_changes_the_circuit() {
     );
 }
 
-/// A gray block marks what only a stack's first copy keeps, so it is never
-/// unused, though a lone copy does not need it, as this adder's, which its
-/// copies stacked up leave out.
-#[test]
-fn a_gray_block_is_never_unused() {
-    let data =
-        std::fs::read("tests/fixtures/gray-first-copy-adder-8.schem").unwrap();
-    let blocks = Blocks::read(&data).unwrap();
-    let gray: Vec<Pos> = blocks
-        .iter()
-        .filter(|(_, state)| schem::short(state).starts_with("gray"))
-        .map(|(pos, _)| pos)
-        .collect();
-    assert!(!gray.is_empty(), "the fixture has gray blocks");
-    let roles = roles::roles(&data, &[], stack::Buses::own()).unwrap();
-    for pos in gray {
-        assert!(
-            roles.get(&pos).is_none_or(|role| role.need != Need::Unused),
-            "{pos:?}"
-        );
-    }
-}
-
 /// A register file's copies share its data bus, joined by dust up its back
 /// that a lone copy does not use; dust is never unused, so it and its
 /// blocks stay, read alone or as the site stacks it.

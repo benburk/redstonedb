@@ -26,7 +26,6 @@ use crate::{
         Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
     },
     stack,
-    standardize::Gray,
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -167,6 +166,13 @@ pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
 /// someone is waiting on.
 static CASES: Semaphore = Semaphore::const_new(1);
 static TIMING: Semaphore = Semaphore::const_new(1);
+
+/// Lets `at_once` runs of cases, and as many timings, go at a time, as on
+/// a machine with the cores for them; call once, before any runs.
+pub fn run_at_once(at_once: usize) {
+    CASES.add_permits(at_once.saturating_sub(1));
+    TIMING.add_permits(at_once.saturating_sub(1));
+}
 
 /// The results of the latest files run, by the file's hash and the test,
 /// so a file previewed and then published, the same bytes, takes what its
@@ -384,7 +390,7 @@ async fn at_zero(
         if fixed == was {
             return Ok(None);
         }
-        import::prepare(&fixed, None, conventional, keeps_paste, false)
+        import::prepare(&fixed, false, conventional, keeps_paste, false)
             .map(Some)
     })
     .await?;
@@ -417,8 +423,7 @@ async fn refresh_off_list(
     if !again && let Some(report) = current(db, s).await? {
         return Ok(Some(report));
     }
-    let standard =
-        import::prepare(data, Some(Gray::Keep), true, s.keeps_paste, true);
+    let standard = import::prepare(data, true, true, s.keeps_paste, true);
     let report = match standard {
         Ok(standard) => {
             let width = derived_width(meant, true, &standard.data)?;
@@ -873,7 +878,8 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
         .await?
         .context("schematic vanished")?;
     if let Some(pruned) = roles::prune(&data, &s.stacking, buses(&s))? {
-        let checked = crate::version::check(db, &s, &pruned.file, None).await?;
+        let checked =
+            crate::version::check(db, &s, &pruned.file, false).await?;
         if checked.refusals.is_empty() {
             let how = version::Replacing::NextVersion {
                 added_by: None,

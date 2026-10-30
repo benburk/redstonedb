@@ -38,9 +38,7 @@ use crate::{
     },
     palette::{self, Palette},
     schem::Blocks,
-    search, stack,
-    standardize::{self, Gray},
-    thumbnail,
+    search, stack, standardize, thumbnail,
     version::{Checked, check as check_version},
 };
 
@@ -478,7 +476,7 @@ pub struct Panel {
 fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
     if let Some(meant) = simulation::meant_by(&s.category)
         && let Ok(standard) =
-            import::prepare(data, Some(Gray::Keep), true, s.keeps_paste, true)
+            import::prepare(data, true, true, s.keeps_paste, true)
     {
         return Analysis::of(&standard.blocks, meant, true);
     }
@@ -701,8 +699,8 @@ async fn chosen_version(
     posted: &upload::Posted,
 ) -> Result<Checked, String> {
     let chosen = posted.chosen().await?;
-    // A listed build that follows the conventions is kept standardized,
-    // its gray settled once it is saved; one off the list as built, until
+    // A listed build that follows the conventions is kept standardized;
+    // one off the list as built, until
     // a version it is recognized by moves it up.
     let listed = Category::find(
         &catalogue::categories(db)
@@ -711,7 +709,7 @@ async fn chosen_version(
         &s.category,
     )
     .is_some();
-    let standardize = (s.conventional && listed).then_some(Gray::Keep);
+    let standardize = s.conventional && listed;
     check_version(db, s, &chosen.file, standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
@@ -729,7 +727,7 @@ async fn attached(
         return Ok(None);
     }
     let checked = match STANDARD.decode(data) {
-        Ok(data) => check_version(db, s, &data, None).await,
+        Ok(data) => check_version(db, s, &data, false).await,
         Err(_) => Err(anyhow::anyhow!("it did not arrive whole")),
     };
     checked.map(Some).map_err(|err| {
@@ -794,7 +792,7 @@ async fn save_details(
 /// a build off the list whose new version is recognized as the listed
 /// category its name means, as an 8-bit adder's as an adder, moves up,
 /// its file standardized and turned to lie the standard way, as an
-/// upload's is; a recognized build's gray is settled as an upload's is.
+/// upload's is.
 /// Only a build whose category, as `category` gives it, is unchanged
 /// moves up.
 async fn version_kept(
@@ -813,8 +811,8 @@ async fn version_kept(
         return Ok(Some((moved, Some(to.name.clone()))));
     }
     match Category::find(&categories, category).filter(evaluated) {
-        Some(c) if prepared.conventional => {
-            Ok(Some((import::gray_settled(prepared, &c.name).await?, None)))
+        Some(_) if prepared.conventional => {
+            Ok(Some((import::rewrapped(prepared)?, None)))
         }
         _ => Ok(None),
     }

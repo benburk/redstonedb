@@ -11,7 +11,7 @@ use app::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Takes,
         Test,
     },
-    standardize::{self, Gray},
+    standardize,
 };
 
 /// A fixture as the site stores it: markers out, box fitted, and status
@@ -210,9 +210,7 @@ fn an_adder_stacks_by_its_box() {
     let report = app::inspect::inspect(&blocks);
     let probed = app::probe::adder(&blocks, &report).unwrap();
     let coloured = app::probe::colour(&data, &probed.layout).unwrap();
-    let standard =
-        import::prepare(&coloured, Some(Gray::Keep), true, false, true)
-            .unwrap();
+    let standard = import::prepare(&coloured, true, true, false, true).unwrap();
     let Some(Stacking::Stacks {
         step, copies, bits, ..
     }) = Test::Adder.stacking(&standard.data)
@@ -235,9 +233,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
     let report = app::inspect::inspect(&blocks);
     let probed = app::probe::adder(&blocks, &report).unwrap();
     let coloured = app::probe::colour(&data, &probed.layout).unwrap();
-    let standard =
-        import::prepare(&coloured, Some(Gray::Keep), true, false, true)
-            .unwrap();
+    let standard = import::prepare(&coloured, true, true, false, true).unwrap();
     let Some(Stacking::Stacks { step, bits, .. }) =
         Test::Adder.stacking(&standard.data)
     else {
@@ -254,7 +250,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
 fn a_combinational_multiplier_tries_every_product() {
     let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
-    let data = standardize::standardize(&raw, Gray::Whiten).unwrap();
+    let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::Multiplier.run(&blocks) else {
         panic!("the multiplier was not simulated");
@@ -282,8 +278,7 @@ fn a_combinational_multiplier_tries_every_product() {
 #[test]
 fn a_sequential_multiplier_is_pressed_to_calculate() {
     let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file =
-        standardize::standardize(&raw, standardize::Gray::Whiten).unwrap();
+    let file = standardize::standardize(&raw).unwrap();
     let report = Test::Multiplier.run(&Blocks::read(&file).unwrap());
     assert!(report.passed(), "{report:?}");
 }
@@ -331,7 +326,7 @@ fn a_build_is_known_for_what_it_does() {
 #[test]
 fn a_hex_adder_is_driven_digit_by_digit() {
     let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
-    let data = standardize::standardize(&raw, Gray::Whiten).unwrap();
+    let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
     let derived = import::derived("adder", &interface);
@@ -483,7 +478,7 @@ fn a_lever_saved_on_by_mistake_changes_nothing() {
 #[test]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+    let blocks = import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks;
     let report = Test::Alu.run(&blocks);
@@ -532,7 +527,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
         std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+    let blocks = import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks;
     let Report::Ran(run) = Test::Alu.run(&blocks) else {
@@ -565,9 +560,7 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
 /// blocks.
 fn register(name: &str) -> (Vec<u8>, Blocks) {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
-        .unwrap()
-        .data;
+    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
     let blocks = Blocks::read(&data).unwrap();
     (data, blocks)
 }
@@ -925,9 +918,7 @@ fn a_register_with_wide_cells_stacks_at_its_width() {
 #[test]
 fn an_absolute_value_gives_each_inputs_magnitude() {
     let raw = std::fs::read("tests/fixtures/abs-8.schem").unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
-        .unwrap()
-        .data;
+    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::AbsoluteValue.run(&blocks) else {
         panic!("the absolute value was not simulated");
@@ -943,9 +934,7 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
 #[test]
 fn a_carry_out_gives_the_carry_of_every_sum() {
     let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
-    let data = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
-        .unwrap()
-        .data;
+    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
     let blocks = Blocks::read(&data).unwrap();
     assert!(lint::check_for(&blocks, "carry_out").is_empty());
     let Report::Ran(run) = Test::CarryOut.run(&blocks) else {
@@ -969,7 +958,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
     // As an upload standardizes it, its blocks then all ones the
     // simulator models.
     let raw = std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+    let blocks = import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks;
     let read = interface::read(&blocks);
@@ -997,7 +986,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
 #[test]
 fn a_double_density_subtractor_takes_b_from_a() {
     let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
-    let blocks = import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+    let blocks = import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks;
     assert!(lint::check_for(&blocks, "adder").is_empty());
@@ -1038,9 +1027,8 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
         ("inc-8", "incrementer"),
         ("alu-8-ops-raw", "alu"),
     ];
-    let upload = |data: &[u8]| {
-        import::prepare(data, Some(Gray::Whiten), true, false, true).unwrap()
-    };
+    let upload =
+        |data: &[u8]| import::prepare(data, true, true, false, true).unwrap();
     for (name, category) in fixtures {
         let raw =
             std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
@@ -1084,7 +1072,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
 /// A comparison fixture as an upload standardizes it.
 fn comparison(name: &str) -> Blocks {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    import::prepare(&raw, Some(Gray::Whiten), true, false, true)
+    import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks
 }
@@ -1368,8 +1356,7 @@ fn a_glass_output_is_read_from_the_repeater_on_it() {
 #[test]
 fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let prepared =
-        import::prepare(&raw, Some(Gray::Keep), true, false, true).unwrap();
+    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
     let report = Test::Adder.run(&prepared.blocks);
     let Report::Broken { reason } = report else {
         panic!("it passed for an adder: {report:?}");
@@ -1387,8 +1374,7 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
 #[test]
 fn an_xor_gate_stacks_west_into_wider_ones() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let prepared =
-        import::prepare(&raw, Some(Gray::Keep), true, false, true).unwrap();
+    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
     let Some(Stacking::Wider { step, copies, .. }) =
         Test::XorXnor.stacking(&prepared.data)
     else {
@@ -1404,7 +1390,7 @@ fn memory_is_found_in_loops_but_not_in_combinational_logic() {
     let adder = simulate::compiled(&blocks("alpha-rca")).unwrap();
     assert!(adder.memory().is_empty());
     let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file = standardize::standardize(&raw, Gray::Whiten).unwrap();
+    let file = standardize::standardize(&raw).unwrap();
     let multiplier = simulate::compiled(&Blocks::read(&file).unwrap()).unwrap();
     assert!(!multiplier.memory().is_empty());
 }

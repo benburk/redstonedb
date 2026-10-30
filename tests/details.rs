@@ -6,7 +6,7 @@ use app::{
     import,
     models::schematic::{Encoding, Orientation, StackDirection},
     schem::Blocks,
-    standardize::{self, Gray},
+    standardize,
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -24,24 +24,23 @@ async fn setup_test_db() -> SqlitePool {
     pool
 }
 
-/// A fixture's file, as an upload prepares it, its gray blocks whitened
-/// for one not in the palette.
-fn prepared(name: &str, gray: Option<Gray>) -> Vec<u8> {
+/// A fixture's file, as an upload prepares it, standardized if asked.
+fn prepared(name: &str, standardize: bool) -> Vec<u8> {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
-    import::prepare(&raw, gray, true, false, false)
+    import::prepare(&raw, standardize, true, false, false)
         .expect("fixture prepares")
         .data
 }
 
 /// A stored adder's file, as an upload prepares it.
 fn adder() -> Vec<u8> {
-    prepared("alpha-rca", None)
+    prepared("alpha-rca", false)
 }
 
 /// A stored sequential multiplier's file.
 fn multiplier() -> Vec<u8> {
-    prepared("mult-8-buttons", Some(Gray::Whiten))
+    prepared("mult-8-buttons", true)
 }
 
 /// Details with a category typed as `category`, and the rest as a builder
@@ -209,7 +208,7 @@ async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
         check_file(
             &db,
             given("adder"),
-            &prepared("cca-8-dust-out", None),
+            &prepared("cca-8-dust-out", false),
             true,
         )
         .await,

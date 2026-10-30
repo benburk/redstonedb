@@ -35,17 +35,7 @@ const WHITE: &str = "minecraft:white_concrete";
 const WHITE_GLASS: &str = "minecraft:white_stained_glass";
 const GLASS: &str = "minecraft:glass";
 
-/// What standardizing does with gray blocks, which mark logic only a
-/// stack's first copy keeps.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Gray {
-    /// Whitens them, as any other building block.
-    Whiten,
-    /// Keeps them, for stacking to leave out of later copies.
-    Keep,
-}
-
-pub fn standardize(data: &[u8], gray: Gray) -> Result<Vec<u8>> {
+pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let swapped = barrels(data, &[])?;
     let data = swapped.as_slice();
     let blocks = Blocks::read(data)?;
@@ -62,7 +52,7 @@ pub fn standardize(data: &[u8], gray: Gray) -> Result<Vec<u8>> {
             let state = if status.contains(&pos) {
                 pink(state)
             } else {
-                restyle(state, inputs.contains(&pos), gray)
+                restyle(state, inputs.contains(&pos))
             };
             (pos, state)
         })
@@ -569,15 +559,13 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
 /// The block a standardized build uses in place of `state`. A coloured
 /// block with a lever or signal-strength dust on it, an `input`, becomes
 /// that colour's concrete; without one, its colour means nothing and it
-/// turns white. A gray block turns white too unless `gray` keeps it.
-fn restyle(state: &str, input: bool, gray: Gray) -> String {
+/// turns white.
+fn restyle(state: &str, input: bool) -> String {
     let id = schem::id(state);
     let name = id.strip_prefix("minecraft:").unwrap_or(id);
     if input && let Some(colour) = lint::input_colour(name) {
         format!("minecraft:{colour}_concrete")
-    } else if lint::keeps(name)
-        && (gray == Gray::Keep || !lint::first_copy_only(name))
-    {
+    } else if lint::keeps(name) {
         state.to_owned()
     } else if name.ends_with("_sign") && !name.contains("hanging") {
         let wall = if name.ends_with("_wall_sign") {

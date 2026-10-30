@@ -9,7 +9,6 @@ use app::{
     import::{self, Kept, Upload},
     models::catalogue::{self, Category},
     schem::{self, Blocks},
-    standardize::Gray,
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -35,13 +34,6 @@ fn placed(blocks: &Blocks) -> Vec<(schem::Pos, String)> {
         .filter(|(_, state)| *state != schem::AIR)
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect()
-}
-
-fn gray(blocks: &Blocks) -> usize {
-    blocks
-        .iter()
-        .filter(|(_, state)| schem::short(state).starts_with("gray_"))
-        .count()
 }
 
 #[tokio::test]
@@ -120,25 +112,6 @@ async fn an_off_list_name_means_the_category_it_stands_in_for() {
     assert_eq!(meant("Adder").as_deref(), Some("adder"));
     assert_eq!(meant("piston door"), None);
     assert_eq!(meant("eight-bit adder"), None);
-}
-
-/// Gray stays only where the copies stack with it. This register's gray
-/// driver sits inside the box its copies would stack, so it stacks no way,
-/// and its gray is whitened.
-#[tokio::test]
-async fn gray_stays_only_where_the_copies_stack_with_it() {
-    let standard = |name| {
-        import::prepare(&fixture(name), Some(Gray::Keep), true, false, true)
-            .unwrap()
-    };
-    let register = standard("register-1-gray-driver");
-    assert!(gray(&register.blocks) > 0, "the fixture has gray blocks");
-    let kept = import::gray_settled(&register, "register").await.unwrap();
-    assert_eq!(gray(&kept.blocks), 0);
-
-    // Taken for a multiplier, which never stacks, its gray means nothing.
-    let whitened = import::gray_settled(&register, "multiplier").await.unwrap();
-    assert_eq!(gray(&whitened.blocks), 0);
 }
 
 #[tokio::test]

@@ -138,7 +138,7 @@ macro_rules! guide_image {
 }
 
 /// The Before you upload pictures, one for each of [`crate::guide::examples`].
-const GUIDE: [Asset; 10] = [
+const GUIDE: [Asset; 9] = [
     guide_image!("input"),
     guide_image!("input-three-dusts"),
     guide_image!("repeater"),
@@ -148,7 +148,6 @@ const GUIDE: [Asset; 10] = [
     guide_image!("bus-diagonal"),
     guide_image!("bus-alternating"),
     guide_image!("bus-uneven"),
-    guide_image!("gray"),
 ];
 
 /// Where pages link the Before you upload picture of example `name`.
