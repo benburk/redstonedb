@@ -750,8 +750,9 @@ fn delete_dialog(s: &Schematic) -> Markup {
     }
 }
 
-/// The choices for downloading a build: copies of a stackable one, and
-/// glass corner markers for `WorldEdit`; and, for someone `signed_in`, a
+/// The choices for downloading a build: copies of a stackable one, or one
+/// copy with glass at two corners of the box `//rstack` stacks, for
+/// `WorldEdit` to select it by; and, for someone `signed_in`, a
 /// button that sends the file so made to their Schemati instead.
 fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
     let path = format!("/schematics/{}", s.id);
@@ -772,9 +773,14 @@ fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
                         }
                     }
                 }
-                label class="flex items-start gap-2" {
-                    input type="checkbox" name="markers" value="yes" class="mt-1 size-4 appearance-auto";
-                    span { "Add a glass block off each corner, for WorldEdit to select the build by" }
+                @for direction in &s.stacking {
+                    label class="flex items-start gap-2" {
+                        input type="checkbox" name="markers" value=(direction.name()) class="mt-1 size-4 appearance-auto";
+                        span {
+                            "Mark the box to //rstack " (direction.name().replace('-', " and "))
+                            " with two glass blocks, to select and then break; one copy only"
+                        }
+                    }
                 }
                 div class="flex flex-wrap items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Download" }

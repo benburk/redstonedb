@@ -57,20 +57,39 @@ fn tidying_takes_out_the_markers_and_fits_the_box() {
     assert_eq!(again, slice("alpha-cla"));
 }
 
+/// A 1-bit adder stacking 2 west, its carry in on its east face, which
+/// only the first copy keeps: the glass goes at two opposite corners of
+/// the rest, where nothing was, and nothing else changes.
 #[test]
-fn corner_markers_sit_one_block_off_each_corner() {
-    let marked = standardize::with_corner_markers(&slice("alpha-cla")).unwrap();
-    let blocks = Blocks::read(&marked).unwrap();
-    assert_eq!(glass(&blocks), 8);
-    let [w, h, l] = blocks.size;
-    for x in [0, w - 1] {
-        for y in [0, h - 1] {
-            for z in [0, l - 1] {
-                assert_eq!(blocks.get([x, y, z]), "minecraft:glass");
-            }
-        }
-    }
-    assert_eq!(standardize::tidy(&marked).unwrap(), slice("alpha-cla"));
+fn stacking_markers_sit_at_opposite_corners_of_the_box() {
+    let data = slice("rca-1-carry-in-east");
+    let west = StackDirection {
+        west: 2,
+        up: 0,
+        north: 0,
+        max_copies: None,
+    };
+    let marked = stack::with_markers(&data, west).unwrap().unwrap();
+    let (before, after) =
+        (Blocks::read(&data).unwrap(), Blocks::read(&marked).unwrap());
+    assert_eq!(after.size, before.size);
+    let placed: Vec<_> = after
+        .iter()
+        .filter(|&(pos, state)| state != before.get(pos))
+        .collect();
+    assert!(placed.iter().all(|&(pos, state)| state == "minecraft:glass"
+        && before.get(pos) == schem::AIR));
+    let [(near, _), (far, _)] = placed.as_slice() else {
+        panic!("{placed:?}");
+    };
+    assert!((0..3).all(|axis| near[axis] != far[axis]));
+    // The east layer, with the carry in, is left out of the box.
+    let span =
+        |axis: usize| [near[axis].min(far[axis]), near[axis].max(far[axis])];
+    let size = before.size;
+    assert_eq!(span(0), [0, size[0] - 2]);
+    assert_eq!(span(1), [0, size[1] - 1]);
+    assert_eq!(span(2), [0, size[2] - 1]);
 }
 
 /// An input block feeds at most two dusts, on its sides, besides any

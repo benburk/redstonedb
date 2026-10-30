@@ -20,7 +20,7 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 - An output colour may be stained glass where the output needs a transparent block.
 - Every other solid block is white; import derives hard-powered, soft-powered, and blocker from the surrounding components. Powered and unpowered dust both read clearly on white.
 - White stained glass replaces slabs and glowstone. Open: check it behaves the same wherever they are used, such as dust placement and one-way upward transmission, and decide exceptions where it doesn't.
-- No plain glass, so a download's WorldEdit corner markers are never mistaken for the build.
+- No plain glass, so a download's WorldEdit markers are never mistaken for the build.
 - No observers: the simulator doesn't model them.
 - A green and B blue stay apart under red-green colour blindness.
 - One colour per operand, not per power requirement; drive is derived (see Inputs).
@@ -129,7 +129,7 @@ Import reads signs to extract a build's interface without a human. Everything el
 - A slice stacks by its box: the slice less the layers on the face its stack starts from (the east for a stack west, the bottom for one up, the south for one north) that only the first copy needs. A layer is the first copy's when every block in it is interface (an input or output block, a lever, button, or sign, and the dust, repeater, or comparator on an input or output) or is what the copy before already has where it lands, as placed, so however either's power stood, dust on dust counting. The box is never shorter than the step.
 - The site stacks as a player can:
   1. Paste the first copy whole.
-  2. `//rstack` the box, as many copies as wanted, a step apart. Each copy pastes over earlier ones: the later block stands, air never replaces anything, and meeting dust joins. A build may rely on this, as a carry out capped by a block the next copy covers.
+  2. `//rstack` the box, as many copies as wanted, a step apart. A download of one copy can mark the box with glass at two opposite corners, to select it by and then break. Each copy pastes over earlier ones: the later block stands, air never replaces anything, and meeting dust joins. A build may rely on this, as a carry out capped by a block the next copy covers.
   3. Only colours change after: the labelled outputs and status lines of every copy but the last turn white, their signs off, since the next copy takes them over (a monostable's copies keep theirs, as each pink line is its own bit's pulse); a later copy's input block whose lever stayed with the first copy turns white; and for copies across a register's or RAM's bits, which share its data buses, read only at the first copy's end, a later copy's data blocks turn white.
 - So what only the first copy keeps goes on the start face, outside the box: a carry in and its lever, a register's data levers, and anything the least significant bit alone needs. A lever of a line the copy before feeds or shares, inside the box, is a fault: every copy would keep it.
 - The site finds stacking itself for these categories. A stacking found replaces the builder's west step; none found keeps the builder's.
@@ -152,7 +152,7 @@ Builds with their own layout, such as displays, are stored with `--conventional 
 - Size is that box less any outer layer holding only interface: input blocks with their levers, dust, signs, and torches. So input blocks can sit in their own layer, levers south, without enlarging the build.
 - Sizes read height × width × depth, seen from the south: up, west to east, north to south.
 - Positions count from the box's north-west-bottom corner.
-- Every stored or served file pastes the same way: `//paste` puts the player one block south of the build's south-east-bottom corner, the build reaching west and north in front of them from their feet up. The uploader's copy position is dropped; `rsdb add --keep-paste` keeps it. Either way, cropping, stacking, and corner markers keep the build where it pastes relative to the player.
+- Every stored or served file pastes the same way: `//paste` puts the player one block south of the build's south-east-bottom corner, the build reaching west and north in front of them from their feet up. The uploader's copy position is dropped; `rsdb add --keep-paste` keeps it. Either way, cropping, stacking, and stacking markers keep the build where it pastes relative to the player.
 - A download can add a glass block diagonally off each box corner, so WorldEdit can select the build without the glass touching it.
 
 ## Layout proposals

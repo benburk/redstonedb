@@ -88,7 +88,7 @@ just rsdb set bb62 --design carry_cancel --contributor Owenage_
 just rsdb set bb62 --unset built-on
 just rsdb tag bb62 pistonless
 just rsdb export bb62 --out ~/.minecraft/config/worldedit/schematics
-just rsdb export 0f35 --copies 8 --markers
+just rsdb export 0f35 --markers
 just rsdb new-version bb62 fixed.schem --note "carry out reads through a repeater"
 just rsdb lint build.schem
 just rsdb simulate
@@ -99,7 +99,7 @@ just rsdb remove bb62
 ```
 
 - `set` changes only the fields given. A list given, such as `--builder` or `--stack`, replaces the stored one, and `--unset` makes a field unknown.
-- `export --copies` joins copies of a stackable build into one file: a count, or one per direction. `--markers` puts a glass block off each corner for WorldEdit.
+- `export --copies` joins copies of a stackable build into one file: a count, or one per direction. `--markers` puts glass at two opposite corners of the box `//rstack` stacks, to select in WorldEdit and then break; it takes one copy.
 - `new-version` replaces a build's file with a fix, as the site's edit page does; `replace` puts a file in place without adding a version or comparing.
 - `simulate` runs a build's test and timing again, or every build's; `reread` reads every stored file again. Run them after the simulator or the import rules change.
 - `evaluate` works every build of a category, or one build, out from its file alone, as `src/evaluate.rs` does, trusting nothing stored: the category its test recognizes, whether every case comes out right, its width, orientation, encoding, and flags, how it stacks, its latency, whether its outputs change together, and its throughput, the fewest ticks between inputs that keep every result right. It lists each field where that differs from what is stored.
@@ -124,7 +124,7 @@ src/
   bin/rsdb.rs       the command-line tool
   db.rs             opening the database and applying migrations
   schem.rs          reading and writing .schem files
-  standardize.rs    the palette, box fitting, and corner markers
+  standardize.rs    the palette and box fitting
   import.rs         a file into a stored build
   interface.rs      inputs and outputs, from blocks and signs
   lint.rs           the building conventions check

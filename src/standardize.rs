@@ -1,6 +1,5 @@
-//! Shaping a build's file: fitting its box tightly, adding corner markers
-//! for `WorldEdit` to a download, and bringing a downloaded build into the
-//! building conventions' palette.
+//! Shaping a build's file: fitting its box tightly and bringing a
+//! downloaded build into the building conventions' palette.
 //!
 //! Standardizing needs the build's inputs and outputs already marked, since
 //! everything else turns white:
@@ -413,27 +412,6 @@ fn stand_in_strength(state: &str) -> Option<u8> {
         name if name.ends_with("cauldron") => number("level").unwrap_or(0),
         _ => return None,
     })
-}
-
-/// The build with a plain glass block at each corner of a box one block
-/// bigger on every side, for `WorldEdit` to select it by. The glass sits
-/// diagonally off the build's corners, so it never touches the build.
-pub fn with_corner_markers(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let mut grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    let [w, h, l] = blocks.size;
-    for x in [-1, w] {
-        for y in [-1, h] {
-            for z in [-1, l] {
-                grid.insert([x, y, z], GLASS.to_owned());
-            }
-        }
-    }
-    rebox(data, &grid, [-1, -1, -1], [w + 2, h + 2, l + 2])
 }
 
 /// `data` as the 3D viewer, schematic-renderer, should be given it: it

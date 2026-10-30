@@ -43,6 +43,7 @@ const MAX_COPIES: usize = 64;
 const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const WHITE: &str = "minecraft:white_concrete";
+const GLASS: &str = "minecraft:glass";
 
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
@@ -516,15 +517,58 @@ pub fn part(
     schem::encode(nbt)
 }
 
+/// The build in `data` with a plain glass block at two opposite corners
+/// of the box it `//rstack`s `direction`, for `WorldEdit` to select it by
+/// before the glass is broken: the first pair of corners both empty, or
+/// `None` when every pair holds a block.
+pub fn with_markers(
+    data: &[u8],
+    direction: StackDirection,
+) -> Result<Option<Vec<u8>>> {
+    let blocks = Blocks::read(data)?;
+    let [low, high] = first_copy(&blocks, step_of(direction)?).sized;
+    let corner = |far: [bool; 3]| -> Pos {
+        [0, 1, 2].map(|axis| if far[axis] { high[axis] } else { low[axis] })
+    };
+    let pairs = [
+        [false, false, false],
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+    ]
+    .map(|far| (corner(far), corner(far.map(|f| !f))));
+    let Some((a, b)) = pairs
+        .into_iter()
+        .find(|&(a, b)| blocks.get(a) == AIR && blocks.get(b) == AIR)
+    else {
+        return Ok(None);
+    };
+    let mut grid: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| *state != AIR)
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .collect();
+    for pos in [a, b] {
+        grid.insert(pos, GLASS.to_owned());
+    }
+    let mut nbt = schem::decode(data)?;
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
+    Ok(Some(schem::encode(nbt)?))
+}
+
 /// The layers only the first copy keeps when copies stack a `step` along,
 /// which later copies leave out, so each stacks the build's box: from the
 /// face the stack starts from, the east for one west, the bottom for one
 /// up, the south for one north, each layer whose every block is interface,
 /// or is what the copy before already has where it lands, as placed, so
-/// however either's power stood and dust on dust joining; never so many that the box is shorter than the step.
+/// however either's power stood and dust on dust joining; never so many
+/// that the box is shorter than the step.
 pub struct FirstCopy {
     /// How many layers, along each way the stack steps.
     pub layers: usize,
+    /// The box later copies stack, its least and greatest corner.
+    pub sized: [Pos; 2],
     /// The levers and buttons among them.
     pub switches: usize,
     /// Every block in them.
@@ -541,6 +585,7 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
     let interface = interface_blocks(blocks);
     let mut all = HashSet::new();
     let mut layers = 0;
+    let mut sized = [[0; 3], blocks.size.map(|n| n - 1)];
     for axis in (0..3).filter(|&axis| step[axis] != 0) {
         let size = blocks.size[axis];
         // The first copy sits behind each step.
@@ -569,6 +614,11 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
             n += 1;
         }
         layers += usize::try_from(n).unwrap_or(0);
+        if step[axis] < 0 {
+            sized[1][axis] -= n;
+        } else {
+            sized[0][axis] += n;
+        }
     }
     let switches = blocks
         .switches()
@@ -577,6 +627,7 @@ fn first_copy(blocks: &Blocks, step: Pos) -> FirstCopy {
         .count();
     FirstCopy {
         layers,
+        sized,
         switches,
         all,
     }

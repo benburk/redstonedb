@@ -910,8 +910,8 @@ pub(super) async fn show_edit(
 pub(super) struct Download {
     /// Set when the 3D viewer fetches the file, which is no download.
     preview: Option<String>,
-    /// `yes` adds a glass block off each corner, for `WorldEdit` to select
-    /// the build by.
+    /// The direction, by name, to put glass at two opposite corners of
+    /// the box `//rstack` stacks, for `WorldEdit` to select it by.
     markers: Option<String>,
     /// One of the files the in-game stacking procedure pastes, for the
     /// `direction` it stacks.
@@ -1012,7 +1012,7 @@ pub(super) async fn export(
 }
 
 /// Build `s`'s file `data` as `asked`: a part, copies stacked, or as it is,
-/// with corner markers if asked; counted as a download if `counted`.
+/// with stacking markers if asked; counted as a download if `counted`.
 async fn shaped(
     db: &SqlitePool,
     id: &str,
@@ -1039,6 +1039,23 @@ async fn shaped(
         return Ok((filename, data));
     }
     let copies = asked.copies();
+    let markers = match asked.markers.as_deref() {
+        None | Some("") => None,
+        Some(name) => Some(
+            s.stacking
+                .iter()
+                .copied()
+                .find(|d| d.name() == name)
+                .ok_or_else(|| {
+                    AppError::BadRequest("no such direction".to_owned())
+                })?,
+        ),
+    };
+    if markers.is_some() && !copies.is_empty() {
+        return Err(AppError::BadRequest(
+            "Stacking markers go on a single copy.".to_owned(),
+        ));
+    }
     let (data, s) = if copies.is_empty() {
         (data, s)
     } else {
@@ -1052,10 +1069,17 @@ async fn shaped(
     if counted {
         schematic::count_download(db, id).await?;
     }
-    let data = if asked.markers.as_deref() == Some("yes") {
-        standardize::with_corner_markers(&data)?
-    } else {
-        data
+    let data = match markers {
+        Some(direction) => {
+            stack::with_markers(&data, direction)?.ok_or_else(|| {
+                AppError::BadRequest(
+                "Every pair of opposite corners of its box holds a block, so \
+                 there's nowhere to put the glass."
+                    .to_owned(),
+            )
+            })?
+        }
+        None => data,
     };
     Ok((s.filename(), data))
 }

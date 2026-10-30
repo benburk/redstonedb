@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use app::{
     db::connect_to_database,
     details::{self, Details},
@@ -23,7 +23,7 @@ use app::{
     mojang, search,
     simulate::{Action, Report, Signal, Stacking, Timing},
     stack,
-    standardize::{self, Gray},
+    standardize::Gray,
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -186,7 +186,8 @@ enum Command {
         /// direction such as `west=7,north=3`
         #[arg(long)]
         copies: Option<String>,
-        /// Put a glass block off each corner, to select the build in-game by
+        /// Put glass at two opposite corners of the box `//rstack` stacks,
+        /// to select it in game by; with no copies
         #[arg(long)]
         markers: bool,
     },
@@ -844,7 +845,10 @@ async fn export(
         }
     };
     let data = if markers {
-        standardize::with_corner_markers(&data)?
+        ensure!(copies.is_none(), "markers go on a single copy");
+        let direction = s.stacking.first().context("it doesn't stack")?;
+        stack::with_markers(&data, *direction)?
+            .context("every pair of the box's opposite corners holds a block")?
     } else {
         data
     };
