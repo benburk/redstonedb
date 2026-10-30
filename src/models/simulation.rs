@@ -857,12 +857,12 @@ pub fn refresh_soon(db: &SqlitePool, id: &str) {
     });
 }
 
-/// For a recognized build whose test passes, its unused blocks taken out,
-/// as a new version once compiling it shows the circuit unchanged, and
+/// For a recognized build whose test passes, as once it is uploaded: for
+/// an adder or register, see `category::PRUNED`, its unused blocks taken
+/// out, as a new version once compiling it shows the circuit unchanged;
 /// then what each of its building blocks must be, solid, transparent, or
 /// either, and which carry hard or soft power, kept with its version, for
-/// block themes. Any other build is left as
-/// it came.
+/// block themes. Any other build is left as it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
     if !(s.conventional && category::behaviour(&s.category).evaluated) {
@@ -874,7 +874,12 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
-    if let Some(pruned) = roles::prune(&data, &s.stacking, buses(&s))? {
+    let pruned = if category::PRUNED.contains(&s.category.as_str()) {
+        roles::prune(&data, &s.stacking, buses(&s))?
+    } else {
+        None
+    };
+    if let Some(pruned) = pruned {
         let checked =
             crate::version::check(db, &s, &pruned.file, false).await?;
         if checked.refusals.is_empty() {
