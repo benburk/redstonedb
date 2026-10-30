@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT report FROM simulation\n         WHERE schematic_id = ? AND sha256 = ? AND test = ? AND version = ?",
+  "query": "SELECT report FROM simulation\n         WHERE schematic_id = ? AND sha256 = ? AND test = ?",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 4
+      "Right": 3
     },
     "nullable": [
       false
     ]
   },
-  "hash": "43e76b01f46de0e7ad65cc712189043f687d44be8253bda2bb722956841988f1"
+  "hash": "62f7528601c0b3f9b86651bbba321722c9cbbf1cc1eb9fb83131f6795694d056"
 }

@@ -29,22 +29,22 @@ use crate::{
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
-/// `sha256` under `test` as it is now; a result of another file, test, or
-/// version of the test is stale, so none.
+/// `sha256` under `test`; a result of another file or test, none. A change
+/// to a test leaves its stored results as they are until a build is
+/// simulated again, as `rsdb simulate` does.
 pub async fn stored<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
     sha256: &str,
     test: Test,
 ) -> Result<Option<Report>> {
-    let (name, version) = (test.name(), test.version());
+    let name = test.name();
     let report = sqlx::query_scalar!(
         "SELECT report FROM simulation
-         WHERE schematic_id = ? AND sha256 = ? AND test = ? AND version = ?",
+         WHERE schematic_id = ? AND sha256 = ? AND test = ?",
         id,
         sha256,
-        name,
-        version
+        name
     )
     .fetch_optional(db)
     .await?;
@@ -64,21 +64,18 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     (sha256, circuit): (&str, Option<&str>),
     report: &Report,
 ) -> Result<()> {
-    let (name, version, failed) =
-        (test.name(), test.version(), report.failed());
+    let (name, failed) = (test.name(), report.failed());
     let report = serde_json::to_string(report)?;
     sqlx::query!(
         "INSERT INTO simulation
-            (schematic_id, test, version, sha256, circuit, failed, report)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (schematic_id, test, sha256, circuit, failed, report)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT (schematic_id) DO UPDATE SET test = excluded.test,
-            version = excluded.version, sha256 = excluded.sha256,
-            circuit = excluded.circuit, failed = excluded.failed,
-            report = excluded.report,
+            sha256 = excluded.sha256, circuit = excluded.circuit,
+            failed = excluded.failed, report = excluded.report,
             ran_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
         id,
         name,
-        version,
         sha256,
         circuit,
         failed,

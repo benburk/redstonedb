@@ -91,7 +91,7 @@ just rsdb export bb62 --out ~/.minecraft/config/worldedit/schematics
 just rsdb export 0f35 --markers
 just rsdb new-version bb62 fixed.schem --note "carry out reads through a repeater"
 just rsdb lint build.schem
-just rsdb simulate
+just rsdb simulate $(just rsdb search --ids adder vertical)
 just rsdb prune --dry-run
 just rsdb evaluate --category adder
 just rsdb reread
@@ -101,7 +101,7 @@ just rsdb remove bb62
 - `set` changes only the fields given. A list given, such as `--builder` or `--stack`, replaces the stored one, and `--unset` makes a field unknown.
 - `export --copies` joins copies of a stackable build into one file: a count, or one per direction. `--markers` puts glass at two opposite corners of the box `//rstack` stacks, to select in WorldEdit and then break; it takes one copy.
 - `new-version` replaces a build's file with a fix, as the site's edit page does; `replace` puts a file in place without adding a version or comparing.
-- `simulate` runs a build's test and timing again, or every build's; `reread` reads every stored file again. Run them after the simulator or the import rules change.
+- `simulate` runs the named builds' tests and timing again, four at once, or every build's with `--all`; `search --ids` lists the builds a change touches. Nothing reruns on its own, so run them after the simulator changes. `reread` reads every stored file again, after the import rules change.
 - `evaluate` works every build of a category, or one build, out from its file alone, as `src/evaluate.rs` does, trusting nothing stored: the category its test recognizes, whether every case comes out right, its width, orientation, encoding, and flags, how it stacks, its latency, whether its outputs change together, and its throughput, the fewest ticks between inputs that keep every result right. It lists each field where that differs from what is stored.
 - `prune` takes out the blocks no part of a build's circuit uses, found by the rules in `src/roles.rs`: a block holding nothing up that passes no power, cuts no step between dust, and lets no dust on it power dust a step down, and dust that powers nothing a component reads, from its ends inwards, each read alone and stacked every way the build stacks. It works on one build or every build of a category the site tests, each as a new version noted `Unused blocks taken out`. Each is proven the same circuit first: Redpiler compiles it before and after, alone and stacked, and every link between components and the strength it loses must match, so the build's stored test result and timing move to the new file rather than being run again. The whole site takes seconds. `--dry-run` lists what it would take out.
 - `categories` lists the standard categories with their measures, designs, flags, and aliases; `define-category`, `define-design`, `define-flag`, and `define-alias` add to them. `tags` and `define-tag` do the same for tags, which must exist before use.
@@ -113,7 +113,7 @@ On the server, `rsdb` runs against the live database as the site's user; see [de
 
 1. **Import.** `import::prepare` reads a Sponge `.schem` file, versions 2 and 3 (`schem.rs`), standardizes it if asked, takes out corner markers, and fits its box (`standardize.rs`), then sets where `//paste` puts it, the same for every file. `import::store` keeps it as the build's first version; files live only in `schematic_version` (`models/version.rs`). A later file replaces it as a new version only if `version.rs` finds it the same build, fixed.
 2. **Analysis.** `interface.rs` reads the inputs and outputs from block colours and signs, `lint.rs` checks them against [conventions.md](conventions.md), and `works_from.rs` finds the oldest release the build works in. `details.rs` holds a build's details to one set of rules, whether they come from the upload page, the edit page, or `rsdb`.
-3. **Simulation.** `category.rs` says which test each category gets and what is read from its file. `simulate/` runs the build in MCHPRS's Redpiler through its cases, times it, and for an adder or register finds how its copies stack, joined by `stack.rs` as `//rstack` joins them in game. `models/simulation.rs` stores each result with its file's hash and its test's version, and reruns it in the background when either changes.
+3. **Simulation.** `category.rs` says which test each category gets and what is read from its file. `simulate/` runs the build in MCHPRS's Redpiler through its cases, times it, and for an adder or register finds how its copies stack, joined by `stack.rs` as `//rstack` joins them in game. `models/simulation.rs` stores each result with its file's hash, and runs a build whose file has none, as a new upload or version. A change to a test reruns nothing on its own: `rsdb search --ids` lists the builds it touches, and `rsdb simulate` runs those again, four at once, or every build with `--all`.
 4. **Search, leaderboards, and similarity.** `search.rs` parses a query such as `register vertical -torchless`, `leaderboard.rs` ranks builds against those they compete with, and `similarity.rs` scores how alike two builds are by the share of their redstone components that line up.
 
 ## Project structure

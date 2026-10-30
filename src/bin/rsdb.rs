@@ -60,9 +60,16 @@ enum Command {
     /// Draw the Before you upload page's example builds into `dir`, one
     /// WebP each, named for the example
     GuideImages { dir: PathBuf },
-    /// Run a stored build's test and timing again, or with no id every
-    /// build with a test, as is needed once the simulator changes
-    Simulate { id: Option<String> },
+    /// Run builds' tests and timing again, as after a change to the
+    /// simulator: those `ids` name, such as `rsdb search --ids` lists, or
+    /// with `--all` every build with a test. Nothing reruns on its own
+    Simulate {
+        /// Builds' ids, or the starts of them
+        ids: Vec<String>,
+        /// Every build with a test
+        #[arg(long, conflicts_with = "ids")]
+        all: bool,
+    },
     /// Write each build's simulation result and the details it sets, as
     /// JSON, to stdout, for `import-results` on another copy of the
     /// database
@@ -166,6 +173,10 @@ enum Command {
     Search {
         #[arg(required = true, allow_hyphen_values = true)]
         terms: Vec<String>,
+        /// Only each build's id, one a line, to pass to `simulate`; give
+        /// it before the terms, which may start with a hyphen
+        #[arg(long)]
+        ids: bool,
     },
     /// List schematics by id prefix and filename
     List {
@@ -456,7 +467,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Rebuild(args) => rebuild(db, &args).await,
         Command::Finish { id } => finish(db, id.as_deref()).await,
         Command::GuideImages { dir } => guide_images(&dir).await,
-        Command::Simulate { id } => simulate(db, id.as_deref()).await,
+        Command::Simulate { ids, all } => simulate(db, &ids, all).await,
         Command::ExportResults { ids } => export_results(db, &ids).await,
         Command::ImportResults { file } => import_results(db, &file).await,
         Command::Evaluate { id, category } => {
@@ -475,7 +486,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
         }
-        Command::Search { terms } => search_command(db, &terms).await,
+        Command::Search { terms, ids } => search_command(db, &terms, ids).await,
         Command::Reread => reread(db).await,
         Command::Replace(args) => replace(db, &args).await,
         Command::Respell => respell(db).await,
@@ -545,10 +556,18 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
 }
 
 /// Prints the id and file name of each build matching `terms`.
-async fn search_command(db: &SqlitePool, terms: &[String]) -> Result<()> {
+async fn search_command(
+    db: &SqlitePool,
+    terms: &[String],
+    ids: bool,
+) -> Result<()> {
     let terms = search::parse(&terms.join(" "));
     for s in search::matching(&terms, schematic::all(db).await?) {
-        println!("{}  {}", &s.id[..8], s.filename());
+        if ids {
+            println!("{}", &s.id[..8]);
+        } else {
+            println!("{}  {}", &s.id[..8], s.filename());
+        }
     }
     Ok(())
 }
@@ -1498,16 +1517,26 @@ async fn new_version(
 /// How many builds `simulate` runs at once.
 const AT_ONCE: usize = 4;
 
-async fn simulate(db: &SqlitePool, id: Option<&str>) -> Result<()> {
-    let ids = match id {
-        Some(prefix) => vec![resolve(db, prefix).await?],
-        None => schematic::all(db)
+async fn simulate(db: &SqlitePool, named: &[String], all: bool) -> Result<()> {
+    ensure!(
+        all || !named.is_empty(),
+        "name the builds to simulate, as `rsdb search --ids` lists them, or \
+         pass --all"
+    );
+    let ids = if all {
+        schematic::all(db)
             .await?
             .into_iter()
             .map(|s| s.id)
-            .collect(),
+            .collect()
+    } else {
+        let mut ids = Vec::new();
+        for prefix in named {
+            ids.push(resolve(db, prefix).await?);
+        }
+        ids
     };
-    let one = id.is_some();
+    let one = !all;
     let mut failed = 0;
     // Each build simulates on its own thread, `AT_ONCE` at a time, and
     // says how it went as it finishes.

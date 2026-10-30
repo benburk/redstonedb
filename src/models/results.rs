@@ -38,7 +38,6 @@ type Stacked = (i64, i64, i64, Option<i64>, Option<String>);
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Simulation {
     pub test: String,
-    pub version: i64,
     pub sha256: String,
     pub failed: i64,
     pub report: String,
@@ -85,7 +84,7 @@ pub async fn export(
         .fetch_all(db)
         .await?;
         let simulation = sqlx::query(
-            "SELECT test, version, sha256, failed, report, ran_at, circuit
+            "SELECT test, sha256, failed, report, ran_at, circuit
              FROM simulation WHERE schematic_id = ?",
         )
         .bind(id)
@@ -93,7 +92,6 @@ pub async fn export(
         .await?
         .map(|row| Simulation {
             test: row.get("test"),
-            version: row.get("version"),
             sha256: row.get("sha256"),
             failed: row.get("failed"),
             report: row.get("report"),
@@ -231,13 +229,12 @@ async fn write(
     if let Some(sim) = &r.simulation {
         sqlx::query(
             "INSERT INTO simulation
-                (schematic_id, test, version, sha256, failed, report,
-                 ran_at, circuit)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (schematic_id, test, sha256, failed, report, ran_at,
+                 circuit)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&r.id)
         .bind(&sim.test)
-        .bind(sim.version)
         .bind(&sim.sha256)
         .bind(sim.failed)
         .bind(&sim.report)

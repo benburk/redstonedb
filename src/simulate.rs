@@ -210,48 +210,6 @@ impl Test {
         }
     }
 
-    /// The version stored with its result. Raising it, as when a change to
-    /// the test, its stacking, or its timing would change what a stored
-    /// result says, makes every stored result of the test stale, so each
-    /// runs again.
-    pub fn version(self) -> i64 {
-        // Every test drives its levers from off, how one was saved saying
-        // nothing, and finds which lines read inverted; a stateless one
-        // measures how weakly its data inputs may be driven; copies stack
-        // by the slice's box, a layer left out whose blocks match the copy
-        // before's as placed, however their power stood, or by a box with
-        // a few more blocks left out whose copies work; gray marks
-        // nothing.
-        match self {
-            Test::Decoder
-            | Test::NandXnor
-            | Test::BarrelShifter
-            | Test::Incrementer
-            | Test::Decrementer
-            | Test::IncDec
-            | Test::Multiplier
-            | Test::BinaryToBcd
-            | Test::BcdToBinary
-            | Test::Alu
-            | Test::Buffer
-            | Test::AbsoluteValue
-            | Test::CarryOut
-            | Test::Equality
-            | Test::Monostable
-            | Test::DualEdgeMonostable
-            | Test::Inverter => 7,
-            // A register's timing says it counts from a read, where it once
-            // said so as a flag; a signed comparator passes as a Greater
-            // Than with the flag Signed, where it was once a category of its
-            // own; a gate's copies are searched for how they stack.
-            Test::Register | Test::GreaterThan | Test::XorXnor => 8,
-            // An adder reads any of its lines inverted, a subtractor's B
-            // among them, and borrows through each byte too; one of one bit
-            // may leave out its carry out, as a wider one may.
-            Test::Adder => 9,
-        }
-    }
-
     /// Runs the test's cases on `blocks` and checks each result.
     pub fn run(self, blocks: &Blocks) -> Report {
         match self.check(blocks, false) {
