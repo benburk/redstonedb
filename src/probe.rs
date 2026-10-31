@@ -1022,6 +1022,20 @@ pub fn multiplier(
         ));
     }
     let mut why = String::new();
+    // Of the orders that ran, the share of cases the closest got wrong,
+    // which `why` tells, rather than one that couldn't run.
+    let mut closest = f64::INFINITY;
+    let mut wrong = |run: &simulate::Run, why: &mut String| {
+        #[allow(clippy::cast_precision_loss)]
+        let share = run.wrong as f64 / run.cases.max(1) as f64;
+        if share < closest {
+            closest = share;
+            *why = format!(
+                "Doesn't hold: {} of {} cases wrong",
+                run.wrong, run.cases
+            );
+        }
+    };
     for order in orders(lines.len()) {
         let product: Vec<Vec<Pos>> =
             order.iter().map(|&i| lines[i].bits.clone()).collect();
@@ -1037,14 +1051,13 @@ pub fn multiplier(
         match Test::Multiplier.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
             Ok(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                wrong(&run, &mut why);
                 continue;
             }
             Err(err) => {
-                why = format!("Test couldn't run: {err}");
+                if !why.starts_with("Doesn't hold") {
+                    why = format!("Test couldn't run: {err}");
+                }
                 continue;
             }
         }
@@ -1059,15 +1072,12 @@ pub fn multiplier(
                     run: *run,
                 });
             }
-            simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
-            }
+            simulate::Report::Ran(run) => wrong(&run, &mut why),
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
-                why = format!("Test couldn't run: {reason}");
+                if !why.starts_with("Doesn't hold") {
+                    why = format!("Test couldn't run: {reason}");
+                }
             }
         }
     }
