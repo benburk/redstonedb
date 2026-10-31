@@ -582,7 +582,7 @@ pub fn recognize_as(
     };
     // Each blessed category in turn, or only the one meant, its fault kept
     // when it isn't one.
-    let mut faults: [Option<String>; 5] = Default::default();
+    let mut faults: [Option<String>; 7] = Default::default();
     for (i, kind) in KINDS.into_iter().enumerate() {
         if meant.is_some_and(|meant| meant != kind) {
             continue;
@@ -600,7 +600,15 @@ pub fn recognize_as(
 }
 
 /// The blessed categories, in the order probing tries them.
-const KINDS: [&str; 5] = ["adder", "register", "alu", "decoder", "multiplier"];
+const KINDS: [&str; 7] = [
+    "adder",
+    "register",
+    "alu",
+    "decoder",
+    "multiplier",
+    "counter",
+    "shift_register",
+];
 
 /// What a probe found: the build's data inputs, its file coloured by the
 /// roles found, and what it is, in words.
@@ -640,15 +648,23 @@ fn probe_as(
             let found = found("a decoder", &probed.run);
             (probed.a, probed.file, found)
         }),
-        _ => multiplier(data, report).map(|probed| {
+        "multiplier" => multiplier(data, report).map(|probed| {
             let found = found("a multiplier", &probed.run);
             ([probed.a, probed.b].concat(), probed.file, found)
+        }),
+        "counter" => sequential(data, report, Test::Counter).map(|probed| {
+            let found = found("a counter", &probed.run);
+            (probed.data, probed.file, found)
+        }),
+        _ => sequential(data, report, Test::ShiftRegister).map(|probed| {
+            let found = found("a shift register", &probed.run);
+            (probed.data, probed.file, found)
         }),
     })
 }
 
-/// Of the faults probing found as an adder, a register, an ALU, a decoder,
-/// and a multiplier, the one to show: the one it is meant as, if any; else
+/// Of the faults probing found as each of [`KINDS`], the one to show: the
+/// one it is meant as, if any; else
 /// the decoder's when it has one input line; the register's when it has a
 /// button, which only a register's writes and a sequential multiplier's
 /// lines are; the ALU's when it has more than one lone lever, its control
@@ -657,7 +673,8 @@ fn fault_of(
     blocks: &Blocks,
     report: &inspect::Report,
     meant: Option<&str>,
-    [adder, register, alu, decoder, multiplier]: [Option<String>; 5],
+    [adder, register, alu, decoder, multiplier, counter, shift]: [Option<String>;
+        7],
 ) -> String {
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
@@ -671,6 +688,8 @@ fn fault_of(
         Some("alu") => alu,
         Some("decoder") => decoder,
         Some("multiplier") => multiplier,
+        Some("counter") => counter,
+        Some("shift_register") => shift,
         _ if report.inputs.len() == 1 => decoder.or(adder).or(register),
         _ if buttons => register.or(multiplier).or(adder).or(alu),
         _ if lone > 1 => alu.or(adder).or(register),
@@ -991,6 +1010,83 @@ pub fn multiplier(
     Err(why)
 }
 
+/// A counter or shift register as probing found it: its input A, if any,
+/// the file with its lines coloured as its test reads them, and that
+/// test's run.
+pub struct SequentialProbed {
+    pub data: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The counter or shift register the file in `data` is, as `test` checks
+/// it, from `report`'s levers and outputs: its widest output the value it
+/// holds and each lone output a status line, such as a shift out; an input
+/// line as wide as that value its input A, to load; and every other lever
+/// or button a control line of its own, each coloured and run through the
+/// test, which finds what each control line does. Or why it isn't one.
+pub fn sequential(
+    data: &[u8],
+    report: &inspect::Report,
+    test: Test,
+) -> Result<SequentialProbed, String> {
+    let Some(held) = report.outputs.iter().max_by_key(|run| run.bits.len())
+    else {
+        return Err("Outputs: none".to_owned());
+    };
+    let width = held.bits.len();
+    if report
+        .outputs
+        .iter()
+        .any(|run| run.bits != held.bits && run.bits.len() > 1)
+    {
+        return Err(format!(
+            "Outputs: line lengths {}, need one line and lone status lines",
+            lengths(&report.outputs)
+        ));
+    }
+    let status: Vec<Pos> = report
+        .outputs
+        .iter()
+        .filter(|run| run.bits != held.bits)
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    let a: Vec<Pos> = report
+        .inputs
+        .iter()
+        .find(|run| run.bits.len() == width && width > 1)
+        .map(|run| run.bits.clone())
+        .unwrap_or_default();
+    let controls: Vec<Pos> = report
+        .inputs
+        .iter()
+        .filter(|run| run.bits != a)
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    let mut roles: HashMap<Pos, &str> = HashMap::new();
+    roles.extend(a.iter().map(|&p| (p, "lime")));
+    roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
+    roles.extend(held.bits.iter().map(|&p| (p, "yellow")));
+    roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
+    let file = paint(data, &roles).map_err(|err| err.to_string())?;
+    let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+    match test.run(&coloured) {
+        simulate::Report::Ran(run) if run.wrong == 0 => Ok(SequentialProbed {
+            data: a,
+            file,
+            run: *run,
+        }),
+        simulate::Report::Ran(run) => Err(format!(
+            "Doesn't hold: {} of {} cases wrong",
+            run.wrong, run.cases
+        )),
+        simulate::Report::Broken { reason }
+        | simulate::Report::Skipped { reason } => {
+            Err(format!("Test couldn't run: {reason}"))
+        }
+    }
+}
+
 /// Every order of `n` things, by their places, as `[1, 0]` for two the
 /// other way round.
 fn orders(n: usize) -> Vec<Vec<usize>> {
@@ -1103,6 +1199,24 @@ mod tests {
             found.found,
             found.problems
         );
+    }
+
+    /// A counter that loads A and counts on its clock, and a shift register
+    /// that loads A and shifts either way, each found by what its lines do.
+    #[test]
+    fn a_counter_and_a_shift_register_are_found_from_their_lines() {
+        for (name, kind) in [
+            ("counter-8-load", "a counter"),
+            ("shift-register-8", "a shift register"),
+        ] {
+            let found = recognize(&uncoloured(name)).unwrap();
+            assert!(
+                found.found.as_deref().is_some_and(|f| f.starts_with(kind)),
+                "{name}: {:?} {:?}",
+                found.found,
+                found.problems
+            );
+        }
     }
 
     /// A sequential multiplier, its calculate and reset on buttons.

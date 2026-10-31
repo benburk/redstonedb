@@ -84,7 +84,7 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
                     ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, registers, ALUs, decoders, and multipliers so far." }
+                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, registers, ALUs, decoders, multipliers, counters, and shift registers so far." }
                         li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
                         li { "Measures latency, throughput, and how copies stack." }
                         li { "Shows it in each viewer's block theme." }
@@ -167,7 +167,7 @@ fn category_part(categories: &[Category]) -> Markup {
             "turns on or off; registers reading cells inverted or not."
         }
         p class="mb-3" {
-            "Only adders, registers, ALUs, decoders, and multipliers are on the list so far: a build is one when probing "
+            "Only adders, registers, ALUs, decoders, multipliers, counters, and shift registers are on the list so far: a build is one when probing "
             "recognizes it. Any other names its own category, such as 3x3 piston door, and goes up as "
             "built, off the list, under Other, until its category is recognized too."
         }

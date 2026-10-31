@@ -56,7 +56,7 @@ pub async fn simulation(
     {
         let behaviour = category::behaviour(&c.name);
         let mut read = Vec::new();
-        if behaviour.reads_file {
+        if behaviour.reads_file() {
             read.extend(["width", "orientation"].map(String::from));
         }
         let mut read_flags = Vec::new();

@@ -152,6 +152,9 @@ pub enum Start {
     /// A buffer's write, its button pressed or lever turned on, or for one
     /// that takes its data as its write closes, it closing.
     Write,
+    /// A counter's or shift register's clock, its button pressed or lever
+    /// turned on.
+    Clock,
 }
 
 /// When a register's cells take their data from their data in.

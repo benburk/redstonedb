@@ -13,9 +13,9 @@ pub struct Behaviour {
     /// The simulation test its builds get, when they are as wide as the
     /// simulator takes; see `Test::of`.
     pub test: Option<Test>,
-    /// Whether a conventional build's width, orientation, and encoding are
-    /// read from input A in its file rather than typed.
-    pub reads_file: bool,
+    /// What of a conventional build's file its width, orientation, and
+    /// encoding are read from, rather than typed.
+    pub reads: Reads,
     /// Whether a conventional build's flags are read from its file rather
     /// than ticked: an adder's carry in and carry out, or a subtractor's
     /// borrow in and borrow out, from its lone control and status lines,
@@ -33,13 +33,41 @@ pub struct Behaviour {
     pub evaluated: bool,
 }
 
+/// What a category reads its builds' width, orientation, and encoding
+/// from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reads {
+    /// Nothing: they are typed.
+    #[default]
+    Nothing,
+    /// Input A, its operand.
+    InputA,
+    /// Its widest output, the value it holds, as a counter's, which may
+    /// have no A.
+    Output,
+}
+
+impl Behaviour {
+    /// Whether it reads anything from its builds' files.
+    pub fn reads_file(self) -> bool {
+        self.reads != Reads::Nothing
+    }
+}
+
 /// The blessed categories: a build of one is recognized by probing its
 /// levers and outputs, whatever colours they sit on, then coloured and
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 5] =
-    ["adder", "register", "alu", "decoder", "multiplier"];
+pub const BLESSED: [&str; 7] = [
+    "adder",
+    "register",
+    "alu",
+    "decoder",
+    "multiplier",
+    "counter",
+    "shift_register",
+];
 
 /// What a category's unsigned control and status lines are taken to be.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -104,38 +132,73 @@ pub enum Stacking {
     Never,
 }
 
-/// What the code does with builds of the category named `category`, such
-/// as `adder`; the default for one it knows nothing about.
-pub fn behaviour(category: &str) -> Behaviour {
-    let tested = |test| Behaviour {
+/// A category with test `test` and nothing else special.
+fn tested(test: Test) -> Behaviour {
+    Behaviour {
         test: Some(test),
         ..Behaviour::default()
-    };
-    // A category whose input A is its operand reads its width and the way
-    // its bits run from it.
-    let read = |test| Behaviour {
-        reads_file: true,
+    }
+}
+
+/// A category whose input A is its operand, which its width is read from.
+fn read(test: Test) -> Behaviour {
+    Behaviour {
+        reads: Reads::InputA,
         ..tested(test)
-    };
-    // A category whose every detail `evaluate` works out, its stacking as
-    // `stacking` says.
-    let evaluated = |test, stacking| Behaviour {
+    }
+}
+
+/// A category whose every detail `evaluate` works out, stacked so.
+fn evaluated(test: Test, stacking: Stacking) -> Behaviour {
+    Behaviour {
         stacking,
         evaluated: true,
         ..read(test)
-    };
-    // A monostable's lone output needs no sign; its copies add bits, each
-    // with its own.
-    let monostable = |test| Behaviour {
-        lines: Lines::Result("pulse"),
+    }
+}
+
+/// As `evaluated`, its lines meaning what `lines` says.
+fn lined(lines: Lines, test: Test, stacking: Stacking) -> Behaviour {
+    Behaviour {
+        lines,
+        ..evaluated(test, stacking)
+    }
+}
+
+/// A comparison's: its one output is its result, named `name`.
+fn compares(name: &'static str, test: Test) -> Behaviour {
+    lined(Lines::Result(name), test, Stacking::Never)
+}
+
+/// A counter's or shift register's: its width is the value it holds.
+fn held(test: Test) -> Behaviour {
+    Behaviour {
+        reads: Reads::Output,
+        ..evaluated(test, Stacking::Never)
+    }
+}
+
+/// A monostable's: its lone output needs no sign, and its copies add bits,
+/// each with its own.
+fn monostable(test: Test) -> Behaviour {
+    Behaviour {
         copies: Copies::OwnOutputs,
-        ..evaluated(test, Stacking::Inferred)
-    };
-    let lone = |control, status| Lines::Lone {
+        ..lined(Lines::Result("pulse"), test, Stacking::Inferred)
+    }
+}
+
+/// Lone lines named `control` and `status`, needing no signs.
+fn lone(control: &'static str, status: &'static str) -> Lines {
+    Lines::Lone {
         control,
         status,
         lone_output: false,
-    };
+    }
+}
+
+/// What the code does with builds of the category named `category`, such
+/// as `adder`; the default for one it knows nothing about.
+pub fn behaviour(category: &str) -> Behaviour {
     match category {
         "adder" => Behaviour {
             flags_from_file: true,
@@ -155,36 +218,30 @@ pub fn behaviour(category: &str) -> Behaviour {
         },
         // Its copies chain as an adder's, its carry out the next's
         // increment.
-        "incrementer" => Behaviour {
-            lines: lone("increment", CARRY_OUT),
-            ..evaluated(Test::Incrementer, Stacking::Inferred)
-        },
-        "decrementer" => Behaviour {
-            lines: lone("decrement", "borrow out"),
-            ..evaluated(Test::Decrementer, Stacking::Inferred)
-        },
+        "incrementer" => lined(
+            lone("increment", CARRY_OUT),
+            Test::Incrementer,
+            Stacking::Inferred,
+        ),
+        "decrementer" => lined(
+            lone("decrement", "borrow out"),
+            Test::Decrementer,
+            Stacking::Inferred,
+        ),
         // Its line may mean either way, so it keeps its own name.
         "inc_dec" => read(Test::IncDec),
-        // Its flags are the operations its test finds; copies of it make
-        // no wider one, so it never stacks.
+        // Its flags are the operations its test finds; it never stacks.
         "alu" => Behaviour {
             flags_from_file: true,
             ..evaluated(Test::Alu, Stacking::Never)
         },
         // Copies of these make no wider one, so they never stack.
         "absolute_value" => evaluated(Test::AbsoluteValue, Stacking::Never),
-        "greater_than" => Behaviour {
-            lines: Lines::Result("A > B"),
-            ..evaluated(Test::GreaterThan, Stacking::Never)
-        },
-        "equality" => Behaviour {
-            lines: Lines::Result("A = B"),
-            ..evaluated(Test::Equality, Stacking::Never)
-        },
+        "greater_than" => compares("A > B", Test::GreaterThan),
+        "equality" => compares("A = B", Test::Equality),
         // Its copies add bits, each with its own A, B, and output.
         "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
         "nand_xnor_gate" => evaluated(Test::NandXnor, Stacking::Inferred),
-        // Copies of these make no wider one, so they never stack.
         // Its copies are more decoders, each with its own input and outputs.
         "decoder" => Behaviour {
             copies: Copies::OwnOutputs,
@@ -197,17 +254,15 @@ pub fn behaviour(category: &str) -> Behaviour {
             ..evaluated(Test::Register, Stacking::Inferred)
         },
         // Its copies add bits, as its cells cannot share a bus.
-        "buffer" => Behaviour {
-            lines: Lines::Buffer,
-            ..evaluated(Test::Buffer, Stacking::Inferred)
-        },
+        "buffer" => lined(Lines::Buffer, Test::Buffer, Stacking::Inferred),
         "monostable" => monostable(Test::Monostable),
         "dual_edge_monostable" => monostable(Test::DualEdgeMonostable),
         // Its copies add bits, sharing its control line.
-        "inverter" => Behaviour {
-            lines: Lines::Control("invert"),
-            ..evaluated(Test::Inverter, Stacking::Inferred)
-        },
+        "inverter" => {
+            lined(Lines::Control("invert"), Test::Inverter, Stacking::Inferred)
+        }
+        "counter" => held(Test::Counter),
+        "shift_register" => held(Test::ShiftRegister),
         "multiplier" => Behaviour {
             flags_from_file: true,
             stacking: Stacking::Never,

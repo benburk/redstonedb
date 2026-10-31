@@ -240,7 +240,7 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
 }
 
 /// What a category that reads its builds' files, as
-/// `category::Behaviour::reads_file` says, takes from them in place of
+/// `category::Behaviour::reads` says, takes from them in place of
 /// typed details.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Derived {
@@ -255,10 +255,29 @@ pub struct Derived {
 /// What `category` reads from a build with `interface`: nothing for a
 /// category that reads nothing from its file; see [`read_from_file`].
 pub fn derived(category: &str, interface: &Interface) -> Derived {
-    if category::behaviour(category).reads_file {
-        read_from_file(interface)
-    } else {
-        Derived::default()
+    match category::behaviour(category).reads {
+        category::Reads::Output => read_from_output(interface),
+        category::Reads::InputA => read_from_file(interface),
+        category::Reads::Nothing => Derived::default(),
+    }
+}
+
+/// What a counter or shift register reads from a build with `interface`:
+/// its width and the way its bits run from its widest output, the value
+/// it holds.
+fn read_from_output(interface: &Interface) -> Derived {
+    let held = interface
+        .outputs
+        .iter()
+        .filter(|port| !port.block.starts_with(colour::STATUS))
+        .max_by_key(|port| port.bits.len());
+    match held {
+        Some(port) => Derived {
+            width: i64::try_from(port.bits.len()).ok(),
+            orientation: orientation(port),
+            encoding: Some(Encoding::Binary),
+        },
+        None => Derived::default(),
     }
 }
 

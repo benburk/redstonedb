@@ -58,6 +58,7 @@ mod inverter;
 mod monostable;
 mod multiplier;
 mod register;
+mod sequential;
 mod shifter;
 mod stacking;
 mod strength;
@@ -133,6 +134,11 @@ pub enum Test {
     Inverter,
     /// A xor B, or every bit of it inverted, an XNOR gate's.
     XorXnor,
+    /// A value held, counted up or down as its control lines pulse.
+    Counter,
+    /// A value held, shifted toward its high or low bit as its control
+    /// lines pulse.
+    ShiftRegister,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -141,7 +147,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 21] = [
+    pub const ALL: [Test; 23] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -163,6 +169,8 @@ impl Test {
         Test::DualEdgeMonostable,
         Test::Inverter,
         Test::XorXnor,
+        Test::Counter,
+        Test::ShiftRegister,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -206,6 +214,8 @@ impl Test {
             Test::DualEdgeMonostable => "dual_edge_monostable",
             Test::Inverter => "inverter",
             Test::XorXnor => "xor_xnor_gate",
+            Test::Counter => "counter",
+            Test::ShiftRegister => "shift_register",
         }
     }
 
@@ -258,6 +268,12 @@ impl Test {
             }
             Test::Monostable => monostable::check(blocks, false),
             Test::DualEdgeMonostable => monostable::check(blocks, true),
+            Test::Counter => {
+                sequential::check(blocks, sequential::Kind::Counter)
+            }
+            Test::ShiftRegister => {
+                sequential::check(blocks, sequential::Kind::ShiftRegister)
+            }
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -279,7 +295,10 @@ impl Test {
     /// told of each of its operations; a monostable, a pulse generator,
     /// holds none.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
-        if matches!(self, Test::Register | Test::Buffer) {
+        if matches!(
+            self,
+            Test::Register | Test::Buffer | Test::Counter | Test::ShiftRegister
+        ) {
             return Ok(Some(true));
         }
         if self == Test::Alu {
@@ -333,10 +352,12 @@ impl Test {
             | Test::Register
             | Test::Buffer
             | Test::Monostable
-            | Test::DualEdgeMonostable => {
+            | Test::DualEdgeMonostable
+            | Test::Counter
+            | Test::ShiftRegister => {
                 unreachable!(
-                    "an ALU, a register, a buffer, and a monostable run their \
-                     own way"
+                    "an ALU, a register, a buffer, a monostable, a counter, \
+                     and a shift register run their own way"
                 )
             }
         }
@@ -389,6 +410,8 @@ impl Test {
             }
             Test::Alu => alu::throughput(blocks, timing),
             Test::BarrelShifter => shifter::throughput(blocks, timing),
+            // How fast one may be clocked isn't measured yet.
+            Test::Counter | Test::ShiftRegister => Ok(None),
             _ => throughput::throughput(blocks, timing),
         }
     }
@@ -408,6 +431,14 @@ impl Test {
             }
             Test::Monostable => monostable::time(blocks, false, cancel),
             Test::DualEdgeMonostable => monostable::time(blocks, true, cancel),
+            Test::Counter => {
+                sequential::time(blocks, sequential::Kind::Counter, cancel)
+            }
+            Test::ShiftRegister => sequential::time(
+                blocks,
+                sequential::Kind::ShiftRegister,
+                cancel,
+            ),
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -598,7 +629,7 @@ pub struct Wrong {
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
 /// comes before an equality comparator, as a 1-bit one is A xnor B.
-const GUESSED: [Test; 19] = [
+const GUESSED: [Test; 21] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
@@ -618,6 +649,8 @@ const GUESSED: [Test; 19] = [
     Test::Monostable,
     Test::DualEdgeMonostable,
     Test::Alu,
+    Test::Counter,
+    Test::ShiftRegister,
 ];
 
 /// What a build seems to be, from a few telling values run through each

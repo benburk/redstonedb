@@ -246,6 +246,10 @@ fn timing_intro(timing: &Timing) -> Markup {
             p class="mb-2 text-meta text-muted" {
                 @if timing.start == Start::Read {
                     "Reads, in ticks from a read lever turning on:"
+                } @else if timing.start == Start::Clock {
+                    "In ticks from a pulse of "
+                    (timing.inputs.first().map_or("its clock", |input| input.name.as_str()))
+                    ":"
                 } @else if timing.takes == Takes::Closing {
                     "Writes, in ticks from a write ending:"
                 } @else {
