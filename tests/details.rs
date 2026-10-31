@@ -81,7 +81,7 @@ async fn check_file(
 #[tokio::test]
 async fn only_a_blessed_category_goes_on_the_list() {
     let db = setup_test_db().await;
-    for category in ["Bussing", "ram", "inc_dec"] {
+    for category in ["Bussing", "ram", "binary_to_bcd"] {
         let refused = check(&db, given(category)).await.err().unwrap();
         assert!(refused.contains("go on the list so far"), "{refused}");
         assert!(refused.contains("category of its own"), "{refused}");
