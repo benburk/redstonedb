@@ -337,7 +337,11 @@ impl Test {
                 interface::name_lines(self.name(), blocks, interface);
                 incrementer::spec(interface, Some(self.name()))
             }
-            Test::Multiplier => multiplier::spec(interface),
+            Test::Multiplier => {
+                // Its lone control line is named for its role, calculate.
+                interface::name_lines(self.name(), blocks, interface);
+                multiplier::spec(interface)
+            }
             Test::BinaryToBcd => converters::binary_to_bcd(interface),
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
@@ -412,7 +416,13 @@ impl Test {
             Test::BarrelShifter => shifter::throughput(blocks, timing),
             // How fast one may be clocked isn't measured yet.
             Test::Counter | Test::ShiftRegister => Ok(None),
-            _ => throughput::throughput(blocks, timing),
+            _ => {
+                // Its lines named as its test names them, as its timing
+                // names them, so each goes in at its own tick.
+                let mut interface = interface::read(blocks);
+                self.spec(blocks, &mut interface)?;
+                throughput::throughput(blocks, &interface, timing)
+            }
         }
     }
 

@@ -27,10 +27,14 @@ pub(super) const LONG: usize = 4096;
 /// The most mixes of each input's telling values a stream begins with.
 const MIXES: usize = 4096;
 
-/// The throughput of the build in `blocks`, timed as `timing`; `None` when
-/// no period up to twice its slowest output keeps every result right.
-pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
-    let interface = interface::read(blocks);
+/// The throughput of the build in `blocks`, its lines `interface` as its
+/// test names them, timed as `timing`; `None` when no period up to twice
+/// its slowest output keeps every result right.
+pub fn throughput(
+    blocks: &Blocks,
+    interface: &interface::Interface,
+    timing: &Timing,
+) -> Result<Option<i32>> {
     let widths: Vec<usize> = interface.inputs.iter().map(input_bits).collect();
     let cases = stream(&widths, CASES);
     // Each input's tick from A's, as the timing found it.
@@ -52,7 +56,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if latency.len() != interface.outputs.len() {
         return Ok(None);
     }
-    let circuit = Circuit::new(blocks, &interface)?;
+    let circuit = Circuit::new(blocks, interface)?;
     let button: Vec<bool> = (0..interface.inputs.len())
         .map(|p| circuit.is_button(p, 0))
         .collect();

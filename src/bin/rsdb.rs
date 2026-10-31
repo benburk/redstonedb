@@ -1169,7 +1169,7 @@ async fn store_as_before(
 }
 
 /// Stores build `s` of database `from`, its file `data`: inspected and
-/// probed as its category, an adder or a register, its roles coloured in,
+/// probed as its category, one of the blessed ones, its roles coloured in,
 /// standardized, and checked as an upload is, under its own id, with its
 /// details, credits, tags, uploader, date added, and downloads; then
 /// simulated. The `Err` says why
@@ -1188,45 +1188,11 @@ async fn rebuild_one(
         return Ok(Err(problem.message.clone()));
     }
     // Dust on top of an input is a fault only on a data input.
-    let (coloured, data_inputs) = if s.category == "register" {
-        match app::probe::register(data, &report) {
-            Ok(probed) => (probed.file, probed.data_in),
+    let (data_inputs, coloured, _) =
+        match app::probe::probe_as(&s.category, data, &blocks, &report)? {
+            Ok(found) => found,
             Err(why) => return Ok(Err(why)),
-        }
-    } else if s.category == "alu" {
-        match app::probe::alu(data, &report) {
-            Ok(probed) => (probed.file, [probed.a, probed.b].concat()),
-            Err(why) => return Ok(Err(why)),
-        }
-    } else if s.category == "decoder" {
-        match app::probe::decoder(data, &report) {
-            Ok(probed) => (probed.file, probed.a),
-            Err(why) => return Ok(Err(why)),
-        }
-    } else if s.category == "multiplier" {
-        match app::probe::multiplier(data, &report) {
-            Ok(probed) => (probed.file, [probed.a, probed.b].concat()),
-            Err(why) => return Ok(Err(why)),
-        }
-    } else if s.category == "counter" || s.category == "shift_register" {
-        let test = if s.category == "counter" {
-            app::simulate::Test::Counter
-        } else {
-            app::simulate::Test::ShiftRegister
         };
-        match app::probe::sequential(data, &report, test) {
-            Ok(probed) => (probed.file, probed.data),
-            Err(why) => return Ok(Err(why)),
-        }
-    } else {
-        match app::probe::adder(&blocks, &report) {
-            Ok(probed) => (
-                app::probe::colour(data, &probed.layout)?,
-                [probed.layout.a, probed.layout.b].concat(),
-            ),
-            Err(why) => return Ok(Err(why)),
-        }
-    };
     if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
         return Ok(Err(fault));
     }

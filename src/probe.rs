@@ -3,7 +3,7 @@
 //! A, B, carry in, sum, and carry out, with each bus either way round, is
 //! tried with the adder's test, and the one that adds is kept.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     colour,
@@ -515,7 +515,7 @@ pub struct Recognition {
 pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let data = crate::standardize::barrels(data, &[])?;
     let blocks = Blocks::read(&data)?;
-    let changes: std::collections::BTreeMap<Pos, String> = blocks
+    let changes: BTreeMap<Pos, String> = blocks
         .iter()
         .filter(|&(_, state)| {
             let name = schem::short(state);
@@ -612,13 +612,13 @@ const KINDS: [&str; 7] = [
 
 /// What a probe found: the build's data inputs, its file coloured by the
 /// roles found, and what it is, in words.
-type Found = (Vec<Pos>, Vec<u8>, String);
+pub type Found = (Vec<Pos>, Vec<u8>, String);
 
 /// The file in `data`, with `blocks` and `report`, probed as a `kind` of
 /// [`KINDS`]: its data inputs, the file coloured by the roles found, and
 /// what it was found to be, such as `an adder: all 131072 cases right, A +
 /// B + carry in`; or why it isn't one.
-fn probe_as(
+pub fn probe_as(
     kind: &str,
     data: &[u8],
     blocks: &Blocks,
@@ -627,6 +627,71 @@ fn probe_as(
     let found = |what: &str, run: &simulate::Run| {
         format!("{what}: all {} cases right, {}", run.cases, run.pattern)
     };
+    let probed = probed_as(kind, data, blocks, report, found)?;
+    Ok(match probed {
+        Ok((inputs, file, found)) => {
+            Ok((inputs, unlabelled(kind, &file)?, found))
+        }
+        Err(why) => Err(why),
+    })
+}
+
+/// The words a sign may name a role by that probing finds anyway, for a
+/// `kind` of [`KINDS`]; an ALU's, a decoder's, and a shift register's
+/// signs are kept, as they tell what their lines do.
+fn role_words(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "adder" => &[
+            "carry in",
+            "carry-in",
+            "cin",
+            "c in",
+            "carry out",
+            "carry-out",
+            "cout",
+            "c out",
+        ],
+        "register" => &["write", "read", "write enable", "data in", "data out"],
+        "multiplier" => &["calculate", "calc", "reset"],
+        "counter" => &["clock", "clk", "write", "write enable", "load"],
+        _ => &[],
+    }
+}
+
+/// The file in `data`, found to be a `kind` of [`KINDS`], less each sign
+/// that only names a role probing found, such as `carry in`; a sign saying
+/// anything more, such as a strength, stays.
+fn unlabelled(kind: &str, data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let words = role_words(kind);
+    let blocks = Blocks::read(data)?;
+    let changes: BTreeMap<Pos, String> = blocks
+        .signs
+        .iter()
+        .filter(|(_, lines)| {
+            let said: Vec<String> = lines
+                .iter()
+                .map(|line| line.trim().to_lowercase())
+                .filter(|line| !line.is_empty())
+                .collect();
+            !said.is_empty()
+                && said.iter().all(|line| words.contains(&line.as_str()))
+        })
+        .map(|(&pos, _)| (pos, schem::AIR.to_owned()))
+        .collect();
+    if changes.is_empty() {
+        return Ok(data.to_vec());
+    }
+    crate::standardize::edit(data, &changes)
+}
+
+/// As `probe_as`, the file as probing coloured it, its signs as they were.
+fn probed_as(
+    kind: &str,
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+    found: impl Fn(&str, &simulate::Run) -> String,
+) -> anyhow::Result<Result<Found, String>> {
     Ok(match kind {
         "adder" => match adder(blocks, report) {
             Ok(probed) => Ok((
@@ -1163,7 +1228,6 @@ pub fn decoder(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use super::*;
 
@@ -1235,6 +1299,30 @@ mod tests {
             "{:?}",
             found.problems
         );
+    }
+
+    /// A sign that only names a role probing finds, such as `carry in`, is
+    /// taken out; one that says more, such as a carry out's strength,
+    /// stays.
+    #[test]
+    fn signs_naming_only_a_role_are_taken_out() {
+        let found = recognize(&uncoloured("diag-3t-cca")).unwrap();
+        assert!(found.found.is_some(), "{:?}", found.problems);
+        let blocks = Blocks::read(&found.file).unwrap();
+        let mut said: Vec<String> = blocks
+            .signs
+            .values()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect();
+        said.sort();
+        assert_eq!(said, ["carry out 1ss"]);
     }
 
     /// A sequential multiplier, its one control line its calculate.
