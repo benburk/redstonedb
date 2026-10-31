@@ -10,11 +10,11 @@
 //!   solid block, its input block. Other buttons' longer pulses are
 //!   errors, never swapped, as a build may rely on them. The lever touches
 //!   nothing else that carries power.
-//! - The input block drives dust, torches, and repeaters, at most two dusts,
-//!   and nothing else powers it or touches it but plain blocks and, on
-//!   top, a target or redstone block, which never power a solid block. One that drives dust is hard:
-//!   a bus must drive it through a repeater. Comparators reading inputs
-//!   are for signal strengths, which are not taken yet.
+//! - The input block drives dust, torches, repeaters, and comparators, at
+//!   most two dusts, and nothing else powers it or touches it but plain
+//!   blocks and, on top, a target or redstone block, which never power a
+//!   solid block. One that drives dust is hard: a bus must drive it through
+//!   a repeater.
 //! - The lever's spot takes a repeater pointed into the input block, so a
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it; and the build compiled with every lever so
@@ -317,7 +317,6 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     let (lever, block) = (switch.pos, switch.block);
     let mut dust = 0;
     let mut drives = 0;
-    let mut compared = false;
     for side in Direction::ALL {
         let next = schem::step(block, side);
         if next == lever {
@@ -362,13 +361,11 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
                     None
                 }
             }
-            "repeater" if reads_from(blocks, next, block) => {
+            // A repeater or comparator reading it takes its bit, at full
+            // strength whether a lever or a bus's repeater powers it.
+            "repeater" | "comparator" if reads_from(blocks, next, block) => {
                 drives += 1;
                 None
-            }
-            "comparator" if reads_from(blocks, next, block) => {
-                compared = true;
-                Some(wrong("read by comparator"))
             }
             "repeater" | "comparator" if points_into(blocks, next, block) => {
                 Some(wrong(&format!("{next_name} points into it")))
@@ -401,7 +398,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             format!("Input at {}: drives {dust} dusts (max 2)", place(block)),
         );
     }
-    if drives == 0 && !compared {
+    if drives == 0 {
         problem(
             report,
             "input drives nothing",
