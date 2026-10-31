@@ -357,7 +357,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
         "wait",
         category.value.trim() === ""
           ? "Choose a category to simulate it."
-          : "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers are simulated so far.",
+          : "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers are simulated so far.",
       );
       mark("timing", null);
       return;

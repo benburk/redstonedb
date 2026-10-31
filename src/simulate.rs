@@ -135,6 +135,8 @@ pub enum Test {
     Inverter,
     /// How many of A's bits are on.
     Popcount,
+    /// A as the strength of one output block.
+    BinaryToHex,
     /// Whether at least some number of A's bits are on.
     Threshold,
     /// A xor B, or every bit of it inverted, an XNOR gate's.
@@ -156,7 +158,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 27] = [
+    pub const ALL: [Test; 28] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -178,6 +180,7 @@ impl Test {
         Test::DualEdgeMonostable,
         Test::Inverter,
         Test::Popcount,
+        Test::BinaryToHex,
         Test::Threshold,
         Test::XorXnor,
         Test::AndNand,
@@ -221,6 +224,7 @@ impl Test {
             Test::Buffer => "buffer",
             Test::AbsoluteValue => "absolute_value",
             Test::Popcount => "popcount",
+            Test::BinaryToHex => "binary_to_hex",
             Test::Threshold => "threshold",
             Test::CarryOut => "carry_out",
             Test::GreaterThan => "greater_than",
@@ -363,6 +367,7 @@ impl Test {
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
             Test::Popcount => converters::popcount(interface),
+            Test::BinaryToHex => converters::binary_to_hex(interface),
             Test::Threshold => converters::threshold(interface),
             Test::Inverter => {
                 // Its lone control line is named for its role, invert.
@@ -664,7 +669,7 @@ pub struct Wrong {
 /// comes before an equality comparator, as a 1-bit one is A xnor B. A
 /// popcount and a threshold come before the BCD converters, whose telling
 /// values a popcount's strength output can pass.
-const GUESSED: [Test; 25] = [
+const GUESSED: [Test; 26] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
@@ -674,6 +679,7 @@ const GUESSED: [Test; 25] = [
     Test::AndNand,
     Test::OrNor,
     Test::Popcount,
+    Test::BinaryToHex,
     Test::Threshold,
     Test::Incrementer,
     Test::Multiplier,

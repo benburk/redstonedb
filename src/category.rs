@@ -59,7 +59,7 @@ impl Behaviour {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 25] = [
+pub const BLESSED: [&str; 26] = [
     "adder",
     "register",
     "alu",
@@ -85,6 +85,7 @@ pub const BLESSED: [&str; 25] = [
     "barrel_shifter",
     "popcount",
     "threshold",
+    "binary_to_hex",
 ];
 
 /// What a category's unsigned control and status lines are taken to be.
@@ -260,6 +261,7 @@ pub fn behaviour(category: &str) -> Behaviour {
         // Copies of these make no wider one, so they never stack.
         "absolute_value" => evaluated(Test::AbsoluteValue, Stacking::Never),
         "popcount" => evaluated(Test::Popcount, Stacking::Never),
+        "binary_to_hex" => evaluated(Test::BinaryToHex, Stacking::Never),
         "threshold" => evaluated(Test::Threshold, Stacking::Never),
         "greater_than" => compares("A > B", Test::GreaterThan),
         "equality" => compares("A = B", Test::Equality),

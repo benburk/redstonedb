@@ -65,7 +65,7 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 ))
                 (rule(
                     "Outputs",
-                    "the dust or repeater carrying each one out sits on a coloured block, any colour but white, gray, \
+                    "the dust, repeater, or comparator carrying each one out sits on a coloured block, any colour but white, gray, \
                      or an input's lime, light blue, cyan, blue, or magenta, that no block of its colour touches.",
                     &["output", "outputs-touching"],
                 ))
@@ -102,7 +102,7 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
                     ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers so far." }
+                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers so far." }
                         li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
                         li { "Measures latency, throughput, and how copies stack." }
                         li { "Shows it in each viewer's block theme." }
@@ -185,7 +185,7 @@ fn category_part(categories: &[Category]) -> Markup {
             "turns on or off; registers reading cells inverted or not."
         }
         p class="mb-3" {
-            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers are on the list so far: a build is one when probing "
+            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers are on the list so far: a build is one when probing "
             "recognizes it. Any other names its own category, such as 3x3 piston door, and goes up as "
             "built, off the list, under Other, until its category is recognized too."
         }
@@ -390,7 +390,7 @@ pub fn simulation_guide(viewer: Option<&User>, checked: &[Checked]) -> Markup {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "What the site checks" }
                 p class="mb-4" {
                     "An upload is probed: its levers and buttons are its inputs, its outputs the coloured blocks "
-                    "with dust or a repeater on them, and the site finds what each does by trying them. One "
+                    "with dust, a repeater, or a comparator on them, and the site finds what each does by trying them. One "
                     "recognized as a category below is simulated through every input case, or every case of "
                     "each byte when there are too many, and takes the facts below from the simulation or its "
                     "file, each checked on its page. Every other build goes up as built, off the list, under a "

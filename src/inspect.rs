@@ -19,8 +19,8 @@
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it; and the build compiled with every lever so
 //!   swapped is the same circuit, the proof by the rules of redstone.
-//! - Every output, data or status, is a coloured block with dust or a
-//!   repeater on top, which is what is read, and no block of its colour
+//! - Every output, data or status, is a coloured block with dust, a
+//!   repeater, or a comparator on top, which is what is read, and no block of its colour
 //!   touching it, even diagonally, of a kind used for nothing else. Any
 //!   colour but white and gray, a build's plain blocks, and the input
 //!   colours, lime, light blue,
@@ -451,7 +451,8 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: coloured blocks, each with dust or a repeater on top,
+/// The outputs: coloured blocks, each with dust, a repeater, or a
+/// comparator on top,
 /// which is what is read, and no block of its own colour touching it, even
 /// diagonally, of a kind every block of which is so. Any colour marks one
 /// but white, gray, and the input colours: white and gray are a build's
@@ -461,7 +462,8 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();
     // Each kind of coloured block but the inputs', with its blocks, and
-    // whether each could mark an output: alone, with dust or a repeater on.
+    // whether each could mark an output: alone, with dust, a repeater, or
+    // a comparator on.
     let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
     for (pos, state) in blocks.iter() {
         let name = schem::short(state);
@@ -470,7 +472,7 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         }
         let read = matches!(
             short(blocks, schem::step(pos, Direction::Up)),
-            "redstone_wire" | "repeater"
+            "redstone_wire" | "repeater" | "comparator"
         );
         kinds
             .entry(name)

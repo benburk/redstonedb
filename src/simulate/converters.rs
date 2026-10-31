@@ -108,6 +108,32 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
     })
 }
 
+/// A binary-to-hex converter's every value of A: A as the strength of
+/// its one output block, from 0 to 15.
+pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "binary-to-hex converter")?;
+    let width = bench.widths(interface)[0];
+    let &[out] = bench.outputs.as_slice() else {
+        broken!("A binary-to-hex converter has one output block, its digit.");
+    };
+    if interface.outputs[out].bits.len() != 1 || width > 4 {
+        broken!(
+            "A binary-to-hex converter shows A, of at most 4 bits, as the \
+             strength of one output block, but this has {} bits and {} \
+             output blocks.",
+            width,
+            interface.outputs[out].bits.len()
+        );
+    }
+    interface.outputs[out].signal_strength = true;
+    Ok(Spec {
+        bench,
+        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        kinds: vec![Kind::new("A as a strength", |case| case[0])],
+        by_digit: false,
+    })
+}
+
 /// A threshold's cases, at least `k` of A's bits on, as they are named.
 fn threshold_pattern(k: u32) -> String {
     format!("at least {k} of A on")
