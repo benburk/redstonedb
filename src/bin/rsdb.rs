@@ -204,7 +204,7 @@ struct Rebuild {
     /// The copy of the database to take the builds from
     from: PathBuf,
     /// The category to rebuild, probed as it: one of the blessed ones,
-    /// adder, register, alu, or decoder
+    /// adder, register, alu, decoder, or multiplier
     #[arg(long, default_value = "adder")]
     category: String,
     /// A folder of fixed files, each named for the start of its build's
@@ -1200,6 +1200,11 @@ async fn rebuild_one(
     } else if s.category == "decoder" {
         match app::probe::decoder(data, &report) {
             Ok(probed) => (probed.file, probed.a),
+            Err(why) => return Ok(Err(why)),
+        }
+    } else if s.category == "multiplier" {
+        match app::probe::multiplier(data, &report) {
+            Ok(probed) => (probed.file, [probed.a, probed.b].concat()),
             Err(why) => return Ok(Err(why)),
         }
     } else {

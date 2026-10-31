@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    colour,
     inspect::{self, Run},
     interface::{Bit, Interface, Port},
     schem::{self, Blocks, Direction, Pos, Switch},
@@ -537,9 +538,9 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     recognize_as(data, None)
 }
 
-/// As `recognize`, probing only as `meant`, `adder`, `register`, `alu`, or
-/// `decoder`, when given. Probed as each and recognized as none, its
-/// fault is as `fault_of` chooses.
+/// As `recognize`, probing only as `meant`, one of [`KINDS`], when given.
+/// Probed as each and recognized as none, its fault is as `fault_of`
+/// chooses.
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
@@ -579,82 +580,84 @@ pub fn recognize_as(
             unrecognized(faults)
         }
     };
-    let mut adder_fault = None;
-    if meant.is_none() || meant == Some("adder") {
-        match adder(&blocks, &report) {
-            Ok(probed) => {
-                let found = format!(
-                    "an adder: all {} cases right, {}",
-                    probed.run.cases, probed.run.pattern
-                );
-                let data_inputs =
-                    [probed.layout.a.clone(), probed.layout.b.clone()].concat();
-                let file = colour(data, &probed.layout)?;
+    // Each blessed category in turn, or only the one meant, its fault kept
+    // when it isn't one.
+    let mut faults: [Option<String>; 5] = Default::default();
+    for (i, kind) in KINDS.into_iter().enumerate() {
+        if meant.is_some_and(|meant| meant != kind) {
+            continue;
+        }
+        match probe_as(kind, data, &blocks, &report)? {
+            Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
-            Err(why) => adder_fault = Some(why),
+            Err(why) => faults[i] = Some(why),
         }
     }
-    let mut register_fault = None;
-    if meant.is_none() || meant == Some("register") {
-        match register(data, &report) {
-            Ok(probed) => {
-                let found = format!(
-                    "a register: all {} cases right, {}",
-                    probed.run.cases, probed.run.pattern
-                );
-                return Ok(accept(&probed.data_in, probed.file, found));
-            }
-            Err(why) => register_fault = Some(why),
-        }
-    }
-    let mut alu_fault = None;
-    if meant.is_none() || meant == Some("alu") {
-        match alu(data, &report) {
-            Ok(probed) => {
-                let found = format!(
-                    "an ALU: all {} cases right, {}",
-                    probed.run.cases, probed.run.pattern
-                );
-                let data_inputs = [probed.a, probed.b].concat();
-                return Ok(accept(&data_inputs, probed.file, found));
-            }
-            Err(why) => alu_fault = Some(why),
-        }
-    }
-    let mut decoder_fault = None;
-    if meant.is_none() || meant == Some("decoder") {
-        match decoder(data, &report) {
-            Ok(probed) => {
-                let found = format!(
-                    "a decoder: all {} cases right, {}",
-                    probed.run.cases, probed.run.pattern
-                );
-                return Ok(accept(&probed.a, probed.file, found));
-            }
-            Err(why) => decoder_fault = Some(why),
-        }
-    }
-    let fault = fault_of(
-        &blocks,
-        &report,
-        meant,
-        [adder_fault, register_fault, alu_fault, decoder_fault],
-    );
+    let fault = fault_of(&blocks, &report, meant, faults);
     problems.push(fault);
     Ok(unrecognized(problems))
 }
 
-/// Of the faults probing found as an adder, a register, an ALU, and a
-/// decoder, the one to show: the decoder's when it has one input line or
-/// is meant as one; the register's when it has a button, which only a
-/// register's writes are; the ALU's when it has more than one lone lever,
-/// its control lines; else the adder's.
+/// The blessed categories, in the order probing tries them.
+const KINDS: [&str; 5] = ["adder", "register", "alu", "decoder", "multiplier"];
+
+/// What a probe found: the build's data inputs, its file coloured by the
+/// roles found, and what it is, in words.
+type Found = (Vec<Pos>, Vec<u8>, String);
+
+/// The file in `data`, with `blocks` and `report`, probed as a `kind` of
+/// [`KINDS`]: its data inputs, the file coloured by the roles found, and
+/// what it was found to be, such as `an adder: all 131072 cases right, A +
+/// B + carry in`; or why it isn't one.
+fn probe_as(
+    kind: &str,
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+) -> anyhow::Result<Result<Found, String>> {
+    let found = |what: &str, run: &simulate::Run| {
+        format!("{what}: all {} cases right, {}", run.cases, run.pattern)
+    };
+    Ok(match kind {
+        "adder" => match adder(blocks, report) {
+            Ok(probed) => Ok((
+                [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
+                colour(data, &probed.layout)?,
+                found("an adder", &probed.run),
+            )),
+            Err(why) => Err(why),
+        },
+        "register" => register(data, report).map(|probed| {
+            let found = found("a register", &probed.run);
+            (probed.data_in, probed.file, found)
+        }),
+        "alu" => alu(data, report).map(|probed| {
+            let found = found("an ALU", &probed.run);
+            ([probed.a, probed.b].concat(), probed.file, found)
+        }),
+        "decoder" => decoder(data, report).map(|probed| {
+            let found = found("a decoder", &probed.run);
+            (probed.a, probed.file, found)
+        }),
+        _ => multiplier(data, report).map(|probed| {
+            let found = found("a multiplier", &probed.run);
+            ([probed.a, probed.b].concat(), probed.file, found)
+        }),
+    })
+}
+
+/// Of the faults probing found as an adder, a register, an ALU, a decoder,
+/// and a multiplier, the one to show: the one it is meant as, if any; else
+/// the decoder's when it has one input line; the register's when it has a
+/// button, which only a register's writes and a sequential multiplier's
+/// lines are; the ALU's when it has more than one lone lever, its control
+/// lines; else the adder's.
 fn fault_of(
     blocks: &Blocks,
     report: &inspect::Report,
     meant: Option<&str>,
-    [adder, register, alu, decoder]: [Option<String>; 4],
+    [adder, register, alu, decoder, multiplier]: [Option<String>; 5],
 ) -> String {
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
@@ -662,14 +665,16 @@ fn fault_of(
         .iter()
         .filter(|run| run.bits.len() == 1)
         .count();
-    if meant == Some("decoder") || report.inputs.len() == 1 {
-        decoder.or(adder).or(register).or(alu)
-    } else if buttons {
-        register.or(adder).or(alu)
-    } else if lone > 1 {
-        alu.or(adder).or(register)
-    } else {
-        adder.or(register).or(alu)
+    match meant {
+        Some("adder") => adder,
+        Some("register") => register,
+        Some("alu") => alu,
+        Some("decoder") => decoder,
+        Some("multiplier") => multiplier,
+        _ if report.inputs.len() == 1 => decoder.or(adder).or(register),
+        _ if buttons => register.or(multiplier).or(adder).or(alu),
+        _ if lone > 1 => alu.or(adder).or(register),
+        _ => adder.or(register).or(alu),
     }
     .unwrap_or_default()
 }
@@ -889,6 +894,120 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
     Err(why)
 }
 
+/// A multiplier as probing found it: its operands A and B, its control
+/// lines, its product's lines, lowest first, the file with them coloured
+/// as the multiplier test reads them, and that test's run.
+pub struct MultiplierProbed {
+    pub a: Vec<Pos>,
+    pub b: Vec<Pos>,
+    pub controls: Vec<Pos>,
+    pub product: Vec<Vec<Pos>>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The multiplier the file in `data` is, from `report`'s levers and
+/// outputs: its two widest input lines of one width its operands, A and B,
+/// whichever is which, as A × B is B × A; every lone lever or button a
+/// control line, a sequential one's calculate and reset, named by their
+/// signs; and its output lines, up to three, its product, tried in each
+/// order, lowest first, each coloured and run through the multiplier
+/// test, quick cases first. Or why none holds.
+pub fn multiplier(
+    data: &[u8],
+    report: &inspect::Report,
+) -> Result<MultiplierProbed, String> {
+    let (buses, controls) = split(&report.inputs);
+    let [a, b] = buses.as_slice() else {
+        return Err(format!(
+            "Operands: line lengths {}, need A and B",
+            lengths(&report.inputs)
+        ));
+    };
+    if a.bits.len() != b.bits.len() {
+        return Err(format!(
+            "Operands: {} and {} levers, need A and B as wide",
+            a.bits.len(),
+            b.bits.len()
+        ));
+    }
+    let lines: Vec<&Run> = report.outputs.iter().collect();
+    if lines.is_empty() || lines.len() > colour::OUTPUT_COLOURS.len() {
+        return Err(format!(
+            "Product: line lengths {}, need one to three lines",
+            lengths(&report.outputs)
+        ));
+    }
+    let mut why = String::new();
+    for order in orders(lines.len()) {
+        let product: Vec<Vec<Pos>> =
+            order.iter().map(|&i| lines[i].bits.clone()).collect();
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(a.bits.iter().map(|&p| (p, "lime")));
+        roles.extend(b.bits.iter().map(|&p| (p, "light_blue")));
+        roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
+        for (bits, colour) in product.iter().zip(colour::OUTPUT_COLOURS) {
+            roles.extend(bits.iter().map(|&p| (p, colour)));
+        }
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match Test::Multiplier.quick(&coloured) {
+            Ok(run) if run.wrong == 0 => {}
+            Ok(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+                continue;
+            }
+            Err(err) => {
+                why = format!("Test couldn't run: {err}");
+                continue;
+            }
+        }
+        match Test::Multiplier.run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(MultiplierProbed {
+                    a: a.bits.clone(),
+                    b: b.bits.clone(),
+                    controls,
+                    product,
+                    file,
+                    run: *run,
+                });
+            }
+            simulate::Report::Ran(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
+/// Every order of `n` things, by their places, as `[1, 0]` for two the
+/// other way round.
+fn orders(n: usize) -> Vec<Vec<usize>> {
+    if n == 0 {
+        return vec![Vec::new()];
+    }
+    let mut all = Vec::new();
+    for rest in orders(n - 1) {
+        for at in 0..=rest.len() {
+            let mut order = rest.clone();
+            order.insert(at, n - 1);
+            all.push(order);
+        }
+    }
+    all
+}
+
 /// A decoder as probing found it: its input A, its output, the file with
 /// them coloured as the decoder test reads them, and that test's run.
 pub struct DecoderProbed {
@@ -981,6 +1100,38 @@ mod tests {
                 .as_deref()
                 .is_some_and(|f| f.starts_with("an ALU")),
             "{:?} {:?}",
+            found.found,
+            found.problems
+        );
+    }
+
+    /// A sequential multiplier, its calculate and reset on buttons.
+    #[test]
+    fn a_multiplier_is_found_from_its_operands_and_product() {
+        let name = "mult-8-buttons";
+        // Raw, with blocks the simulator doesn't model until they are
+        // standardized.
+        let raw =
+            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+        let standard = crate::standardize::standardize(&raw).unwrap();
+        let blocks = Blocks::read(&standard).unwrap();
+        let changes: BTreeMap<Pos, String> = blocks
+            .iter()
+            .filter(|&(_, state)| {
+                ["lime", "light_blue", "magenta"]
+                    .iter()
+                    .any(|c| schem::short(state).starts_with(c))
+            })
+            .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
+            .collect();
+        let data = crate::standardize::edit(&standard, &changes).unwrap();
+        let found = recognize_as(&data, Some("multiplier")).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a multiplier")),
+            "{name}: {:?} {:?}",
             found.found,
             found.problems
         );

@@ -215,7 +215,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, registers, ALUs, and decoders go on the list so far: \
+            "Only adders, registers, ALUs, decoders, and multipliers go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )
