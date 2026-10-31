@@ -21,6 +21,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
+    icons::{self, icon},
     interface::{Inversions, interface_section, inverts},
     name_badges, percent, person_badge, plural, search_link,
     simulation::{Waiting, cases_pending, simulation_section},
@@ -71,17 +72,13 @@ pub fn schematic_page(
                     h1 class=(PAGE_TITLE) { (name) }
                     (build_banner(s, report, simulating))
                 }
-                div class="flex gap-2" {
-                    @if viewer.is_some_and(User::can_delete) {
-                        button type="button" commandfor="delete" command="show-modal" class="btn btn-danger" { "Delete" }
-                        (delete_dialog(s))
-                    }
-                    @if viewer.is_some_and(|v| v.may_edit(s)) {
-                        a href={ (path) "/versions/new" } class="btn btn-quiet" { "New version" }
-                        a href={ (path) "/edit" } class="btn btn-quiet" { "Edit" }
-                    }
-                    button type="button" commandfor="download" command="show-modal" class="btn btn-primary" { "Download" }
+                // On a phone, under the title, the download as wide as the
+                // page with the menu at its end; beside the title once
+                // there is room.
+                div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
+                    button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                     (download_dialog(s, viewer.is_some()))
+                    (actions_menu(s, viewer, &path))
                 }
             }
             (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
@@ -719,6 +716,40 @@ fn stacking_found(s: &Schematic) -> bool {
     s.conventional
         && category::behaviour(&s.category).stacking
             == category::Stacking::Inferred
+}
+
+/// What else the viewer may do with build `s`, at `path`, under one button:
+/// edit it, upload a new version, or delete it. Nothing for a viewer who
+/// may do none of them.
+fn actions_menu(s: &Schematic, viewer: Option<&User>, path: &str) -> Markup {
+    let edits = viewer.is_some_and(|v| v.may_edit(s));
+    let deletes = viewer.is_some_and(User::can_delete);
+    let item = "flex min-h-9 w-full items-center gap-2.5 rounded-control px-2.5 text-left hover:bg-selection hover:no-underline";
+    html! {
+        @if edits || deletes {
+            details class="relative" data-menu {
+                summary aria-label="More actions" title="More actions"
+                    class="btn btn-quiet flex size-10 cursor-pointer list-none items-center justify-center p-0 [&::-webkit-details-marker]:hidden" {
+                    (icon(icons::MORE, "size-5"))
+                }
+                div class="absolute top-full right-0 z-20 mt-1 flex w-max min-w-44 flex-col rounded-overlay border border-line bg-raised p-1 shadow-overlay" {
+                    @if edits {
+                        a href={ (path) "/edit" } class={ (item) " text-ink" } { (icon(icons::PENCIL, "size-4 text-muted")) "Edit details" }
+                        a href={ (path) "/versions/new" } class={ (item) " text-ink" } { (icon(icons::UPLOAD, "size-4 text-muted")) "Upload a new version" }
+                    }
+                    @if deletes {
+                        button type="button" commandfor="delete" command="show-modal"
+                            class={ (item) " cursor-pointer text-danger" } {
+                            (icon(icons::TRASH, "size-4")) "Delete"
+                        }
+                    }
+                }
+            }
+            @if deletes {
+                (delete_dialog(s))
+            }
+        }
+    }
 }
 
 /// An admin's confirmation before deleting a build.

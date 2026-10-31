@@ -241,7 +241,6 @@ async fn listing(
         .filter(|s| has_tags(s, &query.tags))
         .collect();
     let facets = facets(&categories, &found, &query.category);
-    let matched = found.len();
     let mut shown: Vec<Schematic> = if query.category.is_empty() {
         found
     } else {
@@ -255,7 +254,6 @@ async fn listing(
     let listing = pages::Listing {
         shown: &shown,
         total,
-        matched,
         view,
         sort: &query.sort,
         query: &query.q,

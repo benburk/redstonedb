@@ -21,6 +21,8 @@
 // - A button with `data-disclose` shows or hides the elements its
 //   `aria-controls` names, space-separated, its `aria-expanded` saying
 //   which, as an output's bit rows.
+// - A `<details data-menu>` is a menu: it closes when a choice in it is
+//   made, or on a click outside it or Escape.
 
 const notice = document.getElementById("notice");
 
@@ -298,4 +300,24 @@ document.addEventListener("click", (event) => {
     const controlled = document.getElementById(id);
     if (controlled) controlled.hidden = !open;
   }
+});
+
+// A menu closes once a choice in it is made, or on a click outside it or
+// Escape, as menus do.
+const closeMenus = (except) => {
+  for (const menu of document.querySelectorAll("details[data-menu][open]")) {
+    if (menu !== except) menu.open = false;
+  }
+};
+document.addEventListener("click", (event) => {
+  const menu = event.target.closest("details[data-menu]");
+  closeMenus(menu);
+  if (menu && event.target.closest("a, button")) menu.open = false;
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const open = document.querySelector("details[data-menu][open]");
+  if (!open) return;
+  open.open = false;
+  open.querySelector("summary").focus();
 });

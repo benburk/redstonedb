@@ -29,9 +29,9 @@ pub enum View {
 /// other value in the address works too; see `schematics::order`.
 const SORTS: [(&str, &str); 4] = [
     ("", "Newest"),
-    ("volume", "Volume"),
-    ("latency", "Latency"),
-    ("-downloads", "Downloads"),
+    ("volume", "Smallest"),
+    ("latency", "Fastest"),
+    ("-downloads", "Popular"),
 ];
 
 /// The home page's schematics and how they were asked for.
@@ -40,8 +40,6 @@ pub struct Listing<'a> {
     pub shown: &'a [Schematic],
     /// How many schematics there are in all.
     pub total: usize,
-    /// How many match the search, of any category.
-    pub matched: usize,
     pub view: View,
     /// Such as `-downloads`; empty for newest first.
     pub sort: &'a str,
@@ -223,7 +221,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
         .map_or((View::Cards, "", &[][..]), |l| (l.view, l.query, l.tags));
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
-            fx-action=(action) fx-target="#listing" class="group relative mb-8" {
+            fx-action=(action) fx-target="#listing" class="group relative mb-3" {
             @if view == View::List {
                 input type="hidden" name="view" value="list";
             }
@@ -289,7 +287,7 @@ pub fn home_results(listing: &Listing) -> Markup {
 /// cleared redraws it.
 pub fn home_index(index: &Index) -> Markup {
     html! {
-        div id="listing" {
+        div id="listing" class="pt-5" {
             h1 class="sr-only" { (APP_NAME) }
             section aria-labelledby="index-heading" class="mb-12" {
                 // The section headings say what the tiles are, so this one
@@ -344,13 +342,13 @@ pub fn home_index(index: &Index) -> Markup {
 }
 
 /// The categories to narrow a page to, as a menu named `category`: first
-/// `all`, the label and count of the choice of every category, then each
+/// `all`, the label of the choice of every category, then each
 /// category with its count, under its section, and the rest; `current` is
 /// the chosen one. With `form`, it belongs to that form, wherever it is.
 pub(super) fn category_menu(
     facets: &[Facet],
     current: &str,
-    all: (&str, usize),
+    all: &str,
     form: Option<&str>,
 ) -> Markup {
     let option = |facet: &Facet| {
@@ -366,10 +364,10 @@ pub(super) fn category_menu(
     // A choice the address made that the menu lacks, such as two at once.
     let known = current.is_empty() || facets.iter().any(|f| f.name == current);
     html! {
-        label class="flex items-center gap-2 text-meta text-muted" {
-            "Category"
-            select id="category" name="category" form=[form] class="input min-h-9 w-auto text-body" {
-                option value="" selected[current.is_empty()] { (all.0) " (" (all.1) ")" }
+        label class="flex min-w-0 items-center" {
+            span class="sr-only" { "Category" }
+            select id="category" name="category" form=[form] class="input min-h-9 w-full min-w-0 text-body sm:w-auto" {
+                option value="" selected[current.is_empty()] { (all) }
                 @if !known {
                     option value=(current) selected { (current) }
                 }
@@ -387,7 +385,8 @@ pub(super) fn category_menu(
     }
 }
 
-/// The home page's title and count, with its tabs, layouts, and order.
+/// The row under the search, its category, order, and layout, then the
+/// page's title and count, with its tabs.
 fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
     let Listing {
         shown,
@@ -400,7 +399,31 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
         && !category.contains(',')
         && category != "other"
         && listing.facets.iter().any(|f| f.name == category);
+    let layout = |to: View, label: &str, glyph: &str| {
+        html! {
+            a href=(Home { view: to, ..here }.href()) aria-label=(label) title=(label)
+                class={ (SWITCH) " flex items-center px-2" }
+                aria-current=[(view == to).then_some("page")] {
+                (icon(glyph, "size-4"))
+            }
+        }
+    };
     html! {
+            // Paired with the search above it: what it searches in, the
+            // order, and the layout, which a phone, too narrow for the
+            // list's table, leaves at cards.
+            div class="mb-6 flex items-center gap-2" {
+                div class="min-w-0 flex-1 sm:flex-none" {
+                    (category_menu(listing.facets, category, "All categories", Some("search-form")))
+                }
+                (sort_menu(here.sort))
+                div class="ml-auto hidden shrink-0 sm:block" {
+                    nav aria-label="Layout" class=(SWITCHES) {
+                        (layout(View::Cards, "Cards", icons::GRID))
+                        (layout(View::List, "List", icons::LIST))
+                    }
+                }
+            }
             div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { (title) }
                 p class="mr-auto self-end pb-1 text-muted tabular-nums" {
@@ -409,12 +432,6 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
                 @if ranked {
                     (category_tabs(category, false))
                 }
-                nav aria-label="Layout" class=(SWITCHES) {
-                    a href=(Home { view: View::Cards, ..here }.href()) class=(SWITCH) aria-current=[(view == View::Cards).then_some("page")] { "Cards" }
-                    a href=(Home { view: View::List, ..here }.href()) class=(SWITCH) aria-current=[(view == View::List).then_some("page")] { "List" }
-                }
-                (category_menu(listing.facets, category, ("All categories", listing.matched), Some("search-form")))
-                (sort_menu(here.sort))
             }
     }
 }
@@ -425,8 +442,8 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
 fn sort_menu(sort: &str) -> Markup {
     let known = SORTS.iter().any(|(value, _)| *value == sort);
     html! {
-        label class="flex items-center gap-2 text-meta text-muted" {
-            "Sort"
+        label class="flex shrink-0 items-center" {
+            span class="sr-only" { "Sort" }
             select id="sort" name="sort" form="search-form" class="input min-h-9 w-auto text-body" {
                 @for (value, label) in SORTS {
                     option value=(value) selected[value == sort] { (label) }

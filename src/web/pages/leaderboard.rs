@@ -42,7 +42,7 @@ pub struct PeoplePage<'a> {
 fn board_menu(facets: &[Facet], current: &str, people: usize) -> Markup {
     html! {
         form action="/leaderboards" method="get" data-live class="flex items-center gap-2" {
-            (category_menu(facets, current, ("People", people), None))
+            (category_menu(facets, current, &format!("People ({people})"), None))
             noscript { button type="submit" class="btn btn-quiet min-h-9" { "Go" } }
         }
     }
@@ -75,7 +75,7 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
                     "A record is first place, as fastest or as smallest, on a category's leaderboard "
                     "with at least two builds; choose a category to see them."
                 }
-                div class="grid gap-x-10 gap-y-8 desktop:grid-cols-3" {
+                div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
                     (standings("most-built", "Most builds", "Builds", built, builder))
                     (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
                     (standings("most-records", "Most records", "Records", records, builder))
@@ -320,7 +320,7 @@ fn rankings(category: &Category, board: &Board) -> Markup {
         p class="mb-6 text-muted" {
             (competing) ": " (board_name(category, board)) (what) "."
         }
-        div class="grid gap-x-10 gap-y-8 desktop:grid-cols-2" {
+        div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-2" {
             section aria-labelledby="fastest" {
                 h2 id="fastest" class={ (SECTION_TITLE) " mb-2" } { "Fastest" }
                 @if fastest.is_empty() {
