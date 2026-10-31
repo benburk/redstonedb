@@ -59,16 +59,16 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }
             }
-            // Each control in its own column, so they line up down the
-            // page; on a phone each account is a block, its name over its
-            // Minecraft name and role.
+            // Each control in its own column, of a fixed width so a name
+            // opened for editing moves nothing; on a phone each account is
+            // a block, its name and role over its Minecraft name.
             div class="relative max-w-calm" {
-                table class="block w-full border-collapse sm:table" {
+                table class="block w-full border-collapse sm:table sm:table-fixed" {
                     thead class="hidden sm:table-header-group" {
                         tr {
-                            th scope="col" class=(TABLE_HEAD) { "Account" }
+                            th scope="col" class={ (TABLE_HEAD) " w-[35%]" } { "Account" }
                             th scope="col" class=(TABLE_HEAD) { "Minecraft name" }
-                            th scope="col" class=(TABLE_HEAD) { "Role" }
+                            th scope="col" class={ (TABLE_HEAD) " w-32" } { "Role" }
                         }
                     }
                     tbody class="block sm:table-row-group" {
@@ -87,18 +87,18 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
 const CELL: &str = "sm:table-cell sm:h-row-rich sm:border-b sm:border-line sm:py-2 sm:pr-4 sm:align-middle";
 
 /// One account's row on the users page, redrawn by fixi when one of its
-/// forms changes it. A confirmation and a role save as soon as they
-/// change; without scripts, their buttons send them.
+/// forms changes it. A role saves as soon as it changes; without scripts,
+/// its button sends it.
 pub fn user_row(admin: &User, user: &User) -> Markup {
     let row = format!("user-{}", user.username);
     let target = format!("#{row}");
     html! {
         tr id=(row) class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3 sm:table-row sm:border-0 sm:py-0" {
-            th scope="row" class={ (CELL) " w-full text-left font-normal sm:w-auto" } {
+            th scope="row" class={ (CELL) " min-w-0 flex-1 text-left font-normal" } {
                 (account_link(user))
             }
-            // Being edited on a phone, it takes the whole line.
-            td class={ (CELL) " min-w-0 flex-1 has-[[data-editor]:not([hidden])]:basis-full sm:has-[[data-editor]:not([hidden])]:basis-auto" } { (minecraft_name(user, &target)) }
+            // On a phone, a line of its own under the account and role.
+            td class={ (CELL) " order-last min-w-0 basis-full" } { (minecraft_name(user, &target)) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="flex items-center gap-2" {
