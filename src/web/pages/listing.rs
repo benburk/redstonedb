@@ -221,7 +221,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
         .map_or((View::Cards, "", &[][..]), |l| (l.view, l.query, l.tags));
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
-            fx-action=(action) fx-target="#listing" class="group relative mb-3" {
+            fx-action=(action) fx-target="#listing" class="relative mb-3" {
             @if view == View::List {
                 input type="hidden" name="view" value="list";
             }
@@ -232,7 +232,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
             div class="relative" {
                 input type="search" id="search" name="q" value=(query)
                     placeholder="Search builds, such as 8b adder 3t"
-                    autocomplete="off" aria-describedby="search-help"
+                    autocomplete="off"
                     class="input pr-12";
                 // Inside the box's end, saying what it does while pointed
                 // at or focused. The dialog comes from the server, with the
@@ -249,12 +249,6 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
                         "Choose a schematic file or a Schemati link to see which builds share the most redstone with it."
                     }
                 }
-            }
-            // Shown only while the box is focused and empty, over the gap
-            // below it, so nothing moves.
-            p id="search-help"
-                class="absolute top-full z-10 mt-1.5 hidden bg-canvas text-meta text-muted group-has-[#search:focus:placeholder-shown]:block" {
-                (search_help())
             }
         }
     }
@@ -386,7 +380,7 @@ pub(super) fn category_menu(
 }
 
 /// The row under the search, its category, order, and layout, then the
-/// page's title and count, with its tabs.
+/// page's title and count.
 fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
     let Listing {
         shown,
@@ -394,11 +388,6 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
         category,
         ..
     } = *listing;
-    // A single standard category has a leaderboard to switch to.
-    let ranked = !category.is_empty()
-        && !category.contains(',')
-        && category != "other"
-        && listing.facets.iter().any(|f| f.name == category);
     let layout = |to: View, label: &str, glyph: &str| {
         html! {
             a href=(Home { view: to, ..here }.href()) aria-label=(label) title=(label)
@@ -428,9 +417,6 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
                 h1 class=(PAGE_TITLE) { (title) }
                 p class="mr-auto self-end pb-1 text-muted tabular-nums" {
                     (shown.len()) span class="sr-only" { " builds" }
-                }
-                @if ranked {
-                    (category_tabs(category, false))
                 }
             }
     }
@@ -529,22 +515,6 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
     }
 }
 
-/// A category's builds and its leaderboard, as two tabs; `leaderboard` is
-/// whether that is the one shown.
-pub(super) fn category_tabs(category: &str, leaderboard: bool) -> Markup {
-    let query = form_urlencoded::Serializer::new(String::new())
-        .append_pair("category", category)
-        .finish();
-    html! {
-        nav aria-label="Builds or leaderboard" class=(SWITCHES) {
-            a href={ "/?" (query) } class=(SWITCH)
-                aria-current=[(!leaderboard).then_some("page")] { "Builds" }
-            a href={ "/leaderboards/" (category) } class=(SWITCH)
-                aria-current=[leaderboard.then_some("page")] { "Leaderboard" }
-        }
-    }
-}
-
 /// The query with term `index` taken out.
 fn without(terms: &[Term], index: usize) -> String {
     terms
@@ -596,9 +566,9 @@ pub(super) fn cards(
     }
 }
 
-/// The list holding cards.
-const CARDS: &str =
-    "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-5";
+/// The list holding cards: as many 16rem cards to a row as fit, and two
+/// on a phone.
+const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_-_0.375rem)),1fr))] gap-3 sm:gap-5";
 
 /// The picture of `s`, at an address that changes with its file and with
 /// the viewer's `palette`.
@@ -665,7 +635,7 @@ fn card(s: &Schematic, note: &Markup, palette: Option<&str>) -> Markup {
                     img src=(thumbnail_src(s, palette))
                         alt="" loading="lazy" decoding="async" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
-                    div class="flex flex-1 flex-col gap-2 p-4" {
+                    div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
                         h2 class="text-section font-semibold" {
                             a href={ "/schematics/" (s.id) }
                                 class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }

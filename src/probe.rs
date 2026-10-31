@@ -584,10 +584,8 @@ pub fn recognize_as(
         match adder(&blocks, &report) {
             Ok(probed) => {
                 let found = format!(
-                    "an adder, {}: all {} cases right, {}",
-                    probed.layout.describe(),
-                    probed.run.cases,
-                    probed.run.pattern
+                    "an adder: all {} cases right, {}",
+                    probed.run.cases, probed.run.pattern
                 );
                 let data_inputs =
                     [probed.layout.a.clone(), probed.layout.b.clone()].concat();

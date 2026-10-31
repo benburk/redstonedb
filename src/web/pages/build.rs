@@ -81,12 +81,17 @@ pub fn schematic_page(
                     (actions_menu(s, viewer, &path))
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report)))
+            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report), false))
             @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
                 (not_recognized(meant, file))
             }
             @let poll = format!("{path}/simulation");
+            // Off the list, a build the simulator can't run says why under
+            // Failed verification already.
+            @let skipped_off_list = crate::models::simulation::meant_by(&s.category).is_some()
+                && matches!(report, Some(Report::Skipped { .. }));
             @match simulation {
+                Status::Done(_) | Status::Pending(Some(_)) if skipped_off_list => {}
                 Status::Done(report) | Status::Pending(Some(report)) => {
                     (simulation_section(report, waiting(s, &poll)))
                 }

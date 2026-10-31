@@ -152,7 +152,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (checks(page))
                 (file_chooser(page))
                 (details_form(user, page))
-            }))
+            }, true))
             div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, None, &Inversions { category: "", flags: &[], found: &[] })) }
             // Redrawn as the category and width call for a test.
             @let simulate = simulate_url(page);
@@ -219,7 +219,8 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
 /// and its hoppers, with an offer to swap them too.
 fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
-        @if let File::Upload { guess: Some(guess), .. } = &page.file {
+        // A recognized build's check already says what it is.
+        @if let File::Upload { guess: Some(guess), recognized: None, .. } = &page.file {
             (check("guess", State::Pass, &html! {
                 @if guess.wrong == 0 { "Looks like " } @else { "Looks most like " }
                 (article(&guess.category.replace('_', " "))) ": " (guess.pattern) ", right in "

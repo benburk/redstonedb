@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, base,
-    listing::{Facet, category_menu, category_tabs},
+    listing::{Facet, category_menu},
 };
 
 /// A leaderboard and the categories beside it.
@@ -159,7 +159,6 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
             div {
                 div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
-                    (category_tabs(&category.name, true))
                     (board_menu(facets, &category.name, people))
                 }
                 @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {

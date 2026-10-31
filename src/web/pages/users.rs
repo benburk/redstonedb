@@ -9,7 +9,7 @@ use crate::models::{
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, listing::cards,
+    PAGE_TITLE, SECTION_TITLE, TABLE_HEAD, base, listing::cards,
     player::credits, player_href,
 };
 
@@ -56,16 +56,18 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }
             }
-            div class="relative max-w-calm overflow-x-auto" {
-                table class="w-full border-collapse" {
-                    thead {
+            // On a phone each account's cells stack, as three columns don't
+            // fit.
+            div class="relative max-w-calm" {
+                table class="block w-full border-collapse sm:table" {
+                    thead class="hidden sm:table-header-group" {
                         tr {
                             th scope="col" class=(TABLE_HEAD) { "Account" }
                             th scope="col" class=(TABLE_HEAD) { "Minecraft name" }
                             th scope="col" class=(TABLE_HEAD) { "Role" }
                         }
                     }
-                    tbody {
+                    tbody class="block sm:table-row-group" {
                         @for user in users {
                             (user_row(admin, user))
                         }
@@ -76,18 +78,23 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
     )
 }
 
+/// A cell of the users table: the table's own from a phone up, where on a
+/// phone the row's line does.
+const CELL: &str =
+    "sm:table-cell sm:border-b sm:border-line sm:py-2.5 sm:pr-4 sm:align-top";
+
 /// One account's row on the users page, redrawn by fixi when one of its
 /// forms changes it.
 pub fn user_row(admin: &User, user: &User) -> Markup {
     let row = format!("user-{}", user.username);
     let target = format!("#{row}");
     html! {
-        tr id=(row) {
-            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+        tr id=(row) class={ "flex flex-col gap-2 border-b border-line py-3 sm:table-row sm:border-0 sm:py-0" } {
+            th scope="row" class={ (CELL) " text-left font-normal" } {
                 (account_link(user))
             }
-            td class=(TABLE_CELL) { (minecraft_cell(user, &target)) }
-            td class=(TABLE_CELL) {
+            td class=(CELL) { (minecraft_cell(user, &target)) }
+            td class=(CELL) {
                 @if user.id == admin.id {
                     span class="text-muted" { "admin (you)" }
                 } @else {
@@ -139,9 +146,14 @@ fn minecraft_cell(user: &User, target: &str) -> Markup {
         form action=(verify) method="post"
             fx-action=(verify) fx-method="post" fx-target=(target)
             class="flex flex-wrap items-center gap-x-3 gap-y-1" {
-            span { (name) }
-            span class="text-meta text-muted" {
-                (if user.minecraft_verified { "confirmed" } else { "not confirmed" })
+            span class="inline-flex items-center gap-1.5" {
+                (name)
+                @if user.minecraft_verified {
+                    span title="Confirmed" class="inline-flex text-brand" {
+                        (super::icons::icon(super::icons::CHECK, "size-4"))
+                        span class="sr-only" { "confirmed" }
+                    }
+                }
             }
             input type="hidden" name="verified" value=(value);
             button type="submit" class="btn btn-quiet min-h-8 px-3"

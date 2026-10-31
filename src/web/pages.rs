@@ -248,13 +248,18 @@ fn size(s: &Schematic) -> String {
 /// The layout of a build's page and of an upload's preview: `side`, its
 /// facts or form, on the left, and the 3D view of the file at `file` on
 /// the right, staying in sight while the side scrolls. On a phone the view
-/// comes first.
-fn beside_viewer(file: &str, side: &Markup) -> Markup {
+/// comes first, or last with `side_first`, as for a form to fill in.
+fn beside_viewer(file: &str, side: &Markup, side_first: bool) -> Markup {
+    let viewer = if side_first {
+        "order-last desktop:sticky desktop:top-4"
+    } else {
+        "desktop:sticky desktop:top-4 desktop:order-last"
+    };
     html! {
         // One column on a phone, no wider than the screen, so a wide table
         // scrolls in its own box rather than widening the page.
         div class="grid grid-cols-[minmax(0,1fr)] items-start gap-8 desktop:grid-cols-[var(--container-form)_minmax(0,1fr)]" {
-            div class="desktop:sticky desktop:top-4 desktop:order-last" {
+            div class=(viewer) {
                 (viewer_3d(file))
             }
             div class="flex flex-col gap-8" { (side) }
