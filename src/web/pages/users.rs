@@ -9,8 +9,11 @@ use crate::models::{
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, TABLE_HEAD, base, listing::cards,
-    player::credits, player_href,
+    PAGE_TITLE, SECTION_TITLE, TABLE_HEAD, base,
+    icons::{self, icon},
+    listing::cards,
+    player::credits,
+    player_href,
 };
 
 /// The login page. `enabled` is false when the Discord settings are
@@ -95,7 +98,8 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             th scope="row" class={ (CELL) " w-full text-left font-normal sm:w-auto" } {
                 (account_link(user))
             }
-            td class={ (CELL) " min-w-0 flex-1" } { (minecraft_name(user, &target)) }
+            // Being edited on a phone, it takes the whole line.
+            td class={ (CELL) " min-w-0 flex-1 has-[[data-editor]:not([hidden])]:basis-full sm:has-[[data-editor]:not([hidden])]:basis-auto" } { (minecraft_name(user, &target)) }
             td class={ (CELL) " sm:text-center" } { (confirmation(user, &target)) }
             td class=(CELL) {
                 @if user.id == admin.id {
@@ -139,25 +143,46 @@ pub(super) fn role_badge(role: Role) -> Markup {
     html! { span class={ "badge " (role_colour(role)) } { (role.as_str()) } }
 }
 
-/// An account's Minecraft name on the users page, or, with none given yet,
-/// a field to give one.
+/// An account's Minecraft name on the users page, or none, with a pencil
+/// that swaps it for a field to change it in, which confirms the name it
+/// saves.
 fn minecraft_name(user: &User, target: &str) -> Markup {
-    let Some(name) = &user.minecraft_name else {
-        let id = format!("minecraft-{}", user.username);
-        let action = format!("/users/{}/minecraft/name", user.username);
-        return html! {
-            form action=(action) method="post"
-                fx-action=(action) fx-method="post" fx-target=(target)
-                class="flex items-center gap-2" {
-                label for=(id) class="sr-only" { "Minecraft name for " (user.name()) }
-                input id=(id) name="minecraft_name" required
-                    pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
-                    placeholder="None given" class="input min-h-9 w-40";
-                button type="submit" class="btn btn-quiet min-h-9" { "Set" }
-            }
-        };
+    let name = user.minecraft_name.as_deref().unwrap_or_default();
+    let shown = html! {
+        @if name.is_empty() {
+            span class="text-muted" { "None" }
+        } @else {
+            span class="block truncate" title=(name) { (name) }
+        }
     };
-    html! { span class="block truncate" title=(name) { (name) } }
+    let action = format!("/users/{}/minecraft/name", user.username);
+    let form = html! {
+        form action=(action) method="post"
+            fx-action=(action) fx-method="post" fx-target=(target)
+            class="flex items-center gap-2" {
+            input name="minecraft_name" value=(name) required
+                aria-label={ "Minecraft name for " (user.name()) }
+                pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
+                class="inline-input";
+            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
+            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+        }
+    };
+    // The pencil right after the name, swapping the two for the form, as
+    // Settings does.
+    html! {
+        div data-editable {
+            div data-view class="flex min-w-0 items-center gap-1" {
+                (shown)
+                button type="button" data-edit title="Edit"
+                    aria-label={ "Edit " (user.name()) "'s Minecraft name" }
+                    class="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink" {
+                    (icon(icons::PENCIL, "size-4"))
+                }
+            }
+            div data-editor hidden { (form) }
+        }
+    }
 }
 
 /// Whether an account's Minecraft name is confirmed, as a box ticked or
