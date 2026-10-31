@@ -1,12 +1,16 @@
 //! Testing a counter or a shift register: a value it holds, shown on its
 //! widest output, that its control lines change as they pulse, counting it
 //! up or down, shifting it toward its high or its low bit, loading input A
-//! into it, or clearing it. Which line does what, pulsed alone or with one
-//! of its other levers held on, is found by trying each from a value no
-//! two operations agree on; a counter must count and a shift register
-//! shift. Each operation found is then checked: a count through every
-//! value and round, a load of every value of A, and a clear or a shift
-//! from many values.
+//! into it, or clearing it.
+//!
+//! A counter has one way to be driven: input A, as wide as its value, a
+//! clock button, which counts it up or down, and a write enable lever,
+//! with which the clock loads A instead. A shift register's lines are
+//! found by trying each, pulsed alone or with one of its other levers held
+//! on, from a value no two operations agree on; one must shift.
+//!
+//! Each operation is then checked: a count through every value and round,
+//! a load of every value of A, and a clear or a shift from many values.
 //!
 //! A pulse is a button's press, or a lever turned on and off, each run
 //! until nothing changes. Status lines, such as a shift out, are left out.
@@ -132,7 +136,11 @@ struct Lines {
 
 /// The lines of the build in `blocks`, as its colours mark them.
 fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
-    let interface = interface::read(blocks);
+    let mut interface = interface::read(blocks);
+    if kind == Kind::Counter {
+        // Its button is its clock and its lever its write enable.
+        interface::name_lines("counter", blocks, &mut interface);
+    }
     let mut data = None;
     let mut controls = Vec::new();
     for (i, port) in interface.inputs.iter().enumerate() {
@@ -373,6 +381,9 @@ fn find<'a>(
     lines: &Lines,
     kind: Kind,
 ) -> Result<Found> {
+    if kind == Kind::Counter {
+        return counter(fresh, lines);
+    }
     let all_ways = ways(&fresh()?);
     let setter = setter(fresh, &all_ways, lines.width, kind)?;
     let found = operations(fresh, &all_ways, setter, lines.width)?;
@@ -396,6 +407,74 @@ fn find<'a>(
     }
     Ok(Found {
         ways: found,
+        cases: tally.cases,
+        wrong: tally.wrong,
+        examples: tally.examples,
+    })
+}
+
+/// How a counter, of `lines`, makes its operations, and its cases: its
+/// clock, pressed, counts up or down, and pressed with its write enable on
+/// loads A.
+fn counter<'a>(
+    fresh: &dyn Fn() -> Result<Machine<'a>>,
+    lines: &Lines,
+) -> Result<Found> {
+    let at = |name: &str| lines.names.iter().position(|line| line == name);
+    let (Some(clock), Some(enable), 2, Some(width)) = (
+        at("clock"),
+        at("write enable"),
+        lines.controls.len(),
+        lines.data_name.as_ref().map(|&(_, bits)| bits),
+    ) else {
+        broken!(
+            "A counter has input A, a clock button, and a write enable \
+             lever, but this has {}.",
+            lines
+                .data_name
+                .iter()
+                .map(|(name, _)| name)
+                .chain(&lines.names)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    };
+    if width != lines.width {
+        broken!(
+            "Input A has {width} bits, but the value it loads has {}.",
+            lines.width
+        );
+    }
+    let load = Way {
+        pulse: clock,
+        held: Some(enable),
+    };
+    let clock = Way {
+        pulse: clock,
+        held: None,
+    };
+    let first = telling(lines.width, 0);
+    let mut machine = fresh()?;
+    machine.apply(load, first)?;
+    if machine.read() != first {
+        broken!("Its clock, with write enable on, doesn't load A.");
+    }
+    machine.apply(clock, 0)?;
+    let got = machine.read();
+    let Some(count @ (Op::Up | Op::Down)) =
+        classify(first, 0, got, lines.width).filter(|_| got != first)
+    else {
+        broken!("Its clock doesn't count: from {first} it gave {got}.");
+    };
+    let setter = (load, Op::Load);
+    let ways = vec![(clock, count), (load, Op::Load)];
+    let mut tally = Tally::default();
+    for &(way, op) in &ways {
+        tally.check(fresh, lines, setter, way, op)?;
+    }
+    Ok(Found {
+        ways,
         cases: tally.cases,
         wrong: tally.wrong,
         examples: tally.examples,

@@ -93,6 +93,7 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
                 return name_register(blocks, interface, false);
             }
             Lines::Buffer => return name_register(blocks, interface, true),
+            Lines::Counter => return name_counter(blocks, interface),
             Lines::Result(name) => {
                 if let [out] = interface.outputs.as_mut_slice()
                     && !out.labelled
@@ -145,12 +146,7 @@ fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
     {
         "data out".clone_into(&mut out.name);
     }
-    let button = |bit: &Bit| {
-        bit.entry.is_some_and(|side| {
-            schem::id(blocks.get(schem::step(bit.pos, side)))
-                .ends_with("_button")
-        })
-    };
+    let button = |bit: &Bit| button(blocks, bit);
     let levers_write = buffer
         && !interface
             .inputs
@@ -186,6 +182,50 @@ fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
         }
     }
     interface.inputs = split;
+}
+
+/// `name_lines` for a counter: each bit of its magenta lines, signed or
+/// not, a line of its own, its clock when a button drives it and its write
+/// enable when a lever does, numbered in order when there are more.
+fn name_counter(blocks: &Blocks, interface: &mut Interface) {
+    let mut split = Vec::new();
+    let mut controls = Vec::new();
+    for port in std::mem::take(&mut interface.inputs) {
+        if port.block.starts_with(colour::CONTROL) {
+            controls.push(port);
+        } else {
+            split.push(port);
+        }
+    }
+    let bits: Vec<(Bit, &Port)> = controls
+        .iter()
+        .flat_map(|port| port.bits.iter().map(move |bit| (bit.clone(), port)))
+        .collect();
+    let (clocks, enables): (Vec<_>, Vec<_>) =
+        bits.into_iter().partition(|(bit, _)| button(blocks, bit));
+    for (bits, word) in [(clocks, "clock"), (enables, "write enable")] {
+        let count = bits.len();
+        for (i, (bit, port)) in bits.into_iter().enumerate() {
+            let name = if count > 1 {
+                format!("{word} {}", i + 1)
+            } else {
+                word.to_owned()
+            };
+            split.push(Port {
+                name,
+                bits: vec![bit],
+                ..port.clone()
+            });
+        }
+    }
+    interface.inputs = split;
+}
+
+/// Whether a button, not a lever, drives input bit `bit`.
+fn button(blocks: &Blocks, bit: &Bit) -> bool {
+    bit.entry.is_some_and(|side| {
+        schem::id(blocks.get(schem::step(bit.pos, side))).ends_with("_button")
+    })
 }
 
 /// The bounds, inclusive, of the build itself: its box less any outer

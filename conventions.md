@@ -18,7 +18,9 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 
 - Each output bit is the dust, repeater, or comparator on a coloured block: any colour but white, gray, or an input colour, with no block of its own colour touching it, even diagonally. The bit is on while that component is.
 - An adder's or ALU's widest output is its output and each lone one a status line, such as a carry out. A multiplier's product may be up to three lines, which probing puts in order, lowest first.
-- A counter's or shift register's widest output is the value it holds, and each lone output a status line, such as a shift out. An input bus as wide is A, which it loads; every other lever or button is a control line, and what each does, counting, shifting, loading, or clearing, alone or with another lever held on, is found by trying it.
+- A counter's or shift register's widest output is the value it holds, and each lone output a status line, such as a shift out. An input bus as wide is A, which it loads.
+- A counter has input A, one button, its clock, and one lever, its write enable: pressing the clock counts up or down, and pressing it with write enable on loads A.
+- A shift register's every other lever or button is a control line, and what each does, shifting, loading, or clearing, alone or with another lever held on, is found by trying it.
 
 ## Buses
 

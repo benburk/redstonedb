@@ -80,6 +80,12 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                     "copies repeat a box of the build; what only the first copy needs, such as a carry in, goes on an outer face.",
                     &[],
                 ))
+                (rule(
+                    "Counters",
+                    "input A as wide as the value, one button, the clock, and one lever, the write enable. \
+                     The clock counts up or down; with write enable on, it loads A.",
+                    &[],
+                ))
                 p class="mt-6 mb-4 max-w-prose" { "No other colours, signs, or bit-order marks are needed." }
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }

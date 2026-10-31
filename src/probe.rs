@@ -1201,12 +1201,13 @@ mod tests {
         );
     }
 
-    /// A counter that loads A and counts on its clock, and a shift register
-    /// that loads A and shifts either way, each found by what its lines do.
+    /// A counter whose clock button counts and loads A with its write enable
+    /// lever on, and a shift register that loads A and shifts either way,
+    /// found by what its lines do.
     #[test]
     fn a_counter_and_a_shift_register_are_found_from_their_lines() {
         for (name, kind) in [
-            ("counter-8-load", "a counter"),
+            ("counter-8", "a counter"),
             ("shift-register-8", "a shift register"),
         ] {
             let found = recognize(&uncoloured(name)).unwrap();
@@ -1217,6 +1218,24 @@ mod tests {
                 found.problems
             );
         }
+    }
+
+    /// A counter has one clock button and one write enable lever, so one
+    /// loading A on a button of its own isn't one.
+    #[test]
+    fn a_counter_loading_on_a_second_button_is_not_one() {
+        let found =
+            recognize_as(&uncoloured("counter-8-two-buttons"), Some("counter"))
+                .unwrap();
+        assert!(found.found.is_none(), "{:?}", found.found);
+        assert!(
+            found
+                .problems
+                .iter()
+                .any(|p| p.contains("write enable lever")),
+            "{:?}",
+            found.problems
+        );
     }
 
     /// A sequential multiplier, its calculate and reset on buttons.

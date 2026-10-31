@@ -99,6 +99,9 @@ pub enum Lines {
     /// when none has a button, as it has no reads; a lone one needs no
     /// sign.
     Buffer,
+    /// A counter's: each magenta line its clock, driven by a button, or its
+    /// write enable, by a lever, whatever its sign says.
+    Counter,
 }
 
 /// What a category's copies stacked do with its data buses and its
@@ -261,7 +264,10 @@ pub fn behaviour(category: &str) -> Behaviour {
         "inverter" => {
             lined(Lines::Control("invert"), Test::Inverter, Stacking::Inferred)
         }
-        "counter" => held(Test::Counter),
+        "counter" => Behaviour {
+            lines: Lines::Counter,
+            ..held(Test::Counter)
+        },
         "shift_register" => held(Test::ShiftRegister),
         "multiplier" => Behaviour {
             flags_from_file: true,
