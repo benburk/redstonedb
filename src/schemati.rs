@@ -146,12 +146,32 @@ pub fn file_name(name: &str) -> String {
 pub struct Folder {
     /// Their in-game name, as Schemati greets them.
     pub player: String,
-    /// Their files' names: newest first when Schemati says when each was
-    /// last saved, else by name.
-    pub files: Vec<String>,
-    /// Whether Schemati said when each was saved, so the first is the
+    /// Their files: newest first when Schemati says when each was last
+    /// saved, else by name.
+    pub files: Vec<File>,
+}
+
+/// A file in a Schemati folder.
+#[derive(Debug, PartialEq, Eq)]
+pub struct File {
+    pub name: String,
+    /// When it was last saved, in milliseconds since 1970, as Schemati
+    /// says.
+    pub modified: Option<u64>,
+}
+
+impl Folder {
+    /// Whether Schemati said when each file was saved, so the first is the
     /// newest.
-    pub dated: bool,
+    pub fn dated(&self) -> bool {
+        !self.files.is_empty()
+            && self.files.iter().all(|f| f.modified.is_some())
+    }
+
+    /// Whether it holds a file named `name`.
+    pub fn has(&self, name: &str) -> bool {
+        self.files.iter().any(|f| f.name == name)
+    }
 }
 
 /// The folder of the player whose session `session` is.
@@ -338,7 +358,7 @@ fn listing(page: &str) -> Folder {
     let player = between(page, "<span>", "</span>")
         .map(unescape)
         .unwrap_or_default();
-    let mut files: Vec<(Option<u64>, String)> = page
+    let files: Vec<File> = page
         .split("id=\"fileName")
         .skip(1)
         .filter_map(|rest| {
@@ -346,21 +366,21 @@ fn listing(page: &str) -> Folder {
             let name = unescape(after.split_once('<')?.0);
             let modified = between(tag, "data-modified=\"", "\"")
                 .and_then(|millis| millis.parse().ok());
-            Some((modified, name))
+            Some(File { name, modified })
         })
-        .filter(|(_, name)| valid_name(name))
+        .filter(|file| valid_name(&file.name))
         .collect();
-    let dated = !files.is_empty() && files.iter().all(|(m, _)| m.is_some());
-    if dated {
-        files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let mut folder = Folder { player, files };
+    if folder.dated() {
+        folder.files.sort_by(|a, b| {
+            b.modified
+                .cmp(&a.modified)
+                .then_with(|| a.name.cmp(&b.name))
+        });
     } else {
-        files.sort_by(|a, b| a.1.cmp(&b.1));
+        folder.files.sort_by(|a, b| a.name.cmp(&b.name));
     }
-    Folder {
-        player,
-        files: files.into_iter().map(|(_, name)| name).collect(),
-        dated,
-    }
+    folder
 }
 
 /// The error on one of Schemati's error pages: its content's first
@@ -468,11 +488,12 @@ mod tests {
             listing(page),
             Folder {
                 player: "embizone".to_owned(),
-                files: vec![
-                    "1.schem".to_owned(),
-                    "stuffs.schematic".to_owned()
-                ],
-                dated: false,
+                files: ["1.schem", "stuffs.schematic"]
+                    .map(|name| File {
+                        name: name.to_owned(),
+                        modified: None,
+                    })
+                    .into(),
             }
         );
     }
@@ -485,8 +506,11 @@ mod tests {
             <div class="fileEntryName middleAlign" id="fileName1" data-modified="300">b.schem</div>
             <div class="fileEntryName middleAlign" id="fileName2" data-modified="200">c.schem</div>"#;
         let folder = listing(page);
-        assert!(folder.dated);
-        assert_eq!(folder.files, ["b.schem", "c.schem", "a.schem"]);
+        assert!(folder.dated());
+        let names: Vec<&str> =
+            folder.files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["b.schem", "c.schem", "a.schem"]);
+        assert_eq!(folder.files[0].modified, Some(300));
     }
 
     #[test]

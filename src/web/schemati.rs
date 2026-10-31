@@ -284,11 +284,9 @@ pub async fn rename(
     }
     let renamed = match schemati::folder(&session).await {
         // Schemati would put it in place of the other.
-        Ok(folder) if folder.files.contains(&new_name) => {
-            Err(Refusal::Said(format!(
-                "{new_name} is already in your folder. Delete or rename it first."
-            )))
-        }
+        Ok(folder) if folder.has(&new_name) => Err(Refusal::Said(format!(
+            "{new_name} is already in your folder. Delete or rename it first."
+        ))),
         Ok(_) => schemati::rename(&session, &name, &new_name).await,
         Err(refusal) => Err(refusal),
     };
@@ -375,11 +373,7 @@ async fn put(
     name: &str,
     data: Vec<u8>,
 ) -> Result<String, Refusal> {
-    let replaced = schemati::folder(session)
-        .await?
-        .files
-        .iter()
-        .any(|f| f == name);
+    let replaced = schemati::folder(session).await?.has(name);
     schemati::put(session, name, data).await?;
     Ok(if replaced {
         format!(

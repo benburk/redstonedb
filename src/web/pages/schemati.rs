@@ -87,13 +87,16 @@ pub(super) fn own_file_field(
                 fieldset {
                     legend class="sr-only" { "Your Schemati files" }
                     div class="flex max-h-80 flex-col overflow-y-auto" {
-                        @for (index, name) in folder.files.iter().enumerate() {
+                        @for (index, file) in folder.files.iter().enumerate() {
                             label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection has-focus-visible:outline-2 has-focus-visible:outline-brand" {
-                                input type="radio" name="schemati_file" value=(name) form=[form]
-                                    checked[index == 0 && (folder.dated || folder.files.len() == 1)]
+                                input type="radio" name="schemati_file" value=(file.name) form=[form]
+                                    checked[index == 0 && (folder.dated() || folder.files.len() == 1)]
                                     class="sr-only";
                                 span class="text-muted" { (super::icons::icon(super::icons::FILE, "size-4")) }
-                                span class="min-w-0 flex-1 truncate" { (name) }
+                                span class="min-w-0 flex-1 truncate" { (file.name) }
+                                @if let Some(saved) = file.modified {
+                                    span class="shrink-0 text-meta text-muted tabular-nums" { (ago(saved)) }
+                                }
                             }
                         }
                     }
@@ -110,6 +113,27 @@ pub(super) fn own_file_field(
             },
             Connection::Unreachable(why) => p class=(note) { "Schemati: " (why) },
         }
+    }
+}
+
+/// How long ago `millis`, milliseconds since 1970, was, such as `5 min
+/// ago`, or its date once a month has passed.
+fn ago(millis: u64) -> String {
+    let now = time::OffsetDateTime::now_utc();
+    let then = i64::try_from(millis / 1000)
+        .ok()
+        .and_then(|secs| time::OffsetDateTime::from_unix_timestamp(secs).ok());
+    let Some(then) = then else {
+        return String::new();
+    };
+    let minutes = (now - then).whole_minutes().max(0);
+    match minutes {
+        0 => "just now".to_owned(),
+        1..60 => format!("{minutes} min ago"),
+        60..1440 => format!("{} h ago", minutes / 60),
+        1440..2880 => "yesterday".to_owned(),
+        2880..43200 => format!("{} days ago", minutes / 1440),
+        _ => then.date().to_string(),
     }
 }
 
@@ -158,10 +182,15 @@ fn open(folder: &Folder) -> Markup {
                         }
                     }
                     tbody {
-                        @for (index, name) in folder.files.iter().enumerate() {
+                        @for (index, file) in folder.files.iter().enumerate() {
                             tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal font-mono break-all" } { (name) }
-                                td class=(TABLE_CELL) { (file_actions(index, name)) }
+                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                                    span class="block font-mono break-all" { (file.name) }
+                                    @if let Some(saved) = file.modified {
+                                        span class="block text-meta text-muted" { "Saved " (ago(saved)) }
+                                    }
+                                }
+                                td class=(TABLE_CELL) { (file_actions(index, &file.name)) }
                             }
                         }
                     }
@@ -213,5 +242,38 @@ fn file_actions(index: usize, name: &str) -> Markup {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schemati::File;
+
+    /// Each file shows when it was saved, newest first and chosen.
+    #[test]
+    fn the_picker_shows_when_each_file_was_saved() {
+        let now = u64::try_from(
+            time::OffsetDateTime::now_utc().unix_timestamp() * 1000,
+        )
+        .unwrap();
+        let folder = Folder {
+            player: "embizone".to_owned(),
+            files: vec![
+                File {
+                    name: "new.schem".to_owned(),
+                    modified: Some(now - 5 * 60_000),
+                },
+                File {
+                    name: "old.schem".to_owned(),
+                    modified: Some(now - 3 * 86_400_000),
+                },
+            ],
+        };
+        let page =
+            own_file_field(&Connection::Open(&folder), None).into_string();
+        assert!(page.contains("5 min ago"), "{page}");
+        assert!(page.contains("3 days ago"), "{page}");
+        assert!(page.contains(r#"value="new.schem" checked"#), "{page}");
     }
 }
