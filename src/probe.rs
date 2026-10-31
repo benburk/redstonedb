@@ -927,9 +927,8 @@ pub struct MultiplierProbed {
 
 /// The multiplier the file in `data` is, from `report`'s levers and
 /// outputs: its two widest input lines of one width its operands, A and B,
-/// whichever is which, as A × B is B × A; every lone lever or button a
-/// control line, a sequential one's calculate and reset, named by their
-/// signs; and its output lines, up to three, its product, tried in each
+/// whichever is which, as A × B is B × A; a lone lever or button, if
+/// any, a sequential one's calculate; and its output lines, up to three, its product, tried in each
 /// order, lowest first, each coloured and run through the multiplier
 /// test, quick cases first. Or why none holds.
 pub fn multiplier(
@@ -1168,8 +1167,8 @@ mod tests {
 
     use super::*;
 
-    /// The fixture `name` with its input colours, lime and magenta, turned
-    /// white, as a build without colour conventions is.
+    /// The fixture `name` with its input colours, lime, light blue, and
+    /// magenta, turned white, as a build without colour conventions is.
     fn uncoloured(name: &str) -> Vec<u8> {
         let data =
             std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
@@ -1177,7 +1176,7 @@ mod tests {
         let changes: BTreeMap<Pos, String> = blocks
             .iter()
             .filter(|&(_, state)| {
-                ["lime", "magenta"]
+                ["lime", "light_blue", "magenta"]
                     .iter()
                     .any(|c| schem::short(state).starts_with(c))
             })
@@ -1238,34 +1237,38 @@ mod tests {
         );
     }
 
-    /// A sequential multiplier, its calculate and reset on buttons.
+    /// A sequential multiplier, its one control line its calculate.
     #[test]
     fn a_multiplier_is_found_from_its_operands_and_product() {
-        let name = "mult-8-buttons";
-        // Raw, with blocks the simulator doesn't model until they are
-        // standardized.
-        let raw =
-            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-        let standard = crate::standardize::standardize(&raw).unwrap();
-        let blocks = Blocks::read(&standard).unwrap();
-        let changes: BTreeMap<Pos, String> = blocks
-            .iter()
-            .filter(|&(_, state)| {
-                ["lime", "light_blue", "magenta"]
-                    .iter()
-                    .any(|c| schem::short(state).starts_with(c))
-            })
-            .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
-            .collect();
-        let data = crate::standardize::edit(&standard, &changes).unwrap();
+        let data = uncoloured("mult-8-calculate");
         let found = recognize_as(&data, Some("multiplier")).unwrap();
         assert!(
             found
                 .found
                 .as_deref()
                 .is_some_and(|f| f.starts_with("a multiplier")),
-            "{name}: {:?} {:?}",
+            "{:?} {:?}",
             found.found,
+            found.problems
+        );
+    }
+
+    /// A multiplier has one control line, its calculate, so one with a
+    /// reset button too isn't one.
+    #[test]
+    fn a_multiplier_with_a_reset_is_not_one() {
+        // Raw, with blocks the simulator doesn't model until they are
+        // standardized.
+        let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
+        let standard = crate::standardize::standardize(&raw).unwrap();
+        let found = recognize_as(&standard, Some("multiplier")).unwrap();
+        assert!(found.found.is_none(), "{:?}", found.found);
+        assert!(
+            found
+                .problems
+                .iter()
+                .any(|p| p.contains("at most one control line")),
+            "{:?}",
             found.problems
         );
     }

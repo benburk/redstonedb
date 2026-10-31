@@ -6,9 +6,9 @@
 //! case comes in, whichever is later. A build that only takes a new input
 //! once the last has settled has a throughput near its latency; a
 //! pipelined one, or one whose paths all take about as long, takes them
-//! faster. A sequential build's buttons, as its reset and calculate, are
-//! pressed in the stream at their own ticks, so its throughput is how often
-//! a new calculation can start. The simulator does not model torch burnout, so `evaluate` holds
+//! faster. A sequential build's button, as its calculate, is pressed in
+//! the stream at its own tick, so its throughput is how often a new
+//! calculation can start. The simulator does not model torch burnout, so `evaluate` holds
 //! a build with torches to three ticks or more, and one without to two.
 
 use anyhow::Result;
@@ -63,8 +63,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
             .iter()
             .any(|i| &i.name == name && i.tick.is_some())
     };
-    // A button with no tick, as a reset nothing can press in turn, can't be
-    // streamed.
+    // A button with no tick can't be streamed.
     if (0..button.len()).any(|p| button[p] && !timed(p)) {
         return Ok(None);
     }
@@ -92,8 +91,8 @@ pub(super) fn shortest(
         .map(|p| circuit.is_button(p, 0))
         .collect();
     // What each case settles to: its levers set, then its buttons, as a
-    // sequential build's reset and calculate, pressed in the order of their
-    // ticks, each settling in turn.
+    // sequential build's calculate, pressed in the order of their ticks,
+    // each settling in turn.
     let mut presses: Vec<usize> =
         (0..button.len()).filter(|&p| button[p]).collect();
     presses.sort_by_key(|&p| offset[p]);

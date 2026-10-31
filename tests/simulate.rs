@@ -255,13 +255,11 @@ fn a_combinational_multiplier_tries_every_product() {
     assert_eq!(circuit.get(0) & 0xF, 15);
 }
 
-/// A sequential multiplier is tested by setting its operands, pressing its
-/// reset, then its calculate.
+/// A sequential multiplier is tested by setting its operands, then
+/// pressing its calculate.
 #[test]
 fn a_sequential_multiplier_is_pressed_to_calculate() {
-    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file = standardize::standardize(&raw).unwrap();
-    let report = Test::Multiplier.run(&Blocks::read(&file).unwrap());
+    let report = Test::Multiplier.run(&blocks("mult-8-calculate"));
     assert!(report.passed(), "{report:?}");
 }
 

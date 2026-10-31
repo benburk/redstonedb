@@ -12,7 +12,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so its block may have dust on top and a block behind its lever.
 - Probing tells data inputs from control lines: an adder's are A and B, a register's its data bus in, an ALU's and a multiplier's their two widest input lines, a decoder's its one input line.
 - An input may read inverted, powered meaning 0. The simulator finds which lines do by testing, however their levers were saved.
-- A sequential multiplier's control lines are signed `calculate` and `reset`; an ALU's lone outputs are named by their signs, such as `zero`.
+- A multiplier has inputs A and B and, if sequential, one control line, its calculate, pressed once A and B are set; it has no reset. An ALU's lone outputs are named by their signs, such as `zero`.
 
 ## Outputs
 

@@ -115,9 +115,7 @@ fn a_carry_signature_shows_its_groups() {
 
 #[test]
 fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
-    // Standardized, as its file is not in the palette.
-    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file = standardize::standardize(&raw).unwrap();
+    let file = std::fs::read("tests/fixtures/mult-8-calculate.schem").unwrap();
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("multiplier"));
     assert!(e.passes(), "{:?}", e.report);
@@ -125,17 +123,15 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     assert!(e.latency.is_some());
     // What it was given is kept from one calculation to the next.
     assert_eq!(e.logic, Some(Logic::Stateful));
-    // How often a new calculation can start: its reset and calculate
-    // pressed in turn, each at its own tick.
+    // How often a new calculation can start: its calculate pressed in
+    // turn, at its own tick.
     assert!(e.throughput.is_some());
     let timing = e.report.as_ref().and_then(|r| r.timing()).unwrap();
-    for line in ["reset", "calculate"] {
-        let timed = timing
-            .inputs
-            .iter()
-            .any(|i| i.name == line && i.tick.is_some());
-        assert!(timed, "{line}");
-    }
+    let timed = timing
+        .inputs
+        .iter()
+        .any(|i| i.name == "calculate" && i.tick.is_some());
+    assert!(timed);
 }
 
 #[test]

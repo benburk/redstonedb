@@ -1,6 +1,6 @@
 //! Testing a multiplier: A times B, plus C for a fused multiply-add,
-//! stateless, or sequential with a calculate line, pressed once its
-//! operands are set, and a reset, pressed first.
+//! stateless, or sequential with one control line, its calculate, pressed
+//! once its operands are set.
 
 use anyhow::{Result, bail};
 
@@ -12,36 +12,27 @@ use crate::{colour, interface::Interface};
 
 /// A multiplier's every product, A × B, plus C when there is one, checked
 /// on as many low bits as its outputs hold together, the first holding the
-/// lowest; status lines are left out. A sequential one's control lines are
-/// a calculate, pressed once the operands are set, and a reset before it,
-/// if it has one; any other control line, such as a clock, is not tested.
+/// lowest; status lines are left out. A sequential one has one control
+/// line, its calculate, pressed once the operands are set, whatever its
+/// sign says; one with more, such as a reset, isn't tested.
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let control =
         |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
     let lines: Vec<usize> =
         (0..interface.inputs.len()).filter(control).collect();
-    let named = |name: &str| {
-        lines
-            .iter()
-            .copied()
-            .find(|&i| interface.inputs[i].name == name)
+    let calculate = match lines.as_slice() {
+        [] => None,
+        [line] if interface.inputs[*line].bits.len() == 1 => Some(*line),
+        _ => bail!(
+            "A multiplier has at most one control line, its calculate, but \
+             this has {}.",
+            lines
+                .iter()
+                .map(|&i| interface.inputs[i].name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     };
-    let (reset, calculate) = (named("reset"), named("calculate"));
-    if let Some(&line) = lines
-        .iter()
-        .find(|&&i| Some(i) != reset && Some(i) != calculate)
-        .or(if calculate.is_none() {
-            lines.first()
-        } else {
-            None
-        })
-    {
-        bail!(
-            "It has a control line, {}, which a multiplier's test does not \
-             drive: only a calculate, and a reset, are.",
-            interface.inputs[line].name
-        );
-    }
     let inputs: Vec<usize> = (0..interface.inputs.len())
         .filter(|i| !control(i))
         .collect();
@@ -82,7 +73,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         low
     };
     let mut bench = Bench::new(inputs, outputs, pattern);
-    bench.presses = reset.into_iter().chain(calculate).collect();
+    bench.press = calculate;
     let widths = bench.widths(interface);
     Ok(Spec {
         bench,

@@ -728,7 +728,7 @@ fn an_adders_unsigned_carry_lines_are_named() {
         let mut adder = interface::read(&blocks);
         interface::name_lines("adder", &blocks, &mut adder);
         let mut other = interface::read(&blocks);
-        interface::name_lines("multiplier", &blocks, &mut other);
+        interface::name_lines("piston_door", &blocks, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,

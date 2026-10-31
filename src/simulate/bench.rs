@@ -38,9 +38,9 @@ pub(super) struct Bench {
     /// rest, such as a status line an operation leaves meaningless, are
     /// not checked.
     pub care: u64,
-    /// Control lines pressed in order once each case's inputs settle, each
-    /// settling in turn, as a sequential multiplier's reset and calculate.
-    pub presses: Vec<usize>,
+    /// A control line pressed once each case's inputs settle, as a
+    /// sequential multiplier's calculate.
+    pub press: Option<usize>,
     /// Whether each line may read inverted, which judging tries; not
     /// where the kinds name the lines that are, as an adder's do.
     pub invertible: bool,
@@ -56,7 +56,7 @@ impl Bench {
             pattern: pattern.to_owned(),
             held: Vec::new(),
             care: u64::MAX,
-            presses: Vec::new(),
+            press: None,
             invertible: true,
         }
     }
@@ -180,7 +180,7 @@ impl Spec {
         interface: &Interface,
         cancel: &AtomicBool,
     ) -> Result<Timing> {
-        if !self.bench.presses.is_empty() {
+        if self.bench.press.is_some() {
             let every = match self.cases {
                 Cases::Combinations(structured) => {
                     cases(&self.bench.widths(interface), structured).0
@@ -577,7 +577,7 @@ pub(super) fn observe(
             circuit.set(port, case[i] ^ flipped.map_or(0, |(_, bits)| bits));
         }
         circuit.settle()?;
-        for &port in &bench.presses {
+        if let Some(port) = bench.press {
             pulse(&mut circuit, port)?;
             circuit.settle()?;
         }
@@ -593,7 +593,7 @@ pub(super) fn observe(
 }
 
 /// Whether the build holds state: a copy run through the telling cases in
-/// turn, making the presses the test makes, against a fresh copy for each
+/// turn, making the press the test makes, against a fresh copy for each
 /// case given only its inputs, nothing pressed and every control at rest.
 /// An output that differs was left behind by what came before.
 pub(super) fn remembers(
@@ -610,7 +610,7 @@ pub(super) fn remembers(
         pattern: String::new(),
         held: bench.held.clone(),
         care: bench.care,
-        presses: Vec::new(),
+        press: None,
         invertible: false,
     };
     for (case, &was) in cases.iter().zip(&history) {

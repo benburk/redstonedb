@@ -207,7 +207,7 @@ impl Looks<'_> {
                     .chain(alu.carry_in.map(|port| (port, 0)))
                     .collect(),
                 care: u64::MAX,
-                presses: Vec::new(),
+                press: None,
                 invertible: false,
             };
             let got = observe(
@@ -466,7 +466,7 @@ fn selections(
             pattern: String::new(),
             held: held.clone(),
             care: u64::MAX,
-            presses: Vec::new(),
+            press: None,
             invertible: false,
         };
         let got = observe(blocks, interface, &bench, &telling, None)?;
@@ -592,7 +592,7 @@ fn check_one(
         pattern: selection.label.clone(),
         held,
         care,
-        presses: Vec::new(),
+        press: None,
         invertible: false,
     };
     let widths: Vec<usize> = if carry {
@@ -738,7 +738,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
             pattern: selection.label.clone(),
             held: selection.held.clone(),
             care: u64::MAX,
-            presses: Vec::new(),
+            press: None,
             invertible: false,
         };
         if bench::remembers(blocks, &interface, &bench)? {

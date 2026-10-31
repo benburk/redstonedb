@@ -55,7 +55,7 @@ pub(super) fn measure(
         })
         .collect();
     let digits = interface.inputs.iter().any(|port| port.signal_strength);
-    if data.is_empty() || digits || !bench.presses.is_empty() {
+    if data.is_empty() || digits || bench.press.is_some() {
         return Ok(None);
     }
     let outputs: Vec<usize> = (0..bench.outputs.len())

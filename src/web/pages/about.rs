@@ -81,6 +81,12 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                     &[],
                 ))
                 (rule(
+                    "Multipliers",
+                    "inputs A and B and, for a sequential one, one button, the calculate, pressed once they're set. \
+                     No reset.",
+                    &[],
+                ))
+                (rule(
                     "Counters",
                     "input A as wide as the value, one button, the clock, and one lever, the write enable. \
                      The clock counts up or down; with write enable on, it loads A.",

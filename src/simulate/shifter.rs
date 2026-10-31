@@ -226,7 +226,7 @@ fn selections(
                     .chain(shifter.amount_lines(n))
                     .collect(),
                 care: u64::MAX,
-                presses: Vec::new(),
+                press: None,
                 invertible: false,
             };
             let got = observe(blocks, interface, &bench, &telling, None)?;
@@ -317,7 +317,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
             pattern: selection.label.clone(),
             held,
             care: u64::MAX,
-            presses: Vec::new(),
+            press: None,
             invertible: false,
         };
         let widths = [shifter.width];
@@ -395,7 +395,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
             pattern: String::new(),
             held,
             care: u64::MAX,
-            presses: Vec::new(),
+            press: None,
             invertible: false,
         };
         if bench::remembers(blocks, &interface, &bench)? {
