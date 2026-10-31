@@ -98,8 +98,9 @@ pub async fn name_minecraft(
 
 #[derive(Deserialize)]
 pub struct Verify {
-    /// `yes` to confirm the account's Minecraft name, anything else to
-    /// withdraw the confirmation.
+    /// `yes` to confirm the account's Minecraft name, anything else, or
+    /// nothing, as an unticked box sends, to withdraw the confirmation.
+    #[serde(default)]
     verified: String,
 }
 

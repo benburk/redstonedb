@@ -56,14 +56,16 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
             @if !message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (message) }
             }
-            // On a phone each account's cells stack, as three columns don't
-            // fit.
+            // Each control in its own column, so they line up down the
+            // page; on a phone each account is a block, its name over its
+            // Minecraft name, confirmation, and role.
             div class="relative max-w-calm" {
                 table class="block w-full border-collapse sm:table" {
                     thead class="hidden sm:table-header-group" {
                         tr {
                             th scope="col" class=(TABLE_HEAD) { "Account" }
                             th scope="col" class=(TABLE_HEAD) { "Minecraft name" }
+                            th scope="col" class={ (TABLE_HEAD) " text-center" } { "Confirmed" }
                             th scope="col" class=(TABLE_HEAD) { "Role" }
                         }
                     }
@@ -78,29 +80,31 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
     )
 }
 
-/// A cell of the users table: the table's own from a phone up, where on a
-/// phone the row's line does.
-const CELL: &str =
-    "sm:table-cell sm:border-b sm:border-line sm:py-2.5 sm:pr-4 sm:align-top";
+/// A cell of the users table, from a phone up; on a phone the row's line
+/// stands in for the cells'.
+const CELL: &str = "sm:table-cell sm:h-row-rich sm:border-b sm:border-line sm:py-2 sm:pr-4 sm:align-middle";
 
 /// One account's row on the users page, redrawn by fixi when one of its
-/// forms changes it.
+/// forms changes it. A confirmation and a role save as soon as they
+/// change; without scripts, their buttons send them.
 pub fn user_row(admin: &User, user: &User) -> Markup {
     let row = format!("user-{}", user.username);
     let target = format!("#{row}");
     html! {
-        tr id=(row) class={ "flex flex-col gap-2 border-b border-line py-3 sm:table-row sm:border-0 sm:py-0" } {
-            th scope="row" class={ (CELL) " text-left font-normal" } {
+        tr id=(row) class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3 sm:table-row sm:border-0 sm:py-0" {
+            th scope="row" class={ (CELL) " w-full text-left font-normal sm:w-auto" } {
                 (account_link(user))
             }
-            td class=(CELL) { (minecraft_cell(user, &target)) }
+            td class={ (CELL) " min-w-0 flex-1" } { (minecraft_name(user, &target)) }
+            td class={ (CELL) " sm:text-center" } { (confirmation(user, &target)) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="text-muted" { "admin (you)" }
                 } @else {
                     @let action = format!("/users/{}/role", user.username);
                     form action=(action) method="post"
-                        fx-action=(action) fx-method="post" fx-target=(target) class="flex gap-2" {
+                        fx-action=(action) fx-method="post" fx-target=(target) fx-trigger="change"
+                        class="flex items-center gap-2" {
                         label for={ "role-" (user.username) } class="sr-only" {
                             "Role for " (user.name())
                         }
@@ -109,7 +113,7 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
                                 option value=(role.as_str()) selected[role == user.role] { (role.as_str()) }
                             }
                         }
-                        button type="submit" class="btn btn-quiet" { "Set" }
+                        noscript { button type="submit" class="btn btn-quiet min-h-9" { "Set" } }
                     }
                 }
             }
@@ -117,11 +121,10 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
     }
 }
 
-/// An account's Minecraft name on the users page, with the button that
-/// confirms it or withdraws the confirmation.
-fn minecraft_cell(user: &User, target: &str) -> Markup {
+/// An account's Minecraft name on the users page, or, with none given yet,
+/// a field to give one.
+fn minecraft_name(user: &User, target: &str) -> Markup {
     let Some(name) = &user.minecraft_name else {
-        // None given yet, so the admin may give one.
         let id = format!("minecraft-{}", user.username);
         let action = format!("/users/{}/minecraft/name", user.username);
         return html! {
@@ -131,47 +134,48 @@ fn minecraft_cell(user: &User, target: &str) -> Markup {
                 label for=(id) class="sr-only" { "Minecraft name for " (user.name()) }
                 input id=(id) name="minecraft_name" required
                     pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
-                    placeholder="None given" class="input min-h-8 w-40";
-                button type="submit" class="btn btn-quiet min-h-8 px-3" { "Set" }
+                    placeholder="None given" class="input min-h-9 w-40";
+                button type="submit" class="btn btn-quiet min-h-9" { "Set" }
             }
         };
     };
-    let (value, action) = if user.minecraft_verified {
-        ("no", "Withdraw")
-    } else {
-        ("yes", "Confirm")
+    html! { span class="block truncate" title=(name) { (name) } }
+}
+
+/// Whether an account's Minecraft name is confirmed, as a box ticked or
+/// not, which saves as it changes; nothing while it has none.
+fn confirmation(user: &User, target: &str) -> Markup {
+    let Some(name) = &user.minecraft_name else {
+        return html! {};
     };
-    let verify = format!("/users/{}/minecraft/verify", user.username);
+    let action = format!("/users/{}/minecraft/verify", user.username);
     html! {
-        form action=(verify) method="post"
-            fx-action=(verify) fx-method="post" fx-target=(target)
-            class="flex flex-wrap items-center gap-x-3 gap-y-1" {
-            span class="inline-flex items-center gap-1.5" {
-                (name)
-                @if user.minecraft_verified {
-                    span title="Confirmed" class="inline-flex text-brand" {
-                        (super::icons::icon(super::icons::CHECK, "size-4"))
-                        span class="sr-only" { "confirmed" }
-                    }
-                }
+        form action=(action) method="post"
+            fx-action=(action) fx-method="post" fx-target=(target) fx-trigger="change"
+            class="flex items-center sm:justify-center" {
+            label class="flex items-center gap-2" {
+                input type="checkbox" name="verified" value="yes" checked[user.minecraft_verified]
+                    aria-label={ "Confirm " (name) " as " (user.name()) "'s Minecraft name" }
+                    class="size-4 appearance-auto";
+                span class="text-meta text-muted sm:hidden" { "Confirmed" }
             }
-            input type="hidden" name="verified" value=(value);
-            button type="submit" class="btn btn-quiet min-h-8 px-3"
-                aria-label={ (action) " " (name) " as " (user.name()) "'s Minecraft name" } { (action) }
+            noscript { button type="submit" class="btn btn-quiet ml-2 min-h-9" { "Save" } }
         }
     }
 }
 
-/// An account's avatar and name, linking to its page.
+/// An account's avatar and name, linking to its page, with its Discord
+/// username under it when the name does not say who it is.
 fn account_link(user: &User) -> Markup {
     html! {
-        a href={ "/users/" (user.username) } class="inline-flex items-center gap-2" {
-            @if let Some(picture) = user.picture(24) { (picture) }
-            (user.name())
-        }
-        // The Discord username, which says who it is when its name does not.
-        @if user.name() != user.username {
-            span class="ml-2 text-meta text-muted" { "@" (user.username) }
+        div class="flex items-center gap-2.5" {
+            @if let Some(picture) = user.picture(28) { (picture) }
+            div class="flex min-w-0 flex-col" {
+                a href={ "/users/" (user.username) } class="truncate" { (user.name()) }
+                @if user.name() != user.username {
+                    span class="truncate text-meta text-muted" { "@" (user.username) }
+                }
+            }
         }
     }
 }
