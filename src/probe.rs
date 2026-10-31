@@ -600,12 +600,18 @@ pub fn recognize_as(
 }
 
 /// The blessed categories, in the order probing tries them: gates first,
-/// as a 1-bit XOR is a sum without a carry and a 1-bit AND a product of
-/// one bit each, which no wider adder or multiplier is.
-const KINDS: [&str; 10] = [
+/// as a 1-bit XOR is a sum without a carry, an inverter's bit, and a 1-bit
+/// AND a product of one bit each, and a 1-bit XNOR an equality, which no
+/// wider build of those is.
+const KINDS: [&str; 15] = [
     "xor_xnor_gate",
     "and_nand_gate",
     "or_nor_gate",
+    "equality",
+    "greater_than",
+    "carry_out",
+    "inverter",
+    "absolute_value",
     "adder",
     "register",
     "alu",
@@ -727,11 +733,28 @@ fn probed_as(
                 .test
                 .and_then(Gate::of)
                 .expect("a gate's category has a gate's test");
-            gate_probe(data, report, gate).map(|probed| {
+            operands_probe(data, report, gate.test()).map(|probed| {
                 let found = found("a gate", &probed.run);
                 (probed.inputs, probed.file, found)
             })
         }
+        "equality" | "greater_than" | "carry_out" => {
+            let test = category::behaviour(kind)
+                .test
+                .expect("a comparison's category has a test");
+            operands_probe(data, report, test).map(|probed| {
+                let found = found("a comparator", &probed.run);
+                (probed.inputs, probed.file, found)
+            })
+        }
+        "inverter" => inverter(data, report).map(|probed| {
+            let found = found("an inverter", &probed.run);
+            (probed.a, probed.file, found)
+        }),
+        "absolute_value" => absolute_value(data, report).map(|probed| {
+            let found = found("an absolute value", &probed.run);
+            (probed.a, probed.file, found)
+        }),
         "counter" => sequential(data, report, Test::Counter).map(|probed| {
             let found = found("a counter", &probed.run);
             (probed.data, probed.file, found)
@@ -1099,48 +1122,90 @@ pub fn multiplier(
     Err(why)
 }
 
-/// A gate as probing found it: its inputs A and B, the file with its
-/// lines coloured as its test reads them, and that test's run.
-pub struct GateProbed {
+/// A build of two operands as probing found it, a gate or a comparison:
+/// its inputs A and B, the file with its lines coloured as its test reads
+/// them, and that test's run.
+pub struct OperandsProbed {
     pub inputs: Vec<Pos>,
     pub file: Vec<u8>,
     pub run: simulate::Run,
 }
 
-/// The `gate` the file in `data` is, from `report`'s levers and outputs:
-/// its two input lines of one width, A and B, whichever is which, as a
-/// gate gives the same either way round, and its one output line as wide,
-/// coloured and run through its test. Or why it isn't one.
-pub fn gate_probe(
+/// The build of two operands, run through `test`, the file in `data` is,
+/// from `report`'s levers and outputs: its input lines, half its levers
+/// each, A and B, found however they run, and its one output line, as
+/// wide as each, a gate's, or one bit, a comparison's or a carry out's;
+/// each way coloured and run through the test. A carry out's lone lever
+/// left over, if any, is its carry in. A greater-than comparator's
+/// operands are tried both ways round; any other's give the same either
+/// way. Or why it isn't one.
+pub fn operands_probe(
     data: &[u8],
     report: &inspect::Report,
-    gate: Gate,
-) -> Result<GateProbed, String> {
+    test: Test,
+) -> Result<OperandsProbed, String> {
     let [out] = report.outputs.as_slice() else {
         return Err(format!(
             "Output: line lengths {}, need one line",
             lengths(&report.outputs)
         ));
     };
-    let splits = operand_splits(&report.inputs, out.bits.len());
+    let gate = Gate::of(test).is_some();
+    // A carry out's carry in, a lone lever, is set aside from A and B.
+    let (_, lones) = split(&report.inputs);
+    let carries: Vec<Option<Pos>> = if test == Test::CarryOut {
+        std::iter::once(None)
+            .chain(lones.into_iter().map(Some))
+            .collect()
+    } else {
+        vec![None]
+    };
+    let levers: usize = report.inputs.iter().map(|run| run.bits.len()).sum();
+    let mut splits: Vec<(Vec<Pos>, Vec<Pos>, Option<Pos>)> = Vec::new();
+    for carry in carries {
+        let runs: Vec<Run> = report
+            .inputs
+            .iter()
+            .filter(|run| carry.is_none_or(|c| run.bits != [c]))
+            .cloned()
+            .collect();
+        let width = (levers - usize::from(carry.is_some())) / 2;
+        if out.bits.len() == if gate { width } else { 1 } {
+            splits.extend(
+                operand_splits(&runs, width)
+                    .into_iter()
+                    .map(|(a, b)| (a, b, carry)),
+            );
+        }
+    }
     if splits.is_empty() {
         return Err(format!(
-            "Inputs: line lengths {}, need A and B of {} bits each",
+            "Lines: inputs {}, output {}, need A and B of one width and \
+             an output of {}",
             lengths(&report.inputs),
-            out.bits.len()
+            out.bits.len(),
+            if gate { "that width" } else { "one bit" }
         ));
     }
+    if test == Test::GreaterThan {
+        let swapped: Vec<_> = splits
+            .iter()
+            .map(|(a, b, carry)| (b.clone(), a.clone(), *carry))
+            .collect();
+        splits.extend(swapped);
+    }
     let mut why = String::new();
-    for (a, b) in splits {
+    for (a, b, carry) in splits {
         let mut roles: HashMap<Pos, &str> = HashMap::new();
         roles.extend(a.iter().map(|&p| (p, "lime")));
         roles.extend(b.iter().map(|&p| (p, "light_blue")));
+        roles.extend(carry.map(|p| (p, colour::CONTROL)));
         roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
         let file = paint(data, &roles).map_err(|err| err.to_string())?;
         let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match gate.test().run(&coloured) {
+        match test.run(&coloured) {
             simulate::Report::Ran(run) if run.wrong == 0 => {
-                return Ok(GateProbed {
+                return Ok(OperandsProbed {
                     inputs: [a, b].concat(),
                     file,
                     run: *run,
@@ -1161,7 +1226,120 @@ pub fn gate_probe(
     Err(why)
 }
 
-/// Each way the input `runs` could be a gate's A and B, `width` bits each,
+/// The absolute-value build the file in `data` is, from `report`'s levers
+/// and outputs: every lever A, and its one output line the magnitude,
+/// coloured and run through its test. Or why it isn't one.
+pub fn absolute_value(
+    data: &[u8],
+    report: &inspect::Report,
+) -> Result<OneInputProbed, String> {
+    let [out] = report.outputs.as_slice() else {
+        return Err(format!(
+            "Output: line lengths {}, need one line",
+            lengths(&report.outputs)
+        ));
+    };
+    let a: Vec<Pos> = report
+        .inputs
+        .iter()
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    if a.len() < 2 || out.bits.len() > a.len() {
+        return Err(format!(
+            "Lines: inputs {}, output {}, need A and an output no wider",
+            lengths(&report.inputs),
+            out.bits.len()
+        ));
+    }
+    let mut roles: HashMap<Pos, &str> = HashMap::new();
+    roles.extend(a.iter().map(|&p| (p, "lime")));
+    roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+    let file = paint(data, &roles).map_err(|err| err.to_string())?;
+    let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+    match Test::AbsoluteValue.run(&coloured) {
+        simulate::Report::Ran(run) if run.wrong == 0 => {
+            Ok(OneInputProbed { a, file, run: *run })
+        }
+        simulate::Report::Ran(run) => Err(format!(
+            "Doesn't hold: {} of {} cases wrong",
+            run.wrong, run.cases
+        )),
+        simulate::Report::Broken { reason }
+        | simulate::Report::Skipped { reason } => {
+            Err(format!("Test couldn't run: {reason}"))
+        }
+    }
+}
+
+/// A build of one operand, A, as probing found it, an inverter or an
+/// absolute value: A, the file with its lines coloured as its test reads
+/// them, and that test's run.
+pub struct OneInputProbed {
+    pub a: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The inverter the file in `data` is, from `report`'s levers and
+/// outputs: its one output line as wide as A, and of its levers, one its
+/// control line, its invert, and the rest A, each lever tried as the line,
+/// lone ones first, coloured and run through the inverter test. Or why it
+/// isn't one.
+pub fn inverter(
+    data: &[u8],
+    report: &inspect::Report,
+) -> Result<OneInputProbed, String> {
+    let [out] = report.outputs.as_slice() else {
+        return Err(format!(
+            "Output: line lengths {}, need one line",
+            lengths(&report.outputs)
+        ));
+    };
+    let mut levers: Vec<Pos> = report
+        .inputs
+        .iter()
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    if levers.len() != out.bits.len() + 1 {
+        return Err(format!(
+            "Lines: inputs {}, output {}, need A as wide as the output and \
+             one control line",
+            lengths(&report.inputs),
+            out.bits.len()
+        ));
+    }
+    let (_, lones) = split(&report.inputs);
+    levers.sort_by_key(|lever| !lones.contains(lever));
+    let mut why = String::new();
+    for &line in &levers {
+        let a: Vec<Pos> =
+            levers.iter().copied().filter(|&p| p != line).collect();
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(a.iter().map(|&p| (p, "lime")));
+        roles.insert(line, colour::CONTROL);
+        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match Test::Inverter.run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(OneInputProbed { a, file, run: *run });
+            }
+            simulate::Report::Ran(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
+/// Each way the input `runs` could be two operands, A and B, `width` bits each,
 /// once whichever is which: two runs of that width; one, and the rest of
 /// the bits; or one run of both, as its halves or its bits alternating, as
 /// a 1-bit gate's two levers, side by side, read as one run.
@@ -1468,6 +1646,36 @@ mod tests {
             found.found,
             found.problems
         );
+    }
+
+    /// Each build of one or two operands is found as what it is from its
+    /// levers and outputs alone: an equality comparator, a carry out, an
+    /// inverter, and an absolute value.
+    #[test]
+    fn comparisons_and_one_operand_builds_are_found() {
+        for (name, kind) in [
+            ("eq-8", "equality"),
+            ("cout-8", "carry_out"),
+            ("inverter-1", "inverter"),
+            ("abs-8", "absolute_value"),
+        ] {
+            let raw =
+                std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+            let standard = crate::standardize::standardize(&raw).unwrap();
+            let changes: BTreeMap<Pos, String> = Blocks::read(&standard)
+                .unwrap()
+                .iter()
+                .filter(|&(_, state)| {
+                    ["lime", "light_blue", "magenta"]
+                        .iter()
+                        .any(|c| schem::short(state).starts_with(c))
+                })
+                .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
+                .collect();
+            let data = crate::standardize::edit(&standard, &changes).unwrap();
+            let found = recognize_as(&data, Some(kind)).unwrap();
+            assert!(found.found.is_some(), "{name}: {:?}", found.problems);
+        }
     }
 
     /// A sequential multiplier, its one control line its calculate.

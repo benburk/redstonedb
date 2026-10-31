@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The Before you upload page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a blessed category: adders, registers, ALUs, decoders, multipliers, counters, shift registers, and XOR, AND, and OR gates so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its builder gives. A new version that is recognized moves it up.
+A build is on the list only when probing recognizes it as a blessed category: adders, registers, ALUs, decoders, multipliers, counters, shift registers, gates, comparators, carry outs, inverters, and absolute values so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its builder gives. A new version that is recognized moves it up.
 
 ## Inputs
 
@@ -20,6 +20,8 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - An adder's or ALU's widest output is its output and each lone one a status line, such as a carry out. A multiplier's product may be up to three lines, which probing puts in order, lowest first.
 - A counter's or shift register's widest output is the value it holds, and each lone output a status line, such as a shift out. An input bus as wide is A, which it loads.
 - A gate has two input lines of one width, A and B, both data inputs, and one output line as wide: an XOR, AND, or OR gate, or its inverse, an XNOR, NAND, or NOR, which goes in the same category under a flag.
+- An equality or greater-than comparator, or a carry out, has two input lines of one width, A and B, and one output bit; a carry out may also take a carry in, a lone lever.
+- An inverter has input A, one control line, its invert, and an output as wide as A; an absolute value has input A and one output line, its magnitude.
 - A counter has input A, one button, its clock, and one lever, its write enable: pressing the clock counts up or down, and pressing it with write enable on loads A.
 - A shift register's every other lever or button is a control line, and what each does, shifting, loading, or clearing, alone or with another lever held on, is found by trying it.
 

@@ -219,7 +219,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, registers, ALUs, decoders, multipliers, counters, shift registers, and XOR, AND, and OR gates go on the list so far: \
+            "Only adders, registers, ALUs, decoders, multipliers, counters, shift registers, gates, comparators, carry outs, inverters, and absolute values go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )

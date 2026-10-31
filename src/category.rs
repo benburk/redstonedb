@@ -59,7 +59,7 @@ impl Behaviour {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 10] = [
+pub const BLESSED: [&str; 15] = [
     "adder",
     "register",
     "alu",
@@ -70,6 +70,11 @@ pub const BLESSED: [&str; 10] = [
     "xor_xnor_gate",
     "and_nand_gate",
     "or_nor_gate",
+    "equality",
+    "greater_than",
+    "carry_out",
+    "inverter",
+    "absolute_value",
 ];
 
 /// What a category's unsigned control and status lines are taken to be.

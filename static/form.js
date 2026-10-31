@@ -357,7 +357,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
         "wait",
         category.value.trim() === ""
           ? "Choose a category to simulate it."
-          : "Only adders, registers, ALUs, decoders, multipliers, counters, shift registers, and XOR, AND, and OR gates are simulated so far.",
+          : "Only adders, registers, ALUs, decoders, multipliers, counters, shift registers, gates, comparators, carry outs, inverters, and absolute values are simulated so far.",
       );
       mark("timing", null);
       return;
