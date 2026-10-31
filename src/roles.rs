@@ -28,7 +28,7 @@ use crate::{
     colour, interface,
     models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
-    simulate::{Compiled, Link, Stacking, Test, compiled},
+    simulate::{Compiled, Link, compiled},
     stack,
 };
 
@@ -244,33 +244,6 @@ fn circuits(
         found.push(compiled(&Blocks::read(&copies(data, way, buses)?)?)?);
     }
     Ok(found)
-}
-
-/// The way copies of the build in `data`, of `category`, stack, as the
-/// site's test finds it by simulating them: for a file with no stacking
-/// stored, as the lab reads.
-pub fn found_stacking(data: &[u8], category: &str) -> Option<StackDirection> {
-    let interface = interface::read(&Blocks::read(data).ok()?);
-    let width = interface.inputs.first().map_or(1, |p| p.bits.len());
-    let test = Test::of(category, i64::try_from(width).ok())?;
-    match test.stacking(data)? {
-        Stacking::Stacks { step, .. } => Some(step.direction()),
-        _ => None,
-    }
-}
-
-/// The block `state` as the other kind, its colour kept: concrete for
-/// glass, stained glass for concrete; `None` for any other block.
-pub fn other_kind(state: &str) -> Option<String> {
-    let name = schem::short(state);
-    if name == "glass" {
-        return Some("minecraft:white_concrete".to_owned());
-    }
-    if let Some(colour) = name.strip_suffix("_stained_glass") {
-        return Some(format!("minecraft:{colour}_concrete"));
-    }
-    name.strip_suffix("_concrete")
-        .map(|colour| format!("minecraft:{colour}_stained_glass"))
 }
 
 /// Whether dust `state` is saved as a dot, pointing no way.

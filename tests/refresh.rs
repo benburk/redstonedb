@@ -58,20 +58,20 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     let db = setup_test_db().await;
     // Typed wrong in every detail the file decides.
     let typed = Details {
-        category: "incrementer".to_owned(),
+        category: "adder".to_owned(),
         width: Some(4),
-        orientation: Orientation::Horizontal,
+        orientation: Orientation::Vertical,
         encoding: Some(Encoding::Hex),
         ..Details::default()
     };
-    let id = store(&db, "inc-8", typed).await;
+    let id = store(&db, "alpha-rca", typed).await;
 
     let report = simulation::refresh(&db, &id, false).await.unwrap();
     assert!(matches!(report, Some(Report::Ran(_))), "{report:?}");
     assert!(report.unwrap().passed());
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.width, Some(8));
-    assert_eq!(s.orientation, Orientation::Vertical);
+    assert_eq!(s.orientation, Orientation::Horizontal);
     assert_eq!(s.encoding, Some(Encoding::Binary));
     assert!(!s.tags.iter().any(|t| t.name == tag::FAILS_SIMULATION));
     assert!(simulation::current(&db, &s).await.unwrap().is_some());
@@ -88,8 +88,8 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
 async fn a_build_without_a_test_keeps_no_result() {
     let db = setup_test_db().await;
     let typed = Details {
-        category: "ram".to_owned(),
-        width: Some(64),
+        category: "piston door".to_owned(),
+        latency: Some(64),
         ..Details::default()
     };
     let id = store(&db, "mult-8-buttons", typed).await;
@@ -100,7 +100,7 @@ async fn a_build_without_a_test_keeps_no_result() {
             .is_none()
     );
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.width, Some(64), "a memory's width is typed");
+    assert_eq!(s.latency, Some(64), "its builder's latency stands");
 }
 
 #[tokio::test]

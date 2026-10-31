@@ -94,7 +94,7 @@ enum Command {
         standardizing: Standardizing,
     },
     /// Change fields of a schematic; omitted fields are kept
-    Set(Box<Set>),
+    Set(Set),
     /// Delete a schematic
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
@@ -242,15 +242,12 @@ struct Set {
     category: Option<String>,
     #[arg(long)]
     orientation: Option<Orientation>,
-    #[arg(long)]
-    encoding: Option<Encoding>,
     #[command(flatten)]
     details: DetailArgs,
     /// Field to make unknown; repeatable
     #[arg(
         long,
         value_parser = [
-            "width",
             "latency",
             "synchronized",
             "stacking",
@@ -259,13 +256,7 @@ struct Set {
             "built-on",
             "imported-by",
             "description",
-            "design",
-            "flags",
-            "name",
             "logic",
-            "throughput",
-            "at-least",
-            "bytes",
         ]
     )]
     unset: Vec<String>,
@@ -329,32 +320,13 @@ struct NewCategory {
 
 #[derive(Args)]
 struct DetailArgs {
-    /// Datapath width in bits
-    #[arg(long)]
-    width: Option<u32>,
     /// Latency in ticks
     #[arg(long)]
     latency: Option<u32>,
-    /// The fewest ticks from one input to the next that still gives right
-    /// outputs; for a serial build, from one bit to the next, as in a
-    /// 2-tick serial adder
-    #[arg(long)]
-    throughput: Option<u32>,
     /// Stateless or stateful, where it differs from what its category
     /// usually is
     #[arg(long)]
     logic: Option<Logic>,
-    /// For a memory, how many bytes it holds, as in a 32-byte RAM
-    #[arg(long)]
-    bytes: Option<u32>,
-    /// For a threshold, the fewest inputs on that turn it on, as in an
-    /// at-least-3 threshold
-    #[arg(long)]
-    at_least: Option<u32>,
-    /// For a monostable, the ticks its pulse lasts, as in a 3-tick
-    /// monostable; a conventional one's comes from its simulation
-    #[arg(long)]
-    pulse: Option<u32>,
     /// Whether every output bit settles on the same tick: true or false
     #[arg(long)]
     synchronized: Option<bool>,
@@ -381,21 +353,8 @@ struct DetailArgs {
     /// Free text about the build, such as how to use it
     #[arg(long)]
     description: Option<String>,
-    /// The build's own name, for a category that takes one, such as
-    /// `Bus Crossing` under bussing
-    #[arg(long = "name")]
-    given_name: Option<String>,
-    /// The design within its category, such as `carry_lookahead`; see
-    /// `rsdb categories`. Left out, `add` stores `other`
-    #[arg(long)]
-    design: Option<String>,
-    /// A flag of its category it has, such as `carry_in`; repeatable. `add`
-    /// also sets the carry flags the file's signs show. Given to `set`, the
-    /// flags replace the stored ones; see `rsdb categories`
-    #[arg(long = "flag")]
-    flags: Vec<String>,
-    /// Whether the build follows the building conventions: true or false.
-    /// A build that does not is imported without the lint.
+    /// Whether the build follows the building conventions, so its file is
+    /// read by them: true or false
     #[arg(long)]
     conventional: Option<bool>,
 }
@@ -437,7 +396,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             note,
             standardizing,
         } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
-        Command::Set(args) => set(db, *args).await,
+        Command::Set(args) => set(db, args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
         }
@@ -573,7 +532,6 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         id,
         category,
         orientation,
-        encoding,
         details: given,
         unset,
     } = args;
@@ -585,9 +543,6 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     }
     if let Some(orientation) = orientation {
         details.orientation = orientation;
-    }
-    if encoding.is_some() {
-        details.encoding = encoding;
     }
     overlay(&mut details, &given, &unset);
     let conventional = given.conventional.unwrap_or(s.conventional);
@@ -603,16 +558,6 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         Ok(ready) => ready,
         Err(message) => bail!("{message}"),
     };
-    if let Some(name) = given
-        .flags
-        .iter()
-        .find(|f| !ready.details.flags.contains(f))
-    {
-        bail!(
-            "{name} is not a flag of {}; see rsdb categories",
-            ready.category.name
-        );
-    }
     schematic::set_details(db, &id, &ready).await?;
     let imported_by = if unset.iter().any(|f| f == "imported-by") {
         None
@@ -646,7 +591,6 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
     }
     let unsets = |name: &str| unset.iter().any(|field| field == name);
     let number = |n: Option<u32>| n.map(i64::from);
-    put(&mut details.width, number(given.width), unsets("width"));
     put(
         &mut details.latency,
         number(given.latency),
@@ -667,28 +611,9 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
         given.description.clone(),
         unsets("description"),
     );
-    put(
-        &mut details.given_name,
-        given.given_name.clone(),
-        unsets("name"),
-    );
     put(&mut details.logic, given.logic, unsets("logic"));
-    put(
-        &mut details.throughput,
-        number(given.throughput),
-        unsets("throughput"),
-    );
-    put(&mut details.bytes, number(given.bytes), unsets("bytes"));
-    put(
-        &mut details.at_least,
-        number(given.at_least),
-        unsets("at-least"),
-    );
-    put(&mut details.pulse, number(given.pulse), unsets("pulse"));
-    put(&mut details.design, given.design.clone(), unsets("design"));
     // A list given replaces the stored one whole.
     let lists = [
-        (&mut details.flags, &given.flags, "flags"),
         (&mut details.builders, &given.builders, "builders"),
         (
             &mut details.contributors,

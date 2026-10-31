@@ -402,7 +402,7 @@ async fn publish_checked(
 ) -> Result<Result<String, String>, AppError> {
     let db = &state.db;
     let categories = catalogue::categories(db).await?;
-    let mut given = match form.parse(&categories) {
+    let mut given = match form.parse() {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };

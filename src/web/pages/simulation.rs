@@ -152,11 +152,6 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                             "."
                         }
                     }
-                    // The details form reads whether stacking was found;
-                    // the build's Stacks field says how.
-                    @if run.stacking.as_ref().is_some_and(|stacking| !matches!(stacking, Stacking::Not { .. } | Stacking::Stacks { .. })) {
-                        span hidden data-found-stacking {}
-                    }
                     @if run.wrong > 0 {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {

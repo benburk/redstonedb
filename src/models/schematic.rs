@@ -282,8 +282,8 @@ pub struct Schematic {
     /// For a leaderboard's entry of copies of a build stacked to a wider
     /// width, the build's own width; see `Schematic::widened_to`.
     pub stacked_from: Option<i64>,
-    /// Whether the build follows the building conventions, so the lint and
-    /// the interface reader apply to it.
+    /// Whether the build follows the building conventions, so the
+    /// interface reader applies to it.
     pub conventional: bool,
     /// Whether its file keeps where its uploader's `//paste` put it, which
     /// a new version or a reread file keeps too.
@@ -403,17 +403,9 @@ impl Schematic {
     /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
         self.measures()
-            .chain(self.hex())
             .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
-    }
-
-    /// `Hex` for a build that counts in hex, before its design, as in
-    /// `32-bit Hex Carry Cancel Adder`; a binary one says nothing.
-    fn hex(&self) -> Option<String> {
-        (self.encoding == Some(Encoding::Hex))
-            .then(|| Encoding::Hex.label().to_owned())
     }
 
     /// The design and what the build is, as a name ends, such as `Carry
@@ -428,7 +420,6 @@ impl Schematic {
         self.measures()
             .chain(self.tags_in(tag::Kind::Restriction).map(Tag::label))
             .chain(self.tags_in(tag::Kind::Other).map(Tag::label))
-            .chain(self.hex())
             .chain(self.kind())
             .collect::<Vec<_>>()
             .join(" ")
@@ -1389,16 +1380,6 @@ mod tests {
     #[test]
     fn filename_is_the_name() {
         assert_eq!(cla().filename(), "8_bit_Carry_Lookahead_Adder.schem");
-    }
-
-    #[test]
-    fn a_hex_build_says_so_before_its_design() {
-        let mut hex = cla();
-        hex.width = Some(32);
-        hex.encoding = Some(Encoding::Hex);
-        assert_eq!(hex.name(), "32-bit Hex Carry Lookahead Adder");
-        assert_eq!(hex.title(), "32-bit alpha Hex Carry Lookahead Adder");
-        assert_eq!(hex.filename(), "32_bit_Hex_Carry_Lookahead_Adder.schem");
     }
 
     #[test]

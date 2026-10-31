@@ -1,5 +1,5 @@
-//! Turning a `.schem` file into a stored schematic, shared by `rsdb add`,
-//! `rsdb reread`, the upload page, and new versions.
+//! Turning a `.schem` file into a stored schematic, shared by
+//! `rsdb rebuild`, `rsdb reread`, the upload page, and new versions.
 
 use std::fmt::Write as _;
 
@@ -25,8 +25,8 @@ use crate::{
 pub struct Prepared {
     pub data: Vec<u8>,
     pub blocks: Blocks,
-    /// Whether the build follows the conventions, so is measured, linted,
-    /// and has its status lines turned pink.
+    /// Whether the build follows the conventions, so is measured without
+    /// its interface layers and has its status lines turned pink.
     pub conventional: bool,
     /// Whether the file keeps where its uploader's `//paste` put it.
     pub keeps_paste: bool,
@@ -434,19 +434,32 @@ pub enum Kept {
 }
 
 /// Which of `upload`'s files a build given as `category` keeps: the
-/// standard one when it is recognized as the listed
-/// category `category` means, as `details::meant` reads it; else the
-/// original. The `Err` says it could not be simulated.
+/// standard one when it is recognized as the blessed category `category`
+/// means, as `details::meant` reads it; else the original, off the list
+/// when `category` names a listed one. The `Err` says it could not be
+/// simulated.
 pub async fn kept(
     categories: &[Category],
     category: &str,
     upload: &Upload,
 ) -> anyhow::Result<Result<Kept, String>> {
-    let Some(meant) = details::meant(categories, category)
-        .filter(|c| category::behaviour(&c.name).evaluated)
-    else {
+    let Some(meant) = details::meant(categories, category) else {
         return Ok(Ok(Kept::Original(None)));
     };
+    // Only a blessed build goes on the list; any other listed category's
+    // goes off it, named for what it is.
+    if !category::BLESSED.contains(&meant.name.as_str()) {
+        let width = upload.standard.as_ref().ok().and_then(|standard| {
+            derived_width(&meant.name, &interface::read(&standard.blocks))
+        });
+        return Ok(Ok(Kept::Original(Some(Unrecognized {
+            why: format!(
+                "{} aren't recognized yet",
+                meant.plural.to_lowercase()
+            ),
+            name: details::off_list_name(meant, width),
+        }))));
+    }
     let unrecognized = match &upload.standard {
         Ok(standard) => {
             details::unrecognized(meant, details::Build::of(standard)).await
@@ -527,7 +540,7 @@ pub async fn moved_up<'a>(
         return Ok(None);
     }
     let Some(meant) = details::meant(categories, category)
-        .filter(|c| category::behaviour(&c.name).evaluated)
+        .filter(|c| category::BLESSED.contains(&c.name.as_str()))
     else {
         return Ok(None);
     };

@@ -12,7 +12,7 @@ use crate::{
     interface::{self, Interface},
     models::{
         catalogue::{self, Category},
-        schematic::{self, Encoding, Orientation, Schematic, StackDirection},
+        schematic::{self, Orientation, Schematic, StackDirection},
         tag,
         user::User,
     },
@@ -115,11 +115,8 @@ pub struct Form {
     /// The category as typed: a standard one by its name or label, in any
     /// capitals, or else a name of the builder's own.
     pub category: String,
-    pub width: String,
     /// An [`Orientation`]'s name.
     pub orientation: String,
-    /// An [`Encoding`]'s name; empty for none.
-    pub encoding: String,
     pub latency: String,
     /// Whether the toggle is on; `None` while an unknown build's toggle is
     /// untouched, so saving keeps it unknown.
@@ -127,24 +124,8 @@ pub struct Form {
     /// Such as `2024-02-02`; empty when unknown.
     pub built_on: String,
     pub description: String,
-    /// The build's own name, for a category that takes one.
-    pub given_name: String,
     /// A [`schematic::Logic`]'s name; empty follows the category.
     pub logic: String,
-    /// The fewest ticks from one input to the next.
-    pub throughput: String,
-    /// How many bytes a memory holds.
-    pub bytes: String,
-    /// A threshold's k.
-    pub at_least: String,
-    /// A monostable's pulse, in ticks.
-    pub pulse: String,
-    pub design: String,
-    /// The ticked flags, each with the category whose group it was ticked
-    /// in, such as `("adder", "carry_in")`. The form shows a flag ticked in
-    /// every group that has it, so it stays ticked whichever category is
-    /// chosen, and parsing keeps the chosen category's.
-    pub flags: Vec<(String, String)>,
     /// Whether the stacking toggle is on; the rows count only when it is.
     pub stackable: bool,
     /// The stacking directions so far, or a suggested first one.
@@ -191,30 +172,14 @@ impl Form {
         };
         Form {
             category: get("category"),
-            width: get("width"),
             orientation: get("orientation"),
-            encoding: get("encoding"),
             latency: get("latency"),
             synchronized: get("synchronized_unknown")
                 .is_empty()
                 .then(|| !get("synchronized").is_empty()),
             built_on: get("built_on"),
             description: get("description"),
-            given_name: get("given_name"),
             logic: get("logic"),
-            throughput: get("throughput"),
-            bytes: get("bytes"),
-            at_least: get("at_least"),
-            pulse: get("pulse"),
-            design: get("design"),
-            // Each category's flags are sent under its own name.
-            flags: pairs
-                .iter()
-                .filter_map(|(k, v)| {
-                    let category = k.strip_prefix("flag:")?;
-                    Some((category.to_owned(), v.trim().to_owned()))
-                })
-                .collect(),
             stackable: !get("stackable").is_empty(),
             stack_rows,
             builders: all("builder", "builder_entry"),
@@ -234,25 +199,12 @@ impl Form {
         let name = |name: Option<&str>| name.unwrap_or_default().to_owned();
         Form {
             category: s.category.clone(),
-            width: number(s.width),
             orientation: s.orientation.name().to_owned(),
-            encoding: name(s.encoding.map(Encoding::name)),
             latency: number(s.latency),
             synchronized: s.synchronized,
             built_on: text(&s.built_on),
             description: text(&s.description),
-            given_name: text(&s.given_name),
             logic: name(s.own_logic.map(schematic::Logic::name)),
-            throughput: number(s.throughput),
-            bytes: number(s.bytes),
-            at_least: number(s.at_least),
-            pulse: number(s.pulse),
-            design: s.design.clone(),
-            flags: s
-                .flags
-                .iter()
-                .map(|flag| (s.category.clone(), flag.name.clone()))
-                .collect(),
             stackable: !s.stacking.is_empty(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
@@ -272,30 +224,20 @@ impl Form {
     }
 
     /// What a new upload's form starts with: the category the file seems
-    /// to be, by `guess`, and the width, orientation, and flags its
-    /// `interface` suggests, with a first stacking direction its `size`
-    /// apart.
+    /// to be, by `guess`, and the orientation its `interface` suggests,
+    /// with a first stacking direction its `size` apart.
     pub fn suggested(
         guess: Option<&Guess>,
         interface: &Interface,
         size: &Size,
     ) -> Self {
         let category = guess.map_or("", |guess| guess.category).to_owned();
-        let (width, orientation) = import::guess(interface);
-        let orientation = orientation.unwrap_or_default();
+        let orientation = import::guess(interface).1.unwrap_or_default();
         let size = (size.x.into(), size.y.into(), size.z.into());
         Form {
-            width: width.map(|w| w.to_string()).unwrap_or_default(),
             orientation: orientation.name().to_owned(),
-            encoding: Encoding::Binary.name().to_owned(),
             // Most builds are; the uploader says when one is not.
             synchronized: Some(true),
-            design: "other".to_owned(),
-            // The carry lines the signs show start ticked.
-            flags: import::sign_flags(interface)
-                .into_iter()
-                .map(|flag| (category.clone(), flag))
-                .collect(),
             stack_rows: vec![StackRow::suggested(orientation, size)],
             category,
             ..Form::default()
@@ -320,32 +262,18 @@ impl Form {
         };
         Form {
             category: or(self.category, suggested.category),
-            width: or(self.width, suggested.width),
             orientation: or(self.orientation, suggested.orientation),
-            encoding: or(self.encoding, suggested.encoding),
             latency: or(self.latency, suggested.latency),
             synchronized: self.synchronized.or(suggested.synchronized),
             built_on: or(self.built_on, suggested.built_on),
             description: or(self.description, suggested.description),
-            given_name: or(self.given_name, suggested.given_name),
             logic: or(self.logic, suggested.logic),
-            throughput: or(self.throughput, suggested.throughput),
-            bytes: or(self.bytes, suggested.bytes),
-            at_least: or(self.at_least, suggested.at_least),
-            pulse: or(self.pulse, suggested.pulse),
-            design: or(self.design, suggested.design),
-            flags: self.flags,
             stackable: self.stackable,
             stack_rows,
             builders: self.builders,
             contributors: self.contributors,
             tags: self.tags,
         }
-    }
-
-    /// Whether `flag` shows ticked, in every group that has it.
-    pub fn ticks(&self, flag: &str) -> bool {
-        self.flags.iter().any(|(_, ticked)| ticked == flag)
     }
 
     /// The stacking directions, checked: none unless the toggle is on, and
@@ -370,48 +298,33 @@ impl Form {
     }
 
     /// The details the text gives, or a sentence saying which field is not
-    /// a number, one of its choices, or a stacking step. The rules they must keep are
-    /// [`crate::details::check`]'s; `categories` only says whose group of
-    /// flags counts.
-    pub fn parse(&self, categories: &[Category]) -> Result<Details, String> {
-        let number = |value: &str, name: &str| -> Result<Option<i64>, String> {
-            let value = value.trim();
-            (!value.is_empty())
-                .then(|| {
-                    value
-                        .parse()
-                        .map_err(|_| format!("{name} must be a whole number."))
-                })
-                .transpose()
-        };
+    /// a number, one of its choices, or a stacking step. The rules they
+    /// must keep are [`crate::details::check`]'s. What the form doesn't
+    /// take, a listed build's probing and simulation work out, and a build
+    /// off the list has none of.
+    pub fn parse(&self) -> Result<Details, String> {
+        let latency = self.latency.trim();
+        let latency = (!latency.is_empty())
+            .then(|| {
+                latency
+                    .parse()
+                    .map_err(|_| "Latency must be a whole number.".to_owned())
+            })
+            .transpose()?;
         let text = |value: &str| Some(value.to_owned());
-        let category = Category::name_of(categories, &self.category);
         Ok(Details {
             category: self.category.clone(),
-            width: number(&self.width, "Width")?,
             orientation: self.orientation.parse()?,
-            encoding: chosen(&self.encoding)?,
-            latency: number(&self.latency, "Latency")?,
+            latency,
             synchronized: self.synchronized,
             built_on: text(&self.built_on),
             description: text(&self.description),
-            given_name: text(&self.given_name),
             logic: chosen(&self.logic)?,
-            throughput: number(&self.throughput, "Throughput")?,
-            bytes: number(&self.bytes, "Capacity")?,
-            at_least: number(&self.at_least, "At least")?,
-            pulse: number(&self.pulse, "Pulse")?,
-            design: text(&self.design),
-            flags: self
-                .flags
-                .iter()
-                .filter(|(of, _)| *of == category)
-                .map(|(_, flag)| flag.clone())
-                .collect(),
             builders: self.builders.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,
             tags: self.tags.clone(),
+            ..Details::default()
         })
     }
 }
@@ -420,16 +333,6 @@ impl Form {
 pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
         categories: catalogue::categories(db).await?,
-        // A blessed build's design comes from its circuit, so there is
-        // none to choose.
-        designs: catalogue::designs(db)
-            .await?
-            .into_iter()
-            .filter(|design| {
-                !crate::category::BLESSED.contains(&design.category.as_str())
-            })
-            .collect(),
-        flags: catalogue::flags(db).await?,
         people: schematic::all_people(db).await?,
         tags: tag::all(db).await?,
     })
@@ -559,7 +462,6 @@ mod tests {
     fn a_new_file_keeps_the_details_sent() {
         let sent = Form {
             category: "adder".to_owned(),
-            design: "carry_lookahead".to_owned(),
             latency: "6".to_owned(),
             builders: vec!["Sam".to_owned()],
             description: "Fast.".to_owned(),
@@ -568,15 +470,13 @@ mod tests {
         };
         let suggested = Form {
             category: "monostable".to_owned(),
-            width: "8".to_owned(),
-            design: "other".to_owned(),
+            orientation: "vert".to_owned(),
             ..Form::default()
         };
         let form = sent.keeping_sent(suggested);
         assert_eq!(form.category, "adder");
-        assert_eq!(form.design, "carry_lookahead");
         assert_eq!(form.latency, "6");
-        assert_eq!(form.width, "8");
+        assert_eq!(form.orientation, "vert");
         assert_eq!(form.builders, ["Sam"]);
         assert_eq!(form.description, "Fast.");
         assert_eq!(form.tags, ["pistonless"]);

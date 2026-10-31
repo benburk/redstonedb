@@ -175,7 +175,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/about", icons::INFO, "About the site", current("/about")))
                     (link("/about/categories", icons::LAYERS, "How builds are sorted", current("/about/categories")))
                     (link("/about/simulation", icons::CHECK, "What the site checks", current("/about/simulation")))
-                    (link("/about/conventions", icons::BOOK, "Building conventions", current("/about/conventions")))
+                    (link("/about/uploading", icons::BOOK, "Before you upload", current("/about/uploading")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
                     }

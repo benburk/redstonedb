@@ -219,50 +219,6 @@
       @apply text-muted;
     }
   }
-
-  /* A page written in Markdown, such as the building conventions, whose
-     elements carry no classes of their own. */
-  .doc {
-    @apply leading-prose;
-
-    & h1 {
-      @apply mb-4 text-page font-bold;
-    }
-
-    & h2 {
-      @apply mt-10 mb-3 text-section font-semibold;
-    }
-
-    & h3 {
-      @apply mt-6 mb-2 font-semibold;
-    }
-
-    & p,
-    & ul,
-    & table {
-      @apply mb-4;
-    }
-
-    & ul {
-      @apply list-disc pl-5;
-    }
-
-    & li {
-      @apply mb-1.5;
-    }
-
-    & table {
-      @apply w-full border-collapse text-left;
-    }
-
-    & th {
-      @apply border-b border-line py-2 pr-4 text-meta font-semibold text-muted;
-    }
-
-    & td {
-      @apply border-b border-line py-2 pr-4 align-top;
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

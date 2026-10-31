@@ -98,10 +98,6 @@ pub enum Stacking {
     /// bits suggest make it stackable that way, and none that do make it
     /// not stack, whatever was given; see `Test::stacking`.
     Inferred,
-    /// The simulation when it finds copies that work, its builders
-    /// otherwise: a register's copies may stack in ways the search does not
-    /// try, as a 1-bit cell's do into wider registers.
-    Found,
     /// Nobody: its builds are never stacked, as a multiplier's rarely are
     /// to any use, so stacking is neither asked for, searched, nor kept.
     Never,
@@ -233,18 +229,7 @@ const CARRY_IN: &str = crate::colour::CARRY_IN[0];
 /// The name an unsigned carry out goes by; see `colour::CARRY_OUT`.
 const CARRY_OUT: &str = crate::colour::CARRY_OUT[0];
 
-impl Lines {
-    /// Whether a lone control or status line may go without a sign.
-    pub fn lone_unsigned(self) -> bool {
-        matches!(
-            self,
-            Lines::Lone { .. }
-                | Lines::Buffer
-                | Lines::Result(_)
-                | Lines::Control(_)
-        )
-    }
-}
+impl Lines {}
 
 #[cfg(test)]
 mod tests {

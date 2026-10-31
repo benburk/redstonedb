@@ -1,5 +1,5 @@
 //! The rules a build's details are held to, the same for an upload, an
-//! edit, and `rsdb add`.
+//! edit, and `rsdb set`.
 
 use app::{
     details::{self, Build, Details, Ready},
@@ -38,11 +38,6 @@ fn adder() -> Vec<u8> {
     prepared("alpha-rca", false)
 }
 
-/// A stored sequential multiplier's file.
-fn multiplier() -> Vec<u8> {
-    prepared("mult-8-buttons", true)
-}
-
 /// Details with a category typed as `category`, and the rest as a builder
 /// might fill them in, whether or not the category has a use for them.
 fn given(category: &str) -> Details {
@@ -77,24 +72,17 @@ async fn check_file(
         .expect("the database answers")
 }
 
+/// Only a blessed category, one probing recognizes, goes on the list; a
+/// build given any other listed one is asked for a name of its own.
 #[tokio::test]
-async fn only_a_named_category_keeps_a_given_name() {
+async fn only_a_blessed_category_goes_on_the_list() {
     let db = setup_test_db().await;
-    let bussing = check(&db, given("Bussing")).await.unwrap();
-    assert_eq!(bussing.details.given_name.as_deref(), Some("Bus Crossing"));
-    let inc_dec = check(&db, given("inc_dec")).await.unwrap();
-    assert_eq!(inc_dec.details.given_name, None);
-}
-
-#[tokio::test]
-async fn only_a_category_ranked_by_a_measure_keeps_it() {
-    let db = setup_test_db().await;
-    // Typed by its label, in other capitals.
-    let ram = check(&db, given("ram")).await.unwrap();
-    assert_eq!(ram.details.category, "ram");
-    assert_eq!((ram.details.bytes, ram.details.at_least), (Some(32), None));
-    let inc_dec = check(&db, given("INC_DEC")).await.unwrap();
-    assert_eq!(inc_dec.details.bytes, None);
+    for category in ["Bussing", "ram", "inc_dec"] {
+        let refused = check(&db, given(category)).await.err().unwrap();
+        assert!(refused.contains("go on the list so far"), "{refused}");
+        assert!(refused.contains("category of its own"), "{refused}");
+    }
+    assert!(check(&db, given("adder")).await.is_ok());
 }
 
 #[tokio::test]
@@ -111,19 +99,10 @@ async fn stacking_that_does_not_fit_is_refused() {
     // Two copies this far apart make a stack too large to build.
     let apart = Details {
         stacking: vec!["west=100000".parse::<StackDirection>().unwrap()],
-        ..given("ram")
+        ..given("8-bit ram")
     };
     let refused = check(&db, apart.clone()).await.err().unwrap();
     assert!(refused.contains("don't fit"), "{refused}");
-    // A multiplier never stacks, so what is typed is dropped.
-    let multiplier = Details {
-        category: "multiplier".to_owned(),
-        ..apart.clone()
-    };
-    let multiplier = check_file(&db, multiplier, &self::multiplier(), true)
-        .await
-        .unwrap();
-    assert!(multiplier.details.stacking.is_empty());
     // An adder's stacking is the simulation's, so what is typed is not
     // checked, nor kept.
     let adder = check(
@@ -143,7 +122,7 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
     let db = setup_test_db().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
-        ..given("inc_dec")
+        ..given("piston door")
     };
     let refused = check(&db, tagged.clone()).await.err().unwrap();
     assert!(refused.contains("only an admin"), "{refused}");
@@ -164,7 +143,7 @@ async fn a_build_date_still_to_come_is_refused() {
     let db = setup_test_db().await;
     let dated = |date: &str| Details {
         built_on: Some(date.to_owned()),
-        ..given("inc_dec")
+        ..given("piston door")
     };
     let kept = check(&db, dated("2024-02-29")).await.unwrap();
     assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));
@@ -172,12 +151,11 @@ async fn a_build_date_still_to_come_is_refused() {
     assert!(refused.contains("still to come"), "{refused}");
 }
 
-/// An adder or multiplier is recognized from its file or goes up under a
-/// category of its own: one the simulator can't run, one that breaks the
-/// conventions its test reads, one that fails its test, and one taking a
-/// signal strength as an input are refused.
+/// An adder is recognized from its file or goes up under a category of its
+/// own: one the simulator can't run, one not standardized, one that fails
+/// its test, and one taking a signal strength as an input are refused.
 #[tokio::test]
-async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
+async fn an_unrecognized_build_cannot_go_up_under_a_blessed_category() {
     let db = setup_test_db().await;
     let off_list = |refused: Result<Ready, String>, why: &str| {
         let refused = refused.err().unwrap();
@@ -202,7 +180,7 @@ async fn an_unrecognized_build_cannot_go_up_under_an_evaluated_category() {
     );
     off_list(
         check_file(&db, given("adder"), &adder(), false).await,
-        "building conventions",
+        "can't read its inputs and outputs",
     );
     off_list(
         check_file(

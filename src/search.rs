@@ -9,8 +9,8 @@
 //! a 1-bit adder slice that stacks, a threshold's `at least 3`, its latency such as `3t`, a builder,
 //! contributor, or importer, `stackable`, `sync` or `unsync`, `stateless`
 //! or `stateful`, as `comb` and `seq` still are, `pipelined`). A name can be tied to its role, as in
-//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, the
-//! encoding is `encoding:bin` or `encoding:hex`, a release it works in is
+//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, a
+//! release it works in is
 //! `version:1.12` or `version:beta_1.3`, and the throughput is
 //! `throughput:3`, or `3t` for a serial build, whose throughput leads its
 //! name as its width would. A term that is no fact
@@ -256,8 +256,6 @@ fn facts(s: &Schematic) -> Vec<String> {
         s.orientation.name().to_owned(),
         s.orientation.label().to_lowercase(),
     ]);
-    // Not the bare words, so `binary` and `hex` find the converters by name.
-    facts.extend(s.encoding.map(|e| format!("encoding:{}", e.name())));
     for tag in &s.tags {
         facts.push(tag.label());
         facts.push(tag.token().replace('_', " "));
@@ -535,21 +533,6 @@ mod tests {
         assert!(find("8 bits", &s));
     }
 
-    #[test]
-    fn encoding_is_named_with_its_role_not_by_the_bare_word() {
-        let converter =
-            schematic("hex_to_binary", Orientation::Horizontal, &[]);
-        let adder = schematic("adder", Orientation::Horizontal, &[]);
-        assert!(find("encoding:bin", &adder));
-        assert!(find("binary", &converter));
-        assert!(
-            !find("binary", &adder),
-            "an adder's encoding is not its name"
-        );
-    }
-
-    /// A build whose copies add bits answers to each width they reach, up
-    /// to the most copies that work; copies across its bits widen nothing.
     #[test]
     fn a_stack_answers_to_the_widths_its_copies_reach() {
         use crate::models::schematic::StackDirection;

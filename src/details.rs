@@ -1,6 +1,6 @@
 //! A build's details as people give them, held to the site's rules in one
 //! place whichever way they arrive: the upload page, the edit page, or
-//! `rsdb add` and `rsdb set`.
+//! `rsdb set`.
 
 use sqlx::SqlitePool;
 
@@ -209,6 +209,18 @@ async fn ready(
         &design,
     )?;
     details.design = Some(design);
+    // Only a blessed build, one probing recognizes, goes on the list.
+    if listed && !category::BLESSED.contains(&category.name.as_str()) {
+        let width = simulation::derived_width(&category.name, true, build.data)
+            .ok()
+            .flatten();
+        return Err(format!(
+            "Only adders, registers, ALUs, and decoders go on the list so far: \
+             give it a category of its own, such as {}.",
+            off_list_name(&category, width).replace('_', " ")
+        )
+        .into());
+    }
 
     let positive = |n: Option<i64>| n.filter(|n| *n > 0);
     details.width = positive(details.width).filter(|_| listed);
@@ -333,17 +345,16 @@ pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
     )
 }
 
-/// Why `build` is not recognized as a build of `category`, one whose
-/// measured details all come from `evaluate`: it must be conventional,
-/// keep every building convention, take no signal-strength input, be of a
-/// width its test reads, and pass it. `None` when it is, or when the
-/// category is not one `evaluate` works out. The `Err` says it could not
-/// be simulated at all.
+/// Why `build` is not recognized as a build of `category`, a blessed one,
+/// see `category::BLESSED`: it must be standardized, take no
+/// signal-strength input, be of a width its test reads, and pass it.
+/// `None` when it is, or when the category is not blessed. The `Err` says
+/// it could not be simulated at all.
 pub async fn unrecognized(
     category: &Category,
     build: Build<'_>,
 ) -> Result<Option<Unrecognized>, String> {
-    if !category::behaviour(&category.name).evaluated {
+    if !category::BLESSED.contains(&category.name.as_str()) {
         return Ok(None);
     }
     let width = simulation::derived_width(&category.name, true, build.data)
@@ -356,8 +367,7 @@ pub async fn unrecognized(
     };
     if !build.conventional {
         return off(format!(
-            "The {label} test reads the building conventions, which it does \
-             not follow"
+            "The {label} test can't read its inputs and outputs"
         ));
     }
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {

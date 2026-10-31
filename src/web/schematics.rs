@@ -827,8 +827,7 @@ async fn saved(
     form: &Form,
     new: Option<&Prepared>,
 ) -> Result<Result<(), String>, AppError> {
-    let categories = catalogue::categories(db).await?;
-    let given = match form.parse(&categories) {
+    let given = match form.parse() {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };

@@ -15,98 +15,44 @@ const namedCategory = (options, text) => {
 
 // Category fields: the category is typed, with a menu of the standard ones
 // under their sections, and the fields follow the one it names, by label or
-// name in any capitals. Each category's flags show only for it, the name box
-// only for a category whose builds are named, a measure such as a memory's
-// capacity only for a category ranked by it, and the design list only once the category has designs, offering
-// just those; the logic's first choice names the category's usual one. Text
-// naming no standard category is one off the list, with no width, encoding,
-// or throughput; that waits until the box is left, so the fields do not
-// jump while a name is typed.
+// name in any capitals. A blessed category, one probing recognizes, has
+// every measured detail worked out from its file and by the simulation: its
+// orientation, stacking, and logic give way to what the file shows, and a
+// note says so. Any other name puts the build off the list, described by
+// hand; that waits until the box is left, so the fields do not jump while a
+// name is typed.
 for (const input of document.querySelectorAll("input[data-category]")) {
   const form = input.closest("form");
   const menu = document.getElementById(input.getAttribute("aria-controls"));
   const options = [...menu.querySelectorAll('[role="option"]')];
   const groups = [...menu.querySelectorAll("[data-group]")];
   const noMatch = menu.querySelector("[data-no-match]");
-  const design = form.querySelector("select[data-design]");
-  const designField = form.querySelector("[data-design-field]");
 
   const chosen = () => namedCategory(options, input.value);
 
   const update = (settled) => {
     const option = chosen();
     if (!option && !settled) return;
-    const name = option?.dataset.name ?? "";
-    for (const field of form.querySelectorAll("[data-standard-only]")) {
-      field.hidden = !option && input.value.trim() !== "";
-    }
-    for (const flags of form.querySelectorAll("[data-flags-for]")) {
-      flags.hidden = flags.dataset.flagsFor !== name;
-    }
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
-    // A category such as adder reads its width and orientation from the
-    // file, and has its stacking worked out by the simulation, which show in
-    // place of the typed ones. A typed field no category hides comes back
-    // when the category reads nothing.
-    const decides = {
-      width: "data-reads-file",
-      orientation: "data-reads-file",
-      encoding: "data-reads-file",
-      stacking: "data-infers-stacking",
-    };
-    for (const [what, attribute] of Object.entries(decides)) {
+    const blessed = has("data-blessed");
+    for (const what of ["width", "orientation", "stacking"]) {
       const derived = form.querySelector(`[data-derived-${what}]`);
       const typed = form.querySelector(`[data-typed-${what}]`);
-      // A file that shows nothing of it, as a 1-bit build's lone input
-      // shows no orientation, leaves the typed field, unless the category
-      // is one the simulation works out, below.
-      if (!derived) {
-        if (typed && !typed.hasAttribute("data-standard-only")) typed.hidden = false;
-        continue;
-      }
-      derived.hidden = !has(attribute);
-      if (!derived.hidden) typed.hidden = true;
-      else if (!typed.hasAttribute("data-standard-only")) typed.hidden = false;
+      if (derived) derived.hidden = !blessed;
+      if (typed) typed.hidden = blessed;
     }
-    // A category such as multiplier is never stacked, so neither is asked.
+    // A category such as ALU is never stacked, so neither is asked.
     if (has("data-never-stacks")) {
       for (const field of form.querySelectorAll("[data-typed-stacking], [data-derived-stacking]")) {
         field.hidden = true;
       }
     }
-    form.querySelector("[data-named-field]").hidden = !has("data-named");
     form.querySelector("[data-usual-logic]").textContent =
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
-    const measures = (option?.dataset.measures ?? "").split(" ");
-    for (const field of form.querySelectorAll("[data-measure-field]")) {
-      field.hidden = !measures.includes(field.dataset.measureField);
-    }
-    let designs = false;
-    for (const group of design.querySelectorAll("optgroup")) {
-      const mine = group.dataset.for === name;
-      group.hidden = !mine;
-      group.disabled = !mine;
-      designs ||= mine;
-    }
-    if (design.selectedOptions[0]?.disabled) design.value = "other";
-    // A category such as adder has every measured detail worked out from
-    // its file and by the simulation: its width, orientation, encoding,
-    // flags, design, throughput, and logic, so none is asked for.
-    const evaluated = has("data-evaluated");
-    if (evaluated) {
-      for (const field of form.querySelectorAll(
-        "[data-typed-width], [data-typed-orientation], [data-typed-encoding], [data-flags-for]",
-      )) {
-        field.hidden = true;
-      }
-    }
-    designField.hidden = !designs || evaluated;
-    const throughput = form.querySelector("[data-throughput-field]");
-    if (throughput && evaluated) throughput.hidden = true;
     const logic = form.querySelector("[data-logic-field]");
-    if (logic) logic.hidden = evaluated;
+    if (logic) logic.hidden = blessed;
     const note = form.querySelector("[data-evaluated-note]");
-    if (note) note.hidden = !evaluated;
+    if (note) note.hidden = !blessed;
   };
 
   // The menu: the categories whose labels hold the typed text, all of them
@@ -303,8 +249,8 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
   });
 }
 
-// Simulation: the category and width choose a build's test, so the result
-// under the form, a live panel, is redrawn whenever either changes: first
+// Simulation: the category chooses a build's test, so the result under the
+// form, a live panel, is redrawn whenever it changes: first
 // the cases, then, once they pass, the slower timing, which the cases'
 // section loads by itself. The edit page starts with the stored result, so
 // it redraws only once one changes. A category with no test answers at
@@ -319,13 +265,12 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 for (const form of document.querySelectorAll("form[data-simulate]")) {
   const results = () => document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
-  const width = form.querySelector('input[name="width"]');
   const timingFields = form.querySelector("[data-timing-fields]");
   const timingNote = form.querySelector("[data-timing-note]");
   const button = form.querySelector("[data-publish]");
   const reason = form.querySelector("[data-gate-reason]");
   const blockedReason = reason.textContent;
-  const key = () => `${category.value.trim().toLowerCase()}/${width.value}`;
+  const key = () => category.value.trim().toLowerCase();
   let asked = form.hasAttribute("data-simulated") ? key() : null;
   // Requests for the cases under way; the button waits on them.
   let running = 0;
@@ -375,7 +320,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     found(fresh);
     if (!timingFields) return;
     const option = chosenOption();
-    const tested = option?.hasAttribute("data-tested") ?? false;
+    const tested = option?.hasAttribute("data-blessed") ?? false;
     const shown = fresh ? results() : null;
     const skipped = shown?.querySelector("[data-skipped]") != null;
     const passed = shown?.querySelector("[data-measures-timing]") != null;
@@ -389,24 +334,14 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     }
     timingNote.querySelector("[data-measured-marker]").disabled = !measures;
   };
-  // A register's stacking is the simulation's once it finds copies that
-  // work, so its rows give way to the note then, and are not sent; until
-  // then, and when it finds none, they are the builder's.
-  const typedStacking = form.querySelector("[data-typed-stacking]");
+  // A blessed build's stacking is the simulation's, which the note shows
+  // once it has run.
   const derivedStacking = form.querySelector("[data-derived-stacking]");
   const found = (fresh) => {
-    if (!typedStacking || !derivedStacking) return;
+    if (!derivedStacking) return;
     const stack = fresh ? results().querySelector("[data-stack]")?.dataset.stack : null;
     derivedStacking.querySelector("[data-stack-note]").textContent =
       stack ?? "Found by the simulation once it has run.";
-    if (!chosenOption()?.hasAttribute("data-finds-stacking")) {
-      typedStacking.disabled = false;
-      return;
-    }
-    const stacks = fresh && results().querySelector("[data-found-stacking]") != null;
-    derivedStacking.hidden = !stacks;
-    typedStacking.hidden = stacks;
-    typedStacking.disabled = stacks;
   };
 
   // The checks once a result is in.
@@ -422,7 +357,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
         "wait",
         category.value.trim() === ""
           ? "Choose a category to simulate it."
-          : "No simulation for this category and width yet.",
+          : "Only adders, registers, ALUs, and decoders are simulated so far.",
       );
       mark("timing", null);
       return;
@@ -483,7 +418,6 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     results().dispatchEvent(new Event("redraw"));
   };
   category.addEventListener("change", ask);
-  width.addEventListener("change", ask);
   measured();
   gate();
   // fixi takes up the panel on DOMContentLoaded, after this script runs.

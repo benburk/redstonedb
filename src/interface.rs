@@ -545,20 +545,6 @@ fn rows(signed: &[Pos], unsigned: &HashSet<Pos>) -> HashMap<Pos, Vec<Pos>> {
     rows
 }
 
-/// The blocks of every row a sign names, among control lines and among
-/// status lines, so the lint counts them as named.
-pub fn rowed(blocks: &Blocks) -> HashSet<Pos> {
-    let signs = blocks.sign_texts();
-    let members: Vec<Pos> = blocks.iter().map(|(pos, _)| pos).collect();
-    [colour::CONTROL, colour::STATUS]
-        .into_iter()
-        .flat_map(|line| {
-            line_rows(blocks, &members, &signs, line).into_values()
-        })
-        .flatten()
-        .collect()
-}
-
 /// A port with its bits ordered from the one nearest the south-east-bottom
 /// corner of the bounding box along the way the bus runs, unless an `lsb`
 /// sign on its far end or an `msb` sign on its near one turns it round.

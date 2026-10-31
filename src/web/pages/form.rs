@@ -7,8 +7,8 @@ use maud::{Markup, html};
 use crate::{
     category, import,
     models::{
-        catalogue::{Category, Design, Flag, Measure},
-        schematic::{Encoding, Logic, Orientation},
+        catalogue::Category,
+        schematic::{Logic, Orientation},
         tag::Tag,
     },
 };
@@ -23,9 +23,6 @@ use super::{
 pub struct Choices {
     /// The standard categories.
     pub categories: Vec<Category>,
-    pub designs: Vec<Design>,
-    /// Every category's flags.
-    pub flags: Vec<Flag>,
     /// Everyone credited on a stored build, to suggest as builders and
     /// contributors.
     pub people: Vec<String>,
@@ -33,17 +30,10 @@ pub struct Choices {
     pub tags: Vec<Tag>,
 }
 
-/// The category, its name when other, its design, and its carry lines.
+/// The category: one of the list's, or a name of the builder's own.
 fn category_fields(f: &Form, choices: &Choices) -> Markup {
     html! {
         @let chosen = Category::find(&choices.categories, &f.category);
-        @let named = chosen.is_some_and(|c| c.named);
-        @let has = |measure| chosen.is_some_and(|c: &Category| c.has(measure));
-        @let chosen_name = chosen.map_or("", |c| c.name.as_str());
-        @let has_designs = choices
-            .designs
-            .iter()
-            .any(|design| design.category == chosen_name);
         // Typed, with a menu of the standard categories under their
         // sections, as in the sidebar, which form.js opens and narrows as
         // the box is typed in; a name of the builder's own makes a category
@@ -69,17 +59,13 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             div id={ "category-group-" (key) } role="presentation"
                                 class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
-                                @let behaviour = category::behaviour(&category.name);
+                                @let blessed = category::BLESSED.contains(&category.name.as_str());
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
-                                    data-name=(category.name) data-named[category.named]
+                                    data-name=(category.name)
                                     data-logic=(category.logic.map_or("unknown", Logic::name))
-                                    data-reads-file[behaviour.reads_file]
-                                    data-infers-stacking[behaviour.stacking == category::Stacking::Inferred]
-                                    data-finds-stacking[behaviour.stacking == category::Stacking::Found] data-never-stacks[behaviour.stacking == category::Stacking::Never]
-                                    data-tested[behaviour.test.is_some()]
-                                    data-evaluated[behaviour.evaluated]
-                                    data-measures=(category.measures.iter().map(|m| m.name()).collect::<Vec<_>>().join(" "))
+                                    data-blessed[blessed]
+                                    data-never-stacks[category::behaviour(&category.name).stacking == category::Stacking::Never]
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
                                 }
@@ -95,96 +81,17 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                 "Or type your own, such as piston door."
             }
         }
-        // For a category whose builds each have a name, such as bussing.
-        label class="field" data-named-field hidden[!named] {
-            span { "Name" }
-            input name="given_name" value=(f.given_name) maxlength="60"
-                placeholder="such as Bus Crossing" class="input";
-        }
-        // For a memory, such as RAM.
-        label class="field" data-measure-field="bytes" hidden[!has(Measure::Bytes)] {
-            span { "Capacity (bytes)" }
-            input type="number" name="bytes" value=(f.bytes) min="1"
-                inputmode="numeric" placeholder="such as 32" class="input";
-        }
-        // For a threshold.
-        label class="field" data-measure-field="at_least" hidden[!has(Measure::AtLeast)] {
-            span { "Turns on with at least (inputs)" }
-            input type="number" name="at_least" value=(f.at_least) min="1"
-                inputmode="numeric" placeholder="such as 3" class="input";
-        }
-        // For a monostable; the simulation measures a conventional one's.
-        label class="field" data-measure-field="pulse" hidden[!has(Measure::Pulse)] {
-            span { "Pulse (ticks)" }
-            input type="number" name="pulse" value=(f.pulse) min="1"
-                inputmode="numeric" placeholder="such as 3" class="input";
-        }
         (evaluated_note())
-        // Shown once the chosen category has designs to choose from.
-        label class="field" data-design-field hidden[!has_designs] {
-            span { "Design" }
-            select name="design" class="input" data-design {
-                option value="other" selected[f.design.is_empty() || f.design == "other"] { "Other" }
-                @for category in &choices.categories {
-                    @let designs: Vec<&Design> = choices.designs.iter().filter(|d| d.category == category.name).collect();
-                    @if !designs.is_empty() {
-                        optgroup label=(category.label) data-for=(category.name) {
-                            @for design in designs {
-                                option value=(design.name) selected[f.design == design.name] { (design.label()) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // Each category's flags, sent under its own name; form.js shows only
-        // the chosen category's. A flag starts ticked in every group that has
-        // it, as the carry lines a file's signs show do, so it stays ticked
-        // whichever category is chosen.
-        @for category in &choices.categories {
-            @let flags: Vec<&Flag> = choices.flags.iter().filter(|flag| flag.category == category.name).collect();
-            @if !flags.is_empty() {
-                (flag_group(category, &flags, f, category.name == chosen_name))
-            }
-        }
     }
 }
 
-/// `category`'s flags, ticked as `ticked` has them, shown when it is the
-/// chosen category. An adder's are read from its file, so it says so
-/// instead.
-fn flag_group(
-    category: &Category,
-    flags: &[&Flag],
-    f: &Form,
-    chosen: bool,
-) -> Markup {
-    html! {
-        div class="flex flex-wrap items-center gap-x-6 gap-y-2" data-flags-for=(category.name) hidden[!chosen] {
-            @if category::behaviour(&category.name).flags_from_file {
-                p class="text-muted" {
-                    "Carry in and carry out are read from the file."
-                }
-            } @else {
-                @for flag in flags {
-                    label class="flex items-center gap-2" {
-                        input type="checkbox" name={ "flag:" (category.name) } value=(flag.name)
-                            checked[f.ticks(&flag.name)] class="size-4 appearance-auto";
-                        (flag.label)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// For a category such as adder, whose measured details all come from its
-/// file and the simulation; form.js shows it.
+/// For a blessed category, whose measured details all come from its file
+/// and the simulation; form.js shows it.
 fn evaluated_note() -> Markup {
     html! {
         p data-evaluated-note hidden class="text-muted" {
             "Every measured detail is worked out by the simulation. "
-            "If it fails its test, it goes up off the list instead, and you describe it."
+            "If it isn't recognized, it goes up off the list instead, and you describe it."
         }
     }
 }
@@ -198,15 +105,8 @@ pub(super) fn fields(
     choices: &Choices,
     derived: &import::Derived,
 ) -> Markup {
-    // A category off the list, such as a piston door, has no width or encoding.
-    let other = !f.category.is_empty()
-        && Category::find(&choices.categories, &f.category).is_none();
     html! {
         (category_fields(f, choices))
-        label class="field" data-standard-only data-typed-width hidden[other] {
-            span { "Width in bits" }
-            input name="width" type="number" min="1" value=(f.width) class="input tabular-nums";
-        }
         @if let Some(width) = derived.width {
             div class="field" data-derived-width hidden {
                 span { "Width in bits" }
@@ -227,25 +127,6 @@ pub(super) fn fields(
             select name="orientation" class="input" {
                 @for orientation in Orientation::ALL {
                     option value=(orientation.name()) selected[f.orientation == orientation.name()] { (orientation.label()) }
-                }
-            }
-        }
-        @if let Some(encoding) = derived.encoding {
-            div class="field" data-derived-encoding hidden {
-                span { "Encoding" }
-                p {
-                    (encoding.label())
-                    span class="text-muted" {
-                        @if encoding == Encoding::Hex { ", as the lime inputs take a signal strength" } @else { ", as the lime inputs take levers" }
-                    }
-                }
-            }
-        }
-        label class="field" data-standard-only data-typed-encoding hidden[other] {
-            span { "Encoding" }
-            select name="encoding" class="input" {
-                @for encoding in Encoding::ALL {
-                    option value=(encoding.name()) selected[f.encoding == encoding.name()] { (encoding.label()) }
                 }
             }
         }
@@ -276,15 +157,6 @@ pub(super) fn fields(
             }
         }
         }
-        label class="field" data-standard-only data-throughput-field hidden[other] {
-            span { "Throughput in ticks" }
-            input type="number" name="throughput" value=(f.throughput) min="1" max="1000"
-                inputmode="numeric" placeholder="such as 3" aria-describedby="throughput-help"
-                class="input tabular-nums";
-            span id="throughput-help" class="text-meta font-normal" {
-                "The fewest ticks between inputs that still come out right."
-            }
-        }
         (logic_field(f, choices))
         (stacking_fields(f))
         (person_field("Builders", "builder", "Add a builder's in-game name", &f.builders, choices))
@@ -303,8 +175,8 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
     let usual = Category::find(&choices.categories, &f.category)
         .and_then(|c| c.logic)
         .map_or("unknown", Logic::name);
-    // An evaluated category's builds are found to hold state or not.
-    let evaluated = category::behaviour(&f.category).evaluated;
+    // A blessed category's builds are found to hold state or not.
+    let evaluated = category::BLESSED.contains(&f.category.as_str());
     html! {
         label class="field" data-logic-field hidden[evaluated] {
             span { "Stateless" }
@@ -367,9 +239,8 @@ fn stacking_fields(f: &Form) -> Markup {
         .chain(std::iter::repeat(&blank))
         .take(f.stack_rows.len().max(2));
     html! {
-        // For a category such as adder, the simulation stacks copies the way
-        // the bits run and decides, so the rows give way to a note; for a
-        // register, once it finds copies that work.
+        // For a blessed category, the simulation stacks copies and decides,
+        // so the rows give way to a note.
         div class="field" data-derived-stacking hidden {
             span { "Stacking" }
             // The stack the simulation found, once it has run.

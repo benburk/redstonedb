@@ -29,7 +29,6 @@ pub struct BoardQuery {
     at_least: Option<String>,
     pulse: Option<String>,
     logic: Option<String>,
-    encoding: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
 }
@@ -67,7 +66,6 @@ pub async fn show(
             .filter_map(|(m, n)| Some((m, parsed(n)?)))
             .collect(),
         logic: parsed(query.logic),
-        encoding: parsed(query.encoding),
         orientation: parsed(query.orientation),
         design: query.design.filter(|d| !d.is_empty()),
     };

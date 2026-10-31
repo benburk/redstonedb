@@ -30,7 +30,6 @@ mchprs_blocks = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c41
 mchprs_redpiler = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e" }
 mchprs_redstone = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e" }
 mchprs_world = { git = "https://github.com/benburk/MCHPRS", rev = "f605490b5c414d5c54e927b019892815ea53698e", features = ["testing"] }
-pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"

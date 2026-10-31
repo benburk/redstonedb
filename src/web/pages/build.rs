@@ -16,7 +16,7 @@ use crate::{
         user::User,
         version::Version,
     },
-    simulate::{Report, Stacking, Test, Timing},
+    simulate::{Report, Test, Timing},
 };
 
 use super::{
@@ -97,7 +97,7 @@ pub fn schematic_page(
                 Status::Untested => {}
             }
             @if let Ok(file) = file {
-                (stack_guide::stacking_section(s, &file.stacking, stacking_found(s, report)))
+                (stack_guide::stacking_section(s, &file.stacking, stacking_found(s)))
             }
             (version::versions_section(s, versions))
         },
@@ -214,7 +214,6 @@ struct Sources {
     category: Source,
     width: Source,
     orientation: Source,
-    encoding: Source,
     /// Latency and whether it is synchronized, measured together.
     timing: Source,
     /// A monostable's pulse and whether it is inverted, measured with its
@@ -258,18 +257,10 @@ impl Sources {
             Some(Report::Ran(run)) => Some(run),
             _ => None,
         };
-        let stacking = if stacking_found(s, report)
+        let stacking = if stacking_found(s)
             && run.is_some_and(|run| run.stacking.is_some())
         {
             Source::Simulated
-        } else if !s.stacking.is_empty()
-            && category::behaviour(&s.category).stacking
-                == category::Stacking::Found
-            && run.is_some_and(|run| {
-                matches!(run.stacking, Some(Stacking::Not { .. }))
-            })
-        {
-            Source::Unconfirmed("not found by simulation")
         } else {
             Source::Given
         };
@@ -295,10 +286,6 @@ impl Sources {
             ),
             orientation: checked(
                 derived.orientation == Some(s.orientation),
-                false,
-            ),
-            encoding: checked(
-                derived.encoding.is_some() && derived.encoding == s.encoding,
                 false,
             ),
             timing: checked(
@@ -328,7 +315,6 @@ impl Sources {
             self.category,
             self.width,
             self.orientation,
-            self.encoding,
             self.timing,
             self.pulse,
             self.stacking,
@@ -343,7 +329,6 @@ impl Sources {
             category: source,
             width: source,
             orientation: source,
-            encoding: source,
             timing: source,
             pulse: source,
             stacking: source,
@@ -577,9 +562,6 @@ fn specs(
                     }, sources.design, sources)))
                 }
                 (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation, sources)))
-                @if let Some(encoding) = s.encoding {
-                    (field("Encoding", sourced(search_link(encoding.label(), &format!("encoding:{}", encoding.name())), sources.encoding, sources)))
-                }
                 // A serial build's throughput is among its measures.
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
                     (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
@@ -730,27 +712,13 @@ fn credits(s: &Schematic) -> Markup {
     }
 }
 
-/// Whether the simulation found how build `s` stacks, rather than its
-/// builder giving it: an adder's always, and a register's when its copies
-/// stored and read right.
-fn stacking_found(s: &Schematic, report: Option<&Report>) -> bool {
-    let found = report.is_some_and(|report| {
-        matches!(report, Report::Ran(run) if matches!(
-            run.stacking,
-            Some(
-                Stacking::Stacks { .. }
-                    | Stacking::Registers { .. }
-                    | Stacking::Wider { .. }
-                    | Stacking::Separate { .. }
-            )
-        ))
-    });
+/// Whether the simulation decides how build `s` stacks, rather than its
+/// builder giving it: a conventional build of a category whose stacking
+/// it infers.
+fn stacking_found(s: &Schematic) -> bool {
     s.conventional
-        && match category::behaviour(&s.category).stacking {
-            category::Stacking::Inferred => true,
-            category::Stacking::Found => found,
-            category::Stacking::Given | category::Stacking::Never => false,
-        }
+        && category::behaviour(&s.category).stacking
+            == category::Stacking::Inferred
 }
 
 /// An admin's confirmation before deleting a build.

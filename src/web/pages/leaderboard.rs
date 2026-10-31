@@ -6,7 +6,7 @@ use crate::{
     leaderboard::{self, Board, Choice, Placed, SHOWN, Standing, State},
     models::{
         catalogue::{Category, Measure},
-        schematic::{Encoding, Orientation, Schematic},
+        schematic::{Orientation, Schematic},
         user::User,
     },
 };
@@ -183,7 +183,6 @@ struct Address<'a> {
     /// A value of each measure chosen, such as a width of 8.
     measures: Vec<(Measure, i64)>,
     logic: Option<State>,
-    encoding: Option<Encoding>,
     orientation: Option<Orientation>,
     design: Option<&'a str>,
 }
@@ -198,7 +197,6 @@ impl Address<'_> {
         }
         let named = [
             ("logic", self.logic.map(State::name)),
-            ("encoding", self.encoding.map(Encoding::name)),
             ("orientation", self.orientation.map(Orientation::name)),
             ("design", self.design),
         ];
@@ -224,8 +222,8 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
         .collect()
 }
 
-/// The measures, such as width, then the logic, encoding, orientation, and
-/// design the board is narrowed to. Changing one resets those after it,
+/// The measures, such as width, then the logic, orientation, and design
+/// the board is narrowed to. Changing one resets those after it,
 /// which the new choice may not have.
 fn choices(path: &str, board: &Board) -> Markup {
     let measured = Address {
@@ -236,13 +234,9 @@ fn choices(path: &str, board: &Board) -> Markup {
         logic: board.logic,
         ..measured.clone()
     };
-    let encoding = Address {
-        encoding: board.encoding,
-        ..logic.clone()
-    };
     let orientation = Address {
         orientation: board.orientation,
-        ..encoding.clone()
+        ..logic.clone()
     };
     html! {
         div class="mb-6 flex flex-col gap-2" {
@@ -260,15 +254,9 @@ fn choices(path: &str, board: &Board) -> Markup {
                         Address { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
             }
-            @if !board.encodings.is_empty() {
-                (choice_row("Encoding", &board.encodings, |c| {
-                    (encoding.encoding == Some(c.value),
-                        Address { encoding: Some(c.value), ..logic.clone() }.href(path))
-                }, None))
-            }
             (choice_row("Orientation", &board.orientations, |c| {
                 (orientation.orientation == Some(c.value),
-                    Address { orientation: Some(c.value), ..encoding.clone() }.href(path))
+                    Address { orientation: Some(c.value), ..logic.clone() }.href(path))
             }, None))
             @if !board.designs.is_empty() {
                 @let all = board.all_designs.then(|| (board.design.is_none(), orientation.href(path)));
@@ -387,10 +375,6 @@ fn board_name(category: &Category, board: &Board) -> String {
                 .logic
                 .filter(|_| !board.logics.is_empty())
                 .map(|logic| logic.name().to_owned()),
-        )
-        .chain(
-            (board.encoding == Some(Encoding::Hex))
-                .then(|| Encoding::Hex.name().to_owned()),
         )
         .chain(orientation)
         .chain(design)

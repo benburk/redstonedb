@@ -23,8 +23,7 @@ use crate::{
     error::AppError,
     import::Upload,
     models::{
-        catalogue::{self, Category},
-        schematic,
+        catalogue, schematic,
         simulation::{self, Status},
         user::User,
         version,
@@ -241,9 +240,9 @@ async fn stored_file(
     Ok((s, data))
 }
 
-/// The test the form's category and width call for on `data`, the width a
-/// category reads from the file, such as an adder's, standing in for the
-/// typed one.
+/// The test the form's category calls for on `data`, at the width it
+/// reads from the file: only a blessed category's, see
+/// `category::BLESSED`, as only such a build goes on the list.
 async fn test(
     state: &AppState,
     pairs: &[(String, String)],
@@ -253,13 +252,14 @@ async fn test(
     let categories = catalogue::categories(&state.db).await?;
     // An off-list name such as 8-bit adder is tested as an adder, to show
     // what keeps it from being one.
-    let category = details::meant(&categories, &form.category).map_or_else(
-        || Category::name_of(&categories, &form.category),
-        |c| c.name.clone(),
-    );
-    let derived = simulation::derived_width(&category, true, data)?;
-    let width = derived.or_else(|| form.width.trim().parse().ok());
-    Ok(Test::of(&category, width))
+    let Some(category) = details::meant(&categories, &form.category)
+        .map(|c| c.name.as_str())
+        .filter(|c| crate::category::BLESSED.contains(c))
+    else {
+        return Ok(None);
+    };
+    let width = simulation::derived_width(category, true, data)?;
+    Ok(Test::of(category, width))
 }
 
 /// The stored result of build `s`, when it is for `test` and its file.

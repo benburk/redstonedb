@@ -225,14 +225,6 @@ pub fn icon(block: &str) -> String {
     )
 }
 
-/// Every block a palette may name, of either kind.
-pub fn every_block() -> impl Iterator<Item = String> {
-    solid()
-        .into_iter()
-        .chain(transparent())
-        .flat_map(|(_, blocks)| blocks)
-}
-
 /// The colours a role may be marked with: any dye but white and gray, which
 /// mark plain blocks and a stack's first copy's logic.
 pub fn colours() -> impl Iterator<Item = &'static str> {
@@ -379,17 +371,6 @@ impl Palette {
                 ROLES.iter().any(|(k, ..)| k == key)
                     && (mark == NONE || among(marks(), mark))
             })
-    }
-
-    /// The palette with an older one's plain colours as their concrete.
-    #[must_use]
-    pub fn normalised(mut self) -> Self {
-        for mark in self.colours.values_mut() {
-            if DYES.contains(&mark.as_str()) {
-                *mark = format!("{mark}_concrete");
-            }
-        }
-        self
     }
 
     /// A short name for it, for a picture's address, so each palette's
