@@ -23,7 +23,7 @@ use crate::{
     roles,
     schem::Blocks,
     simulate::{
-        Edge, Gate, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
+        self, Edge, Gate, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
     },
     stack,
 };
@@ -540,6 +540,8 @@ struct Derived {
     latency: Option<i64>,
     synchronized: Option<bool>,
     pulse: Option<i64>,
+    /// A threshold's count of A's bits on that turns it on.
+    at_least: Option<i64>,
     flags: Vec<String>,
     stacking: Vec<StackDirection>,
     /// Its copies stacked into wider builds; see `Widened`.
@@ -560,6 +562,7 @@ impl Derived {
             latency: s.latency,
             synchronized: s.synchronized,
             pulse: s.pulse,
+            at_least: s.at_least,
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             stacking: s.stacking.clone(),
             widened: s.widened.clone(),
@@ -597,6 +600,13 @@ impl Derived {
             derived.flags.clone_from(&e.flags);
             if e.pulse.is_some() {
                 derived.pulse = e.pulse;
+            }
+            if let Some(Report::Ran(run)) = &e.report
+                && run.wrong == 0
+                && category::behaviour(&s.category).test
+                    == Some(Test::Threshold)
+            {
+                derived.at_least = simulate::at_least(&run.pattern);
             }
             derived.throughput = e.throughput;
             if let Some(design) = &e.design {
@@ -654,6 +664,13 @@ impl Derived {
             if run.pattern == SIGNED_GREATER_THAN {
                 self.flags.push(SIGNED.to_owned());
             }
+        }
+        // A threshold's cases say how many of A's bits turn it on.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::Threshold)
+        {
+            self.at_least = simulate::at_least(&run.pattern);
         }
         // A gate's cases say whether it gives its inverse, as an XNOR.
         if let Report::Ran(run) = report
@@ -765,6 +782,9 @@ impl Derived {
         }
         if self.pulse != stored.pulse {
             schematic::set_pulse(&mut *tx, &s.id, self.pulse).await?;
+        }
+        if self.at_least != stored.at_least {
+            schematic::set_at_least(&mut *tx, &s.id, self.at_least).await?;
         }
         if self.flags != stored.flags {
             schematic::set_flags(tx, &s.id, &self.flags).await?;

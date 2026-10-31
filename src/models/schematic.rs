@@ -1273,6 +1273,23 @@ pub async fn set_pulse<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// Sets a threshold's count of its inputs on that turns it on, as its
+/// simulation finds it.
+pub async fn set_at_least<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    at_least: Option<i64>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE schematic SET at_least = ? WHERE id = ?",
+        at_least,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Sets the fields only `rsdb set` changes once a build is stored: who
 /// imported it, and whether it follows the building conventions.
 pub async fn set_import_details<'e, E: SqliteExecutor<'e>>(

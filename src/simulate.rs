@@ -69,6 +69,7 @@ pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
+pub use converters::at_least;
 pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::Gate;
@@ -132,6 +133,10 @@ pub enum Test {
     DualEdgeMonostable,
     /// A, or with its control line on, every bit of A inverted.
     Inverter,
+    /// How many of A's bits are on.
+    Popcount,
+    /// Whether at least some number of A's bits are on.
+    Threshold,
     /// A xor B, or every bit of it inverted, an XNOR gate's.
     XorXnor,
     /// A and B, or every bit of it inverted, a NAND gate's.
@@ -151,7 +156,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 25] = [
+    pub const ALL: [Test; 27] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -172,6 +177,8 @@ impl Test {
         Test::Monostable,
         Test::DualEdgeMonostable,
         Test::Inverter,
+        Test::Popcount,
+        Test::Threshold,
         Test::XorXnor,
         Test::AndNand,
         Test::OrNor,
@@ -213,6 +220,8 @@ impl Test {
             Test::Register => "register",
             Test::Buffer => "buffer",
             Test::AbsoluteValue => "absolute_value",
+            Test::Popcount => "popcount",
+            Test::Threshold => "threshold",
             Test::CarryOut => "carry_out",
             Test::GreaterThan => "greater_than",
             Test::Equality => "equality",
@@ -353,6 +362,8 @@ impl Test {
             Test::BinaryToBcd => converters::binary_to_bcd(interface),
             Test::BcdToBinary => converters::bcd_to_binary(interface),
             Test::AbsoluteValue => converters::absolute_value(interface),
+            Test::Popcount => converters::popcount(interface),
+            Test::Threshold => converters::threshold(interface),
             Test::Inverter => {
                 // Its lone control line is named for its role, invert.
                 interface::name_lines(self.name(), blocks, interface);
@@ -651,7 +662,7 @@ pub struct Wrong {
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
 /// comes before an equality comparator, as a 1-bit one is A xnor B.
-const GUESSED: [Test; 23] = [
+const GUESSED: [Test; 25] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
@@ -667,6 +678,8 @@ const GUESSED: [Test; 23] = [
     Test::Register,
     Test::Buffer,
     Test::AbsoluteValue,
+    Test::Popcount,
+    Test::Threshold,
     Test::CarryOut,
     Test::GreaterThan,
     Test::Equality,

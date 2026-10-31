@@ -219,7 +219,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
+            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )
@@ -294,6 +294,7 @@ async fn evaluated(
     details.throughput = None;
     details.logic = None;
     details.pulse = None;
+    details.at_least = None;
     details.design = Some("other".to_owned());
     details.flags.clear();
     let read = crate::schem::Blocks::read(build.data)

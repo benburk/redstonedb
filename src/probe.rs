@@ -604,7 +604,7 @@ pub fn recognize_as(
 /// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
 /// NAND+XNOR an adder's inverted, which no wider build of those is; an
 /// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-const KINDS: [&str; 23] = [
+const KINDS: [&str; 25] = [
     "xor_xnor_gate",
     "and_nand_gate",
     "or_nor_gate",
@@ -620,6 +620,8 @@ const KINDS: [&str; 23] = [
     "incrementer",
     "decrementer",
     "inc_dec",
+    "popcount",
+    "threshold",
     "register",
     "buffer",
     "alu",
@@ -801,7 +803,9 @@ fn probed_as(
         | "decrementer"
         | "inc_dec"
         | "monostable"
-        | "dual_edge_monostable" => {
+        | "dual_edge_monostable"
+        | "popcount"
+        | "threshold" => {
             let test = category::behaviour(kind)
                 .test
                 .expect("a blessed category has a test");
@@ -1786,7 +1790,7 @@ mod tests {
     /// Each build of one or two operands is found as what it is from its
     /// levers and outputs alone: an equality comparator, a carry out, an
     /// inverter, an absolute value, an incrementer, a barrel shifter, a
-    /// buffer, and a monostable.
+    /// buffer, a monostable, and a threshold.
     #[test]
     fn comparisons_and_one_operand_builds_are_found() {
         for (name, kind) in [
@@ -1798,6 +1802,7 @@ mod tests {
             ("barrel-shifter-8", "barrel_shifter"),
             ("buffer-2-button", "buffer"),
             ("monostable-3-inverted", "monostable"),
+            ("threshold-3-raw", "threshold"),
         ] {
             let raw =
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();

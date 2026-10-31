@@ -70,6 +70,75 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
     })
 }
 
+/// A popcount's every value of A, or with too many, each byte's and the
+/// test patterns: how many of A's bits are on, on outputs wide enough to
+/// hold A's width.
+pub(super) fn popcount(interface: &Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "popcount")?;
+    let width = bench.widths(interface)[0];
+    let needed = usize::BITS - width.leading_zeros();
+    let has: usize = bench
+        .outputs
+        .iter()
+        .map(|&i| interface.outputs[i].bits.len())
+        .sum();
+    if has < needed as usize {
+        broken!(
+            "A has {width} bits, so its count takes {needed}, but the \
+             outputs have {has}."
+        );
+    }
+    Ok(Spec {
+        bench,
+        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        kinds: vec![Kind::new("ones in A", |case| {
+            u64::from(case[0].count_ones())
+        })],
+        by_digit: false,
+    })
+}
+
+/// A threshold's cases, at least `k` of A's bits on, as they are named.
+fn threshold_pattern(k: u32) -> String {
+    format!("at least {k} of A on")
+}
+
+/// How many of A's bits a threshold's cases, named `pattern`, turn it on
+/// at; `None` for any other cases.
+pub fn at_least(pattern: &str) -> Option<i64> {
+    pattern
+        .strip_prefix("at least ")?
+        .strip_suffix(" of A on")?
+        .parse()
+        .ok()
+}
+
+/// A threshold's every value of A, or with too many, each byte's and the
+/// test patterns: whether at least some number of A's bits are on, on its
+/// one output, the number whichever of 1 to A's width it gets right.
+pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "threshold")?;
+    let width = bench.widths(interface)[0];
+    if bench.outputs.len() != 1
+        || interface.outputs[bench.outputs[0]].bits.len() != 1
+    {
+        broken!("A threshold has one output bit.");
+    }
+    let most = u32::try_from(width).unwrap_or(u32::MAX);
+    Ok(Spec {
+        bench,
+        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        kinds: (1..=most)
+            .map(|k| {
+                Kind::new(&threshold_pattern(k), move |case| {
+                    u64::from(case[0].count_ones() >= k)
+                })
+            })
+            .collect(),
+        by_digit: false,
+    })
+}
+
 /// What a stateless build of one input, A, is tested on, named `what` in
 /// what is wrong with it: A, and its outputs read together, status lines
 /// left out, the first holding the lowest digits or bits. One with a
