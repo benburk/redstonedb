@@ -433,12 +433,16 @@ pub fn build_info(
     }
 }
 
-/// How many of each kind of block a build has, most first.
+/// How many of each kind of block a build has, most first, folded away
+/// until opened.
 fn block_counts(counts: &[(&str, usize)]) -> Markup {
     html! {
-        section aria-labelledby="blocks-heading" {
-            h2 id="blocks-heading" class={ (SECTION_TITLE) " mb-2" } { "Blocks by kind" }
-            dl class="grid max-w-md grid-cols-2 gap-x-8" {
+        details class="group" {
+            summary class={ (SECTION_TITLE) " flex w-fit cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden" } {
+                "Blocks by kind"
+                (icon(icons::CHEVRON_RIGHT, "size-4 text-muted transition-transform duration-150 ease-calm group-open:rotate-90"))
+            }
+            dl class="mt-2 grid max-w-md grid-cols-2 gap-x-8" {
                 @for (kind, count) in counts {
                     div class="flex min-h-row items-center justify-between gap-3" {
                         dt class="whitespace-nowrap text-muted" { (kind) }
