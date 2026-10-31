@@ -49,7 +49,7 @@ enum Command {
     /// one: take out its unused blocks, as a new version, and keep what
     /// each building block must be, for palettes
     Finish { id: Option<String> },
-    /// Draw the Before you upload page's example builds into `dir`, one
+    /// Draw the What a build needs page's example builds into `dir`, one
     /// WebP each, named for the example
     GuideImages { dir: PathBuf },
     /// Run builds' tests and timing again, as after a change to the

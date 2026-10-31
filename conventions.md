@@ -1,6 +1,6 @@
 # Building conventions
 
-What the site needs from a build, and what it does with one. The Before you upload page states the same rules; `rsdb inspect` checks a file or a stored build by them.
+What the site needs from a build, and what it does with one. The What a build needs page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
 A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its builder gives. A new version that is recognized moves it up.
 

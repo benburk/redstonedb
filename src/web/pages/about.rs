@@ -14,30 +14,35 @@ use super::{
     PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, sections,
 };
 
-/// What the site is, linking to how builds are sorted.
+/// What the site is: tested builds first, an archive second, linking to
+/// the rest of the About pages.
 pub fn about(viewer: Option<&User>) -> Markup {
     base(
         viewer,
-        "About",
+        "What this is",
         "/about",
         &html! {
             div class="max-w-prose leading-prose" {
-                h1 class={ (PAGE_TITLE) " mb-4" } { "About" }
+                h1 class={ (PAGE_TITLE) " mb-4" } { "What this is" }
                 p class="mb-4" {
-                    "Minecraft redstone schematics, each stored with its facts so it can be found, "
-                    "compared, and downloaded under a descriptive name."
+                    "Redstone Database is a library of redstone builds that work. Every adder, register, "
+                    "multiplier, and the rest on the list has been run through a simulator, case by case, "
+                    "so if a build says it adds in 3 ticks, it does. You can line builds up by speed and "
+                    "size, see who built what, and send any of them straight to your Schemati."
                 }
                 p class="mb-4" {
-                    a href="/about/uploading" { "Before you upload" }
-                    ": what a build needs and what the site does with it."
+                    "It's also an archive. Plenty of good redstone doesn't fit a category yet, or breaks "
+                    "a rule the tests need. Those builds are kept too, as their builders made them, with "
+                    "their names, dates, and credits, so they're still around to learn from."
                 }
                 p class="mb-4" {
-                    a href="/about/categories" { "How builds are sorted" }
-                    ": categories, designs, measures, tags, search, and leaderboards."
+                    "It's a side project for the redstone community, run for fun. Spotted a mistake, or "
+                    "built something faster? Upload it."
                 }
-                p class="mb-4" {
-                    a href="/about/simulation" { "What the site checks" }
-                    ": the categories it recognizes, and what it reads from the file and measures."
+                ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
+                    li { a href="/about/uploading" { "What a build needs" } ": the few rules that let a build be tested." }
+                    li { a href="/about/categories" { "Finding builds" } ": categories, search, tags, and leaderboards." }
+                    li { a href="/about/simulation" { "How we test" } ": what the simulator checks and measures." }
                 }
             }
         },
@@ -50,11 +55,11 @@ pub fn about(viewer: Option<&User>) -> Markup {
 pub fn before_upload(viewer: Option<&User>) -> Markup {
     base(
         viewer,
-        "Before you upload",
+        "What a build needs",
         "/about/uploading",
         &html! {
             div class="max-w-calm leading-prose" {
-                h1 class={ (PAGE_TITLE) " mb-4" } { "Before you upload" }
+                h1 class={ (PAGE_TITLE) " mb-4" } { "What a build needs" }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What a build needs" }
                 (rule(
                     "Inputs",
@@ -145,11 +150,11 @@ fn rule(name: &str, text: &str, names: &[&str]) -> Markup {
 pub fn sorting(viewer: Option<&User>, categories: &[Category]) -> Markup {
     base(
         viewer,
-        "How builds are sorted",
+        "Finding builds",
         "/about/categories",
         &html! {
             div class="max-w-prose leading-prose" {
-                h1 class={ (PAGE_TITLE) " mb-4" } { "How builds are sorted" }
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Finding builds" }
                 p class="mb-4" {
                     "Each build has a category, a design, measures it is named and ranked by, and facts "
                     "read from its file or typed."
@@ -268,7 +273,7 @@ fn fact_part() -> Markup {
         p class="mb-3" {
             "A recognized build runs through its inputs; once every case is right, every fact above comes "
             "from its file and the simulation. A build off the list has what its builder gives. "
-            a href="/about/simulation" { "What the site checks" } " says more."
+            a href="/about/simulation" { "How we test" } " says more."
         }
     }
 }
@@ -383,11 +388,11 @@ pub struct Checked {
 pub fn simulation_guide(viewer: Option<&User>, checked: &[Checked]) -> Markup {
     base(
         viewer,
-        "What the site checks",
+        "How we test",
         "/about/simulation",
         &html! {
             div class="max-w-prose leading-prose" {
-                h1 class={ (PAGE_TITLE) " mb-4" } { "What the site checks" }
+                h1 class={ (PAGE_TITLE) " mb-4" } { "How we test" }
                 p class="mb-4" {
                     "An upload is probed: its levers and buttons are its inputs, its outputs the coloured blocks "
                     "with dust, a repeater, or a comparator on them, and the site finds what each does by trying them. One "
