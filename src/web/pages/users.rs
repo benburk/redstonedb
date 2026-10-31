@@ -99,7 +99,10 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             td class={ (CELL) " sm:text-center" } { (confirmation(user, &target)) }
             td class=(CELL) {
                 @if user.id == admin.id {
-                    span class="text-muted" { "admin (you)" }
+                    span class="flex items-center gap-2" {
+                        (role_badge(user.role))
+                        span class="text-meta text-muted" { "you" }
+                    }
                 } @else {
                     @let action = format!("/users/{}/role", user.username);
                     form action=(action) method="post"
@@ -108,7 +111,7 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
                         label for={ "role-" (user.username) } class="sr-only" {
                             "Role for " (user.name())
                         }
-                        select id={ "role-" (user.username) } name="role" class="input min-h-9 w-auto" {
+                        select id={ "role-" (user.username) } name="role" class={ "badge min-h-7 " (role_colour(user.role)) } {
                             @for role in Role::ALL {
                                 option value=(role.as_str()) selected[role == user.role] { (role.as_str()) }
                             }
@@ -119,6 +122,21 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             }
         }
     }
+}
+
+/// The colour of a badge for `role`: an admin's the brand's, a mod's the
+/// tint other tags take, and a user's plain.
+fn role_colour(role: Role) -> &'static str {
+    match role {
+        Role::Admin => "bg-brand text-on-brand",
+        Role::Mod => "badge-other",
+        Role::User => "bg-muted/12 text-muted",
+    }
+}
+
+/// `role` as a badge in its colour.
+pub(super) fn role_badge(role: Role) -> Markup {
+    html! { span class={ "badge " (role_colour(role)) } { (role.as_str()) } }
 }
 
 /// An account's Minecraft name on the users page, or, with none given yet,
@@ -212,8 +230,8 @@ pub fn profile(
                 @if let Some(picture) = account.picture(64) { (picture) }
                 div class="min-w-0 flex-1" {
                     h1 class=(PAGE_TITLE) { (account.name()) }
-                    p class="text-muted" {
-                        "@" (account.username) " · " (account.role.as_str())
+                    p class="flex items-center gap-2 text-muted" {
+                        "@" (account.username) (role_badge(account.role))
                     }
                     @if let Some(name) = &account.minecraft_name {
                         p {

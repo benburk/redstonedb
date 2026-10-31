@@ -175,6 +175,13 @@
     @apply border-t border-line pt-1;
   }
 
+  /* A badge chosen from in place, as an account's role: its own colours,
+     with a menu's arrow in the text's colour at its end. */
+  select.badge {
+    @apply cursor-pointer bg-[length:0.625rem] bg-[position:right_0.5rem_center] bg-no-repeat pr-6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
   .badge-restriction {
     @apply bg-restriction text-on-restriction;
   }
