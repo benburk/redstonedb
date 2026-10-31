@@ -256,6 +256,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     let build = Build {
         data: &data,
         conventional: true,
+        passes: false,
     };
     let ready = details::check(&db, edited, build, false)
         .await

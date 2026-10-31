@@ -550,9 +550,16 @@ async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let data = version::current_file(db, &id)
         .await?
         .context("schematic vanished")?;
+    // Its stored file, kept under its category, passed its test already.
+    let passes = details.category == s.category
+        && conventional == s.conventional
+        && simulation::current(db, &s)
+            .await?
+            .is_some_and(|report| report.passed());
     let build = details::Build {
         data: &data,
         conventional,
+        passes,
     };
     // The command line acts as an admin, so may name a new tag.
     let ready = match details::check(db, details, build, true).await? {

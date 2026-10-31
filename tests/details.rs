@@ -66,7 +66,11 @@ async fn check_file(
     data: &[u8],
     conventional: bool,
 ) -> Result<Ready, String> {
-    let build = Build { data, conventional };
+    let build = Build {
+        data,
+        conventional,
+        passes: false,
+    };
     details::check(db, details, build, false)
         .await
         .expect("the database answers")
@@ -130,6 +134,7 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
     let build = Build {
         data: &data,
         conventional: true,
+        passes: false,
     };
     let ready = details::check(&db, tagged, build, true)
         .await
@@ -203,6 +208,24 @@ async fn an_unrecognized_build_cannot_go_up_under_a_blessed_category() {
         "signal-strength inputs",
     );
     assert!(check(&db, given("adder")).await.is_ok());
+}
+
+/// A stored build whose test has passed is not tested again when only its
+/// details are saved, which keeps a save quick: its file goes unchecked,
+/// so even one the test would refuse is taken.
+#[tokio::test]
+async fn a_build_that_passed_is_not_tested_again() {
+    let db = setup_test_db().await;
+    let data = prepared("cca-8-dust-out", false);
+    let tested = |passes| Build {
+        data: &data,
+        conventional: true,
+        passes,
+    };
+    let checked =
+        |passes| details::check(&db, given("adder"), tested(passes), false);
+    assert!(checked(false).await.unwrap().is_err());
+    assert!(checked(true).await.unwrap().is_ok());
 }
 
 /// Nothing measured is typed for a category the simulation works out: a

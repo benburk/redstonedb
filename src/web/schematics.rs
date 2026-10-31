@@ -835,9 +835,19 @@ async fn saved(
         details::Build::of(new)
     } else {
         stored = version::current_file(db, &s.id).await?.unwrap_or_default();
+        // Its file, kept under its category, passed its test already,
+        // which a save of its details needn't run again.
+        let same = Category::name_of(
+            &catalogue::categories(db).await?,
+            &form.category,
+        ) == s.category;
         details::Build {
             data: &stored,
             conventional: s.conventional,
+            passes: same
+                && simulation::current(db, s)
+                    .await?
+                    .is_some_and(|report| report.passed()),
         }
     };
     match details::check(db, given, build, user.is_admin()).await? {

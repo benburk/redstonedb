@@ -102,6 +102,9 @@ pub struct Build<'a> {
     /// Whether it follows the conventions, which lets the simulation
     /// decide how a build of some categories stacks.
     pub conventional: bool,
+    /// Whether it is a stored file whose test, as the category it is
+    /// saved under, has passed already, so needs no running again.
+    pub passes: bool,
 }
 
 impl<'a> Build<'a> {
@@ -110,6 +113,7 @@ impl<'a> Build<'a> {
         Build {
             data: &prepared.data,
             conventional: prepared.conventional,
+            passes: false,
         }
     }
 }
@@ -270,7 +274,9 @@ async fn evaluated(
     details: &mut Details,
     build: Build<'_>,
 ) -> Result<(), Stop> {
-    if let Some(off) = unrecognized(category, build).await? {
+    if !build.passes
+        && let Some(off) = unrecognized(category, build).await?
+    {
         return Err(Stop::Refused(format!(
             "{}, so it can't go up as one: give it a category of its own, \
              such as {}, or fix it first.",

@@ -157,6 +157,7 @@ async fn readied(
         let build = details::Build {
             data: &upload.original.data,
             conventional: false,
+            passes: false,
         };
         let found = details::unrecognized(meant, build).await;
         (upload.original.data, found)

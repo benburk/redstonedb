@@ -490,6 +490,7 @@ pub async fn kept(
                 details::Build {
                     data: &upload.original.data,
                     conventional: false,
+                    passes: false,
                 },
             )
             .await
