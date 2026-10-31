@@ -582,6 +582,53 @@ fn restyle(state: &str, input: bool) -> String {
     }
 }
 
+/// What the block id `name`, without its namespace, counts as among a
+/// build's blocks: a redstone part by what it is, a torch on a wall or on
+/// the floor alike and dust whatever its shape; every see-through block as
+/// one, and every other solid block as one. `None` for air and for signs,
+/// which carry only labels.
+pub fn block_kind(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "air" | "cave_air" | "void_air" => return None,
+        _ if name.ends_with("_sign") => return None,
+        "redstone_wire" => "Dust",
+        "redstone_torch" | "redstone_wall_torch" => "Torch",
+        "repeater" => "Repeater",
+        "comparator" => "Comparator",
+        "target" => "Target",
+        "barrel" => "Barrel",
+        "redstone_block" => "Redstone block",
+        "lever" => "Lever",
+        _ if name.ends_with("_button") => "Button",
+        _ if name.ends_with("_pressure_plate") => "Pressure plate",
+        "observer" => "Observer",
+        "piston" | "sticky_piston" | "piston_head" | "moving_piston" => {
+            "Piston"
+        }
+        "redstone_lamp" => "Lamp",
+        "hopper" => "Hopper",
+        "furnace" => "Furnace",
+        "cake" => "Cake",
+        _ if name.ends_with("cauldron") => "Cauldron",
+        _ if see_through(name) => "Transparent",
+        _ => "Solid",
+    })
+}
+
+/// How many of each kind of block, as `block_kind` counts them, `blocks`
+/// holds, most first.
+pub fn block_counts(blocks: &Blocks) -> Vec<(&'static str, usize)> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for (_, state) in blocks.iter() {
+        if let Some(kind) = block_kind(schem::short(state)) {
+            *counts.entry(kind).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<(&'static str, usize)> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    counts
+}
+
 /// Whether a block id without its namespace is one redstone sees through,
 /// neither powered nor cutting dust, which standardizing makes white
 /// stained glass: glass of any kind, a slab, stairs, or glowstone.

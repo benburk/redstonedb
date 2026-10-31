@@ -35,6 +35,8 @@ const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from
 /// What a stored build's file says about it.
 pub struct FileRead {
     pub analysis: Analysis,
+    /// How many of each kind of block it has, most first.
+    pub block_counts: Vec<(&'static str, usize)>,
     /// For a build off the list as an adder or a register, which the check
     /// by function recognizes, each fault that keeps it from being one.
     pub unrecognized: Vec<String>,
@@ -415,6 +417,9 @@ pub fn build_info(
                     p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
                 }
             }
+            @if let Ok(file) = file && !file.block_counts.is_empty() {
+                (block_counts(&file.block_counts))
+            }
             @if let Some(description) = &s.description {
                 section aria-labelledby="description-heading" {
                     h2 id="description-heading" class={ (SECTION_TITLE) " mb-2" } { "Description" }
@@ -423,6 +428,23 @@ pub fn build_info(
             }
             @if !similar.is_empty() {
                 (similar_section(similar))
+            }
+        }
+    }
+}
+
+/// How many of each kind of block a build has, most first.
+fn block_counts(counts: &[(&str, usize)]) -> Markup {
+    html! {
+        section aria-labelledby="blocks-heading" {
+            h2 id="blocks-heading" class={ (SECTION_TITLE) " mb-2" } { "Blocks by kind" }
+            dl class="grid max-w-md grid-cols-2 gap-x-8" {
+                @for (kind, count) in counts {
+                    div class="flex min-h-row items-center justify-between gap-3" {
+                        dt class="whitespace-nowrap text-muted" { (kind) }
+                        dd class="tabular-nums" { (count) }
+                    }
+                }
             }
         }
     }

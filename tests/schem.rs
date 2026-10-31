@@ -844,3 +844,28 @@ fn signs_written_as_text_components_are_read_and_written_plain() {
         }
     }
 }
+
+/// Blocks are counted by kind: a torch on a wall or the floor as one,
+/// dust whatever its shape, every see-through block as one and every
+/// other solid block as one; air and signs not at all.
+#[test]
+fn blocks_are_counted_by_kind() {
+    for (name, kind) in [
+        ("redstone_wall_torch", Some("Torch")),
+        ("redstone_torch", Some("Torch")),
+        ("redstone_wire", Some("Dust")),
+        ("white_stained_glass", Some("Transparent")),
+        ("smooth_stone_slab", Some("Transparent")),
+        ("lime_concrete", Some("Solid")),
+        ("stone", Some("Solid")),
+        ("stone_button", Some("Button")),
+        ("oak_wall_sign", None),
+        ("air", None),
+    ] {
+        assert_eq!(standardize::block_kind(name), kind, "{name}");
+    }
+    let counts = standardize::block_counts(&blocks("alpha-rca"));
+    let total: usize = counts.iter().map(|(_, n)| n).sum();
+    assert!(total > 0);
+    assert!(counts.windows(2).all(|w| w[0].1 >= w[1].1), "most first");
+}

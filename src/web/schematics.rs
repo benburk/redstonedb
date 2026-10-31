@@ -511,6 +511,7 @@ pub async fn detail(
         .map(|blocks| pages::FileRead {
             unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
+            block_counts: crate::standardize::block_counts(&blocks),
             strength_inputs: !crate::interface::dust_inputs(&blocks).is_empty(),
             stacking: s
                 .stacking
