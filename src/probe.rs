@@ -774,7 +774,7 @@ fn probed_as(
         }),
         "multiplier" => multiplier(data, report).map(|probed| {
             let found = found(&probed.run);
-            ([probed.a, probed.b].concat(), probed.file, found)
+            ([probed.a, probed.b, probed.c].concat(), probed.file, found)
         }),
         "xor_xnor_gate" | "and_nand_gate" | "or_nor_gate" => {
             let gate = category::behaviour(kind)
@@ -1086,6 +1086,8 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
 pub struct MultiplierProbed {
     pub a: Vec<Pos>,
     pub b: Vec<Pos>,
+    /// A fused multiply-add's addend, C; empty for any other.
+    pub c: Vec<Pos>,
     pub controls: Vec<Pos>,
     pub product: Vec<Vec<Pos>>,
     pub file: Vec<u8>,
@@ -1093,9 +1095,10 @@ pub struct MultiplierProbed {
 }
 
 /// The multiplier the file in `data` is, from `report`'s levers and
-/// outputs: its two widest input lines of one width its operands, A and B,
-/// whichever is which, as A × B is B × A; a lone lever or button, if
-/// any, a sequential one's calculate; and its output lines, up to three, its product, tried in each
+/// outputs: its two input lines of one width its operands, A and B,
+/// whichever is which, as A × B is B × A, and a third line, if any, a fused
+/// multiply-add's addend, C, each line tried as it; a lone lever or
+/// button, if any, a sequential one's calculate; and its output lines, up to three, its product, tried in each
 /// order, lowest first, each coloured and run through the multiplier
 /// test, quick cases first. Or why none holds.
 pub fn multiplier(
@@ -1103,17 +1106,24 @@ pub fn multiplier(
     report: &inspect::Report,
 ) -> Result<MultiplierProbed, String> {
     let (buses, controls) = split(&report.inputs);
-    let [a, b] = buses.as_slice() else {
-        return Err(format!(
-            "Operands: line lengths {}, need A and B",
-            lengths(&report.inputs)
-        ));
+    // A and B, and for a fused multiply-add its addend, C, each line tried
+    // as C; A and B are as wide.
+    let operands: Vec<(&Run, &Run, Option<&Run>)> = match buses.as_slice() {
+        [a, b] => vec![(*a, *b, None)],
+        [x, y, z] => [(x, y, z), (x, z, y), (y, z, x)]
+            .into_iter()
+            .map(|(a, b, c)| (*a, *b, Some(*c)))
+            .collect(),
+        _ => Vec::new(),
     };
-    if a.bits.len() != b.bits.len() {
+    let operands: Vec<_> = operands
+        .into_iter()
+        .filter(|(a, b, _)| a.bits.len() == b.bits.len())
+        .collect();
+    if operands.is_empty() {
         return Err(format!(
-            "Operands: {} and {} levers, need A and B as wide",
-            a.bits.len(),
-            b.bits.len()
+            "Operands: line lengths {}, need A and B as wide, and perhaps C",
+            lengths(&report.inputs)
         ));
     }
     let lines: Vec<&Run> = report.outputs.iter().collect();
@@ -1138,12 +1148,18 @@ pub fn multiplier(
             );
         }
     };
-    for order in orders(lines.len()) {
+    let tries = operands.iter().flat_map(|&(a, b, c)| {
+        orders(lines.len())
+            .into_iter()
+            .map(move |order| (a, b, c, order))
+    });
+    for (a, b, c, order) in tries {
         let product: Vec<Vec<Pos>> =
             order.iter().map(|&i| lines[i].bits.clone()).collect();
         let mut roles: HashMap<Pos, &str> = HashMap::new();
         roles.extend(a.bits.iter().map(|&p| (p, "lime")));
         roles.extend(b.bits.iter().map(|&p| (p, "light_blue")));
+        roles.extend(c.iter().flat_map(|c| &c.bits).map(|&p| (p, "cyan")));
         roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
         for (bits, colour) in product.iter().zip(colour::OUTPUT_COLOURS) {
             roles.extend(bits.iter().map(|&p| (p, colour)));
@@ -1168,6 +1184,7 @@ pub fn multiplier(
                 return Ok(MultiplierProbed {
                     a: a.bits.clone(),
                     b: b.bits.clone(),
+                    c: c.map(|c| c.bits.clone()).unwrap_or_default(),
                     controls,
                     product,
                     file,
