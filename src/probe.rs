@@ -1790,7 +1790,8 @@ mod tests {
     /// Each build of one or two operands is found as what it is from its
     /// levers and outputs alone: an equality comparator, a carry out, an
     /// inverter, an absolute value, an incrementer, a barrel shifter, a
-    /// buffer, a monostable, and a threshold.
+    /// buffer, a monostable, a threshold, and a popcount, its count one
+    /// output's strength.
     #[test]
     fn comparisons_and_one_operand_builds_are_found() {
         for (name, kind) in [
@@ -1803,6 +1804,7 @@ mod tests {
             ("buffer-2-button", "buffer"),
             ("monostable-3-inverted", "monostable"),
             ("threshold-3-raw", "threshold"),
+            ("popcount-8-strength", "popcount"),
         ] {
             let raw =
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();

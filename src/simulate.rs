@@ -661,7 +661,9 @@ pub struct Wrong {
 /// kind of incrementer, and the kind it gets most right names its
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
-/// comes before an equality comparator, as a 1-bit one is A xnor B.
+/// comes before an equality comparator, as a 1-bit one is A xnor B. A
+/// popcount and a threshold come before the BCD converters, whose telling
+/// values a popcount's strength output can pass.
 const GUESSED: [Test; 25] = [
     Test::Adder,
     Test::Decoder,
@@ -671,6 +673,8 @@ const GUESSED: [Test; 25] = [
     Test::XorXnor,
     Test::AndNand,
     Test::OrNor,
+    Test::Popcount,
+    Test::Threshold,
     Test::Incrementer,
     Test::Multiplier,
     Test::BinaryToBcd,
@@ -678,8 +682,6 @@ const GUESSED: [Test; 25] = [
     Test::Register,
     Test::Buffer,
     Test::AbsoluteValue,
-    Test::Popcount,
-    Test::Threshold,
     Test::CarryOut,
     Test::GreaterThan,
     Test::Equality,

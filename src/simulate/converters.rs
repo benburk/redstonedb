@@ -1,5 +1,6 @@
 //! Testing stateless builds of one input, A, that convert it: to binary-
-//! coded decimal and back, and to its absolute value.
+//! coded decimal and back, to its absolute value, and to how many of its
+//! bits are on, as a popcount and a threshold read it.
 
 use anyhow::{Result, bail};
 
@@ -7,6 +8,7 @@ use super::{
     Broken,
     bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
     bench::{mask, patterns},
+    circuit::output_bits,
 };
 use crate::{
     colour,
@@ -72,15 +74,23 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
 
 /// A popcount's every value of A, or with too many, each byte's and the
 /// test patterns: how many of A's bits are on, on outputs wide enough to
-/// hold A's width.
-pub(super) fn popcount(interface: &Interface) -> Result<Spec> {
+/// hold A's width, in binary, or as the strength of its one output block,
+/// as one with too few blocks for the binary count shows it.
+pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "popcount")?;
     let width = bench.widths(interface)[0];
     let needed = usize::BITS - width.leading_zeros();
+    if let &[out] = bench.outputs.as_slice()
+        && interface.outputs[out].bits.len() == 1
+        && needed > 1
+        && width <= 15
+    {
+        interface.outputs[out].signal_strength = true;
+    }
     let has: usize = bench
         .outputs
         .iter()
-        .map(|&i| interface.outputs[i].bits.len())
+        .map(|&i| output_bits(interface, &interface.outputs[i]))
         .sum();
     if has < needed as usize {
         broken!(

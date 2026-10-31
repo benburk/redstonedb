@@ -147,7 +147,10 @@ impl Circuit {
                         Ok(at(bit.pos))
                     })
                     .collect::<Result<_>>()?;
-                Ok((blocks, digits && shows_digits(port)))
+                Ok((
+                    blocks,
+                    digits && shows_digits(port) || port.signal_strength,
+                ))
             })
             .collect::<Result<_>>()?;
         let compiler = if digits {
@@ -473,10 +476,12 @@ pub(super) fn input_bits(port: &Port) -> usize {
 
 /// How many bits output `port` of a build with `interface` carries: four
 /// for each block when the build takes a signal strength and the port
-/// shows digits, else one for each block.
+/// shows digits, or when its test reads it as a strength, else one for
+/// each block.
 pub(super) fn output_bits(interface: &Interface, port: &Port) -> usize {
     let digits = interface.inputs.iter().any(|input| input.signal_strength)
-        && shows_digits(port);
+        && shows_digits(port)
+        || port.signal_strength;
     port.bits.len() * if digits { 4 } else { 1 }
 }
 

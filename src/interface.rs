@@ -44,7 +44,8 @@ pub struct Port {
     pub words: Vec<String>,
     /// A signal-strength input: each block takes a value from 0 to 15 as
     /// its strength, through the dust on top, rather than a bit from a
-    /// lever.
+    /// lever. For an output, its test reads each block's strength as a
+    /// value from 0 to 15, as a popcount's one output shows its count.
     pub signal_strength: bool,
 }
 
