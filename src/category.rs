@@ -59,7 +59,7 @@ impl Behaviour {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 7] = [
+pub const BLESSED: [&str; 10] = [
     "adder",
     "register",
     "alu",
@@ -67,6 +67,9 @@ pub const BLESSED: [&str; 7] = [
     "multiplier",
     "counter",
     "shift_register",
+    "xor_xnor_gate",
+    "and_nand_gate",
+    "or_nor_gate",
 ];
 
 /// What a category's unsigned control and status lines are taken to be.
@@ -245,6 +248,8 @@ pub fn behaviour(category: &str) -> Behaviour {
         "equality" => compares("A = B", Test::Equality),
         // Its copies add bits, each with its own A, B, and output.
         "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
+        "and_nand_gate" => evaluated(Test::AndNand, Stacking::Inferred),
+        "or_nor_gate" => evaluated(Test::OrNor, Stacking::Inferred),
         "nand_xnor_gate" => evaluated(Test::NandXnor, Stacking::Inferred),
         // Its copies are more decoders, each with its own input and outputs.
         "decoder" => Behaviour {

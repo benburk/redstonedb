@@ -81,6 +81,12 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                     &[],
                 ))
                 (rule(
+                    "Gates",
+                    "inputs A and B and one output as wide, each bit A xor B, A and B, or A or B, or its inverse. \
+                     A and B are data inputs, so no dust on top of their blocks.",
+                    &[],
+                ))
+                (rule(
                     "Multipliers",
                     "inputs A and B and, for a sequential one, one button, the calculate, pressed once they're set. \
                      No reset.",
@@ -96,7 +102,7 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
                     ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, registers, ALUs, decoders, multipliers, counters, and shift registers so far." }
+                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, registers, ALUs, decoders, multipliers, counters, shift registers, and XOR, AND, and OR gates so far." }
                         li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
                         li { "Measures latency, throughput, and how copies stack." }
                         li { "Shows it in each viewer's block theme." }
@@ -175,11 +181,11 @@ fn category_part(categories: &[Category]) -> Markup {
             "A category is one function: one truth table, up to inverted lines, such as a torch on each "
             "bit of a bus. Inverted lines are flags; a subtractor is an adder with B inverted, flagged "
             "Subtract. Each shares one category: adders with carry in, carry out, or output inverted or "
-            "not; XOR and XNOR gates; signed and unsigned comparators; monostables pulsing as their input "
+            "not; XOR, AND, and OR gates and their inverses; signed and unsigned comparators; monostables pulsing as their input "
             "turns on or off; registers reading cells inverted or not."
         }
         p class="mb-3" {
-            "Only adders, registers, ALUs, decoders, multipliers, counters, and shift registers are on the list so far: a build is one when probing "
+            "Only adders, registers, ALUs, decoders, multipliers, counters, shift registers, and XOR, AND, and OR gates are on the list so far: a build is one when probing "
             "recognizes it. Any other names its own category, such as 3x3 piston door, and goes up as "
             "built, off the list, under Other, until its category is recognized too."
         }

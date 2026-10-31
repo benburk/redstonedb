@@ -1,5 +1,6 @@
-//! Testing an XOR or XNOR gate: two operand buses of one width, A and B,
-//! into one output as wide, each bit A xor B, or its inverse for an XNOR.
+//! Testing a two-input gate: two operand buses of one width, A and B,
+//! into one output as wide, each bit A xor B, A and B, or A or B, or that
+//! inverted, as a torch on the output makes it: an XNOR, NAND, or NOR.
 //! It has no lines, so copies stacked side by side add bits.
 
 use anyhow::Result;
@@ -17,28 +18,84 @@ use crate::{
     stack,
 };
 
-/// An XOR gate's cases, as they are named.
-const XOR: &str = "A xor B";
+/// A family of two-input gates, its category's: one function and its
+/// inverse, which a torch on the output makes of it, the inverse taking
+/// the category's flag.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Gate {
+    Xor,
+    And,
+    Or,
+}
 
-/// An XNOR gate's cases, as they are named, which its flag follows.
+impl Gate {
+    /// The gate whose category's test `test` is, if any.
+    pub fn of(test: Test) -> Option<Gate> {
+        match test {
+            Test::XorXnor => Some(Gate::Xor),
+            Test::AndNand => Some(Gate::And),
+            Test::OrNor => Some(Gate::Or),
+            _ => None,
+        }
+    }
+
+    /// Its category's test.
+    pub fn test(self) -> Test {
+        match self {
+            Gate::Xor => Test::XorXnor,
+            Gate::And => Test::AndNand,
+            Gate::Or => Test::OrNor,
+        }
+    }
+
+    /// Its cases' names, as its function and as its inverse.
+    pub fn patterns(self) -> [&'static str; 2] {
+        match self {
+            Gate::Xor => ["A xor B", XNOR],
+            Gate::And => ["A and B", "A nand B"],
+            Gate::Or => ["A or B", "A nor B"],
+        }
+    }
+
+    /// The flag of a gate that gives its inverse, such as `xnor`.
+    pub fn flag(self) -> &'static str {
+        match self {
+            Gate::Xor => "xnor",
+            Gate::And => "nand",
+            Gate::Or => "nor",
+        }
+    }
+
+    /// Its function of `a` and `b`, bit by bit.
+    fn apply(self, a: u64, b: u64) -> u64 {
+        match self {
+            Gate::Xor => a ^ b,
+            Gate::And => a & b,
+            Gate::Or => a | b,
+        }
+    }
+}
+
+/// An XNOR gate's cases, as they are named.
 pub const XNOR: &str = "A xnor B";
 
-/// An XOR or XNOR gate's every case, or with too many, each byte's and the
-/// test patterns: A xor B, or every bit of it inverted, whichever the build
-/// gives.
-pub(super) fn spec(interface: &Interface) -> Result<Spec> {
+/// A `gate`'s every case, or with too many, each byte's and the test
+/// patterns: its function, or every bit of it inverted, whichever the
+/// build gives. No line reads inverted, as an inverted input makes
+/// another gate of it: a NOR is an AND of A and B inverted.
+pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
     let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
         broken!(
-            "An XOR or XNOR gate takes two operands and no lines, but this \
-             has {} inputs.",
+            "A gate takes two operands and no lines, but this has {} \
+             inputs.",
             interface.inputs.len()
         );
     };
     let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
         broken!(
-            "An XOR or XNOR gate has one output, but this has {}.",
+            "A gate has one output, but this has {}.",
             interface.outputs.len()
         );
     };
@@ -48,17 +105,22 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     if b_bits != width || out_bits != width {
         broken!(
             "A has {width} bits, B {b_bits}, and the output {out_bits}, but \
-             an XOR or XNOR gate's operands and output have the same number."
+             a gate's operands and output have the same number."
         );
     }
+    let [plain, inverse] = gate.patterns();
+    let mut bench = Bench::new(vec![a, b], vec![out], plain);
+    bench.invertible = false;
     Ok(Spec {
-        bench: Bench::new(vec![a, b], vec![out], XOR),
+        bench,
         cases: Cases::Combinations(Box::new(move || {
             adder_cases(width, false, 8)
         })),
         kinds: vec![
-            Kind::new(XOR, |case| case[0] ^ case[1]),
-            Kind::new(XNOR, move |case| !(case[0] ^ case[1]) & mask(width)),
+            Kind::new(plain, move |case| gate.apply(case[0], case[1])),
+            Kind::new(inverse, move |case| {
+                !gate.apply(case[0], case[1]) & mask(width)
+            }),
         ],
         by_digit: false,
     })
@@ -146,31 +208,35 @@ pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
     ))
 }
 
-/// How copies of the gate in `data` stack west into a wider one, each
+/// How copies of the `gate` in `data` stack west into a wider one, each
 /// adding its bits to A, B, and the output, as the inverter's do; `None`
-/// when it is not a gate.
-pub fn stacking(data: &[u8]) -> Option<Stacking> {
+/// when it is not one.
+pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
     let blocks = Blocks::read(data).ok()?;
     let interface = interface::read(&blocks);
-    spec(&interface).ok()?;
+    spec(&interface, gate).ok()?;
     let width = interface.inputs[0].bits.len();
     let (low, high) = interface::measured(&blocks);
     let reach = i64::from(high[0] - low[0] + 1) + 2;
-    let buses = stack::Buses::of(Test::XorXnor.name(), Orientation::Horizontal);
+    let test = gate.test();
+    let buses = stack::Buses::of(test.name(), Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
-        let Report::Ran(run) = Test::XorXnor.run(blocks) else {
+        let Report::Ran(run) = test.run(blocks) else {
             return None;
         };
         let bits = interface::read(blocks).inputs.first()?.bits.len();
         (run.wrong == 0 && bits == width * copies).then_some(run.cases)
     };
+    let [plain, inverse] = gate.patterns();
     Some(stacking::west_into_bits(
         data,
         reach,
         width,
         buses,
         works,
-        "No step west, up to two past its width, makes copies whose bits \
-         together give A xor B, or A xnor B.",
+        &format!(
+            "No step west, up to two past its width, makes copies whose \
+             bits together give {plain}, or {inverse}."
+        ),
     ))
 }

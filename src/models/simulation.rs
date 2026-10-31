@@ -23,7 +23,7 @@ use crate::{
     roles,
     schem::Blocks,
     simulate::{
-        Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing, XNOR,
+        Edge, Gate, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
     },
     stack,
 };
@@ -515,7 +515,9 @@ pub const INVERTED: &str = "inverted";
 pub fn simulated_flags(category: &str) -> &'static [&'static str] {
     match category {
         "greater_than" => &[SIGNED],
-        "xor_xnor_gate" => &[XNOR_FLAG],
+        "xor_xnor_gate" => &["xnor"],
+        "and_nand_gate" => &["nand"],
+        "or_nor_gate" => &["nor"],
         "monostable" => &[INVERTED, FALLING_EDGE],
         "dual_edge_monostable" => &[INVERTED],
         _ => &[],
@@ -524,9 +526,6 @@ pub fn simulated_flags(category: &str) -> &'static [&'static str] {
 
 /// The flag of a comparator that reads its operands in two's complement.
 pub const SIGNED: &str = "signed";
-
-/// The flag of an XOR/XNOR gate whose every bit is inverted, an XNOR.
-pub const XNOR_FLAG: &str = "xnor";
 
 /// The flag of a monostable that pulses as A turns off, not on.
 pub const FALLING_EDGE: &str = "falling_edge";
@@ -656,14 +655,15 @@ impl Derived {
                 self.flags.push(SIGNED.to_owned());
             }
         }
-        // A gate's cases say whether it is an XNOR.
+        // A gate's cases say whether it gives its inverse, as an XNOR.
         if let Report::Ran(run) = report
             && run.wrong == 0
-            && category::behaviour(&s.category).test == Some(Test::XorXnor)
+            && let Some(gate) =
+                category::behaviour(&s.category).test.and_then(Gate::of)
         {
-            self.flags.retain(|flag| flag != XNOR_FLAG);
-            if run.pattern == XNOR {
-                self.flags.push(XNOR_FLAG.to_owned());
+            self.flags.retain(|flag| flag != gate.flag());
+            if run.pattern == gate.patterns()[1] {
+                self.flags.push(gate.flag().to_owned());
             }
         }
         if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {

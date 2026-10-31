@@ -14,7 +14,7 @@ use crate::{
     interface,
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
-        simulation::{FALLING_EDGE, INVERTED, SIGNED, XNOR_FLAG},
+        simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
     schem::Blocks,
     simulate::{
@@ -239,7 +239,7 @@ impl Evaluation {
     }
 
     /// Takes the flags its `test`'s cases, `run`, and its `timing` show: a
-    /// gate's whether it is an XNOR, a comparator's whether it reads its
+    /// gate's whether it gives its inverse, as an XNOR, a comparator's whether it reads its
     /// operands signed, an ALU's its operations and plain lines, and a
     /// monostable's pulse and whether it rests on or pulses as A turns off.
     fn flagged(
@@ -248,8 +248,10 @@ impl Evaluation {
         run: &Run,
         timing: &Timing,
     ) -> Result<()> {
-        if test == Test::XorXnor && run.pattern == simulate::XNOR {
-            self.flags.push(XNOR_FLAG.to_owned());
+        if let Some(gate) = simulate::Gate::of(test)
+            && run.pattern == gate.patterns()[1]
+        {
+            self.flags.push(gate.flag().to_owned());
         }
         if test == Test::GreaterThan
             && run.pattern == simulate::SIGNED_GREATER_THAN

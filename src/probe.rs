@@ -6,11 +6,11 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    colour,
+    category, colour,
     inspect::{self, Run},
     interface::{Bit, Interface, Port},
     schem::{self, Blocks, Direction, Pos, Switch},
-    simulate::{self, Test},
+    simulate::{self, Gate, Test},
 };
 
 /// An adder's ports as found: each bus least significant bit first.
@@ -582,7 +582,7 @@ pub fn recognize_as(
     };
     // Each blessed category in turn, or only the one meant, its fault kept
     // when it isn't one.
-    let mut faults: [Option<String>; 7] = Default::default();
+    let mut faults: Vec<Option<String>> = vec![None; KINDS.len()];
     for (i, kind) in KINDS.into_iter().enumerate() {
         if meant.is_some_and(|meant| meant != kind) {
             continue;
@@ -594,13 +594,18 @@ pub fn recognize_as(
             Err(why) => faults[i] = Some(why),
         }
     }
-    let fault = fault_of(&blocks, &report, meant, faults);
+    let fault = fault_of(&blocks, &report, meant, &faults);
     problems.push(fault);
     Ok(unrecognized(problems))
 }
 
-/// The blessed categories, in the order probing tries them.
-const KINDS: [&str; 7] = [
+/// The blessed categories, in the order probing tries them: gates first,
+/// as a 1-bit XOR is a sum without a carry and a 1-bit AND a product of
+/// one bit each, which no wider adder or multiplier is.
+const KINDS: [&str; 10] = [
+    "xor_xnor_gate",
+    "and_nand_gate",
+    "or_nor_gate",
     "adder",
     "register",
     "alu",
@@ -717,6 +722,16 @@ fn probed_as(
             let found = found("a multiplier", &probed.run);
             ([probed.a, probed.b].concat(), probed.file, found)
         }),
+        "xor_xnor_gate" | "and_nand_gate" | "or_nor_gate" => {
+            let gate = category::behaviour(kind)
+                .test
+                .and_then(Gate::of)
+                .expect("a gate's category has a gate's test");
+            gate_probe(data, report, gate).map(|probed| {
+                let found = found("a gate", &probed.run);
+                (probed.inputs, probed.file, found)
+            })
+        }
         "counter" => sequential(data, report, Test::Counter).map(|probed| {
             let found = found("a counter", &probed.run);
             (probed.data, probed.file, found)
@@ -738,25 +753,25 @@ fn fault_of(
     blocks: &Blocks,
     report: &inspect::Report,
     meant: Option<&str>,
-    [adder, register, alu, decoder, multiplier, counter, shift]: [Option<String>;
-        7],
+    faults: &[Option<String>],
 ) -> String {
+    let of = |kind: &str| {
+        KINDS
+            .iter()
+            .position(|&k| k == kind)
+            .and_then(|i| faults[i].clone())
+    };
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
         .inputs
         .iter()
         .filter(|run| run.bits.len() == 1)
         .count();
+    let (adder, register, alu) = (of("adder"), of("register"), of("alu"));
     match meant {
-        Some("adder") => adder,
-        Some("register") => register,
-        Some("alu") => alu,
-        Some("decoder") => decoder,
-        Some("multiplier") => multiplier,
-        Some("counter") => counter,
-        Some("shift_register") => shift,
-        _ if report.inputs.len() == 1 => decoder.or(adder).or(register),
-        _ if buttons => register.or(multiplier).or(adder).or(alu),
+        Some(kind) => of(kind),
+        _ if report.inputs.len() == 1 => of("decoder").or(adder).or(register),
+        _ if buttons => register.or(of("multiplier")).or(adder).or(alu),
         _ if lone > 1 => alu.or(adder).or(register),
         _ => adder.or(register).or(alu),
     }
@@ -1084,6 +1099,106 @@ pub fn multiplier(
     Err(why)
 }
 
+/// A gate as probing found it: its inputs A and B, the file with its
+/// lines coloured as its test reads them, and that test's run.
+pub struct GateProbed {
+    pub inputs: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The `gate` the file in `data` is, from `report`'s levers and outputs:
+/// its two input lines of one width, A and B, whichever is which, as a
+/// gate gives the same either way round, and its one output line as wide,
+/// coloured and run through its test. Or why it isn't one.
+pub fn gate_probe(
+    data: &[u8],
+    report: &inspect::Report,
+    gate: Gate,
+) -> Result<GateProbed, String> {
+    let [out] = report.outputs.as_slice() else {
+        return Err(format!(
+            "Output: line lengths {}, need one line",
+            lengths(&report.outputs)
+        ));
+    };
+    let splits = operand_splits(&report.inputs, out.bits.len());
+    if splits.is_empty() {
+        return Err(format!(
+            "Inputs: line lengths {}, need A and B of {} bits each",
+            lengths(&report.inputs),
+            out.bits.len()
+        ));
+    }
+    let mut why = String::new();
+    for (a, b) in splits {
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(a.iter().map(|&p| (p, "lime")));
+        roles.extend(b.iter().map(|&p| (p, "light_blue")));
+        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match gate.test().run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(GateProbed {
+                    inputs: [a, b].concat(),
+                    file,
+                    run: *run,
+                });
+            }
+            simulate::Report::Ran(run) => {
+                why = format!(
+                    "Doesn't hold: {} of {} cases wrong",
+                    run.wrong, run.cases
+                );
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
+/// Each way the input `runs` could be a gate's A and B, `width` bits each,
+/// once whichever is which: two runs of that width; one, and the rest of
+/// the bits; or one run of both, as its halves or its bits alternating, as
+/// a 1-bit gate's two levers, side by side, read as one run.
+fn operand_splits(runs: &[Run], width: usize) -> Vec<(Vec<Pos>, Vec<Pos>)> {
+    let every: Vec<Pos> =
+        runs.iter().flat_map(|run| run.bits.clone()).collect();
+    if every.len() != 2 * width {
+        return Vec::new();
+    }
+    let mut splits: Vec<(Vec<Pos>, Vec<Pos>)> = Vec::new();
+    for run in runs.iter().filter(|run| run.bits.len() == width) {
+        let rest = every
+            .iter()
+            .filter(|bit| !run.bits.contains(bit))
+            .copied()
+            .collect();
+        splits.push((run.bits.clone(), rest));
+    }
+    if let [whole] = runs {
+        let bits = ordered(whole);
+        splits.push((bits[..width].to_vec(), bits[width..].to_vec()));
+        splits.push((
+            bits.iter().step_by(2).copied().collect(),
+            bits.iter().skip(1).step_by(2).copied().collect(),
+        ));
+    }
+    // A and B the other way round make the same gate.
+    for (a, b) in &mut splits {
+        if b < a {
+            std::mem::swap(a, b);
+        }
+    }
+    splits.sort();
+    splits.dedup();
+    splits
+}
+
 /// A counter or shift register as probing found it: its input A, if any,
 /// the file with its lines coloured as its test reads them, and that
 /// test's run.
@@ -1333,6 +1448,26 @@ mod tests {
             .collect();
         said.sort();
         assert_eq!(said, ["carry out 1ss"]);
+    }
+
+    /// A 1-bit XOR gate, its two levers side by side read as one run, is
+    /// found as a gate, not as a 1-bit adder without a carry.
+    #[test]
+    fn an_xor_gate_is_found_as_a_gate() {
+        // Raw, with blocks the simulator doesn't model until they are
+        // standardized.
+        let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+        let standard = crate::standardize::standardize(&raw).unwrap();
+        let found = recognize(&standard).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a gate")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     /// A sequential multiplier, its one control line its calculate.

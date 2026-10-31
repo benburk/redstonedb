@@ -71,7 +71,7 @@ pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, Terms, adder_design, design_of, groups};
-pub use gate::XNOR;
+pub use gate::Gate;
 pub use shifter::flags as shifter_flags;
 pub use stacking::{Stacking, Step};
 pub use strength::Strength;
@@ -134,6 +134,10 @@ pub enum Test {
     Inverter,
     /// A xor B, or every bit of it inverted, an XNOR gate's.
     XorXnor,
+    /// A and B, or every bit of it inverted, a NAND gate's.
+    AndNand,
+    /// A or B, or every bit of it inverted, a NOR gate's.
+    OrNor,
     /// A value held, counted up or down as its control lines pulse.
     Counter,
     /// A value held, shifted toward its high or low bit as its control
@@ -147,7 +151,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 23] = [
+    pub const ALL: [Test; 25] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -169,6 +173,8 @@ impl Test {
         Test::DualEdgeMonostable,
         Test::Inverter,
         Test::XorXnor,
+        Test::AndNand,
+        Test::OrNor,
         Test::Counter,
         Test::ShiftRegister,
     ];
@@ -214,6 +220,8 @@ impl Test {
             Test::DualEdgeMonostable => "dual_edge_monostable",
             Test::Inverter => "inverter",
             Test::XorXnor => "xor_xnor_gate",
+            Test::AndNand => "and_nand_gate",
+            Test::OrNor => "or_nor_gate",
             Test::Counter => "counter",
             Test::ShiftRegister => "shift_register",
         }
@@ -350,7 +358,9 @@ impl Test {
                 interface::name_lines(self.name(), blocks, interface);
                 inverter::spec(interface)
             }
-            Test::XorXnor => gate::spec(interface),
+            Test::XorXnor | Test::AndNand | Test::OrNor => {
+                gate::spec(interface, Gate::of(self).expect("a gate's test"))
+            }
             Test::Alu
             | Test::BarrelShifter
             | Test::Register
@@ -370,8 +380,8 @@ impl Test {
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind: tried on an adder, whose
     /// copies' carries must chain, a register, whose copies may add cells
-    /// or bits, and a buffer, a monostable, an inverter, and an XOR or
-    /// XNOR gate, whose copies add bits; `None` for any other.
+    /// or bits, and a buffer, a monostable, an inverter, and a gate,
+    /// whose copies add bits; `None` for any other.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         match self {
             Test::Adder => stacking::check(data),
@@ -382,7 +392,9 @@ impl Test {
             Test::Monostable => monostable::stacking(data, false),
             Test::DualEdgeMonostable => monostable::stacking(data, true),
             Test::Inverter => inverter::stacking(data),
-            Test::XorXnor => gate::stacking(data),
+            Test::XorXnor | Test::AndNand | Test::OrNor => {
+                gate::stacking(data, Gate::of(self)?)
+            }
             Test::NandXnor => gate::nand_xnor_stacking(data),
             Test::Decoder => decoder::stacking(data),
             Test::Incrementer | Test::Decrementer | Test::CarryOut => {
@@ -639,13 +651,15 @@ pub struct Wrong {
 /// category. An inverter comes before it, as a 1-bit incrementer without a
 /// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
 /// comes before an equality comparator, as a 1-bit one is A xnor B.
-const GUESSED: [Test; 21] = [
+const GUESSED: [Test; 23] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
     Test::BarrelShifter,
     Test::Inverter,
     Test::XorXnor,
+    Test::AndNand,
+    Test::OrNor,
     Test::Incrementer,
     Test::Multiplier,
     Test::BinaryToBcd,
