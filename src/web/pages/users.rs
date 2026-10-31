@@ -61,14 +61,13 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
             }
             // Each control in its own column, so they line up down the
             // page; on a phone each account is a block, its name over its
-            // Minecraft name, confirmation, and role.
+            // Minecraft name and role.
             div class="relative max-w-calm" {
                 table class="block w-full border-collapse sm:table" {
                     thead class="hidden sm:table-header-group" {
                         tr {
                             th scope="col" class=(TABLE_HEAD) { "Account" }
                             th scope="col" class=(TABLE_HEAD) { "Minecraft name" }
-                            th scope="col" class={ (TABLE_HEAD) " text-center" } { "Confirmed" }
                             th scope="col" class=(TABLE_HEAD) { "Role" }
                         }
                     }
@@ -100,7 +99,6 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             }
             // Being edited on a phone, it takes the whole line.
             td class={ (CELL) " min-w-0 flex-1 has-[[data-editor]:not([hidden])]:basis-full sm:has-[[data-editor]:not([hidden])]:basis-auto" } { (minecraft_name(user, &target)) }
-            td class={ (CELL) " sm:text-center" } { (confirmation(user, &target)) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="flex items-center gap-2" {
@@ -143,27 +141,42 @@ pub(super) fn role_badge(role: Role) -> Markup {
     html! { span class={ "badge " (role_colour(role)) } { (role.as_str()) } }
 }
 
-/// An account's Minecraft name on the users page, or none, with a pencil
-/// that swaps it for a field to change it in, which confirms the name it
-/// saves.
+/// An account's Minecraft name on the users page, green with a check once
+/// confirmed, or None, with a pencil that swaps it for a form to change it
+/// in and confirm it, ticked already for a name confirmed or none yet.
 fn minecraft_name(user: &User, target: &str) -> Markup {
     let name = user.minecraft_name.as_deref().unwrap_or_default();
+    let confirmed = user.minecraft_verified && !name.is_empty();
     let shown = html! {
         @if name.is_empty() {
             span class="text-muted" { "None" }
+        } @else if confirmed {
+            span class="flex min-w-0 items-center gap-1 text-success" title="Confirmed" {
+                span class="truncate" { (name) }
+                (icon(icons::CHECK, "size-4 shrink-0"))
+                span class="sr-only" { ", confirmed" }
+            }
         } @else {
-            span class="block truncate" title=(name) { (name) }
+            span class="block truncate" title="Not confirmed" {
+                (name)
+                span class="sr-only" { ", not confirmed" }
+            }
         }
     };
     let action = format!("/users/{}/minecraft/name", user.username);
     let form = html! {
         form action=(action) method="post"
             fx-action=(action) fx-method="post" fx-target=(target)
-            class="flex items-center gap-2" {
+            class="flex flex-wrap items-center gap-x-2 gap-y-1" {
             input name="minecraft_name" value=(name) required
                 aria-label={ "Minecraft name for " (user.name()) }
                 pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
                 class="inline-input";
+            label class="flex shrink-0 items-center gap-1.5 text-meta text-muted" {
+                input type="checkbox" name="verified" value="yes"
+                    checked[confirmed || name.is_empty()] class="size-4 appearance-auto";
+                "Confirmed"
+            }
             button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
             button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
         }
@@ -181,28 +194,6 @@ fn minecraft_name(user: &User, target: &str) -> Markup {
                 }
             }
             div data-editor hidden { (form) }
-        }
-    }
-}
-
-/// Whether an account's Minecraft name is confirmed, as a box ticked or
-/// not, which saves as it changes; nothing while it has none.
-fn confirmation(user: &User, target: &str) -> Markup {
-    let Some(name) = &user.minecraft_name else {
-        return html! {};
-    };
-    let action = format!("/users/{}/minecraft/verify", user.username);
-    html! {
-        form action=(action) method="post"
-            fx-action=(action) fx-method="post" fx-target=(target) fx-trigger="change"
-            class="flex items-center sm:justify-center" {
-            label class="flex items-center gap-2" {
-                input type="checkbox" name="verified" value="yes" checked[user.minecraft_verified]
-                    aria-label={ "Confirm " (name) " as " (user.name()) "'s Minecraft name" }
-                    class="size-4 appearance-auto";
-                span class="text-meta text-muted sm:hidden" { "Confirmed" }
-            }
-            noscript { button type="submit" class="btn btn-quiet ml-2 min-h-9" { "Save" } }
         }
     }
 }

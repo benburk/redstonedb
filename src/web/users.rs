@@ -70,10 +70,14 @@ async fn target(state: &AppState, username: &str) -> Result<User, AppError> {
 #[derive(Deserialize)]
 pub struct MinecraftName {
     minecraft_name: String,
+    /// `yes` to confirm the name; anything else, or nothing, as an unticked
+    /// box sends, leaves it unconfirmed.
+    #[serde(default)]
+    verified: String,
 }
 
 /// Gives an account a Minecraft name an admin types, as its player spells
-/// it. An admin typing it confirms it.
+/// it, confirmed or not as the admin ticks.
 pub async fn name_minecraft(
     Path(username): Path<String>,
     State(state): State<AppState>,
@@ -88,36 +92,14 @@ pub async fn name_minecraft(
     };
     let refused = match saved {
         Ok(()) => {
-            User::set_minecraft_verified(&state.db, target.id, true).await?;
+            let verified = form.verified == "yes";
+            User::set_minecraft_verified(&state.db, target.id, verified)
+                .await?;
             String::new()
         }
         Err(message) => message,
     };
     changed(&state, &admin, fixi, &username, &refused).await
-}
-
-#[derive(Deserialize)]
-pub struct Verify {
-    /// `yes` to confirm the account's Minecraft name, anything else, or
-    /// nothing, as an unticked box sends, to withdraw the confirmation.
-    #[serde(default)]
-    verified: String,
-}
-
-/// Confirms, or withdraws the confirmation of, an account's Minecraft name,
-/// then returns to the list. A confirmed name lets its account edit the
-/// builds crediting it as builder.
-pub async fn verify_minecraft(
-    Path(username): Path<String>,
-    State(state): State<AppState>,
-    Admin(admin): Admin,
-    Fixi(fixi): Fixi,
-    Form(form): Form<Verify>,
-) -> Result<Response, AppError> {
-    let target = target(&state, &username).await?;
-    let verified = form.verified == "yes" && target.minecraft_name.is_some();
-    User::set_minecraft_verified(&state.db, target.id, verified).await?;
-    changed(&state, &admin, fixi, &username, "").await
 }
 
 #[derive(Deserialize)]
