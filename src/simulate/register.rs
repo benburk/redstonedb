@@ -42,8 +42,8 @@ use super::{
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
 use crate::{
+    colour,
     interface::{self, Interface},
-    lint,
     models::schematic::Orientation,
     schem::{Blocks, Pos},
     stack,
@@ -424,7 +424,7 @@ fn ports(
     kind: Kind,
 ) -> Result<(Circuit, Register)> {
     let what = kind.name();
-    let control = format!("{} concrete", lint::CONTROL);
+    let control = format!("{} concrete", colour::CONTROL);
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| interface.inputs[i].block != control)
         .collect();

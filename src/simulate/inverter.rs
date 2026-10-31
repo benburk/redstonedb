@@ -13,8 +13,8 @@ use super::{
     stacking,
 };
 use crate::{
+    colour,
     interface::{self, Interface},
-    lint,
     models::schematic::Orientation,
     schem::Blocks,
     stack,
@@ -60,7 +60,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
 /// Input A and the control line, by their place in `interface`.
 fn ports(interface: &Interface) -> Result<(usize, usize)> {
     let lines: Vec<usize> = (0..interface.inputs.len())
-        .filter(|&i| interface.inputs[i].block.starts_with(lint::CONTROL))
+        .filter(|&i| interface.inputs[i].block.starts_with(colour::CONTROL))
         .collect();
     let &[line] = lines.as_slice() else {
         broken!(

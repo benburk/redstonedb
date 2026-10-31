@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use crate::{
+    colour,
     import::{self, Prepared},
-    inspect, lint,
+    inspect,
     models::{schematic::Schematic, version},
     schem::{self, Blocks, Pos},
 };
@@ -101,7 +102,7 @@ fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
 /// container without its power, and any other block only as a block.
 fn compared(state: &str) -> String {
     let name = schem::short(state);
-    if lint::is_component(name)
+    if colour::is_component(name)
         || name.ends_with("_sign")
         || schem::slots(state).is_some()
     {

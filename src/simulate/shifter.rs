@@ -21,7 +21,7 @@ use super::{
     circuit::output_bits,
     timing,
 };
-use crate::{interface::Interface, lint, schem::Blocks};
+use crate::{colour, interface::Interface, schem::Blocks};
 
 /// The shifts a barrel shifter may give, each of A, by the amount `n`, of
 /// `width` bits; and how its cases read.
@@ -122,7 +122,7 @@ impl Shifter {
 /// and its one output, as wide as A.
 fn ports(interface: &Interface) -> Result<Shifter> {
     let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(lint::CONTROL);
+        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {

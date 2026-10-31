@@ -21,7 +21,7 @@ use crate::{
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
-    interface::{Inversions, interface_section, inverts, violations_section},
+    interface::{Inversions, interface_section, inverts},
     name_badges, percent, person_badge, plural, search_link,
     simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
@@ -97,7 +97,6 @@ pub fn schematic_page(
                 Status::Untested => {}
             }
             @if let Ok(file) = file {
-                (violations_section(&file.analysis))
                 (stack_guide::stacking_section(s, &file.stacking, stacking_found(s, report)))
             }
             (version::versions_section(s, versions))
@@ -417,7 +416,7 @@ pub fn build_info(
             @match file {
                 _ if !s.conventional => {
                     p class="text-meta text-muted" {
-                        "Doesn't follow the building conventions, so its inputs and outputs are not read and it is not linted."
+                        "Kept as built, so its inputs and outputs are not read."
                     }
                 }
                 Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), report.and_then(Report::strength), &Inversions {

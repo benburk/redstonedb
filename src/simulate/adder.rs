@@ -10,8 +10,8 @@ use super::{
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::{
+    colour,
     interface::{Interface, Port},
-    lint,
 };
 
 /// What an adder or a subtractor does with its operands and its lone
@@ -42,16 +42,16 @@ pub(super) const ADD: Arithmetic = Arithmetic {
 /// What an adder's lone lines may be signed: its carry in and out, or, as a
 /// subtractor's, its borrows; unsigned, they go by the first.
 const CARRY_OR_BORROW_IN: [&str; 4] = [
-    lint::CARRY_IN[0],
-    lint::CARRY_IN[1],
-    lint::BORROW_IN[0],
-    lint::BORROW_IN[1],
+    colour::CARRY_IN[0],
+    colour::CARRY_IN[1],
+    colour::BORROW_IN[0],
+    colour::BORROW_IN[1],
 ];
 const CARRY_OR_BORROW_OUT: [&str; 4] = [
-    lint::CARRY_OUT[0],
-    lint::CARRY_OUT[1],
-    lint::BORROW_OUT[0],
-    lint::BORROW_OUT[1],
+    colour::CARRY_OUT[0],
+    colour::CARRY_OUT[1],
+    colour::BORROW_OUT[0],
+    colour::BORROW_OUT[1],
 ];
 
 /// One way an adder's lines may read: as an add, or, B inverted and its
@@ -109,10 +109,12 @@ impl Variant {
                 name.to_owned()
             }
         };
-        let carry_in = carry_in
-            .map(|name| borrow(name, lint::CARRY_IN[0], lint::BORROW_IN[0]));
-        let carry_out = carry_out
-            .map(|name| borrow(name, lint::CARRY_OUT[0], lint::BORROW_OUT[0]));
+        let carry_in = carry_in.map(|name| {
+            borrow(name, colour::CARRY_IN[0], colour::BORROW_IN[0])
+        });
+        let carry_out = carry_out.map(|name| {
+            borrow(name, colour::CARRY_OUT[0], colour::BORROW_OUT[0])
+        });
         let (carry_in, carry_out) = (carry_in.as_deref(), carry_out.as_deref());
         let carry = carry_in.map_or(String::new(), |name| {
             let not = if self.carry_in { "not " } else { "" };
@@ -273,13 +275,13 @@ fn arithmetic(
 /// output need no signs, as an adder's do.
 pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     let carry_in =
-        adder_line(&mut interface.inputs, lint::CONTROL, &ADD, true)?;
+        adder_line(&mut interface.inputs, colour::CONTROL, &ADD, true)?;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
     let (a, b, out) = one_line(interface, &operands, "carry out", "its carry")?;
     if !interface.outputs[out].labelled {
-        lint::CARRY_OUT[0].clone_into(&mut interface.outputs[out].name);
+        colour::CARRY_OUT[0].clone_into(&mut interface.outputs[out].name);
     }
     let mut inputs = vec![a, b];
     inputs.extend(carry_in);
@@ -427,9 +429,10 @@ pub(super) fn adder_ports(
     interface: &mut Interface,
     op: &Arithmetic,
 ) -> Result<AdderPorts> {
-    let carry_in = adder_line(&mut interface.inputs, lint::CONTROL, op, true)?;
+    let carry_in =
+        adder_line(&mut interface.inputs, colour::CONTROL, op, true)?;
     let carry_out =
-        adder_line(&mut interface.outputs, lint::STATUS, op, false)?;
+        adder_line(&mut interface.outputs, colour::STATUS, op, false)?;
     let built = op.a;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)

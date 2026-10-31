@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use anyhow::{Result, ensure};
 
 use crate::{
-    interface, lint,
+    colour, interface,
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -92,7 +92,7 @@ fn notes(
             blocks.sign_block(sign).is_none_or(|on| {
                 !inputs.contains(&on)
                     && !status.contains(&on)
-                    && !lint::is_output(schem::short(blocks.get(on)))
+                    && !colour::is_output(schem::short(blocks.get(on)))
             })
         })
         .collect()
@@ -132,7 +132,7 @@ fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
         .filter(|(pos, lines)| {
             !inputs.contains_key(pos)
                 && interface::sign_name(lines)
-                    .is_some_and(|name| lint::is_status_name(&name))
+                    .is_some_and(|name| colour::is_status_name(&name))
                 && !blocks.get(*pos).starts_with("minecraft:pink_")
         })
         .map(|(pos, _)| pos)
@@ -374,7 +374,7 @@ pub fn swappable(blocks: &Blocks) -> Swappable {
     let mut hoppers = 0;
     for (_, state) in blocks.iter() {
         match schem::short(state) {
-            name if lint::barrel_stands_in(name) => {
+            name if colour::barrel_stands_in(name) => {
                 *stand_ins.entry(name.replace('_', " ")).or_default() += 1;
             }
             "hopper" => hoppers += 1,
@@ -563,9 +563,9 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
 fn restyle(state: &str, input: bool) -> String {
     let id = schem::id(state);
     let name = id.strip_prefix("minecraft:").unwrap_or(id);
-    if input && let Some(colour) = lint::input_colour(name) {
+    if input && let Some(colour) = colour::input_colour(name) {
         format!("minecraft:{colour}_concrete")
-    } else if lint::keeps(name) {
+    } else if colour::keeps(name) {
         state.to_owned()
     } else if name.ends_with("_sign") && !name.contains("hanging") {
         let wall = if name.ends_with("_wall_sign") {

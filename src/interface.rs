@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     category::{self, Lines},
-    lint,
+    colour,
     schem::{self, Blocks, Direction, Pos, Switch},
 };
 
@@ -103,12 +103,12 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
                 return;
             }
             Lines::Control(name) => {
-                return lone(&mut interface.inputs, lint::CONTROL, name);
+                return lone(&mut interface.inputs, colour::CONTROL, name);
             }
             Lines::Signed => return,
         };
-    lone(&mut interface.inputs, lint::CONTROL, control);
-    lone(&mut interface.outputs, lint::STATUS, status);
+    lone(&mut interface.inputs, colour::CONTROL, control);
+    lone(&mut interface.outputs, colour::STATUS, status);
     if lone_output
         && let [out] = interface.outputs.as_mut_slice()
         && !out.labelled
@@ -124,7 +124,7 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
 /// A `buffer`'s are all writes when none has a button, as it has no
 /// reads.
 fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
-    let control = |port: &Port| port.block.starts_with(lint::CONTROL);
+    let control = |port: &Port| port.block.starts_with(colour::CONTROL);
     let data: Vec<&mut Port> = interface
         .inputs
         .iter_mut()
@@ -252,7 +252,7 @@ fn interface_only(
                     .map(|block| blocks.get(block));
                 let below = schem::step(pos, Direction::Down);
                 state == schem::AIR
-                    || lint::is_interface(state, support)
+                    || colour::is_interface(state, support)
                     || (schem::id(state) == DUST && fed.contains_key(&below))
                     || (outputs && is_read_out(blocks, state, below))
             })
@@ -266,7 +266,7 @@ const DUST: &str = "minecraft:redstone_wire";
 /// repeater, or comparator standing on one, which carries it out.
 fn is_read_out(blocks: &Blocks, state: &str, below: Pos) -> bool {
     let output = |state: &str| {
-        lint::is_output(schem::id(state).trim_start_matches("minecraft:"))
+        colour::is_output(schem::id(state).trim_start_matches("minecraft:"))
     };
     output(state)
         || (matches!(
@@ -311,7 +311,7 @@ pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<Direction>> {
     blocks
         .iter()
         .filter(|&(pos, state)| {
-            lint::is_input(schem::short(state))
+            colour::is_input(schem::short(state))
                 && !switched.contains(&pos)
                 && schem::id(blocks.get(schem::step(pos, Direction::Up)))
                     == DUST
@@ -344,7 +344,7 @@ pub fn read(blocks: &Blocks) -> Interface {
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !feeds.contains_key(pos) && lint::is_output(schem::short(state))
+            !feeds.contains_key(pos) && colour::is_output(schem::short(state))
         })
         .map(|(pos, _)| pos)
         .collect();
@@ -416,9 +416,9 @@ fn ports(
     feeds: Option<&HashMap<Pos, Feed>>,
 ) -> Vec<Port> {
     let (order, line): (&[&str], _) = if feeds.is_some() {
-        (&lint::INPUT_COLOURS, lint::CONTROL)
+        (&colour::INPUT_COLOURS, colour::CONTROL)
     } else {
-        (&lint::OUTPUT_COLOURS, lint::STATUS)
+        (&colour::OUTPUT_COLOURS, colour::STATUS)
     };
     let members: Vec<Pos> = members.into_iter().collect();
     let rows = line_rows(blocks, &members, signs, line);
@@ -550,7 +550,7 @@ fn rows(signed: &[Pos], unsigned: &HashSet<Pos>) -> HashMap<Pos, Vec<Pos>> {
 pub fn rowed(blocks: &Blocks) -> HashSet<Pos> {
     let signs = blocks.sign_texts();
     let members: Vec<Pos> = blocks.iter().map(|(pos, _)| pos).collect();
-    [lint::CONTROL, lint::STATUS]
+    [colour::CONTROL, colour::STATUS]
         .into_iter()
         .flat_map(|line| {
             line_rows(blocks, &members, &signs, line).into_values()
@@ -630,7 +630,7 @@ fn port(
 /// stained glass. Any other block is its own kind.
 fn colour(state: &str) -> &str {
     let block = schem::short(state);
-    lint::output_colour(block)
+    colour::output_colour(block)
         .or_else(|| block.strip_suffix("_concrete"))
         .unwrap_or(block)
 }

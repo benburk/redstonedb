@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    lint,
+    colour,
     schem::{self, Blocks, Direction, Pos, Switch},
     simulate, standardize,
 };
@@ -188,7 +188,7 @@ fn noun(name: &str) -> &'static str {
 
 /// A full block a lever can hang on and dust stand on.
 fn solid(name: &str) -> bool {
-    !lint::is_component(name)
+    !colour::is_component(name)
         && !name.contains("glass")
         && !name.ends_with("slab")
         && !name.ends_with("stairs")
@@ -377,7 +377,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             "target" | "redstone_block" if side == Direction::Up => None,
             _ if next_name.ends_with("_button")
                 || next_name.ends_with("sign")
-                || !lint::is_component(next_name)
+                || !colour::is_component(next_name)
                 || schem::slots(state).is_some() =>
             {
                 None
@@ -504,8 +504,8 @@ fn marks(name: &str) -> bool {
         return false;
     };
     !matches!(colour, "white" | "gray")
-        && colour != lint::CONTROL
-        && !lint::INPUT_COLOURS.contains(&colour)
+        && colour != colour::CONTROL
+        && !colour::INPUT_COLOURS.contains(&colour)
 }
 
 /// Whether no block of kind `name` touches `pos`, even at a corner.

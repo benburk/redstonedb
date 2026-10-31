@@ -58,51 +58,6 @@ deploy:
 pull-db:
     ./deploy/pull-db.sh
 
-# Refresh live builds here rather than on the server, by id or --category
-refresh-live +args:
-    ./deploy/refresh-live.sh {{ args }}
-
-# Many fixtures are deliberately broken test cases, so only distinct builds
-# that keep the conventions once standardized are taken, across most tested
-# categories. `rsdb add` simulates each, which takes about a minute.
-[doc('Make a database from the test fixtures, for working without the live one')]
-seed db="redstone.db":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -e "{{ db }}" ]; then
-        echo "{{ db }} exists; remove it first, or seed another: just seed other.db" >&2
-        exit 1
-    fi
-    export DATABASE_URL="sqlite:{{ db }}"
-    cargo build -q --bin rsdb
-    rsdb() { target/debug/rsdb "$@"; }
-    add() {
-        local name=$1 orientation=$2
-        shift 2
-        rsdb add "tests/fixtures/$name.schem" --orientation "$orientation" "$@"
-    }
-    rsdb define-tag pistonless --kind restriction
-    add alpha-rca horz --category adder --design ripple_carry --tag pistonless
-    add alpha-cla horz --category adder --design carry_lookahead
-    add alpha-rca-slice horz --category adder --design ripple_carry
-    add diag-3t-cca diag --category adder --design carry_cancel
-    add vert-adder-8-stacks vert --category adder --standardize
-    add hex-cca-8 horz --category adder --design carry_cancel --standardize
-    add inc-8 horz --category incrementer
-    add cout-8 horz --category carry_out --standardize
-    add gt-8 vert --category greater_than --standardize
-    add abs-8 horz --category absolute_value --standardize
-    add bin2bcd-8 horz --category binary_to_bcd --width 8
-    add bcd2bin-10 horz --category bcd_to_binary --width 10
-    add mult-8-diag-signed diag --category multiplier --width 8 --standardize
-    add alu-8-lines horz --category alu
-    add register-8-2-cells horz --category register --standardize
-    add alpha-register horz --category register
-    add buffer-2-button horz --category buffer
-    add threshold-3-raw horz --category threshold --width 3 --at-least 2 --standardize
-    add monostable-3-inverted horz --category monostable --standardize
-    add inverter-1 horz --category inverter --standardize
-
 # Follow the live site's log
 logs:
     ssh root@157.180.85.191 journalctl -u redstonedb -f -o cat

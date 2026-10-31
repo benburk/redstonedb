@@ -9,8 +9,8 @@ use super::{
     bench::{mask, patterns},
 };
 use crate::{
+    colour,
     interface::{Interface, Port},
-    lint,
 };
 
 /// A binary-to-BCD converter's every value of A, or with too many, each
@@ -79,7 +79,7 @@ pub(super) fn one_input_bench(
     interface: &Interface,
     what: &str,
 ) -> Result<Bench> {
-    let control = |port: &&Port| port.block.starts_with(lint::CONTROL);
+    let control = |port: &&Port| port.block.starts_with(colour::CONTROL);
     if let Some(line) = interface.inputs.iter().find(control) {
         bail!(
             "It has a control line, {}, so it is stateful; only a stateless \
@@ -94,7 +94,7 @@ pub(super) fn one_input_bench(
         );
     }
     let outputs: Vec<usize> = (0..interface.outputs.len())
-        .filter(|&i| !interface.outputs[i].block.starts_with(lint::STATUS))
+        .filter(|&i| !interface.outputs[i].block.starts_with(colour::STATUS))
         .collect();
     if outputs.is_empty() {
         broken!("A {what} has an output, but this has none.");

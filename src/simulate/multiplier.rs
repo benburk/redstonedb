@@ -8,7 +8,7 @@ use super::{
     Broken,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::{interface::Interface, lint};
+use crate::{colour, interface::Interface};
 
 /// A multiplier's every product, A × B, plus C when there is one, checked
 /// on as many low bits as its outputs hold together, the first holding the
@@ -17,7 +17,7 @@ use crate::{interface::Interface, lint};
 /// if it has one; any other control line, such as a clock, is not tested.
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(lint::CONTROL);
+        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
     let lines: Vec<usize> =
         (0..interface.inputs.len()).filter(control).collect();
     let named = |name: &str| {
@@ -46,7 +46,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         .filter(|i| !control(i))
         .collect();
     let outputs: Vec<usize> = (0..interface.outputs.len())
-        .filter(|&i| !interface.outputs[i].block.starts_with(lint::STATUS))
+        .filter(|&i| !interface.outputs[i].block.starts_with(colour::STATUS))
         .collect();
     let widths: Vec<usize> = inputs
         .iter()

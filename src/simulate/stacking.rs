@@ -27,8 +27,8 @@ use super::{
     circuit::{Circuit, input_bits},
 };
 use crate::{
+    colour,
     interface::{self, Interface},
-    lint,
     models::schematic::{Faces, Orientation, StackDirection},
     schem::{Blocks, Pos},
     stack,
@@ -394,7 +394,7 @@ fn stacked(
             })?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
-    let control = format!("{} concrete", lint::CONTROL);
+    let control = format!("{} concrete", colour::CONTROL);
     let carries_in = interface
         .inputs
         .iter()

@@ -370,13 +370,6 @@ pub async fn unrecognized(
             "The {label} test takes no signal-strength inputs"
         ));
     }
-    let broken = crate::lint::check_for(&blocks, &category.name).len();
-    if broken > 0 {
-        return off(match broken {
-            1 => "It breaks a building convention".to_owned(),
-            n => format!("It breaks {n} building conventions"),
-        });
-    }
     let Some(test) = Test::of(&category.name, width) else {
         return off(match width {
             None => format!(

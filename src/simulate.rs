@@ -18,9 +18,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    category,
+    category, colour,
     interface::{self, Interface},
-    lint,
     schem::{Blocks, Pos},
 };
 
@@ -646,7 +645,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
     let names_ops = interface::read(blocks)
         .inputs
         .iter()
-        .filter(|port| port.block.starts_with(lint::CONTROL))
+        .filter(|port| port.block.starts_with(colour::CONTROL))
         .flat_map(|port| port.words.iter())
         .any(|word| alu::op(word).is_some());
     GUESSED

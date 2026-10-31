@@ -25,7 +25,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    lint,
+    colour,
     models::{
         catalogue::Measure,
         schematic::{Logic, Schematic},
@@ -344,10 +344,10 @@ fn facts(s: &Schematic) -> Vec<String> {
         facts.push(flag.name.replace('_', " "));
         // The short names a carry or borrow line's sign may use.
         match flag.name.as_str() {
-            "carry_in" => facts.push(lint::CARRY_IN[1].to_owned()),
-            "carry_out" => facts.push(lint::CARRY_OUT[1].to_owned()),
-            "borrow_in" => facts.push(lint::BORROW_IN[1].to_owned()),
-            "borrow_out" => facts.push(lint::BORROW_OUT[1].to_owned()),
+            "carry_in" => facts.push(colour::CARRY_IN[1].to_owned()),
+            "carry_out" => facts.push(colour::CARRY_OUT[1].to_owned()),
+            "borrow_in" => facts.push(colour::BORROW_IN[1].to_owned()),
+            "borrow_out" => facts.push(colour::BORROW_OUT[1].to_owned()),
             _ => {}
         }
     }

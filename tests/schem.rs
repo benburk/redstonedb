@@ -1,7 +1,7 @@
 //! Reading builds from their files, against the two stored adders.
 
 use app::{
-    import, interface, lint,
+    import, interface,
     models::schematic::{Orientation, StackDirection},
     schem::{self, Blocks, Direction},
     simulate, stack, standardize,
@@ -92,105 +92,6 @@ fn stacking_markers_sit_at_opposite_corners_of_the_box() {
     assert_eq!(span(2), [0, size[2] - 1]);
 }
 
-/// An input block feeds at most two dusts, on its sides, besides any
-/// torches: the alpha CLA's operands run their dust over their tops, while
-/// its carry in, a control line, may, and a comparator's inputs feeding two
-/// dust each and a redstone block capping one are fine.
-#[test]
-fn an_input_block_feeds_one_dust_on_a_side() {
-    let complaints = |name| -> Vec<String> {
-        lint::check(&blocks(name))
-            .iter()
-            .map(|v| v.message.clone())
-            .collect()
-    };
-    let cla = complaints("alpha-cla");
-    assert_eq!(cla.len(), 16, "{cla:#?}");
-    assert!(
-        cla.iter()
-            .all(|m| m.starts_with("input block has dust on top"))
-    );
-    let gt = complaints("gt-8");
-    assert!(!gt.iter().any(|m| m.starts_with("input block")), "{gt:#?}");
-    let capped = complaints("cca-8-repeated-out");
-    assert!(
-        !capped.iter().any(|m| m.starts_with("input block")),
-        "{capped:#?}"
-    );
-    // Torches on its sides and top, and the levers of the inputs beside
-    // it, are fine.
-    let vertical = complaints("vert-3t-cca");
-    assert!(
-        !vertical.iter().any(|m| m.starts_with("input block")),
-        "{vertical:#?}"
-    );
-}
-
-#[test]
-fn conventional_ripple_carry_passes_lint() {
-    let violations = lint::check(&blocks("alpha-rca"));
-    let messages: Vec<String> =
-        violations.iter().map(ToString::to_string).collect();
-    assert!(messages.is_empty(), "{messages:#?}");
-}
-
-/// What lint says of the ripple adder with `state` set just past its box.
-fn lint_with(state: &str) -> Vec<String> {
-    let data = raw("alpha-rca");
-    let blocks = Blocks::read(&data).unwrap();
-    let mut grid: std::collections::HashMap<[i32; 3], String> =
-        blocks.iter().map(|(p, s)| (p, s.to_owned())).collect();
-    let [x, y, z] = blocks.size;
-    grid.insert([x, y, z], state.to_owned());
-    let mut nbt = schem::decode(&data).unwrap();
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], [x + 1, y + 1, z + 1], &grid, entities)
-        .unwrap();
-    let with = Blocks::read(&schem::encode(nbt).unwrap()).unwrap();
-    lint::check(&with).into_iter().map(|v| v.message).collect()
-}
-
-#[test]
-fn lint_refuses_observers_and_wooden_buttons() {
-    let refused = |state: &str, says: &str| {
-        let messages = lint_with(state);
-        assert!(messages.iter().any(|m| m.starts_with(says)), "{messages:?}");
-    };
-    refused(
-        "minecraft:observer[facing=north,powered=false]",
-        "an observer is not allowed",
-    );
-    refused(
-        "minecraft:oak_button[face=floor,facing=north,powered=false]",
-        "an oak button is not allowed",
-    );
-    refused(
-        "minecraft:spruce_button[face=floor,facing=north,powered=false]",
-        "a spruce button is not allowed",
-    );
-    let stone = lint_with(
-        "minecraft:stone_button[face=floor,facing=north,powered=false]",
-    );
-    assert!(
-        !stone.iter().any(|m| m.contains("not allowed")),
-        "{stone:?}"
-    );
-}
-
-#[test]
-fn lint_flags_blocks_outside_the_palette() {
-    let messages: Vec<String> = lint::check(&blocks("quartz-rca-slice"))
-        .iter()
-        .map(|v| v.message.clone())
-        .collect();
-    assert!(
-        messages.contains(
-            &"quartz block is not in the block palette (20 blocks)".to_owned()
-        ),
-        "{messages:#?}"
-    );
-}
-
 #[test]
 fn a_named_output_leaves_the_bus() {
     let interface::Interface { outputs, .. } =
@@ -233,24 +134,6 @@ fn comparators_are_not_signs() {
         .collect();
     texts.sort_unstable();
     assert_eq!(texts, ["carry in", "cout"]);
-}
-
-/// The carry in's lever sits under a wall torch hanging on another block,
-/// which only that block turns off, so the lever does not power it.
-#[test]
-fn a_lever_beside_a_torch_does_not_power_it() {
-    let violations = lint::check(&blocks("lever-under-torch"));
-    assert!(
-        violations
-            .iter()
-            .all(|v| !v.message.contains("power directly")),
-        "{}",
-        violations
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("; ")
-    );
 }
 
 #[test]
@@ -298,11 +181,6 @@ fn stacked_slices_form_one_wider_build() {
             .unwrap();
     assert_eq!(size, [16, 6, 9]);
     let blocks = Blocks::read(&data).unwrap();
-    let messages: Vec<String> = lint::check(&blocks)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(messages.is_empty(), "{messages:#?}");
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
@@ -385,11 +263,6 @@ fn standardizing_whitens_the_build() {
     let data = standardize::standardize(&raw("threshold-3-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     assert_eq!(glass(&blocks), 0);
-    let messages: Vec<String> = lint::check(&blocks)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(messages.is_empty(), "{messages:#?}");
     assert!(blocks.iter().all(|(_, state)| !state.contains("quartz")));
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8)]);
@@ -420,7 +293,6 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
     // drops rather than keeping as part of the build.
     let data = standardize::standardize(&raw("cca-16-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    assert!(lint::check(&blocks).is_empty());
     let size = import::measure(&blocks, true).unwrap();
     assert_eq!((size.x, size.y, size.z), (7, 35, 8));
     let all_layers = blocks.full_size();
@@ -431,11 +303,6 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
 fn a_control_line_may_use_a_button() {
     let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let messages: Vec<String> = lint::check(&blocks)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(messages.is_empty(), "{messages:#?}");
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     let mut controls = names(&inputs);
     controls.sort_unstable();
@@ -444,38 +311,6 @@ fn a_control_line_may_use_a_button() {
         [("A", 8), ("B", 8), ("calculate", 1), ("reset", 1)]
     );
     assert_eq!(names(&outputs), [("output", 8)]);
-}
-
-#[test]
-fn an_operand_may_not_use_a_button() {
-    let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
-    let blocks = Blocks::read(&data).unwrap();
-    let lever = blocks.switches().into_iter().find(|l| !l.button).unwrap();
-    let pos = lever.pos;
-    let state = blocks
-        .get(pos)
-        .replace("minecraft:lever", "minecraft:stone_button");
-    let mut nbt = app::schem::decode(&data).unwrap();
-    let mut grid: std::collections::HashMap<_, _> = blocks
-        .iter()
-        .filter(|(_, s)| *s != "minecraft:air")
-        .map(|(p, s)| (p, s.to_owned()))
-        .collect();
-    grid.insert(pos, state);
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
-        .unwrap();
-    let changed = Blocks::read(&app::schem::encode(nbt).unwrap()).unwrap();
-    let messages: Vec<String> = lint::check(&changed)
-        .iter()
-        .map(|v| v.message.clone())
-        .collect();
-    assert!(
-        messages
-            .iter()
-            .any(|m| m.starts_with("button on an operand bit")),
-        "{messages:#?}"
-    );
 }
 
 /// `data` with each block that `change` names replaced, signs and all kept.
@@ -524,22 +359,6 @@ fn a_colour_with_a_sign_is_one_named_operand() {
     let reset = inputs.iter().find(|port| port.name == "reset").unwrap();
     assert!(!reset.labelled, "a bus, though a sign names it");
     assert_eq!(reset.block, "cyan concrete");
-}
-
-#[test]
-fn one_colour_takes_one_name() {
-    let data = rebuilt(&multiplier(), |_, state| {
-        (state == "minecraft:magenta_concrete")
-            .then(|| "minecraft:cyan_concrete".to_owned())
-    });
-    let messages: Vec<String> = lint::check(&Blocks::read(&data).unwrap())
-        .iter()
-        .map(|v| v.message.clone())
-        .collect();
-    assert!(
-        messages.iter().any(|m| m.starts_with("cyan is named both")),
-        "{messages:#?}"
-    );
 }
 
 #[test]
@@ -600,101 +419,11 @@ fn a_status_line_is_pink() {
 }
 
 #[test]
-fn a_yellow_status_line_is_flagged() {
-    // Tidied but not recoloured, as an older file arrives.
-    let tidied = standardize::tidy(&raw("alpha-cla")).unwrap();
-    let messages: Vec<String> = lint::check(&Blocks::read(&tidied).unwrap())
-        .iter()
-        .map(|v| v.message.clone())
-        .collect();
-    assert!(
-        messages
-            .iter()
-            .any(|m| m.starts_with("carry out is a status output")),
-        "{messages:#?}"
-    );
-}
-
-/// The multiplier with B's levers moved to `side` of their blocks, or
-/// `None` when something is in the way.
-fn b_levers_on(side: &str) -> Option<Vec<u8>> {
-    let data = multiplier();
-    let blocks = Blocks::read(&data).unwrap();
-    let b: Vec<_> = blocks
-        .switches()
-        .into_iter()
-        .filter(|s| blocks.get(s.block) == "minecraft:light_blue_concrete")
-        .collect();
-    let mut grid: std::collections::HashMap<_, _> = blocks
-        .iter()
-        .filter(|(_, state)| *state != "minecraft:air")
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    for lever in &b {
-        grid.remove(&lever.pos);
-    }
-    for lever in &b {
-        let pos = app::schem::step(lever.block, Direction::parse(side)?);
-        if grid.contains_key(&pos) {
-            return None;
-        }
-        let state = match side {
-            "up" => "minecraft:lever[face=floor,facing=north,powered=false]"
-                .to_owned(),
-            _ => format!(
-                "minecraft:lever[face=wall,facing={side},powered=false]"
-            ),
-        };
-        grid.insert(pos, state);
-    }
-    let mut nbt = app::schem::decode(&data).unwrap();
-    let entities = nbt.take_entities();
-    nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
-        .unwrap();
-    Some(app::schem::encode(nbt).unwrap())
-}
-
-fn lever_complaints(data: &[u8]) -> Vec<String> {
-    lint::check(&Blocks::read(data).unwrap())
-        .iter()
-        .map(|v| v.message.clone())
-        .filter(|m| m.contains("lever is on"))
-        .collect()
-}
-
-#[test]
-fn only_a_levers_must_face_south() {
-    let side = ["east", "west", "north"]
-        .into_iter()
-        .find_map(b_levers_on)
-        .expect("a free side for B's levers");
-    assert!(
-        lever_complaints(&side).is_empty(),
-        "{:#?}",
-        lever_complaints(&side)
-    );
-    let top = b_levers_on("up").expect("room on top of B");
-    let complaints = lever_complaints(&top);
-    assert!(
-        complaints
-            .iter()
-            .all(|m| m.starts_with("operand lever is on the top")),
-        "{complaints:#?}"
-    );
-    assert_eq!(complaints.len(), 8);
-}
-
-#[test]
 fn dust_on_an_input_block_is_a_signal_strength_input() {
     // A hex digit to four bits: one lime block with dust on top, its open
     // end south, feeding comparators. No lever could give its value.
     let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let messages: Vec<String> = lint::check(&blocks)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(messages.is_empty(), "{messages:#?}");
     let interface = interface::read(&blocks);
     assert_eq!(names(&interface.inputs), [("A", 1)]);
     let a = &interface.inputs[0];
@@ -709,26 +438,6 @@ fn dust_on_an_input_block_is_a_signal_strength_input() {
         (size.x, size.y, size.z),
         (8, 3, 11),
         "the input layer is left out"
-    );
-}
-
-#[test]
-fn signal_strength_dust_needs_an_open_end() {
-    // Dust that turns back into the build, a dot, leaves no side to drive.
-    let data = rebuilt(&raw("hex2bin-raw"), |pos, state| {
-        (pos == [6, 1, 11] && state.starts_with("minecraft:redstone_wire"))
-            .then(|| {
-                "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"
-                    .to_owned()
-            })
-    });
-    let messages: Vec<String> = lint::check(&Blocks::read(&data).unwrap())
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(
-        messages.iter().any(|m| m.contains("no one open end")),
-        "{messages:#?}"
     );
 }
 
@@ -838,7 +547,7 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
 /// Cauldrons and cakes give a comparator their signal strength, which a
 /// barrel gives instead.
 #[test]
-fn cauldrons_and_cakes_break_the_conventions_until_swapped() {
+fn cauldrons_and_cakes_are_swapped_for_barrels() {
     let data = raw("alpha-rca-slice");
     let blocks = Blocks::read(&data).unwrap();
     let mut grid: std::collections::HashMap<_, _> = blocks
@@ -862,19 +571,6 @@ fn cauldrons_and_cakes_break_the_conventions_until_swapped() {
         .unwrap();
     let with_stand_ins = app::schem::encode(nbt).unwrap();
     let before = Blocks::read(&with_stand_ins).unwrap();
-    let messages: Vec<String> = lint::check(&before)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    for name in ["water cauldron", "cake", "white candle cake"] {
-        assert!(
-            messages
-                .iter()
-                .any(|m| m.contains(&format!(": {name} is not"))
-                    && m.contains("barrel")),
-            "{name}: {messages:#?}"
-        );
-    }
     assert_eq!(standardize::swappable(&before).stand_ins.len(), 3);
     let swapped =
         Blocks::read(&standardize::barrels(&with_stand_ins, &[]).unwrap())
@@ -917,14 +613,6 @@ fn lsb_and_msb_signs_say_which_way_a_bus_counts() {
         interface::order_mark(&blocks, inputs[1].bits[7].pos),
         Some("msb")
     );
-    let messages: Vec<String> = lint::check(&blocks)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert!(
-        !messages.iter().any(|m| m.contains("sb sign")),
-        "{messages:#?}"
-    );
 }
 
 /// Birch signs noting the day it was built stand on its target blocks.
@@ -933,16 +621,9 @@ fn lsb_and_msb_signs_say_which_way_a_bus_counts() {
 #[test]
 fn standardizing_takes_out_signs_that_label_nothing() {
     let raw = std::fs::read("tests/fixtures/adder-8-date-signs.schem").unwrap();
-    let before = Blocks::read(&raw).unwrap();
-    assert!(
-        lint::check(&before)
-            .iter()
-            .any(|v| v.message.contains("2023/6/3"))
-    );
     let blocks =
         Blocks::read(&standardize::standardize(&raw).unwrap()).unwrap();
     assert!(blocks.signs.is_empty());
-    assert!(lint::check(&blocks).is_empty());
 }
 
 /// Its yellow output, with the dust on it, sticks out a layer to the east,
@@ -1123,9 +804,6 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     let blocks = Blocks::read(&data).unwrap();
     let read = interface::read(&blocks);
     assert!(read.inputs.iter().any(|p| p.name == "unnamed control"));
-    assert!(lint::check_for(&blocks, "incrementer").is_empty());
-    assert!(lint::check_for(&blocks, "decrementer").is_empty());
-    assert!(!lint::check_for(&blocks, "multiplier").is_empty());
     let mut named = interface::read(&blocks);
     interface::name_lines("incrementer", &blocks, &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
@@ -1145,19 +823,6 @@ fn signs_written_as_text_components_are_read_and_written_plain() {
         let prepared =
             import::prepare(&raw, standardized, true, false, standardized)
                 .unwrap();
-        // Unstandardized, its own blocks break the palette, but no line
-        // lacks a sign.
-        let violations =
-            import::Analysis::of(&prepared.blocks, "", true).violations;
-        let unsigned: Vec<String> = violations
-            .iter()
-            .map(ToString::to_string)
-            .filter(|v| v.contains("sign"))
-            .collect();
-        assert!(unsigned.is_empty(), "{unsigned:?}");
-        if standardized {
-            assert!(violations.is_empty());
-        }
         let read = interface::read(&prepared.blocks);
         let names: Vec<&str> =
             read.inputs.iter().map(|p| p.name.as_str()).collect();

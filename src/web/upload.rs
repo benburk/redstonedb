@@ -476,7 +476,6 @@ async fn show_preview(
         duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
         unconventional: !upload.read_as().conventional,
-        unstandard: upload.standard.as_ref().err().map(String::as_str),
         swapped: &prepared.swapped,
         guess: said.guess,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,

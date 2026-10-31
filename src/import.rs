@@ -9,9 +9,9 @@ use sqlx::SqlitePool;
 
 use crate::{
     category::{self, Lines},
+    colour,
     details::{self, Ready, Unrecognized},
     interface::{self, Interface, Port},
-    lint::{self, Violation},
     models::catalogue::Category,
     models::schematic::{self, Encoding, New, Orientation},
     models::version,
@@ -98,47 +98,24 @@ pub fn prepare(
 
 /// `file` as its builder made it, as an upload the site does not recognize
 /// is kept: prepared as `prepare` does without standardizing or turning
-/// it, and counted as following the conventions only when it breaks none,
-/// so is measured without its interface layers.
+/// it, measured whole, interface and all.
 pub fn as_built(file: &[u8]) -> Result<Prepared> {
-    let plain = prepare(file, false, false, false, false)?;
-    if !lint::check(&plain.blocks).is_empty() {
-        return Ok(plain);
-    }
-    let conventional = prepare(&plain.data, false, true, false, false)?;
-    Ok(Prepared {
-        swapped: plain.swapped,
-        ..conventional
-    })
+    prepare(file, false, false, false, false)
 }
 
-/// What a build's file says about itself: its inputs and outputs, and the
-/// building conventions it breaks.
+/// What a build's file says about itself: its inputs and outputs, named as
+/// its category names them.
 #[derive(Default)]
 pub struct Analysis {
-    /// Its lines named as its category makes them.
     pub interface: Interface,
-    /// None for a build that does not follow the conventions.
-    pub violations: Vec<Violation>,
 }
 
 impl Analysis {
-    /// `blocks` read as a build of the category named `category`. A lone
-    /// unsigned control or status line breaks a convention only once a
-    /// category is chosen that needs it signed, so an empty `category`
-    /// lets it pass.
-    pub fn of(blocks: &Blocks, category: &str, conventional: bool) -> Self {
+    /// `blocks` read as a build of the category named `category`.
+    pub fn of(blocks: &Blocks, category: &str) -> Self {
         let mut interface = interface::read(blocks);
         interface::name_lines(category, blocks, &mut interface);
-        let violations = match (conventional, category) {
-            (false, _) => Vec::new(),
-            (true, "") => lint::check(blocks),
-            (true, category) => lint::check_for(blocks, category),
-        };
-        Analysis {
-            interface,
-            violations,
-        }
+        Analysis { interface }
     }
 }
 
@@ -237,10 +214,10 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
             .any(|port| port.labelled && names.contains(&port.name.as_str()))
     };
     [
-        (named(&interface.inputs, &lint::CARRY_IN), "carry_in"),
-        (named(&interface.outputs, &lint::CARRY_OUT), "carry_out"),
-        (named(&interface.inputs, &lint::BORROW_IN), "borrow_in"),
-        (named(&interface.outputs, &lint::BORROW_OUT), "borrow_out"),
+        (named(&interface.inputs, &colour::CARRY_IN), "carry_in"),
+        (named(&interface.outputs, &colour::CARRY_OUT), "carry_out"),
+        (named(&interface.inputs, &colour::BORROW_IN), "borrow_in"),
+        (named(&interface.outputs, &colour::BORROW_OUT), "borrow_out"),
         (named(&interface.outputs, &["overflow"]), "overflow"),
         (named(&interface.outputs, &["zero"]), "zero"),
     ]
@@ -253,7 +230,7 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
         interface
             .inputs
             .iter()
-            .filter(|port| port.block.starts_with(lint::CONTROL))
+            .filter(|port| port.block.starts_with(colour::CONTROL))
             .flat_map(|port| port.words.iter())
             .filter_map(|word| crate::simulate::alu_op(word))
             .filter(|op| !matches!(*op, "add" | "sub"))
@@ -323,13 +300,13 @@ fn multiplier_flags(interface: &Interface) -> Vec<String> {
     let operands: Vec<usize> = interface
         .inputs
         .iter()
-        .filter(|port| !port.block.starts_with(lint::CONTROL))
+        .filter(|port| !port.block.starts_with(colour::CONTROL))
         .map(|port| port.bits.len())
         .collect();
     let product: usize = interface
         .outputs
         .iter()
-        .filter(|port| !port.block.starts_with(lint::STATUS))
+        .filter(|port| !port.block.starts_with(colour::STATUS))
         .map(|port| port.bits.len())
         .sum();
     let mut flags = Vec::new();
@@ -369,8 +346,8 @@ pub fn derived_flags(
         ports.iter().any(|port| port.block.starts_with(colour))
     };
     let flags = [
-        (has(&interface.inputs, lint::CONTROL), control),
-        (has(&interface.outputs, lint::STATUS), status),
+        (has(&interface.inputs, colour::CONTROL), control),
+        (has(&interface.outputs, colour::STATUS), status),
     ];
     Some(
         flags

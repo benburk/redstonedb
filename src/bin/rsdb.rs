@@ -12,8 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use app::{
     db::connect_to_database,
     details::{self, Details},
-    import::{self, Analysis},
-    interface,
+    import,
     models::{
         catalogue::{self, Measure, Section},
         schematic::{self, Encoding, Logic, Orientation, StackDirection},
@@ -37,13 +36,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Import a Sponge .schem file, after checking it against the
-    /// building conventions
-    Add(Add),
-    /// Check a .schem file, or a stored schematic by id, against the
-    /// building conventions, as an upload would: with any corner markers
-    /// taken out and the box fitted first
-    Lint { file_or_id: String },
     /// Check a .schem file, or a stored build by id, or with neither every
     /// build on the list, by function: levers in, yellow outputs, what
     /// the site would fix and what only the builder can
@@ -70,18 +62,6 @@ enum Command {
         #[arg(long, conflicts_with = "ids")]
         all: bool,
     },
-    /// Write each build's simulation result and the details it sets, as
-    /// JSON, to stdout, for `import-results` on another copy of the
-    /// database
-    ExportResults {
-        /// Builds' ids, or the starts of them
-        #[arg(required = true)]
-        ids: Vec<String>,
-    },
-    /// Take results `export-results` wrote, for each build whose file and
-    /// details are as they were when they were worked out, and say which
-    /// were not
-    ImportResults { file: PathBuf },
     /// Work out every build of `category`, or one build, from its file
     /// alone, and list where what is worked out differs from what is
     /// stored
@@ -114,7 +94,7 @@ enum Command {
         standardizing: Standardizing,
     },
     /// Change fields of a schematic; omitted fields are kept
-    Set(Set),
+    Set(Box<Set>),
     /// Delete a schematic
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
@@ -292,32 +272,6 @@ struct Set {
 }
 
 #[derive(Args)]
-struct Add {
-    file: PathBuf,
-    #[arg(long)]
-    category: String,
-    #[arg(long)]
-    orientation: Orientation,
-    /// Left out for a category off the list, such as a piston door
-    #[arg(long)]
-    encoding: Option<Encoding>,
-    #[command(flatten)]
-    details: DetailArgs,
-    /// Tag to attach; repeatable
-    #[arg(long = "tag")]
-    tags: Vec<String>,
-    /// Import even if the file breaks the building conventions
-    #[arg(long)]
-    force: bool,
-    #[command(flatten)]
-    standardizing: Standardizing,
-    /// Keep where the file's //paste puts the build, rather than with the
-    /// player one block south of its south-east-bottom corner
-    #[arg(long)]
-    keep_paste: bool,
-}
-
-#[derive(Args)]
 struct Replace {
     id: String,
     file: PathBuf,
@@ -466,15 +420,11 @@ async fn main() -> Result<()> {
 
 async fn run(db: &SqlitePool, command: Command) -> Result<()> {
     match command {
-        Command::Add(args) => add(db, &args).await,
-        Command::Lint { file_or_id } => lint_command(db, &file_or_id).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Rebuild(args) => rebuild(db, &args).await,
         Command::Finish { id } => finish(db, id.as_deref()).await,
         Command::GuideImages { dir } => guide_images(&dir).await,
         Command::Simulate { ids, all } => simulate(db, &ids, all).await,
-        Command::ExportResults { ids } => export_results(db, &ids).await,
-        Command::ImportResults { file } => import_results(db, &file).await,
         Command::Evaluate { id, category } => {
             evaluate(db, id.as_deref(), &category).await
         }
@@ -487,7 +437,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             note,
             standardizing,
         } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
-        Command::Set(args) => set(db, args).await,
+        Command::Set(args) => set(db, *args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
         }
@@ -754,84 +704,6 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
     if !given.stacking.is_empty() || unsets("stacking") {
         details.stacking.clone_from(&given.stacking);
     }
-}
-
-/// Imports a file with its details, held to the rules an upload is, as an
-/// admin: a tag not yet on the list is made under `other`.
-async fn add(db: &SqlitePool, args: &Add) -> Result<()> {
-    let file = &args.file;
-    let data = fs::read(file)
-        .with_context(|| format!("cannot read {}", file.display()))?;
-    let conventional = args.details.conventional.unwrap_or(true);
-    let standardize = args.standardizing.asked();
-    let prepared = import::prepare(
-        &data,
-        standardize,
-        conventional,
-        args.keep_paste,
-        standardize,
-    )
-    .with_context(|| file.display().to_string())?;
-    let mut details = Details {
-        category: args.category.clone(),
-        orientation: args.orientation,
-        encoding: args.encoding,
-        tags: args.tags.clone(),
-        ..Details::default()
-    };
-    overlay(&mut details, &args.details, &[]);
-    // The carry lines the signs show, beside the flags given.
-    details
-        .flags
-        .extend(import::sign_flags(&interface::read(&prepared.blocks)));
-    let ready =
-        match details::check(db, details, details::Build::of(&prepared), true)
-            .await?
-        {
-            Ok(ready) => ready,
-            Err(message) => bail!("{message}"),
-        };
-    let violations =
-        Analysis::of(&prepared.blocks, &ready.category.name, conventional)
-            .violations;
-    if !violations.is_empty() {
-        for violation in &violations {
-            eprintln!("{violation}");
-        }
-        if !args.force {
-            bail!(
-                "{} breaks {} building conventions; fix them or pass --force",
-                file.display(),
-                violations.len()
-            );
-        }
-    }
-    let imported_by = args.details.imported_by.as_deref();
-    let id = match import::store(
-        db,
-        &prepared,
-        &ready,
-        None,
-        None,
-        imported_by,
-        None,
-    )
-    .await?
-    {
-        Ok(id) => id,
-        Err(message) => bail!("{message}"),
-    };
-    // Simulated before its name is printed, as the width the name leads
-    // with may be read from the file then.
-    let tested = simulation::refresh(db, &id, false).await?.is_some();
-    let name = format!("{}  {}", &id[..8], load(db, &id).await?.filename());
-    println!("{name}");
-    if tested
-        && let Some(report) = simulation::refresh_timing(db, &id, false).await?
-    {
-        print_report(&name, &report);
-    }
-    Ok(())
 }
 
 /// Writes a schematic to `out` under its generated filename, stacked as
@@ -1525,27 +1397,6 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
     Ok(())
 }
 
-async fn lint_command(db: &SqlitePool, file_or_id: &str) -> Result<()> {
-    let (data, category) = if fs::exists(file_or_id)? {
-        (fs::read(file_or_id)?, String::new())
-    } else {
-        let id = resolve(db, file_or_id).await?;
-        let data = version::current_file(db, &id)
-            .await?
-            .context("schematic vanished")?;
-        (data, load(db, &id).await?.category)
-    };
-    let prepared = import::prepare(&data, false, true, true, false)?;
-    let violations = Analysis::of(&prepared.blocks, &category, true).violations;
-    for violation in &violations {
-        println!("{violation}");
-    }
-    if !violations.is_empty() {
-        bail!("{} building conventions broken", violations.len());
-    }
-    Ok(())
-}
-
 /// Replaces build `id`'s file with `file` as its next version, after the
 /// checks the site makes, then simulates it again.
 async fn new_version(
@@ -1675,34 +1526,6 @@ async fn simulate(db: &SqlitePool, named: &[String], all: bool) -> Result<()> {
     if failed > 0 {
         bail!("{failed} builds fail their tests");
     }
-    Ok(())
-}
-
-/// Prints the results of the builds `ids` name, as JSON.
-async fn export_results(db: &SqlitePool, ids: &[String]) -> Result<()> {
-    let mut full = Vec::new();
-    for id in ids {
-        full.push(resolve(db, id).await?);
-    }
-    let results = app::models::results::export(db, &full).await?;
-    println!("{}", serde_json::to_string(&results)?);
-    Ok(())
-}
-
-/// Takes the results in `file` that still fit their builds, and says which
-/// do not.
-async fn import_results(db: &SqlitePool, file: &Path) -> Result<()> {
-    use app::models::results::{self, Taken};
-    let sent: Vec<results::Results> = serde_json::from_slice(&fs::read(file)?)?;
-    let taken = results::import(db, &sent).await?;
-    let mut stale = 0;
-    for (id, outcome) in &taken {
-        if let Taken::Stale(why) = outcome {
-            println!("{}  not taken: {why}", &id[..8]);
-            stale += 1;
-        }
-    }
-    println!("took {} of {}", taken.len() - stale, taken.len());
     Ok(())
 }
 

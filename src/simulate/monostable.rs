@@ -35,8 +35,8 @@ use super::{
     },
 };
 use crate::{
+    colour,
     interface::{self, Interface},
-    lint,
     models::schematic::Orientation,
     schem::Blocks,
     stack,
@@ -279,7 +279,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
             interface.inputs.len()
         );
     };
-    if input.block.starts_with(lint::CONTROL) {
+    if input.block.starts_with(colour::CONTROL) {
         broken!("A monostable's input is A, not a magenta control line.");
     }
     if input.signal_strength {
@@ -333,7 +333,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
         cases.push(changes(&mut circuit, on, false)?);
     }
     let (output, status) = match interface.outputs.as_slice() {
-        [port] => (port.name.clone(), port.block.starts_with(lint::STATUS)),
+        [port] => (port.name.clone(), port.block.starts_with(colour::STATUS)),
         _ => ("output".to_owned(), true),
     };
     Ok(Cases {

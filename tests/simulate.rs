@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
-    import, interface, lint,
+    import, interface,
     models::schematic::{Encoding, Orientation},
     orient,
     schem::{self, Blocks},
@@ -30,16 +30,6 @@ fn adder_run(blocks: &Blocks) -> Result<Box<Run>, Report> {
         Report::Ran(run) => Ok(run),
         other => Err(other),
     }
-}
-
-/// The `broken` conventions but for how input blocks are wired: fixtures
-/// from before that rule, kept for what they show of the simulation.
-fn but_inputs(broken: &[lint::Violation]) -> Vec<String> {
-    broken
-        .iter()
-        .map(ToString::to_string)
-        .filter(|m| !m.contains("input block"))
-        .collect()
 }
 
 #[test]
@@ -168,14 +158,6 @@ fn an_adders_lone_lines_need_no_signs() {
     let stored = standardize::pink_status(&tidied).unwrap();
     let blocks = Blocks::read(&unsigned(&stored)).unwrap();
     assert!(blocks.signs.is_empty());
-    let unsigned_line = |violations: &[lint::Violation]| {
-        violations
-            .iter()
-            .any(|v| v.message.contains("no sign naming it"))
-    };
-    assert!(!unsigned_line(&lint::check(&blocks)));
-    assert!(!unsigned_line(&lint::check_for(&blocks, "adder")));
-    assert!(unsigned_line(&lint::check_for(&blocks, "multiplier")));
     let run = adder_run(&blocks).unwrap();
     assert_eq!((run.cases, run.wrong), (1 << 17, 0));
     // Its carry in adds one with its lever off.
@@ -578,7 +560,6 @@ fn register(name: &str) -> (Vec<u8>, Blocks) {
 #[test]
 fn a_register_stores_and_reads_each_cell() {
     let (_, blocks) = register("register-8-2-cells");
-    assert!(lint::check(&blocks).is_empty());
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
@@ -719,7 +700,6 @@ fn a_register_whose_reads_are_not_gated_fails() {
 #[test]
 fn a_buffer_shows_what_it_holds_without_a_read() {
     let (_, blocks) = register("buffer-2-button");
-    assert!(but_inputs(&lint::check_for(&blocks, "buffer")).is_empty());
     let mut read = interface::read(&blocks);
     interface::name_lines("buffer", &blocks, &mut read);
     let names: Vec<&str> =
@@ -945,7 +925,6 @@ fn a_carry_out_gives_the_carry_of_every_sum() {
     let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
     let data = import::prepare(&raw, true, true, false, true).unwrap().data;
     let blocks = Blocks::read(&data).unwrap();
-    assert!(lint::check_for(&blocks, "carry_out").is_empty());
     let Report::Ran(run) = Test::CarryOut.run(&blocks) else {
         panic!("the carry out was not simulated");
     };
@@ -998,7 +977,6 @@ fn a_double_density_subtractor_takes_b_from_a() {
     let blocks = import::prepare(&raw, true, true, false, true)
         .unwrap()
         .blocks;
-    assert!(lint::check_for(&blocks, "adder").is_empty());
     let read = interface::read(&blocks);
     for port in read.inputs.iter().chain(&read.outputs) {
         let heights: Vec<i32> =
@@ -1051,8 +1029,6 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
                 let turn = orient::Turn { mirrored, quarters };
                 let scrambled = orient::turned(&standard.data, turn).unwrap();
                 let blocks = upload(&scrambled).blocks;
-                let broken = but_inputs(&lint::check(&blocks));
-                assert!(broken.is_empty(), "{name} {turn:?}: {broken:?}");
                 let guess = simulate::guess(&blocks).unwrap();
                 assert_eq!(
                     (guess.category, guess.wrong),
@@ -1093,7 +1069,6 @@ fn comparison(name: &str) -> Blocks {
 #[test]
 fn a_greater_than_comparator_compares_unsigned() {
     let blocks = comparison("gt-8");
-    assert!(but_inputs(&lint::check_for(&blocks, "greater_than")).is_empty());
     let Report::Ran(run) = Test::GreaterThan.run(&blocks) else {
         panic!("the comparator was not simulated");
     };
@@ -1127,7 +1102,6 @@ fn a_comparator_signed_only_by_its_levers_compares_unsigned() {
 #[test]
 fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
     let blocks = comparison("eq-8-weak-bit-0");
-    assert!(but_inputs(&lint::check_for(&blocks, "equality")).is_empty());
     let Report::Ran(run) = Test::Equality.run(&blocks) else {
         panic!("the comparator was not simulated");
     };
@@ -1151,7 +1125,6 @@ fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     // Standardized as a register is, its quartz whitened and its lever
     // turned to face south.
     let (data, blocks) = register("monostable-3-inverted");
-    assert!(lint::check_for(&blocks, "monostable").is_empty());
     let Report::Ran(run) = Test::Monostable.run(&blocks) else {
         panic!("the monostable was not simulated");
     };
@@ -1181,7 +1154,6 @@ fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
 #[test]
 fn a_monostable_whose_output_rests_off_gives_a_high_pulse() {
     let (_, blocks) = register("monostable-3");
-    assert!(lint::check_for(&blocks, "monostable").is_empty());
     assert!(Test::Monostable.run(&blocks).passed());
     let timing = Test::Monostable
         .time(&blocks, &AtomicBool::new(false))
@@ -1209,7 +1181,6 @@ fn an_adder_is_no_monostable() {
 #[test]
 fn a_dual_edge_monostable_pulses_both_ways() {
     let (_, blocks) = register("monostable-3-dual-edge");
-    assert!(lint::check_for(&blocks, "dual_edge_monostable").is_empty());
     let Report::Ran(run) = Test::DualEdgeMonostable.run(&blocks) else {
         panic!("the monostable was not simulated");
     };
@@ -1255,7 +1226,6 @@ fn a_falling_edge_monostable_pulses_as_a_turns_off() {
 #[test]
 fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     let (data, blocks) = register("inverter-1");
-    assert!(lint::check_for(&blocks, "inverter").is_empty());
     let Report::Ran(run) = Test::Inverter.run(&blocks) else {
         panic!("the inverter was not simulated");
     };

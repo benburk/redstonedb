@@ -22,8 +22,8 @@ use mchprs_world::{World, testing::TestWorld};
 
 use super::Broken;
 use crate::{
+    colour,
     interface::{Interface, Port},
-    lint,
     schem::{self, Blocks, Direction, Pos},
 };
 
@@ -462,7 +462,7 @@ impl Circuit {
 /// Whether an output of a build with a signal-strength input shows a digit
 /// per block: any but a status line, such as a carry out.
 fn shows_digits(port: &Port) -> bool {
-    !port.block.starts_with(lint::STATUS)
+    !port.block.starts_with(colour::STATUS)
 }
 
 /// How many bits input `port` carries: four for each block of a

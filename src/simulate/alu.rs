@@ -36,7 +36,7 @@ use super::{
     circuit::{input_bits, output_bits},
     timing,
 };
-use crate::{interface::Interface, lint, schem::Blocks};
+use crate::{colour, interface::Interface, schem::Blocks};
 
 /// The operations an ALU may offer, in the order a result lists them.
 const OPS: [&str; 13] = [
@@ -114,7 +114,7 @@ struct Alu {
 /// status lines whose meaning is plain.
 fn ports(interface: &Interface) -> Result<Alu> {
     let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(lint::CONTROL);
+        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a, b] = operands.as_slice() else {
@@ -131,7 +131,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
     let named = |i: &usize, names: &[&str]| {
         names.contains(&interface.inputs[*i].name.as_str())
     };
-    let carry_in = lines.iter().copied().find(|i| named(i, &lint::CARRY_IN));
+    let carry_in = lines.iter().copied().find(|i| named(i, &colour::CARRY_IN));
     let lines: Vec<(usize, Vec<&'static str>)> = lines
         .into_iter()
         .filter(|i| Some(*i) != carry_in)
@@ -146,7 +146,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
         );
     }
     let status =
-        |i: &usize| interface.outputs[*i].block.starts_with(lint::STATUS);
+        |i: &usize| interface.outputs[*i].block.starts_with(colour::STATUS);
     let (statuses, data): (Vec<usize>, Vec<usize>) =
         (0..interface.outputs.len()).partition(status);
     let data_bits: usize = data

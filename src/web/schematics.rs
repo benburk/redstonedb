@@ -471,16 +471,15 @@ pub struct Panel {
 /// What build `s`'s page shows of its file, `data`, with `blocks`: as its
 /// category reads it, or for one off the list while it is not recognized
 /// as the category it stands in for, standardized and read as that
-/// category, as recognizing it would, so its page lists the conventions
-/// it breaks.
+/// category, as recognizing it would.
 fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
     if let Some(meant) = simulation::meant_by(&s.category)
         && let Ok(standard) =
             import::prepare(data, true, true, s.keeps_paste, true)
     {
-        return Analysis::of(&standard.blocks, meant, true);
+        return Analysis::of(&standard.blocks, meant);
     }
-    Analysis::of(blocks, &s.category, s.conventional)
+    Analysis::of(blocks, &s.category)
 }
 
 /// A build's page, or the one part of it fixi asks for, loading only what

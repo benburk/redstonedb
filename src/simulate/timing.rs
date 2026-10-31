@@ -40,7 +40,7 @@ use super::{
     bench::{self, EXHAUSTIVE_BITS},
     circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
 };
-use crate::{interface::Interface, lint, schem::Blocks};
+use crate::{colour, interface::Interface, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
 /// input A changing.
@@ -719,7 +719,7 @@ fn output_timings(
         .zip(carried)
         .map(|((port, stats), &carried)| OutputTiming {
             name: port.name.clone(),
-            status: port.block.starts_with(lint::STATUS),
+            status: port.block.starts_with(colour::STATUS),
             latency: stats.latency().unwrap_or(0),
             first_change: stats.first_change().unwrap_or(0),
             carried,

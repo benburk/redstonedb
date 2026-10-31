@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    interface, lint,
+    colour, interface,
     models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
     simulate::{Compiled, Link, Stacking, Test, compiled},
@@ -157,7 +157,7 @@ pub fn roles(
             || schem::short(state).ends_with("glass");
         if !building
             || inputs.contains(&p)
-            || (output && !lint::is_output(schem::short(state)))
+            || (output && !colour::is_output(schem::short(state)))
         {
             continue;
         }

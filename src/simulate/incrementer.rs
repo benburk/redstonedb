@@ -8,7 +8,7 @@ use super::{
     Broken,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::{interface::Interface, lint};
+use crate::{colour, interface::Interface};
 
 /// Every value of A with its control line each way, checked against what
 /// each kind of the category named `category` gives: an incrementer's A
@@ -106,7 +106,7 @@ pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
 /// any; its output buses, then any status line, such as a carry out.
 fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(lint::CONTROL);
+        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {
@@ -123,7 +123,7 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
         );
     }
     let status =
-        |i: &usize| interface.outputs[*i].block.starts_with(lint::STATUS);
+        |i: &usize| interface.outputs[*i].block.starts_with(colour::STATUS);
     let (mut status_lines, mut outputs): (Vec<usize>, Vec<usize>) =
         (0..interface.outputs.len()).partition(status);
     outputs.append(&mut status_lines);

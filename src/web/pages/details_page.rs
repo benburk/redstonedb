@@ -19,7 +19,7 @@ use super::{
     Choices, PAGE_TITLE, SECTION_TITLE, base, beside_viewer,
     form::{fields, tag_picker},
     grouped,
-    interface::{Inversions, interface_section, violation_list},
+    interface::{Inversions, interface_section},
     simulation::{
         Waiting, simulation_results, simulation_section, simulation_summary,
         timing_summary,
@@ -44,9 +44,6 @@ pub enum File<'a> {
         /// Whether the blocks read for it break the conventions, so are
         /// not read by them.
         unconventional: bool,
-        /// Why it could not be standardized, if it could not, so can't be
-        /// recognized.
-        unstandard: Option<&'a str>,
         /// What it seems to be, which the category and design start as.
         guess: Option<&'a Guess>,
         /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
@@ -309,10 +306,6 @@ fn blocked(page: &DetailsPage) -> Option<(&'static str, &'static str)> {
 /// stands: those decided here, then the simulation and its timing, which
 /// `form.js` runs and updates.
 fn checks(page: &DetailsPage) -> Markup {
-    let unconventional = match &page.file {
-        File::Upload { unconventional, .. } => *unconventional,
-        File::Stored { s, .. } | File::Version { s, .. } => !s.conventional,
-    };
     let stored = match &page.file {
         File::Stored { simulation, .. } => *simulation,
         _ => None,
@@ -364,8 +357,6 @@ fn checks(page: &DetailsPage) -> Markup {
                 }
                 @if let File::Upload { recognized, problems, .. } = &page.file {
                     (recognition_check(*recognized, problems))
-                } @else {
-                    (conventions_check(page, unconventional))
                 }
                 (swap_checks(page))
                 @match stored {
@@ -407,55 +398,6 @@ fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
                 "Not recognized, so it goes up as built, off the list, until it's fixed:"
                 ul class="mt-1 flex list-disc flex-col gap-1 pl-5 text-ink" {
                     @for problem in problems { li { (problem) } }
-                }
-            }, false))
-        }
-    }
-}
-
-/// Whether the file keeps the building conventions: for an upload, a
-/// break only keeps it from being recognized; for a stored build, it
-/// holds up a new version.
-fn conventions_check(page: &DetailsPage, unconventional: bool) -> Markup {
-    let violations = &page.analysis.violations;
-    html! {
-        @if let File::Upload { unstandard: Some(why), .. } = &page.file {
-            (check("conventions", State::Warn, &html! {
-                "Can't be recognized as it is: " (why) "."
-            }, false))
-        } @else if let File::Upload { unconventional: false, .. } = &page.file && !violations.is_empty() {
-            (check("conventions", State::Warn, &html! {
-                @match violations.len() {
-                    1 => "Breaks a building convention, ",
-                    n => { "Breaks " (n) " building conventions, " }
-                }
-                "so it can't be recognized until "
-                @if violations.len() == 1 { "it's" } @else { "they're" }
-                " fixed. "
-                details class="mt-1 text-ink" {
-                    summary class="cursor-pointer" {
-                        "Show " @if violations.len() == 1 { "it" } @else { "them" }
-                    }
-                    div class="mt-1" { (violation_list(violations)) }
-                }
-            }, false))
-        } @else if unconventional {
-            (check("conventions", State::Wait, &html! {
-                "Doesn't follow the building conventions, so they are not checked."
-            }, false))
-        } @else if violations.is_empty() {
-            (check("conventions", State::Pass, &html! { "Follows the building conventions." }, false))
-        } @else {
-            (check("conventions", State::Fail, &html! {
-                @match violations.len() {
-                    1 => "Breaks a building convention: ",
-                    n => { "Breaks " (n) " building conventions: " }
-                }
-                details class="mt-1 text-ink" {
-                    summary class="cursor-pointer text-danger" {
-                        "Show " @if violations.len() == 1 { "it" } @else { "them" }
-                    }
-                    div class="mt-1" { (violation_list(violations)) }
                 }
             }, false))
         }

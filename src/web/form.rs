@@ -472,7 +472,7 @@ pub async fn page(
         }
     };
     let analysis = shown.blocks.map_or_else(Analysis::default, |blocks| {
-        Analysis::of(blocks, &category, conventional)
+        Analysis::of(blocks, &category)
     });
     // Whatever the category is now, in case it becomes one that reads
     // the file.

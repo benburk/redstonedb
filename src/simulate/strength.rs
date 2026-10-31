@@ -13,7 +13,7 @@ use super::{
     bench::{Bench, Case, paired},
     circuit::{Circuit, output_bits},
 };
-use crate::{interface::Interface, lint, schem::Blocks};
+use crate::{colour, interface::Interface, schem::Blocks};
 
 /// What weak inputs do to a build.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub(super) fn measure(
         .iter()
         .copied()
         .filter(|&port| {
-            !interface.inputs[port].block.starts_with(lint::CONTROL)
+            !interface.inputs[port].block.starts_with(colour::CONTROL)
         })
         .collect();
     let digits = interface.inputs.iter().any(|port| port.signal_strength);
@@ -62,7 +62,7 @@ pub(super) fn measure(
         .filter(|&o| {
             !interface.outputs[bench.outputs[o]]
                 .block
-                .starts_with(lint::STATUS)
+                .starts_with(colour::STATUS)
         })
         .collect();
     let mut circuit = Circuit::new(blocks, interface)?;

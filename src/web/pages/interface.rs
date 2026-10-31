@@ -1,12 +1,12 @@
-//! A build's inputs and outputs as its file marks them, and the building
-//! conventions it breaks, shown on its page and on the details page.
+//! A build's inputs and outputs as its file marks them, shown on its page
+//! and on the details page.
 
 use maud::{Markup, html};
 
 use crate::{
+    colour,
     import::Analysis,
     interface::{Bit, Interface, Port},
-    lint::{self, Violation},
     simulate::{InputTiming, OutputTiming, Strength, Timing},
 };
 
@@ -32,9 +32,9 @@ pub(super) enum Inverts {
 /// if it says any are.
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (category, flag) {
-        ("adder", "inverted_carry_in") => Inverts::Input(lint::CONTROL),
-        ("adder", "inverted_output") => Inverts::OutputsBut(lint::STATUS),
-        ("adder", "inverted_carry_out") => Inverts::Output(lint::STATUS),
+        ("adder", "inverted_carry_in") => Inverts::Input(colour::CONTROL),
+        ("adder", "inverted_output") => Inverts::OutputsBut(colour::STATUS),
+        ("adder", "inverted_carry_out") => Inverts::Output(colour::STATUS),
         (
             "register"
             | "buffer"
@@ -159,7 +159,7 @@ pub(super) fn interface_section(
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, true))) }
                                 @if let Some(strength) = strength {
-                                    @if entry.ports[0].block.starts_with(lint::CONTROL) {
+                                    @if entry.ports[0].block.starts_with(colour::CONTROL) {
                                         td class={ (TABLE_CELL) " text-muted" } { "—" }
                                     } @else {
                                         td class=(TABLE_CELL) { (strength.input) }
@@ -461,18 +461,6 @@ fn output_ticks(output: &OutputTiming) -> Markup {
     }
 }
 
-/// The building conventions the build's file breaks, if any.
-pub(super) fn violations_section(analysis: &Analysis) -> Markup {
-    html! {
-        @if !analysis.violations.is_empty() {
-            section aria-labelledby="lint-heading" class="mt-12 max-w-calm" {
-                h2 id="lint-heading" class={ (SECTION_TITLE) " mb-3" } { "Breaks the building conventions" }
-                (violation_list(&analysis.violations))
-            }
-        }
-    }
-}
-
 /// One entry in a list of inputs or outputs: a port, or numbered lines of
 /// one bit each that share a word and a colour, such as `read 0` to
 /// `read 15`.
@@ -569,35 +557,4 @@ fn notes(entry: &PortEntry, input: bool) -> String {
         }
     }
     said.join(" · ")
-}
-
-/// Each broken convention, once however often it is broken, with where in
-/// the file each break is.
-pub(super) fn violation_list(violations: &[Violation]) -> Markup {
-    let mut grouped: Vec<(&str, Vec<[i32; 3]>)> = Vec::new();
-    for violation in violations {
-        let at = violation.pos.into_iter();
-        match grouped.iter_mut().find(|(m, _)| *m == violation.message) {
-            Some((_, places)) => places.extend(at),
-            None => grouped.push((&violation.message, at.collect())),
-        }
-    }
-    html! {
-        ul class="flex flex-col gap-3" {
-            @for (message, places) in &grouped {
-                li {
-                    (message)
-                    @if !places.is_empty() {
-                        span class="block text-meta text-muted tabular-nums" {
-                            @if places.len() > 1 { (places.len()) " places: " } @else { "At " }
-                            @for (i, [x, y, z]) in places.iter().enumerate() {
-                                @if i > 0 { "; " }
-                                (x) ", " (y) ", " (z)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

@@ -34,7 +34,7 @@ use std::{
 use anyhow::{Result, ensure};
 
 use crate::{
-    category, interface, lint,
+    category, colour, interface,
     models::schematic::{Faces, Orientation, StackDirection},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
@@ -215,7 +215,9 @@ fn along(
             }
             let name = schem::short(state);
             let plain = (!final_copy && outputs.blocks.contains(&pos))
-                || (i > 0 && lint::is_input(name) && !switched.contains(&pos))
+                || (i > 0
+                    && colour::is_input(name)
+                    && !switched.contains(&pos))
                 || (shared && i > 0 && bus(name));
             let state = if plain { WHITE } else { state };
             place(&mut grid, schem::add(pos, shift(i)), state);
@@ -427,14 +429,14 @@ fn shape(
     along_bits: bool,
     stacking: Buses,
 ) -> Result<Option<String>> {
-    let control = format!("{} concrete", lint::CONTROL);
+    let control = format!("{} concrete", colour::CONTROL);
     let buses = |interface: &interface::Interface| -> Vec<(String, usize)> {
         let inputs = interface
             .inputs
             .iter()
             .filter(|port| !port.labelled && port.block != control);
         let outputs = interface.outputs.iter().filter(|port| {
-            !port.labelled && !port.block.starts_with(lint::STATUS)
+            !port.labelled && !port.block.starts_with(colour::STATUS)
         });
         inputs
             .chain(outputs)
@@ -703,7 +705,7 @@ pub fn find_box<T, E>(
     };
     // The faces, as an axis and its far end, holding a control line's
     // switch in their outer layer.
-    let control = format!("{}_concrete", lint::CONTROL);
+    let control = format!("{}_concrete", colour::CONTROL);
     let faces: Vec<(usize, bool)> = (0..3)
         .flat_map(|axis| [(axis, false), (axis, true)])
         .filter(|&(axis, far)| {
@@ -770,16 +772,15 @@ pub fn find_box<T, E>(
 /// control lines its inputs: every bit but those of a labelled port, a
 /// status line, or a control line, which are counted apart.
 fn data_bits(blocks: &Blocks) -> (usize, usize) {
-    let control = format!("{} concrete", lint::CONTROL);
+    let control = format!("{} concrete", colour::CONTROL);
     let interface = interface::read(blocks);
     let inputs = interface
         .inputs
         .iter()
         .filter(|port| !port.labelled && port.block != control);
-    let outputs = interface
-        .outputs
-        .iter()
-        .filter(|port| !port.labelled && !port.block.starts_with(lint::STATUS));
+    let outputs = interface.outputs.iter().filter(|port| {
+        !port.labelled && !port.block.starts_with(colour::STATUS)
+    });
     let bits = inputs.chain(outputs).map(|port| port.bits.len()).sum();
     let lines = interface
         .inputs
@@ -796,7 +797,7 @@ fn data_bits(blocks: &Blocks) -> (usize, usize) {
 fn interface_blocks(blocks: &Blocks) -> HashSet<Pos> {
     let marked = |pos: Pos| {
         let name = schem::short(blocks.get(pos));
-        lint::is_input(name) || lint::is_output(name)
+        colour::is_input(name) || colour::is_output(name)
     };
     let mut found: HashSet<Pos> = blocks
         .iter()
@@ -824,8 +825,8 @@ fn interface_blocks(blocks: &Blocks) -> HashSet<Pos> {
 /// Whether a block id without its namespace marks a bit of a bus: an
 /// operand's input colour, other than a control line, or an output.
 fn bus(name: &str) -> bool {
-    (lint::is_input(name) && name != format!("{}_concrete", lint::CONTROL))
-        || lint::is_output(name)
+    (colour::is_input(name) && name != format!("{}_concrete", colour::CONTROL))
+        || colour::is_output(name)
 }
 
 struct Outputs {
@@ -840,7 +841,7 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
     let outputs: HashSet<Pos> = interface
         .outputs
         .iter()
-        .filter(|port| port.labelled || port.block.starts_with(lint::STATUS))
+        .filter(|port| port.labelled || port.block.starts_with(colour::STATUS))
         .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
         .collect();
     let signs = blocks
