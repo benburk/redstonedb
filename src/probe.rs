@@ -565,18 +565,18 @@ pub fn recognize_as(
     if !problems.is_empty() {
         return Ok(unrecognized(problems));
     }
-    // What a probe found, unless a data input it found has dust on top,
-    // which only a control line's block may.
+    // What a probe found, unless a data input it found has dust on top or
+    // a block behind its lever, which only a control line's may.
     let accept = |data_inputs: &[Pos], file: Vec<u8>, found: String| {
-        let dust = report.data_dust(data_inputs);
-        if dust.is_empty() {
+        let faults = report.data_faults(data_inputs);
+        if faults.is_empty() {
             Recognition {
                 file,
                 found: Some(found),
                 problems: Vec::new(),
             }
         } else {
-            unrecognized(dust)
+            unrecognized(faults)
         }
     };
     let mut adder_fault = None;

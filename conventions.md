@@ -62,7 +62,7 @@ Only whitelisted blocks. Each interface role has its own block, so colour gives 
 - An input may read inverted, powered meaning 0, with no torch on its block. The simulator finds which lines do by testing, whatever way their levers were saved.
 - The lever touches only its input block. Wiring replaces it with a driver into that block, so nothing may rely on the lever powering it directly.
 - An input block feeds at most two dusts, on sides other than its lever's. No dust underneath, and no dust on top of a data input's block, an operand's or a register's data bus; a control line's block, as a carry in's or a register's write, may have dust on top. Nothing else powers it: no repeater or comparator into it, no torch under it, no other component touching it, such as a redstone block beside it; a target or redstone block on top is fine. Any number of torches hung or standing on it, repeaters and comparators reading it, and neighbouring inputs' levers are fine.
-- The lever's face is where power enters, so it marks where a driver goes.
+- The lever's face is where power enters, so it marks where a driver goes. A data input's lever has room for a repeater in its place, on a block or air, and nothing behind it but air or a sign, where a bus's driver feeds that repeater. A control line's lever, which a lever or button always drives, may have a block behind it.
 - Every A lever is on its block's south side, as in the stored adders: the side a player facing north sees. Standardizing turns an upload about the vertical to make it so. Other inputs' levers or buttons go on any side, north, south, east, or west, never top or bottom.
 
 ### Signal-strength inputs

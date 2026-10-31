@@ -1414,8 +1414,8 @@ async fn rebuild_one(
             Err(why) => return Ok(Err(why)),
         }
     };
-    if let Some(dust) = report.data_dust(&data_inputs).into_iter().next() {
-        return Ok(Err(dust));
+    if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
+        return Ok(Err(fault));
     }
     let prepared = import::prepare(&coloured, true, true, false, true)?;
     let ready = match details::check(
@@ -1501,11 +1501,7 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
                 println!("  note: {note}");
             }
             // A fault only on a data input, which probing tells apart.
-            for problem in report
-                .errors
-                .iter()
-                .filter(|problem| problem.rule == app::inspect::DUST_ON_TOP)
-            {
+            for problem in report.data_only() {
                 println!("  note: {}", problem.message);
             }
         }

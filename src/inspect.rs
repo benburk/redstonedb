@@ -108,32 +108,48 @@ pub fn inspect(blocks: &Blocks) -> Report {
 /// tells apart, so it is no fault until then.
 pub const DUST_ON_TOP: &str = "dust on top of an input";
 
+/// The rule of a block behind a lever, where a bus's driver would feed the
+/// repeater put in its place: fine on a control line, which a lever or
+/// button drives, but not on a data input, which a bus may drive; no fault
+/// until probing tells them apart.
+pub const BLOCK_BEHIND: &str = "block behind a lever";
+
+/// The rules that are faults only on a data input, each problem's first
+/// block the input block.
+pub const DATA_ONLY: [&str; 2] = [DUST_ON_TOP, BLOCK_BEHIND];
+
 impl Report {
-    /// Its faults but dust on top of input blocks, which is a fault only
-    /// on a data input; see `DUST_ON_TOP`.
+    /// Its faults but those only a data input's, which probing tells
+    /// apart; see `DATA_ONLY`.
     pub fn faults(&self) -> impl Iterator<Item = &Problem> {
         self.errors
             .iter()
-            .filter(|problem| problem.rule != DUST_ON_TOP)
+            .filter(|problem| !DATA_ONLY.contains(&problem.rule))
     }
 
-    /// Each fault of dust on top of a block of `data`, the data inputs
-    /// probing found.
-    pub fn data_dust(&self, data: &[Pos]) -> Vec<String> {
+    /// Its problems that are faults only on a data input; see `DATA_ONLY`.
+    pub fn data_only(&self) -> impl Iterator<Item = &Problem> {
         self.errors
             .iter()
+            .filter(|problem| DATA_ONLY.contains(&problem.rule))
+    }
+
+    /// Each fault on a block of `data`, the data inputs probing found, of
+    /// a rule only a data input breaks.
+    pub fn data_faults(&self, data: &[Pos]) -> Vec<String> {
+        self.data_only()
             .filter(|problem| {
-                problem.rule == DUST_ON_TOP
-                    && problem
-                        .at
-                        .first()
-                        .is_some_and(|block| data.contains(block))
+                problem.at.first().is_some_and(|block| data.contains(block))
             })
             .map(|problem| {
-                format!(
-                    "Input at {}: dust on top of a data input",
-                    place(problem.at[0])
-                )
+                if problem.rule == DUST_ON_TOP {
+                    format!(
+                        "Input at {}: dust on top of a data input",
+                        place(problem.at[0])
+                    )
+                } else {
+                    format!("{}, on a data input", problem.message)
+                }
             })
             .collect()
     }
@@ -396,8 +412,16 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     dust > 0
 }
 
+/// Whether the spot behind the switch, where a bus's driver would feed
+/// the repeater put in its place, is free.
+fn free_behind(blocks: &Blocks, switch: &Switch) -> bool {
+    let behind = short(blocks, schem::step(switch.pos, switch.side));
+    behind == "air" || behind.ends_with("sign")
+}
+
 /// Room for a repeater in the switch's place, standing on a block, so a
-/// bus can drive the input.
+/// bus can drive the input; the spot behind it may be taken only on a
+/// control line, see `BLOCK_BEHIND`.
 fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     let lever = switch.pos;
     let name = short(blocks, lever).to_owned();
@@ -416,11 +440,11 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
                 words(below)
             ),
         );
-    } else if behind_name != "air" && !behind_name.ends_with("sign") {
+    } else if !free_behind(blocks, switch) {
         problem(
             report,
-            "no room for a repeater",
-            vec![lever, behind],
+            BLOCK_BEHIND,
+            vec![switch.block, lever, behind],
             format!(
                 "{} at {at}: {} behind blocks repeater",
                 noun(&name),
@@ -601,15 +625,18 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
 /// compiled with every lever swapped for a repeater on a block, pointed
 /// into its input block and driven by a lever behind it, against the
 /// build as it is. Where the two differ but for those spots, a bus could
-/// not drive the input through a repeater as the lever does. Read by the
-/// rules of redstone, with no simulation.
+/// not drive the input through a repeater as the lever does. A lever with
+/// a block behind it, which only a control line's may have, is left as it
+/// is. Read by the rules of redstone, with no simulation.
 pub fn not_bus_drivable(data: &[u8]) -> Result<Vec<Pos>> {
     let blocks = Blocks::read(data)?;
     let levers: Vec<Switch> = blocks
         .switches()
         .into_iter()
         .filter(|s| {
-            !s.button && !matches!(s.side, Direction::Up | Direction::Down)
+            !s.button
+                && !matches!(s.side, Direction::Up | Direction::Down)
+                && free_behind(&blocks, s)
         })
         .collect();
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
@@ -733,6 +760,36 @@ mod tests {
         assert_eq!(
             faults_with("redstone_block", false),
             ["Input at (0, 1, 1): touches redstone block"]
+        );
+    }
+
+    /// A block behind a lever is a fault only on a data input, where a
+    /// bus's driver would feed the repeater in the lever's place.
+    #[test]
+    fn only_a_data_input_needs_the_spot_behind_its_lever_free() {
+        let states: HashMap<Pos, String> = [
+            ([0, 1, 1], "white_concrete"),
+            ([0, 1, 2], "lever[face=wall,facing=south,powered=false]"),
+            ([0, 1, 3], "white_concrete"),
+            ([0, 0, 0], "white_concrete"),
+            (
+                [0, 1, 0],
+                "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
+            ),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        let report = inspect(&Blocks::from_grid([1, 2, 4], &states));
+        let rules: Vec<&str> = report.faults().map(|p| p.rule).collect();
+        assert_eq!(rules, ["no outputs"]);
+        assert_eq!(report.data_faults(&[]), Vec::<String>::new());
+        assert_eq!(
+            report.data_faults(&[[0, 1, 1]]),
+            [
+                "Lever at (0, 1, 2): white concrete behind blocks repeater, \
+                 on a data input"
+            ]
         );
     }
 
