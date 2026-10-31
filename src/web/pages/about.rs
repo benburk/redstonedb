@@ -60,61 +60,61 @@ pub fn before_upload(viewer: Option<&User>) -> Markup {
         &html! {
             div class="max-w-calm leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "What a build needs" }
-                h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What a build needs" }
+                p class="mb-4 max-w-prose" {
+                    "We test a build by flipping its levers and watching its outputs, so we need to find "
+                    "both. Here's what that takes. You don't need any particular colours, signs, or labels."
+                }
                 (rule(
                     "Inputs",
-                    "a lever on the side of a solid block, or a stone button for a pulse. \
-                     The block drives at most two dusts, on its sides, besides torches and repeaters, and no other redstone touches it, though a target or redstone block may sit on top. \
-                     A repeater must fit where the lever is, so a bus can drive it.",
+                    "put each lever on the side of a solid block, not the top or bottom, or use a stone button for anything you press. \
+                     The block can power up to two dusts on its sides, plus torches and repeaters. Nothing else should touch it, \
+                     though a target or redstone block on top is fine. Leave room for a repeater where the lever is, so a bus could drive it instead.",
                     &["input", "input-three-dusts", "repeater"],
                 ))
                 (rule(
                     "Outputs",
-                    "the dust, repeater, or comparator carrying each one out sits on a coloured block, any colour but white, gray, \
-                     or an input's lime, light blue, cyan, blue, or magenta, that no block of its colour touches.",
+                    "each output bit is the dust, repeater, or comparator sitting on a coloured block. Any colour works except white, gray, \
+                     and the input colours, lime, light blue, cyan, blue, and magenta, as long as no other block of that colour touches it.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
                     "Buses",
-                    "each in a line, evenly spaced: straight, or rising one block per block across. \
-                     A bus may also be two such lines, its bits alternating.",
+                    "lay each bus out in a line, evenly spaced, either straight or climbing one block for each block across. \
+                     Two lines with the bits alternating between them works too.",
                     &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
                 ))
                 (rule(
                     "Stacking",
-                    "copies repeat a box of the build; what only the first copy needs, such as a carry in, goes on an outer face.",
+                    "if copies of your build stack, they should repeat one box of it. Anything only the first copy needs, like a carry in, goes on an outside face.",
                     &[],
                 ))
                 (rule(
                     "Gates",
-                    "inputs A and B and one output as wide, each bit A xor B, A and B, or A or B, or its inverse. \
-                     A and B are data inputs, so no dust on top of their blocks.",
+                    "two inputs, A and B, and one output as wide. A bus could drive A and B, so keep dust off the top of their blocks.",
                     &[],
                 ))
                 (rule(
                     "Multipliers",
-                    "inputs A and B and, for a sequential one, one button, the calculate, pressed once they're set. \
-                     No reset.",
+                    "A and B, and if it works step by step, one calculate button you press once they're set. No reset button.",
                     &[],
                 ))
                 (rule(
                     "Counters",
-                    "input A as wide as the value, one button, the clock, and one lever, the write enable. \
-                     The clock counts up or down; with write enable on, it loads A.",
+                    "A, as wide as the count, one clock button, and one write enable lever. \
+                     Pressing the clock counts up or down; pressing it with write enable on loads A.",
                     &[],
                 ))
-                p class="mt-6 mb-4 max-w-prose" { "No other colours, signs, or bit-order marks are needed." }
                 div class="max-w-prose" {
-                    h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What the site does" }
+                    h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "What happens when you upload" }
                     ol class="mb-4 flex list-decimal flex-col gap-1.5 pl-5" {
-                        li { "Finds the inputs and outputs, and tests the build as each category it recognizes: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers so far." }
-                        li { "Once recognized, works out each line's role, colours the inputs and outputs by it, standardizes the blocks, and takes out unused ones." }
-                        li { "Measures latency, throughput, and how copies stack." }
-                        li { "Shows it in each viewer's block theme." }
+                        li { "We find the inputs and outputs, and try the build as each category we know how to test: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers." }
+                        li { "If it's one of them, we colour each line by what it does, tidy up the blocks, and take out any it doesn't use." }
+                        li { "Then we measure how fast it is, how often it can take a new input, and whether copies stack." }
+                        li { "Everyone sees it in their own block theme." }
                     }
                     p class="mb-4" {
-                        "A build it can't recognize goes up as built, off the list, with what's wrong listed. "
-                        "A fixed new version moves it up."
+                        "If we can't recognize it, it still goes up, as you built it, under Other, with a note saying "
+                        "what got in the way. Upload a fixed version later and it moves onto the list."
                     }
                 }
             }
@@ -156,8 +156,8 @@ pub fn sorting(viewer: Option<&User>, categories: &[Category]) -> Markup {
             div class="max-w-prose leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "Finding builds" }
                 p class="mb-4" {
-                    "Each build has a category, a design, measures it is named and ranked by, and facts "
-                    "read from its file or typed."
+                    "Every build has a category, a design, a number it's named and ranked by, and a handful "
+                    "of facts. Here's what each one means, and how to search by them."
                 }
                 (category_part(categories))
                 (design_part())
@@ -183,16 +183,16 @@ fn category_part(categories: &[Category]) -> Markup {
     html! {
         (heading("categories", "Categories"))
         p class="mb-3" {
-            "A category is one function: one truth table, up to inverted lines, such as a torch on each "
-            "bit of a bus. Inverted lines are flags; a subtractor is an adder with B inverted, flagged "
-            "Subtract. Each shares one category: adders with carry in, carry out, or output inverted or "
-            "not; XOR, AND, and OR gates and their inverses; signed and unsigned comparators; monostables pulsing as their input "
-            "turns on or off; registers reading cells inverted or not."
+            "A category is one job: everything in it gives the same answers, give or take an inverted "
+            "line, like a torch on every bit of a bus. Inversions become flags rather than new "
+            "categories, so a subtractor is an adder flagged Subtract. That's why one category covers "
+            "adders with or without a carry in and carry out, XOR and XNOR gates, signed and unsigned "
+            "comparators, monostables that pulse on either edge, and registers that read their cells "
+            "either way round."
         }
         p class="mb-3" {
-            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers are on the list so far: a build is one when probing "
-            "recognizes it. Any other names its own category, such as 3x3 piston door, and goes up as "
-            "built, off the list, under Other, until its category is recognized too."
+            "These are the categories we can test so far. Anything else picks a name of its own, like "
+            "3x3 piston door, and lives under Other, kept as built, until we learn to test it."
         }
         dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5" {
             @for (key, title, members) in sections(categories) {
@@ -216,9 +216,9 @@ fn design_part() -> Markup {
     html! {
         (heading("designs", "Designs"))
         p class="mb-3" {
-            "How a build works, such as an adder's ripple carry or carry lookahead, worked out from its "
-            "circuit, never chosen. A category's designs do the same job, so leaderboards rank them "
-            "together unless you pick one."
+            "How a build does its job, such as ripple carry or carry lookahead for an adder. We work it "
+            "out from the circuit, so nobody picks it. Every design in a category does the same job, so "
+            "leaderboards rank them together unless you choose one."
         }
     }
 }
@@ -228,16 +228,16 @@ fn measure_part() -> Markup {
     html! {
         (heading("measures", "Measures"))
         p class="mb-3" {
-            "The number a category's builds are named and ranked by: width in bits, as 8-bit Carry "
+            "The number a build is named and ranked by, usually its width in bits, as in 8-bit Carry "
             "Lookahead Adder."
         }
         p class="mb-3" {
-            "Builds compete only at equal widths. Leaderboards also split by stateless or stateful, and "
-            "orientation."
+            "Builds only compete with others of the same width. Leaderboards also split stateless from "
+            "stateful, and by orientation."
         }
         p class="mb-3" {
-            "A build whose copies stack into a wider one also competes at 8, 16, and 32 bits: its copies "
-            "are stacked to each width, tested, and timed, and take the box they fill, each copy adding its step."
+            "If copies of a build stack into a wider one, it competes at 8, 16, and 32 bits as well. We "
+            "stack it to each width, test and time it there, and count the space its copies fill."
         }
     }
 }
@@ -248,32 +248,32 @@ fn fact_part() -> Markup {
         (heading("facts", "Facts about a build"))
         dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2" {
             dt class="font-semibold" { "Orientation" }
-            dd { "Horizontal, vertical, or diagonal: the way its bits run. Read from input A, or a 1-bit build's stacking." }
+            dd { "Which way its bits run: horizontal, vertical, or diagonal. We read it from input A, or for a 1-bit build, from how it stacks." }
             dt class="font-semibold" { "Stateless" }
             dd {
-                "Settled outputs depend only on inputs, as an adder's. One that remembers, as a register, is "
-                "stateful. Found by the simulation."
+                "Its outputs depend only on its inputs, like an adder's. A build that remembers things, like "
+                "a register, is stateful. The simulation tells which."
             }
             dt class="font-semibold" { "Latency" }
-            dd { "Ticks from input A changing until the slowest output settles, excluding status lines such as carry out. A register's runs data in to data out through a cell's write and read, so a data loop's latency is its ALU's plus its registers'." }
+            dd { "Ticks from input A changing until the slowest output settles, not counting status lines like carry out. For a register, it's data in to data out through a write and a read, so a loop's latency is its ALU's plus its registers'." }
             dt class="font-semibold" { "Synchronized" }
             dd { "Every output bit changes once, all on the same tick." }
             dt class="font-semibold" { "Throughput" }
-            dd { "Fewest ticks between inputs that still give right outputs." }
+            dd { "How few ticks you can leave between inputs and still get the right answers." }
             dt class="font-semibold" { "Works from" }
             dd {
-                "Oldest Minecraft: Java Edition release with every redstone component and mechanic used, "
-                "such as 1.5 for a comparator, 1.16 for a target block. Building blocks don't count, being "
-                "interchangeable; dust on a transparent block does, impossible before 1.2.1. Every build "
-                "works in the latest release."
+                "The oldest Java Edition release with every redstone part it uses, such as 1.5 for a "
+                "comparator or 1.16 for a target block. Plain building blocks don't count, but dust on a "
+                "transparent block does, since that only works from 1.2.1. Everything works in the latest "
+                "release."
             }
             dt class="font-semibold" { "Pipelined" }
-            dd { "Stateless and synchronized, with throughput below latency: a new input enters before the last result leaves. Derived, never typed." }
+            dd { "Stateless and synchronized, with a throughput shorter than its latency, so a new input goes in before the last answer comes out. We work this out; nobody types it." }
         }
         p class="mb-3" {
-            "A recognized build runs through its inputs; once every case is right, every fact above comes "
-            "from its file and the simulation. A build off the list has what its builder gives. "
-            a href="/about/simulation" { "How we test" } " says more."
+            "Once a recognized build gets every case right, all of these come from its file and the "
+            "simulation. Builds under Other show what their builders told us. "
+            a href="/about/simulation" { "How we test" } " has the details."
         }
     }
 }
@@ -283,12 +283,12 @@ fn flag_part() -> Markup {
     html! {
         (heading("flags", "Flags"))
         p class="mb-3" {
-            "Yes-or-no facts of one category, most adding truth-table columns: an ALU's operations beyond "
-            "add and subtract, such as AND, XOR, and shift left; an adder's carry in and carry out."
+            "Yes-or-no facts within one category, mostly extra things a build can do: an ALU's operations "
+            "beyond add and subtract, like AND, XOR, and shift left, or an adder's carry in and carry out."
         }
         p class="mb-3" {
-            "Flags split neither categories, since shared columns agree, nor leaderboards. They show on the "
-            "build's page and match in search."
+            "Flags don't split categories or leaderboards. They show on the build's page, and you can "
+            "search for them."
         }
     }
 }
@@ -298,22 +298,22 @@ fn tag_part() -> Markup {
     html! {
         (heading("tags", "Tags"))
         p class="mb-3" {
-            "Optional and cross-category; a missing tag says nothing. Colour gives the kind:"
+            "Optional labels that work across categories, so a missing tag doesn't mean anything. The "
+            "colour tells you the kind:"
         }
         dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2" {
             dt { span class="badge badge-restriction" { "Restriction" } }
             dd {
-                "Components the build does without, read from the file; nobody adds or removes them, and the "
-                "upload form shows them once the file is read. Torchless: no redstone torch, standing or on a "
-                "wall. Alpha: works from Alpha, using only dust, torches, levers, buttons, and pressure plates, "
-                "none on a transparent block."
+                "Parts the build manages without, read from its file, so nobody adds or removes them by "
+                "hand. Torchless means no redstone torches at all. Alpha means it would work in Alpha: only "
+                "dust, torches, levers, buttons, and pressure plates, none of them on a transparent block."
             }
             dt { span class="badge badge-other" { "Other" } }
-            dd { "Anything else worth searching by, such as instant." }
+            dd { "Anything else worth searching for, like instant." }
             dt { span class="badge badge-failing" { "Simulation" } }
             dd {
-                "Fails simulation: the simulated build got some cases wrong. Nobody adds or removes it; a "
-                "passing new version drops it."
+                "Fails simulation: the build got some cases wrong. Nobody adds or removes this one either; "
+                "a fixed new version clears it."
             }
         }
     }
@@ -324,13 +324,13 @@ fn search_part() -> Markup {
     html! {
         (heading("search", "Search"))
         p class="mb-3" {
-            "Every word must match one of: category, design, flag, tag, orientation, width ("
-            code { "8b" } "), latency (" code { "3t" } "), " code { "stateless" } " or " code { "stateful" }
-            ", " code { "sync" } ", " code { "pipelined" } ", " code { "throughput:3" } ", "
-            "a release it works in (" code { "version:1.12" } "), or a credited "
-            "person. " code { "-" } " before a word excludes it. Six or more characters of an id, such as "
-            code { "3234d4a4" } ", find that build. Category aliases match too: " code { "connect4" }
-            " finds the four-in-a-row detector, " code { "inc" } " the incrementers, " code { "bcd" }
+            "Each word you type has to match something: a category, design, flag, tag, orientation, "
+            "width (" code { "8b" } "), latency (" code { "3t" } "), " code { "stateless" } " or "
+            code { "stateful" } ", " code { "sync" } ", " code { "pipelined" } ", " code { "throughput:3" }
+            ", a release it works in (" code { "version:1.12" } "), or someone credited. Put "
+            code { "-" } " in front of a word to leave those out. Six or more characters of a build's id, "
+            "like " code { "3234d4a4" } ", find that build. Nicknames work too: " code { "connect4" }
+            " finds the four-in-a-row detector, " code { "inc" } " the incrementers, and " code { "bcd" }
             " both BCD converters."
         }
     }
@@ -341,13 +341,13 @@ fn size_part() -> Markup {
     html! {
         (heading("size", "Size and stacking"))
         p class="mb-3" {
-            "Size is the box less any outer layer holding only inputs and outputs."
+            "Size is the build's box, minus any outer layer that only holds inputs and outputs."
         }
         p class="mb-3" {
-            "Stackable builds repeat along a step, such as 2 blocks up; copies may overlap. Volume per "
-            "copy, with the step in place of the length that way, is what is shown, sorted, and ranked: "
-            "a 4×4×6 1-bit adder stacking every 2 up is 48; a 2×6×6 one stacking every 5 west is 60. A "
-            "recognized build's step the site finds itself, by simulating stacked copies."
+            "Builds that stack repeat every few blocks, and their copies can overlap. For those, we show "
+            "and rank the volume of one copy, using the step in place of the length: a 4×4×6 1-bit adder "
+            "that stacks every 2 up counts as 48, and a 2×6×6 one that stacks every 5 west counts as 60. "
+            "For a recognized build, we find the step ourselves by simulating stacked copies."
         }
     }
 }
@@ -357,10 +357,10 @@ fn similar_part() -> Markup {
     html! {
         (heading("similar", "Similar builds"))
         p class="mb-3" {
-            "A build's page lists same-category builds with at least 90% the same redstone: the share of "
-            "dust, repeaters, comparators, torches, and other components lining up, facing the same way, "
-            "after the best turn, mirror, and shift. Filler blocks don't count. An upload that close gets "
-            "a warning linking to upload it as a new version of that build instead."
+            "A build's page lists other builds in its category with at least 90% of the same redstone: "
+            "dust, repeaters, comparators, torches, and the rest in the same places, facing the same way, "
+            "after the best turn, mirror, and shift. Filler blocks don't count. Upload something that "
+            "close to an existing build and we'll suggest adding it as a new version instead."
         }
     }
 }
@@ -394,12 +394,12 @@ pub fn simulation_guide(viewer: Option<&User>, checked: &[Checked]) -> Markup {
             div class="max-w-prose leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "How we test" }
                 p class="mb-4" {
-                    "An upload is probed: its levers and buttons are its inputs, its outputs the coloured blocks "
-                    "with dust, a repeater, or a comparator on them, and the site finds what each does by trying them. One "
-                    "recognized as a category below is simulated through every input case, or every case of "
-                    "each byte when there are too many, and takes the facts below from the simulation or its "
-                    "file, each checked on its page. Every other build goes up as built, off the list, under a "
-                    "name of its own, with its facts as its builder gives them."
+                    "When you upload a build, we find its inputs, its levers and buttons, and its outputs, "
+                    "the dust, repeaters, or comparators on coloured blocks, then try them to see what the "
+                    "build does. If it matches one of the categories below, we run it through every input "
+                    "case, or every case of each byte when there are too many, and take its facts from "
+                    "that. Everything else goes up as built, under a name of its own, with whatever facts "
+                    "its builder gives."
                 }
             }
             (checked_table(checked))
@@ -412,9 +412,9 @@ pub fn simulation_guide(viewer: Option<&User>, checked: &[Checked]) -> Markup {
 /// simulation, and how its stacking is decided.
 fn checked_table(checked: &[Checked]) -> Markup {
     let stacking = |stacking: Stacking| match stacking {
-        Stacking::Inferred => "Found by the simulation",
-        Stacking::Given => "Given by the builder",
-        Stacking::Never => "Never stacked",
+        Stacking::Inferred => "Found by testing",
+        Stacking::Given => "Set by the builder",
+        Stacking::Never => "Doesn't stack",
     };
     // Such as `Width, orientation, and encoding`, then the flags beneath.
     let listed = |items: &[String], flags: &[String]| {
@@ -475,28 +475,28 @@ fn simulation_notes() -> Markup {
         dl class="mb-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2" {
             dt class="font-semibold" { "Read from the file" }
             dd {
-                "Width and orientation come from input A, as probing finds it; an adder's carry flags "
-                "from whether it has a carry in and a carry out."
+                "Width and orientation come from input A. An adder's carry flags come from whether it has a "
+                "carry in and a carry out."
             }
             dt class="font-semibold" { "From the simulation" }
             dd {
-                "Once every case is right: latency, synchronized, throughput, whether it holds state, and "
-                "flags the cases show, such as an ALU's operations."
+                "Once every case is right: latency, whether it's synchronized, throughput, whether it holds "
+                "state, and any flags its answers show, like an ALU's operations."
             }
             dt class="font-semibold" { "Stacking" }
             dd {
-                "Found by the simulation: copies stack as " code { "//rstack" } " stacks them, by the box "
-                "the build's later copies repeat, the fewest blocks left out first, and the result, "
-                "unlimited copies or none, is the build's. Never stacked: copies make no wider build."
+                "Found by testing: we stack copies the way " code { "//rstack" } " does, by the box its later "
+                "copies repeat, leaving out as few blocks as we can, and whatever works, any number of "
+                "copies or none, is what the build gets. Doesn't stack: copies don't make a wider build."
             }
         }
-        (heading("limits", "What the simulator cannot run"))
+        (heading("limits", "What the simulator can't run"))
         p class="mb-3" {
-            "The simulator models dust, torches, repeaters, comparators, levers, stone buttons, lamps, "
-            "and the barrels, furnaces, and hoppers a comparator reads. A build with anything else, such "
-            "as a piston, observer, or wooden button, or wider than 32 bits, isn't recognized, and goes "
-            "up off the list. It steps a tick at a time, ignoring the game's block update order, so "
-            "builds relying on that order may differ in game."
+            "The simulator knows dust, torches, repeaters, comparators, levers, stone buttons, lamps, and "
+            "the barrels, furnaces, and hoppers a comparator can read. Anything with other parts, like a "
+            "piston, observer, or wooden button, or anything wider than 32 bits, can't be tested and goes "
+            "under Other. It also steps one tick at a time and ignores the game's block update order, so a "
+            "build that depends on that order might behave differently in game."
         }
     }
     }
