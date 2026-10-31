@@ -77,11 +77,6 @@ pub struct Tile<'a> {
     pub section: Option<Section>,
 }
 
-/// How many categories with builds a section needs for a heading of its
-/// own on the home page; a smaller one's go under Other, unless no section
-/// has that many.
-const SECTION_SIZE: usize = 2;
-
 /// The home page before anything is searched for.
 pub struct Index<'a> {
     pub tiles: &'a [Tile<'a>],
@@ -583,9 +578,8 @@ fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
 }
 
 /// The tiles under their sections' headings, each with its heading and
-/// the id it goes by, in the sidebar's order, then under Other the tiles of
-/// every section too small for a heading and those off the list, keeping
-/// the order of `tiles`.
+/// the id it goes by, in the sidebar's order, then under Other those off
+/// the list, keeping the order of `tiles`.
 fn tile_groups<'t>(
     tiles: &'t [Tile<'t>],
 ) -> Vec<(&'static str, &'static str, Vec<&'t Tile<'t>>)> {
@@ -595,30 +589,19 @@ fn tile_groups<'t>(
             .filter(|t| t.section == Some(section))
             .collect()
     };
-    let big: Vec<Section> = Section::ALL
+    // Every section with a category that has builds keeps its heading, as
+    // the sidebar does.
+    let headed: Vec<Section> = Section::ALL
         .iter()
         .copied()
-        .filter(|&section| in_section(section).len() >= SECTION_SIZE)
+        .filter(|&section| !in_section(section).is_empty())
         .collect();
-    // With no section big enough, as while few categories have builds,
-    // each keeps its heading, rather than every tile going under Other.
-    let headed = if big.is_empty() {
-        Section::ALL
-            .iter()
-            .copied()
-            .filter(|&section| !in_section(section).is_empty())
-            .collect()
-    } else {
-        big
-    };
     let mut groups: Vec<_> = headed
         .iter()
         .map(|&section| (section.label(), section.name(), in_section(section)))
         .collect();
-    let rest: Vec<&Tile> = tiles
-        .iter()
-        .filter(|t| t.section.is_none_or(|section| !headed.contains(&section)))
-        .collect();
+    let rest: Vec<&Tile> =
+        tiles.iter().filter(|t| t.section.is_none()).collect();
     if !rest.is_empty() {
         groups.push(("Other", "other", rest));
     }
