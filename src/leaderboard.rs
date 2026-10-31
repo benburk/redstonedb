@@ -254,6 +254,17 @@ fn most_common<V>(choices: &[Choice<V>]) -> Option<&V> {
         .map(|c| &c.value)
 }
 
+/// Copies of each of `builds` stacked into each wider build they make, as
+/// they compete at its width; see `Schematic::widened_to`.
+pub fn stacked<'a>(
+    builds: impl IntoIterator<Item = &'a Schematic>,
+) -> Vec<Schematic> {
+    builds
+        .into_iter()
+        .flat_map(|s| s.widened.iter().filter_map(|w| s.widened_to(w)))
+        .collect()
+}
+
 /// A build with its place: one more than the builds ranked strictly ahead
 /// of it, so a tie shares a place.
 pub type Placed<'a> = (usize, &'a Schematic);
@@ -388,12 +399,17 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 /// Builders by records held: first place, as fastest or as smallest, on a
 /// board of two or more builds. A board is a standard category's builds of
 /// one value of each of its measures, logic, encoding, orientation, and
-/// design; each builder of a record holder counts it, and a tie gives every
-/// holder one.
+/// design, with copies of narrower ones stacked to its width; each builder
+/// of a record holder counts it, and a tie gives every holder one.
 pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
     type Key<'a> = (&'a str, Vec<i64>, State, Encoding, Orientation, &'a str);
     let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
-    for s in builds.iter().filter(|s| s.category_label.is_some()) {
+    let stacks = stacked(builds);
+    for s in builds
+        .iter()
+        .chain(&stacks)
+        .filter(|s| s.category_label.is_some())
+    {
         let Some(values) = s
             .measures
             .iter()
@@ -428,6 +444,7 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::schematic::{StackDirection, Widened};
 
     fn build(
         id: &str,
@@ -458,6 +475,8 @@ mod tests {
             bytes: None,
             size: (volume, 1, 1),
             stacking: Vec::new(),
+            widened: Vec::new(),
+            stacked_from: None,
             builders: Vec::new(),
             contributors: Vec::new(),
             built_on: None,
@@ -679,6 +698,46 @@ mod tests {
         let added = most_added(&builds);
         assert_eq!(added.len(), 1);
         assert_eq!(added[0].count, 2);
+    }
+
+    /// A 1-bit adder stacking 2 west, measured at 8 bits as 8 copies,
+    /// ranks among the 8-bit adders by that timing and the box its copies
+    /// take, each adding its step.
+    #[test]
+    fn copies_of_a_narrower_build_compete_at_the_width_they_make() {
+        let slice = Schematic {
+            stacking: vec![StackDirection {
+                west: 2,
+                up: 0,
+                north: 0,
+                max_copies: None,
+                faces: None,
+            }],
+            widened: vec![Widened {
+                width: 8,
+                copies: 8,
+                latency: Some(20),
+                synchronized: Some(false),
+                throughput: Some(19),
+            }],
+            size: (3, 4, 5),
+            ..build("s", 1, "ripple_carry", Some(6), 60)
+        };
+        let adders = [slice, build("a", 8, "ripple_carry", Some(25), 1000)];
+        let stacks = stacked(&adders);
+        let all: Vec<&Schematic> = adders.iter().chain(&stacks).collect();
+        let wanted = Wanted {
+            measures: vec![(Measure::Width, 8)],
+            ..Wanted::default()
+        };
+        let board = board(&all, &wanted, &[Measure::Width]);
+        let fastest = fastest(&board.builds);
+        assert_eq!(ids(&fastest), [(1, "s"), (2, "a")]);
+        let stack = fastest[0].1;
+        assert_eq!(stack.stacked_from, Some(1));
+        assert_eq!(stack.latency, Some(20));
+        assert_eq!(stack.size, (3 + 2 * 7, 4, 5));
+        assert_eq!(stack.volume(), 2 * 8 * 4 * 5);
     }
 
     #[test]

@@ -13,14 +13,20 @@ use crate::{
     import::{self, Prepared},
     interface,
     models::{
-        schematic::{Encoding, Logic, Orientation, StackDirection},
+        schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
         simulation::{FALLING_EDGE, INVERTED, SIGNED, XNOR_FLAG},
     },
+    schem::Blocks,
     simulate::{
         self, AdderVariant, Design, Edge, Report, Run, Stacking, Test, Timing,
         adder_design,
     },
+    stack,
 };
+
+/// The widths a stackable build's copies are stacked to, above its own, to
+/// compete at.
+pub const STANDARD_WIDTHS: [i64; 3] = [8, 16, 32];
 
 /// Everything worked out from a build's file.
 pub struct Evaluation {
@@ -37,6 +43,8 @@ pub struct Evaluation {
     /// every case came out right.
     pub report: Option<Report>,
     pub stacking: Vec<StackDirection>,
+    /// Its copies stacked into wider builds, as `Evaluation::widen` finds.
+    pub widened: Vec<Widened>,
     pub latency: Option<i64>,
     pub synchronized: Option<bool>,
     /// The fewest ticks from one input to the next that keep every result
@@ -77,6 +85,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             .unwrap_or_default(),
         report: None,
         stacking: Vec::new(),
+        widened: Vec::new(),
         latency: None,
         synchronized: None,
         throughput: None,
@@ -119,6 +128,9 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             .throughput(&found.prepared.blocks, &found.prepared.data, &timing)?
             .map(|ticks| i64::from(ticks).max(burnout));
         run.timing = Some(timing);
+        if let Some(category) = category {
+            found.widen(category, burnout);
+        }
         found.logic = test.remembers(&found.prepared.blocks)?.map(|held| {
             if held {
                 Logic::Stateful
@@ -166,6 +178,62 @@ impl Evaluation {
             }];
             if let Some(orientation) = step.orientation().filter(|_| bits) {
                 self.orientation = Some(orientation);
+            }
+        }
+    }
+
+    /// Stacks its copies, along the way its bits run, into each of
+    /// `STANDARD_WIDTHS` above its own that a whole number of them make
+    /// and its most copies allow, and tests and times each, its throughput
+    /// no fewer than `burnout` ticks, as for the build itself. The first
+    /// width whose copies get a case wrong, or can't be stacked or
+    /// measured, ends them.
+    fn widen(&mut self, category: &str, burnout: i64) {
+        let (Some(width), Some(orientation)) = (self.width, self.orientation)
+        else {
+            return;
+        };
+        let Some(&along) =
+            self.stacking.iter().find(|d| d.adds_bits(orientation))
+        else {
+            return;
+        };
+        for wider in STANDARD_WIDTHS {
+            if wider <= width || wider % width != 0 {
+                continue;
+            }
+            let copies = wider / width;
+            if along.max_copies.is_some_and(|most| copies > most) {
+                break;
+            }
+            let measured = || -> Result<Option<Widened>> {
+                let Some(test) = Test::of(category, Some(wider)) else {
+                    return Ok(None);
+                };
+                let (data, _) = stack::stack(
+                    &self.prepared.data,
+                    &[(along, usize::try_from(copies)?)],
+                    stack::Buses::of(category, orientation),
+                )?;
+                let blocks = Blocks::read(&data)?;
+                if !test.run(&blocks).passed() {
+                    return Ok(None);
+                }
+                let timing = test.time(&blocks, &AtomicBool::new(false))?;
+                let throughput = test
+                    .throughput(&blocks, &data, &timing)?
+                    .map(|ticks| i64::from(ticks).max(burnout));
+                Ok(Some(Widened {
+                    width: wider,
+                    copies,
+                    latency: timing.latency().map(|t| t.max(0).into()),
+                    synchronized: Some(timing.synced),
+                    throughput,
+                }))
+            };
+            match measured() {
+                Ok(Some(widened)) => self.widened.push(widened),
+                _ => break,
             }
         }
     }

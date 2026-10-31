@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO stacked_width\n                (schematic_id, width, copies, latency, synchronized,\n                 throughput)\n             VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "eac6cd372c103474c8041f822702b08ab99ec1e361366d87e32a07c0b2a83c0c"
+}

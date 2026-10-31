@@ -437,6 +437,11 @@ fn ranking(
                             }
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                 a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
+                                @if let (Some(from), Some(width)) = (s.stacked_from, s.width) {
+                                    div class="mt-1 text-meta text-muted" {
+                                        (width / from.max(1)) " copies of a " (from) "-bit build, stacked"
+                                    }
+                                }
                                 @if !s.builders.is_empty() {
                                     div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta" {
                                         @for name in &s.builders {

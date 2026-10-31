@@ -593,6 +593,14 @@ fn specs(
                     }
                 };
                 (field("Stacks", sourced(stacks, sources.stacking, sources)))
+                // Its copies stacked to each wider width, as they compete
+                // on that width's leaderboard.
+                @let timed: Vec<String> = s.widened.iter().filter_map(|w| {
+                    w.latency.map(|t| format!("{}-bit in {t} ticks", w.width))
+                }).collect();
+                @if !timed.is_empty() {
+                    (field("Stacked", sourced(html! { (timed.join(" · ")) }, sources.timing, sources)))
+                }
                 @if let Some(synced) = s.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing, sources)))
                 }

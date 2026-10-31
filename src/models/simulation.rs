@@ -17,7 +17,7 @@ use crate::{
     evaluate::{Evaluation, evaluate},
     import, interface,
     models::schematic::{
-        self, Encoding, Logic, Orientation, Schematic, StackDirection,
+        self, Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
     },
     models::version,
     roles,
@@ -543,6 +543,8 @@ struct Derived {
     pulse: Option<i64>,
     flags: Vec<String>,
     stacking: Vec<StackDirection>,
+    /// Its copies stacked into wider builds; see `Widened`.
+    widened: Vec<Widened>,
     throughput: Option<i64>,
     design: String,
     /// Whether it holds state, where set on the build itself.
@@ -561,6 +563,7 @@ impl Derived {
             pulse: s.pulse,
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             stacking: s.stacking.clone(),
+            widened: s.widened.clone(),
             throughput: s.throughput,
             design: s.design.clone(),
             logic: s.own_logic,
@@ -578,6 +581,7 @@ impl Derived {
             latency: None,
             synchronized: None,
             stacking: Vec::new(),
+            widened: Vec::new(),
             throughput: None,
             design: "other".to_owned(),
             ..Derived::of(s)
@@ -590,6 +594,7 @@ impl Derived {
             derived.latency = e.latency;
             derived.synchronized = e.synchronized;
             derived.stacking.clone_from(&e.stacking);
+            derived.widened.clone_from(&e.widened);
             derived.flags.clone_from(&e.flags);
             if e.pulse.is_some() {
                 derived.pulse = e.pulse;
@@ -766,6 +771,9 @@ impl Derived {
         }
         if self.stacking != stored.stacking {
             schematic::set_stacking(tx, &s.id, &self.stacking).await?;
+        }
+        if self.widened != stored.widened {
+            schematic::set_widened(tx, &s.id, &self.widened).await?;
         }
         if self.logic != stored.logic {
             schematic::set_logic(&mut *tx, &s.id, self.logic).await?;

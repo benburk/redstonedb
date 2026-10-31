@@ -176,6 +176,20 @@ impl StackDirection {
     }
 }
 
+/// A stackable build stacked into a wider one: `copies` of it make a build
+/// `width` bits wide, whose timing was measured so, as it competes on that
+/// width's leaderboard; `None` for what could not be measured.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
+pub struct Widened {
+    pub width: i64,
+    pub copies: i64,
+    pub latency: Option<i64>,
+    pub synchronized: Option<bool>,
+    pub throughput: Option<i64>,
+}
+
 impl std::str::FromStr for StackDirection {
     type Err = String;
 
@@ -262,6 +276,12 @@ pub struct Schematic {
     pub size: (i64, i64, i64),
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
+    /// Its copies stacked into wider builds, at each standard width they
+    /// reach; see `Widened`.
+    pub widened: Vec<Widened>,
+    /// For a leaderboard's entry of copies of a build stacked to a wider
+    /// width, the build's own width; see `Schematic::widened_to`.
+    pub stacked_from: Option<i64>,
     /// Whether the build follows the building conventions, so the lint and
     /// the interface reader apply to it.
     pub conventional: bool,
@@ -505,6 +525,54 @@ impl Schematic {
         }
     }
 
+    /// Copies of this build stacked into the wider build `w`, as a
+    /// leaderboard ranks it among builds of `w`'s width: with the timing
+    /// measured so, and the box the copies take, the step its bits run
+    /// along counting once a copy. `None` for a build with no way of
+    /// stacking that adds bits.
+    #[must_use]
+    pub fn widened_to(&self, w: &Widened) -> Option<Schematic> {
+        let along = *self
+            .stacking
+            .iter()
+            .find(|d| d.adds_bits(self.orientation))?;
+        let more = w.copies - 1;
+        let (x, y, z) = self.size;
+        let size = (
+            x + along.west * more,
+            y + along.up * more,
+            z + along.north * more,
+        );
+        let stacking = self
+            .stacking
+            .iter()
+            .map(|&d| {
+                if d == along {
+                    StackDirection {
+                        west: d.west * w.copies,
+                        up: d.up * w.copies,
+                        north: d.north * w.copies,
+                        max_copies: None,
+                        faces: d.faces,
+                    }
+                } else {
+                    d
+                }
+            })
+            .collect();
+        Some(Schematic {
+            width: Some(w.width),
+            latency: w.latency,
+            synchronized: w.synchronized,
+            throughput: w.throughput,
+            size,
+            stacking,
+            widened: Vec::new(),
+            stacked_from: self.width,
+            ..self.clone()
+        })
+    }
+
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
         match self.synchronized {
@@ -600,6 +668,7 @@ async fn load(
     let mut tags = tags_by_schematic(db, only.as_deref()).await?;
     let mut flags = flags_by_schematic(db, only.as_deref()).await?;
     let mut stacking = stacking_by_schematic(db, only.as_deref()).await?;
+    let mut widened = widened_by_schematic(db, only.as_deref()).await?;
     let mut credits = credits_by_schematic(db, only.as_deref()).await?;
     let extras = catalogue::Extras::load(db).await?;
     Ok(rows
@@ -618,6 +687,8 @@ async fn load(
                 ),
                 flags: flags.remove(&row.id).unwrap_or_default(),
                 stacking: stacking.remove(&row.id).unwrap_or_default(),
+                widened: widened.remove(&row.id).unwrap_or_default(),
+                stacked_from: None,
                 builders,
                 contributors,
                 id: row.id,
@@ -748,6 +819,36 @@ async fn stacking_by_schematic(
             });
     }
     Ok(stacking)
+}
+
+/// The wider builds the copies of the builds `only` names make, by id,
+/// narrowest first.
+async fn widened_by_schematic(
+    db: &SqlitePool,
+    only: Option<&str>,
+) -> Result<HashMap<String, Vec<Widened>>, sqlx::Error> {
+    let mut widened: HashMap<String, Vec<Widened>> = HashMap::new();
+    for row in sqlx::query!(
+        r#"SELECT schematic_id, width, copies, latency,
+            synchronized as "synchronized: bool", throughput
+         FROM stacked_width
+         WHERE ?1 IS NULL
+            OR schematic_id IN (SELECT value FROM json_each(?1))
+         ORDER BY width"#,
+        only
+    )
+    .fetch_all(db)
+    .await?
+    {
+        widened.entry(row.schematic_id).or_default().push(Widened {
+            width: row.width,
+            copies: row.copies,
+            latency: row.latency,
+            synchronized: row.synchronized,
+            throughput: row.throughput,
+        });
+    }
+    Ok(widened)
 }
 
 /// The builders and contributors of the builds `only` names, by id, each
@@ -1056,6 +1157,34 @@ pub async fn set_stacking(
     Ok(())
 }
 
+/// Replaces the wider builds a build's copies make with `widened`.
+pub async fn set_widened(
+    tx: &mut sqlx::SqliteConnection,
+    id: &str,
+    widened: &[Widened],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM stacked_width WHERE schematic_id = ?", id)
+        .execute(&mut *tx)
+        .await?;
+    for w in widened {
+        sqlx::query!(
+            "INSERT INTO stacked_width
+                (schematic_id, width, copies, latency, synchronized,
+                 throughput)
+             VALUES (?, ?, ?, ?, ?, ?)",
+            id,
+            w.width,
+            w.copies,
+            w.latency,
+            w.synchronized,
+            w.throughput,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Replaces the flags a build has with `names`.
 pub async fn set_flags(
     tx: &mut sqlx::SqliteConnection,
@@ -1224,6 +1353,8 @@ mod tests {
             bytes: None,
             size: (19, 11, 18),
             stacking: Vec::new(),
+            widened: Vec::new(),
+            stacked_from: None,
             builders: vec!["embizone".to_owned()],
             contributors: Vec::new(),
             built_on: Some("2014-09-06".to_owned()),

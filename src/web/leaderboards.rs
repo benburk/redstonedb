@@ -71,8 +71,11 @@ pub async fn show(
         orientation: parsed(query.orientation),
         design: query.design.filter(|d| !d.is_empty()),
     };
-    let builds: Vec<&Schematic> =
+    let own: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
+    // Copies of a narrower build stacked to a board's width compete on it.
+    let stacks = leaderboard::stacked(own.iter().copied());
+    let builds: Vec<&Schematic> = own.into_iter().chain(&stacks).collect();
     let board = leaderboard::board(&builds, &wanted, &chosen.measures);
     Ok(pages::leaderboard(
         user_opt.as_ref(),

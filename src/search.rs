@@ -436,6 +436,8 @@ mod tests {
             bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
+            widened: Vec::new(),
+            stacked_from: None,
             builders: vec!["embizone".to_owned()],
             contributors: Vec::new(),
             built_on: None,

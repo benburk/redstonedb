@@ -273,6 +273,10 @@ fn measure_part() -> Markup {
             "Builds compete only at equal measures. Leaderboards also split by stateless or stateful, "
             "encoding, and orientation."
         }
+        p class="mb-3" {
+            "A build whose copies stack into a wider one also competes at 8, 16, and 32 bits: its copies "
+            "are stacked to each width, tested, and timed, and take the box they fill, each copy adding its step."
+        }
     }
 }
 
