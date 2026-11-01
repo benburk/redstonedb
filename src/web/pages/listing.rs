@@ -13,6 +13,7 @@ use crate::{
     models::{
         catalogue::Section,
         schematic::{Encoding, Schematic},
+        tag::{self, Tag},
         user::User,
     },
     search::Term,
@@ -142,10 +143,11 @@ impl<'a> Listing<'a> {
         self.home().href()
     }
 
-    /// Whether words or tags are searched for, rather than a category
-    /// browsed.
+    /// Whether words are searched for, or tags outside a category, whose
+    /// page shows its tags chosen among its filters.
     fn searching(&self) -> bool {
-        !self.query.is_empty() || !self.tags.is_empty()
+        !self.query.is_empty()
+            || (!self.tags.is_empty() && self.category.is_empty())
     }
 
     fn home(&self) -> Home<'a> {
@@ -449,6 +451,9 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
     } = *listing;
     html! {
             (listing_header(listing, here, title))
+            @if !here.category.is_empty() {
+                (tag_filters(listing, here))
+            }
             @if listing.searching() {
                 div class="mb-6 flex flex-wrap items-center gap-1.5" {
                     // With no sidebar, the category searched in is one of
@@ -476,7 +481,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                             }
                         }
                     }
-                    @if !here.tags.is_empty() {
+                    @if !here.tags.is_empty() && here.category.is_empty() {
                         ul class="contents" aria-label="Tag filters" {
                             @for (i, group) in here.tags.iter().enumerate() {
                                 @let rest: Vec<String> = here.tags.iter().enumerate()
@@ -493,7 +498,10 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                             }
                         }
                     }
-                    a href=(Home { query: "", tags: &[], ..here }.href()) class="px-1.5 text-meta" { "Clear" }
+                    // A category's chosen tags stay, each removed from its
+                    // filters.
+                    @let kept: &[String] = if here.category.is_empty() { &[] } else { here.tags };
+                    a href=(Home { query: "", tags: kept, ..here }.href()) class="px-1.5 text-meta" { "Clear" }
                 }
             }
             @if total == 0 {
@@ -521,17 +529,122 @@ fn without(terms: &[Term], index: usize) -> String {
         .join(" ")
 }
 
-/// A listed build's tags on one row. `fails simulation` comes first, so a
+/// A listed build's tags on one row, its flags among them but not its
+/// design, which its name says. `fails simulation` comes first, so a
 /// failing build stands out to be fixed or removed.
 fn badges(s: &Schematic, class: &str) -> Markup {
+    let tags: Vec<Tag> = s
+        .every_tag()
+        .into_iter()
+        .filter(|tag| tag.kind != tag::Kind::Design)
+        .collect();
     html! {
-        @if !s.tags.is_empty() || !s.public {
+        @if !tags.is_empty() || !s.public {
             ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
                 @if !s.public {
                     li { (super::private_badge()) }
                 }
-                @for tag in &s.tags {
-                    li { (badge(tag)) }
+                @for tag in &tags {
+                    li { (badge(tag, s)) }
+                }
+            }
+        }
+    }
+}
+
+/// A tag the builds listed carry, to narrow them by, with how many have
+/// it, or one they are already narrowed by.
+struct Filter {
+    tag: Tag,
+    count: usize,
+    /// The tag filter it is, as the address gives it, when chosen.
+    chosen: Option<usize>,
+}
+
+/// The tags to narrow a category's builds by: each the builds `shown`
+/// carry that some but not all of them do, and each already chosen, by
+/// kind, found before given, then most carried first.
+fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
+    let mut filters: Vec<Filter> = Vec::new();
+    for s in shown {
+        for tag in s.every_tag() {
+            match filters.iter_mut().find(|f| f.tag.name == tag.name) {
+                Some(filter) => filter.count += 1,
+                None => filters.push(Filter {
+                    tag,
+                    count: 1,
+                    chosen: None,
+                }),
+            }
+        }
+    }
+    let mut unmatched = Vec::new();
+    for (i, group) in chosen.iter().enumerate() {
+        let wanted = tag::name(group);
+        match filters.iter_mut().find(|f| {
+            f.tag.name == wanted || f.tag.token.as_deref() == Some(&*wanted)
+        }) {
+            Some(filter) => filter.chosen = Some(i),
+            // Such as two tags at once, or one no build has.
+            None => unmatched.push(Filter {
+                tag: Tag {
+                    name: wanted,
+                    token: None,
+                    kind: tag::Kind::Other,
+                },
+                count: 0,
+                chosen: Some(i),
+            }),
+        }
+    }
+    filters.retain(|f| f.chosen.is_some() || f.count < shown.len());
+    filters.extend(unmatched);
+    let rank = |f: &Filter| {
+        let kind = match f.tag.kind {
+            tag::Kind::Failing => 0,
+            tag::Kind::Design => 1,
+            tag::Kind::Feature => 2,
+            tag::Kind::Restriction => 3,
+            tag::Kind::Other => 4,
+        };
+        (!f.tag.is_found(), kind, std::cmp::Reverse(f.count))
+    };
+    filters.sort_by_key(rank);
+    filters
+}
+
+/// Under a category's title, its tags to narrow it by, each with how many
+/// of its builds carry it, and those chosen marked, each to remove.
+fn tag_filters(listing: &Listing, here: Home) -> Markup {
+    let filters = filters(listing.shown, here.tags);
+    html! {
+        @if !filters.is_empty() {
+            ul aria-label="Filter by tag" class="mb-6 flex flex-wrap gap-1.5" {
+                @for filter in &filters {
+                    @let label = filter.tag.label().replace(',', " or ");
+                    li {
+                        @if let Some(i) = filter.chosen {
+                            @let rest: Vec<String> = here.tags.iter().enumerate()
+                                .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
+                            a href=(Home { tags: &rest, ..here }.href())
+                                aria-label={ "Remove the tag filter " (label) }
+                                title=(filter.tag.about())
+                                class={ "badge " (filter.tag.class()) " gap-1.5 pr-2 ring-2 ring-brand ring-offset-1 ring-offset-canvas hover:no-underline" } {
+                                (label)
+                                span aria-hidden="true" { "×" }
+                            }
+                        } @else {
+                            @let more: Vec<String> = here.tags.iter().cloned()
+                                .chain([filter.tag.name.clone()]).collect();
+                            a href=(Home { tags: &more, ..here }.href())
+                                aria-label={ "Only builds tagged " (label) ", " (filter.count) }
+                                title=(filter.tag.about())
+                                class={ "badge " (filter.tag.class()) " gap-1.5 hover:no-underline hover:brightness-95" } {
+                                (label)
+                                span class="font-normal tabular-nums" { (filter.count) }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -690,5 +803,63 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
                         }
                     }
                 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{catalogue::Flag, schematic::Orientation};
+
+    fn adder(design: &str, flags: &[&str], tags: &[&str]) -> Schematic {
+        let mut s = crate::search::tests::schematic(
+            "adder",
+            Orientation::Horizontal,
+            tags,
+        );
+        s.design = design.to_owned();
+        s.design_abbreviation = Some("CCA".to_owned());
+        s.flags = flags
+            .iter()
+            .map(|&name| Flag {
+                category: "adder".to_owned(),
+                name: name.to_owned(),
+                label: name.to_owned(),
+            })
+            .collect();
+        s
+    }
+
+    fn shown(filters: &[Filter]) -> Vec<(&str, usize, Option<usize>)> {
+        filters
+            .iter()
+            .map(|f| (f.tag.name.as_str(), f.count, f.chosen))
+            .collect()
+    }
+
+    /// A category's page is narrowed by the tags some but not all of its
+    /// builds carry, found before given; one chosen stays, however many
+    /// carry it, matched by its short form too.
+    #[test]
+    fn a_category_is_narrowed_by_the_tags_some_of_its_builds_carry() {
+        let builds = [
+            adder("carry_cancel", &["carry_in"], &["pistons"]),
+            adder("ripple_carry", &["carry_in", "carry_out"], &[]),
+            adder("ripple_carry", &["carry_in"], &[]),
+        ];
+        assert_eq!(
+            shown(&filters(&builds, &[])),
+            [
+                ("ripple_carry", 2, None),
+                ("carry_cancel", 1, None),
+                ("carry_out", 1, None),
+                ("pistons", 1, None),
+            ]
+        );
+        let chosen = ["cca".to_owned(), "two,three".to_owned()];
+        assert_eq!(
+            shown(&filters(&builds[..1], &chosen)),
+            [("carry_cancel", 1, Some(0)), ("two,three", 0, Some(1))]
+        );
     }
 }

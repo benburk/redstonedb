@@ -13,6 +13,14 @@ named_values! {
         /// That the build fails its simulation, never stored.
         #[value(skip)]
         Failing = "failing", "Simulation";
+        /// Its design, such as `carry_cancel`, when the site works it out,
+        /// never stored as a tag.
+        #[value(skip)]
+        Design = "design", "Design";
+        /// One of its category's flags, such as `carry_in`, when the site
+        /// reads it from the build, never stored as a tag.
+        #[value(skip)]
+        Feature = "feature", "Feature";
     }
 }
 
@@ -42,7 +50,7 @@ const ALPHA: &str = "alpha";
 pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];
 
 impl Tag {
-    fn derived(name: &str, kind: Kind) -> Self {
+    pub(super) fn derived(name: &str, kind: Kind) -> Self {
         Tag {
             name: name.to_owned(),
             token: None,
@@ -54,6 +62,34 @@ impl Tag {
     /// person.
     pub fn is_derived(&self) -> bool {
         DERIVED.contains(&self.name.as_str())
+    }
+
+    /// Whether the site works it out from the build, so its badge has the
+    /// colour of a found tag: a derived tag, or a design or flag the site
+    /// finds.
+    pub fn is_found(&self) -> bool {
+        self.is_derived() || matches!(self.kind, Kind::Design | Kind::Feature)
+    }
+
+    /// The class that colours its badge: failing in the colour of danger,
+    /// any other the site finds in its own, and one a person gives by its
+    /// kind.
+    pub fn class(&self) -> &'static str {
+        match self.kind {
+            Kind::Failing => "badge-failing",
+            _ if self.is_found() => "badge-found",
+            Kind::Restriction => "badge-restriction",
+            _ => "badge-other",
+        }
+    }
+
+    /// What its badge's tooltip says it is.
+    pub fn about(&self) -> String {
+        if self.is_found() && self.kind != Kind::Failing {
+            format!("{}, found by the site", self.kind.label())
+        } else {
+            self.kind.label().to_owned()
+        }
     }
 
     /// The name as words, such as `carry lookahead`.

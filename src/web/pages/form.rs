@@ -252,7 +252,7 @@ fn tag_pill(tag: &Tag) -> Pill {
     Pill {
         label: tag.label(),
         value: tag.name.clone(),
-        class: format!("badge-{}", tag.kind.name()),
+        class: tag.class().to_owned(),
     }
 }
 

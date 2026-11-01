@@ -400,14 +400,16 @@ fn versions(s: &Schematic) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::models::{
         schematic::{Encoding, Orientation},
         tag::Tag,
     };
 
-    fn schematic(
+    /// A build of `category` with nothing but its orientation and `tags`,
+    /// for tests elsewhere too.
+    pub(crate) fn schematic(
         category: &str,
         orientation: Orientation,
         tags: &[&str],

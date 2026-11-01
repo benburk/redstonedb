@@ -200,12 +200,23 @@ fn plural(singular: &str, names: &[String]) -> String {
     }
 }
 
-/// A tag, linking to the builds that carry it.
-fn badge(tag: &Tag) -> Markup {
+/// A tag of build `s`, linking to the builds of its category that carry
+/// it, as flags of one name differ between categories; a build off the
+/// list, to those under Other.
+fn badge(tag: &Tag, s: &Schematic) -> Markup {
+    let category = if s.category_label.is_some() {
+        s.category.as_str()
+    } else {
+        "other"
+    };
+    let query = form_urlencoded::Serializer::new(String::new())
+        .append_pair("category", category)
+        .append_pair("tag", &tag.name)
+        .finish();
     html! {
-        a href={ "/?" (form_urlencoded::Serializer::new(String::new()).append_pair("tag", &tag.name).finish()) }
-            title=(tag.kind.label())
-            class={ "badge badge-" (tag.kind.name()) " relative z-10 hover:no-underline hover:brightness-95" } {
+        a href={ "/?" (query) }
+            title=(tag.about())
+            class={ "badge " (tag.class()) " relative z-10 hover:no-underline hover:brightness-95" } {
             (tag.label())
         }
     }

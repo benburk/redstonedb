@@ -54,6 +54,9 @@
   --color-on-restriction: light-dark(oklch(42% 0.09 60), oklch(88% 0.09 80));
   --color-other: light-dark(oklch(94% 0.035 300), oklch(30% 0.06 300));
   --color-on-other: light-dark(oklch(43% 0.14 300), oklch(87% 0.07 300));
+  /* A tag the site works out from the build, rather than a person gives. */
+  --color-found: light-dark(oklch(94% 0.04 185), oklch(30% 0.05 195));
+  --color-on-found: light-dark(oklch(40% 0.08 195), oklch(87% 0.07 185));
 
   /* The brand mark; decorative, so it carries no contrast pair. */
   --color-redstone: oklch(52% 0.2 27);
@@ -188,6 +191,10 @@
 
   .badge-other {
     @apply bg-other text-on-other;
+  }
+
+  .badge-found {
+    @apply bg-found text-on-found;
   }
 
   .badge-builder {

@@ -339,6 +339,47 @@ impl Schematic {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
+    /// Its tags with its design and flags among them, as its page shows
+    /// them and a list is narrowed by: `fails_simulation` first, then its
+    /// design, its flags in its category's order, and its other tags. A
+    /// design or flag the site works out from a conventional build is
+    /// found, as its category's test or file sets it; one a person gives
+    /// is of kind other.
+    pub fn every_tag(&self) -> Vec<Tag> {
+        let behaviour = crate::category::behaviour(&self.category);
+        let found = |kind, by_site: bool| {
+            if self.conventional && by_site {
+                kind
+            } else {
+                tag::Kind::Other
+            }
+        };
+        let design = (self.design != "other").then(|| Tag {
+            name: self.design.clone(),
+            token: self.design_abbreviation.as_ref().map(|a| a.to_lowercase()),
+            kind: found(tag::Kind::Design, behaviour.evaluated),
+        });
+        let flags = self.flags.iter().map(|flag| Tag {
+            name: flag.name.clone(),
+            token: None,
+            kind: found(
+                tag::Kind::Feature,
+                behaviour.evaluated || behaviour.flags_from_file,
+            ),
+        });
+        let (failing, rest): (Vec<&Tag>, Vec<&Tag>) = self
+            .tags
+            .iter()
+            .partition(|tag| tag.kind == tag::Kind::Failing);
+        failing
+            .into_iter()
+            .cloned()
+            .chain(design)
+            .chain(flags)
+            .chain(rest.into_iter().cloned())
+            .collect()
+    }
+
     /// The width in words, such as `8 bits` or `1 bit`.
     pub fn width_label(&self) -> Option<String> {
         self.width
@@ -1505,6 +1546,36 @@ mod tests {
                 kind: tag::Kind::Restriction,
             }],
         }
+    }
+
+    /// Its design and flags are among its tags, after failing and before
+    /// the rest, coloured as found when the site works them out, and as
+    /// given for a build kept as built.
+    #[test]
+    fn a_build_s_design_and_flags_are_among_its_tags() {
+        let mut s = cla();
+        s.flags = vec![Flag {
+            category: "adder".to_owned(),
+            name: "carry_in".to_owned(),
+            label: "Carry in".to_owned(),
+        }];
+        s.tags
+            .insert(0, Tag::derived(tag::FAILS_SIMULATION, tag::Kind::Failing));
+        let tags = s.every_tag();
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["fails_simulation", "carry_lookahead", "carry_in", "alpha"]
+        );
+        let classes: Vec<&str> = tags.iter().map(Tag::class).collect();
+        assert_eq!(
+            classes,
+            ["badge-failing", "badge-found", "badge-found", "badge-found"]
+        );
+        s.conventional = false;
+        let given: Vec<&str> =
+            s.every_tag()[1..3].iter().map(Tag::class).collect();
+        assert_eq!(given, ["badge-other", "badge-other"]);
     }
 
     #[test]

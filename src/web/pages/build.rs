@@ -9,14 +9,14 @@ use crate::{
     import::{self, Analysis},
     interface::Interface,
     models::{
-        catalogue::{Flag, Measure},
+        catalogue::Measure,
         schematic::{Logic, Schematic, StackDirection},
         simulation::Status,
         tag,
         user::User,
         version::Version,
     },
-    simulate::{Report, Test, Timing},
+    simulate::{Report, Timing},
     web::schematics::Colours,
 };
 
@@ -24,7 +24,7 @@ use super::{
     PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base, beside_viewer_under,
     field, grouped,
     icons::{self, icon},
-    interface::{Inversions, interface_section, inverts},
+    interface::{Inversions, interface_section},
     name_badges, percent, person_badge, plural, search_link,
     simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
@@ -49,12 +49,10 @@ pub struct FileRead {
     pub stacking: Vec<crate::stack::Review>,
 }
 
-/// What a build's page shows: the build, its category's flags, the
-/// builds like it, its file as read, its simulation, its versions, and
+/// What a build's page shows: the build, the builds like it, its file as read, its simulation, its versions, and
 /// whether the viewer has favourited it.
 pub struct BuildPage<'a> {
     pub s: &'a Schematic,
-    pub flags: &'a [Flag],
     pub similar: &'a [(Schematic, u32)],
     pub file: &'a Result<FileRead, String>,
     pub simulation: &'a Status,
@@ -76,7 +74,6 @@ pub struct ColoursShown {
 pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
     let BuildPage {
         s,
-        flags,
         similar,
         file,
         simulation,
@@ -119,7 +116,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             (beside_viewer_under(
                 &format!("{path}/download?preview=yes&colours={}", colours.chosen.name()),
                 &colours_switch(&path, colours),
-                &build_info(s, flags, similar, file, report),
+                &build_info(s, similar, file, report),
                 false,
             ))
             @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
@@ -262,7 +259,6 @@ struct Sources {
     /// timing.
     pulse: Source,
     stacking: Source,
-    design: Source,
     throughput: Source,
     /// Whether it holds state.
     logic: Source,
@@ -344,7 +340,6 @@ impl Sources {
                     .is_some_and(|timing| timing.pulse.is_some()),
             ),
             stacking,
-            design: Source::Given,
             throughput: Source::Given,
             logic: Source::Given,
             verified: false,
@@ -374,7 +369,6 @@ impl Sources {
             timing: source,
             pulse: source,
             stacking: source,
-            design: source,
             throughput: source,
             logic: source,
             verified: true,
@@ -410,7 +404,6 @@ fn sourced(
 /// measures some of its facts.
 pub fn build_info(
     s: &Schematic,
-    flags: &[Flag],
     similar: &[(Schematic, u32)],
     file: &Result<FileRead, String>,
     report: Option<&Report>,
@@ -419,26 +412,21 @@ pub fn build_info(
     let sources = Sources::of(s, interface, report);
     let flag_names: Vec<String> =
         s.flags.iter().map(|flag| flag.name.clone()).collect();
-    // The inputs and outputs table says which lines are read inverted.
-    let specs_flags: Vec<Flag> = flags
-        .iter()
-        .filter(|flag| inverts(&s.category, &flag.name).is_none())
-        .cloned()
-        .collect();
     html! {
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
             (facts(s, &sources))
-            // A failing build says so beside its title, not among its tags.
-            @let tags: Vec<_> = s.tags.iter().filter(|tag| tag.name != tag::FAILS_SIMULATION).collect();
+            // A failing build says so beside its title, not among its tags;
+            // its design and flags are among them.
+            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_SIMULATION).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
-                    @for tag in tags {
-                        li { (super::badge(tag)) }
+                    @for tag in &tags {
+                        li { (super::badge(tag, s)) }
                     }
                 }
             }
-            (specs(s, &specs_flags, &sources, report))
+            (specs(s, &sources, report))
             (credits(s))
             @match file {
                 _ if !s.conventional => {
@@ -590,13 +578,8 @@ fn short_stacking(direction: &StackDirection) -> String {
 }
 
 /// What a build is and how it behaves, beyond its key facts.
-fn specs(
-    s: &Schematic,
-    flags: &[Flag],
-    sources: &Sources,
-    report: Option<&Report>,
-) -> Markup {
-    // An adder's design says how big its groups are, as its run found.
+fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
+    // An adder's design, among its tags, has groups as its run found.
     let group = match report {
         Some(Report::Ran(run)) => run.design.as_ref().and_then(|d| d.group),
         _ => None,
@@ -621,11 +604,8 @@ fn specs(
                         (s.category_label())
                     }
                 }, sources.category, sources)))
-                @if let Some(design) = s.design_label() {
-                    (field("Design", sourced(html! {
-                        (search_link(&design, &s.design))
-                        @if let Some(group) = group { ", in groups of " (group) }
-                    }, sources.design, sources)))
+                @if let Some(group) = group {
+                    (field("Groups", html! { (group) " bits" }))
                 }
                 (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation, sources)))
                 // A serial build's throughput is among its measures.
@@ -656,22 +636,6 @@ fn specs(
                 }
                 @if s.pipelined() {
                     (field("Pipelined", sourced(flag(true, Some("pipelined")), sources.throughput, sources)))
-                }
-                // A category such as adder reads its flags from the file,
-                // a monostable's Inverted comes with its pulse, and a
-                // comparator's Signed with its cases.
-                @let read = if s.conventional && category::behaviour(&s.category).flags_from_file {
-                    Source::File
-                } else if s.has(Measure::Pulse) {
-                    sources.pulse
-                } else if category::behaviour(&s.category).test == Some(Test::GreaterThan) {
-                    sources.category
-                } else {
-                    Source::Given
-                };
-                @for each in flags {
-                    @let has = s.flags.iter().any(|has| has.name == each.name);
-                    (field(&each.label, sourced(flag(has, has.then_some(each.name.as_str())), read, sources)))
                 }
             }
         }

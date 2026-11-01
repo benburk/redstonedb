@@ -276,12 +276,13 @@ async fn listing(
 }
 
 /// Whether `s` carries a tag from every group, a group being one `tag`
-/// value with its alternatives separated by commas. A tag matches by name
-/// or token.
+/// value with its alternatives separated by commas, its design and flags
+/// among its tags. A tag matches by name or token.
 fn has_tags(s: &Schematic, groups: &[String]) -> bool {
+    let tags = s.every_tag();
     groups.iter().all(|group| {
         group.split(',').map(tag::name).any(|wanted| {
-            s.tags.iter().any(|tag| {
+            tags.iter().any(|tag| {
                 tag.name == wanted || tag.token.as_deref() == Some(&*wanted)
             })
         })
@@ -536,14 +537,10 @@ pub async fn detail(
         })
         .map_err(|err| err.to_string());
     let similar = similar_to(db, &id, user_opt.as_ref()).await?;
-    let flags: Vec<_> = catalogue::flags(db)
-        .await?
-        .into_iter()
-        .filter(|flag| flag.category == s.category)
-        .collect();
     if panel == Some("info") {
-        return Ok(pages::build_info(&s, &flags, &similar, &file, report)
-            .into_response());
+        return Ok(
+            pages::build_info(&s, &similar, &file, report).into_response()
+        );
     }
     let versions = version::list(db, &id).await?;
     let favorited = match &user_opt {
@@ -569,7 +566,6 @@ pub async fn detail(
         user_opt.as_ref(),
         &pages::BuildPage {
             s: &s,
-            flags: &flags,
             similar: &similar,
             file: &file,
             simulation: &simulation,
