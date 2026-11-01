@@ -125,6 +125,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Multipliers take A and B, and at most one calculate button. No reset. A third input can be an addend, for A × B + C." }
                         li { "Counters take A, one clock button, and one write enable lever." }
                         li { "Subtractors are adders that take B away: A − B, less a borrow in. They rank apart from adders." }
+                        li { "T flip-flops take one input, a button or a lever, and give one output, which each press toggles." }
                         li { "Hex adders take A and B a hex digit per block, a signal strength through dust on top, in place of levers. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
@@ -132,8 +133,8 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     p class="mb-4" {
                         "Recognized so far: adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, "
                         "carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, "
-                        "inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and "
-                        "shift registers."
+                        "inverters, decoders, barrel shifters, monostables, registers, buffers, counters, "
+                        "shift registers, and T flip-flops."
                     }
                     p class="mb-4" {
                         "A build that doesn't fit goes up as built, unverified, with a note on what's in the way. "

@@ -1,11 +1,13 @@
-//! Testing a counter or a shift register: a value it holds, shown on its
-//! widest output, that its control lines change as they pulse, counting it
-//! up or down, shifting it toward its high or its low bit, loading input A
-//! into it, or clearing it.
+//! Testing a counter, a shift register, or a T flip-flop: a value it holds,
+//! shown on its widest output, that its control lines change as they pulse,
+//! counting it up or down, shifting it toward its high or its low bit,
+//! loading input A into it, clearing it, or toggling it.
 //!
 //! A counter has one way to be driven: input A, as wide as its value, a
 //! clock button, which counts it up or down, and a write enable lever,
-//! with which the clock loads A instead. A shift register's lines are
+//! with which the clock loads A instead. A T flip-flop has one too: one
+//! bit, toggled by each pulse of its one control line. A shift register's
+//! lines are
 //! found by trying each, pulsed alone or with one of its other levers held
 //! on, from a value no two operations agree on; one must shift.
 //!
@@ -32,6 +34,7 @@ use crate::{colour, interface, schem::Blocks};
 pub enum Kind {
     Counter,
     ShiftRegister,
+    TFlipFlop,
 }
 
 impl Kind {
@@ -39,6 +42,15 @@ impl Kind {
         match self {
             Kind::Counter => "counter",
             Kind::ShiftRegister => "shift register",
+            Kind::TFlipFlop => "T flip-flop",
+        }
+    }
+
+    fn category(self) -> &'static str {
+        match self {
+            Kind::Counter => "counter",
+            Kind::ShiftRegister => "shift_register",
+            Kind::TFlipFlop => "t_flip_flop",
         }
     }
 }
@@ -50,6 +62,8 @@ enum Op {
     Down,
     Load,
     Clear,
+    /// Every bit inverted, a T flip-flop's.
+    Toggle,
     /// Toward the high bit, the low bit taking `in`.
     ShiftUp {
         fill: bool,
@@ -69,6 +83,7 @@ impl Op {
             Op::Down => value.wrapping_sub(1) & all,
             Op::Load => data & all,
             Op::Clear => 0,
+            Op::Toggle => !value & all,
             Op::ShiftUp { fill } => (value << 1 | u64::from(fill)) & all,
             Op::ShiftDown { fill } => {
                 (value >> 1 | u64::from(fill) << (width - 1)) & all
@@ -83,13 +98,15 @@ impl Op {
             Op::Down => "counts down",
             Op::Load => "loads A",
             Op::Clear => "clears it",
+            Op::Toggle => "inverts it",
             Op::ShiftUp { .. } => "shifts it up",
             Op::ShiftDown { .. } => "shifts it down",
         }
     }
 
+    /// Whether it is checked over a run of pulses, as a count is.
     fn counts(self) -> bool {
-        matches!(self, Op::Up | Op::Down)
+        matches!(self, Op::Up | Op::Down | Op::Toggle)
     }
 
     fn shifts(self) -> bool {
@@ -137,10 +154,9 @@ struct Lines {
 /// The lines of the build in `blocks`, as its colours mark them.
 fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
     let mut interface = interface::read(blocks);
-    if kind == Kind::Counter {
-        // Its button is its clock and its lever its write enable.
-        interface::name_lines("counter", blocks, &mut interface);
-    }
+    // A counter's button is its clock and its lever its write enable, and
+    // a T flip-flop's one control line its toggle.
+    interface::name_lines(kind.category(), blocks, &mut interface);
     let mut data = None;
     let mut controls = Vec::new();
     for (i, port) in interface.inputs.iter().enumerate() {
@@ -327,6 +343,10 @@ const EXAMPLES: usize = 10;
 /// The most pulses a count is checked over.
 const MOST_COUNTS: u64 = 300;
 
+/// The pulses a toggle is checked over: enough that one toggling only on
+/// some pulses, or every other, shows it.
+const TOGGLES: u64 = 16;
+
 /// A value of `width` bits no two operations agree on from, with `salt`
 /// for a second such value: neither all off nor all on, its bits mixed.
 fn telling(width: usize, salt: u64) -> u64 {
@@ -381,24 +401,17 @@ fn find<'a>(
     lines: &Lines,
     kind: Kind,
 ) -> Result<Found> {
-    if kind == Kind::Counter {
-        return counter(fresh, lines);
+    match kind {
+        Kind::Counter => return counter(fresh, lines),
+        Kind::TFlipFlop => return toggle(fresh, lines),
+        Kind::ShiftRegister => {}
     }
     let all_ways = ways(&fresh()?);
     let setter = setter(fresh, &all_ways, lines.width, kind)?;
     let found = operations(fresh, &all_ways, setter, lines.width)?;
-    let needed = match kind {
-        Kind::Counter => found.iter().any(|&(_, op)| op.counts()),
-        Kind::ShiftRegister => found.iter().any(|&(_, op)| op.shifts()),
-    };
-    if !needed {
+    if !found.iter().any(|&(_, op)| op.shifts()) {
         broken!(
-            "No control line {} its value, which a {} does.",
-            match kind {
-                Kind::Counter => "counts up or down",
-                Kind::ShiftRegister => "shifts",
-            },
-            kind.noun()
+            "No control line shifts its value, which a shift register does."
         );
     }
     let mut tally = Tally::default();
@@ -481,6 +494,36 @@ fn counter<'a>(
     })
 }
 
+/// How a T flip-flop, of `lines`, makes its one operation, and its cases:
+/// each pulse of its one control line toggles the bit it holds.
+fn toggle<'a>(
+    fresh: &dyn Fn() -> Result<Machine<'a>>,
+    lines: &Lines,
+) -> Result<Found> {
+    let ([_], None, 1) =
+        (lines.controls.as_slice(), &lines.data_name, lines.width)
+    else {
+        broken!(
+            "A T flip-flop has one input, its toggle, and one output bit, \
+             but this has {} inputs and {} output bits.",
+            lines.controls.len() + usize::from(lines.data.is_some()),
+            lines.width
+        );
+    };
+    let way = Way {
+        pulse: 0,
+        held: None,
+    };
+    let mut tally = Tally::default();
+    tally.check(fresh, lines, (way, Op::Toggle), way, Op::Toggle)?;
+    Ok(Found {
+        ways: vec![(way, Op::Toggle)],
+        cases: tally.cases,
+        wrong: tally.wrong,
+        examples: tally.examples,
+    })
+}
+
 /// A way to set the value held, and how it sets it: a load, or else a
 /// count, to count to it.
 type Setter = (Way, Op);
@@ -521,7 +564,7 @@ fn setter<'a>(
         kind.noun(),
         match kind {
             Kind::Counter => "counts",
-            Kind::ShiftRegister => "loads A",
+            Kind::ShiftRegister | Kind::TFlipFlop => "loads A",
         }
     );
 }
@@ -615,7 +658,12 @@ impl Tally {
         let what = format!("{} {}", way_words(lines, way), op.words());
         let mut machine = fresh()?;
         if op.counts() {
-            for _ in 0..(mask(width) + 2).min(MOST_COUNTS) {
+            let pulses = if op == Op::Toggle {
+                TOGGLES
+            } else {
+                (mask(width) + 2).min(MOST_COUNTS)
+            };
+            for _ in 0..pulses {
                 let before = machine.read();
                 machine.apply(way, 0)?;
                 self.note(

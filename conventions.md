@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The How builds are recognized page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its builder gives. A new version that is recognized moves it up.
+A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its builder gives. A new version that is recognized moves it up.
 
 ## Inputs
 
@@ -29,6 +29,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - A monostable has input A and a lone output, its pulse. A buffer is read as a register is.
 - A counter has input A, one button, its clock, and one lever, its write enable: pressing the clock counts up or down, and pressing it with write enable on loads A.
 - A shift register's every other lever or button is a control line, and what each does, shifting, loading, or clearing, alone or with another lever held on, is found by trying it.
+- A T flip-flop has one input, a button or a lever, and one output bit, which each press, or each turn of the lever on and off, toggles.
 
 ## Buses
 

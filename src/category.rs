@@ -52,7 +52,7 @@ pub enum Reads {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 28] = [
+pub const BLESSED: [&str; 29] = [
     "adder",
     "hex_adder",
     "subtractor",
@@ -81,6 +81,7 @@ pub const BLESSED: [&str; 28] = [
     "popcount",
     "threshold",
     "binary_to_hex",
+    "t_flip_flop",
 ];
 
 /// What a category's unsigned control and status lines are taken to be.
@@ -105,7 +106,7 @@ pub enum Lines {
     /// A comparison's: its one output, yellow or pink, is its result, which
     /// needs no sign and goes by this name, such as `A > B`.
     Result(&'static str),
-    /// An inverter's or multiplier's: its lone control line needs no sign
+    /// An inverter's, multiplier's, or T flip-flop's: its lone control line needs no sign
     /// and goes by this name, such as `invert` or `calculate`; it has no
     /// status line.
     Control(&'static str),
@@ -292,6 +293,11 @@ pub fn behaviour(category: &str) -> Behaviour {
             ..held(Test::Counter)
         },
         "shift_register" => held(Test::ShiftRegister),
+        // Its lone control line needs no sign: it toggles the bit held.
+        "t_flip_flop" => Behaviour {
+            lines: Lines::Control("toggle"),
+            ..held(Test::TFlipFlop)
+        },
         "multiplier" => Behaviour {
             flags_from_file: true,
             stacking: Stacking::Never,

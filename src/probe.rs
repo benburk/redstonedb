@@ -621,7 +621,7 @@ pub fn recognize_watched(
 /// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
 /// NAND+XNOR an adder's inverted, which no wider build of those is; an
 /// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-pub const KINDS: [&str; 26] = [
+pub const KINDS: [&str; 27] = [
     "xor_xnor_gate",
     "and_nand_gate",
     "or_nor_gate",
@@ -648,6 +648,7 @@ pub const KINDS: [&str; 26] = [
     "multiplier",
     "counter",
     "shift_register",
+    "t_flip_flop",
 ];
 
 /// What a probe found: the build's data inputs, its file coloured by the
@@ -701,6 +702,7 @@ fn named(kind: &str) -> String {
         "equality" => "equality comparator",
         "greater_than" => "greater-than comparator",
         "dual_edge_monostable" => "dual-edge monostable",
+        "t_flip_flop" => "T flip-flop",
         _ => &kind.replace('_', " "),
     };
     let article = if name.starts_with(['a', 'e', 'i', 'o', 'u', 'A', 'O', 'X'])
@@ -736,6 +738,7 @@ fn role_words(kind: &str) -> &'static [&'static str] {
         "buffer" => &["write", "write enable", "data in", "data out"],
         "multiplier" => &["calculate", "calc", "reset"],
         "counter" => &["clock", "clk", "write", "write enable", "load"],
+        "t_flip_flop" => &["toggle", "t", "clock", "clk", "q"],
         "incrementer" => &["increment", "inc", "carry out", "cout"],
         "decrementer" => &["decrement", "dec", "borrow out", "bout"],
         "inverter" => &["invert", "inv"],
@@ -856,14 +859,16 @@ fn probed_as(
                 (probed.a, probed.file, found)
             })
         }
-        "counter" => sequential(data, report, Test::Counter).map(|probed| {
-            let found = found(&probed.run);
-            (probed.data, probed.file, found)
-        }),
-        _ => sequential(data, report, Test::ShiftRegister).map(|probed| {
-            let found = found(&probed.run);
-            (probed.data, probed.file, found)
-        }),
+        "counter" | "shift_register" | "t_flip_flop" => {
+            let test = category::behaviour(kind)
+                .test
+                .expect("a blessed category has a test");
+            sequential(data, report, test).map(|probed| {
+                let found = found(&probed.run);
+                (probed.data, probed.file, found)
+            })
+        }
+        _ => unreachable!("{kind} is not one of KINDS"),
     })
 }
 
@@ -1790,6 +1795,23 @@ mod tests {
                 found.problems
             );
         }
+    }
+
+    /// A T flip-flop, one input and one output, is found by each pulse of
+    /// its input toggling its output, whatever else it might pass for.
+    #[test]
+    fn a_t_flip_flop_is_found_from_its_toggle() {
+        let data = std::fs::read("tests/fixtures/t-flip-flop.schem").unwrap();
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a T flip-flop")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     /// A counter has one clock button and one write enable lever, so one

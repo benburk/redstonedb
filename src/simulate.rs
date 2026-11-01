@@ -150,6 +150,8 @@ pub enum Test {
     /// A value held, shifted toward its high or low bit as its control
     /// lines pulse.
     ShiftRegister,
+    /// One bit held, toggled by each pulse of its one control line.
+    TFlipFlop,
 }
 
 /// The widest build tested, whose every value fits one number with room
@@ -158,7 +160,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 28] = [
+    pub const ALL: [Test; 29] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -187,6 +189,7 @@ impl Test {
         Test::OrNor,
         Test::Counter,
         Test::ShiftRegister,
+        Test::TFlipFlop,
     ];
 
     /// The test a build of `category` and `width` gets: its category's,
@@ -237,6 +240,7 @@ impl Test {
             Test::OrNor => "or_nor_gate",
             Test::Counter => "counter",
             Test::ShiftRegister => "shift_register",
+            Test::TFlipFlop => "t_flip_flop",
         }
     }
 
@@ -295,6 +299,9 @@ impl Test {
             Test::ShiftRegister => {
                 sequential::check(blocks, sequential::Kind::ShiftRegister)
             }
+            Test::TFlipFlop => {
+                sequential::check(blocks, sequential::Kind::TFlipFlop)
+            }
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -318,7 +325,11 @@ impl Test {
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
         if matches!(
             self,
-            Test::Register | Test::Buffer | Test::Counter | Test::ShiftRegister
+            Test::Register
+                | Test::Buffer
+                | Test::Counter
+                | Test::ShiftRegister
+                | Test::TFlipFlop
         ) {
             return Ok(Some(true));
         }
@@ -384,10 +395,11 @@ impl Test {
             | Test::Monostable
             | Test::DualEdgeMonostable
             | Test::Counter
-            | Test::ShiftRegister => {
+            | Test::ShiftRegister
+            | Test::TFlipFlop => {
                 unreachable!(
                     "an ALU, a register, a buffer, a monostable, a counter, \
-                     and a shift register run their own way"
+                     a shift register, and a T flip-flop run their own way"
                 )
             }
         }
@@ -443,7 +455,7 @@ impl Test {
             Test::Alu => alu::throughput(blocks, timing),
             Test::BarrelShifter => shifter::throughput(blocks, timing),
             // How fast one may be clocked isn't measured yet.
-            Test::Counter | Test::ShiftRegister => Ok(None),
+            Test::Counter | Test::ShiftRegister | Test::TFlipFlop => Ok(None),
             _ => {
                 // Its lines named as its test names them, as its timing
                 // names them, so each goes in at its own tick.
@@ -477,6 +489,9 @@ impl Test {
                 sequential::Kind::ShiftRegister,
                 cancel,
             ),
+            Test::TFlipFlop => {
+                sequential::time(blocks, sequential::Kind::TFlipFlop, cancel)
+            }
             _ => {
                 let mut interface = interface::read(blocks);
                 let spec = self.spec(blocks, &mut interface)?;
@@ -669,7 +684,7 @@ pub struct Wrong {
 /// comes before an equality comparator, as a 1-bit one is A xnor B. A
 /// popcount and a threshold come before the BCD converters, whose telling
 /// values a popcount's strength output can pass.
-const GUESSED: [Test; 26] = [
+const GUESSED: [Test; 27] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
@@ -696,6 +711,7 @@ const GUESSED: [Test; 26] = [
     Test::Alu,
     Test::Counter,
     Test::ShiftRegister,
+    Test::TFlipFlop,
 ];
 
 /// What a build seems to be, from a few telling values run through each

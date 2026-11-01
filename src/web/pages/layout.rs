@@ -106,8 +106,8 @@ const SIDEBAR_HEADING: &str =
     "mt-5 mb-1 px-2.5 text-meta font-semibold text-muted";
 
 /// The sidebar, the same on every page: under the brand, the viewer's
-/// profile, from which their settings are reached, or logging in; then
-/// the site's pages and the pages most visits don't need; `current_path`
+/// profile, or logging in; then the site's pages and the pages most visits
+/// don't need; at its foot, a signed-in viewer's settings; `current_path`
 /// is marked as the page shown. Beside the page on a wide screen, staying
 /// in view, its pages scrolling between its brand and its foot; on a
 /// phone, a panel the header's button opens over the page.
@@ -144,10 +144,8 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                         None => (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))),
                         Some(user) => {
                             @let profile = format!("/users/{}", user.username);
-                            // Settings are the profile's, so it stays marked there.
-                            @let chosen = (current_path == profile || current_path == "/settings").then_some("page");
                             li {
-                                a href=(profile) aria-current=[chosen] class=(SIDEBAR_LINK) {
+                                a href=(profile) aria-current=[current(&profile)] class=(SIDEBAR_LINK) {
                                     @match user.picture(16) {
                                         Some(picture) => (picture),
                                         None => (icon(icons::USER, SIDEBAR_ICON)),
@@ -159,7 +157,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     }
                 }
             }
-            // The site's pages scroll between the brand and the account,
+            // The site's pages scroll between the account and the settings,
             // which stay put.
             div data-sidebar class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-gutter:stable]" {
                 ul class="flex flex-col gap-0.5" {
@@ -176,6 +174,13 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/about/recognized", icons::CHECK, "Build Analysis", current("/about/recognized")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
+                    }
+                }
+            }
+            @if viewer.is_some() {
+                div class="shrink-0 border-t border-line px-3 py-3" {
+                    ul {
+                        (link("/settings", icons::SETTINGS, "Settings", current("/settings")))
                     }
                 }
             }
