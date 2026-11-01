@@ -15,7 +15,7 @@ use crate::{
         simulation, tag,
     },
     mojang,
-    simulate::{Report, Test},
+    simulate::{AdderVariant, Report, Test},
     stack,
 };
 
@@ -224,7 +224,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, hex adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
+            "Only adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )
@@ -418,8 +418,16 @@ pub async fn unrecognized(
     let report = simulation::run(test, build.data.to_vec())
         .await
         .map_err(|err| format!("It could not be simulated: {err}."))?;
-    match report {
-        _ if report.passed() => Ok(None),
+    match &report {
+        // An adder adds and a subtractor subtracts, each its own category.
+        Report::Ran(run) if report.passed() => {
+            let subtracts = AdderVariant::of(&run.pattern).subtract;
+            match category.name.as_str() {
+                "adder" | "hex_adder" if subtracts => off(SUBTRACTS.to_owned()),
+                "subtractor" if !subtracts => off(ADDS.to_owned()),
+                _ => Ok(None),
+            }
+        }
         // A block the simulator does not model, as a piston.
         Report::Skipped { reason } => {
             off(reason.trim().trim_end_matches('.').to_owned())
@@ -433,6 +441,12 @@ const HEX_ADDER: &str = "hex_adder";
 
 /// Why a hex adder whose inputs are levers is not verified as one.
 pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
+
+/// Why an adder whose B is subtracted is not verified as an adder.
+pub const SUBTRACTS: &str = "It subtracts";
+
+/// Why an adder that adds is not verified as a subtractor.
+pub const ADDS: &str = "It adds";
 
 /// Why a build that gets some cases of its test wrong is not verified.
 pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";

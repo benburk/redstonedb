@@ -994,8 +994,8 @@ fn a_double_density_subtractor_takes_b_from_a() {
         panic!("the subtractor was not simulated");
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
-    // A subtractor is an adder whose B is inverted.
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
+    // An adder whose B is subtracted is taken for a subtractor.
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "subtractor");
 }
 
 /// However a recognized build is turned or mirrored, an upload lays it
@@ -1008,7 +1008,7 @@ fn a_double_density_subtractor_takes_b_from_a() {
 fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     let fixtures = [
         ("alpha-rca", "adder"),
-        ("dd-cca-sub-16", "adder"),
+        ("dd-cca-sub-16", "subtractor"),
         ("inc-8", "incrementer"),
         ("alu-8-ops-raw", "alu"),
     ];

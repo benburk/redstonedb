@@ -1400,7 +1400,8 @@ pub async fn set_widened(
     Ok(())
 }
 
-/// Replaces the flags a build has with `names`.
+/// Replaces the flags a build has with those of `names` its category has,
+/// as a subtractor has no subtract flag, its category saying so.
 pub async fn set_flags(
     tx: &mut sqlx::SqliteConnection,
     id: &str,
@@ -1412,9 +1413,11 @@ pub async fn set_flags(
     for name in names {
         sqlx::query!(
             "INSERT OR IGNORE INTO schematic_flag (schematic_id, name)
-             VALUES (?, ?)",
-            id,
-            name
+             SELECT schematic.id, flag.name FROM schematic
+             JOIN flag ON flag.category = schematic.category AND flag.name = ?
+             WHERE schematic.id = ?",
+            name,
+            id
         )
         .execute(&mut *tx)
         .await?;

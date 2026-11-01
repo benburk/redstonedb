@@ -285,3 +285,30 @@ async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
         Some(details::NO_HEX_INPUTS)
     );
 }
+
+/// An adder is verified as an Adder and not as a Subtractor, and a
+/// subtractor, its B subtracted, as a Subtractor and not as an Adder.
+#[tokio::test]
+async fn adders_and_subtractors_are_each_their_own_category() {
+    let db = setup_test_db().await;
+    let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
+    // Coloured by probing, then standardized, as an upload is.
+    let raw = std::fs::read("tests/fixtures/sub-16-torchless.schem").unwrap();
+    let coloured = app::probe::recognize(&raw).unwrap().file;
+    let subtractor = import::prepare(&coloured, true, true, false, false)
+        .unwrap()
+        .data;
+    assert_eq!(
+        why(check_file(&db, given("subtractor"), &subtractor, true).await),
+        None
+    );
+    assert_eq!(
+        why(check_file(&db, given("adder"), &subtractor, true).await)
+            .as_deref(),
+        Some(details::SUBTRACTS)
+    );
+    assert_eq!(
+        why(check(&db, given("subtractor")).await).as_deref(),
+        Some(details::ADDS)
+    );
+}

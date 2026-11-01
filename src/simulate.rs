@@ -744,6 +744,11 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                     .into_iter()
                     .find(|change| change.name == run.pattern)
                     .map_or("incrementer", |change| change.category)
+            } else if test == Test::Adder
+                && AdderVariant::of(&run.pattern).subtract
+            {
+                // An adder whose B is subtracted is a subtractor.
+                "subtractor"
             } else {
                 test.name()
             };

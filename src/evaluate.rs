@@ -143,7 +143,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
                 Logic::Stateless
             }
         });
-        if matches!(category, Some("adder" | "hex_adder")) {
+        if matches!(category, Some("adder" | "hex_adder" | "subtractor")) {
             let variant = AdderVariant::of(&run.pattern);
             found.design = adder_design(&found.prepared.blocks, variant)?;
             run.design.clone_from(&found.design);

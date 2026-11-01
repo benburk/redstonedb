@@ -559,6 +559,8 @@ pub fn recognize_watched(
     meant: Option<&str>,
     trying: &mut dyn FnMut(&'static str, usize),
 ) -> anyhow::Result<Recognition> {
+    // A subtractor is probed as the adder it is, its B subtracted.
+    let meant = meant.map(|m| if m == "subtractor" { "adder" } else { m });
     let simulated = simulatable(data)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
@@ -663,6 +665,14 @@ pub fn probe_as(
     report: &inspect::Report,
 ) -> anyhow::Result<Result<Found, String>> {
     let found = |run: &simulate::Run| {
+        // An adder whose B is subtracted is a subtractor.
+        let kind = if kind == "adder"
+            && simulate::AdderVariant::of(&run.pattern).subtract
+        {
+            "subtractor"
+        } else {
+            kind
+        };
         format!(
             "{}: all {} cases right, {}",
             named(kind),

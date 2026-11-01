@@ -380,14 +380,14 @@ fn a_buffer_is_read_whole_from_its_file() {
     assert!(throughput >= if torches { 3 } else { 2 });
 }
 
-/// Inverting a line does not change what a build is: a subtractor is an
-/// adder whose B is inverted, its carries borrows, flagged so; a carry in
-/// a torch inverts is an inverted carry in; and a register that reads its
-/// cells inverted says so.
+/// Inverting a line does not change what a build is: a carry in a torch
+/// inverts is an inverted carry in, and a register that reads its cells
+/// inverted says so. A subtractor, an adder whose B is subtracted, its
+/// carries borrows, is a category of its own.
 #[test]
 fn inverted_lines_are_flags_not_categories() {
     let subtractor = evaluate(&uploaded("dd-cca-sub-16")).unwrap();
-    assert_eq!(subtractor.category, Some("adder"));
+    assert_eq!(subtractor.category, Some("subtractor"));
     assert!(subtractor.passes(), "{:?}", subtractor.report);
     assert!(
         subtractor.flags.iter().any(|f| f == "subtract"),

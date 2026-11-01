@@ -130,6 +130,16 @@ const CASES: &[Case] = &[
         rule: Some("data-inputs"),
     },
     Case {
+        when: &[Is(crate::details::SUBTRACTS)],
+        fix: "Upload it as a Subtractor, which ranks apart from adders.",
+        rule: Some("per-category"),
+    },
+    Case {
+        when: &[Is(crate::details::ADDS)],
+        fix: "Upload it as an Adder.",
+        rule: Some("per-category"),
+    },
+    Case {
         when: &[Is(crate::details::NO_HEX_INPUTS)],
         fix: "Upload it as an Adder. A hex adder's inputs each take a hex \
               digit, a signal strength through dust on top of the block.",
@@ -235,6 +245,8 @@ mod tests {
         for reason in [
             crate::details::WITHOUT_LEVERS,
             crate::details::NO_HEX_INPUTS,
+            crate::details::SUBTRACTS,
+            crate::details::ADDS,
             "Couldn't read its inputs and outputs",
             "Couldn't read its file",
             "Couldn't count its bits",

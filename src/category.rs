@@ -52,9 +52,10 @@ pub enum Reads {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 27] = [
+pub const BLESSED: [&str; 28] = [
     "adder",
     "hex_adder",
+    "subtractor",
     "register",
     "alu",
     "decoder",
@@ -218,8 +219,9 @@ fn lone(control: &'static str, status: &'static str) -> Lines {
 pub fn behaviour(category: &str) -> Behaviour {
     match category {
         // A hex adder is an adder whose inputs each take a hex digit per
-        // block, tested and read the same way.
-        "adder" | "hex_adder" => Behaviour {
+        // block, and a subtractor one whose B is subtracted, each tested
+        // and read the same way.
+        "adder" | "hex_adder" | "subtractor" => Behaviour {
             flags_from_file: true,
             lines: lone(CARRY_IN, CARRY_OUT),
             stacking: Stacking::Inferred,

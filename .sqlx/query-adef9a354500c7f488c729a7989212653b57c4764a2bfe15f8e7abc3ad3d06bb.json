@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO schematic_flag (schematic_id, name)\n             SELECT schematic.id, flag.name FROM schematic\n             JOIN flag ON flag.category = schematic.category AND flag.name = ?\n             WHERE schematic.id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "adef9a354500c7f488c729a7989212653b57c4764a2bfe15f8e7abc3ad3d06bb"
+}
