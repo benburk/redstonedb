@@ -1,7 +1,9 @@
 /* Tailwind entry point. `just css` builds static/app.css from it; templates
-   live in src/, so that is the only place scanned for classes. */
+   live in src/, and form.js builds the mention menu's options, so those are
+   the places scanned for classes. */
 @import "tailwindcss" source(none);
 @source "../src";
+@source "../static/form.js";
 
 :root {
   color-scheme: light dark;
@@ -126,7 +128,7 @@
     @apply flex flex-col gap-1.5;
   }
 
-  .field > span {
+  .field > span:not(.message) {
     @apply text-meta font-semibold text-muted;
   }
 

@@ -465,7 +465,7 @@ fn block_counts(counts: &[(&str, usize)]) -> Markup {
     html! {
         details class="group" {
             summary class={ (SECTION_TITLE) " flex w-fit cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden" } {
-                "Blocks by kind"
+                "Block distribution"
                 (icon(icons::CHEVRON_RIGHT, "size-4 text-muted transition-transform duration-150 ease-calm group-open:rotate-90"))
             }
             dl class="mt-2 grid max-w-md grid-cols-2 gap-x-8" {

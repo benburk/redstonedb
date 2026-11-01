@@ -481,3 +481,142 @@ for (const field of document.querySelectorAll("[data-date]")) {
     });
   });
 }
+
+// A description's mentions: typing @ and the start of a name offers the
+// players the site credits whose names start with it, then those holding
+// it, in a menu at the text cursor. Arrow keys move through it, Enter or
+// Tab picks, and Escape closes it; picking writes the name in full.
+for (const field of document.querySelectorAll("[data-mentions]")) {
+  const text = field.querySelector("textarea");
+  const menu = field.querySelector('[role="listbox"]');
+  const people = JSON.parse(field.dataset.mentions);
+  let shown = [];
+  let active = -1;
+  let start = 0;
+
+  // The `@name` being typed before the cursor, if any.
+  const typing = () => {
+    if (text.selectionStart !== text.selectionEnd) return null;
+    const before = text.value.slice(0, text.selectionStart);
+    const match = /(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{0,16})$/.exec(before);
+    return match && { at: before.length - match[2].length - 1, name: match[2] };
+  };
+
+  // Where the cursor is in the box, from a copy of its text up to there
+  // laid out the same way.
+  const caret = () => {
+    const style = getComputedStyle(text);
+    const copy = document.createElement("div");
+    for (const property of [
+      "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+      "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
+      "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "tabSize",
+    ]) {
+      copy.style[property] = style[property];
+    }
+    Object.assign(copy.style, {
+      position: "absolute", visibility: "hidden", whiteSpace: "pre-wrap", overflowWrap: "break-word",
+    });
+    copy.textContent = text.value.slice(0, text.selectionStart);
+    const mark = document.createElement("span");
+    mark.textContent = "\u200b";
+    copy.append(mark);
+    field.append(copy);
+    const place = {
+      top: mark.offsetTop + mark.offsetHeight - text.scrollTop,
+      left: mark.offsetLeft,
+    };
+    copy.remove();
+    return place;
+  };
+
+  const highlight = (index) => {
+    active = index;
+    menu.querySelectorAll('[role="option"]').forEach((option, i) => {
+      option.setAttribute("aria-selected", String(i === index));
+      if (i === index) {
+        text.setAttribute("aria-activedescendant", option.id);
+        option.scrollIntoView({ block: "nearest" });
+      }
+    });
+    if (index < 0) text.removeAttribute("aria-activedescendant");
+  };
+
+  const close = () => {
+    menu.hidden = true;
+    text.setAttribute("aria-expanded", "false");
+    shown = [];
+    highlight(-1);
+  };
+
+  const open = () => {
+    const found = typing();
+    if (!found) return close();
+    const wanted = found.name.toLowerCase();
+    const starting = people.filter((name) => name.toLowerCase().startsWith(wanted));
+    const holding = people.filter(
+      (name) => !name.toLowerCase().startsWith(wanted) && name.toLowerCase().includes(wanted),
+    );
+    shown = [...starting, ...holding].slice(0, 8);
+    if (shown.length === 0) return close();
+    start = found.at;
+    menu.replaceChildren(
+      ...shown.map((name, i) => {
+        const option = document.createElement("div");
+        option.id = `mention-option-${i}`;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", "false");
+        option.className =
+          "flex cursor-pointer items-center gap-2 rounded-control px-2.5 py-1.5 hover:bg-selection aria-selected:bg-selection";
+        const head = document.createElement("img");
+        head.src = `/players/${name}/head.png`;
+        head.alt = "";
+        head.width = head.height = 16;
+        head.className = "size-4 rounded-[3px] bg-line [image-rendering:pixelated]";
+        option.append(head, name);
+        return option;
+      }),
+    );
+    const place = caret();
+    menu.style.top = `${Math.min(place.top, text.offsetHeight) + 4}px`;
+    menu.style.left = `${Math.min(place.left, Math.max(0, text.offsetWidth - 160))}px`;
+    menu.hidden = false;
+    text.setAttribute("aria-expanded", "true");
+    highlight(0);
+  };
+
+  const pick = (index) => {
+    const name = shown[index];
+    if (name === undefined) return;
+    const end = text.selectionStart;
+    const after = text.value.slice(end);
+    const space = /^[A-Za-z0-9_]/.test(after) || after.startsWith(" ") ? "" : " ";
+    text.setRangeText(`@${name}${space}`, start, end, "end");
+    close();
+    text.focus();
+  };
+
+  text.addEventListener("input", open);
+  text.addEventListener("click", open);
+  text.addEventListener("blur", close);
+  text.addEventListener("keydown", (event) => {
+    if (menu.hidden || event.isComposing) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      highlight((active + step + shown.length) % shown.length);
+    } else if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      pick(active);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  });
+  // Pressing, not clicking, so the box keeps its focus.
+  menu.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    const option = event.target.closest('[role="option"]');
+    if (option) pick(Number(option.id.split("-").pop()));
+  });
+}

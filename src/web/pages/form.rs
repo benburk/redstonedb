@@ -162,9 +162,17 @@ pub(super) fn fields(
         (person_field("Builders", "builder", "Add a builder's in-game name", &f.builders, choices))
         (person_field("Contributors", "contributor", "Add someone who helped", &f.contributors, choices))
         (date_field(&f.built_on))
+        // Typing @ offers the players the site credits, in a menu at the
+        // text cursor that form.js fills.
         label class="field" {
             span { "Description" }
-            textarea name="description" rows="3" aria-describedby="description-help" class="input py-2 leading-prose" { (f.description) }
+            div class="relative" data-mentions=(serde_json::to_string(&choices.people).unwrap_or_default()) {
+                textarea name="description" rows="3" aria-describedby="description-help"
+                    aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"
+                    class="input py-2 leading-prose" { (f.description) }
+                div id="mention-menu" role="listbox" aria-label="Players" hidden
+                    class="absolute z-20 max-h-60 w-max min-w-40 max-w-[min(16rem,100%)] overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay" {}
+            }
             span id="description-help" class="message" { "Write @name to link a player by their in-game name." }
         }
         div class="field" {
