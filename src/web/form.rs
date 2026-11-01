@@ -140,6 +140,23 @@ pub struct Form {
     pub public: bool,
 }
 
+/// The date the date field's boxes give, such as `2024-02-02`, a single
+/// digit month or day taken as if it led with a zero; empty when all are.
+fn date(year: &str, month: &str, day: &str) -> String {
+    let parts = [year, month, day].map(str::trim);
+    if parts.iter().all(|part| part.is_empty()) {
+        return String::new();
+    }
+    let pad = |part: &str| {
+        if part.len() == 1 {
+            format!("0{part}")
+        } else {
+            part.to_owned()
+        }
+    };
+    format!("{}-{}-{}", parts[0], pad(parts[1]), pad(parts[2]))
+}
+
 impl Form {
     /// Reads a urlencoded body by hand, since the pill fields repeat one
     /// name per value. `builder_entry`, `contributor_entry`, and `tag_entry`
@@ -179,7 +196,16 @@ impl Form {
             synchronized: get("synchronized_unknown")
                 .is_empty()
                 .then(|| !get("synchronized").is_empty()),
-            built_on: get("built_on"),
+            // In three boxes from the date field, or whole from elsewhere.
+            built_on: if pairs.iter().any(|(k, _)| k == "built_on_year") {
+                date(
+                    &get("built_on_year"),
+                    &get("built_on_month"),
+                    &get("built_on_day"),
+                )
+            } else {
+                get("built_on")
+            },
             description: get("description"),
             logic: get("logic"),
             stackable: !get("stackable").is_empty(),
@@ -531,6 +557,33 @@ mod tests {
         assert_eq!(
             (row.direction.as_str(), row.step.as_str(), row.max.as_str()),
             ("north", "4", "3")
+        );
+    }
+
+    /// The date field's three boxes make one date, a single-digit month
+    /// or day gaining its zero, and empty boxes no date; a form without
+    /// them still takes the date whole.
+    #[test]
+    fn the_date_boxes_make_one_date() {
+        let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+            list.iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect()
+        };
+        let boxes = |y, m, d| {
+            Form::read(&pairs(&[
+                ("built_on_year", y),
+                ("built_on_month", m),
+                ("built_on_day", d),
+            ]))
+            .built_on
+        };
+        assert_eq!(boxes("2021", "5", "7"), "2021-05-07");
+        assert_eq!(boxes("2024", "02", "29"), "2024-02-29");
+        assert_eq!(boxes("", "", ""), "");
+        assert_eq!(
+            Form::read(&pairs(&[("built_on", "2013-09-11")])).built_on,
+            "2013-09-11"
         );
     }
 }

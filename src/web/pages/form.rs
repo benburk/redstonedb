@@ -207,14 +207,35 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
 /// real day not still to come; left empty when it is not known. A text box
 /// rather than the browser's date picker, which shows the date in the
 /// reader's own regional order instead.
+/// The date a build was built, in three boxes, year, month, and day,
+/// each filled from `built_on` when it has one; `form.js` moves on to the
+/// next box as each fills, and takes a whole date pasted into any.
 fn date_field(built_on: &str) -> Markup {
+    let mut parts = built_on.splitn(3, '-');
+    let [year, month, day] = [parts.next(), parts.next(), parts.next()]
+        .map(Option::unwrap_or_default);
+    let part = |name: &str,
+                label: &str,
+                value: &str,
+                digits: u8,
+                width: &str| {
+        html! {
+            input type="text" name={ "built_on_" (name) } value=(value)
+                inputmode="numeric" pattern={ "[0-9]{" (digits) "}" } maxlength=(digits)
+                placeholder=(label) aria-label=(label) autocomplete="off"
+                class={ "input tabular-nums text-center " (width) };
+        }
+    };
     html! {
-        label class="field" {
-            span { "Built on " span class="font-normal" { "(yyyy-mm-dd, empty if unknown)" } }
-            input type="text" name="built_on" value=(built_on)
-                placeholder="yyyy-mm-dd" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
-                maxlength="10" autocomplete="off"
-                class="input w-36 tabular-nums";
+        fieldset class="field" data-date {
+            legend class="mb-1.5 text-meta font-semibold text-muted" { "Built on " span class="font-normal" { "(empty if unknown)" } }
+            div class="flex items-center gap-1.5" {
+                (part("year", "yyyy", year, 4, "w-18"))
+                span class="text-muted" aria-hidden="true" { "-" }
+                (part("month", "mm", month, 2, "w-12"))
+                span class="text-muted" aria-hidden="true" { "-" }
+                (part("day", "dd", day, 2, "w-12"))
+            }
         }
     }
 }

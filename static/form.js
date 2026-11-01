@@ -423,3 +423,61 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   // fixi takes up the panel on DOMContentLoaded, after this script runs.
   document.addEventListener("DOMContentLoaded", ask);
 }
+
+// The date field's boxes, year, month, and day: each takes digits alone and
+// moves on to the next once full, or when a separator is typed after a
+// digit in it, so `2021-5-7` and `20210507` both fill all three; a month or
+// day of one digit gains its zero on leaving. Backspace in an empty box
+// goes back to the one before, and a whole date, pasted, is spread across
+// them.
+for (const field of document.querySelectorAll("[data-date]")) {
+  const boxes = [...field.querySelectorAll("input")];
+  const padded = (box) => {
+    if (box.maxLength === 2 && /^[1-9]$/.test(box.value)) {
+      box.value = `0${box.value}`;
+    }
+  };
+  const spread = (text) => {
+    const parts = text.match(/\d+/g) ?? [];
+    boxes.forEach((box, i) => {
+      box.value = (parts[i] ?? "").slice(0, box.maxLength);
+      padded(box);
+    });
+    const next = boxes.find((box) => box.value.length < box.maxLength);
+    (next ?? boxes.at(-1)).focus();
+  };
+  boxes.forEach((box, i) => {
+    // Whether a digit was typed since the box was entered, so a separator
+    // right after moving on by filling the box before is no second move.
+    let typed = false;
+    box.addEventListener("focus", () => {
+      typed = false;
+      // What is there is selected, so typing replaces it.
+      box.select();
+    });
+    box.addEventListener("blur", () => padded(box));
+    box.addEventListener("keydown", (event) => {
+      if (["-", "/", "."].includes(event.key)) {
+        event.preventDefault();
+        if (typed && box.value) boxes[i + 1]?.focus();
+      } else if (event.key === "Backspace" && box.value === "" && i > 0) {
+        event.preventDefault();
+        const before = boxes[i - 1];
+        before.focus();
+        before.value = before.value.slice(0, -1);
+      }
+    });
+    box.addEventListener("paste", (event) => {
+      const text = event.clipboardData.getData("text");
+      if (/\d+\D+\d+/.test(text)) {
+        event.preventDefault();
+        spread(text);
+      }
+    });
+    box.addEventListener("input", () => {
+      box.value = box.value.replace(/\D/g, "").slice(0, box.maxLength);
+      typed = box.value !== "";
+      if (box.value.length === box.maxLength) boxes[i + 1]?.focus();
+    });
+  });
+}
