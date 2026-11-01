@@ -25,8 +25,9 @@ use super::pages;
 const KEPT: Duration = Duration::from_hours(6);
 
 /// The page of the player `name`, whatever its capitals: what they built,
-/// helped with, and hold records for, and their account if they have
-/// signed up. The address takes the spelling the site credits.
+/// helped with, are named in with `@name`, and hold records for, and their
+/// account if they have signed up. The address takes the spelling the
+/// site credits, or else the first a description writes.
 pub async fn show(
     Path(name): Path<String>,
     State(state): State<AppState>,
@@ -49,8 +50,19 @@ pub async fn show(
             .find(|n| same(n))
             .cloned()
     });
-    let Some(spelling) =
-        account.and_then(|u| u.minecraft_name.clone()).or(credited)
+    let named = |s: &Schematic| {
+        s.description
+            .as_deref()
+            .map(pages::mentions)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|n| same(n))
+    };
+    let mentioned_as = all.iter().find_map(named);
+    let Some(spelling) = account
+        .and_then(|u| u.minecraft_name.clone())
+        .or(credited)
+        .or(mentioned_as)
     else {
         return Err(AppError::NotFound);
     };
@@ -82,6 +94,15 @@ pub async fn show(
             account,
             built: &pick(|s| &s.builders),
             contributed: &pick(|s| &s.contributors),
+            // Those that credit them already list them there.
+            mentioned: &all
+                .iter()
+                .filter(|s| {
+                    named(s).is_some()
+                        && !s.builders.iter().chain(&s.contributors).any(same)
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
             records,
             palette: crate::palette::key_for(&state.db, user_opt.as_ref())
                 .await?

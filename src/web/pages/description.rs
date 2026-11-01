@@ -1,8 +1,10 @@
 //! A build's description as its writer marked it up, the way Discord reads
 //! it, where most were first written: `**bold**`, `*italic*` or `_italic_`,
 //! `__underline__`, `~~strikethrough~~`, `` `code` ``, `> ` quoted lines,
-//! and links as `[words](url)`, `<url>`, or a bare address. Nothing else is
-//! markup: no headings, lists, tables, or HTML, which shows as typed.
+//! and links as `[words](url)`, `<url>`, or a bare address; and `@name`
+//! names a player by their in-game name, shown as a badge linking to their
+//! page. Nothing else is markup: no headings, lists, tables, or HTML, which
+//! shows as typed.
 
 use std::fmt::Write as _;
 
@@ -73,6 +75,11 @@ fn inline(text: &str) -> String {
             continue;
         }
         let prior = html.chars().last();
+        if let Some(name) = mention(rest, prior) {
+            html.push_str(&player_badge(name));
+            rest = &rest[name.len() + 1..];
+            continue;
+        }
         for (mark, element) in PAIRS {
             if let Some(inner) = paired(rest, mark, prior) {
                 let _ =
@@ -152,6 +159,47 @@ fn link(text: &str) -> Option<(String, usize)> {
         return Some((anchor(url, &escape(url)), url.len()));
     }
     None
+}
+
+/// The player `@name` names at the start of `text`, `prior` the character
+/// before: an in-game name of 3 to 16 letters, digits, and underscores,
+/// after no word, as an email address's `@` is not.
+fn mention(text: &str, prior: Option<char>) -> Option<&str> {
+    let rest = text.strip_prefix('@')?;
+    if prior.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let name = &rest[..end];
+    (3..=16).contains(&name.len()).then_some(name)
+}
+
+/// Every player `text` names with `@name`, as written, each once whatever
+/// its capitals.
+pub fn mentions(text: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let mut prior = None;
+        for (at, c) in line.char_indices() {
+            if let Some(name) = mention(&line[at..], prior)
+                && !found.iter().any(|n| n.eq_ignore_ascii_case(name))
+            {
+                found.push(name.to_owned());
+            }
+            prior = Some(c);
+        }
+    }
+    found
+}
+
+/// A player as a badge in running text: their head, blank until it loads,
+/// and their name, linking to their page.
+fn player_badge(name: &str) -> String {
+    format!(
+        r#"<a href="/players/{name}" class="mention"><img src="/players/{name}/head.png" alt="" width="16" height="16" loading="lazy">{name}</a>"#
+    )
 }
 
 /// Whether `url` starts as a web address and has more after.
@@ -242,6 +290,29 @@ mod tests {
         assert_eq!(
             html("> said\n> more\nreply"),
             "<blockquote><p>said<br>more</p></blockquote><p>reply</p>"
+        );
+    }
+
+    #[test]
+    fn a_player_named_with_an_at_is_a_badge_linking_to_their_page() {
+        assert_eq!(
+            html("by @mop_u's idea, thanks @Don_manuel_1229."),
+            "<p>by <a href=\"/players/mop_u\" class=\"mention\">\
+             <img src=\"/players/mop_u/head.png\" alt=\"\" width=\"16\" \
+             height=\"16\" loading=\"lazy\">mop_u</a>&#39;s idea, thanks \
+             <a href=\"/players/Don_manuel_1229\" class=\"mention\">\
+             <img src=\"/players/Don_manuel_1229/head.png\" alt=\"\" \
+             width=\"16\" height=\"16\" loading=\"lazy\">Don_manuel_1229\
+             </a>.</p>"
+        );
+        // An email address, a name too short or long, and code are not.
+        for typed in ["a@example.com", "@ab", "@abcdefghijklmnopq", "`@mop_u`"]
+        {
+            assert!(!html(typed).contains("mention"), "{typed}");
+        }
+        assert_eq!(
+            mentions("@mop_u and @Mop_U\n> @Aminotreal, a@b.com"),
+            ["mop_u", "Aminotreal"]
         );
     }
 

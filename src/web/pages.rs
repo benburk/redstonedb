@@ -46,6 +46,7 @@ pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
     favorite_button, schematic_page, waiting,
 };
+pub use description::mentions;
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;
 use layout::base;

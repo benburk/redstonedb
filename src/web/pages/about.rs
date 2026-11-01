@@ -47,6 +47,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
                     li { "Tags RSDB finds itself, like an adder's design, its orientation, carry in, or stackable, are teal. Tags people add are other colours. Each category's page filters by its tags." }
                     li { "Untick Public on upload and a build is yours alone. Star any build to keep it under Favourites on your profile." }
+                    li { "Write " code { "@name" } " in a description to link a player. They're listed on that player's page." }
                     li { "Search understands shorthand like " code { "8b" } ", " code { "3t" } ", " code { "torchless" } ", and " code { "version:1.12" } "." }
                 }
                 p class="mb-4" {

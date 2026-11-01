@@ -209,6 +209,16 @@
      mdwriter draws a document's: code on an inset ground with no padding
      to push the line off its grid, links underlined, a quote ruled at
      its left edge and muted. */
+  /* A player named in a description: a person's badge, kept to the
+     line's height so the text around it keeps its rhythm. */
+  .mention {
+    @apply inline-flex items-center gap-1 rounded-full border border-line bg-raised py-px pr-2 pl-0.5 align-[-0.25em] text-meta text-ink hover:bg-selection hover:no-underline;
+
+    & img {
+      @apply size-4 rounded-[3px] bg-line [image-rendering:pixelated];
+    }
+  }
+
   .rich {
     & p + p,
     & p + blockquote,
@@ -225,7 +235,7 @@
       @apply rounded-[0.25rem] bg-line font-mono text-[0.9em];
     }
 
-    & a {
+    & a:not(.mention) {
       @apply text-brand underline underline-offset-2;
     }
 

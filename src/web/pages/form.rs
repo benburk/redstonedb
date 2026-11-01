@@ -164,7 +164,8 @@ pub(super) fn fields(
         (date_field(&f.built_on))
         label class="field" {
             span { "Description" }
-            textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
+            textarea name="description" rows="3" aria-describedby="description-help" class="input py-2 leading-prose" { (f.description) }
+            span id="description-help" class="message" { "Write @name to link a player by their in-game name." }
         }
         div class="field" {
             span { "Visibility" }

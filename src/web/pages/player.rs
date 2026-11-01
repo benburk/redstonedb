@@ -17,6 +17,9 @@ pub struct PlayerPage<'a> {
     pub account: Option<&'a User>,
     pub built: &'a [Schematic],
     pub contributed: &'a [Schematic],
+    /// The builds whose descriptions name them with `@name`, but don't
+    /// credit them.
+    pub mentioned: &'a [Schematic],
     /// First places they hold on the leaderboards.
     pub records: usize,
     /// The viewer's palette's key, for thumbnails, if they chose one.
@@ -30,8 +33,9 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
         account,
         built,
         contributed,
+        mentioned,
         records,
-        palette: _,
+        palette,
     } = *page;
     base(
         viewer,
@@ -62,9 +66,18 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
                     }
                 }
             }
-            (credits(built, contributed, &html! {
-                p class="text-muted" { "No builds credit " (name) " as builder yet." }
-            }, page.palette))
+            // One only named in descriptions has no credits to list.
+            @if !built.is_empty() || !contributed.is_empty() || mentioned.is_empty() {
+                (credits(built, contributed, &html! {
+                    p class="text-muted" { "No builds credit " (name) " as builder yet." }
+                }, palette))
+            }
+            @if !mentioned.is_empty() {
+                section aria-labelledby="mentioned-heading" class="mb-10" {
+                    h2 id="mentioned-heading" class={ (SECTION_TITLE) " mb-3" } { "Mentioned in" }
+                    (cards(mentioned, &[], palette))
+                }
+            }
         },
     )
 }
