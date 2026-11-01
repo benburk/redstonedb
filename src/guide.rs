@@ -103,9 +103,9 @@ pub fn examples() -> Vec<Example> {
         },
         Example {
             name: "input-dust-below",
-            caption: "Dust under an input's block.",
-            kept: false,
-            breaks: Some("input block wiring"),
+            caption: "Dust under an input's block, which takes its power as dust beside it does.",
+            kept: true,
+            breaks: None,
             blocks: [
                 input(1, 2),
                 vec![([1, 1, 1], DUST_EW), ([1, 0, 1], WHITE)],
@@ -127,17 +127,10 @@ pub fn examples() -> Vec<Example> {
         },
         Example {
             name: "data-dust-on-top",
-            caption: "Dust on top of a data input's block, which a bus can't drive.",
-            kept: false,
-            breaks: Some("dust on top of an input"),
-            blocks: dust_on_top("lime_concrete"),
-        },
-        Example {
-            name: "control-dust-on-top",
-            caption: "Dust on top of a control line's block, such as a carry in's.",
+            caption: "Dust on top of an input's block.",
             kept: true,
             breaks: None,
-            blocks: dust_on_top("magenta_concrete"),
+            blocks: dust_on_top("lime_concrete"),
         },
         Example {
             name: "output",

@@ -7,16 +7,16 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 ## Inputs
 
 - An input is a lever on the side of a solid block, or a stone button for a pulse, such as a register's write. Never on the top or bottom.
-- The block drives dust on its sides other than its lever's, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target or redstone block may sit on top; dust below it never may.
-- A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it. No dust on top of its block.
-- A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so its block may have dust on top and a block behind its lever.
+- The block drives dust on any side but its lever's, on top and below too, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target may, and a redstone block may sit on top.
+- A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it.
+- A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so it may have a block behind its lever.
 - Probing tells data inputs from control lines: an adder's are A and B, a register's its data bus in, an ALU's and a multiplier's their two widest input lines, a decoder's its one input line.
 - An input may read inverted, powered meaning 0. The simulator finds which lines do by testing, however their levers were saved.
 - A multiplier has inputs A and B and, if sequential, one control line, its calculate, pressed once A and B are set; it has no reset. An ALU's lone outputs are named by their signs, such as `zero`.
 
 ## Outputs
 
-- Each output bit is the dust, repeater, or comparator on a coloured block: any colour but white, gray, or an input colour, with no block of its own colour touching it, even diagonally. The bit is on while that component is.
+- Each output bit is the dust, repeater, or comparator on a coloured block: any colour but white, gray, or an input colour, with no block of its own colour touching it, even diagonally. The bit is on while that component is. A repeater or comparator powering a block in front of it carries the circuit on, so the block under it is no output.
 - An adder's or ALU's widest output is its output and each lone one a status line, such as a carry out. A multiplier's product may be up to three lines, which probing puts in order, lowest first.
 - A counter's or shift register's widest output is the value it holds, and each lone output a status line, such as a shift out. An input bus as wide is A, which it loads.
 - A gate has two input lines of one width, A and B, both data inputs, and one output line as wide: an XOR, AND, or OR gate, or its inverse, an XNOR, NAND, or NOR, which goes in the same category under a flag.

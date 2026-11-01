@@ -80,21 +80,22 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "outputs",
                     "Outputs",
                     "need to be lone blocks, with dust, a repeater, or a comparator on top to read. \
-                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained a colour.",
+                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained a colour. \
+                     A block under a repeater or comparator that powers another block isn't one: that's just wiring.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
                     "data-inputs",
-                    "Data inputs",
-                    "must be a lever on the side of a solid block, a lamp too, with no redstone on top or below. \
+                    "Inputs",
+                    "need a lever on the side of a solid block, a lamp too. Dust on top of the block or underneath it is fine. \
                      There has to be room for a repeater where the lever is, so a bus could drive it instead.",
                     &["input", "repeater", "data-dust-on-top", "input-dust-below"],
                 ))
                 (rule(
                     "control-lines",
                     "Control lines",
-                    "like a carry in or a write enable, can have dust on top, since only a lever or button will ever drive them.",
-                    &["control-dust-on-top"],
+                    "like a carry in or a write enable, can have a block behind the lever, since only a lever or button will ever drive them.",
+                    &[],
                 ))
                 (rule(
                     "buses",

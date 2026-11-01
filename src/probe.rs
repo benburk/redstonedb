@@ -580,8 +580,8 @@ pub fn recognize_watched(
     if !problems.is_empty() {
         return Ok(unrecognized(problems));
     }
-    // What a probe found, unless a data input it found has dust on top or
-    // a block behind its lever, which only a control line's may.
+    // What a probe found, unless a data input it found has a block behind
+    // its lever, which only a control line's may.
     let accept = |data_inputs: &[Pos], file: Vec<u8>, found: String| {
         let faults = report.data_faults(data_inputs);
         if faults.is_empty() {
@@ -1716,6 +1716,25 @@ mod tests {
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();
         crate::standardize::edit(&data, &changes).unwrap()
+    }
+
+    /// A 1-bit XNOR of wool, one input carried up through dust on its block,
+    /// and a lone block holding up a repeater that powers a block: the dust
+    /// is wiring, as on any input, and the block under the repeater no
+    /// output, so its one output is read and it is found an XNOR.
+    #[test]
+    fn dust_on_an_input_and_a_repeater_powering_a_block_are_wiring() {
+        let data = std::fs::read("tests/fixtures/xnor-1-wool.schem").unwrap();
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.contains("A xnor B")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     /// A subtractor whose output reads inverted one way round reads, with

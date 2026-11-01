@@ -10,18 +10,19 @@
 //!   solid block, a lamp too, its input block. Other buttons' longer pulses are
 //!   errors, never swapped, as a build may rely on them. The lever touches
 //!   nothing else that carries power.
-//! - The input block drives dust, torches, repeaters, and comparators, at
-//!   most two dusts, and nothing else powers it or touches it but plain
-//!   blocks and, on top, a target or redstone block, which never power a
-//!   solid block. One that drives dust is hard: a bus must drive it through
-//!   a repeater.
+//! - The input block drives dust on any side, on top and below too,
+//!   torches, repeaters, and comparators, and nothing else powers it or
+//!   touches it but plain blocks, a target, and, on top, a redstone block,
+//!   none of which power a solid block. One that drives dust is hard: a bus
+//!   must drive it through a repeater.
 //! - The lever's spot takes a repeater pointed into the input block, so a
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it; and the build compiled with every lever so
 //!   swapped is the same circuit, the proof by the rules of redstone.
 //! - Every output, data or status, is a block with dust, a repeater, or a
-//!   comparator on top, which is what is read, and no block like it
-//!   touching it, even diagonally, of a kind used for nothing else: any
+//!   comparator on top, which is what is read, but a repeater or comparator
+//!   powering a block in front of it, which carries the circuit on; and no
+//!   block like it touching it, even diagonally, of a kind used for nothing else: any
 //!   full block that carries power but a component, or stained glass of a
 //!   colour, as plain, white, and gray glass hold a build's dust up.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
@@ -100,12 +101,6 @@ pub fn inspect(blocks: &Blocks) -> Report {
     report
 }
 
-/// The rule of dust standing on an input block: fine on a control line's
-/// block, such as a carry in's or a register's write, but not on a data
-/// input's, as an operand's or a register's data bus, which only probing
-/// tells apart, so it is no fault until then.
-pub const DUST_ON_TOP: &str = "dust on top of an input";
-
 /// The rule of a block behind a lever, where a bus's driver would feed the
 /// repeater put in its place: fine on a control line, which a lever or
 /// button drives, but not on a data input, which a bus may drive; no fault
@@ -114,7 +109,7 @@ pub const BLOCK_BEHIND: &str = "block behind a lever";
 
 /// The rules that are faults only on a data input, each problem's first
 /// block the input block.
-pub const DATA_ONLY: [&str; 2] = [DUST_ON_TOP, BLOCK_BEHIND];
+pub const DATA_ONLY: [&str; 1] = [BLOCK_BEHIND];
 
 impl Report {
     /// Its faults but those only a data input's, which probing tells
@@ -139,16 +134,7 @@ impl Report {
             .filter(|problem| {
                 problem.at.first().is_some_and(|block| data.contains(block))
             })
-            .map(|problem| {
-                if problem.rule == DUST_ON_TOP {
-                    format!(
-                        "Input at {}: dust on top of a data input",
-                        place(problem.at[0])
-                    )
-                } else {
-                    format!("{}, on a data input", problem.message)
-                }
-            })
+            .map(|problem| format!("{}, on a data input", problem.message))
             .collect()
     }
 }
@@ -325,27 +311,9 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         let state = blocks.get(next);
         let next_name = schem::short(state);
         let wrong = |what: &str| (vec![block, next], what.to_owned());
-        // Dust on top is what a control line's block may drive, though not
-        // a data input's, which only probing tells apart; see
-        // `DUST_ON_TOP`.
-        if next_name == "redstone_wire" && side == Direction::Up {
-            drives += 1;
-            problem(
-                report,
-                DUST_ON_TOP,
-                vec![block, next],
-                format!(
-                    "Input at {}: dust on top, which only a control line's \
-                     block may have",
-                    place(block)
-                ),
-            );
-            continue;
-        }
         let fault = match next_name {
-            "redstone_wire" if side == Direction::Down => {
-                Some(wrong("dust below"))
-            }
+            // Dust on any side, on top and below too, takes its power, a
+            // lever's or a bus's repeater's alike.
             "redstone_wire" => {
                 dust += 1;
                 drives += 1;
@@ -446,8 +414,8 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
 }
 
 /// The outputs: blocks of a kind that can mark one, as [`marks`] says,
-/// each with dust, a repeater, or a comparator on top, which is what is
-/// read, and no block of its own kind touching it, even diagonally, of a
+/// each with dust, a repeater, or a comparator on top reading it out, as
+/// [`reads_out`] says, and no block of its own kind touching it, even diagonally, of a
 /// kind every block of which is so. An input's block, under its switch, is
 /// never one.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
@@ -462,10 +430,7 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         if !marks(name) || switched.contains(&pos) {
             continue;
         }
-        let read = matches!(
-            short(blocks, schem::step(pos, Direction::Up)),
-            "redstone_wire" | "repeater" | "comparator"
-        );
+        let read = reads_out(blocks, pos);
         kinds
             .entry(name)
             .or_default()
@@ -483,6 +448,24 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         problem(report, "no outputs", Vec::new(), "No outputs".to_owned());
     }
     found
+}
+
+/// Whether what stands on the block at `pos` reads it out of the build:
+/// dust, or a repeater or comparator but one powering a block in front of
+/// it, which carries the build's signal on rather than out, so the block
+/// under it only holds it up.
+fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
+    let top = schem::step(pos, Direction::Up);
+    match short(blocks, top) {
+        "redstone_wire" => true,
+        "repeater" | "comparator" => {
+            let powers = Direction::facing(blocks.get(top)).is_some_and(|f| {
+                crate::dust::solid(blocks.get(schem::step(top, f.opposite())))
+            });
+            !powers
+        }
+        _ => false,
+    }
 }
 
 /// Whether a block of kind `name` can mark an output: any full block that
@@ -784,6 +767,32 @@ mod tests {
                  on a data input"
             ]
         );
+    }
+
+    /// A lone block with a repeater on top is an output only when the
+    /// repeater powers no block in front of it: one feeding a block carries
+    /// the circuit on, and the block under it only holds it up.
+    #[test]
+    fn a_block_under_a_repeater_powering_a_block_is_no_output() {
+        let outputs = |front: &str| {
+            let states: HashMap<Pos, String> = [
+                ([0, 0, 1], "blue_wool"),
+                (
+                    [0, 1, 1],
+                    "repeater[delay=1,facing=south,locked=false,powered=false]",
+                ),
+                ([0, 1, 0], front),
+            ]
+            .into_iter()
+            .filter(|(_, state)| *state != "air")
+            .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+            .collect();
+            inspect(&Blocks::from_grid([1, 2, 2], &states))
+                .outputs
+                .len()
+        };
+        assert_eq!(outputs("air"), 1, "a repeater carrying the bit out");
+        assert_eq!(outputs("black_wool"), 0, "a repeater powering a block");
     }
 
     /// A lone block with dust on top is an output whatever its colour or

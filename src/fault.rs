@@ -77,12 +77,6 @@ const CASES: &[Case] = &[
         rule: Some("data-inputs"),
     },
     Case {
-        when: &[Has(": dust on top")],
-        fix: "Take the dust off the input's block. Only a control line, such \
-              as a carry in, may have dust on top.",
-        rule: Some("data-inputs"),
-    },
-    Case {
         when: &[Has(": touches ")],
         fix: "Move it so it touches only its own block, and no other \
               redstone.",
