@@ -334,17 +334,20 @@ pub struct Schematic {
     pub tags: Vec<Tag>,
 }
 
+/// The tag a build carries whose copies stack.
+const STACKABLE: &str = "stackable";
+
 impl Schematic {
     fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
-    /// Its tags with its design and flags among them, as its page shows
-    /// them and a list is narrowed by: `fails_simulation` first, then its
-    /// design, its flags in its category's order, and its other tags. A
-    /// design or flag the site works out from a conventional build is
-    /// found, as its category's test or file sets it; one a person gives
-    /// is of kind other.
+    /// Its tags with its design, orientation, and flags among them, as its
+    /// page shows them and a list is narrowed by: `fails_simulation` first,
+    /// then its design, its orientation, its flags in its category's
+    /// order, `stackable` when its copies stack, and its other tags. One the site works out from a
+    /// conventional build is found, as its category's test or file sets
+    /// it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
         let behaviour = crate::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
@@ -359,12 +362,29 @@ impl Schematic {
             token: self.design_abbreviation.as_ref().map(|a| a.to_lowercase()),
             kind: found(tag::Kind::Design, behaviour.evaluated),
         });
+        let orientation = Tag {
+            name: self.orientation.label().to_lowercase(),
+            token: Some(self.orientation.name().to_owned()),
+            kind: found(
+                tag::Kind::Orientation,
+                behaviour.evaluated
+                    || behaviour.reads != crate::category::Reads::Nothing,
+            ),
+        };
         let flags = self.flags.iter().map(|flag| Tag {
             name: flag.name.clone(),
             token: None,
             kind: found(
                 tag::Kind::Feature,
                 behaviour.evaluated || behaviour.flags_from_file,
+            ),
+        });
+        let stackable = (!self.stacking.is_empty()).then(|| Tag {
+            name: STACKABLE.to_owned(),
+            token: None,
+            kind: found(
+                tag::Kind::Feature,
+                behaviour.stacking == crate::category::Stacking::Inferred,
             ),
         });
         let (failing, rest): (Vec<&Tag>, Vec<&Tag>) = self
@@ -375,7 +395,9 @@ impl Schematic {
             .into_iter()
             .cloned()
             .chain(design)
+            .chain([orientation])
             .chain(flags)
+            .chain(stackable)
             .chain(rest.into_iter().cloned())
             .collect()
     }
@@ -1548,11 +1570,11 @@ mod tests {
         }
     }
 
-    /// Its design and flags are among its tags, after failing and before
-    /// the rest, coloured as found when the site works them out, and as
+    /// Its design, orientation, and flags are among its tags, after
+    /// failing and before the rest, coloured as found when the site works them out, and as
     /// given for a build kept as built.
     #[test]
-    fn a_build_s_design_and_flags_are_among_its_tags() {
+    fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
         let mut s = cla();
         s.flags = vec![Flag {
             category: "adder".to_owned(),
@@ -1565,17 +1587,29 @@ mod tests {
         let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
             names,
-            ["fails_simulation", "carry_lookahead", "carry_in", "alpha"]
+            [
+                "fails_simulation",
+                "carry_lookahead",
+                "horizontal",
+                "carry_in",
+                "alpha"
+            ]
         );
         let classes: Vec<&str> = tags.iter().map(Tag::class).collect();
         assert_eq!(
             classes,
-            ["badge-failing", "badge-found", "badge-found", "badge-found"]
+            [
+                "badge-failing",
+                "badge-found",
+                "badge-found",
+                "badge-found",
+                "badge-found"
+            ]
         );
         s.conventional = false;
         let given: Vec<&str> =
-            s.every_tag()[1..3].iter().map(Tag::class).collect();
-        assert_eq!(given, ["badge-other", "badge-other"]);
+            s.every_tag()[1..4].iter().map(Tag::class).collect();
+        assert_eq!(given, ["badge-other", "badge-other", "badge-other"]);
     }
 
     #[test]

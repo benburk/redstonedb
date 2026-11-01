@@ -417,7 +417,7 @@ pub fn build_info(
             class="flex flex-col gap-8" {
             (facts(s, &sources))
             // A failing build says so beside its title, not among its tags;
-            // its design and flags are among them.
+            // its design, orientation, and flags are among them.
             @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_SIMULATION).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
@@ -607,19 +607,16 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if let Some(group) = group {
                     (field("Groups", html! { (group) " bits" }))
                 }
-                (field("Orientation", sourced(search_link(s.orientation.label(), &s.orientation.label().to_lowercase()), sources.orientation, sources)))
                 // A serial build's throughput is among its measures.
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
                     (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
                 }
-                @let stacks = if s.stacking.is_empty() {
-                    flag(false, None)
-                } else {
-                    html! {
+                // Whether it stacks is among its tags; how, here.
+                @if !s.stacking.is_empty() {
+                    (field("Stacks", sourced(html! {
                         a href="#stacking" { (s.stacking.iter().map(short_stacking).collect::<Vec<_>>().join(" · ")) }
-                    }
-                };
-                (field("Stacks", sourced(stacks, sources.stacking, sources)))
+                    }, sources.stacking, sources)))
+                }
                 // Its copies stacked to each wider width, as they compete
                 // on that width's leaderboard.
                 @let timed: Vec<String> = s.widened.iter().filter_map(|w| {

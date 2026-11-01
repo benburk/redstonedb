@@ -17,6 +17,9 @@ named_values! {
         /// never stored as a tag.
         #[value(skip)]
         Design = "design", "Design";
+        /// The way its bits run, such as `vertical`, never stored as a tag.
+        #[value(skip)]
+        Orientation = "orientation", "Orientation";
         /// One of its category's flags, such as `carry_in`, when the site
         /// reads it from the build, never stored as a tag.
         #[value(skip)]
@@ -65,10 +68,14 @@ impl Tag {
     }
 
     /// Whether the site works it out from the build, so its badge has the
-    /// colour of a found tag: a derived tag, or a design or flag the site
-    /// finds.
+    /// colour of a found tag: a derived tag, or a design, orientation, or
+    /// flag the site finds.
     pub fn is_found(&self) -> bool {
-        self.is_derived() || matches!(self.kind, Kind::Design | Kind::Feature)
+        self.is_derived()
+            || matches!(
+                self.kind,
+                Kind::Design | Kind::Orientation | Kind::Feature
+            )
     }
 
     /// The class that colours its badge: failing in the colour of danger,

@@ -529,15 +529,12 @@ fn without(terms: &[Term], index: usize) -> String {
         .join(" ")
 }
 
-/// A listed build's tags on one row, its flags among them but not its
-/// design, which its name says. `fails simulation` comes first, so a
-/// failing build stands out to be fixed or removed.
+/// A listed build's tags on one row, but those its card makes plain:
+/// any its name says, such as its design, its orientation, and its
+/// carry in and out, which its picture shows. `fails simulation` comes
+/// first, so a failing build stands out to be fixed or removed.
 fn badges(s: &Schematic, class: &str) -> Markup {
-    let tags: Vec<Tag> = s
-        .every_tag()
-        .into_iter()
-        .filter(|tag| tag.kind != tag::Kind::Design)
-        .collect();
+    let tags = on_card(s);
     html! {
         @if !tags.is_empty() || !s.public {
             ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
@@ -551,6 +548,23 @@ fn badges(s: &Schematic, class: &str) -> Markup {
         }
     }
 }
+
+/// The tags of build `s` its card shows: not its design or orientation,
+/// nor a flag its picture shows plainly, nor any its name says in words.
+fn on_card(s: &Schematic) -> Vec<Tag> {
+    let name = format!(" {} ", s.name().to_lowercase());
+    s.every_tag()
+        .into_iter()
+        .filter(|tag| {
+            !matches!(tag.kind, tag::Kind::Design | tag::Kind::Orientation)
+                && !SEEN.contains(&tag.name.as_str())
+                && !name.contains(&format!(" {} ", tag.label()))
+        })
+        .collect()
+}
+
+/// Flags a build's picture shows plainly, left off its card.
+const SEEN: [&str; 4] = ["carry_in", "carry_out", "borrow_in", "borrow_out"];
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
@@ -603,9 +617,10 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
         let kind = match f.tag.kind {
             tag::Kind::Failing => 0,
             tag::Kind::Design => 1,
-            tag::Kind::Feature => 2,
-            tag::Kind::Restriction => 3,
-            tag::Kind::Other => 4,
+            tag::Kind::Orientation => 2,
+            tag::Kind::Feature => 3,
+            tag::Kind::Restriction => 4,
+            tag::Kind::Other => 5,
         };
         (!f.tag.is_found(), kind, std::cmp::Reverse(f.count))
     };
@@ -828,6 +843,32 @@ mod tests {
             })
             .collect();
         s
+    }
+
+    /// A card leaves out what its picture or name makes plain, and keeps
+    /// what is hard to tell, such as an inverted line or stacking.
+    #[test]
+    fn a_card_shows_only_the_tags_hard_to_tell() {
+        let mut s = adder(
+            "carry_cancel",
+            &["carry_in", "carry_out", "inverted_carry_in"],
+            &["pistons"],
+        );
+        s.stacking = vec![crate::models::schematic::StackDirection {
+            west: 2,
+            up: 0,
+            north: 0,
+            max_copies: None,
+            faces: None,
+        }];
+        let names = |s: &Schematic| -> Vec<String> {
+            on_card(s).into_iter().map(|tag| tag.name).collect()
+        };
+        assert_eq!(names(&s), ["inverted_carry_in", "stackable", "pistons"]);
+        let mut gate = adder("other", &["xnor"], &[]);
+        gate.category = "xor_xnor_gate".to_owned();
+        assert!(gate.name().contains("XNOR"), "{}", gate.name());
+        assert!(names(&gate).is_empty());
     }
 
     fn shown(filters: &[Filter]) -> Vec<(&str, usize, Option<usize>)> {
