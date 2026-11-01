@@ -162,7 +162,7 @@ fn connects_to(state: &str, direction: Direction) -> bool {
 /// Whether the block in `state` passes power through itself, as a full
 /// solid block does; glass, slabs, stairs, glowstone, a redstone block,
 /// and redstone parts do not.
-fn conductor(state: &str) -> bool {
+pub fn conductor(state: &str) -> bool {
     let name = schem::short(state);
     if name.ends_with("_slab") {
         return schem::property(state, "type") == Some("double");
@@ -195,6 +195,12 @@ fn conductor(state: &str) -> bool {
         || partial(name))
 }
 
+/// Whether the block in `state` is a full block that carries power as
+/// concrete does, such as wool, terracotta, planks, stone, or a lamp.
+pub fn solid(state: &str) -> bool {
+    whole(state) && conductor(state)
+}
+
 /// Whether the block in `state` can hold dust on top: its top face whole,
 /// as a full block's, glass's, a top or double slab's, or upside-down
 /// stairs'; or a hopper.
@@ -225,7 +231,7 @@ fn sturdy_face(state: &str, face: Direction) -> bool {
 /// Whether the block in `state` is a whole cube: neither air, a redstone
 /// part smaller than a block, a partial block, nor a container shaped
 /// otherwise.
-fn whole(state: &str) -> bool {
+pub fn whole(state: &str) -> bool {
     let name = schem::short(state);
     !(name == "air"
         || name.ends_with("_slab")

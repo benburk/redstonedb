@@ -1026,6 +1026,17 @@ fn block(state: &str) -> Result<Block> {
                 // it gives no power.
                 | "tripwire_hook"
         );
+    // Any other full block that carries power, such as wool, terracotta,
+    // or stone, does as concrete does.
+    let id = if !known
+        && !crate::colour::is_component(name)
+        && crate::dust::solid(state)
+    {
+        "minecraft:white_concrete"
+    } else {
+        id
+    };
+    let known = known || id == "minecraft:white_concrete";
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         bail!(
             "It has a {}, which the simulator does not model.",

@@ -75,13 +75,13 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
                     "Outputs",
-                    "need to be lone coloured blocks, with dust, a repeater, or a comparator on top to read. \
-                     Any colour works except white, gray, and the input colours, as long as no other block of that colour touches it.",
+                    "need to be lone blocks, with dust, a repeater, or a comparator on top to read. \
+                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained a colour.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
                     "Data inputs",
-                    "must be a lever on the side of a block, with no redstone on top or below. \
+                    "must be a lever on the side of a solid block, a lamp too, with no redstone on top or below. \
                      There has to be room for a repeater where the lever is, so a bus could drive it instead.",
                     &["input", "repeater", "data-dust-on-top", "input-dust-below"],
                 ))

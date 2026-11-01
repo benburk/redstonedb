@@ -162,3 +162,27 @@ async fn an_off_list_name_reads_back_as_its_category() {
         }
     }
 }
+
+/// A build of wool, its levers on lamps and its outputs magenta wool, as
+/// `mop_u` built them, is recognized as it was built: any full block holds
+/// a lever and simulates as concrete, and any lone block read from on top
+/// is an output, whatever its colour.
+#[tokio::test]
+async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
+    let raw = fixture("cca-8-wool-lamps");
+    let recognition = app::probe::recognize(&raw).expect("it can be probed");
+    assert!(
+        recognition.found.as_deref().is_some_and(
+            |found| found.starts_with("an adder: all 131072 cases right")
+        ),
+        "{:?} {:?}",
+        recognition.found,
+        recognition.problems
+    );
+    let upload = Upload::read(&recognition.file).expect("it reads");
+    let kept = import::kept(&categories().await, "adder", &upload)
+        .await
+        .expect("it is checked")
+        .expect("it can be simulated");
+    assert!(matches!(kept, Kept::Standard { .. }));
+}

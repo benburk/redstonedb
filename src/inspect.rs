@@ -7,7 +7,7 @@
 //! The rules:
 //!
 //! - An input is a lever, or a stone button for a pulse, on a side of a
-//!   solid block, its input block. Other buttons' longer pulses are
+//!   solid block, a lamp too, its input block. Other buttons' longer pulses are
 //!   errors, never swapped, as a build may rely on them. The lever touches
 //!   nothing else that carries power.
 //! - The input block drives dust, torches, repeaters, and comparators, at
@@ -19,13 +19,11 @@
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it; and the build compiled with every lever so
 //!   swapped is the same circuit, the proof by the rules of redstone.
-//! - Every output, data or status, is a coloured block with dust, a
-//!   repeater, or a comparator on top, which is what is read, and no block of its colour
-//!   touching it, even diagonally, of a kind used for nothing else. Any
-//!   colour but white and gray, a build's plain blocks, and the input
-//!   colours, lime, light blue,
-//!   cyan, blue, and magenta, so a block left over from an input, or a
-//!   signal-strength input's, is never read as an output.
+//! - Every output, data or status, is a block with dust, a repeater, or a
+//!   comparator on top, which is what is read, and no block like it
+//!   touching it, even diagonally, of a kind used for nothing else: any
+//!   full block that carries power but a component, or stained glass of a
+//!   colour, as plain, white, and gray glass hold a build's dust up.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -188,12 +186,14 @@ fn noun(name: &str) -> &'static str {
 
 /// A full block a lever can hang on and dust stand on.
 fn solid(name: &str) -> bool {
-    !colour::is_component(name)
-        && !name.contains("glass")
-        && !name.ends_with("slab")
-        && !name.ends_with("stairs")
-        && !name.ends_with("sign")
-        && name != "air"
+    // A lamp is a full block that carries power, as any other is.
+    name == "redstone_lamp"
+        || !colour::is_component(name)
+            && !name.contains("glass")
+            && !name.ends_with("slab")
+            && !name.ends_with("stairs")
+            && !name.ends_with("sign")
+            && name != "air"
 }
 
 /// Whether a component at `from` pointing its `facing` points into `to`:
@@ -443,17 +443,15 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: coloured blocks, each with dust, a repeater, or a
-/// comparator on top,
-/// which is what is read, and no block of its own colour touching it, even
-/// diagonally, of a kind every block of which is so. Any colour marks one
-/// but white, gray, and the input colours: white and gray are a build's
-/// plain blocks, and an input colour marks an input, even one whose switch
-/// has moved.
+/// The outputs: blocks of a kind that can mark one, as [`marks`] says,
+/// each with dust, a repeater, or a comparator on top, which is what is
+/// read, and no block of its own kind touching it, even diagonally, of a
+/// kind every block of which is so. An input's block, under its switch, is
+/// never one.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();
-    // Each kind of coloured block but the inputs', with its blocks, and
+    // Each kind of block that can mark one but the inputs', with its blocks, and
     // whether each could mark an output: alone, with dust, a repeater, or
     // a comparator on.
     let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
@@ -485,18 +483,18 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     found
 }
 
-/// Whether a block of kind `name` can mark an output: a coloured one,
-/// neither white, gray, nor an input colour.
+/// Whether a block of kind `name` can mark an output: any full block that
+/// carries power but a redstone component, such as a target or lamp, or
+/// stained glass of a colour; plain glass, and white or gray, is what a
+/// build holds dust up with. Whether it does is up to its kind's blocks:
+/// each alone, with something reading it on top.
 fn marks(name: &str) -> bool {
-    let Some(colour) = ["_concrete", "_wool", "_terracotta", "_stained_glass"]
-        .iter()
-        .find_map(|kind| name.strip_suffix(kind))
-    else {
-        return false;
-    };
-    !matches!(colour, "white" | "gray")
-        && colour != colour::CONTROL
-        && !colour::INPUT_COLOURS.contains(&colour)
+    if let Some(colour) = name.strip_suffix("_stained_glass") {
+        return !matches!(colour, "white" | "gray" | "light_gray");
+    }
+    !colour::is_component(name)
+        && !name.ends_with("glass")
+        && crate::dust::solid(&format!("minecraft:{name}"))
 }
 
 /// Whether no block of kind `name` touches `pos`, even at a corner.
@@ -784,11 +782,11 @@ mod tests {
         );
     }
 
-    /// A lone block with dust on top is an output when it is an output's
-    /// colour, never when it is an input's, as one left over from an input
-    /// whose switch moved.
+    /// A lone block with dust on top is an output whatever its colour or
+    /// kind, but plain or white glass, which holds dust up, and a
+    /// component, such as a target.
     #[test]
-    fn only_a_block_not_of_an_input_colour_marks_an_output() {
+    fn any_lone_block_but_plain_glass_or_a_component_marks_an_output() {
         let outputs = |block: &str| {
             let states: HashMap<Pos, String> = [
                 ([0, 0, 0], block),
@@ -804,13 +802,19 @@ mod tests {
                 .outputs
                 .len()
         };
-        assert_eq!(outputs("yellow_concrete"), 1);
-        assert_eq!(outputs("red_wool"), 1);
         for block in [
-            "magenta_concrete",
+            "yellow_concrete",
+            "red_wool",
+            "magenta_wool",
             "lime_concrete",
             "light_blue_stained_glass",
+            "gold_block",
+            "stone",
         ] {
+            assert_eq!(outputs(block), 1, "{block}");
+        }
+        for block in ["glass", "white_stained_glass", "target", "redstone_lamp"]
+        {
             assert_eq!(outputs(block), 0, "{block}");
         }
     }

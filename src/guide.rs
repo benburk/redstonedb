@@ -141,14 +141,14 @@ pub fn examples() -> Vec<Example> {
         },
         Example {
             name: "output",
-            caption: "Dust on a coloured block that no block of its colour touches.",
+            caption: "Dust on a block that no block like it touches.",
             kept: true,
             breaks: None,
             blocks: output(1, 0, YELLOW),
         },
         Example {
             name: "outputs-touching",
-            caption: "Two outputs of one colour touching.",
+            caption: "Two outputs of one block touching.",
             kept: false,
             breaks: Some("no outputs"),
             blocks: [output(1, 0, YELLOW), output(1, 1, YELLOW)].concat(),
