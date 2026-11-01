@@ -12,7 +12,6 @@ use crate::{
         catalogue::Measure,
         schematic::{Logic, Schematic, StackDirection},
         simulation::Status,
-        tag,
         user::User,
         version::Version,
     },
@@ -124,7 +123,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             ))
             @let poll = format!("{path}/simulation");
             // Unverified or off the list, a build the simulator can't run
-            // says why under Failed verification already.
+            // says why under its reasons already.
             @let skipped_off_list = crate::models::simulation::stands_in(s).is_some()
                 && matches!(report, Some(Report::Skipped { .. }));
             @match simulation {
@@ -177,8 +176,10 @@ fn not_recognized(
         reasons.push(format!("Fails {label} test or conventions"));
     }
     html! {
-        section id="failed-verification" aria-labelledby="unrecognized-heading" class="scroll-mt-4" {
-            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } { "Failed verification" }
+        section id="unverified" aria-labelledby="unrecognized-heading" class="scroll-mt-4" {
+            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } {
+                (if s.non_standard() { "Non-standard" } else { "Failed verification" })
+            }
             ul class="flex list-disc flex-col gap-3 pl-5" {
                 @for reason in &reasons {
                     (super::reason_item(reason))
@@ -245,9 +246,14 @@ pub fn build_banner(
     html! {
         div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
             @if s.unverified.is_some() {
-                a href="#failed-verification"
-                    class="inline-block rounded-full bg-danger/12 px-2.5 text-meta leading-6 font-semibold text-danger hover:no-underline" {
-                    "Fails verification"
+                @let (label, tone) = if s.non_standard() {
+                    ("Non-standard", "bg-restriction text-on-restriction")
+                } else {
+                    ("Fails verification", "bg-danger/12 text-danger")
+                };
+                a href="#unverified"
+                    class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold hover:no-underline " (tone) } {
+                    (label)
                 }
             }
             @if let Some((label, tone, note)) = verdict {
@@ -448,7 +454,7 @@ pub fn build_info(
             }
             // A failing build says so beside its title, not among its tags;
             // its design, orientation, and flags are among them.
-            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_VERIFICATION).collect();
+            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| !tag.is_unverified()).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
                     @for tag in &tags {

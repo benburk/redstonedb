@@ -203,6 +203,11 @@
     @apply bg-selection text-ink;
   }
 
+  /* Not verified, its inputs and outputs not fitting, though it may work. */
+  .badge-caution {
+    @apply bg-restriction text-on-restriction;
+  }
+
   .badge-failing {
     @apply bg-danger text-on-danger;
   }

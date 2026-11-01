@@ -348,8 +348,13 @@ impl Schematic {
     /// has one. Only a verified build ranks, and lists unless the unverified
     /// are asked for.
     pub fn verified(&self) -> bool {
-        self.unverified.is_none()
-            && !self.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION)
+        self.unverified.is_none() && !self.tags.iter().any(Tag::is_unverified)
+    }
+
+    /// Whether it is unverified only because its inputs, outputs, or
+    /// parts don't fit its category's, rather than for wrong outputs.
+    pub fn non_standard(&self) -> bool {
+        self.tags.iter().any(|t| t.kind == tag::Kind::NonStandard)
     }
 
     /// Whether `evaluate` works out its every measured detail: a
@@ -409,10 +414,8 @@ impl Schematic {
                 behaviour.stacking == crate::category::Stacking::Inferred,
             ),
         });
-        let (failing, rest): (Vec<&Tag>, Vec<&Tag>) = self
-            .tags
-            .iter()
-            .partition(|tag| tag.kind == tag::Kind::Failing);
+        let (failing, rest): (Vec<&Tag>, Vec<&Tag>) =
+            self.tags.iter().partition(|tag| tag.is_unverified());
         failing
             .into_iter()
             .cloned()
@@ -823,9 +826,8 @@ async fn load(
     only: Option<String>,
 ) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT schematic.id, schematic.category, width,
-            orientation as "orientation: Orientation",
-            encoding as "encoding: Encoding", latency,
+        r#"SELECT schematic.id, schematic.category, width, orientation
+            as "orientation: Orientation", encoding as "encoding: Encoding", latency,
             synchronized as "synchronized: bool", throughput, at_least, pulse,
             bytes, torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
@@ -835,15 +837,13 @@ async fn load(
             coalesce(schematic.logic, category.logic) as "logic?: Logic",
             conventional as "conventional: bool", description, given_name,
             design, design.abbreviation as "design_abbreviation?: String",
-            design.label as "design_given_label?: String",
-            category.label as "category_label?: String",
+            design.label as "design_given_label?: String", category.label
+                as "category_label?: String",
             user.username as "uploader?: String", coalesce(user.minecraft_name,
                 user.username) as "uploader_name?: String",
-            EXISTS (SELECT 1 FROM simulation
-                WHERE simulation.schematic_id = schematic.id
-                    AND simulation.sha256 = file.sha256
-                    AND simulation.failed)
-                as "fails_simulation!: bool"
+            EXISTS (SELECT 1 FROM simulation WHERE simulation.failed
+                AND simulation.schematic_id = schematic.id
+                AND simulation.sha256 = file.sha256) as "fails_simulation!: bool"
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
          LEFT JOIN category ON category.name = schematic.category
@@ -872,7 +872,10 @@ async fn load(
                 aliases: extras.aliases(&row.category),
                 tags: tag::with_derived(
                     tags.remove(&row.id).unwrap_or_default(),
-                    row.fails_simulation || row.unverified.is_some(),
+                    tag::unverified(
+                        row.fails_simulation,
+                        row.unverified.as_deref(),
+                    ),
                     row.torches,
                     row.works_from.as_deref(),
                 ),

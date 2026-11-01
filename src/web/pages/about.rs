@@ -41,7 +41,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 }
                 p class="mb-2" { "A few other things:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
-                    li { "Builds RSDB can't verify still go in their category, as built, with a fails verification tag and the specs their uploader gives. They're hidden until you tick Show unverified, and never rank." }
+                    li { "Builds RSDB can't verify still go in their category, as built, with the specs their uploader gives: non-standard when their inputs and outputs don't fit, fails verification when they give wrong outputs. They're hidden until you tick Show unverified, and never rank." }
                     li { "Builds of types RSDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
                     li { "Builds keep the colours their builder gave them: switch between Original, Default, and your theme on any build's page." }

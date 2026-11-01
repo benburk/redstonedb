@@ -149,10 +149,7 @@ const CASES: &[Case] = &[
         rule: Some("per-category"),
     },
     Case {
-        when: &[
-            Is("Gives wrong outputs for some inputs"),
-            Has("cases wrong"),
-        ],
+        when: &[Is(crate::details::WRONG_OUTPUTS), Has("cases wrong")],
         fix: "See which cases fail under Simulation, fix the circuit, and \
               upload it as a new version.",
         rule: None,
@@ -182,7 +179,16 @@ const CASES: &[Case] = &[
     },
 ];
 
-/// The advice for `reason`, one line of a build's Failed verification;
+/// Whether `reason` says a build gives wrong outputs, so it fails
+/// verification, rather than that its inputs, outputs, or parts don't fit
+/// its category's, which leaves it non-standard.
+pub fn wrong_outputs(reason: &str) -> bool {
+    let reason = reason.trim();
+    reason == crate::details::WRONG_OUTPUTS || reason.contains("cases wrong")
+}
+
+/// The advice for `reason`, one line of a build's reasons it isn't
+/// verified;
 /// `None` for a reason with nothing more to say.
 pub fn advice(reason: &str) -> Option<Advice> {
     let reason = reason.trim();

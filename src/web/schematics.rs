@@ -80,8 +80,11 @@ impl ListQuery {
                 "q" => query.q = value,
                 "category" => query.category = value,
                 "sort" => query.sort = value,
-                // Asking for the builds that fail verification shows them.
-                "tag" if tag::name(&value) == tag::FAILS_VERIFICATION => {
+                // Asking for the unverified by their tag shows them.
+                "tag"
+                    if [tag::FAILS_VERIFICATION, tag::NON_STANDARD]
+                        .contains(&tag::name(&value).as_str()) =>
+                {
                     query.unverified = true;
                     query.tags.push(value);
                 }

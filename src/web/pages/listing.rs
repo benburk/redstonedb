@@ -641,7 +641,13 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
     for s in shown {
         for tag in s.every_tag() {
             match filters.iter_mut().find(|f| f.tag.name == tag.name) {
-                Some(filter) => filter.count += 1,
+                Some(filter) => {
+                    filter.count += 1;
+                    // Found on any build, it is the site's to filter by.
+                    if tag.is_found() && !filter.tag.is_found() {
+                        filter.tag = tag;
+                    }
+                }
                 None => filters.push(Filter {
                     tag,
                     count: 1,
@@ -673,7 +679,7 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
     filters.extend(unmatched);
     let rank = |f: &Filter| {
         let kind = match f.tag.kind {
-            tag::Kind::Failing => 0,
+            tag::Kind::Failing | tag::Kind::NonStandard => 0,
             tag::Kind::Design => 1,
             tag::Kind::Orientation => 2,
             tag::Kind::Feature => 3,

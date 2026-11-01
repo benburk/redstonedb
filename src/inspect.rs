@@ -370,8 +370,10 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             "repeater" | "comparator" if points_into(blocks, next, block) => {
                 Some(wrong(&format!("{next_name} points into it")))
             }
-            "repeater" | "comparator" | "lever" | "air" => None,
-            "target" | "redstone_block" if side == Direction::Up => None,
+            // A target takes no power from the block it touches, on any
+            // side.
+            "repeater" | "comparator" | "lever" | "air" | "target" => None,
+            "redstone_block" if side == Direction::Up => None,
             _ if next_name.ends_with("_button")
                 || next_name.ends_with("sign")
                 || !colour::is_component(next_name)
@@ -746,6 +748,8 @@ mod tests {
                 "{block}"
             );
         }
+        // A target may touch it on any side.
+        assert_eq!(faults_with("target[power=0]", false), Vec::<String>::new());
         assert_eq!(
             faults_with("redstone_block", false),
             ["Input at (0, 1, 1): touches redstone block"]

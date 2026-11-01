@@ -10,9 +10,13 @@ named_values! {
         /// A limit the build keeps, such as working from Alpha.
         Restriction = "restriction", "Restriction";
         Other = "other", "Other";
-        /// That the build is not verified as its category, never stored.
+        /// That the build gives wrong outputs, never stored.
         #[value(skip)]
         Failing = "failing", "Verification";
+        /// That the build's inputs, outputs, or parts don't fit its
+        /// category's, so it couldn't be verified, never stored.
+        #[value(skip)]
+        NonStandard = "non_standard", "Non-standard";
         /// Its design, such as `carry_cancel`, when the site works it out,
         /// never stored as a tag.
         #[value(skip)]
@@ -37,10 +41,14 @@ pub struct Tag {
     pub kind: Kind,
 }
 
-/// The name of the tag a build carries that is not verified as its
-/// category: one not recognized as it, or one that gets some cases of its
-/// test wrong. It is not stored, so no one can add or remove it.
+/// The name of the tag a build carries that gets some cases of its test
+/// wrong. It is not stored, so no one can add or remove it.
 pub const FAILS_VERIFICATION: &str = "fails_verification";
+
+/// The name of the tag a build carries whose inputs, outputs, or parts
+/// don't fit its category's, so it couldn't be verified, though it may
+/// work. It is not stored either.
+pub const NON_STANDARD: &str = "non-standard";
 
 /// The name of the tag a build whose file has no redstone torches carries.
 /// It is not stored, so no one can add or remove it.
@@ -51,7 +59,8 @@ const TORCHLESS: &str = "torchless";
 const ALPHA: &str = "alpha";
 
 /// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 3] = [FAILS_VERIFICATION, TORCHLESS, ALPHA];
+pub const DERIVED: [&str; 4] =
+    [FAILS_VERIFICATION, NON_STANDARD, TORCHLESS, ALPHA];
 
 impl Tag {
     pub(super) fn derived(name: &str, kind: Kind) -> Self {
@@ -80,11 +89,12 @@ impl Tag {
     }
 
     /// The class that colours its badge: failing in the colour of danger,
-    /// any other the site finds in its own, and one a person gives by its
+    /// non-standard in a caution's, any other the site finds in its own, and one a person gives by its
     /// kind.
     pub fn class(&self) -> &'static str {
         match self.kind {
             Kind::Failing => "badge-failing",
+            Kind::NonStandard => "badge-caution",
             _ if self.is_found() => "badge-found",
             Kind::Restriction => "badge-restriction",
             _ => "badge-other",
@@ -93,11 +103,17 @@ impl Tag {
 
     /// What its badge's tooltip says it is.
     pub fn about(&self) -> String {
-        if self.is_found() && self.kind != Kind::Failing {
+        if self.is_found() && !self.is_unverified() {
             format!("{}, found by the site", self.kind.label())
         } else {
             self.kind.label().to_owned()
         }
+    }
+
+    /// Whether it says the build is not verified, as failing or
+    /// non-standard.
+    pub fn is_unverified(&self) -> bool {
+        matches!(self.kind, Kind::Failing | Kind::NonStandard)
     }
 
     /// The name as words, such as `carry lookahead`.
@@ -134,18 +150,43 @@ pub fn valid_name(name: &str) -> bool {
 pub fn from_file(facts: &crate::import::FileFacts) -> Vec<Tag> {
     with_derived(
         Vec::new(),
-        false,
+        None,
         Some(facts.torches),
         Some(facts.works_from.release),
     )
 }
 
-/// A build's stored `tags`, led by `fails_verification` when it is not
-/// verified, with `torchless` among its restrictions when its file has no
-/// torches, and `alpha` when it works from Alpha.
+/// Whether a build isn't verified, and why: it gives wrong outputs, or
+/// its inputs, outputs, or parts don't fit its category's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Unverified {
+    Fails,
+    NonStandard,
+}
+
+/// Whether a build that `fails_simulation`, or is unverified for `reason`,
+/// isn't verified, and why: wrong outputs, as a failing test or the reason
+/// says, fail it, and any other reason leaves it non-standard.
+pub fn unverified(
+    fails_simulation: bool,
+    reason: Option<&str>,
+) -> Option<Unverified> {
+    match reason {
+        _ if fails_simulation => Some(Unverified::Fails),
+        Some(reason) if crate::fault::wrong_outputs(reason) => {
+            Some(Unverified::Fails)
+        }
+        Some(_) => Some(Unverified::NonStandard),
+        None => None,
+    }
+}
+
+/// A build's stored `tags`, led by `fails_verification` or `non-standard`
+/// when it is `unverified`, with `torchless` among its restrictions when
+/// its file has no torches, and `alpha` when it works from Alpha.
 pub(super) fn with_derived(
     mut tags: Vec<Tag>,
-    fails_verification: bool,
+    unverified: Option<Unverified>,
     torches: Option<i64>,
     works_from: Option<&str>,
 ) -> Vec<Tag> {
@@ -161,8 +202,14 @@ pub(super) fn with_derived(
             .unwrap_or(tags.len());
         tags.insert(at, Tag::derived(name, Kind::Restriction));
     }
-    if fails_verification {
-        tags.insert(0, Tag::derived(FAILS_VERIFICATION, Kind::Failing));
+    match unverified {
+        Some(Unverified::Fails) => {
+            tags.insert(0, Tag::derived(FAILS_VERIFICATION, Kind::Failing));
+        }
+        Some(Unverified::NonStandard) => {
+            tags.insert(0, Tag::derived(NON_STANDARD, Kind::NonStandard));
+        }
+        None => {}
     }
     tags
 }
@@ -324,22 +371,27 @@ mod tests {
             tags.into_iter().map(|tag| tag.name).collect()
         };
         assert_eq!(
-            names(with_derived(stored.clone(), true, Some(0), None)),
+            names(with_derived(
+                stored.clone(),
+                Some(Unverified::Fails),
+                Some(0),
+                None
+            )),
             ["fails_verification", "alpha", "torchless", "buffer"]
         );
         assert_eq!(
-            names(with_derived(stored.clone(), false, Some(3), None)),
+            names(with_derived(stored.clone(), None, Some(3), None)),
             ["alpha", "buffer"]
         );
         assert_eq!(
-            names(with_derived(stored, false, None, None)),
+            names(with_derived(stored, None, None, None)),
             ["alpha", "buffer"],
             "an uncounted build is not torchless yet"
         );
         // Alpha is read from the file too, before torchless by name.
         let other = vec![tag("buffer", Kind::Other)];
         assert_eq!(
-            names(with_derived(other, false, Some(0), Some("Alpha"))),
+            names(with_derived(other, None, Some(0), Some("Alpha"))),
             ["alpha", "torchless", "buffer"]
         );
     }

@@ -420,9 +420,12 @@ pub async fn unrecognized(
         Report::Skipped { reason } => {
             off(reason.trim().trim_end_matches('.').to_owned())
         }
-        _ => off("Gives wrong outputs for some inputs".to_owned()),
+        _ => off(WRONG_OUTPUTS.to_owned()),
     }
 }
+
+/// Why a build that gets some cases of its test wrong is not verified.
+pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";
 
 /// Why a build whose inputs take a signal strength, rather than a lever's
 /// on or off, is not recognized.
