@@ -15,6 +15,7 @@ pub mod dust;
 pub mod error;
 pub mod evaluate;
 pub mod extractors;
+pub mod fault;
 pub mod guide;
 pub mod head;
 pub mod import;

@@ -117,8 +117,8 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     };
     if lines.len() > 1 {
         broken!(
-            "An incrementer has at most one control line, such as \
-             increment, but this has {}.",
+            "Too many control lines: {} (an incrementer takes one, such \
+             as increment).",
             lines.len()
         );
     }

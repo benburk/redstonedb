@@ -473,16 +473,12 @@ async fn refresh_off_list(
             match Test::of(meant, width) {
                 Some(test) => run(test, standard.data).await?,
                 None => Report::Skipped {
-                    reason: format!(
-                        "The {} test can't read its width from its inputs \
-                         and outputs.",
-                        meant.replace('_', " ")
-                    ),
+                    reason: "Couldn't count its bits.".to_owned(),
                 },
             }
         }
         Err(err) => Report::Skipped {
-            reason: format!("It can't be standardized: {err:#}."),
+            reason: format!("Couldn't standardize it: {err:#}."),
         },
     };
     set(db, &s.id, test, (s.sha256.as_str(), None), &report).await?;

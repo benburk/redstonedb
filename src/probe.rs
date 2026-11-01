@@ -1869,7 +1869,7 @@ mod tests {
             found
                 .problems
                 .iter()
-                .any(|p| p.contains("at most one control line")),
+                .any(|p| p.contains("Too many control lines")),
             "{:?}",
             found.problems
         );

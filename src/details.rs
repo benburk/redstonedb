@@ -352,8 +352,8 @@ pub fn meant<'a>(
 /// Why a build is not recognized as one of `category`, and the category
 /// off the list it goes up under instead.
 pub struct Unrecognized {
-    /// A sentence without its full stop, such as `It does not pass the
-    /// adder test`.
+    /// A short sentence about the build, without its full stop, such as
+    /// `Couldn't recognize inputs without levers`.
     pub why: String,
     /// Named for what it seems meant to be, such as `8-bit adder`.
     pub name: String,
@@ -387,33 +387,28 @@ pub async fn unrecognized(
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
-    let label = category.label.to_lowercase();
     let off = |why: String| {
         let name = off_list_name(category, width);
         Ok(Some(Unrecognized { why, name }))
     };
     if !build.conventional {
-        return off(format!(
-            "The {label} test can't read its inputs and outputs"
-        ));
+        return off("Couldn't read its inputs and outputs".to_owned());
     }
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
-        return off(format!("The {label} test can't read its file"));
+        return off("Couldn't read its file".to_owned());
     };
     // Until the simulator has a good way to drive one, a strength is no
     // input a recognized build may take.
     if !crate::interface::dust_inputs(&blocks).is_empty() {
-        return off(format!(
-            "The {label} test takes no signal-strength inputs"
-        ));
+        return off(WITHOUT_LEVERS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
         return off(match width {
-            None => format!(
-                "The {label} test can't read its width from its inputs and \
-                 outputs"
+            None => "Couldn't count its bits".to_owned(),
+            Some(w) => format!(
+                "Couldn't test {} of {w} bits yet",
+                category.plural.to_lowercase()
             ),
-            Some(w) => format!("The {label} test does not run at {w} bits"),
         });
     };
     let report = simulation::run(test, build.data.to_vec())
@@ -422,13 +417,16 @@ pub async fn unrecognized(
     match report {
         _ if report.passed() => Ok(None),
         // A block the simulator does not model, as a piston.
-        Report::Skipped { reason } => off(format!(
-            "{} The {label} test can't run on it",
-            reason.trim()
-        )),
-        _ => off(format!("It does not pass the {label} test")),
+        Report::Skipped { reason } => {
+            off(reason.trim().trim_end_matches('.').to_owned())
+        }
+        _ => off("Gives wrong outputs for some inputs".to_owned()),
     }
 }
+
+/// Why a build whose inputs take a signal strength, rather than a lever's
+/// on or off, is not recognized.
+pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 
 /// Refuses details whose fields are not of the shape they must be, each
 /// with a sentence saying which.

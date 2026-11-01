@@ -77,23 +77,27 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
+                    "outputs",
                     "Outputs",
                     "need to be lone blocks, with dust, a repeater, or a comparator on top to read. \
                      Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained a colour.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
+                    "data-inputs",
                     "Data inputs",
                     "must be a lever on the side of a solid block, a lamp too, with no redstone on top or below. \
                      There has to be room for a repeater where the lever is, so a bus could drive it instead.",
                     &["input", "repeater", "data-dust-on-top", "input-dust-below"],
                 ))
                 (rule(
+                    "control-lines",
                     "Control lines",
                     "like a carry in or a write enable, can have dust on top, since only a lever or button will ever drive them.",
                     &["control-dust-on-top"],
                 ))
                 (rule(
+                    "buses",
                     "Buses",
                     "need to be evenly spaced lines, straight or diagonal, or two lines with their bits alternating.",
                     &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
@@ -106,7 +110,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
                         li { "Stackable builds also compete on the leaderboards at 8, 16, and 32 bits." }
                     }
-                    h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Per-category rules" }
+                    h2 id="per-category" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Per-category rules" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
                         li { "Some builds have optional control lines and data inputs, like an adder's carry in or an incrementer's increment line." }
                         li { "Gates take A and B and give one output as wide. A torch on the output makes the inverse, so XOR and XNOR share a category, with a flag." }
@@ -131,12 +135,13 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
     )
 }
 
-/// One rule a build keeps: its name, what it says, and pictures of the
-/// examples `names`, each captioned with whether it passes.
-fn rule(name: &str, text: &str, names: &[&str]) -> Markup {
+/// One rule a build keeps, at `id`, which a fault's advice links to: its
+/// name, what it says, and pictures of the examples `names`, each
+/// captioned with whether it passes.
+fn rule(id: &str, name: &str, text: &str, names: &[&str]) -> Markup {
     let examples = guide::examples();
     html! {
-        p class="mt-6 mb-3 max-w-prose" { strong { (name) " " } (text) }
+        p id=(id) class="mt-6 mb-3 max-w-prose scroll-mt-4" { strong { (name) " " } (text) }
         div class="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3" {
             @for example in names.iter().filter_map(|&n| examples.iter().find(|e| e.name == n)) {
                 figure class="m-0 flex flex-col gap-1.5" {

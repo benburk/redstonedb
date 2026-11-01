@@ -158,27 +158,30 @@ fn not_recognized(
         .map(|file| file.unrecognized.as_slice())
         .unwrap_or_default();
     let mut reasons: Vec<String> = s.unverified.iter().cloned().collect();
-    // Said once, whichever says it first.
-    let said = |reasons: &[String], words: &str| {
-        reasons.iter().any(|r| r.to_lowercase().contains(words))
+    let strength = strength.then(|| crate::details::WITHOUT_LEVERS.to_owned());
+    // Each said once, whichever says it first, however it is put.
+    let bare = |reason: &str| {
+        let reason = reason.trim();
+        reason
+            .strip_prefix("Test couldn't run: ")
+            .unwrap_or(reason)
+            .trim_end_matches('.')
+            .to_owned()
     };
-    if strength && !said(&reasons, "signal-strength") {
-        reasons.push("Signal-strength inputs".to_owned());
-    }
-    for fault in faults {
-        if !reasons.contains(fault) {
-            reasons.push(fault.clone());
+    for reason in strength.iter().chain(faults) {
+        if !reasons.iter().any(|said| bare(said) == bare(reason)) {
+            reasons.push(bare(reason));
         }
     }
     if reasons.is_empty() {
         reasons.push(format!("Fails {label} test or conventions"));
     }
     html! {
-        section aria-labelledby="unrecognized-heading" {
+        section id="failed-verification" aria-labelledby="unrecognized-heading" class="scroll-mt-4" {
             h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } { "Failed verification" }
-            ul class="flex list-disc flex-col gap-1.5 pl-5" {
+            ul class="flex list-disc flex-col gap-3 pl-5" {
                 @for reason in &reasons {
-                    li { (reason) }
+                    (super::reason_item(reason))
                 }
             }
         }
@@ -205,12 +208,8 @@ pub fn build_banner(
     simulating: bool,
 ) -> Markup {
     let verdict = match report {
-        // An unverified build says why, whatever its test found.
-        _ if s.unverified.is_some() => Some((
-            "Fails verification",
-            "bg-danger/12 text-danger",
-            format!("{}.", s.unverified.as_deref().unwrap_or_default()),
-        )),
+        // An unverified build's reasons are a section of their own.
+        _ if s.unverified.is_some() => None,
         // A pass needs no badge: it is what puts a build on the list.
         Some(Report::Ran(run)) if run.wrong == 0 => None,
         Some(Report::Ran(run)) => Some((
@@ -245,6 +244,12 @@ pub fn build_banner(
     // Kept when empty, as the page redraws it when a simulation finishes.
     html! {
         div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
+            @if s.unverified.is_some() {
+                a href="#failed-verification"
+                    class="inline-block rounded-full bg-danger/12 px-2.5 text-meta leading-6 font-semibold text-danger hover:no-underline" {
+                    "Fails verification"
+                }
+            }
             @if let Some((label, tone, note)) = verdict {
                 @let pill = html! {
                     span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (tone) } { (label) }

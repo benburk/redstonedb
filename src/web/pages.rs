@@ -223,6 +223,26 @@ fn badge(tag: &Tag, s: &Schematic) -> Markup {
     }
 }
 
+/// One reason a build isn't verified, as a list item: what is wrong, then
+/// how to fix it, with a link to the rule it breaks when the Build
+/// Analysis page pictures it.
+fn reason_item(reason: &str) -> Markup {
+    let advice = crate::fault::advice(reason);
+    html! {
+        li {
+            span class="block" { (reason) }
+            @if let Some(advice) = advice {
+                span class="block text-muted" {
+                    "Fix: " (advice.fix)
+                    @if let Some(rule) = advice.rule {
+                        " " a href={ "/about/recognized#" (rule) } { "See the rule" }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The mark of a build only its uploader sees.
 fn private_badge() -> Markup {
     html! {

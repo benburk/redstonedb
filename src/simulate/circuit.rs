@@ -971,11 +971,7 @@ fn at([x, y, z]: Pos) -> BlockPos {
 /// The levers driving `port`'s bits.
 fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
     if port.signal_strength {
-        bail!(
-            "Input {} takes a signal strength, which the simulator does not \
-             drive yet.",
-            port.name
-        );
+        bail!("Couldn't recognize input {} without levers.", port.name);
     }
     port.bits
         .iter()
@@ -1038,10 +1034,7 @@ fn block(state: &str) -> Result<Block> {
     };
     let known = known || id == "minecraft:white_concrete";
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
-        bail!(
-            "It has a {}, which the simulator does not model.",
-            name.replace('_', " ")
-        );
+        bail!("Couldn't simulate its {}.", name.replace('_', " "));
     };
     if let Some(properties) =
         state.split_once('[').and_then(|(_, p)| p.strip_suffix(']'))
@@ -1064,10 +1057,7 @@ mod tests {
     fn a_block_it_does_not_model_is_refused_by_name() {
         let err =
             block("minecraft:piston[extended=false,facing=up]").unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "It has a piston, which the simulator does not model."
-        );
+        assert_eq!(err.to_string(), "Couldn't simulate its piston.");
     }
 
     #[test]

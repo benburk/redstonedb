@@ -1,0 +1,250 @@
+//! What to do about each reason a build isn't verified, as a good compiler
+//! error does: the reason says what is wrong and where, and its advice how
+//! to fix it, pointing to the rule the Build Analysis page pictures. The
+//! reasons come from the check by function, the simulator, and
+//! `details::unrecognized`, each written in one of a few fixed shapes,
+//! which are matched here.
+
+/// How to fix one reason a build isn't verified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Advice {
+    /// What to change, in a sentence or two.
+    pub fix: &'static str,
+    /// The section of the Build Analysis page that pictures the rule, by
+    /// its id, such as `data-inputs`.
+    pub rule: Option<&'static str>,
+}
+
+/// One shape of reason: what a reason of that shape is, as words it is,
+/// starts with, or holds.
+#[derive(Clone, Copy)]
+enum Shape {
+    Is(&'static str),
+    Starts(&'static str),
+    Has(&'static str),
+}
+
+impl Shape {
+    fn fits(self, reason: &str) -> bool {
+        match self {
+            Shape::Is(words) => reason == words,
+            Shape::Starts(words) => reason.starts_with(words),
+            Shape::Has(words) => reason.contains(words),
+        }
+    }
+}
+
+/// The reasons of any of shapes `when`, and how to fix them: what to
+/// change, and the rule's section on the Build Analysis page, if any. The
+/// first case a reason fits gives its advice, so a narrower shape comes
+/// before a wider one.
+struct Case {
+    when: &'static [Shape],
+    fix: &'static str,
+    rule: Option<&'static str>,
+}
+
+use Shape::{Has, Is, Starts};
+
+const CASES: &[Case] = &[
+    Case {
+        when: &[Is("No inputs")],
+        fix: "Put a lever on the side of each input bit's block, one line \
+              of levers for each input.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Is("No outputs")],
+        fix: "Give each output bit a lone block with dust, a repeater, or a \
+              comparator on top, and no block like it touching it.",
+        rule: Some("outputs"),
+    },
+    Case {
+        when: &[Has("(need stone)")],
+        fix: "Use a stone button. Other buttons stay pressed longer than a \
+              test presses them.",
+        rule: Some("control-lines"),
+    },
+    Case {
+        when: &[Has(": on top of block"), Has(": on bottom of block")],
+        fix: "Put it on the side of its block.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has(": on non-solid")],
+        fix: "Put it on a full solid block, such as concrete, wool, or a \
+              lamp.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has(": dust on top")],
+        fix: "Take the dust off the input's block. Only a control line, such \
+              as a carry in, may have dust on top.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has(": touches ")],
+        fix: "Move it so it touches only its own block, and no other \
+              redstone.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has("drives nothing")],
+        fix: "Wire the input's block into the circuit, or take the input out.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has("below blocks repeater"), Has("behind blocks repeater")],
+        fix: "Clear that block, so a repeater could drive the input in place \
+              of its lever, as a bus would.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Has("not bus-drivable")],
+        fix: "Leave room for a repeater where the lever is, so a bus could \
+              drive the input.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Starts("Input at ")],
+        fix: "Wire each input's block into the circuit from the side, with no \
+              redstone above or below it.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Starts("Output bus")],
+        fix: "Put one output for each bit in one evenly spaced line, straight \
+              or diagonal.",
+        rule: Some("buses"),
+    },
+    Case {
+        when: &[Starts("Input bus"), Has(": no line of ")],
+        fix: "Put each input's levers in one evenly spaced line, one for each \
+              bit, every input as wide as A.",
+        rule: Some("buses"),
+    },
+    Case {
+        when: &[Is("Couldn't count its bits")],
+        fix: "Put input A's levers in one evenly spaced line, one for each \
+              bit.",
+        rule: Some("buses"),
+    },
+    Case {
+        when: &[Starts("Couldn't recognize input")],
+        fix: "Put a lever on each input bit's block. Tests switch inputs on \
+              and off, so they can't give a signal strength through dust \
+              yet.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Is("Couldn't read its inputs and outputs")],
+        fix: "Give each input bit a lever, and each output bit a lone block \
+              read from on top.",
+        rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Starts("Too many control lines")],
+        fix: "Take out every control line but the one its category takes, so \
+              a multiplier keeps only calculate.",
+        rule: Some("per-category"),
+    },
+    Case {
+        when: &[
+            Is("Gives wrong outputs for some inputs"),
+            Has("cases wrong"),
+        ],
+        fix: "See which cases fail under Simulation, fix the circuit, and \
+              upload it as a new version.",
+        rule: None,
+    },
+    Case {
+        when: &[Is("Couldn't read its file")],
+        fix: "Save it again with //schem save, and upload that file.",
+        rule: None,
+    },
+    Case {
+        when: &[Starts("Couldn't test "), Has("tested range")],
+        fix: "Upload a version 32 bits wide or narrower, or a slice whose \
+              copies stack to this width.",
+        rule: None,
+    },
+    Case {
+        when: &[Starts("Couldn't simulate its ")],
+        fix: "The simulator doesn't model it yet, so the build can't be \
+              tested. Build it from parts the simulator models to verify it.",
+        rule: None,
+    },
+    Case {
+        when: &[Has("still changing")],
+        fix: "Make sure it comes to rest once its inputs stop: take out any \
+              clock or loop that keeps it changing.",
+        rule: None,
+    },
+];
+
+/// The advice for `reason`, one line of a build's Failed verification;
+/// `None` for a reason with nothing more to say.
+pub fn advice(reason: &str) -> Option<Advice> {
+    let reason = reason.trim();
+    // A test that couldn't run says why after its own words.
+    if let Some(why) = reason.strip_prefix("Test couldn't run: ") {
+        return advice(why);
+    }
+    CASES
+        .iter()
+        .find(|case| case.when.iter().any(|shape| shape.fits(reason)))
+        .map(|case| Advice {
+            fix: case.fix,
+            rule: case.rule,
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every fault a pictured example that breaks a rule shows has advice
+    /// pointing to that rule's section.
+    #[test]
+    fn each_pictured_fault_has_advice() {
+        for example in crate::guide::examples() {
+            if example.breaks.is_none() {
+                continue;
+            }
+            let report = crate::inspect::inspect(&example.schematic());
+            for problem in &report.errors {
+                let advice = advice(&problem.message);
+                assert!(
+                    advice.as_ref().is_some_and(|a| a.rule.is_some()),
+                    "{}: {}",
+                    example.name,
+                    problem.message
+                );
+            }
+        }
+    }
+
+    /// The reasons a build is found unverified for each have advice.
+    #[test]
+    fn each_reason_for_an_unverified_build_has_advice() {
+        for reason in [
+            crate::details::WITHOUT_LEVERS,
+            "Couldn't read its inputs and outputs",
+            "Couldn't read its file",
+            "Couldn't count its bits",
+            "Couldn't test adders of 64 bits yet",
+            "Gives wrong outputs for some inputs",
+            "Couldn't simulate its piston head",
+            "It was still changing 1000 ticks after it was loaded",
+            "Too many control lines: calculate, reset (a multiplier takes \
+             one, calculate)",
+            "Test couldn't run: Couldn't recognize input A without levers.",
+            "Output bus: 7 outputs, need 8",
+            "A: no line of 8 levers",
+            "Button at (1, 2, 3): oak button (need stone)",
+        ] {
+            assert!(advice(reason).is_some(), "{reason}");
+        }
+        assert_eq!(advice("Something else entirely"), None);
+    }
+}

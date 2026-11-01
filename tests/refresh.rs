@@ -139,7 +139,7 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
         .unwrap();
     assert_eq!(ready.details.category, "adder");
     let why = ready.details.unverified.unwrap_or_default();
-    assert!(why.contains("does not pass the adder test"), "{why}");
+    assert!(why.contains("Gives wrong outputs"), "{why}");
     let as_other = Details {
         category: "8-bit adder".to_owned(),
         ..Details::default()

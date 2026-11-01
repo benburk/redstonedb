@@ -400,8 +400,8 @@ fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
         } @else {
             (check("recognized", State::Warn, &html! {
                 "Not recognized, so it goes up as built, unverified, until it's fixed:"
-                ul class="mt-1 flex list-disc flex-col gap-1 pl-5 text-ink" {
-                    @for problem in problems { li { (problem) } }
+                ul class="mt-1 flex list-disc flex-col gap-2 pl-5 text-ink" {
+                    @for problem in problems { (super::reason_item(problem)) }
                 }
             }, false))
         }

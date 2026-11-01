@@ -24,8 +24,8 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         [] => None,
         [line] if interface.inputs[*line].bits.len() == 1 => Some(*line),
         _ => bail!(
-            "A multiplier has at most one control line, its calculate, but \
-             this has {}.",
+            "Too many control lines: {} (a multiplier takes one, \
+             calculate).",
             lines
                 .iter()
                 .map(|&i| interface.inputs[i].name.as_str())

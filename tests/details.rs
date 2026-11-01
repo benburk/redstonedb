@@ -191,16 +191,16 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     let pushed = standardize::edit(&data, &piston).unwrap();
     unverified(
         check_file(&db, typed(), &pushed, true).await,
-        "piston, which the simulator does not model",
+        "Couldn't simulate its piston",
     );
     unverified(
         check_file(&db, typed(), &adder(), false).await,
-        "can't read its inputs and outputs",
+        "Couldn't read its inputs and outputs",
     );
     unverified(
         check_file(&db, typed(), &prepared("cca-8-dust-out", false), true)
             .await,
-        "does not pass the adder test",
+        "Gives wrong outputs",
     );
     unverified(
         check_file(
@@ -210,7 +210,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
             true,
         )
         .await,
-        "signal-strength inputs",
+        "Couldn't recognize inputs without levers",
     );
     let recognized = check(&db, given("adder")).await.unwrap();
     assert_eq!(recognized.details.unverified, None);
