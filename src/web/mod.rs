@@ -164,6 +164,24 @@ pub fn guide_image(name: &str) -> Option<String> {
         .map(|asset| asset.url())
 }
 
+/// What `viewer`'s cards show of them: their palette and their
+/// favourites.
+async fn viewing(
+    db: &sqlx::SqlitePool,
+    viewer: Option<&User>,
+) -> anyhow::Result<pages::Viewing> {
+    Ok(pages::Viewing {
+        palette: crate::palette::key_for(db, viewer).await?,
+        favorites: match viewer {
+            Some(viewer) => crate::models::schematic::favorites(db, viewer.id)
+                .await?
+                .into_iter()
+                .collect(),
+            None => std::collections::HashSet::new(),
+        },
+    })
+}
+
 /// The static assets, served without request logging.
 pub fn static_router() -> Router<AppState> {
     ASSETS

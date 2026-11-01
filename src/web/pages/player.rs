@@ -4,7 +4,10 @@ use maud::{Markup, html};
 
 use crate::models::{schematic::Schematic, user::User};
 
-use super::{PAGE_TITLE, SECTION_TITLE, base, listing::cards};
+use super::{
+    PAGE_TITLE, SECTION_TITLE, base,
+    listing::{Viewing, cards},
+};
 
 /// What a player's page shows.
 pub struct PlayerPage<'a> {
@@ -22,8 +25,7 @@ pub struct PlayerPage<'a> {
     pub mentioned: &'a [Schematic],
     /// First places they hold on the leaderboards.
     pub records: usize,
-    /// The viewer's palette's key, for thumbnails, if they chose one.
-    pub palette: Option<&'a str>,
+    pub viewing: &'a Viewing,
 }
 
 pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
@@ -35,7 +37,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
         contributed,
         mentioned,
         records,
-        palette,
+        viewing,
     } = *page;
     base(
         viewer,
@@ -70,12 +72,12 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
             @if !built.is_empty() || !contributed.is_empty() || mentioned.is_empty() {
                 (credits(built, contributed, &html! {
                     p class="text-muted" { "No builds credit " (name) " as builder yet." }
-                }, palette))
+                }, viewing))
             }
             @if !mentioned.is_empty() {
                 section aria-labelledby="mentioned-heading" class="mb-10" {
                     h2 id="mentioned-heading" class={ (SECTION_TITLE) " mb-3" } { "Mentioned in" }
-                    (cards(mentioned, &[], palette))
+                    (cards(mentioned, &[], viewing))
                 }
             }
         },
@@ -83,23 +85,23 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
 }
 
 /// The builds crediting a player, as builder and as contributor, as cards
-/// under their headings, pictured in the viewer's `palette`; `unbuilt`
+/// under their headings, as the viewer sees them; `unbuilt`
 /// stands for the first when it is empty.
 pub(super) fn credits(
     built: &[Schematic],
     contributed: &[Schematic],
     unbuilt: &Markup,
-    palette: Option<&str>,
+    viewing: &Viewing,
 ) -> Markup {
     html! {
         section aria-labelledby="built-heading" class="mb-10" {
             h2 id="built-heading" class={ (SECTION_TITLE) " mb-3" } { "Built" }
-            @if built.is_empty() { (unbuilt) } @else { (cards(built, &[], palette)) }
+            @if built.is_empty() { (unbuilt) } @else { (cards(built, &[], viewing)) }
         }
         @if !contributed.is_empty() {
             section aria-labelledby="contributed-heading" class="mb-10" {
                 h2 id="contributed-heading" class={ (SECTION_TITLE) " mb-3" } { "Contributed to" }
-                (cards(contributed, &[], palette))
+                (cards(contributed, &[], viewing))
             }
         }
     }

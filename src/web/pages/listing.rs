@@ -1,6 +1,8 @@
 //! Lists of builds, as cards or a table, and the home page that searches
 //! and narrows them, by its search and its menu of categories.
 
+use std::collections::HashSet;
+
 use maud::{Markup, html};
 
 use super::{
@@ -51,8 +53,16 @@ pub struct Listing<'a> {
     /// Tag filters, each needing a match; commas within one give choices.
     pub tags: &'a [String],
     pub facets: &'a [Facet],
-    /// The viewer's palette's key, for its thumbnails, if they chose one.
-    pub palette: Option<&'a str>,
+    pub viewing: &'a Viewing,
+}
+
+/// What a viewer's cards show of them: their palette's key, for the
+/// pictures, if they chose one, and the builds they have favourited, which
+/// carry a star.
+#[derive(Default)]
+pub struct Viewing {
+    pub palette: Option<String>,
+    pub favorites: HashSet<String>,
 }
 
 /// One category in the home page's sidebar.
@@ -85,8 +95,7 @@ pub struct Index<'a> {
     pub recent: &'a [(&'a Schematic, usize)],
     /// How many builds there are in all.
     pub total: usize,
-    /// The viewer's palette's key, for its thumbnails, if they chose one.
-    pub palette: Option<&'a str>,
+    pub viewing: &'a Viewing,
 }
 
 /// Where the home page's links lead: its layout, search, and category.
@@ -298,7 +307,7 @@ pub fn home_index(index: &Index) -> Markup {
                             tags: &[],
                         }.href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                            img src=(thumbnail_src(tile.best, index.palette)) alt="" loading="lazy" decoding="async" width="640" height="480"
+                            img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
                                 class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
                             div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
                                 h4 class="flex items-baseline justify-between gap-2 font-semibold" {
@@ -324,7 +333,7 @@ pub fn home_index(index: &Index) -> Markup {
                             @if named > 1 {
                                 p class="text-meta text-muted" { (named) " builds by this name" }
                             }
-                        }, index.palette))
+                        }, index.viewing))
                     }
                 }
             }
@@ -511,7 +520,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                     "No builds match. " (search_help()) " Remove a term to widen the search."
                 }
             } @else if view == View::Cards {
-                (cards(shown, terms, listing.palette))
+                (cards(shown, terms, listing.viewing))
             } @else {
                 (table(shown, terms))
             }
@@ -677,16 +686,16 @@ fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
 }
 
 /// Builds as cards, each noting the width `terms` ask for when it reaches
-/// it only by stacking, pictured in the viewer's `palette`.
+/// it only by stacking, as the viewer sees it.
 pub(super) fn cards(
     schematics: &[Schematic],
     terms: &[Term],
-    palette: Option<&str>,
+    viewing: &Viewing,
 ) -> Markup {
     html! {
         ul class=(CARDS) {
             @for s in schematics {
-                (card(s, &stacked_note(s, terms), palette))
+                (card(s, &stacked_note(s, terms), viewing))
             }
         }
     }
@@ -740,15 +749,23 @@ fn tile_groups<'t>(
 }
 
 /// Build `s` as a card, with `note` under its tags, pictured in the
-/// viewer's `palette`.
-fn card(s: &Schematic, note: &Markup, palette: Option<&str>) -> Markup {
+/// viewer's palette, with a star when they have favourited it.
+fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
     html! {
                 // The title's link covers the whole card; the tag and name
                 // links sit above it.
                 li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                    img src=(thumbnail_src(s, palette))
+                    img src=(thumbnail_src(s, viewing.palette.as_deref()))
                         alt="" loading="lazy" decoding="async" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                    // The star the build's page fills for a favourite.
+                    @if viewing.favorites.contains(&s.id) {
+                        span title="In your favourites"
+                            class="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-raised/90 text-brand shadow-sm" {
+                            (icon(icons::STAR, "size-4 fill-current"))
+                            span class="sr-only" { "In your favourites" }
+                        }
+                    }
                     div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
                         h2 class="text-section font-semibold" {
                             a href={ "/schematics/" (s.id) }

@@ -137,12 +137,12 @@ async fn index(
 ) -> Result<Response, AppError> {
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
-    let palette = palette::key_for(&state.db, viewer).await?;
+    let viewing = super::viewing(&state.db, viewer).await?;
     let index = pages::Index {
         tiles: &tiles(&categories, &all),
         recent: &recent(&all),
         total: all.len(),
-        palette: palette.as_deref(),
+        viewing: &viewing,
     };
     if fixi {
         return Ok(([("FX-Replace-Url", "/")], pages::home_index(&index))
@@ -250,7 +250,7 @@ async fn listing(
             .collect()
     };
     order(&mut shown, &query.sort);
-    let palette = palette::key_for(&state.db, viewer).await?;
+    let viewing = super::viewing(&state.db, viewer).await?;
     let listing = pages::Listing {
         shown: &shown,
         total,
@@ -261,7 +261,7 @@ async fn listing(
         category: &query.category,
         tags: &query.tags,
         facets: &facets,
-        palette: palette.as_deref(),
+        viewing: &viewing,
     };
     // A search as it is typed redraws only the results, and puts the
     // search in the address, so Back and reloading keep it.

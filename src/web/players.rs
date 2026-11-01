@@ -104,9 +104,7 @@ pub async fn show(
                 .cloned()
                 .collect::<Vec<_>>(),
             records,
-            palette: crate::palette::key_for(&state.db, user_opt.as_ref())
-                .await?
-                .as_deref(),
+            viewing: &super::viewing(&state.db, user_opt.as_ref()).await?,
         },
     )
     .into_response())

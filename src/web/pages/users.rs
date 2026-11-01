@@ -11,7 +11,7 @@ use crate::models::{
 use super::{
     PAGE_TITLE, SWITCH, SWITCHES, TABLE_HEAD, base,
     icons::{self, icon},
-    listing::cards,
+    listing::{Viewing, cards},
     player_href,
 };
 
@@ -220,8 +220,7 @@ pub struct ProfileBuilds {
     pub lists: Vec<ProfileList>,
     /// Which of `lists` is shown.
     pub shown: usize,
-    /// The viewer's palette's key, for thumbnails, if they chose one.
-    pub palette: Option<String>,
+    pub viewing: Viewing,
 }
 
 /// One list of builds a profile can filter to: its name in the address,
@@ -295,7 +294,7 @@ pub fn profile(
                     }
                 }
             } @else {
-                (cards(&shown.builds, &[], builds.palette.as_deref()))
+                (cards(&shown.builds, &[], &builds.viewing))
             }
         },
     )

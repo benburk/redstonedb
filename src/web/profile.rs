@@ -142,7 +142,7 @@ async fn show_profile(
     let builds = pages::ProfileBuilds {
         lists,
         shown,
-        palette: crate::palette::key_for(&state.db, viewer).await?,
+        viewing: super::viewing(&state.db, viewer).await?,
     };
     Ok(pages::profile(viewer, account, &builds).into_response())
 }
