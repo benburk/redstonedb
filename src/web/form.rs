@@ -136,6 +136,8 @@ pub struct Form {
     pub contributors: Vec<String>,
     /// From the tag pills and anything typed beside them.
     pub tags: Vec<String>,
+    /// Whether anyone may see the build, or only its uploader.
+    pub public: bool,
 }
 
 impl Form {
@@ -188,6 +190,7 @@ impl Form {
                 .iter()
                 .map(|name| tag::name(name))
                 .collect(),
+            public: !get("public").is_empty(),
         }
     }
 
@@ -220,6 +223,7 @@ impl Form {
                 .filter(|tag| !tag.is_derived())
                 .map(|tag| tag.name.clone())
                 .collect(),
+            public: s.public,
         }
     }
 
@@ -240,6 +244,7 @@ impl Form {
             synchronized: Some(true),
             stack_rows: vec![StackRow::suggested(orientation, size)],
             category,
+            public: true,
             ..Form::default()
         }
     }
@@ -273,6 +278,7 @@ impl Form {
             builders: self.builders,
             contributors: self.contributors,
             tags: self.tags,
+            public: self.public,
         }
     }
 

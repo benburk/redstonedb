@@ -51,9 +51,10 @@ pub struct Have {
 pub async fn poll(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    viewer: Option<User>,
     Query(Have { have }): Query<Have>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
+    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
     let report = match simulation::status(&state.db, &s).await? {
@@ -229,7 +230,7 @@ async fn stored_file(
     user: Option<&User>,
     id: &str,
 ) -> Result<(schematic::Schematic, Vec<u8>), AppError> {
-    let s = schematic::get(&state.db, id)
+    let s = schematic::get_visible(&state.db, id, user)
         .await?
         .ok_or(AppError::NotFound)?;
     if !user.is_some_and(|user| user.may_edit(&s)) {

@@ -35,7 +35,7 @@ pub async fn show(
     if !schematic::valid_player_name(&name) {
         return Err(AppError::NotFound);
     }
-    let mut all = schematic::all(&state.db).await?;
+    let mut all = schematic::visible(&state.db, user_opt.as_ref()).await?;
     let users = User::all(&state.db).await?;
     let same = |other: &String| other.eq_ignore_ascii_case(&name);
     let account = users.iter().find(|u| {

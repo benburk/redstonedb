@@ -271,6 +271,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         )
         .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/schematics/{id}/schemati", post(schemati::send))
+        .route("/schematics/{id}/favorite", post(schematics::favorite))
+        .route("/favorites", get(schematics::favorites))
         .route("/schematics/{id}/versions/new", get(versions::form))
         .route(
             "/schematics/{id}/versions/{version}/download",

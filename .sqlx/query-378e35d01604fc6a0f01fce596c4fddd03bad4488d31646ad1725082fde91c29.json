@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width,\n            orientation as \"orientation: Orientation\",\n            encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            bytes, torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            schematic.logic as \"own_logic: Logic\",\n            coalesce(schematic.logic, category.logic) as \"logic?: Logic\",\n            conventional as \"conventional: bool\", description, given_name,\n            design, design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            category.label as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = file.sha256\n                    AND simulation.failed)\n                as \"fails_simulation!: bool\"\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id\n         LEFT JOIN category ON category.name = schematic.category\n         LEFT JOIN design ON design.category = schematic.category\n            AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width,\n            orientation as \"orientation: Orientation\",\n            encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            bytes, torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            public as \"public: bool\",\n            schematic.logic as \"own_logic: Logic\",\n            coalesce(schematic.logic, category.logic) as \"logic?: Logic\",\n            conventional as \"conventional: bool\", description, given_name,\n            design, design.abbreviation as \"design_abbreviation?: String\",\n            design.label as \"design_given_label?: String\",\n            category.label as \"category_label?: String\",\n            user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username)\n                as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                    AND simulation.sha256 = file.sha256\n                    AND simulation.failed)\n                as \"fails_simulation!: bool\"\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id\n         LEFT JOIN category ON category.name = schematic.category\n         LEFT JOIN design ON design.category = schematic.category\n            AND design.name = schematic.design\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -124,63 +124,68 @@
         "type_info": "Integer"
       },
       {
-        "name": "own_logic: Logic",
+        "name": "public: bool",
         "ordinal": 24,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "logic?: Logic",
+        "name": "own_logic: Logic",
         "ordinal": 25,
         "type_info": "Text"
       },
       {
-        "name": "conventional: bool",
+        "name": "logic?: Logic",
         "ordinal": 26,
+        "type_info": "Text"
+      },
+      {
+        "name": "conventional: bool",
+        "ordinal": 27,
         "type_info": "Integer"
       },
       {
         "name": "description",
-        "ordinal": 27,
-        "type_info": "Text"
-      },
-      {
-        "name": "given_name",
         "ordinal": 28,
         "type_info": "Text"
       },
       {
-        "name": "design",
+        "name": "given_name",
         "ordinal": 29,
         "type_info": "Text"
       },
       {
-        "name": "design_abbreviation?: String",
+        "name": "design",
         "ordinal": 30,
         "type_info": "Text"
       },
       {
-        "name": "design_given_label?: String",
+        "name": "design_abbreviation?: String",
         "ordinal": 31,
         "type_info": "Text"
       },
       {
-        "name": "category_label?: String",
+        "name": "design_given_label?: String",
         "ordinal": 32,
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "category_label?: String",
         "ordinal": 33,
         "type_info": "Text"
       },
       {
-        "name": "uploader_name?: String",
+        "name": "uploader?: String",
         "ordinal": 34,
         "type_info": "Text"
       },
       {
-        "name": "fails_simulation!: bool",
+        "name": "uploader_name?: String",
         "ordinal": 35,
+        "type_info": "Text"
+      },
+      {
+        "name": "fails_simulation!: bool",
+        "ordinal": 36,
         "type_info": "Integer"
       }
     ],
@@ -212,6 +217,7 @@
       true,
       false,
       false,
+      false,
       true,
       true,
       false,
@@ -226,5 +232,5 @@
       false
     ]
   },
-  "hash": "e5ab5469dfc87a52b4c7696d47fc8e91639ca1b08cfa1b6f09ae90aee4125b5d"
+  "hash": "378e35d01604fc6a0f01fce596c4fddd03bad4488d31646ad1725082fde91c29"
 }

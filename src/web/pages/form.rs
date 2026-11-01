@@ -166,6 +166,14 @@ pub(super) fn fields(
             span { "Description" }
             textarea name="description" rows="3" class="input py-2 leading-prose" { (f.description) }
         }
+        div class="field" {
+            span { "Visibility" }
+            label class="flex items-center gap-2" {
+                input type="checkbox" name="public" value="yes" checked[f.public]
+                    class="size-4 appearance-auto";
+                "Public: anyone can find it. Untick to keep it to yourself."
+            }
+        }
     }
 }
 

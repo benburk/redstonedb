@@ -65,7 +65,7 @@ async fn show(
     viewer: Option<&User>,
     account: &User,
 ) -> Result<Response, AppError> {
-    let mut all = schematic::all(&state.db).await?;
+    let mut all = schematic::visible(&state.db, viewer).await?;
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
     // Credits are in-game names, so they match the profile's Minecraft

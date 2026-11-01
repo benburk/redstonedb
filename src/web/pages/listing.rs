@@ -525,8 +525,11 @@ fn without(terms: &[Term], index: usize) -> String {
 /// failing build stands out to be fixed or removed.
 fn badges(s: &Schematic, class: &str) -> Markup {
     html! {
-        @if !s.tags.is_empty() {
+        @if !s.tags.is_empty() || !s.public {
             ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
+                @if !s.public {
+                    li { (super::private_badge()) }
+                }
                 @for tag in &s.tags {
                     li { (badge(tag)) }
                 }

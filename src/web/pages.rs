@@ -42,7 +42,9 @@ mod users;
 mod version;
 
 pub use about::{about, recognized};
-pub use build::{FileRead, build_banner, build_info, schematic_page, waiting};
+pub use build::{
+    BuildPage, FileRead, build_banner, build_info, schematic_page, waiting,
+};
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;
 use layout::base;
@@ -60,7 +62,7 @@ pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,
 };
 pub use upload::upload;
-pub use users::{ProfileBuilds, login, profile, user_row, users};
+pub use users::{ProfileBuilds, favorites, login, profile, user_row, users};
 /// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.
 fn facts(s: &Schematic) -> Markup {
@@ -204,6 +206,15 @@ fn badge(tag: &Tag) -> Markup {
             title=(tag.kind.label())
             class={ "badge badge-" (tag.kind.name()) " relative z-10 hover:no-underline hover:brightness-95" } {
             (tag.label())
+        }
+    }
+}
+
+/// The mark of a build only its uploader sees.
+fn private_badge() -> Markup {
+    html! {
+        span class="badge badge-builder" title="Only you can see it" {
+            (icons::icon(icons::LOCK, "size-3")) "Private"
         }
     }
 }

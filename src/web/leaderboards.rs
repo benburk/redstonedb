@@ -47,7 +47,8 @@ pub async fn show(
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
-    let all = schematic::all(&state.db).await?;
+    // Private builds compete with no one.
+    let all = schematic::visible(&state.db, None).await?;
     let categories = catalogue::categories(&state.db).await?;
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
         return Err(AppError::NotFound);
@@ -104,7 +105,7 @@ pub async fn people(
         let path = format!("/leaderboards/{category}");
         return Ok(Redirect::to(&path).into_response());
     }
-    let all = schematic::all(&state.db).await?;
+    let all = schematic::visible(&state.db, None).await?;
     let categories = catalogue::categories(&state.db).await?;
     Ok(pages::people(
         user_opt.as_ref(),

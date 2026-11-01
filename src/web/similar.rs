@@ -50,9 +50,11 @@ fn shown_at(file: &str, found: &str) -> String {
 }
 
 /// The builds an address's `found` names, with how alike; any part that
-/// names no build, or is not an id and a share, is left out.
+/// names no build `viewer` may see, or is not an id and a share, is left
+/// out.
 async fn shown(
     state: &AppState,
+    viewer: Option<&User>,
     found: &str,
 ) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
     let ranked: Vec<(String, u32)> = found
@@ -66,19 +68,21 @@ async fn shown(
             (plain && permille <= 1000).then(|| (id.to_owned(), permille))
         })
         .collect();
-    builds(&state.db, &ranked).await
+    builds(&state.db, &ranked, viewer).await
 }
 
 /// The builds `ranked` names, each with how alike it is, in its order;
-/// any that is gone is left out.
+/// any that is gone, or `viewer` may not see, is left out.
 pub(super) async fn builds(
     db: &sqlx::SqlitePool,
     ranked: &[(String, u32)],
+    viewer: Option<&User>,
 ) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
     let ids: Vec<&str> = ranked.iter().map(|(id, _)| id.as_str()).collect();
     let builds = schematic::get_many(db, &ids).await?;
     Ok(builds
         .into_iter()
+        .filter(|s| s.visible_to(viewer))
         .filter_map(|s| {
             let (_, permille) = ranked.iter().find(|(id, _)| *id == s.id)?;
             Some((s, *permille))
@@ -122,7 +126,7 @@ pub(super) async fn shown_page(
     file: &str,
     found: &str,
 ) -> Result<Response, AppError> {
-    let builds = shown(state, found).await?;
+    let builds = shown(state, viewer, found).await?;
     let file = if file.is_empty() { "the file" } else { file };
     let found = pages::Found {
         file,
@@ -168,7 +172,7 @@ pub async fn search(
     if !fixi {
         return Ok(Redirect::to(&at).into_response());
     }
-    let builds = builds(&state.db, &ranked).await?;
+    let builds = builds(&state.db, &ranked, user).await?;
     let found = pages::Found {
         file: &name,
         builds: &builds,

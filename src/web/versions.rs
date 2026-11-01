@@ -10,7 +10,7 @@ use crate::{
     app_state::AppState,
     error::AppError,
     extractors::session::SignedIn,
-    models::{schematic, version},
+    models::{schematic, user::User, version},
 };
 
 use super::schematics::{editable, show_edit};
@@ -29,8 +29,9 @@ pub async fn form(
 pub async fn download(
     Path((id, number)): Path<(String, i64)>,
     State(state): State<AppState>,
+    viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
+    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::data(&state.db, &id, number)

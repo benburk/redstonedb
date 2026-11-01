@@ -234,9 +234,11 @@ pub async fn preview(
     show_preview(&state, &user, &upload, &form, said).await
 }
 
-/// The stored build most like an upload's `blocks`, if any is similar.
+/// The stored build most like an upload's `blocks`, if any is similar and
+/// `user` may see it.
 async fn closest(
     db: &sqlx::SqlitePool,
+    user: &User,
     blocks: &Blocks,
     size: (i64, i64, i64),
 ) -> anyhow::Result<Option<(Schematic, u32)>> {
@@ -244,7 +246,9 @@ async fn closest(
     else {
         return Ok(None);
     };
-    Ok(schematic::get(db, &id).await?.map(|s| (s, permille)))
+    Ok(schematic::get_visible(db, &id, Some(user))
+        .await?
+        .map(|s| (s, permille)))
 }
 
 /// Publishes the previewed file with the details filled in, or, when the
@@ -427,10 +431,15 @@ async fn publish_checked(
         Ok(ready) => ready,
         Err(message) => return Ok(Err(message)),
     };
-    Ok(
+    let stored =
         import::store(db, prepared, &ready, Some(user.id), ip, None, None)
-            .await?,
-    )
+            .await?;
+    if let Ok(id) = &stored
+        && !form.public
+    {
+        schematic::set_public(db, id, false).await?;
+    }
+    Ok(stored)
 }
 
 /// What the preview says beside the form: why publishing was refused,
@@ -466,6 +475,7 @@ async fn show_preview(
     let size = &prepared.size;
     let similar = closest(
         &state.db,
+        user,
         &prepared.blocks,
         (size.x.into(), size.y.into(), size.z.into()),
     )

@@ -324,6 +324,9 @@ pub struct Schematic {
     pub edited_at: Option<String>,
     /// How many times it has been downloaded.
     pub downloads: i64,
+    /// Whether anyone may see it; a private build only its uploader and
+    /// admins see.
+    pub public: bool,
     /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `fails_simulation` if simulating its file got some
     /// cases wrong, see `models::simulation`; `torchless` when its file has
@@ -583,9 +586,108 @@ impl Schematic {
     }
 }
 
+impl Schematic {
+    /// Whether `viewer` may see it: anyone a public build, and its uploader
+    /// and admins a private one.
+    pub fn visible_to(
+        &self,
+        viewer: Option<&crate::models::user::User>,
+    ) -> bool {
+        self.public
+            || viewer.is_some_and(|user| user.is_admin() || user.uploaded(self))
+    }
+}
+
+/// Makes build `id` public or private.
+pub async fn set_public<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    public: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE schematic SET public = ? WHERE id = ?", public, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Whether `user` has favourited build `id`.
+pub async fn favorited(
+    db: &SqlitePool,
+    user: uuid::Uuid,
+    id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM favorite
+            WHERE user_id = ? AND schematic_id = ?) AS "found!: bool""#,
+        user,
+        id
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Favourites build `id` for `user`, or takes it back when `on` is false.
+pub async fn set_favorite(
+    db: &SqlitePool,
+    user: uuid::Uuid,
+    id: &str,
+    on: bool,
+) -> Result<(), sqlx::Error> {
+    if on {
+        sqlx::query!(
+            "INSERT OR IGNORE INTO favorite (user_id, schematic_id) VALUES (?, ?)",
+            user,
+            id
+        )
+        .execute(db)
+        .await?;
+    } else {
+        sqlx::query!(
+            "DELETE FROM favorite WHERE user_id = ? AND schematic_id = ?",
+            user,
+            id
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// The ids of the builds `user` has favourited, newest first.
+pub async fn favorites(
+    db: &SqlitePool,
+    user: uuid::Uuid,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT schematic_id FROM favorite WHERE user_id = ? ORDER BY added_at DESC",
+        user
+    )
+    .fetch_all(db)
+    .await
+}
+
 /// Every schematic, ordered by category, width, then insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
     load(db, None).await
+}
+
+/// Every schematic `viewer` may see, ordered as [`all`] orders them.
+pub async fn visible(
+    db: &SqlitePool,
+    viewer: Option<&crate::models::user::User>,
+) -> Result<Vec<Schematic>, sqlx::Error> {
+    let mut all = all(db).await?;
+    all.retain(|s| s.visible_to(viewer));
+    Ok(all)
+}
+
+/// The schematic `id`, if there is one and `viewer` may see it.
+pub async fn get_visible(
+    db: &SqlitePool,
+    id: &str,
+    viewer: Option<&crate::models::user::User>,
+) -> Result<Option<Schematic>, sqlx::Error> {
+    Ok(get(db, id).await?.filter(|s| s.visible_to(viewer)))
 }
 
 /// The schematic `id`, if there is one.
@@ -630,6 +732,7 @@ async fn load(
             bytes, torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
+            public as "public: bool",
             schematic.logic as "own_logic: Logic",
             coalesce(schematic.logic, category.logic) as "logic?: Logic",
             conventional as "conventional: bool", description, given_name,
@@ -715,6 +818,7 @@ async fn load(
                 added_at: row.added_at,
                 edited_at: row.edited_at,
                 downloads: row.downloads,
+                public: row.public,
             }
         })
         .collect())
@@ -1381,6 +1485,7 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
+            public: true,
             tags: vec![Tag {
                 name: "alpha".to_owned(),
                 token: None,

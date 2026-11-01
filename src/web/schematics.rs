@@ -135,7 +135,7 @@ async fn index(
     fixi: bool,
     viewer: Option<&User>,
 ) -> Result<Response, AppError> {
-    let all = schematic::all(&state.db).await?;
+    let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
     let palette = palette::key_for(&state.db, viewer).await?;
     let index = pages::Index {
@@ -233,7 +233,7 @@ async fn listing(
         _ => pages::View::Cards,
     };
     let terms = search::parse(&query.q);
-    let all = schematic::all(&state.db).await?;
+    let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
     let total = all.len();
     let found: Vec<Schematic> = search::matching(&terms, all)
@@ -378,6 +378,9 @@ pub async fn thumbnail(
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
+    schematic::get_visible(&state.db, &id, viewer.as_ref())
+        .await?
+        .ok_or(AppError::NotFound)?;
     let data = version::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -450,14 +453,15 @@ pub async fn thumbnail(
         .into_response())
 }
 
-/// The builds build `id` is similar to, with how alike, the most alike
-/// first.
+/// The builds build `id` is similar to that `viewer` may see, with how
+/// alike, the most alike first.
 async fn similar_to(
     db: &SqlitePool,
     id: &str,
+    viewer: Option<&User>,
 ) -> anyhow::Result<Vec<(Schematic, u32)>> {
     let similar = similarity::similar(db, id).await?;
-    Ok(super::similar::builds(db, &similar).await?)
+    Ok(super::similar::builds(db, &similar, viewer).await?)
 }
 
 /// Which part of a build's page fixi asks for, to redraw it.
@@ -490,7 +494,9 @@ pub async fn detail(
     Query(Panel { panel }): Query<Panel>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = schematic::get_visible(db, &id, user_opt.as_ref())
+        .await?
+        .ok_or(AppError::NotFound)?;
     let simulation = simulation::status(db, &s).await?;
     let report = match &simulation {
         simulation::Status::Done(report)
@@ -527,7 +533,7 @@ pub async fn detail(
                 .collect(),
         })
         .map_err(|err| err.to_string());
-    let similar = similar_to(db, &id).await?;
+    let similar = similar_to(db, &id, user_opt.as_ref()).await?;
     let flags: Vec<_> = catalogue::flags(db)
         .await?
         .into_iter()
@@ -538,14 +544,21 @@ pub async fn detail(
             .into_response());
     }
     let versions = version::list(db, &id).await?;
+    let favorited = match &user_opt {
+        Some(user) => schematic::favorited(db, user.id, &id).await?,
+        None => false,
+    };
     Ok(pages::schematic_page(
         user_opt.as_ref(),
-        &s,
-        &flags,
-        &similar,
-        &file,
-        &simulation,
-        &versions,
+        &pages::BuildPage {
+            s: &s,
+            flags: &flags,
+            similar: &similar,
+            file: &file,
+            simulation: &simulation,
+            versions: &versions,
+            favorited,
+        },
     )
     .into_response())
 }
@@ -573,6 +586,40 @@ async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
     }
 }
 
+/// Whether a form favourites a build or takes it back.
+#[derive(Deserialize)]
+pub struct Favorite {
+    on: Option<String>,
+}
+
+/// Favourites build `id` for the signed-in user, or takes it back, then
+/// shows its page again.
+pub async fn favorite(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+    axum::Form(Favorite { on }): axum::Form<Favorite>,
+) -> Result<Response, AppError> {
+    schematic::get_visible(&state.db, &id, Some(&user))
+        .await?
+        .ok_or(AppError::NotFound)?;
+    schematic::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
+    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
+}
+
+/// The signed-in user's favourite builds that they may still see.
+pub async fn favorites(
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let ids = schematic::favorites(&state.db, user.id).await?;
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let mut builds = schematic::get_many(&state.db, &ids).await?;
+    builds.retain(|s| s.visible_to(Some(&user)));
+    let palette = palette::key_for(&state.db, Some(&user)).await?;
+    Ok(pages::favorites(&user, &builds, palette.as_deref()).into_response())
+}
+
 /// The page where a mod, or one of the build's confirmed builders, edits
 /// its details and tags.
 pub async fn edit(
@@ -585,14 +632,16 @@ pub async fn edit(
 }
 
 /// Build `id`, when `user` may edit it: a mod, one of its confirmed
-/// builders, or its uploader. A 404 for no build, and a 403 for anyone
-/// else.
+/// builders, or its uploader. A 404 for no build, or one `user` may not
+/// see, and a 403 for anyone else.
 pub(super) async fn editable(
     db: &SqlitePool,
     user: &User,
     id: &str,
 ) -> Result<Schematic, AppError> {
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let s = schematic::get_visible(db, id, Some(user))
+        .await?
+        .ok_or(AppError::NotFound)?;
     if user.may_edit(&s) {
         Ok(s)
     } else {
@@ -673,6 +722,9 @@ pub async fn save(
             None,
         )
         .await;
+    }
+    if form.public != s.public {
+        schematic::set_public(db, &id, form.public).await?;
     }
     if let Some(prepared) = new_prepared {
         let how = Replacing::NextVersion {
@@ -973,8 +1025,15 @@ pub async fn download(
         Some(user) => palette::of(&state.db, user.id).await?,
         None => None,
     };
-    let (filename, data) =
-        export(&state.db, &id, &asked, counted, palette.as_ref()).await?;
+    let (filename, data) = export(
+        &state.db,
+        &id,
+        viewer.as_ref(),
+        &asked,
+        counted,
+        palette.as_ref(),
+    )
+    .await?;
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {
@@ -986,15 +1045,19 @@ pub async fn download(
 }
 
 /// Build `id`'s file as `asked`, with its name, counted as a download if
-/// `counted`, in `palette` if it is a recognized build's.
+/// `counted`, in `palette` if it is a recognized build's; a 404 if
+/// `viewer` may not see it.
 pub(super) async fn export(
     db: &SqlitePool,
     id: &str,
+    viewer: Option<&User>,
     asked: &Download,
     counted: bool,
     palette: Option<&Palette>,
 ) -> Result<(String, Vec<u8>), AppError> {
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let s = schematic::get_visible(db, id, viewer)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;

@@ -16,6 +16,28 @@ use super::{
     player_href,
 };
 
+/// The builds `viewer` has favourited, the newest favourite first,
+/// pictured in their `palette`.
+pub fn favorites(
+    viewer: &User,
+    builds: &[Schematic],
+    palette: Option<&str>,
+) -> Markup {
+    base(
+        Some(viewer),
+        "Favourites",
+        "/favorites",
+        &html! {
+            h1 class={ (PAGE_TITLE) " mb-6" } { "Favourites" }
+            @if builds.is_empty() {
+                p class="text-muted" { "Star a build on its page to keep it here." }
+            } @else {
+                (cards(builds, &[], palette))
+            }
+        },
+    )
+}
+
 /// The login page. `enabled` is false when the Discord settings are
 /// missing; `message` explains a failed login.
 pub fn login(enabled: bool, message: &str) -> Markup {

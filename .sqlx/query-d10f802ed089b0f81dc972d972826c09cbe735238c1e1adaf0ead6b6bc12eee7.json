@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM favorite WHERE user_id = ? AND schematic_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d10f802ed089b0f81dc972d972826c09cbe735238c1e1adaf0ead6b6bc12eee7"
+}

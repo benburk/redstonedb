@@ -473,6 +473,7 @@ mod tests {
             added_at: id.to_owned(),
             edited_at: None,
             downloads: 0,
+            public: true,
             tags: Vec::new(),
         }
     }

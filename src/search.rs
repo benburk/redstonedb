@@ -454,6 +454,7 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
+            public: true,
             tags: tags
                 .iter()
                 .map(|name| Tag {

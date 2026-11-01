@@ -47,16 +47,30 @@ pub struct FileRead {
     pub stacking: Vec<crate::stack::Review>,
 }
 
+/// What a build's page shows: the build, its category's flags, the
+/// builds like it, its file as read, its simulation, its versions, and
+/// whether the viewer has favourited it.
+pub struct BuildPage<'a> {
+    pub s: &'a Schematic,
+    pub flags: &'a [Flag],
+    pub similar: &'a [(Schematic, u32)],
+    pub file: &'a Result<FileRead, String>,
+    pub simulation: &'a Status,
+    pub versions: &'a [Version],
+    pub favorited: bool,
+}
+
 /// One schematic's page, with an edit button for a mod.
-pub fn schematic_page(
-    viewer: Option<&User>,
-    s: &Schematic,
-    flags: &[Flag],
-    similar: &[(Schematic, u32)],
-    file: &Result<FileRead, String>,
-    simulation: &Status,
-    versions: &[Version],
-) -> Markup {
+pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
+    let BuildPage {
+        s,
+        flags,
+        similar,
+        file,
+        simulation,
+        versions,
+        favorited,
+    } = *page;
     let report = match simulation {
         Status::Done(report) | Status::Pending(Some(report)) => Some(report),
         Status::Pending(None) | Status::Untested => None,
@@ -72,6 +86,9 @@ pub fn schematic_page(
             div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
                 div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class=(PAGE_TITLE) { (name) }
+                    @if !s.public {
+                        (super::private_badge())
+                    }
                     (build_banner(s, report, simulating))
                 }
                 // On a phone, under the title, the download as wide as the
@@ -80,6 +97,9 @@ pub fn schematic_page(
                 div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                     (download_dialog(s, viewer.is_some()))
+                    @if viewer.is_some() {
+                        (favorite_button(&path, favorited))
+                    }
                     (actions_menu(s, viewer, &path))
                 }
             }
@@ -752,6 +772,27 @@ fn stacking_found(s: &Schematic) -> bool {
 /// What else the viewer may do with build `s`, at `path`, under one button:
 /// edit it, upload a new version, or delete it. Nothing for a viewer who
 /// may do none of them.
+/// A star that favourites the build at `path`, filled once it is, and
+/// pressed again takes it back.
+fn favorite_button(path: &str, favorited: bool) -> Markup {
+    let label = if favorited {
+        "Remove from favourites"
+    } else {
+        "Add to favourites"
+    };
+    html! {
+        form action={ (path) "/favorite" } method="post" class="contents" {
+            @if !favorited {
+                input type="hidden" name="on" value="yes";
+            }
+            button type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
+                class="btn btn-quiet flex size-10 cursor-pointer items-center justify-center p-0" {
+                (icon(icons::STAR, if favorited { "size-5 fill-current text-brand" } else { "size-5" }))
+            }
+        }
+    }
+}
+
 fn actions_menu(s: &Schematic, viewer: Option<&User>, path: &str) -> Markup {
     let edits = viewer.is_some_and(|v| v.may_edit(s));
     let deletes = viewer.is_some_and(User::can_delete);

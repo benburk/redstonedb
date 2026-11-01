@@ -402,6 +402,7 @@ pub async fn send(
             let (filename, data) = schematics::export(
                 &state.db,
                 &id,
+                Some(&user),
                 &asked,
                 true,
                 palette.as_ref(),
