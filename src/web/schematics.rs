@@ -604,22 +604,28 @@ async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
 #[derive(Deserialize)]
 pub struct Favorite {
     on: Option<String>,
+    /// Sent by a card's star, which is redrawn rather than the page's.
+    card: Option<String>,
 }
 
 /// Favourites build `id` for the signed-in user, or takes it back, then
-/// shows its page again.
+/// shows its page again, or through fixi redraws the star pressed: a
+/// card's, or the page's.
 pub async fn favorite(
     Path(id): Path<String>,
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
     Fixi(fixi): Fixi,
-    axum::Form(Favorite { on }): axum::Form<Favorite>,
+    axum::Form(Favorite { on, card }): axum::Form<Favorite>,
 ) -> Result<Response, AppError> {
     schematic::get_visible(&state.db, &id, Some(&user))
         .await?
         .ok_or(AppError::NotFound)?;
     schematic::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
     let path = format!("/schematics/{id}");
+    if fixi && card.is_some() {
+        return Ok(pages::card_star(&id, on.is_some()).into_response());
+    }
     if fixi {
         return Ok(pages::favorite_button(&path, on.is_some()).into_response());
     }

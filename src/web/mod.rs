@@ -164,14 +164,15 @@ pub fn guide_image(name: &str) -> Option<String> {
         .map(|asset| asset.url())
 }
 
-/// What `viewer`'s cards show of them: their palette and their
-/// favourites.
+/// What `viewer`'s cards show of them: their palette, and whether they
+/// are signed in, with their favourites.
 async fn viewing(
     db: &sqlx::SqlitePool,
     viewer: Option<&User>,
 ) -> anyhow::Result<pages::Viewing> {
     Ok(pages::Viewing {
         palette: crate::palette::key_for(db, viewer).await?,
+        signed_in: viewer.is_some(),
         favorites: match viewer {
             Some(viewer) => crate::models::schematic::favorites(db, viewer.id)
                 .await?

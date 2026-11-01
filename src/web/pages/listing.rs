@@ -57,11 +57,12 @@ pub struct Listing<'a> {
 }
 
 /// What a viewer's cards show of them: their palette's key, for the
-/// pictures, if they chose one, and the builds they have favourited, which
-/// carry a star.
+/// pictures, if they chose one, and, once signed in, a star to favourite
+/// each build with, filled on those they have.
 #[derive(Default)]
 pub struct Viewing {
     pub palette: Option<String>,
+    pub signed_in: bool,
     pub favorites: HashSet<String>,
 }
 
@@ -758,13 +759,8 @@ fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
                     img src=(thumbnail_src(s, viewing.palette.as_deref()))
                         alt="" loading="lazy" decoding="async" width="640" height="480"
                         class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
-                    // The star the build's page fills for a favourite.
-                    @if viewing.favorites.contains(&s.id) {
-                        span title="In your favourites"
-                            class="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-raised/90 text-brand shadow-sm" {
-                            (icon(icons::STAR, "size-4 fill-current"))
-                            span class="sr-only" { "In your favourites" }
-                        }
+                    @if viewing.signed_in {
+                        (card_star(&s.id, viewing.favorites.contains(&s.id)))
                     }
                     div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
                         h2 class="text-section font-semibold" {
@@ -791,6 +787,37 @@ fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
                         }
                     }
                 }
+    }
+}
+
+/// The star in a card's corner that favourites build `id`, or takes it
+/// back, as its page's does: filled on a favourite, and otherwise shown
+/// while the card is pointed at or focused, or always where nothing can
+/// point. Through fixi it is redrawn in place.
+pub fn card_star(id: &str, favorited: bool) -> Markup {
+    let label = if favorited {
+        "Remove from favourites"
+    } else {
+        "Add to favourites"
+    };
+    let action = format!("/schematics/{id}/favorite");
+    let shown = if favorited {
+        "text-brand"
+    } else {
+        "text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-brand [@media(hover:none)]:opacity-100"
+    };
+    html! {
+        form action=(action) method="post" fx-action=(action) fx-method="post"
+            class="absolute top-2 right-2 z-10" {
+            input type="hidden" name="card" value="yes";
+            @if !favorited {
+                input type="hidden" name="on" value="yes";
+            }
+            button type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
+                class={ "flex size-8 cursor-pointer items-center justify-center rounded-full bg-raised/90 shadow-sm transition-opacity duration-150 ease-calm " (shown) } {
+                (icon(icons::STAR, if favorited { "size-4 fill-current" } else { "size-4" }))
+            }
+        }
     }
 }
 
