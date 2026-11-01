@@ -361,6 +361,19 @@ impl Schematic {
         if subtracts {
             return "Subtractor".to_owned();
         }
+        // A gate of a family with its inverse is called by the gate it is,
+        // the inverse taking the family's flag: an XOR/XNOR gate flagged
+        // `xnor` is an XNOR gate.
+        let gate = match self.category.as_str() {
+            "xor_xnor_gate" => Some(("xnor", "XOR Gate", "XNOR Gate")),
+            "and_nand_gate" => Some(("nand", "AND Gate", "NAND Gate")),
+            "or_nor_gate" => Some(("nor", "OR Gate", "NOR Gate")),
+            _ => None,
+        };
+        if let Some((inverse, plain, inverted)) = gate {
+            let flagged = self.flags.iter().any(|flag| flag.name == inverse);
+            return if flagged { inverted } else { plain }.to_owned();
+        }
         self.given_name
             .clone()
             .unwrap_or_else(|| self.category_label())
@@ -1548,6 +1561,27 @@ mod tests {
         }];
         assert_eq!(subtractor.name(), "8-bit Carry Lookahead Subtractor");
         assert_eq!(cla().name(), "8-bit Carry Lookahead Adder");
+    }
+
+    #[test]
+    fn a_gate_is_named_by_the_gate_it_is() {
+        let gate = |category: &str, flag: Option<&str>| {
+            let mut gate = cla();
+            gate.category = category.to_owned();
+            gate.flags = flag
+                .map(|name| Flag {
+                    category: category.to_owned(),
+                    name: name.to_owned(),
+                    label: String::new(),
+                })
+                .into_iter()
+                .collect();
+            gate.what()
+        };
+        assert_eq!(gate("xor_xnor_gate", None), "XOR Gate");
+        assert_eq!(gate("xor_xnor_gate", Some("xnor")), "XNOR Gate");
+        assert_eq!(gate("and_nand_gate", Some("nand")), "NAND Gate");
+        assert_eq!(gate("or_nor_gate", None), "OR Gate");
     }
 
     #[test]
