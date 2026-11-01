@@ -1369,9 +1369,9 @@ async fn new_version(
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
+    let raw = fs::read(file)?;
     let checked =
-        app::version::check(db, &s, &fs::read(file)?, standardizing.asked())
-            .await?;
+        app::version::check(db, &s, &raw, standardizing.asked()).await?;
     let comparison = checked.comparison;
     println!(
         "changed {} of {} blocks",
@@ -1403,6 +1403,18 @@ async fn new_version(
     let number = version::replace(db, &id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
+    // The colours its builder gave it, read off the file given.
+    match app::colouring::read(&raw, &kept.data)? {
+        Ok(colours) if !colours.is_empty() => {
+            version::set_colours(db, &id, number, &colours).await?;
+            println!("{name}: kept {} blocks' colours", colours.len());
+        }
+        Ok(_) => {}
+        Err(faults) => println!(
+            "{name}: no colours kept, as the file differs from the version: {}",
+            faults.join("; ")
+        ),
+    }
     if let Some((file, to)) = &moved {
         let given = Details {
             category: to.name.clone(),

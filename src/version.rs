@@ -18,6 +18,7 @@ use crate::{
     import::{self, Prepared},
     inspect,
     models::{schematic::Schematic, version},
+    orient::{self, Turn},
     schem::{self, Blocks, Pos},
 };
 
@@ -154,16 +155,32 @@ pub async fn check(
     } else {
         file.to_vec()
     };
-    let prepared = import::prepare(
-        &coloured,
-        standardize,
-        s.conventional,
-        s.keeps_paste,
-        false,
-    )?;
     let current = version::current_file(db, &s.id).await?.unwrap_or_default();
     let current = Blocks::read(&current)?;
-    let comparison = compare(&current, &prepared.blocks);
+    // Saved again from the game, it may lie another way than the version
+    // before: it is compared turned and mirrored as matches that best.
+    let mut best: Option<(Prepared, Comparison)> = None;
+    for mirrored in [false, true] {
+        for quarters in 0..4 {
+            let turned =
+                orient::turned(&coloured, Turn { mirrored, quarters })?;
+            let prepared = import::prepare(
+                &turned,
+                standardize,
+                s.conventional,
+                s.keeps_paste,
+                false,
+            )?;
+            let comparison = compare(&current, &prepared.blocks);
+            if best
+                .as_ref()
+                .is_none_or(|(_, b)| comparison.changed < b.changed)
+            {
+                best = Some((prepared, comparison));
+            }
+        }
+    }
+    let (prepared, comparison) = best.expect("it was compared at least once");
     let mut refusals = refusals(comparison);
     // Only problems the current version doesn't have count against it, so
     // a build from before a rule can still be fixed. They are the check by

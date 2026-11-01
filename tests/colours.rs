@@ -92,3 +92,35 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         .unwrap();
     assert!(version::colours(&db, &id).await.unwrap().is_none());
 }
+
+/// A new version saved again from the game lying another way, here a half
+/// turn, is compared turned back, so it keeps every block.
+#[tokio::test]
+async fn a_turned_new_version_is_compared_turned_back() {
+    let db = setup_test_db().await;
+    let first = prepared("alpha-rca");
+    let given = Details {
+        category: "adder".to_owned(),
+        orientation: Orientation::Horizontal,
+        ..Details::default()
+    };
+    let ready = details::check(&db, given, Build::of(&first), false)
+        .await
+        .unwrap()
+        .unwrap();
+    let id = import::store(&db, &first, &ready, None, None, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    let s = app::models::schematic::get(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let turn = app::orient::Turn {
+        mirrored: true,
+        quarters: 2,
+    };
+    let turned = app::orient::turned(&first.data, turn).unwrap();
+    let checked = app::version::check(&db, &s, &turned, false).await.unwrap();
+    assert_eq!(checked.comparison.changed, 0);
+}
