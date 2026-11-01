@@ -17,10 +17,12 @@ use crate::{
         version::Version,
     },
     simulate::{Report, Test, Timing},
+    web::schematics::Colours,
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, base, beside_viewer, field, grouped,
+    PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base, beside_viewer_under,
+    field, grouped,
     icons::{self, icon},
     interface::{Inversions, interface_section, inverts},
     name_badges, percent, person_badge, plural, search_link,
@@ -58,6 +60,16 @@ pub struct BuildPage<'a> {
     pub simulation: &'a Status,
     pub versions: &'a [Version],
     pub favorited: bool,
+    pub colours: ColoursShown,
+}
+
+/// The colours a build's page shows it in, and which others it offers:
+/// its builder's, when kept, and the viewer's theme, when they have one.
+#[derive(Clone, Copy)]
+pub struct ColoursShown {
+    pub chosen: Colours,
+    pub original: bool,
+    pub theme: bool,
 }
 
 /// One schematic's page, with an edit button for a mod.
@@ -70,6 +82,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
         simulation,
         versions,
         favorited,
+        colours,
     } = *page;
     let report = match simulation {
         Status::Done(report) | Status::Pending(Some(report)) => Some(report),
@@ -96,14 +109,19 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 // there is room.
                 div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
-                    (download_dialog(s, viewer.is_some()))
+                    (download_dialog(s, viewer.is_some(), colours.chosen))
                     @if viewer.is_some() {
                         (favorite_button(&path, favorited))
                     }
                     (actions_menu(s, viewer, &path))
                 }
             }
-            (beside_viewer(&format!("{path}/download?preview=yes"), &build_info(s, flags, similar, file, report), false))
+            (beside_viewer_under(
+                &format!("{path}/download?preview=yes&colours={}", colours.chosen.name()),
+                &colours_switch(&path, colours),
+                &build_info(s, flags, similar, file, report),
+                false,
+            ))
             @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
                 (not_recognized(meant, file))
             }
@@ -772,6 +790,32 @@ fn stacking_found(s: &Schematic) -> bool {
 /// What else the viewer may do with build `s`, at `path`, under one button:
 /// edit it, upload a new version, or delete it. Nothing for a viewer who
 /// may do none of them.
+/// A choice of the colours the build at `path` shows in: the site's own,
+/// its builder's when kept, and the viewer's theme when they have one;
+/// nothing when the site's are the only ones.
+fn colours_switch(path: &str, shown: ColoursShown) -> Markup {
+    let options = [
+        (Colours::Default, "Default", true),
+        (Colours::Original, "Original", shown.original),
+        (Colours::Theme, "Your theme", shown.theme),
+    ];
+    html! {
+        @if shown.original || shown.theme {
+            nav aria-label="Colours" class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1" {
+                span class="text-meta font-semibold text-muted" aria-hidden="true" { "Colours" }
+                div class=(SWITCHES) {
+                    @for (colours, label, offered) in options {
+                        @if offered {
+                            a href={ (path) "?colours=" (colours.name()) } class=(SWITCH)
+                                aria-current=[(colours == shown.chosen).then_some("page")] { (label) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A star that favourites the build at `path`, filled once it is, and
 /// pressed again takes it back. Through fixi the answer is the star alone,
 /// so the rest of the page, its viewer too, stays as it is.
@@ -847,12 +891,14 @@ fn delete_dialog(s: &Schematic) -> Markup {
 /// copy with glass at two corners of the box `//rstack` stacks, for
 /// `WorldEdit` to select it by; and, for someone `signed_in`, a
 /// button that sends the file so made to their Schemati instead.
-fn download_dialog(s: &Schematic, signed_in: bool) -> Markup {
+fn download_dialog(s: &Schematic, signed_in: bool, colours: Colours) -> Markup {
     let path = format!("/schematics/{}", s.id);
     html! {
         dialog id="download" aria-labelledby="download-heading"
             class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
             form action={ (path) "/download" } method="get" class="flex flex-col gap-4" {
+                // The file comes in the colours the page shows.
+                input type="hidden" name="colours" value=(colours.name());
                 h2 id="download-heading" class=(SECTION_TITLE) { "Download" }
                 @if !s.stacking.is_empty() {
                     div class="flex gap-2" {

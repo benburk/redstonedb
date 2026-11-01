@@ -43,6 +43,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
                     li { "Builds RSDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
+                    li { "Builds keep the colours their builder gave them: switch between Original, Default, and your theme on any build's page." }
                     li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
                     li { "Untick Public on upload and a build is yours alone. Star any build to keep it under Favourites on your profile." }
                     li { "Search understands shorthand like " code { "8b" } ", " code { "3t" } ", " code { "torchless" } ", and " code { "version:1.12" } "." }

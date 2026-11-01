@@ -34,6 +34,9 @@ pub enum File<'a> {
     Upload {
         /// The prepared file, base64.
         data: &'a str,
+        /// The file as its builder made it, base64, for the colours they
+        /// gave it; empty when not had.
+        original: &'a str,
         /// The build less its interface layers.
         size: [u16; 3],
         /// The id of a stored build with the same file, if any.
@@ -485,8 +488,9 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
                 // Carried as its builder made it, so tested standardized.
-                File::Upload { data, .. } => {
+                File::Upload { data, original, .. } => {
                     input type="hidden" name="data" value=(data);
+                    input type="hidden" name="original" value=(original);
                     input type="hidden" name="as_built" value="yes";
                 }
                 File::Version { s, data, note, .. } => {

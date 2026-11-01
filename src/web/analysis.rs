@@ -66,6 +66,8 @@ impl Step {
 /// What an analysis found: the file read, what it seems to be, and what
 /// the check by function made of it.
 pub struct Analyzed {
+    /// The file as its builder made it, for the colours they gave it.
+    pub raw: Vec<u8>,
     pub upload: Upload,
     pub guess: Option<Guess>,
     pub recognition: Recognition,
@@ -117,8 +119,17 @@ pub fn start(
                 .unwrap_or_else(|| kind.replace('_', " "));
             set(Step::Testing { label, tried });
         };
-        // A file the simulator can't run is read as it came, saying why.
+        // A file in blocks the simulator doesn't model, such as wool, is
+        // read standardized, as publishing keeps it; one it can't run even
+        // so is read as it came, saying why.
         let recognition = probe::recognize_watched(&file, None, &mut trying)
+            .or_else(|err| {
+                let standard = Upload::read(&file)
+                    .ok()
+                    .and_then(|upload| upload.standard.ok())
+                    .ok_or(err)?;
+                probe::recognize_watched(&standard.data, None, &mut trying)
+            })
             .unwrap_or_else(|err| Recognition {
                 file: file.clone(),
                 found: None,
@@ -127,6 +138,7 @@ pub fn start(
         set(Step::Preparing);
         let analyzed = Upload::read(&recognition.file)
             .map(|upload| Analyzed {
+                raw: file.clone(),
                 guess: simulate::guess(&upload.read_as().blocks),
                 upload,
                 recognition,

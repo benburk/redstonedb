@@ -43,8 +43,8 @@ mod version;
 
 pub use about::{about, recognized};
 pub use build::{
-    BuildPage, FileRead, build_banner, build_info, favorite_button,
-    schematic_page, waiting,
+    BuildPage, ColoursShown, FileRead, build_banner, build_info,
+    favorite_button, schematic_page, waiting,
 };
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;
@@ -262,6 +262,17 @@ fn size(s: &Schematic) -> String {
 /// the right, staying in sight while the side scrolls. On a phone the view
 /// comes first, or last with `side_first`, as for a form to fill in.
 fn beside_viewer(file: &str, side: &Markup, side_first: bool) -> Markup {
+    beside_viewer_under(file, &html! {}, side, side_first)
+}
+
+/// As [`beside_viewer`], with `above` over the viewer, such as a choice of
+/// the colours it shows.
+fn beside_viewer_under(
+    file: &str,
+    above: &Markup,
+    side: &Markup,
+    side_first: bool,
+) -> Markup {
     let viewer = if side_first {
         "order-last desktop:sticky desktop:top-4"
     } else {
@@ -272,6 +283,7 @@ fn beside_viewer(file: &str, side: &Markup, side_first: bool) -> Markup {
         // scrolls in its own box rather than widening the page.
         div class="grid grid-cols-[minmax(0,1fr)] items-start gap-8 desktop:grid-cols-[var(--container-form)_minmax(0,1fr)]" {
             div class=(viewer) {
+                (above)
                 (viewer_3d(file))
             }
             div class="flex flex-col gap-8" { (side) }

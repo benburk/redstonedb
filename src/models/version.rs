@@ -50,6 +50,54 @@ pub async fn data<'e, E: SqliteExecutor<'e>>(
     .await
 }
 
+/// Keeps `colours` as the colours the builder of build `id`'s version
+/// `version` gave its building blocks.
+pub async fn set_colours<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    version: i64,
+    colours: &crate::colouring::Colouring,
+) -> Result<(), sqlx::Error> {
+    let json =
+        serde_json::to_string(colours).expect("positions and names are JSON");
+    sqlx::query!(
+        "UPDATE schematic_version SET colours = ? WHERE schematic_id = ? AND version = ?",
+        json,
+        id,
+        version
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The original colours of build `id`'s current file: those kept with the
+/// newest version up to it that has any, while that version's file is the
+/// current one's size, so a version the site makes from it, such as one
+/// with its unused blocks taken out, keeps them.
+pub async fn colours(
+    db: &sqlx::SqlitePool,
+    id: &str,
+) -> Result<Option<crate::colouring::Colouring>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT data, colours FROM schematic_version
+         WHERE schematic_id = ? ORDER BY version DESC",
+        id
+    )
+    .fetch_all(db)
+    .await?;
+    let size =
+        |data: &[u8]| crate::schem::Blocks::read(data).ok().map(|b| b.size);
+    let Some(current) = rows.first().and_then(|row| size(&row.data)) else {
+        return Ok(None);
+    };
+    Ok(rows
+        .iter()
+        .find(|row| row.colours.is_some())
+        .filter(|row| size(&row.data) == Some(current))
+        .and_then(|row| serde_json::from_str(row.colours.as_deref()?).ok()))
+}
+
 /// Build `id`'s current file: its highest version's.
 pub async fn current_file<'e, E: SqliteExecutor<'e>>(
     db: E,

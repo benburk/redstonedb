@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic_version SET colours = ? WHERE schematic_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "133feab3c6e1946dca105e77ad0d4156a2e4560935cc45e3c47f76d545fae26f"
+}

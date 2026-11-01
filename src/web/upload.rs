@@ -252,9 +252,11 @@ pub async fn analyzed(
         &interface::read(&upload.read_as().blocks),
         &upload.read_as().size,
     );
+    let raw = STANDARD.encode(&analyzed.raw);
     let said = Said {
         guess: analyzed.guess.as_ref(),
         recognition: Some(&analyzed.recognition),
+        original: &raw,
         ..Said::default()
     };
     show_preview(&state, &user, upload, &form, said).await
@@ -341,15 +343,21 @@ pub async fn publish(
             return upload_page(&state, &user, &message).await;
         }
     };
+    let original = posted.get("original").to_owned();
     if posted.choosing() {
         return chosen_instead(&state, &user, &mut posted, upload, form).await;
     }
     if swapping {
-        return show_preview(&state, &user, &upload, &form, Said::default())
-            .await;
+        let said = Said {
+            original: &original,
+            ..Said::default()
+        };
+        return show_preview(&state, &user, &upload, &form, said).await;
     }
+    let raw = STANDARD.decode(&original).unwrap_or_default();
     let published =
-        publish_checked(&state, &user, ip.as_deref(), &upload, &form).await?;
+        publish_checked(&state, &user, ip.as_deref(), &upload, &form, &raw)
+            .await?;
     let refused = match published {
         Ok(id) => {
             tracing::info!(id, by = user.username, ip, "upload");
@@ -363,6 +371,7 @@ pub async fn publish(
     };
     let said = Said {
         message: &refused,
+        original: &original,
         ..Said::default()
     };
     show_preview(&state, &user, &upload, &form, said).await
@@ -385,19 +394,23 @@ async fn chosen_instead(
     };
     let read = match chosen {
         Ok(chosen) => Upload::read(&recognized(&chosen.file).await)
+            .map(|upload| (upload, chosen.file))
             .map_err(|err| format!("Could not read that file: {err:#}.")),
         Err(message) => Err(message),
     };
-    let upload = match read {
-        Ok(prepared) => prepared,
+    let kept = posted.get("original").to_owned();
+    let (upload, raw) = match read {
+        Ok(read) => read,
         Err(message) => {
             let said = Said {
                 choosing: Some(&message),
+                original: &kept,
                 ..Said::default()
             };
             return show_preview(state, user, &current, &form, said).await;
         }
     };
+    let raw = STANDARD.encode(raw);
     let guess = guessed(&upload.read_as().data).await;
     let suggested = Form::suggested(
         guess.as_ref(),
@@ -407,6 +420,7 @@ async fn chosen_instead(
     let form = form.keeping_sent(suggested);
     let said = Said {
         guess: guess.as_ref(),
+        original: &raw,
         ..Said::default()
     };
     show_preview(state, user, &upload, &form, said).await
@@ -450,6 +464,7 @@ async fn publish_checked(
     ip: Option<&str>,
     upload: &Upload,
     form: &Form,
+    raw: &[u8],
 ) -> Result<Result<String, String>, AppError> {
     let db = &state.db;
     let categories = catalogue::categories(db).await?;
@@ -486,6 +501,14 @@ async fn publish_checked(
     {
         schematic::set_public(db, id, false).await?;
     }
+    // The colours its builder gave it, read off the file they sent.
+    if let Ok(id) = &stored
+        && !raw.is_empty()
+        && let Ok(Ok(colours)) = crate::colouring::read(raw, &prepared.data)
+        && !colours.is_empty()
+    {
+        version::set_colours(db, id, 1, &colours).await?;
+    }
     Ok(stored)
 }
 
@@ -499,6 +522,8 @@ struct Said<'a> {
     choosing: Option<&'a str>,
     /// What the check by function made of the file, when already known.
     recognition: Option<&'a probe::Recognition>,
+    /// The file as its builder made it, base64, carried for its colours.
+    original: &'a str,
 }
 
 /// The preview page for an upload, with the details form as `form` has it.
@@ -537,6 +562,7 @@ async fn show_preview(
     .await?;
     let file = File::Upload {
         data: &STANDARD.encode(&prepared.data),
+        original: said.original,
         size: [size.x, size.y, size.z],
         duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),

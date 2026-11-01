@@ -468,6 +468,8 @@ async fn similar_to(
 #[derive(Deserialize)]
 pub struct Panel {
     panel: Option<String>,
+    /// The colours the page shows the build in.
+    colours: Option<Colours>,
 }
 
 /// What build `s`'s page shows of its file, `data`, with `blocks`: as its
@@ -491,7 +493,7 @@ pub async fn detail(
     State(state): State<AppState>,
     user_opt: Option<User>,
     Fixi(fixi): Fixi,
-    Query(Panel { panel }): Query<Panel>,
+    Query(Panel { panel, colours }): Query<Panel>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
     let s = schematic::get_visible(db, &id, user_opt.as_ref())
@@ -548,6 +550,21 @@ pub async fn detail(
         Some(user) => schematic::favorited(db, user.id, &id).await?,
         None => false,
     };
+    // A theme or a builder's colours give the page a choice of colours.
+    let theme = match &user_opt {
+        Some(user) => palette::of(db, user.id).await?.is_some(),
+        None => false,
+    };
+    let original = version::colours(db, &id).await?.is_some();
+    let colours = pages::ColoursShown {
+        chosen: match colours {
+            Some(Colours::Original) if original => Colours::Original,
+            Some(Colours::Theme) | None if theme => Colours::Theme,
+            _ => Colours::Default,
+        },
+        original,
+        theme,
+    };
     Ok(pages::schematic_page(
         user_opt.as_ref(),
         &pages::BuildPage {
@@ -558,6 +575,7 @@ pub async fn detail(
             simulation: &simulation,
             versions: &versions,
             favorited,
+            colours,
         },
     )
     .into_response())
@@ -972,6 +990,32 @@ pub(super) struct Download {
     north: Option<usize>,
     #[serde(rename = "west-up")]
     west_up: Option<usize>,
+    /// The colours to show it in: the site's own, its builder's, or the
+    /// viewer's theme, which is what shows when none is asked for.
+    pub(super) colours: Option<Colours>,
+}
+
+/// The colours a build is shown and downloaded in.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Colours {
+    /// The site's own, as stored.
+    Default,
+    /// The colours its builder gave it, where they are kept.
+    Original,
+    /// The viewer's theme.
+    Theme,
+}
+
+impl Colours {
+    /// Its name in an address, such as `original`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Colours::Default => "default",
+            Colours::Original => "original",
+            Colours::Theme => "theme",
+        }
+    }
 }
 
 /// A file the in-game stacking procedure pastes.
@@ -1053,6 +1097,19 @@ pub(super) async fn export(
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
+    // Its builder's colours go on a single copy as it is: a stack finds
+    // its buses by the site's colours.
+    let plain = asked.part.is_none() && asked.copies().is_empty();
+    let original = match asked.colours {
+        Some(Colours::Original) if plain => version::colours(db, id).await?,
+        _ => None,
+    };
+    if let Some(colours) = &original {
+        let data = crate::colouring::apply(&data, colours)?;
+        return shaped(db, id, s, data, asked, counted).await;
+    }
+    let palette = palette
+        .filter(|_| matches!(asked.colours, None | Some(Colours::Theme)));
     // Its blocks before any stacking, by position; its colours after, as
     // stacking finds buses by them.
     let palette = match palette {

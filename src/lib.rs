@@ -7,6 +7,7 @@ pub const APP_NAME: &str = "Redstone Database";
 pub mod app_state;
 pub mod category;
 pub mod colour;
+pub mod colouring;
 pub mod db;
 pub mod details;
 pub mod discord;

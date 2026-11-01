@@ -106,6 +106,12 @@ enum Command {
     /// as recolouring its blocks: no version is added and nothing is
     /// compared. Then read it as `reread` does
     Replace(Replace),
+    /// Keep the colours a builder's own copy of a stored build gives it,
+    /// shown as its original colours: the copy must hold the same kind of
+    /// block in every place under some turn or mirror, any solid block for
+    /// a solid one, any see-through one for glass, and a furnace for a
+    /// barrel. Kept with the newest version it matches
+    Colours { id: String, file: PathBuf },
     /// Respell every stored Minecraft name as its player spells it, asking
     /// Mojang: credits, importers, and accounts, which also gain the UUID
     Respell,
@@ -404,6 +410,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Search { terms, ids } => search_command(db, &terms, ids).await,
         Command::Reread => reread(db).await,
         Command::Replace(args) => replace(db, &args).await,
+        Command::Colours { id, file } => colours(db, &id, &file).await,
         Command::Respell => respell(db).await,
         Command::Categories => print_categories(db).await,
         Command::DefineCategory(args) => define_category(db, args).await,
@@ -841,6 +848,46 @@ async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
     let s = load(db, &id).await?;
     let file = fs::read(&args.file)?;
     refile(db, &s, &file, args.standardizing.asked()).await
+}
+
+/// Keeps the colours the builder's copy at `file` gives build `id`, with
+/// the newest version it matches, or says where it comes closest to the
+/// current one.
+async fn colours(db: &SqlitePool, id: &str, file: &Path) -> Result<()> {
+    let id = resolve(db, id).await?;
+    let original = fs::read(file)?;
+    let versions: Vec<i64> = sqlx::query_scalar(
+        "SELECT version FROM schematic_version WHERE schematic_id = ? ORDER BY version DESC",
+    )
+    .bind(&id)
+    .fetch_all(db)
+    .await?;
+    let mut closest = None;
+    for version in versions {
+        let Some(data) = version::data(db, &id, version).await? else {
+            continue;
+        };
+        match app::colouring::read(&original, &data)? {
+            Ok(colours) => {
+                version::set_colours(db, &id, version, &colours).await?;
+                println!(
+                    "{}: kept {} blocks' colours with version {version}",
+                    &id[..8],
+                    colours.len()
+                );
+                return Ok(());
+            }
+            Err(faults) => {
+                closest.get_or_insert((version, faults));
+            }
+        }
+    }
+    let (version, faults) = closest.context("no stored versions")?;
+    bail!(
+        "{} doesn't match any version; closest to version {version}:\n  {}",
+        &id[..8],
+        faults.join("\n  ")
+    )
 }
 
 /// Asks Mojang how each stored Minecraft name is spelled and respells it
