@@ -3,7 +3,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Board, Choice, Placed, SHOWN, Standing, State},
+    leaderboard::{self, Arena, Board, Choice, Placed, SHOWN, Standing, State},
     models::{
         catalogue::{Category, Measure},
         schematic::{Orientation, Schematic},
@@ -22,13 +22,12 @@ pub struct LeaderboardPage<'a> {
     pub board: &'a Board<'a>,
     /// Categories with builds to rank.
     pub facets: &'a [Facet],
-    /// How many people the people leaderboard ranks.
-    pub people: usize,
 }
 
-/// The people leaderboard: who built, added, and holds the records for
-/// the most builds.
+/// The leaderboards' front page: the boards most contested, and who
+/// built, added, and holds the records for the most builds.
 pub struct PeoplePage<'a> {
+    pub arenas: &'a [Arena<'a>],
     pub built: &'a [Standing],
     pub added: &'a [Standing],
     pub records: &'a [Standing],
@@ -36,13 +35,13 @@ pub struct PeoplePage<'a> {
     pub facets: &'a [Facet],
 }
 
-/// The menu that goes to another leaderboard: the people leaderboard, which
-/// ranks `people`, and each category's, `current` the one shown. Choosing
-/// one goes there at once; without scripts, its button does.
-fn board_menu(facets: &[Facet], current: &str, people: usize) -> Markup {
+/// The menu that goes to another leaderboard: the front page, and each
+/// category's, `current` the one shown. Choosing one goes there at once;
+/// without scripts, its button does.
+fn board_menu(facets: &[Facet], current: &str) -> Markup {
     html! {
         form action="/leaderboards" method="get" data-live class="flex items-center gap-2" {
-            (category_menu(facets, current, &format!("People ({people})"), None))
+            (category_menu(facets, current, "Top boards", None))
             noscript { button type="submit" class="btn btn-quiet min-h-9" { "Go" } }
         }
     }
@@ -50,6 +49,7 @@ fn board_menu(facets: &[Facet], current: &str, people: usize) -> Markup {
 
 pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
     let PeoplePage {
+        arenas,
         built,
         added,
         records,
@@ -63,17 +63,18 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
     };
     base(
         viewer,
-        "People leaderboard",
+        "Leaderboards",
         "/leaderboards",
         &html! {
             div {
                 div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                    h1 class={ (PAGE_TITLE) " mr-auto" } { "People" }
-                    (board_menu(facets, "", built.len()))
+                    h1 class={ (PAGE_TITLE) " mr-auto" } { "Leaderboards" }
+                    (board_menu(facets, ""))
                 }
-                p class="mb-6 max-w-prose text-muted" {
-                    "A record is first place, as fastest or as smallest, on a category's leaderboard "
-                    "with at least two builds; choose a category to see them."
+                (contested(arenas, facets))
+                h2 class={ (SECTION_TITLE) " mt-10 mb-1" } { "People" }
+                p class="mb-4 max-w-prose text-meta text-muted" {
+                    "A record is first place, fastest or smallest, on a board of two or more builds."
                 }
                 div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
                     (standings("most-built", "Most builds", "Builds", built, builder))
@@ -83,6 +84,94 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
             }
         },
     )
+}
+
+/// The boards most contested, each linking to its leaderboard, with how
+/// many built for it and the records to beat; `facets` name the categories.
+fn contested(arenas: &[Arena], facets: &[Facet]) -> Markup {
+    html! {
+        section aria-labelledby="contested" {
+            h2 id="contested" class={ (SECTION_TITLE) " mb-1" } { "Most contested" }
+            p class="mb-2 max-w-prose text-meta text-muted" {
+                "Boards with the most builders, then the most builds."
+            }
+            @if arenas.is_empty() {
+                p class="text-muted" { "No board has two builds yet." }
+            } @else {
+                div class="relative overflow-x-auto" {
+                    table class="w-full border-collapse" {
+                        thead {
+                            tr {
+                                th scope="col" class=(TABLE_HEAD) { "Board" }
+                                th scope="col" class=(TABLE_HEAD) { "Fastest" }
+                                th scope="col" class=(TABLE_HEAD) { "Smallest" }
+                            }
+                        }
+                        tbody {
+                            @for arena in arenas.iter().take(SHOWN) {
+                                (arena_row(arena, facets))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One contested board: its name, linking to it, with how many builds and
+/// builders, and the build first as fastest and as smallest.
+fn arena_row(arena: &Arena, facets: &[Facet]) -> Markup {
+    let path = format!("/leaderboards/{}", arena.category);
+    let href = Address {
+        measures: arena.measures.clone(),
+        logic: Some(arena.logic),
+        orientation: Some(arena.orientation),
+        design: arena.design.as_ref().map(|(name, _)| name.as_str()),
+    }
+    .href(&path);
+    let plural = facets
+        .iter()
+        .find(|f| f.name == arena.category)
+        .map_or_else(|| arena.category.to_owned(), |f| in_sentence(&f.label));
+    let name = arena
+        .measures
+        .iter()
+        .map(|(measure, n)| measure.lead(*n))
+        .chain(arena.logic_named.then(|| arena.logic.name().to_owned()))
+        .chain([arena.orientation.label().to_lowercase()])
+        .chain(arena.design.as_ref().map(|(_, label)| label.clone()))
+        .chain([plural])
+        .collect::<Vec<_>>()
+        .join(" ");
+    let fastest = leaderboard::fastest(&arena.builds);
+    let smallest = leaderboard::smallest(&arena.builds);
+    let record = |placed: &[Placed], value: fn(&Schematic) -> String| {
+        html! {
+            @if let Some((_, s)) = placed.first() {
+                a href={ "/schematics/" (s.id) } { (value(s)) }
+            }
+        }
+    };
+    let count = |n: usize, one: &str| {
+        if n == 1 {
+            format!("1 {one}")
+        } else {
+            format!("{n} {one}s")
+        }
+    };
+    html! {
+        tr class="hover:bg-selection/50" {
+            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                a href=(href) class="font-semibold" { (name) }
+                div class="mt-1 text-meta text-muted" {
+                    (count(arena.builders, "builder")) " · " (count(arena.builds.len(), "build"))
+                }
+            }
+            td class={ (TABLE_CELL) " tabular-nums" } { (record(&fastest, ticks)) }
+            td class={ (TABLE_CELL) " tabular-nums" } { (record(&smallest, blocks)) }
+        }
+    }
 }
 
 /// One people ranking under `heading`: the first [`SHOWN`], each linking
@@ -148,7 +237,6 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         category,
         board,
         facets,
-        people,
     } = *page;
     let path = format!("/leaderboards/{}", category.name);
     base(
@@ -159,11 +247,11 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
             div {
                 div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
-                    (board_menu(facets, &category.name, people))
+                    (board_menu(facets, &category.name))
                 }
                 @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
                     p class="text-muted" {
-                        "No " (category.plural.to_lowercase()) " of known "
+                        "No " (in_sentence(&category.plural)) " of known "
                         (board.splits.first().map_or("width", |split| split.measure.label()).to_lowercase())
                         " yet, so none to rank."
                     }
@@ -377,7 +465,27 @@ fn board_name(category: &Category, board: &Board) -> String {
         )
         .chain(orientation)
         .chain(design)
-        .chain([category.plural.to_lowercase()])
+        .chain([in_sentence(&category.plural)])
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A category's name as a sentence carries it, such as `ripple adders`,
+/// each word lowercased but one that starts with two capitals, such as
+/// `ALUs`.
+fn in_sentence(name: &str) -> String {
+    name.split(' ')
+        .map(|word| {
+            let mut letters = word.chars().filter(char::is_ascii_alphabetic);
+            let acronym =
+                letters.next().is_some_and(|c| c.is_ascii_uppercase())
+                    && letters.next().is_some_and(|c| c.is_ascii_uppercase());
+            if acronym {
+                word.to_owned()
+            } else {
+                word.to_lowercase()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }

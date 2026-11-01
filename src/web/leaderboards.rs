@@ -82,7 +82,6 @@ pub async fn show(
             category: chosen,
             board: &board,
             facets: &facets,
-            people: leaderboard::most_built(&all).len(),
         },
     )
     .into_response())
@@ -93,8 +92,8 @@ fn parsed<T: std::str::FromStr>(value: Option<String>) -> Option<T> {
     value?.parse().ok()
 }
 
-/// The people leaderboard: who built, added, and holds the records for the
-/// most builds.
+/// The leaderboards' front page: the boards most contested, and who
+/// built, added, and holds the records for the most builds.
 pub async fn people(
     State(state): State<AppState>,
     Query(chosen): Query<Chosen>,
@@ -107,9 +106,12 @@ pub async fn people(
     }
     let all = schematic::visible(&state.db, None).await?;
     let categories = catalogue::categories(&state.db).await?;
+    let stacks = leaderboard::stacked(&all);
+    let builds: Vec<&Schematic> = all.iter().chain(&stacks).collect();
     Ok(pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
+            arenas: &leaderboard::arenas(&builds),
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
             records: &leaderboard::most_records(&all),

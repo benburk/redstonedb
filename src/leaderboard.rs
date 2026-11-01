@@ -420,6 +420,110 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
     tally(holders.flat_map(credited))
 }
 
+/// One board people compete on: a standard category's verified builds of
+/// one value of each of its measures, one state, and one orientation, of
+/// every design or of one, as its leaderboard shows them.
+#[derive(Debug)]
+pub struct Arena<'a> {
+    pub category: &'a str,
+    /// A value of each of the category's measures, such as a width of 8.
+    pub measures: Vec<(Measure, i64)>,
+    pub logic: State,
+    /// Whether the category has builds of another state at these measures,
+    /// so the board's name says which.
+    pub logic_named: bool,
+    pub orientation: Orientation,
+    /// The design's name and label, such as `CCA`; `None` for every
+    /// design together.
+    pub design: Option<(String, String)>,
+    pub builds: Vec<&'a Schematic>,
+    /// How many people built them, whatever the case of their names.
+    pub builders: usize,
+}
+
+/// The boards most contested: of two or more builds, by most builders,
+/// then most builds. Each set of measures, state, and orientation is one
+/// board of every design, and where it holds more than one design, one
+/// board of each design with two or more builds and fewer builders than
+/// every design together.
+pub fn arenas<'a>(builds: &[&'a Schematic]) -> Vec<Arena<'a>> {
+    type Key<'a> = (&'a str, Vec<i64>, State, Orientation);
+    let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
+    for &s in builds
+        .iter()
+        .filter(|s| s.category_label.is_some() && s.verified())
+    {
+        let Some(values) = s
+            .measures
+            .iter()
+            .map(|m| m.of(s))
+            .collect::<Option<Vec<i64>>>()
+            .filter(|values| !values.is_empty())
+        else {
+            continue;
+        };
+        boards
+            .entry((&s.category, values, State::of(s), s.orientation))
+            .or_default()
+            .push(s);
+    }
+    let states = |category: &str, values: &[i64]| {
+        boards
+            .keys()
+            .filter(|(c, v, ..)| *c == category && v == values)
+            .map(|(_, _, state, _)| state)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    };
+    let mut arenas = Vec::new();
+    for ((category, values, logic, orientation), board) in &boards {
+        let arena = |design, builds: Vec<&'a Schematic>| Arena {
+            category,
+            measures: board[0]
+                .measures
+                .iter()
+                .copied()
+                .zip(values.iter().copied())
+                .collect(),
+            logic: *logic,
+            logic_named: states(category, values) > 1,
+            orientation: *orientation,
+            design,
+            builders: tally(builds.iter().flat_map(|s| credited(s))).len(),
+            builds,
+        };
+        let designs = choices(board, |s| {
+            let label = s
+                .design_abbreviation
+                .clone()
+                .or_else(|| s.design_label())
+                .unwrap_or_else(|| "Other".to_owned());
+            (s.design.clone(), label)
+        });
+        let whole = arena(None, board.clone());
+        if designs.len() > 1 {
+            for design in designs.into_iter().filter(|d| d.count >= 2) {
+                let builds = board
+                    .iter()
+                    .copied()
+                    .filter(|s| s.design == design.value)
+                    .collect();
+                let one = arena(Some((design.value, design.label)), builds);
+                // One design every builder built is no contest of its own.
+                if one.builders < whole.builders {
+                    arenas.push(one);
+                }
+            }
+        }
+        arenas.push(whole);
+    }
+    arenas.retain(|a| a.builds.len() >= 2);
+    arenas.sort_by(|a, b| {
+        (b.builders, b.builds.len()).cmp(&(a.builders, a.builds.len()))
+    });
+    arenas
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,6 +735,45 @@ mod tests {
             .map(|s| (s.name, s.count))
             .collect();
         assert_eq!(counts, [("Alex".to_owned(), 3), ("Bob".to_owned(), 1)]);
+    }
+
+    #[test]
+    fn the_most_contested_boards_have_the_most_builders() {
+        let by = |name: &str, s: Schematic| Schematic {
+            builders: vec![name.to_owned()],
+            ..s
+        };
+        let builds = [
+            // 8-bit: CCAs by all three people, so no board of their own,
+            // and CLAs by one.
+            by("alex", build("a", 8, "carry_cancel", Some(3), 684)),
+            by("Bob", build("b", 8, "carry_cancel", Some(4), 900)),
+            by("cy", build("c", 8, "carry_cancel", Some(4), 950)),
+            by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
+            by("ALEX", build("e", 8, "carry_lookahead", Some(8), 3762)),
+            // 16-bit: two CCAs by one person, so no CCA board of its own.
+            by("bob", build("f", 16, "carry_cancel", Some(4), 1960)),
+            by("bob", build("g", 16, "carry_cancel", Some(5), 1900)),
+            // Alone on its board.
+            by("cy", build("h", 32, "carry_cancel", Some(6), 4000)),
+        ];
+        let builds: Vec<&Schematic> = builds.iter().collect();
+        let arenas = arenas(&builds);
+        let found: Vec<(i64, Option<&str>, usize, usize)> = arenas
+            .iter()
+            .map(|a| {
+                let design = a.design.as_ref().map(|(name, _)| name.as_str());
+                (a.measures[0].1, design, a.builders, a.builds.len())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (8, None, 3, 5),
+                (8, Some("carry_lookahead"), 1, 2),
+                (16, None, 1, 2),
+            ]
+        );
     }
 
     #[test]
