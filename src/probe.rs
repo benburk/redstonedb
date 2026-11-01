@@ -397,13 +397,17 @@ pub fn adder(
         return Err(format!("Doesn't add: {wrong} of {cases} cases wrong"));
     }
     // A and B the other way round may add too, read more plainly, as a
-    // subtractor's A − B rather than not (B − A − 1).
+    // subtractor's A − B rather than not (B − A − 1), or, as many lines
+    // inverted, with its borrow in inverted rather than its output, a
+    // control line being one a builder may well invert.
     let swapped = Layout {
         a: layout.b.clone(),
         b: layout.a.clone(),
         ..layout.clone()
     };
-    let inversions = |pattern: &str| pattern.matches("not").count();
+    let inversions = |pattern: &str| {
+        (pattern.matches("not").count(), pattern.starts_with("not ("))
+    };
     let quick = |layout: &Layout| {
         Test::Adder
             .check_with(blocks, layout.interface(blocks), true)
@@ -1702,6 +1706,17 @@ mod tests {
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();
         crate::standardize::edit(&data, &changes).unwrap()
+    }
+
+    /// A subtractor whose output reads inverted one way round reads, with
+    /// A and B swapped, as one whose borrow in is inverted, which it is
+    /// taken for, as a control line a builder may well invert.
+    #[test]
+    fn an_inverted_borrow_in_is_preferred_to_an_inverted_output() {
+        let data =
+            std::fs::read("tests/fixtures/sub-16-torchless.schem").unwrap();
+        let found = recognize(&data).unwrap().found.unwrap_or_default();
+        assert!(found.contains("A − B − not borrow in"), "{found}");
     }
 
     #[test]
