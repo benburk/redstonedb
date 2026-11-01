@@ -762,27 +762,35 @@ fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
                     @if viewing.signed_in {
                         (card_star(&s.id, viewing.favorites.contains(&s.id)))
                     }
+                    // What every build has comes first, so cards line up:
+                    // its name, then its latency and size; then what some
+                    // have, its tags; and its people at the foot.
                     div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
-                        h2 class="text-section font-semibold" {
-                            a href={ "/schematics/" (s.id) }
-                                class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
-                        }
-                        (badges(s, ""))
-                        (note)
-                        // Latency is what builds are compared by, so it
-                        // leads.
-                        p class="mt-auto flex flex-wrap items-baseline gap-x-2 pt-1 tabular-nums" {
-                            @if s.latency.is_some() {
-                                span class="font-semibold" { (latency(s)) }
+                        div class="flex flex-col gap-0.5" {
+                            h2 class="text-section font-semibold" {
+                                a href={ "/schematics/" (s.id) }
+                                    class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                             }
-                            span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
+                            // Latency is what builds are compared by, so it
+                            // leads.
+                            p class="flex flex-wrap items-baseline gap-x-2 tabular-nums" {
+                                @if s.latency.is_some() {
+                                    span class="font-semibold" { (latency(s)) }
+                                }
+                                span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
+                            }
                         }
-                        // The first builder, and how many more, on one line;
-                        // the build's page names them all.
-                        @if let Some((first, more)) = s.builders.split_first() {
-                            p class="truncate text-meta text-muted" {
-                                (name_links(std::slice::from_ref(first)))
-                                @if !more.is_empty() { " +" (more.len()) }
+                        (note)
+                        (badges(s, ""))
+                        // Its builders, then who helped, on one line; the
+                        // build's page names them all.
+                        @if !s.builders.is_empty() || !s.contributors.is_empty() {
+                            p class="mt-auto truncate pt-1 text-meta text-muted" {
+                                (name_links(&s.builders))
+                                @if !s.contributors.is_empty() {
+                                    @if !s.builders.is_empty() { " · " }
+                                    "with " (name_links(&s.contributors))
+                                }
                             }
                         }
                     }
