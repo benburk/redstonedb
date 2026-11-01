@@ -17,11 +17,11 @@ pub fn about(viewer: Option<&User>) -> Markup {
             div class="max-w-prose leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "About" }
                 p class="mb-4" {
-                    "RSDB is a site for sharing, verifying, and archiving high-quality redstone builds. "
+                    "RedstoneDB is a site for sharing, verifying, and archiving high-quality redstone builds. "
                     "It was launched by embizone in October 2026, taking inspiration from and building on "
                     "many earlier plot-of-logic projects."
                 }
-                p class="mb-2" { "Depending on the circuit, RSDB tests every build automatically for:" }
+                p class="mb-2" { "Depending on the circuit, RedstoneDB tests every build automatically for:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
                     li { "build type: adder, register, ALU, and so on" }
                     li { "correctness, across every input case, or every case of each byte for wide builds" }
@@ -41,12 +41,12 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 }
                 p class="mb-2" { "A few other things:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
-                    li { "Builds RSDB can't verify still go in their category, as built, with the specs their uploader gives: non-standard when their inputs and outputs don't fit, fails verification when they give wrong outputs. They're hidden until you tick Show unverified, and never rank." }
-                    li { "Builds of types RSDB can't test yet are still archived, as built, under Other." }
+                    li { "Builds RedstoneDB can't verify still go in their category, as built, with the specs their uploader gives: non-standard when their inputs and outputs don't fit, fails verification when they give wrong outputs. They're hidden until you tick Show unverified, and never rank." }
+                    li { "Builds of types RedstoneDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
                     li { "Builds keep the colours their builder gave them: switch between Original, Default, and your theme on any build's page." }
                     li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
-                    li { "Tags RSDB finds itself, like an adder's design, its orientation, carry in, or stackable, are teal. Tags people add are other colours. Each category's page filters by its tags." }
+                    li { "Tags RedstoneDB finds itself, like an adder's design, its orientation, carry in, or stackable, are teal. Tags people add are other colours. Each category's page filters by its tags." }
                     li { "Untick Public on upload and a build is yours alone. Star any build to keep it under Favourites on your profile." }
                     li { "Write " code { "@name" } " in a description to link a player. They're listed on that player's page." }
                     li { "Search understands shorthand like " code { "8b" } ", " code { "3t" } ", " code { "torchless" } ", and " code { "version:1.12" } "." }
@@ -70,10 +70,10 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
             div class="max-w-calm leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "How builds are recognized" }
                 p class="mb-4 max-w-prose" {
-                    "Each type of build has an input and output contract. RSDB finds a build's inputs and "
+                    "Each type of build has an input and output contract. RedstoneDB finds a build's inputs and "
                     "outputs, then searches through the ways they could fit each type's truth table, trying "
                     "lines in different roles and orders until one fits. You don't need any particular "
-                    "colours or signs: once RSDB knows what each line does, it colours them for you."
+                    "colours or signs: once RedstoneDB knows what each line does, it colours them for you."
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
@@ -105,7 +105,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Stackability" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
-                        li { "RSDB tries a few different bounding boxes and checks whether " code { "//rstack" } "ing them gives a working, wider build." }
+                        li { "RedstoneDB tries a few different bounding boxes and checks whether " code { "//rstack" } "ing them gives a working, wider build." }
                         li { "If the whole box doesn't work, it tries smaller ones, leaving out as few blocks as it can." }
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
                         li { "Stackable builds also compete on the leaderboards at 8, 16, and 32 bits." }

@@ -2,7 +2,7 @@
 
 /// The name shown to visitors. Distinct from the package name, which is
 /// kebab-case and never displayed.
-pub const APP_NAME: &str = "Redstone Database";
+pub const APP_NAME: &str = "RedstoneDB";
 
 pub mod app_state;
 pub mod category;

@@ -1,5 +1,5 @@
 [Unit]
-Description=Back up the Redstone Database daily
+Description=Back up the RedstoneDB daily
 
 [Timer]
 OnCalendar=daily

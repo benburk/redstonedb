@@ -1,3 +1,13 @@
+redstonedb.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3100
+}
+
+www.redstonedb.com {
+	redir https://redstonedb.com{uri} permanent
+}
+
+# The old address, kept until Discord login moves to the new one.
 redstonedb.benburk.ca {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:3100

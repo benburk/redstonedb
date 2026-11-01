@@ -57,13 +57,13 @@ pub fn base(
                 }
                 // A phone has no room for the sidebar beside the page, so
                 // a bar holds the button that opens it, where the sidebar's
-                // own button closes it, and the brand, its name short.
+                // own button closes it, and the brand.
                 header class="flex min-h-14 items-center gap-3 border-b border-line bg-sidebar px-4 py-2 desktop:hidden" {
                     button type="button" popovertarget="sidebar" aria-label="Open the menu"
                         class="btn btn-quiet min-h-9 px-2" {
                         (icon(icons::MENU, "size-5"))
                     }
-                    (brand(current_path, "RSDB"))
+                    (brand(current_path, APP_NAME))
                 }
                 (sidebar(viewer, current_path))
                 div class="min-w-0 flex-1" {
