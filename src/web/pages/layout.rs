@@ -172,10 +172,8 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                 }
                 h2 class=(SIDEBAR_HEADING) { "About" }
                 ul class="flex flex-col gap-0.5" {
-                    (link("/about", icons::INFO, "What this is", current("/about")))
-                    (link("/about/categories", icons::LAYERS, "Finding builds", current("/about/categories")))
-                    (link("/about/simulation", icons::CHECK, "How we test", current("/about/simulation")))
-                    (link("/about/uploading", icons::BOOK, "What a build needs", current("/about/uploading")))
+                    (link("/about", icons::INFO, "About", current("/about")))
+                    (link("/about/recognized", icons::CHECK, "How builds are recognized", current("/about/recognized")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
                     }

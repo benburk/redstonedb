@@ -47,13 +47,6 @@ pub enum Reads {
     Output,
 }
 
-impl Behaviour {
-    /// Whether it reads anything from its builds' files.
-    pub fn reads_file(self) -> bool {
-        self.reads != Reads::Nothing
-    }
-}
-
 /// The blessed categories: a build of one is recognized by probing its
 /// levers and outputs, whatever colours they sit on, then coloured and
 /// standardized, and loses its unused blocks when uploaded, as a new

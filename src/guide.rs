@@ -1,4 +1,4 @@
-//! The example builds the Before you upload page pictures, one or two for
+//! The example builds the How builds are recognized page pictures, one or two for
 //! each rule a build must keep, each kept or broken as its caption says.
 //! A test holds every one to the site's own check, so a picture can't say
 //! what the check doesn't.
@@ -52,8 +52,22 @@ const REPEATER_IN: &str =
 /// An input at `x`, `y`: its block, its lever on the south side, and the
 /// dust it drives to the north, on a block of its own.
 fn input(x: i32, y: i32) -> Vec<(Pos, &'static str)> {
+    coloured_input(x, y, WHITE)
+}
+
+/// An input as `input` makes it, its block `block`, with dust on top.
+fn dust_on_top(block: &'static str) -> Vec<(Pos, &'static str)> {
+    [coloured_input(1, 1, block), vec![([1, 2, 1], DUST_EW)]].concat()
+}
+
+/// An input as `input` makes it, its block `block`.
+fn coloured_input(
+    x: i32,
+    y: i32,
+    block: &'static str,
+) -> Vec<(Pos, &'static str)> {
     vec![
-        ([x, y, 1], WHITE),
+        ([x, y, 1], block),
         ([x, y, 2], LEVER),
         ([x, y - 1, 0], WHITE),
         ([x, y, 0], DUST_NS),
@@ -112,6 +126,20 @@ pub fn examples() -> Vec<Example> {
                 ([1, 0, 0], WHITE),
                 ([1, 1, 0], DUST_NS),
             ],
+        },
+        Example {
+            name: "data-dust-on-top",
+            caption: "Dust on top of a data input's block, which a bus can't drive.",
+            kept: false,
+            breaks: Some("dust on top of an input"),
+            blocks: dust_on_top("lime_concrete"),
+        },
+        Example {
+            name: "control-dust-on-top",
+            caption: "Dust on top of a control line's block, such as a carry in's.",
+            kept: true,
+            breaks: None,
+            blocks: dust_on_top("magenta_concrete"),
         },
         Example {
             name: "output",

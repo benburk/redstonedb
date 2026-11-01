@@ -126,7 +126,7 @@ const ASSETS: [Asset; 7] = [
     CSS, FIXI_JS, APP_JS, FORM_JS, SIDEBAR_JS, THEME_JS, VIEWER_JS,
 ];
 
-/// A Before you upload picture, drawn by `rsdb guide-images static/guide`.
+/// A How builds are recognized picture, drawn by `rsdb guide-images static/guide`.
 macro_rules! guide_image {
     ($name:literal) => {
         Asset::new(
@@ -137,11 +137,14 @@ macro_rules! guide_image {
     };
 }
 
-/// The Before you upload pictures, one for each of [`crate::guide::examples`].
-const GUIDE: [Asset; 9] = [
+/// The How builds are recognized pictures, one for each of
+/// [`crate::guide::examples`].
+const GUIDE: [Asset; 11] = [
     guide_image!("input"),
     guide_image!("input-three-dusts"),
     guide_image!("repeater"),
+    guide_image!("data-dust-on-top"),
+    guide_image!("control-dust-on-top"),
     guide_image!("output"),
     guide_image!("outputs-touching"),
     guide_image!("bus-straight"),
@@ -150,7 +153,8 @@ const GUIDE: [Asset; 9] = [
     guide_image!("bus-uneven"),
 ];
 
-/// Where pages link the Before you upload picture of example `name`.
+/// Where pages link the How builds are recognized picture of example
+/// `name`.
 pub fn guide_image(name: &str) -> Option<String> {
     let path = format!("/guide/{name}.webp");
     GUIDE
@@ -292,9 +296,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schemati/files/{name}/rename", post(schemati::rename))
         .route("/schemati/files/{name}/delete", post(schemati::delete))
         .route("/about", get(about))
-        .route("/about/categories", get(about::categories))
-        .route("/about/uploading", get(about::before_upload))
-        .route("/about/simulation", get(about::simulation))
+        .route("/about/recognized", get(about::recognized))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
         .route("/players/{name}/head.png", get(players::head))

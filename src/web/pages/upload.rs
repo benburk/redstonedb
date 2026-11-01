@@ -75,7 +75,7 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
             div class="max-w-form" {
                 div class="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1" {
                     h1 class=(PAGE_TITLE) { "Upload a build" }
-                    a href="/about/uploading" { "What a build needs" }
+                    a href="/about/recognized" { "How builds are recognized" }
                 }
                 @if !message.is_empty() {
                     p role="alert" class="mb-4 text-danger" { (message) }
