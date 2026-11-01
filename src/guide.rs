@@ -19,7 +19,8 @@ pub struct Example {
 }
 
 impl Example {
-    /// The example as a schematic, its box fitted to its blocks.
+    /// The example as a schematic, its box fitted to its blocks, its dust
+    /// shaped as the game places it.
     pub fn schematic(&self) -> Blocks {
         let size = [0, 1, 2].map(|axis| {
             self.blocks
@@ -29,11 +30,13 @@ impl Example {
                 .unwrap_or(0)
                 + 1
         });
-        let states: HashMap<Pos, String> = self
+        let mut states: HashMap<Pos, String> = self
             .blocks
             .iter()
             .map(|&(pos, state)| (pos, format!("minecraft:{state}")))
             .collect();
+        let placed = Blocks::from_grid(size, &states);
+        states.extend(crate::dust::reshaped(&placed));
         Blocks::from_grid(size, &states)
     }
 }

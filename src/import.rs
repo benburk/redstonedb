@@ -70,6 +70,9 @@ pub fn prepare(
     } else {
         data
     };
+    // Dust as the game shapes it among its neighbours, as `//update` leaves
+    // it, whatever way it was saved.
+    let data = crate::dust::update(&data)?;
     let (data, turn) = if conventional && orient {
         orient::orient(&data)?
     } else {
