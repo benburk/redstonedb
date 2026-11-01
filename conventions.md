@@ -7,7 +7,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 ## Inputs
 
 - An input is a lever on the side of a solid block, or a stone button for a pulse, such as a register's write. Never on the top or bottom.
-- The block drives at most two dusts, on sides other than its lever's, besides torches, repeaters, and comparators reading it. No other redstone touches it, though a target or redstone block may sit on top.
+- The block drives dust on its sides other than its lever's, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target or redstone block may sit on top; dust below it never may.
 - A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it. No dust on top of its block.
 - A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so its block may have dust on top and a block behind its lever.
 - Probing tells data inputs from control lines: an adder's are A and B, a register's its data bus in, an ALU's and a multiplier's their two widest input lines, a decoder's its one input line.

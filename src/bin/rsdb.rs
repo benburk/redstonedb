@@ -921,11 +921,9 @@ async fn guide_images(dir: &Path) -> Result<()> {
             padding: 12.0,
         };
         for example in app::guide::examples() {
-            let webp = app::thumbnail::render_view(
-                &example.schematic(),
-                &renderer,
-                view,
-            )?;
+            // Its dust shaped as the game would place it.
+            let blocks = app::simulate::connected(&example.schematic())?;
+            let webp = app::thumbnail::render_view(&blocks, &renderer, view)?;
             fs::write(dir.join(format!("{}.webp", example.name)), webp)?;
             println!("{}", example.name);
         }

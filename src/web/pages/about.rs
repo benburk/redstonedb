@@ -80,8 +80,8 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 (rule(
                     "Data inputs",
                     "must be a lever on the side of a block, with no redstone on top or below. \
-                     The block can power up to two dusts, and there has to be room for a repeater where the lever is, so a bus could drive it instead.",
-                    &["input", "input-three-dusts", "repeater", "data-dust-on-top"],
+                     There has to be room for a repeater where the lever is, so a bus could drive it instead.",
+                    &["input", "repeater", "data-dust-on-top", "input-dust-below"],
                 ))
                 (rule(
                     "Control lines",

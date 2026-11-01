@@ -141,7 +141,7 @@ macro_rules! guide_image {
 /// [`crate::guide::examples`].
 const GUIDE: [Asset; 11] = [
     guide_image!("input"),
-    guide_image!("input-three-dusts"),
+    guide_image!("input-dust-below"),
     guide_image!("repeater"),
     guide_image!("data-dust-on-top"),
     guide_image!("control-dust-on-top"),

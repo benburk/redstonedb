@@ -390,14 +390,6 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             );
         }
     }
-    if dust > 2 {
-        problem(
-            report,
-            "input drives three dusts",
-            vec![block],
-            format!("Input at {}: drives {dust} dusts (max 2)", place(block)),
-        );
-    }
     if drives == 0 {
         problem(
             report,

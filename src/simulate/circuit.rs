@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use mchprs_blocks::{
     BlockFace, BlockPos,
     block_entities::{BlockEntity, ContainerType},
-    blocks::Block,
+    blocks::{Block, RedstoneWireSide},
 };
 use mchprs_redpiler::{
     Compiler, CompilerInput, CompilerOptions, TaskMonitor,
@@ -843,6 +843,40 @@ const POWER: [&str; 4] = ["power", "powered", "lit", "locked"];
 /// What `blocks` comes to rest as with every lever off but those at `on`,
 /// as the game settles it: each block whose state changes, as its state
 /// with its power alone changed, and each comparator whose strength does.
+/// `blocks` with each dust's shape as the game would give it placed among
+/// its neighbours, as `//update` does: pointing at what it connects to,
+/// a lone dust a cross. Its power is left as it was.
+pub fn connected(blocks: &Blocks) -> Result<Blocks> {
+    let world = world(blocks)?;
+    let side = |side: RedstoneWireSide| match side {
+        RedstoneWireSide::Up => "up",
+        RedstoneWireSide::Side => "side",
+        RedstoneWireSide::None => "none",
+    };
+    let states: HashMap<Pos, String> = blocks
+        .iter()
+        .filter(|&(_, state)| state != schem::AIR)
+        .map(|(pos, state)| {
+            if schem::short(state) != "redstone_wire" {
+                return (pos, state.to_owned());
+            }
+            let placed =
+                mchprs_redstone::wire::get_state_for_placement(&world, at(pos));
+            let shaped = set_properties(
+                state,
+                &[
+                    ("north", side(placed.north).to_owned()),
+                    ("south", side(placed.south).to_owned()),
+                    ("east", side(placed.east).to_owned()),
+                    ("west", side(placed.west).to_owned()),
+                ],
+            );
+            (pos, shaped)
+        })
+        .collect();
+    Ok(Blocks::from_grid(blocks.size, &states))
+}
+
 pub fn settled(
     blocks: &Blocks,
     on: &BTreeSet<Pos>,
