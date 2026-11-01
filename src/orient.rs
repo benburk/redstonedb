@@ -120,16 +120,28 @@ fn wrong(blocks: &Blocks) -> Option<u64> {
 }
 
 /// The side A's levers are on, when every one is on the same side, north,
-/// south, east, or west. A signal-strength A has none, as its dust may be
-/// entered from any side.
+/// south, east, or west; for a build with no A, as a T flip-flop, the side
+/// its every other input's lever or button is on. A signal-strength A has
+/// none, as its dust may be entered from any side.
 fn entered(blocks: &Blocks) -> Option<Direction> {
     let found = interface::read(blocks);
     let a = found.inputs.iter().find(|port| {
         !port.labelled
             && port.block.starts_with("lime")
             && !port.signal_strength
-    })?;
-    let mut sides = a.bits.iter().map(|bit| bit.entry);
+    });
+    let ports: Vec<_> = match a {
+        Some(a) => vec![a],
+        None => found
+            .inputs
+            .iter()
+            .filter(|port| !port.signal_strength)
+            .collect(),
+    };
+    let mut sides = ports
+        .iter()
+        .flat_map(|port| &port.bits)
+        .map(|bit| bit.entry);
     let first = sides.next()??;
     (sides.all(|side| side == Some(first))
         && !matches!(first, Direction::Up | Direction::Down))
@@ -343,5 +355,24 @@ mod tests {
             .words(),
             "Mirrored east for west and turned a half turn"
         );
+    }
+
+    /// A T flip-flop has no A, so it is turned by its toggle's button,
+    /// which ends up on the south side of its block whichever way it came.
+    #[test]
+    fn a_build_with_no_a_turns_by_its_control_line() {
+        let data = std::fs::read("tests/fixtures/t-flip-flop.schem").unwrap();
+        let probed = crate::probe::recognize(&data).unwrap();
+        assert!(probed.found.is_some(), "{:?}", probed.problems);
+        for quarters in 0..4 {
+            let turn = Turn {
+                mirrored: false,
+                quarters,
+            };
+            let (laid, _) =
+                orient(&turned(&probed.file, turn).unwrap()).unwrap();
+            let blocks = Blocks::read(&laid).unwrap();
+            assert_eq!(entered(&blocks), Some(Direction::South), "{quarters}");
+        }
     }
 }
