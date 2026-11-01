@@ -43,11 +43,9 @@ build: css
 
 # A second line of comment would be all `just --list` shows, and this one is a
 # button's tooltip, so it is stated outright.
-# Port 3002, which Tailscale serves at https://crimson.taile2df60.ts.net:3002,
-# the address Discord login sends a local sign-in back to.
-[doc('Serve until interrupted, on port 3002')]
+[doc('Serve until interrupted, on a free port')]
 [group('podium')]
-serve port="3002": css
+serve port=`free-port`: css
     PORT={{ port }} cargo run --bin redstone-database
 
 # Test, unless the suite passed on exactly these files, then build the
