@@ -702,8 +702,7 @@ pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
     let single = cases(&blocks).ok()?;
     let edge = single.edge(dual);
     let pulse = single.pulse(edge)?;
-    let (low, high) = interface::measured(&blocks);
-    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
     let buses = stack::Buses::of("monostable", Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
         let found = cases(blocks).ok()?;
@@ -715,13 +714,13 @@ pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
             && found.inverted == single.inverted)
             .then_some(run.cases)
     };
-    Some(stacking::west_into_bits(
+    Some(stacking::into_bits(
         data,
         reach,
         single.width,
         buses,
         works,
-        "No step west, up to two past its width, makes copies that each \
+        "No step west or up, as far as it reaches, makes copies that each \
          give its pulse alone.",
     ))
 }

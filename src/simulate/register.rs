@@ -1816,6 +1816,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
             bits: single.width * copies,
             cases,
             most,
+            also: Vec::new(),
         }
     } else {
         Stacking::Registers {

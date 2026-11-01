@@ -144,9 +144,14 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(1));
     // A 1-bit gate's lone input can't show its orientation; its copies
-    // stacking west into more bits do.
-    assert_eq!(e.stacking.len(), 1, "{:?}", e.stacking);
-    assert_eq!(e.stacking[0].west, 4);
+    // stacking into more bits do, west first on a tie, then up.
+    let steps: Vec<(i64, i64)> =
+        e.stacking.iter().map(|d| (d.west, d.up)).collect();
+    assert_eq!(steps[0], (4, 0), "{:?}", e.stacking);
+    assert!(
+        steps[1..].iter().all(|&(west, up)| west == 0 && up >= 4),
+        "{steps:?}"
+    );
     assert_eq!(e.orientation, Some(Orientation::Horizontal));
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
@@ -450,7 +455,7 @@ fn a_nand_xnor_gate_is_read_whole_from_its_file() {
     assert_eq!(e.category, Some("nand_xnor_gate"));
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(1));
-    assert_eq!(e.stacking.len(), 1, "{:?}", e.stacking);
+    assert!(e.stacking[0].west > 0, "{:?}", e.stacking);
     assert_eq!(e.orientation, Some(Orientation::Horizontal));
     assert_eq!(e.logic, Some(Logic::Stateless));
 }

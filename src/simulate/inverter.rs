@@ -97,8 +97,7 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let interface = interface::read(&blocks);
     let (a, _) = ports(&interface).ok()?;
     let width = interface.inputs[a].bits.len();
-    let (low, high) = interface::measured(&blocks);
-    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
     let buses = stack::Buses::of("inverter", Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
         let interface = interface::read(blocks);
@@ -109,13 +108,13 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         (run.wrong == 0 && interface.inputs[a].bits.len() == width * copies)
             .then_some(run.cases)
     };
-    Some(stacking::west_into_bits(
+    Some(stacking::into_bits(
         data,
         reach,
         width,
         buses,
         works,
-        "No step west, up to two past its width, makes copies that one \
+        "No step west or up, as far as it reaches, makes copies that one \
          control line inverts together.",
     ))
 }

@@ -186,8 +186,7 @@ pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
     let interface = interface::read(&blocks);
     nand_xnor(&interface).ok()?;
     let width = interface.inputs[0].bits.len();
-    let (low, high) = interface::measured(&blocks);
-    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
     let buses =
         stack::Buses::of(Test::NandXnor.name(), Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
@@ -197,13 +196,13 @@ pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
         let bits = interface::read(blocks).inputs.first()?.bits.len();
         (run.wrong == 0 && bits == width * copies).then_some(run.cases)
     };
-    Some(stacking::west_into_bits(
+    Some(stacking::into_bits(
         data,
         reach,
         width,
         buses,
         works,
-        "No step west, up to two past its width, makes copies whose bits \
+        "No step west or up, as far as it reaches, makes copies whose bits \
          together give A nand B and A xnor B.",
     ))
 }
@@ -216,8 +215,7 @@ pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
     let interface = interface::read(&blocks);
     spec(&interface, gate).ok()?;
     let width = interface.inputs[0].bits.len();
-    let (low, high) = interface::measured(&blocks);
-    let reach = i64::from(high[0] - low[0] + 1) + 2;
+    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
     let test = gate.test();
     let buses = stack::Buses::of(test.name(), Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
@@ -228,14 +226,14 @@ pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
         (run.wrong == 0 && bits == width * copies).then_some(run.cases)
     };
     let [plain, inverse] = gate.patterns();
-    Some(stacking::west_into_bits(
+    Some(stacking::into_bits(
         data,
         reach,
         width,
         buses,
         works,
         &format!(
-            "No step west, up to two past its width, makes copies whose \
+            "No step west or up, as far as it reaches, makes copies whose \
              bits together give {plain}, or {inverse}."
         ),
     ))

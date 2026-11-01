@@ -181,6 +181,10 @@ impl Evaluation {
                 max_copies: most.and_then(|n| i64::try_from(n).ok()),
                 ..step.direction()
             }];
+            // Other ways copies make a wider one, as a 1-bit gate's up.
+            if let Some(Stacking::Wider { also, .. }) = stacking {
+                self.stacking.extend(also.iter().map(|way| way.direction()));
+            }
             if let Some(orientation) = step.orientation().filter(|_| bits) {
                 self.orientation = Some(orientation);
             }

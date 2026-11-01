@@ -72,6 +72,10 @@ pub enum Stacking {
         bits: usize,
         cases: u64,
         most: Option<usize>,
+        /// The other ways copies make a wider one, as a 1-bit gate's may
+        /// both west and up.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        also: Vec<Apart>,
     },
     /// Copies side by side each do their own work, as more decoders, each
     /// with its own input and outputs, each way they stack.
@@ -545,56 +549,78 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
 /// this many is taken to stack any number of times.
 const MOST_COPIES: usize = 16;
 
+/// The farthest apart copies that don't touch stack: a bus's widest
+/// spacing, so copies far apart, each on its own, don't count as stacking.
+const BUS_PITCH: i64 = 4;
+
 /// Whether copies of the build in `data`, whose own cases came out right,
-/// stack west into more bits, each copy one more bit as `buses` stacks
-/// them: the shortest step west, up to `reach` blocks, at which two copies
-/// work, then the most copies that do, up to `MOST_COPIES`. `works` tests
-/// a stack of so many copies, giving the cases it ran when every one came
-/// out right; `not` says why none stacks.
-pub(super) fn west_into_bits(
+/// stack into more bits, each copy one more bit as `buses` stacks them:
+/// each way, west and up, the shortest step at which two copies work, as
+/// far as the file reaches that way, `reach`, so copies touch or overlap,
+/// or, apart, at most [`BUS_PITCH`], as a bus's bits are, and the most
+/// copies that do, up to `MOST_COPIES`. The shorter step comes
+/// first, west on a tie, the other kept as `also`. `works` tests a stack of
+/// so many copies, giving the cases it ran when every one came out right;
+/// `not` says why none stacks.
+pub(super) fn into_bits(
     data: &[u8],
-    reach: i64,
+    reach: [i64; 2],
     bits: usize,
     buses: stack::Buses,
     works: impl Fn(&Blocks, usize) -> Option<u64>,
     not: &str,
 ) -> Stacking {
+    let reach = reach.map(|n| n.max(BUS_PITCH));
     let tried = |step: Step, copies: usize| {
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         works(&Blocks::read(&stacked).ok()?, copies)
     };
-    let found =
-        (1..=reach)
-            .map(|west| Step::new(west, 0, 0))
-            .find_map(|step| {
-                step.find(data, true, buses, |step| tried(step, 2).ok_or(()))?
-                    .ok()
-                    .map(|(step, _)| step)
-            });
-    let Some(step) = found else {
+    let shortest = |steps: Vec<Step>| {
+        steps.into_iter().find_map(|step| {
+            step.find(data, true, buses, |step| tried(step, 2).ok_or(()))?
+                .ok()
+                .map(|(step, _)| step)
+        })
+    };
+    let west = shortest((1..=reach[0]).map(|n| Step::new(n, 0, 0)).collect());
+    let up = shortest((1..=reach[1]).map(|n| Step::new(0, n, 0)).collect());
+    let mut ways: Vec<Apart> = [west, up]
+        .into_iter()
+        .flatten()
+        .map(|step| {
+            let mut way = Apart {
+                step,
+                copies: 2,
+                cases: tried(step, 2).unwrap_or_default(),
+                most: None,
+            };
+            while way.copies < MOST_COPIES {
+                let Some(more) = tried(step, way.copies + 1) else {
+                    way.most = Some(way.copies);
+                    break;
+                };
+                way.copies += 1;
+                way.cases = more;
+            }
+            way
+        })
+        .collect();
+    ways.sort_by_key(|way| way.step.west + way.step.up);
+    if ways.is_empty() {
         return Stacking::Not {
             step: None,
             reason: not.to_owned(),
         };
-    };
-    let mut most = None;
-    let mut copies = 2;
-    let mut cases = tried(step, copies).unwrap_or_default();
-    while copies < MOST_COPIES {
-        let Some(more) = tried(step, copies + 1) else {
-            most = Some(copies);
-            break;
-        };
-        copies += 1;
-        cases = more;
     }
+    let first = ways.remove(0);
     Stacking::Wider {
-        step,
-        copies,
-        bits: bits * copies,
-        cases,
-        most,
+        step: first.step,
+        copies: first.copies,
+        bits: bits * first.copies,
+        cases: first.cases,
+        most: first.most,
+        also: ways,
     }
 }
 

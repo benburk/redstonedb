@@ -342,6 +342,10 @@ pub struct Schematic {
 /// The tag a build carries whose copies stack.
 const STACKABLE: &str = "stackable";
 
+/// The farthest apart copies stack for a tag to say how far, as
+/// `4-wide_stackable`: a bus's spacing, not a whole build's length.
+const MOST_PITCH: i64 = 4;
+
 /// The tag a build carries whose outputs all settle on the same tick.
 const SYNCED: &str = "synced";
 
@@ -424,6 +428,24 @@ impl Schematic {
                 behaviour.stacking == crate::category::Stacking::Inferred,
             ),
         });
+        // How far apart copies stack, where that is a few blocks, the
+        // spacing of a bus, as `2-high_stackable`.
+        let pitches = self.stacking.iter().filter_map(|way| {
+            let pitch = match (way.west, way.up, way.north) {
+                (n, 0, 0) if n > 0 => format!("{n}-wide"),
+                (0, n, 0) if n > 0 => format!("{n}-high"),
+                (0, 0, n) if n > 0 => format!("{n}-deep"),
+                _ => return None,
+            };
+            (way.west + way.up + way.north <= MOST_PITCH).then(|| Tag {
+                name: format!("{pitch}_{STACKABLE}"),
+                token: None,
+                kind: found(
+                    tag::Kind::Feature,
+                    behaviour.stacking == crate::category::Stacking::Inferred,
+                ),
+            })
+        });
         let synced = (self.synchronized == Some(true)).then(|| Tag {
             name: SYNCED.to_owned(),
             token: None,
@@ -438,6 +460,7 @@ impl Schematic {
             .chain([orientation])
             .chain(flags)
             .chain(stackable)
+            .chain(pitches)
             .chain(synced)
             .chain(rest.into_iter().cloned())
             .collect()

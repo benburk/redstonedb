@@ -754,12 +754,17 @@ impl Derived {
                     max_copies: most.and_then(|n| i64::try_from(n).ok()),
                     ..step.direction()
                 };
+                let also = match &run.stacking {
+                    Some(Stacking::Wider { also, .. }) => also.as_slice(),
+                    _ => &[],
+                };
                 self.stacking = s
                     .stacking
                     .iter()
-                    .filter(|typed| typed.west == 0)
+                    .filter(|typed| typed.west == 0 && also.is_empty())
                     .copied()
                     .chain([found])
+                    .chain(also.iter().map(|way| way.direction()))
                     .collect();
             }
             Some(Stacking::Not { .. })

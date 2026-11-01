@@ -1792,20 +1792,37 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             bits,
             cases,
             most,
-        } => println!(
-            "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right{}",
-            step.describe(),
-            if controls {
-                " sharing their control lines"
-            } else {
-                ""
-            },
-            if most.is_some() {
-                "; one more copy fails"
-            } else {
-                ""
+            also,
+        } => {
+            for way in also {
+                println!(
+                    "        stacks: {} copies {} apart make {} bits too, all {} cases right{}",
+                    way.copies,
+                    way.step.describe(),
+                    *bits / *copies * way.copies,
+                    way.cases,
+                    if way.most.is_some() {
+                        "; one more copy fails"
+                    } else {
+                        ""
+                    }
+                );
             }
-        ),
+            println!(
+                "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right{}",
+                step.describe(),
+                if controls {
+                    " sharing their control lines"
+                } else {
+                    ""
+                },
+                if most.is_some() {
+                    "; one more copy fails"
+                } else {
+                    ""
+                }
+            );
+        }
         Stacking::Separate { ways } => {
             for way in ways {
                 println!(

@@ -601,13 +601,19 @@ fn badges(s: &Schematic, class: &str) -> Markup {
 }
 
 /// The tags of build `s` its card shows: not its design or orientation,
-/// nor a flag in [`SEEN`], nor any its name says in words.
+/// nor a flag in [`SEEN`], nor any its name says in words, nor stackable
+/// where a tag says how far apart its copies stack.
 fn on_card(s: &Schematic) -> Vec<Tag> {
     let name = format!(" {} ", s.name().to_lowercase());
-    s.every_tag()
-        .into_iter()
+    let tags = s.every_tag();
+    let pitched = tags.iter().any(|tag| tag.name.ends_with("_stackable"));
+    tags.into_iter()
         .filter(|tag| {
-            !matches!(tag.kind, tag::Kind::Design | tag::Kind::Orientation)
+            (!pitched || tag.name != "stackable")
+                && !matches!(
+                    tag.kind,
+                    tag::Kind::Design | tag::Kind::Orientation
+                )
                 && tag.name != s.design
                 && !SEEN.contains(&tag.name.as_str())
                 && !name.contains(&format!(" {} ", tag.label()))
@@ -947,7 +953,7 @@ mod tests {
 
     /// A card leaves out what its picture or name makes plain, or says
     /// little, such as an inverted carry in, and keeps what is hard to
-    /// tell, such as stacking.
+    /// tell, such as how its copies stack.
     #[test]
     fn a_card_shows_only_the_tags_hard_to_tell() {
         let mut s = adder(
@@ -965,7 +971,8 @@ mod tests {
         let names = |s: &Schematic| -> Vec<String> {
             on_card(s).into_iter().map(|tag| tag.name).collect()
         };
-        assert_eq!(names(&s), ["stackable", "pistons"]);
+        // How far apart its copies stack says it stacks.
+        assert_eq!(names(&s), ["2-wide_stackable", "pistons"]);
         let mut gate = adder("other", &["xnor"], &[]);
         gate.category = "xor_xnor_gate".to_owned();
         assert!(gate.name().contains("XNOR"), "{}", gate.name());
