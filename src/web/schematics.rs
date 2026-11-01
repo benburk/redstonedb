@@ -61,6 +61,8 @@ struct ListQuery {
     /// Fields such as `-downloads,volume`; see [`order`].
     sort: String,
     tags: Vec<String>,
+    /// Whether builds not verified as their category are listed too.
+    unverified: bool,
     /// The file a search for similar builds was for, and what it found;
     /// see `similar::shown_page`.
     file: String,
@@ -78,7 +80,13 @@ impl ListQuery {
                 "q" => query.q = value,
                 "category" => query.category = value,
                 "sort" => query.sort = value,
+                // Asking for the builds that fail verification shows them.
+                "tag" if tag::name(&value) == tag::FAILS_VERIFICATION => {
+                    query.unverified = true;
+                    query.tags.push(value);
+                }
                 "tag" if !value.is_empty() => query.tags.push(value),
+                "unverified" => query.unverified = value == "show",
                 "file" => query.file = value,
                 "found" => query.found = Some(value),
                 _ => {}
@@ -138,8 +146,11 @@ async fn index(
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
     let viewing = super::viewing(&state.db, viewer).await?;
+    // A category's tile counts and pictures its verified builds.
+    let verified: Vec<Schematic> =
+        all.iter().filter(|s| s.verified()).cloned().collect();
     let index = pages::Index {
-        tiles: &tiles(&categories, &all),
+        tiles: &tiles(&categories, &verified),
         recent: &recent(&all),
         total: all.len(),
         viewing: &viewing,
@@ -236,10 +247,23 @@ async fn listing(
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
     let total = all.len();
-    let found: Vec<Schematic> = search::matching(&terms, all)
+    let mut found: Vec<Schematic> = search::matching(&terms, all)
         .into_iter()
         .filter(|s| has_tags(s, &query.tags))
         .collect();
+    // Builds not verified as their category list only when asked for; the
+    // listing says how many there are either way.
+    let unverified = found
+        .iter()
+        .filter(|s| {
+            !s.verified()
+                && (query.category.is_empty()
+                    || in_category(s, &query.category))
+        })
+        .count();
+    if !query.unverified {
+        found.retain(Schematic::verified);
+    }
     let facets = facets(&categories, &found, &query.category);
     let mut shown: Vec<Schematic> = if query.category.is_empty() {
         found
@@ -260,6 +284,10 @@ async fn listing(
         terms: &terms,
         category: &query.category,
         tags: &query.tags,
+        unverified: pages::Unverified {
+            shown: query.unverified,
+            count: unverified,
+        },
         facets: &facets,
         viewing: &viewing,
     };
@@ -474,11 +502,11 @@ pub struct Panel {
 }
 
 /// What build `s`'s page shows of its file, `data`, with `blocks`: as its
-/// category reads it, or for one off the list while it is not recognized
-/// as the category it stands in for, standardized and read as that
-/// category, as recognizing it would.
+/// category reads it, or for one unverified or off the list while it is
+/// not recognized as the category it stands in for, standardized and read
+/// as that category, as recognizing it would.
 fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
-    if let Some(meant) = simulation::meant_by(&s.category)
+    if let Some(meant) = simulation::stands_in(s)
         && let Ok(standard) =
             import::prepare(data, true, true, s.keeps_paste, true)
     {
@@ -577,11 +605,12 @@ pub async fn detail(
     .into_response())
 }
 
-/// For build `s`, filed off the list as an adder or a register, what keeps
-/// it from being recognized as one by the check by function on its file
-/// `data`: one line for each fault. Empty for any other build.
+/// For build `s`, unverified or filed off the list as an adder or a
+/// register, what keeps it from being recognized as one by the check by
+/// function on its file `data`: one line for each fault. Empty for any
+/// other build.
 async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
-    let Some(meant) = crate::models::simulation::meant_by(&s.category)
+    let Some(meant) = crate::models::simulation::stands_in(s)
         .filter(|meant| crate::category::BLESSED.contains(meant))
         .map(str::to_owned)
     else {
@@ -762,8 +791,8 @@ async fn chosen_version(
 ) -> Result<Checked, String> {
     let chosen = posted.chosen().await?;
     // A listed build that follows the conventions is kept standardized;
-    // one off the list as built, until
-    // a version it is recognized by moves it up.
+    // one unverified or off the list as built, until a version it is
+    // recognized by moves it up.
     let listed = Category::find(
         &catalogue::categories(db)
             .await
@@ -771,7 +800,7 @@ async fn chosen_version(
         &s.category,
     )
     .is_some();
-    let standardize = s.conventional && listed;
+    let standardize = s.conventional && listed && s.unverified.is_none();
     check_version(db, s, &chosen.file, standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
@@ -851,8 +880,9 @@ async fn save_details(
 
 /// The file a new version, `prepared`, is kept as, and the category build
 /// `s` goes up under with it, when either differs from what was given:
-/// a build off the list whose new version is recognized as the listed
-/// category its name means, as an 8-bit adder's as an adder, moves up,
+/// a build unverified, or off the list, whose new version is recognized as
+/// the listed category it stands in for, as an 8-bit adder's as an adder,
+/// moves up,
 /// its file standardized and turned to lie the standard way, as an
 /// upload's is.
 /// Only a build whose category, as `category` gives it, is unchanged
@@ -866,14 +896,15 @@ async fn version_kept(
     let categories = catalogue::categories(db).await?;
     let evaluated = |c: &&Category| category::behaviour(&c.name).evaluated;
     if Category::name_of(&categories, category) == s.category
+        && let Some(meant) = simulation::stands_in(s)
         && let Some((moved, to)) =
-            import::moved_up(&categories, &s.category, prepared, s.keeps_paste)
+            import::moved_up(&categories, meant, prepared, s.keeps_paste)
                 .await?
     {
         return Ok(Some((moved, Some(to.name.clone()))));
     }
     match Category::find(&categories, category).filter(evaluated) {
-        Some(_) if prepared.conventional => {
+        Some(_) if prepared.conventional && s.unverified.is_none() => {
             Ok(Some((import::rewrapped(prepared)?, None)))
         }
         _ => Ok(None),
@@ -890,10 +921,17 @@ async fn saved(
     form: &Form,
     new: Option<&Prepared>,
 ) -> Result<Result<(), String>, AppError> {
-    let given = match form.parse() {
+    let mut given = match form.parse() {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
+    let categories = catalogue::categories(db).await?;
+    let same = Category::name_of(&categories, &form.category) == s.category;
+    // Its details saved alone, under its category, leave it as verified as
+    // it was; a new version, or another category, is recognized afresh.
+    if new.is_none() && same {
+        given.unverified.clone_from(&s.unverified);
+    }
     let stored;
     let build = if let Some(new) = new {
         details::Build::of(new)
@@ -901,10 +939,6 @@ async fn saved(
         stored = version::current_file(db, &s.id).await?.unwrap_or_default();
         // Its file, kept under its category, passed its test already,
         // which a save of its details needn't run again.
-        let same = Category::name_of(
-            &catalogue::categories(db).await?,
-            &form.category,
-        ) == s.category;
         details::Build {
             data: &stored,
             conventional: s.conventional,

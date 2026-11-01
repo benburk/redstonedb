@@ -1389,16 +1389,21 @@ async fn new_version(
         added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
     };
-    // Off the list, a version recognized as the category its name means
-    // moves it up, as on the site.
+    // Unverified or off the list, a version recognized as the category it
+    // stands in for moves it up, as on the site.
     let categories = catalogue::categories(db).await?;
-    let moved = import::moved_up(
-        &categories,
-        &s.category,
-        &checked.prepared,
-        s.keeps_paste,
-    )
-    .await?;
+    let moved = match simulation::stands_in(&s) {
+        Some(meant) => {
+            import::moved_up(
+                &categories,
+                meant,
+                &checked.prepared,
+                s.keeps_paste,
+            )
+            .await?
+        }
+        None => None,
+    };
     let kept = moved.as_ref().map_or(&checked.prepared, |(file, _)| file);
     let number = version::replace(db, &id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
@@ -1418,6 +1423,7 @@ async fn new_version(
     if let Some((file, to)) = &moved {
         let given = Details {
             category: to.name.clone(),
+            unverified: None,
             ..Details::of(&s)
         };
         match details::check(db, given, details::Build::of(file), true).await? {

@@ -34,6 +34,9 @@ use super::{
 const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from simulating \
     the build or reading its file, not from what its uploader typed. Each new version is measured again.";
 
+const UNVERIFIED_NOTE: &str = "The site couldn't verify this build as its category, so its \
+    specs are as its uploader gave them, unchecked.";
+
 /// What a stored build's file says about it.
 pub struct FileRead {
     pub analysis: Analysis,
@@ -119,13 +122,13 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 &build_info(s, similar, file, report),
                 false,
             ))
-            @if let Some(meant) = crate::models::simulation::meant_by(&s.category) {
-                (not_recognized(meant, file))
+            @if let Some(meant) = crate::models::simulation::stands_in(s) {
+                (not_recognized(s, meant, file))
             }
             @let poll = format!("{path}/simulation");
-            // Off the list, a build the simulator can't run says why under
-            // Failed verification already.
-            @let skipped_off_list = crate::models::simulation::meant_by(&s.category).is_some()
+            // Unverified or off the list, a build the simulator can't run
+            // says why under Failed verification already.
+            @let skipped_off_list = crate::models::simulation::stands_in(s).is_some()
                 && matches!(report, Some(Report::Skipped { .. }));
             @match simulation {
                 Status::Done(_) | Status::Pending(Some(_)) if skipped_off_list => {}
@@ -143,9 +146,14 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
     )
 }
 
-/// Why a build filed off the list as one of category `meant` isn't one:
-/// each fault the check by function finds, one to a line.
-fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
+/// Why build `s`, unverified or filed off the list as one of category
+/// `meant`, isn't one: each fault the check by function finds, one to a
+/// line, or else why it was found unverified.
+fn not_recognized(
+    s: &Schematic,
+    meant: &str,
+    file: &Result<FileRead, String>,
+) -> Markup {
     let label = meant.replace('_', " ");
     let strength = file.as_ref().is_ok_and(|file| file.strength_inputs);
     let faults = file
@@ -163,7 +171,10 @@ fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
                     li { (fault) }
                 }
                 @if !strength && faults.is_empty() {
-                    li { "Fails " (label) " test or conventions" }
+                    @match &s.unverified {
+                        Some(why) => li { (why) },
+                        None => li { "Fails " (label) " test or conventions" },
+                    }
                 }
             }
         }
@@ -171,9 +182,9 @@ fn not_recognized(meant: &str, file: &Result<FileRead, String>) -> Markup {
 }
 
 /// How build `s`'s page waits on its timing, asked of `poll`: never, for
-/// one off the list, which is only tested.
+/// one unverified or off the list, which is only tested.
 pub fn waiting<'a>(s: &Schematic, poll: &'a str) -> Waiting<'a> {
-    if crate::models::simulation::meant_by(&s.category).is_some() {
+    if crate::models::simulation::stands_in(s).is_some() {
         Waiting::Untimed
     } else {
         Waiting::Polled(poll)
@@ -190,6 +201,12 @@ pub fn build_banner(
     simulating: bool,
 ) -> Markup {
     let verdict = match report {
+        // An unverified build says why, whatever its test found.
+        _ if s.unverified.is_some() => Some((
+            "Fails verification",
+            "bg-danger/12 text-danger",
+            format!("{}.", s.unverified.as_deref().unwrap_or_default()),
+        )),
         // A pass needs no badge: it is what puts a build on the list.
         Some(Report::Ran(run)) if run.wrong == 0 => None,
         Some(Report::Ran(run)) => Some((
@@ -304,15 +321,15 @@ impl Sources {
         };
         let category_source = if report.is_some_and(Report::failed) {
             Source::Unconfirmed("fails simulation")
-        } else if crate::models::simulation::meant_by(&s.category).is_some() {
-            // Passing or not, it is off the list until recognized.
+        } else if crate::models::simulation::stands_in(s).is_some() {
+            // Passing or not, it is unverified until recognized.
             Source::Unconfirmed("not recognized")
         } else {
             checked(false, passed)
         };
         if passed
             && matches!(category_source, Source::Simulated)
-            && category::behaviour(&s.category).evaluated
+            && s.evaluated()
         {
             return Sources::every(Source::Simulated);
         }
@@ -418,7 +435,7 @@ pub fn build_info(
             (facts(s, &sources))
             // A failing build says so beside its title, not among its tags;
             // its design, orientation, and flags are among them.
-            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_SIMULATION).collect();
+            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_VERIFICATION).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
                     @for tag in &tags {
@@ -591,6 +608,10 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                     (hover_note("specs-note", &html! {
                         span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Verified specs" }
                     }, VERIFIED_NOTE))
+                } @else if s.unverified.is_some() {
+                    (hover_note("specs-note", &html! {
+                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Unverified specs" }
+                    }, UNVERIFIED_NOTE))
                 } @else {
                     "Specs"
                 }

@@ -327,9 +327,14 @@ pub struct Schematic {
     /// Whether anyone may see it; a private build only its uploader and
     /// admins see.
     pub public: bool,
+    /// Why a build of a category the site recognizes builds of is not
+    /// recognized as one, as `details::unrecognized` says; `None` for one
+    /// that is, or any other build. Such a build is kept as built.
+    pub unverified: Option<String>,
     /// Sorted by kind in glossary order (restriction, other),
-    /// then name, after `fails_simulation` if simulating its file got some
-    /// cases wrong, see `models::simulation`; `torchless` when its file has
+    /// then name, after `fails_verification` if it is not recognized as its
+    /// category or simulating its file got some cases wrong, see
+    /// `models::simulation`; `torchless` when its file has
     /// no torches, and `alpha` when it works from Alpha.
     pub tags: Vec<Tag>,
 }
@@ -338,12 +343,29 @@ pub struct Schematic {
 const STACKABLE: &str = "stackable";
 
 impl Schematic {
+    /// Whether it is verified as its category: recognized as one, if its
+    /// category is one the site recognizes, and passing its test, if it
+    /// has one. Only a verified build ranks, and lists unless the unverified
+    /// are asked for.
+    pub fn verified(&self) -> bool {
+        self.unverified.is_none()
+            && !self.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION)
+    }
+
+    /// Whether `evaluate` works out its every measured detail: a
+    /// conventional build of a category it does so for, recognized as one.
+    pub fn evaluated(&self) -> bool {
+        self.conventional
+            && self.unverified.is_none()
+            && crate::category::behaviour(&self.category).evaluated
+    }
+
     fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
     /// Its tags with its design, orientation, and flags among them, as its
-    /// page shows them and a list is narrowed by: `fails_simulation` first,
+    /// page shows them and a list is narrowed by: `fails_verification` first,
     /// then its design, its orientation, its flags in its category's
     /// order, `stackable` when its copies stack, and its other tags. One the site works out from a
     /// conventional build is found, as its category's test or file sets
@@ -351,7 +373,7 @@ impl Schematic {
     pub fn every_tag(&self) -> Vec<Tag> {
         let behaviour = crate::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
-            if self.conventional && by_site {
+            if self.conventional && self.unverified.is_none() && by_site {
                 kind
             } else {
                 tag::Kind::Other
@@ -808,16 +830,15 @@ async fn load(
             bytes, torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
-            public as "public: bool",
+            public as "public: bool", unverified,
             schematic.logic as "own_logic: Logic",
             coalesce(schematic.logic, category.logic) as "logic?: Logic",
             conventional as "conventional: bool", description, given_name,
             design, design.abbreviation as "design_abbreviation?: String",
             design.label as "design_given_label?: String",
             category.label as "category_label?: String",
-            user.username as "uploader?: String",
-            coalesce(user.minecraft_name, user.username)
-                as "uploader_name?: String",
+            user.username as "uploader?: String", coalesce(user.minecraft_name,
+                user.username) as "uploader_name?: String",
             EXISTS (SELECT 1 FROM simulation
                 WHERE simulation.schematic_id = schematic.id
                     AND simulation.sha256 = file.sha256
@@ -851,7 +872,7 @@ async fn load(
                 aliases: extras.aliases(&row.category),
                 tags: tag::with_derived(
                     tags.remove(&row.id).unwrap_or_default(),
-                    row.fails_simulation,
+                    row.fails_simulation || row.unverified.is_some(),
                     row.torches,
                     row.works_from.as_deref(),
                 ),
@@ -895,6 +916,7 @@ async fn load(
                 edited_at: row.edited_at,
                 downloads: row.downloads,
                 public: row.public,
+                unverified: row.unverified,
             }
         })
         .collect())
@@ -1128,9 +1150,9 @@ pub async fn insert(
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
             logic, throughput, at_least, pulse, bytes, torches, works_from,
-            works_from_by, keeps_paste, uploaded_by)
+            works_from_by, keeps_paste, uploaded_by, unverified)
          VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?)
+            ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.id,
         details.category,
@@ -1158,6 +1180,7 @@ pub async fn insert(
         facts.works_from.because,
         file.keeps_paste,
         new.uploaded_by,
+        details.unverified,
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1184,6 +1207,7 @@ pub async fn set_details(
         sqlx::query!(
             "UPDATE schematic SET category = ?, built_on = ?,
                 description = ?, given_name = ?, at_least = ?, bytes = ?,
+                unverified = NULL,
                 edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
              WHERE id = ?",
             details.category,
@@ -1203,7 +1227,7 @@ pub async fn set_details(
         "UPDATE schematic SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, given_name = ?, logic = ?,
-            throughput = ?, at_least = ?, pulse = ?, bytes = ?,
+            throughput = ?, at_least = ?, pulse = ?, bytes = ?, unverified = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -1221,6 +1245,7 @@ pub async fn set_details(
         details.at_least,
         details.pulse,
         details.bytes,
+        details.unverified,
         id,
     )
     .execute(&mut *tx)
@@ -1562,6 +1587,7 @@ mod tests {
             edited_at: None,
             downloads: 0,
             public: true,
+            unverified: None,
             tags: vec![Tag {
                 name: "alpha".to_owned(),
                 token: None,
@@ -1581,14 +1607,16 @@ mod tests {
             name: "carry_in".to_owned(),
             label: "Carry in".to_owned(),
         }];
-        s.tags
-            .insert(0, Tag::derived(tag::FAILS_SIMULATION, tag::Kind::Failing));
+        s.tags.insert(
+            0,
+            Tag::derived(tag::FAILS_VERIFICATION, tag::Kind::Failing),
+        );
         let tags = s.every_tag();
         let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "fails_simulation",
+                "fails_verification",
                 "carry_lookahead",
                 "horizontal",
                 "carry_in",

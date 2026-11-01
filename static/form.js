@@ -35,11 +35,15 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     if (!option && !settled) return;
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
     const blessed = has("data-blessed");
+    // One not recognized as its blessed category goes up unverified, its
+    // specs typed, its width among them.
+    const unverified = blessed && form.hasAttribute("data-unverified");
+    const evaluated = blessed && !unverified;
     for (const what of ["width", "orientation", "stacking"]) {
       const derived = form.querySelector(`[data-derived-${what}]`);
       const typed = form.querySelector(`[data-typed-${what}]`);
-      if (derived) derived.hidden = !blessed;
-      if (typed) typed.hidden = blessed;
+      if (derived) derived.hidden = !evaluated;
+      if (typed) typed.hidden = what === "width" ? !unverified : evaluated;
     }
     // A category such as ALU is never stacked, so neither is asked.
     if (has("data-never-stacks")) {
@@ -50,10 +54,12 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     form.querySelector("[data-usual-logic]").textContent =
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
     const logic = form.querySelector("[data-logic-field]");
-    if (logic) logic.hidden = blessed;
+    if (logic) logic.hidden = evaluated;
     const note = form.querySelector("[data-evaluated-note]");
-    if (note) note.hidden = !blessed;
+    if (note) note.hidden = !evaluated;
   };
+  // The checks say whether it goes up unverified once they have run.
+  form.addEventListener("filing", () => update(true));
 
   // The menu: the categories whose labels hold the typed text, all of them
   // for an empty box or one that already names a category, so its
@@ -326,7 +332,8 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     const passed = shown?.querySelector("[data-measures-timing]") != null;
     // One that fails goes up off the list, described by hand.
     const ran = shown?.querySelector("#simulation") != null;
-    const measures = ran ? passed : tested && !skipped;
+    // An unverified build is tested, not measured, so its timing is typed.
+    const measures = !form.hasAttribute("data-unverified") && (ran ? passed : tested && !skipped);
     timingFields.hidden = measures;
     timingNote.hidden = !measures;
     for (const input of timingFields.querySelectorAll("input")) {
@@ -346,8 +353,12 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
 
   // The checks once a result is in.
   const settled = () => {
-    measured();
     const filing = results().querySelector("[data-filing]");
+    if (filing) {
+      form.toggleAttribute("data-unverified", filing.dataset.filing === "warn");
+      form.dispatchEvent(new Event("filing"));
+    }
+    measured();
     if (filing) mark("filing", filing.dataset.filing, filing.textContent);
     else mark("filing", null);
     const section = results().querySelector("#simulation");

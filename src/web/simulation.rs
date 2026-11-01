@@ -142,10 +142,11 @@ async fn readied(
         filing_note(
             false,
             &format!(
-                "{}, so it goes up as {}, off the list, with its own blocks \
-                 and the details you give. Fix it and upload a new version \
-                 to move it up.",
-                off.why, off.name
+                "{}, so it goes up as an unverified {label}, with its own \
+                 blocks and the specs you give, listed only when unverified \
+                 builds are shown. Fix it and upload a new version to \
+                 verify it.",
+                off.why
             ),
         )
     };
@@ -196,8 +197,18 @@ pub async fn stored(
 ) -> Result<Response, AppError> {
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
     let pairs = form::pairs(&body);
+    // An unverified build says why it stays so, whatever its cases show.
+    let filing = s.unverified.as_ref().map(|why| {
+        filing_note(
+            false,
+            &format!(
+                "{why}, so it stays unverified. Upload a fixed version to \
+                 verify it."
+            ),
+        )
+    });
     match step {
-        Step::Cases => cases(&state, &pairs, data, Some(&s), None).await,
+        Step::Cases => cases(&state, &pairs, data, Some(&s), filing).await,
         Step::Timing => timing(&state, &pairs, data, Some(&s)).await,
     }
 }

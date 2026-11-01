@@ -18,7 +18,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
     app_state::AppState,
-    details,
+    category, details,
     error::AppError,
     extractors::{client_ip::ClientIp, session::SignedIn},
     import::{self, Kept, Upload},
@@ -454,10 +454,11 @@ async fn guessed(data: &[u8]) -> Option<Guess> {
 }
 
 /// Stores the upload, from IP address `ip`, and returns its id, or says
-/// why it was refused. A
-/// build not recognized as the category it is given goes up with its own
-/// blocks under a category of its own, named for what it seems meant to
-/// be, as `details::unrecognized` names it.
+/// why it was refused. A build not recognized as the category it is given
+/// goes up with its own blocks: unverified under that category when the
+/// site recognizes builds of it, saying why, as `details::unrecognized`
+/// does; else under a category of its own, named for what it seems meant
+/// to be.
 async fn publish_checked(
     state: &AppState,
     user: &User,
@@ -482,8 +483,16 @@ async fn publish_checked(
             file
         }
         Kept::Original(off) => {
-            if let Some(off) = off {
-                given.category.clone_from(&off.name);
+            let meant = details::meant(&categories, &given.category)
+                .map(|c| c.name.clone())
+                .filter(|c| category::BLESSED.contains(&c.as_str()));
+            match (off, meant) {
+                (Some(off), Some(meant)) => {
+                    given.category = meant;
+                    given.unverified = Some(off.why.clone());
+                }
+                (Some(off), None) => given.category.clone_from(&off.name),
+                (None, _) => {}
             }
             &upload.original
         }

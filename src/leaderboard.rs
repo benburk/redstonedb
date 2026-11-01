@@ -116,13 +116,14 @@ pub struct Board<'a> {
 /// asks for. Each choice not asked for falls to the most common value
 /// among the builds the earlier choices leave, so a board starts where
 /// most builds are. A build missing a measure, such as one of unknown
-/// width, competes on no board.
+/// width, competes on no board, nor does one not verified as its category.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
     measures: &[Measure],
 ) -> Board<'a> {
-    let mut ranked: Vec<&Schematic> = category.to_vec();
+    let mut ranked: Vec<&Schematic> =
+        category.iter().copied().filter(|s| s.verified()).collect();
     let mut splits = Vec::new();
     for &measure in measures {
         ranked.retain(|s| measure.of(s).is_some());
@@ -376,7 +377,7 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
 }
 
 /// Builders by records held: first place, as fastest or as smallest, on a
-/// board of two or more builds. A board is a standard category's builds of
+/// board of two or more verified builds. A board is a standard category's builds of
 /// one value of each of its measures, logic, orientation, and
 /// design, with copies of narrower ones stacked to its width; each builder
 /// of a record holder counts it, and a tie gives every holder one.
@@ -387,7 +388,7 @@ pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
     for s in builds
         .iter()
         .chain(&stacks)
-        .filter(|s| s.category_label.is_some())
+        .filter(|s| s.category_label.is_some() && s.verified())
     {
         let Some(values) = s
             .measures
@@ -474,6 +475,7 @@ mod tests {
             edited_at: None,
             downloads: 0,
             public: true,
+            unverified: None,
             tags: Vec::new(),
         }
     }

@@ -73,7 +73,7 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     assert_eq!(s.width, Some(8));
     assert_eq!(s.orientation, Orientation::Horizontal);
     assert_eq!(s.encoding, Some(Encoding::Binary));
-    assert!(!s.tags.iter().any(|t| t.name == tag::FAILS_SIMULATION));
+    assert!(!s.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION));
     assert!(simulation::current(&db, &s).await.unwrap().is_some());
 
     // The result is current and the details already match, so refreshing
@@ -122,8 +122,10 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
     assert!(s.throughput.is_some_and(|t| (2..99).contains(&t)));
 }
 
+/// An adder failing its test goes up as an adder all the same, unverified,
+/// saying why; under an off-list name of its own it is taken too.
 #[tokio::test]
-async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
+async fn an_adder_failing_its_test_goes_up_unverified() {
     let db = setup_test_db().await;
     let raw = std::fs::read("tests/fixtures/cca-8-dust-out.schem").unwrap();
     let prepared = import::prepare(&raw, false, true, false, false).unwrap();
@@ -131,12 +133,13 @@ async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
         category: "adder".to_owned(),
         ..Details::default()
     };
-    let refused = details::check(&db, as_adder, Build::of(&prepared), false)
+    let ready = details::check(&db, as_adder, Build::of(&prepared), false)
         .await
         .unwrap()
-        .err()
         .unwrap();
-    assert!(refused.contains("such as 8-bit adder"), "{refused}");
+    assert_eq!(ready.details.category, "adder");
+    let why = ready.details.unverified.unwrap_or_default();
+    assert!(why.contains("does not pass the adder test"), "{why}");
     let as_other = Details {
         category: "8-bit adder".to_owned(),
         ..Details::default()
@@ -145,6 +148,43 @@ async fn an_adder_failing_its_test_can_only_go_up_off_the_list() {
         .await
         .unwrap();
     assert!(other.is_ok(), "{:?}", other.err());
+}
+
+/// Unverified as an adder, it is held to the adder test all the same, so
+/// its page shows what keeps it from being one, though nothing else is set
+/// from it, and it neither ranks nor lists unless asked for.
+#[tokio::test]
+async fn an_unverified_build_is_tested_as_its_category() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "adder".to_owned(),
+        width: Some(8),
+        latency: Some(99),
+        ..Details::default()
+    };
+    let id = store(&db, "cca-8-dust-out", typed).await;
+    let report = simulation::refresh(&db, &id, false)
+        .await
+        .unwrap()
+        .expect("it is tested");
+    assert!(report.failed(), "the fixture fails the adder test");
+    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(s.category, "adder");
+    assert!(s.unverified.is_some());
+    assert!(!s.verified());
+    assert!(s.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION));
+    assert_eq!(s.latency, Some(99), "its typed details stay");
+    assert_eq!(s.width, Some(8));
+    assert!(matches!(
+        simulation::status(&db, &s).await.unwrap(),
+        simulation::Status::Done(_)
+    ));
+    let board = app::leaderboard::board(
+        &[&s],
+        &app::leaderboard::Wanted::default(),
+        &s.measures,
+    );
+    assert!(board.builds.is_empty(), "an unverified build never ranks");
 }
 
 /// Off the list, it is held to the adder test all the same, so its page

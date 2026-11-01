@@ -10,9 +10,9 @@ named_values! {
         /// A limit the build keeps, such as working from Alpha.
         Restriction = "restriction", "Restriction";
         Other = "other", "Other";
-        /// That the build fails its simulation, never stored.
+        /// That the build is not verified as its category, never stored.
         #[value(skip)]
-        Failing = "failing", "Simulation";
+        Failing = "failing", "Verification";
         /// Its design, such as `carry_cancel`, when the site works it out,
         /// never stored as a tag.
         #[value(skip)]
@@ -37,9 +37,10 @@ pub struct Tag {
     pub kind: Kind,
 }
 
-/// The name of the tag simulation puts on a build that gets some cases
-/// wrong. It is not stored, so no one can add or remove it.
-pub const FAILS_SIMULATION: &str = "fails_simulation";
+/// The name of the tag a build carries that is not verified as its
+/// category: one not recognized as it, or one that gets some cases of its
+/// test wrong. It is not stored, so no one can add or remove it.
+pub const FAILS_VERIFICATION: &str = "fails_verification";
 
 /// The name of the tag a build whose file has no redstone torches carries.
 /// It is not stored, so no one can add or remove it.
@@ -50,7 +51,7 @@ const TORCHLESS: &str = "torchless";
 const ALPHA: &str = "alpha";
 
 /// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 3] = [FAILS_SIMULATION, TORCHLESS, ALPHA];
+pub const DERIVED: [&str; 3] = [FAILS_VERIFICATION, TORCHLESS, ALPHA];
 
 impl Tag {
     pub(super) fn derived(name: &str, kind: Kind) -> Self {
@@ -139,12 +140,12 @@ pub fn from_file(facts: &crate::import::FileFacts) -> Vec<Tag> {
     )
 }
 
-/// A build's stored `tags`, led by `fails_simulation` when it fails, with
-/// `torchless` among its restrictions when its file has no torches, and
-/// `alpha` when it works from Alpha.
+/// A build's stored `tags`, led by `fails_verification` when it is not
+/// verified, with `torchless` among its restrictions when its file has no
+/// torches, and `alpha` when it works from Alpha.
 pub(super) fn with_derived(
     mut tags: Vec<Tag>,
-    fails_simulation: bool,
+    fails_verification: bool,
     torches: Option<i64>,
     works_from: Option<&str>,
 ) -> Vec<Tag> {
@@ -160,8 +161,8 @@ pub(super) fn with_derived(
             .unwrap_or(tags.len());
         tags.insert(at, Tag::derived(name, Kind::Restriction));
     }
-    if fails_simulation {
-        tags.insert(0, Tag::derived(FAILS_SIMULATION, Kind::Failing));
+    if fails_verification {
+        tags.insert(0, Tag::derived(FAILS_VERIFICATION, Kind::Failing));
     }
     tags
 }
@@ -324,7 +325,7 @@ mod tests {
         };
         assert_eq!(
             names(with_derived(stored.clone(), true, Some(0), None)),
-            ["fails_simulation", "alpha", "torchless", "buffer"]
+            ["fails_verification", "alpha", "torchless", "buffer"]
         );
         assert_eq!(
             names(with_derived(stored.clone(), false, Some(3), None)),

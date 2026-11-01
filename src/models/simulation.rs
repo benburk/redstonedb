@@ -139,11 +139,22 @@ pub fn meant_by(category: &str) -> Option<&str> {
     category::behaviour(meant).evaluated.then_some(meant)
 }
 
+/// The category whose test build `s` is held to only to say what keeps it
+/// from being recognized as one: its own, when it is unverified as one, or
+/// the one an off-list name stands in for, as [`meant_by`] reads it.
+/// `None` for any other build, held to its category's test as it is.
+pub fn stands_in(s: &Schematic) -> Option<&str> {
+    if s.unverified.is_some() {
+        return Some(&s.category);
+    }
+    meant_by(&s.category)
+}
+
 /// The test build `s` is held to: its category's at its width, or for one
-/// off the list, the test of the category it stands in for, to say what
-/// keeps it from being recognized as one.
+/// it [`stands_in`] for, that category's test, to say what keeps it from
+/// being recognized as one.
 pub fn test_for(s: &Schematic) -> Option<Test> {
-    match meant_by(&s.category) {
+    match stands_in(s) {
         Some(meant) => category::behaviour(meant).test,
         None => Test::of(&s.category, s.width),
     }
@@ -305,10 +316,10 @@ pub async fn refresh(
     if !again {
         adopt(db, id, (&data, &s.sha256), (&s.stacking, buses(&s))).await?;
     }
-    if s.conventional && category::behaviour(&s.category).evaluated {
+    if s.evaluated() {
         return refresh_evaluated(db, &s, data, again).await;
     }
-    if let Some(meant) = meant_by(&s.category) {
+    if let Some(meant) = stands_in(&s) {
         return refresh_off_list(db, &s, &data, meant, again).await;
     }
     let mut derived = Derived::of(&s);
@@ -378,7 +389,7 @@ async fn at_zero(
     if !report.passed() || !s.conventional {
         return kept(data);
     }
-    let category = meant_by(&s.category).unwrap_or(&s.category).to_owned();
+    let category = stands_in(s).unwrap_or(&s.category).to_owned();
     let inverted = report.inverted().to_vec();
     let (conventional, keeps_paste) = (s.conventional, s.keeps_paste);
     let was = data.clone();
@@ -435,8 +446,9 @@ async fn reused_at_zero(
     Ok((data, sha256))
 }
 
-/// Brings build `s`, off the list while it is not recognized as the
-/// category `meant` it stands in for, up to date with its file `data`:
+/// Brings build `s`, unverified or off the list while it is not
+/// recognized as the category `meant` it stands in for, up to date with
+/// its file `data`:
 /// that category's test run on the file standardized, as recognizing it
 /// would, to show what keeps it from being one. Nothing else is set from
 /// the result, its details being its builder's.
@@ -456,7 +468,8 @@ async fn refresh_off_list(
     let standard = import::prepare(data, true, true, s.keeps_paste, true);
     let report = match standard {
         Ok(standard) => {
-            let width = derived_width(meant, true, &standard.data)?;
+            // Its builder's width, when its file shows none.
+            let width = derived_width(meant, true, &standard.data)?.or(s.width);
             match Test::of(meant, width) {
                 Some(test) => run(test, standard.data).await?,
                 None => Report::Skipped {
@@ -851,9 +864,7 @@ pub async fn refresh_timing(
     };
     // `refresh` timed it already, with everything else; an off-list build
     // is only tested, to show what is wrong with it.
-    if s.conventional && category::behaviour(&s.category).evaluated
-        || meant_by(&s.category).is_some()
-    {
+    if s.evaluated() || stands_in(&s).is_some() {
         return Ok(Some(report));
     }
     let mut measured = None;
@@ -916,7 +927,7 @@ pub fn refresh_soon(db: &SqlitePool, id: &str) {
 /// block themes. Any other build is left as it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
-    if !(s.conventional && category::behaviour(&s.category).evaluated) {
+    if !s.evaluated() {
         return Ok(());
     }
     if !current(db, &s).await?.is_some_and(|report| report.passed()) {
@@ -1005,9 +1016,7 @@ pub async fn status(db: &SqlitePool, s: &Schematic) -> Result<Status> {
     }
     match current(db, s).await? {
         // An off-list build is not timed.
-        Some(report) if meant_by(&s.category).is_some() => {
-            Ok(Status::Done(report))
-        }
+        Some(report) if stands_in(s).is_some() => Ok(Status::Done(report)),
         Some(report) if !report.passed() || report.timing().is_some() => {
             Ok(Status::Done(report))
         }

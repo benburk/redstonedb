@@ -131,13 +131,12 @@ async fn a_new_version_that_is_recognized_moves_a_build_up() {
             .unwrap()
             .is_none()
     );
-    assert!(
-        import::moved_up(&categories, "adder", &file, false)
-            .await
-            .unwrap()
-            .is_none(),
-        "a build on the list stays where it is"
-    );
+    // An adder unverified as one moves up the same way.
+    let (_, to) = import::moved_up(&categories, "adder", &file, false)
+        .await
+        .unwrap()
+        .expect("an unverified adder moves up");
+    assert_eq!(to.name, "adder");
 }
 
 /// Every category the site recognizes builds of names its off-list stand-in

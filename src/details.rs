@@ -59,6 +59,10 @@ pub struct Details {
     pub stacking: Vec<StackDirection>,
     /// Tag names, which may be written with spaces and capitals.
     pub tags: Vec<String>,
+    /// Why it is not recognized as its category, one the site recognizes
+    /// builds of, so it goes up unverified with the details given; see
+    /// [`unrecognized`].
+    pub unverified: Option<String>,
 }
 
 impl Details {
@@ -90,6 +94,7 @@ impl Details {
                 .filter(|tag| !tag.is_derived())
                 .map(|tag| tag.name.clone())
                 .collect(),
+            unverified: s.unverified.clone(),
         }
     }
 }
@@ -240,13 +245,20 @@ async fn ready(
     details.flags =
         catalogue::keep_flags(db, &category.name, &details.flags).await?;
 
+    // Only a build of a category the site recognizes builds of is
+    // unverified as one.
+    if !category::BLESSED.contains(&category.name.as_str()) {
+        details.unverified = None;
+    }
     evaluated(&category, &mut details, build).await?;
     let policy = category::behaviour(&category.name).stacking;
     if policy == category::Stacking::Never {
         details.stacking.clear();
     }
-    let stacking_inferred =
-        build.conventional && policy == category::Stacking::Inferred;
+    let verified = details.unverified.is_none();
+    let stacking_inferred = build.conventional
+        && verified
+        && policy == category::Stacking::Inferred;
     if !stacking_inferred && policy != category::Stacking::Never {
         let buses = stack::Buses::of(&category.name, details.orientation);
         stack::check(build.data, &details.stacking, buses)?;
@@ -255,8 +267,9 @@ async fn ready(
     // Asked last, as it goes to Mojang, which is slow.
     details.builders = mojang::respell(&details.builders).await?;
     details.contributors = mojang::respell(&details.contributors).await?;
-    let evaluated =
-        build.conventional && category::behaviour(&category.name).evaluated;
+    let evaluated = build.conventional
+        && verified
+        && category::behaviour(&category.name).evaluated;
     Ok(Ready {
         category,
         details,
@@ -267,21 +280,28 @@ async fn ready(
 
 /// For a build of a category whose measured details all come from
 /// `evaluate`, drops those typed, as the simulation sets them once it is
-/// stored, and refuses the build unless it is recognized, as
-/// [`unrecognized`] says.
+/// stored; unless it is not recognized as one, as [`unrecognized`] says,
+/// when it goes up unverified, with the details given and its width read
+/// from its file when none is.
 async fn evaluated(
     category: &Category,
     details: &mut Details,
     build: Build<'_>,
 ) -> Result<(), Stop> {
-    if !build.passes
+    if details.unverified.is_none()
+        && !build.passes
         && let Some(off) = unrecognized(category, build).await?
     {
-        return Err(Stop::Refused(format!(
-            "{}, so it can't go up as one: give it a category of its own, \
-             such as {}, or fix it first.",
-            off.why, off.name
-        )));
+        details.unverified = Some(off.why);
+    }
+    if details.unverified.is_some() {
+        if details.width.is_none() {
+            details.width =
+                simulation::derived_width(&category.name, true, build.data)
+                    .ok()
+                    .flatten();
+        }
+        return Ok(());
     }
     if !category::behaviour(&category.name).evaluated {
         return Ok(());

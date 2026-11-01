@@ -52,6 +52,7 @@ pub struct Listing<'a> {
     pub category: &'a str,
     /// Tag filters, each needing a match; commas within one give choices.
     pub tags: &'a [String],
+    pub unverified: Unverified,
     pub facets: &'a [Facet],
     pub viewing: &'a Viewing,
 }
@@ -64,6 +65,14 @@ pub struct Viewing {
     pub palette: Option<String>,
     pub signed_in: bool,
     pub favorites: HashSet<String>,
+}
+
+/// The builds a listing found that are not verified as their category:
+/// whether they are shown, and how many there are.
+#[derive(Clone, Copy)]
+pub struct Unverified {
+    pub shown: bool,
+    pub count: usize,
 }
 
 /// One category in the home page's sidebar.
@@ -107,6 +116,8 @@ struct Home<'a> {
     query: &'a str,
     category: &'a str,
     tags: &'a [String],
+    /// Whether builds not verified as their category are listed too.
+    unverified: bool,
 }
 
 impl Home<'_> {
@@ -123,6 +134,9 @@ impl Home<'_> {
         }
         for tag in self.tags {
             params.append_pair("tag", tag);
+        }
+        if self.unverified {
+            params.append_pair("unverified", "show");
         }
         if !self.query.is_empty() {
             params.append_pair("q", self.query);
@@ -167,6 +181,7 @@ impl<'a> Listing<'a> {
             query: self.query,
             category: self.category,
             tags: self.tags,
+            unverified: self.unverified.shown,
         }
     }
 }
@@ -226,6 +241,7 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
     let (view, query, tags) = listing
         .map_or((View::Cards, "", &[][..]), |l| (l.view, l.query, l.tags));
+    let unverified = listing.is_some_and(|l| l.unverified.shown);
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
             fx-action=(action) fx-target="#listing" class="relative mb-3" {
@@ -234,6 +250,9 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
             }
             @for tag in tags {
                 input type="hidden" name="tag" value=(tag);
+            }
+            @if unverified {
+                input type="hidden" name="unverified" value="show";
             }
             label for="search" class="sr-only" { "Search builds" }
             div class="relative" {
@@ -306,6 +325,7 @@ pub fn home_index(index: &Index) -> Markup {
                             query: "",
                             category: &tile.category,
                             tags: &[],
+                            unverified: false,
                         }.href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
                             img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
@@ -425,7 +445,28 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
                 p class="mr-auto self-end pb-1 text-muted tabular-nums" {
                     (shown.len()) span class="sr-only" { " builds" }
                 }
+                (unverified_switch(listing.unverified, here))
             }
+    }
+}
+
+/// Whether the builds not verified as their category are listed, as a
+/// link that turns them on or off, with how many there are; nothing when
+/// there are none.
+fn unverified_switch(unverified: Unverified, here: Home) -> Markup {
+    let Unverified { shown, count } = unverified;
+    html! {
+        @if count > 0 {
+            a href=(Home { unverified: !shown, ..here }.href())
+                aria-pressed=(shown)
+                class="flex min-h-9 items-center gap-2 self-end text-meta text-muted hover:text-ink hover:no-underline" {
+                span class={ "flex size-4 items-center justify-center rounded-[4px] border "
+                    (if shown { "border-brand bg-brand text-on-brand" } else { "border-boundary" }) } {
+                    @if shown { (icon(icons::CHECK, "size-3")) }
+                }
+                span { "Show unverified (" span class="tabular-nums" { (count) } ")" }
+            }
+        }
     }
 }
 

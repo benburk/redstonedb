@@ -399,7 +399,7 @@ fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
             }, false))
         } @else {
             (check("recognized", State::Warn, &html! {
-                "Not recognized, so it goes up as built, off the list, until it's fixed:"
+                "Not recognized, so it goes up as built, unverified, until it's fixed:"
                 ul class="mt-1 flex list-disc flex-col gap-1 pl-5 text-ink" {
                     @for problem in problems { li { (problem) } }
                 }
@@ -481,10 +481,16 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
         }
     );
     let blocked = blocked(page);
+    // An unverified build's specs are typed; form.js shows their fields,
+    // and marks an upload so once its checks say it goes up unverified.
+    let unverified = matches!(
+        &page.file,
+        File::Stored { s, .. } | File::Version { s, .. } if s.unverified.is_some()
+    );
     html! {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
             data-simulate=(simulate)
-            data-simulated[stored_result] class="flex flex-col gap-4" {
+            data-simulated[stored_result] data-unverified[unverified] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
                 // Carried as its builder made it, so tested standardized.

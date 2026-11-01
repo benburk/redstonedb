@@ -41,7 +41,8 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 }
                 p class="mb-2" { "A few other things:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
-                    li { "Builds RSDB can't test yet are still archived, as built, under Other." }
+                    li { "Builds RSDB can't verify still go in their category, as built, with a fails verification tag and the specs their uploader gives. They're hidden until you tick Show unverified, and never rank." }
+                    li { "Builds of types RSDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
                     li { "Builds keep the colours their builder gave them: switch between Original, Default, and your theme on any build's page." }
                     li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
@@ -121,8 +122,8 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         "shift registers."
                     }
                     p class="mb-4" {
-                        "Anything else still goes up, as built, under Other, with a note on what's in the way. "
-                        "Upload a fixed version later and it moves onto the list."
+                        "A build that doesn't fit goes up as built, unverified, with a note on what's in the way. "
+                        "Upload a fixed version later and it's verified."
                     }
                 }
             }

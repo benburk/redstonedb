@@ -457,6 +457,7 @@ pub(crate) mod tests {
             edited_at: None,
             downloads: 0,
             public: true,
+            unverified: None,
             tags: tags
                 .iter()
                 .map(|name| Tag {

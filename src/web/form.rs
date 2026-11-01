@@ -117,6 +117,9 @@ pub struct Form {
     pub category: String,
     /// An [`Orientation`]'s name.
     pub orientation: String,
+    /// In bits, typed for a build unverified as its category, whose file
+    /// may not show it.
+    pub width: String,
     pub latency: String,
     /// Whether the toggle is on; `None` while an unknown build's toggle is
     /// untouched, so saving keeps it unknown.
@@ -192,6 +195,7 @@ impl Form {
         Form {
             category: get("category"),
             orientation: get("orientation"),
+            width: get("width"),
             latency: get("latency"),
             synchronized: get("synchronized_unknown")
                 .is_empty()
@@ -229,6 +233,7 @@ impl Form {
         Form {
             category: s.category.clone(),
             orientation: s.orientation.name().to_owned(),
+            width: number(s.width),
             latency: number(s.latency),
             synchronized: s.synchronized,
             built_on: text(&s.built_on),
@@ -294,6 +299,7 @@ impl Form {
         Form {
             category: or(self.category, suggested.category),
             orientation: or(self.orientation, suggested.orientation),
+            width: or(self.width, suggested.width),
             latency: or(self.latency, suggested.latency),
             synchronized: self.synchronized.or(suggested.synchronized),
             built_on: or(self.built_on, suggested.built_on),
@@ -335,18 +341,22 @@ impl Form {
     /// take, a listed build's probing and simulation work out, and a build
     /// off the list has none of.
     pub fn parse(&self) -> Result<Details, String> {
-        let latency = self.latency.trim();
-        let latency = (!latency.is_empty())
-            .then(|| {
-                latency
-                    .parse()
-                    .map_err(|_| "Latency must be a whole number.".to_owned())
-            })
-            .transpose()?;
+        let number = |text: &str, what: &str| {
+            let text = text.trim();
+            (!text.is_empty())
+                .then(|| {
+                    text.parse()
+                        .map_err(|_| format!("{what} must be a whole number."))
+                })
+                .transpose()
+        };
+        let latency = number(&self.latency, "Latency")?;
+        let width = number(&self.width, "Width")?;
         let text = |value: &str| Some(value.to_owned());
         Ok(Details {
             category: self.category.clone(),
             orientation: self.orientation.parse()?,
+            width,
             latency,
             synchronized: self.synchronized,
             built_on: text(&self.built_on),

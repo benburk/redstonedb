@@ -547,21 +547,17 @@ pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
     Ok(coloured)
 }
 
-/// A build off the list, as `category` names it, moved up by its new
-/// version `file`: when that is recognized as the listed category the
-/// name means, as an 8-bit adder's as an adder, the file standardized and
-/// turned to lie the standard way, as an upload's is,
-/// with that category. `None` for a build on the list, or one its version
-/// does not move up.
+/// A build unverified as `category`, or off the list as `category` names
+/// it, moved up by its new version `file`: when that is recognized as the
+/// listed category meant, as an 8-bit adder's as an adder, the file
+/// standardized and turned to lie the standard way, as an upload's is,
+/// with that category. `None` for one its version does not move up.
 pub async fn moved_up<'a>(
     categories: &'a [Category],
     category: &str,
     file: &Prepared,
     keep_paste: bool,
 ) -> Result<Option<(Prepared, &'a Category)>> {
-    if Category::find(categories, category).is_some() {
-        return Ok(None);
-    }
     let Some(meant) = details::meant(categories, category)
         .filter(|c| category::BLESSED.contains(&c.name.as_str()))
     else {

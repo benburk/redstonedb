@@ -91,7 +91,7 @@ fn evaluated_note() -> Markup {
     html! {
         p data-evaluated-note hidden class="text-muted" {
             "Every measured detail is worked out by the simulation. "
-            "If it isn't recognized, it goes up off the list instead, and you describe it."
+            "If it isn't recognized, it goes up unverified, with the specs you give."
         }
     }
 }
@@ -112,6 +112,12 @@ pub(super) fn fields(
                 span { "Width in bits" }
                 p class="tabular-nums" { (width) span class="text-muted" { ", counted from the lime inputs" } }
             }
+        }
+        // Only an unverified build's width is typed; form.js shows it.
+        label class="field" data-typed-width hidden {
+            span { "Width in bits" }
+            input name="width" type="number" min="1" value=(f.width)
+                placeholder=[derived.width] class="input tabular-nums";
         }
         @if let Some(orientation) = derived.orientation {
             div class="field" data-derived-orientation hidden {

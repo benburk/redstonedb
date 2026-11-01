@@ -156,16 +156,26 @@ async fn a_build_date_still_to_come_is_refused() {
     assert!(refused.contains("still to come"), "{refused}");
 }
 
-/// An adder is recognized from its file or goes up under a category of its
-/// own: one the simulator can't run, one not standardized, one that fails
-/// its test, and one taking a signal strength as an input are refused.
+/// An adder is recognized from its file or goes up unverified, saying
+/// why, with the specs typed for it: one the simulator can't run, one not
+/// standardized, one that fails its test, and one taking a signal strength
+/// as an input.
 #[tokio::test]
-async fn an_unrecognized_build_cannot_go_up_under_a_blessed_category() {
+async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     let db = setup_test_db().await;
-    let off_list = |refused: Result<Ready, String>, why: &str| {
-        let refused = refused.err().unwrap();
-        assert!(refused.contains(why), "{why}: {refused}");
-        assert!(refused.contains("category of its own"), "{refused}");
+    let typed = || Details {
+        width: Some(8),
+        latency: Some(5),
+        ..given("adder")
+    };
+    let unverified = |ready: Result<Ready, String>, why: &str| {
+        let ready = ready.unwrap();
+        let said = ready.details.unverified.clone().unwrap_or_default();
+        assert!(said.contains(why), "{why}: {said}");
+        assert_eq!(ready.details.category, "adder");
+        assert_eq!(ready.details.latency, Some(5), "{why}");
+        assert_eq!(ready.details.width, Some(8), "{why}");
+        assert!(!ready.evaluated, "{why}");
     };
     // A piston in its first empty space, which the simulator does not
     // model.
@@ -179,40 +189,36 @@ async fn an_unrecognized_build_cannot_go_up_under_a_blessed_category() {
     )]
     .into();
     let pushed = standardize::edit(&data, &piston).unwrap();
-    off_list(
-        check_file(&db, given("adder"), &pushed, true).await,
+    unverified(
+        check_file(&db, typed(), &pushed, true).await,
         "piston, which the simulator does not model",
     );
-    off_list(
-        check_file(&db, given("adder"), &adder(), false).await,
+    unverified(
+        check_file(&db, typed(), &adder(), false).await,
         "can't read its inputs and outputs",
     );
-    off_list(
-        check_file(
-            &db,
-            given("adder"),
-            &prepared("cca-8-dust-out", false),
-            true,
-        )
-        .await,
+    unverified(
+        check_file(&db, typed(), &prepared("cca-8-dust-out", false), true)
+            .await,
         "does not pass the adder test",
     );
-    off_list(
+    unverified(
         check_file(
             &db,
-            given("adder"),
+            typed(),
             &std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap(),
             true,
         )
         .await,
         "signal-strength inputs",
     );
-    assert!(check(&db, given("adder")).await.is_ok());
+    let recognized = check(&db, given("adder")).await.unwrap();
+    assert_eq!(recognized.details.unverified, None);
 }
 
 /// A stored build whose test has passed is not tested again when only its
 /// details are saved, which keeps a save quick: its file goes unchecked,
-/// so even one the test would refuse is taken.
+/// so even one the test would find unverified stays verified.
 #[tokio::test]
 async fn a_build_that_passed_is_not_tested_again() {
     let db = setup_test_db().await;
@@ -224,8 +230,9 @@ async fn a_build_that_passed_is_not_tested_again() {
     };
     let checked =
         |passes| details::check(&db, given("adder"), tested(passes), false);
-    assert!(checked(false).await.unwrap().is_err());
-    assert!(checked(true).await.unwrap().is_ok());
+    let unverified = |ready: details::Ready| ready.details.unverified;
+    assert!(unverified(checked(false).await.unwrap().unwrap()).is_some());
+    assert!(unverified(checked(true).await.unwrap().unwrap()).is_none());
 }
 
 /// Nothing measured is typed for a category the simulation works out: a
