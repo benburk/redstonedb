@@ -29,6 +29,32 @@ pub const MIN_SAME_PERCENT: usize = 90;
 /// How many blocks a new version may change whatever its share.
 pub const MAX_CHANGED: usize = 10;
 
+/// The number of build `s`'s version laid block for block as `blocks`,
+/// how its levers stand and what is powered aside, if one is.
+async fn laid_as(
+    db: &SqlitePool,
+    s: &Schematic,
+    blocks: &Blocks,
+) -> anyhow::Result<Option<i64>> {
+    let placed = |blocks: &Blocks| -> (Pos, Vec<(Pos, String)>) {
+        let states = blocks
+            .iter()
+            .map(|(pos, state)| (pos, schem::as_placed(state)))
+            .collect();
+        (blocks.size, states)
+    };
+    let new = placed(blocks);
+    for listed in version::list(db, &s.id).await? {
+        let Some(data) = version::data(db, &s.id, listed.version).await? else {
+            continue;
+        };
+        if placed(&Blocks::read(&data)?) == new {
+            return Ok(Some(listed.version));
+        }
+    }
+    Ok(None)
+}
+
 /// How two files' blocks compare, at the shift that lines them up best.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comparison {
@@ -206,7 +232,8 @@ pub async fn check(
             ));
         }
     }
-    match version::holder(db, &prepared.sha256).await? {
+    let holder = version::holder(db, &prepared.sha256).await?;
+    match holder {
         Some((other, number)) if other == s.id => {
             refusals.push(format!("It is the same file as version {number}."));
         }
@@ -214,7 +241,17 @@ pub async fn check(
             "This exact file is already on the site as another build."
                 .to_owned(),
         ),
-        None => {}
+        None => {
+            // Laid the same as a version before, only how its levers stood
+            // and its power differing, it is that version again, which
+            // comes to rest with its inputs at logical 0 all the same.
+            if let Some(number) = laid_as(db, s, &prepared.blocks).await? {
+                refusals.push(format!(
+                    "It is version {number} again, only its levers set \
+                     differently."
+                ));
+            }
+        }
     }
     Ok(Checked {
         prepared,

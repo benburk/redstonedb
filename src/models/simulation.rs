@@ -337,9 +337,10 @@ pub async fn refresh(
     if let Some(report) = &report {
         derived.decide(&s, report);
     }
-    let (data, sha256) = match &ran {
-        Some((_, report)) => at_zero(db, &s, data, report).await?,
-        None => (data, s.sha256.clone()),
+    let (data, sha256) = match (&ran, &report) {
+        (Some((_, report)), _) => at_zero(db, &s, data, report).await?,
+        (None, Some(report)) => reused_at_zero(db, &s, data, report).await?,
+        (None, None) => (data, s.sha256.clone()),
     };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, &s).await?;
@@ -392,6 +393,21 @@ async fn at_zero(
     })
     .await?;
     // A file that can't be settled, as one with a clock, is kept as saved.
+    // At rest it may be a version before, which the build already holds;
+    // it is kept as saved then, as each file is stored once.
+    let held = match &fixed {
+        Ok(Some(prepared)) => version::holder(db, &prepared.sha256).await?,
+        _ => None,
+    };
+    if let Some((other, number)) = &held {
+        tracing::warn!(
+            id = s.id,
+            other,
+            number,
+            "at logical 0 it is a file already stored; kept as saved"
+        );
+        return kept(data);
+    }
     match fixed {
         Ok(Some(prepared)) if prepared.sha256 != s.sha256 => {
             version::replace(db, &s.id, &prepared, version::Replacing::InPlace)
@@ -400,6 +416,23 @@ async fn at_zero(
         }
         _ => kept(data),
     }
+}
+
+/// As [`at_zero`], for build `s`'s file `data` taking a result `report`
+/// kept for its circuit rather than run afresh: the result then follows
+/// the file to its new hash, when putting its inputs at logical 0 changes
+/// it.
+async fn reused_at_zero(
+    db: &SqlitePool,
+    s: &Schematic,
+    data: Vec<u8>,
+    report: &Report,
+) -> Result<(Vec<u8>, String)> {
+    let (data, sha256) = at_zero(db, s, data, report).await?;
+    if sha256 != s.sha256 {
+        adopt(db, &s.id, (&data, &sha256), (&s.stacking, buses(s))).await?;
+    }
+    Ok((data, sha256))
 }
 
 /// Brings build `s`, off the list while it is not recognized as the
@@ -458,6 +491,9 @@ async fn refresh_evaluated(
         && let Some(report) = current(db, s).await?
         && (!report.passed() || report.timing().is_some())
     {
+        // A new version of a circuit tested before takes its result, and
+        // still comes to lie with its inputs at logical 0.
+        reused_at_zero(db, s, data, &report).await?;
         return Ok(Some(report));
     }
     // Its result is the evaluation's when the test recognizes it as its

@@ -285,3 +285,98 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     };
     assert_eq!(fields(&s), fields(&measured));
 }
+
+/// A new version of a circuit tested before takes its result, and still
+/// comes to lie with its inputs at logical 0, however its levers were
+/// saved.
+#[tokio::test]
+async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "adder".to_owned(),
+        orientation: Orientation::Horizontal,
+        ..Details::default()
+    };
+    let id = store(&db, "alpha-rca", typed).await;
+    assert!(
+        simulation::refresh(&db, &id, false)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let on = |data: &[u8]| {
+        app::schem::Blocks::read(data)
+            .unwrap()
+            .iter()
+            .filter(|(_, state)| {
+                state.contains("lever") && state.contains("powered=true")
+            })
+            .count()
+    };
+    let current = app::models::version::current_file(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let levers_on = on(&current);
+
+    // The same circuit, saved with one more lever on and a block touching
+    // nothing of it added, so it is a new file.
+    let blocks = app::schem::Blocks::read(&current).unwrap();
+    let [w, h, l] = blocks.size;
+    let stray = (0..w)
+        .flat_map(|x| (0..h).flat_map(move |y| (0..l).map(move |z| [x, y, z])))
+        .find(|&pos| {
+            let near = |[x, y, z]: [i32; 3]| {
+                [
+                    [1, 0, 0],
+                    [-1, 0, 0],
+                    [0, 1, 0],
+                    [0, -1, 0],
+                    [0, 0, 1],
+                    [0, 0, -1],
+                ]
+                .iter()
+                .all(|[dx, dy, dz]| {
+                    blocks.get([x + dx, y + dy, z + dz]) == app::schem::AIR
+                })
+            };
+            blocks.get(pos) == app::schem::AIR && near(pos)
+        })
+        .expect("an empty place touching nothing");
+    let (pos, lever) = blocks
+        .iter()
+        .find(|(_, state)| {
+            state.contains("lever") && state.contains("powered=false")
+        })
+        .unwrap();
+    let thrown = std::collections::BTreeMap::from([
+        (stray, "minecraft:white_concrete".to_owned()),
+        (pos, lever.replace("powered=false", "powered=true")),
+    ]);
+    let data = app::standardize::edit(&current, &thrown).unwrap();
+    eprintln!(
+        "DEBUG same {} lever {lever} on now {}",
+        data == current,
+        on(&data)
+    );
+    let mut prepared =
+        import::prepare(&data, false, true, false, false).unwrap();
+    prepared.data = data;
+    prepared.sha256 = import::sha256(&prepared.data);
+    let how = app::models::version::Replacing::NextVersion {
+        added_by: None,
+        added_from: None,
+        note: None,
+    };
+    app::models::version::replace(&db, &id, &prepared, how)
+        .await
+        .unwrap();
+
+    let report = simulation::refresh(&db, &id, false).await.unwrap().unwrap();
+    assert!(report.passed());
+    let now = app::models::version::current_file(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(on(&now), levers_on);
+}
