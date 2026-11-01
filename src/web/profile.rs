@@ -1,7 +1,8 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::{IntoResponse, Response},
 };
+use serde::Deserialize;
 
 use crate::{
     app_state::AppState,
@@ -12,16 +13,26 @@ use crate::{
 
 use super::pages;
 
-/// An account's page: who they are and what they uploaded.
+/// Which of a profile's lists of builds to show, by its name; every one
+/// of theirs when none is named.
+#[derive(Deserialize)]
+pub struct Shown {
+    show: Option<String>,
+}
+
+/// An account's page: who they are, and their builds, filtered to those
+/// they built, contributed to, or uploaded, or on one's own, those kept
+/// private or favourited.
 pub async fn profile(
     Path(username): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Query(Shown { show }): Query<Shown>,
 ) -> Result<Response, AppError> {
     let account = User::get_by_username(&state.db, &username)
         .await?
         .ok_or(AppError::NotFound)?;
-    show(&state, user_opt.as_ref(), &account).await
+    show_profile(&state, user_opt.as_ref(), &account, show.as_deref()).await
 }
 
 /// The player `name` names, spelled as they spell it and with their UUID,
@@ -60,11 +71,13 @@ pub(super) async fn saved(
     Ok(User::set_minecraft_name(&state.db, id, name, uuid).await?)
 }
 
-async fn show(
+async fn show_profile(
     state: &AppState,
     viewer: Option<&User>,
     account: &User,
+    show: Option<&str>,
 ) -> Result<Response, AppError> {
+    let own = viewer.is_some_and(|viewer| viewer.id == account.id);
     let mut all = schematic::visible(&state.db, viewer).await?;
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
@@ -78,12 +91,57 @@ async fn show(
     let pick = |keep: &dyn Fn(&schematic::Schematic) -> bool| -> Vec<_> {
         all.iter().filter(|s| keep(s)).cloned().collect()
     };
+    let uploaded = |s: &schematic::Schematic| account.uploaded(s);
+    let mut lists = vec![
+        pages::ProfileList {
+            name: "all",
+            label: "All",
+            builds: pick(&|s| {
+                credited(&s.builders)
+                    || credited(&s.contributors)
+                    || uploaded(s)
+            }),
+        },
+        pages::ProfileList {
+            name: "built",
+            label: "Built",
+            builds: pick(&|s| credited(&s.builders)),
+        },
+        pages::ProfileList {
+            name: "contributed",
+            label: "Contributed to",
+            builds: pick(&|s| credited(&s.contributors)),
+        },
+        pages::ProfileList {
+            name: "uploaded",
+            label: "Uploaded",
+            builds: pick(&uploaded),
+        },
+    ];
+    if own {
+        lists.push(pages::ProfileList {
+            name: "private",
+            label: "Private",
+            builds: pick(&|s| uploaded(s) && !s.public),
+        });
+        // Most lately favourited first.
+        let ids = schematic::favorites(&state.db, account.id).await?;
+        let favourites = ids
+            .iter()
+            .filter_map(|id| all.iter().find(|s| &s.id == id).cloned())
+            .collect();
+        lists.push(pages::ProfileList {
+            name: "favourites",
+            label: "Favourites",
+            builds: favourites,
+        });
+    }
+    let shown = show
+        .and_then(|show| lists.iter().position(|list| list.name == show))
+        .unwrap_or(0);
     let builds = pages::ProfileBuilds {
-        built: pick(&|s| credited(&s.builders)),
-        contributed: pick(&|s| credited(&s.contributors)),
-        uploaded: pick(&|s| {
-            s.uploader.as_deref() == Some(account.username.as_str())
-        }),
+        lists,
+        shown,
         palette: crate::palette::key_for(&state.db, viewer).await?,
     };
     Ok(pages::profile(viewer, account, &builds).into_response())

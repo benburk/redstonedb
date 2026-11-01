@@ -43,7 +43,8 @@ mod version;
 
 pub use about::{about, recognized};
 pub use build::{
-    BuildPage, FileRead, build_banner, build_info, schematic_page, waiting,
+    BuildPage, FileRead, build_banner, build_info, favorite_button,
+    schematic_page, waiting,
 };
 pub use details_page::{DetailsPage, File, article, details_page};
 pub use form::Choices;
@@ -61,8 +62,8 @@ pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,
 };
-pub use upload::upload;
-pub use users::{ProfileBuilds, favorites, login, profile, user_row, users};
+pub use upload::{analysis_steps, analyzing, upload};
+pub use users::{ProfileBuilds, ProfileList, login, profile, user_row, users};
 /// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.
 fn facts(s: &Schematic) -> Markup {

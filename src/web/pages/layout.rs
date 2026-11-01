@@ -167,14 +167,13 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
                     (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
                     @if viewer.is_some() {
-                        (link("/favorites", icons::STAR, "Favourites", current("/favorites")))
                         (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
                     }
                 }
                 h2 class=(SIDEBAR_HEADING) { "About" }
                 ul class="flex flex-col gap-0.5" {
                     (link("/about", icons::INFO, "About", current("/about")))
-                    (link("/about/recognized", icons::CHECK, "How builds are recognized", current("/about/recognized")))
+                    (link("/about/recognized", icons::CHECK, "Build Analysis", current("/about/recognized")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
                     }

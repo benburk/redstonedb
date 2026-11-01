@@ -11,7 +11,7 @@
 
 use axum::{
     body::Bytes,
-    extract::{Multipart, State},
+    extract::{Multipart, Path, State},
     response::{IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -38,6 +38,7 @@ use crate::{
 };
 
 use super::{
+    analysis,
     form::{self, Form},
     pages::{self, File},
 };
@@ -202,8 +203,8 @@ async fn upload_page(
     Ok(pages::upload(user, message, &connection).into_response())
 }
 
-/// Reads the chosen file and shows what the site makes of it, with a
-/// details form to fill in.
+/// Takes the chosen file and starts analyzing it, then goes to the page
+/// that shows how far that has got, and the preview once it is done.
 pub async fn preview(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
@@ -213,25 +214,71 @@ pub async fn preview(
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let upload = match Upload::read(&recognized(&file).await) {
-        Ok(upload) => upload,
-        Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
-            return upload_page(&state, &user, &message).await;
-        }
+    let labels = catalogue::categories(&state.db)
+        .await?
+        .into_iter()
+        .map(|c| (c.name, c.label))
+        .collect();
+    let id = analysis::start(&state, &user, file.to_vec(), labels);
+    Ok(Redirect::to(&format!("/upload/{id}")).into_response())
+}
+
+/// Analysis `id`'s page: how far it has got while it runs, then what the
+/// site makes of the file, with a details form to fill in. An analysis
+/// that is gone, or someone else's, goes back to choosing a file.
+pub async fn analyzed(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let found = id
+        .parse()
+        .ok()
+        .and_then(|id| analysis::get(&state, id, &user));
+    let Some((step, done)) = found else {
+        return Ok(Redirect::to("/upload").into_response());
     };
+    let Some(done) = done else {
+        return Ok(pages::analyzing(&user, &id, &step).into_response());
+    };
+    let analyzed = match &*done {
+        Ok(analyzed) => analyzed,
+        Err(message) => return upload_page(&state, &user, message).await,
+    };
+    let upload = &analyzed.upload;
     // What it seems to be starts the category and design.
-    let guess = guessed(&upload.read_as().data).await;
     let form = Form::suggested(
-        guess.as_ref(),
+        analyzed.guess.as_ref(),
         &interface::read(&upload.read_as().blocks),
         &upload.read_as().size,
     );
     let said = Said {
-        guess: guess.as_ref(),
+        guess: analyzed.guess.as_ref(),
+        recognition: Some(&analyzed.recognition),
         ..Said::default()
     };
-    show_preview(&state, &user, &upload, &form, said).await
+    show_preview(&state, &user, upload, &form, said).await
+}
+
+/// How far analysis `id` has got, for its page to redraw; once it is done,
+/// nothing, with `X-Analysis: done`, for the page to load again as the
+/// preview.
+pub async fn progress(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let found = id
+        .parse()
+        .ok()
+        .and_then(|id| analysis::get(&state, id, &user));
+    let Some((step, done)) = found else {
+        return Err(AppError::NotFound);
+    };
+    if done.is_some() {
+        return Ok(([("X-Analysis", "done")], "").into_response());
+    }
+    Ok(pages::analysis_steps(step.place(), Some(&step)).into_response())
 }
 
 /// The stored build most like an upload's `blocks`, if any is similar and
@@ -450,6 +497,8 @@ struct Said<'a> {
     message: &'a str,
     guess: Option<&'a Guess>,
     choosing: Option<&'a str>,
+    /// What the check by function made of the file, when already known.
+    recognition: Option<&'a probe::Recognition>,
 }
 
 /// The preview page for an upload, with the details form as `form` has it.
@@ -471,7 +520,13 @@ async fn show_preview(
             .map(|(id, _)| id);
     }
     // Its roles, if recognized, are coloured in already; this says so.
-    let recognition = recognition(&prepared.data).await?;
+    let checked;
+    let recognition = if let Some(recognition) = said.recognition {
+        recognition
+    } else {
+        checked = recognition(&prepared.data).await?;
+        &checked
+    };
     let size = &prepared.size;
     let similar = closest(
         &state.db,

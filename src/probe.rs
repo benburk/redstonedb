@@ -545,6 +545,16 @@ pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
 ) -> anyhow::Result<Recognition> {
+    recognize_watched(data, meant, &mut |_, _| {})
+}
+
+/// As [`recognize_as`], telling `trying` each kind as it is probed, with
+/// how many of [`KINDS`] came before it.
+pub fn recognize_watched(
+    data: &[u8],
+    meant: Option<&str>,
+    trying: &mut dyn FnMut(&'static str, usize),
+) -> anyhow::Result<Recognition> {
     let simulated = simulatable(data)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
@@ -587,6 +597,7 @@ pub fn recognize_as(
         if meant.is_some_and(|meant| meant != kind) {
             continue;
         }
+        trying(kind, i);
         match probe_as(kind, data, &blocks, &report)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
@@ -604,7 +615,7 @@ pub fn recognize_as(
 /// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
 /// NAND+XNOR an adder's inverted, which no wider build of those is; an
 /// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-const KINDS: [&str; 26] = [
+pub const KINDS: [&str; 26] = [
     "xor_xnor_gate",
     "and_nand_gate",
     "or_nor_gate",

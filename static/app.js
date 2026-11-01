@@ -23,6 +23,10 @@
 //   which, as an output's bit rows.
 // - A `<details data-menu>` is a menu: it closes when a choice in it is
 //   made, or on a click outside it or Escape.
+// - A form with `data-analyzing` gives way to its `[data-uploading]` steps
+//   as soon as it sends, and `data-progress="url"` redraws an upload's
+//   steps from that address until it answers `X-Analysis: done`, then
+//   loads the page again.
 
 const notice = document.getElementById("notice");
 
@@ -321,3 +325,41 @@ document.addEventListener("keydown", (event) => {
   open.open = false;
   open.querySelector("summary").focus();
 });
+
+// An upload's form gives way to its steps as soon as it sends, so the page
+// answers before the file is in; coming back to the page shows the form.
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("form[data-analyzing]");
+  const steps = document.querySelector("[data-uploading]");
+  if (!form || !steps) return;
+  form.hidden = true;
+  steps.hidden = false;
+});
+window.addEventListener("pageshow", () => {
+  for (const form of document.querySelectorAll("form[data-analyzing]")) {
+    form.hidden = false;
+  }
+  for (const steps of document.querySelectorAll("[data-uploading]")) {
+    steps.hidden = true;
+  }
+});
+
+// An upload being analyzed asks how far it has got every quarter second,
+// and once it is done, or gone, loads its page again, which is then its
+// preview or the upload page.
+for (const progress of document.querySelectorAll("[data-progress]")) {
+  const ask = async () => {
+    try {
+      const response = await fetch(progress.dataset.progress);
+      if (response.headers.get("X-Analysis") === "done" || response.status === 404) {
+        location.replace(location.href);
+        return;
+      }
+      if (response.ok) progress.innerHTML = await response.text();
+    } catch {
+      // A dropped request is asked again.
+    }
+    setTimeout(ask, 250);
+  };
+  setTimeout(ask, 250);
+}

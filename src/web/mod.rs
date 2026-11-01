@@ -17,6 +17,7 @@ use crate::{
 };
 
 mod about;
+pub mod analysis;
 mod auth;
 #[cfg(debug_assertions)]
 mod dev;
@@ -272,7 +273,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schematics/{id}/delete", post(schematics::delete))
         .route("/schematics/{id}/schemati", post(schemati::send))
         .route("/schematics/{id}/favorite", post(schematics::favorite))
-        .route("/favorites", get(schematics::favorites))
         .route("/schematics/{id}/versions/new", get(versions::form))
         .route(
             "/schematics/{id}/versions/{version}/download",
@@ -281,6 +281,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/similar", get(similar::form).post(similar::search))
         .route("/upload/preview", post(upload::preview))
+        .route("/upload/{id}", get(upload::analyzed))
+        .route("/upload/{id}/progress", get(upload::progress))
         .route("/upload/simulation", post(simulation::upload))
         .route(
             "/schematics/{id}/simulation",

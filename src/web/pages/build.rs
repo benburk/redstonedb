@@ -773,19 +773,21 @@ fn stacking_found(s: &Schematic) -> bool {
 /// edit it, upload a new version, or delete it. Nothing for a viewer who
 /// may do none of them.
 /// A star that favourites the build at `path`, filled once it is, and
-/// pressed again takes it back.
-fn favorite_button(path: &str, favorited: bool) -> Markup {
+/// pressed again takes it back. Through fixi the answer is the star alone,
+/// so the rest of the page, its viewer too, stays as it is.
+pub fn favorite_button(path: &str, favorited: bool) -> Markup {
     let label = if favorited {
         "Remove from favourites"
     } else {
         "Add to favourites"
     };
     html! {
-        form action={ (path) "/favorite" } method="post" class="contents" {
+        form action={ (path) "/favorite" } method="post" class="contents"
+            fx-action={ (path) "/favorite" } fx-method="post" {
             @if !favorited {
                 input type="hidden" name="on" value="yes";
             }
-            button type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
+            button id="favorite" type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
                 class="btn btn-quiet flex size-10 cursor-pointer items-center justify-center p-0" {
                 (icon(icons::STAR, if favorited { "size-5 fill-current text-brand" } else { "size-5" }))
             }

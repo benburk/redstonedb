@@ -9,34 +9,11 @@ use crate::models::{
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, TABLE_HEAD, base,
+    PAGE_TITLE, SWITCH, SWITCHES, TABLE_HEAD, base,
     icons::{self, icon},
     listing::cards,
-    player::credits,
     player_href,
 };
-
-/// The builds `viewer` has favourited, the newest favourite first,
-/// pictured in their `palette`.
-pub fn favorites(
-    viewer: &User,
-    builds: &[Schematic],
-    palette: Option<&str>,
-) -> Markup {
-    base(
-        Some(viewer),
-        "Favourites",
-        "/favorites",
-        &html! {
-            h1 class={ (PAGE_TITLE) " mb-6" } { "Favourites" }
-            @if builds.is_empty() {
-                p class="text-muted" { "Star a build on its page to keep it here." }
-            } @else {
-                (cards(builds, &[], palette))
-            }
-        },
-    )
-}
 
 /// The login page. `enabled` is false when the Discord settings are
 /// missing; `message` explains a failed login.
@@ -239,14 +216,20 @@ fn account_link(user: &User) -> Markup {
 /// An account's page: who they are and what they uploaded.
 /// The builds a profile lists.
 pub struct ProfileBuilds {
-    /// Credited to the account's Minecraft name as builder.
-    pub built: Vec<Schematic>,
-    /// Credited to it as contributor.
-    pub contributed: Vec<Schematic>,
-    /// Uploaded by the account through the site.
-    pub uploaded: Vec<Schematic>,
+    /// Each list the profile can filter to, in order.
+    pub lists: Vec<ProfileList>,
+    /// Which of `lists` is shown.
+    pub shown: usize,
     /// The viewer's palette's key, for thumbnails, if they chose one.
     pub palette: Option<String>,
+}
+
+/// One list of builds a profile can filter to: its name in the address,
+/// its label, and its builds.
+pub struct ProfileList {
+    pub name: &'static str,
+    pub label: &'static str,
+    pub builds: Vec<Schematic>,
 }
 
 /// An account's page: the builds it built, helped with, and uploaded. Its
@@ -288,24 +271,31 @@ pub fn profile(
                     }
                 }
             }
-            (credits(&builds.built, &builds.contributed, &html! {
-                p class="text-muted" {
-                    @match &account.minecraft_name {
-                        None if own => {
-                            "Give your Minecraft name in " a href="/settings" { "Settings" } " to list the builds credited to it."
+            @let shown = &builds.lists[builds.shown];
+            nav aria-label="Builds" class="mb-5" {
+                div class={ (SWITCHES) " w-fit" } {
+                    @for (i, list) in builds.lists.iter().enumerate() {
+                        @let href = if i == 0 { path.clone() } else { format!("{path}?show={}", list.name) };
+                        a href=(href) class=(SWITCH) aria-current=[(i == builds.shown).then_some("page")] {
+                            (list.label)
+                            span class="ml-1.5 text-meta text-muted tabular-nums" { (list.builds.len()) }
                         }
-                        None => { "No Minecraft name given, so their builds can't be listed." }
-                        Some(name) => { "No builds credit " (name) " as builder yet." }
                     }
                 }
-            }, builds.palette.as_deref()))
-            section aria-labelledby="uploads-heading" {
-                h2 id="uploads-heading" class={ (SECTION_TITLE) " mb-3" } { "Uploads" }
-                @if builds.uploaded.is_empty() {
-                    p class="text-muted" { "No uploads yet." }
-                } @else {
-                    (cards(&builds.uploaded, &[], builds.palette.as_deref()))
+            }
+            @if shown.builds.is_empty() {
+                p class="text-muted" {
+                    @match (shown.name, &account.minecraft_name) {
+                        ("all" | "built" | "contributed", None) if own => {
+                            "Give your Minecraft name in " a href="/settings" { "Settings" } " to list the builds credited to it."
+                        }
+                        ("built" | "contributed", None) => { "No Minecraft name given, so their builds can't be listed." }
+                        ("favourites", _) => { "Star a build on its page to keep it here." }
+                        _ => { "None yet." }
+                    }
                 }
+            } @else {
+                (cards(&shown.builds, &[], builds.palette.as_deref()))
             }
         },
     )

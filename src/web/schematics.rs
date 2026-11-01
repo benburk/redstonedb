@@ -598,26 +598,18 @@ pub async fn favorite(
     Path(id): Path<String>,
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
+    Fixi(fixi): Fixi,
     axum::Form(Favorite { on }): axum::Form<Favorite>,
 ) -> Result<Response, AppError> {
     schematic::get_visible(&state.db, &id, Some(&user))
         .await?
         .ok_or(AppError::NotFound)?;
     schematic::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
-    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
-}
-
-/// The signed-in user's favourite builds that they may still see.
-pub async fn favorites(
-    State(state): State<AppState>,
-    SignedIn(user): SignedIn,
-) -> Result<Response, AppError> {
-    let ids = schematic::favorites(&state.db, user.id).await?;
-    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let mut builds = schematic::get_many(&state.db, &ids).await?;
-    builds.retain(|s| s.visible_to(Some(&user)));
-    let palette = palette::key_for(&state.db, Some(&user)).await?;
-    Ok(pages::favorites(&user, &builds, palette.as_deref()).into_response())
+    let path = format!("/schematics/{id}");
+    if fixi {
+        return Ok(pages::favorite_button(&path, on.is_some()).into_response());
+    }
+    Ok(Redirect::to(&path).into_response())
 }
 
 /// The page where a mod, or one of the build's confirmed builders, edits

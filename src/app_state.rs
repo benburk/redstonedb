@@ -65,6 +65,8 @@ pub struct AppState {
     pub thumbnails: Thumbnails,
     /// What draws thumbnails, with the game's files it has read.
     pub renderer: Arc<crate::thumbnail::Renderer>,
+    /// Uploads being analyzed, and those analyzed lately.
+    pub analyses: crate::web::analysis::Analyses,
 }
 
 #[cfg(test)]
