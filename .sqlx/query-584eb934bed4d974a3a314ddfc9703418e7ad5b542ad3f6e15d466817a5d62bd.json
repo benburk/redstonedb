@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT description AS \"description!\" FROM schematic\n         WHERE description IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "description!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "584eb934bed4d974a3a314ddfc9703418e7ad5b542ad3f6e15d466817a5d62bd"
+}

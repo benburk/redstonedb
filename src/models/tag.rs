@@ -118,7 +118,24 @@ impl Tag {
 
     /// The name as words, such as `carry lookahead`.
     pub fn label(&self) -> String {
-        self.name.replace('_', " ")
+        // A token in capitals is the tag's abbreviation, shown in its
+        // place, as CCA for carry cancel.
+        match &self.token {
+            Some(token) if token.chars().all(|c| c.is_ascii_uppercase()) => {
+                token.clone()
+            }
+            _ => self.name.replace('_', " "),
+        }
+    }
+
+    /// Whether `wanted`, a tag name as [`name`] gives it, names this tag,
+    /// by its name or its token in any capitals.
+    pub fn is_named(&self, wanted: &str) -> bool {
+        self.name == wanted
+            || self
+                .token
+                .as_deref()
+                .is_some_and(|token| token.eq_ignore_ascii_case(wanted))
     }
 
     /// How a filename writes this tag.

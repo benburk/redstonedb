@@ -65,6 +65,7 @@ macro_rules! named_values {
 }
 
 pub mod catalogue;
+pub mod player;
 pub mod schematic;
 pub mod session;
 pub mod similarity;

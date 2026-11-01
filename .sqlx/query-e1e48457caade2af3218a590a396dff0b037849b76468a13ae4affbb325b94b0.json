@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT uuid AS \"uuid!\" FROM (\n            SELECT uuid FROM player WHERE uuid IS NOT NULL\n            UNION SELECT minecraft_uuid FROM user\n                WHERE minecraft_uuid IS NOT NULL)\n         WHERE uuid NOT IN (SELECT uuid FROM head)",
+  "describe": {
+    "columns": [
+      {
+        "name": "uuid!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e1e48457caade2af3218a590a396dff0b037849b76468a13ae4affbb325b94b0"
+}

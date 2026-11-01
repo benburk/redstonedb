@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT png, fetched_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now',\n                CASE WHEN png IS NULL THEN ? ELSE ? END) AS \"fresh!: bool\"\n         FROM head WHERE uuid = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "png",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "fresh!: bool",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "241a2b029a3a3da628a62e3992c05ada3daa74e51c9a6b6ff9594d5fcf578638"
+}

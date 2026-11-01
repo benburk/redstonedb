@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use reqwest::StatusCode;
 use serde::Deserialize;
 use tiny_skia::{Pixmap, PremultipliedColorU8};
 
@@ -13,12 +14,15 @@ const PROFILE: &str =
 /// Where skins are kept; a skin address anywhere else is not fetched.
 const TEXTURES: &str = "textures.minecraft.net";
 
-/// The PNG of the head of the player with `uuid`, or why there is none.
-pub async fn fetch(uuid: &str) -> Result<Vec<u8>, String> {
+/// The PNG of the head of the player with `uuid`; `None` when Mojang has
+/// no such player, or they have no skin to draw. `Err` says Mojang could
+/// not be asked, as when it is down or asked too often, so it is asked
+/// again later.
+pub async fn fetch(uuid: &str) -> Result<Option<Vec<u8>>, String> {
     let failed =
         |err: reqwest::Error| format!("could not fetch the skin: {err}");
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(5))
         .build()
         .map_err(failed)?;
     let profile = client
@@ -26,14 +30,18 @@ pub async fn fetch(uuid: &str) -> Result<Vec<u8>, String> {
         .send()
         .await
         .map_err(failed)?;
-    if !profile.status().is_success() {
-        return Err(format!("Mojang has no player {uuid}"));
+    match profile.status() {
+        status if status.is_success() && status != StatusCode::NO_CONTENT => {}
+        StatusCode::NO_CONTENT | StatusCode::NOT_FOUND => return Ok(None),
+        status => return Err(format!("Mojang answered {status}")),
     }
     let profile: Profile = profile.json().await.map_err(failed)?;
-    let url = skin_url(&profile).ok_or("the player has no skin")?;
+    let Some(url) = skin_url(&profile) else {
+        return Ok(None);
+    };
     let skin = client.get(url).send().await.map_err(failed)?;
     let skin = skin.bytes().await.map_err(failed)?;
-    face(&skin)
+    face(&skin).map(Some)
 }
 
 #[derive(Deserialize)]

@@ -54,6 +54,8 @@ async fn main() {
     // Builds not yet compared with their category's others are, in the
     // background.
     app::models::similarity::refresh_soon(&db);
+    // Every player's head the site shows, fetched ahead of the first view.
+    app::web::fetch_heads_ahead(&db);
 
     let http = reqwest::Client::new();
     let state = AppState {
@@ -63,8 +65,6 @@ async fn main() {
             app::thumbnail::Assets::new(http.clone()),
         )),
         http,
-        heads: std::sync::Arc::default(),
-        players: std::sync::Arc::default(),
         thumbnails: std::sync::Arc::default(),
         analyses: std::sync::Arc::default(),
     };

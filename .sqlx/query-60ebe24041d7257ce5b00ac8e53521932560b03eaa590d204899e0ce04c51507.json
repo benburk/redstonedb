@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT uuid, spelling,\n            checked_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now',\n                CASE WHEN uuid IS NULL THEN ? ELSE ? END) AS \"fresh!: bool\"\n         FROM player WHERE name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "spelling",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "fresh!: bool",
+        "ordinal": 2,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "60ebe24041d7257ce5b00ac8e53521932560b03eaa590d204899e0ce04c51507"
+}

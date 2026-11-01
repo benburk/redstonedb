@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO head (uuid, png) VALUES (?, ?)\n         ON CONFLICT (uuid) DO UPDATE SET png = excluded.png,\n            fetched_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "df39c40f99f82f57e6319a8b405fd433af1c2618d9515e8701f9f712fe7f7c11"
+}

@@ -608,21 +608,17 @@ fn on_card(s: &Schematic) -> Vec<Tag> {
         .into_iter()
         .filter(|tag| {
             !matches!(tag.kind, tag::Kind::Design | tag::Kind::Orientation)
+                && tag.name != s.design
                 && !SEEN.contains(&tag.name.as_str())
                 && !name.contains(&format!(" {} ", tag.label()))
         })
         .collect()
 }
 
-/// Flags left off a card: those its picture shows plainly, and an
-/// inverted carry in, which says only how one line is read.
-const SEEN: [&str; 5] = [
-    "carry_in",
-    "carry_out",
-    "borrow_in",
-    "borrow_out",
-    "inverted_carry_in",
-];
+/// Tags left off a card: flags its picture shows plainly, and synced,
+/// which most builds are.
+const SEEN: [&str; 5] =
+    ["synced", "carry_in", "carry_out", "borrow_in", "borrow_out"];
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
@@ -659,9 +655,7 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
     let mut unmatched = Vec::new();
     for (i, group) in chosen.iter().enumerate() {
         let wanted = tag::name(group);
-        match filters.iter_mut().find(|f| {
-            f.tag.name == wanted || f.tag.token.as_deref() == Some(&*wanted)
-        }) {
+        match filters.iter_mut().find(|f| f.tag.is_named(&wanted)) {
             Some(filter) => filter.chosen = Some(i),
             // Such as two tags at once, or one no build has.
             None => unmatched.push(Filter {

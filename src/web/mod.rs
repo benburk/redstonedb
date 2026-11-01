@@ -40,6 +40,8 @@ mod versions;
 use about::about;
 use profile::profile;
 
+pub use heads::fetch_ahead as fetch_heads_ahead;
+
 /// A file under `static/`, built into the binary and served at `path`.
 /// Pages link it at [`Asset::url`], which names its version, so browsers
 /// may keep it for good.

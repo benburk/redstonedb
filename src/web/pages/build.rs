@@ -665,9 +665,6 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if !timed.is_empty() {
                     (field("Stacked", sourced(html! { (timed.join(" · ")) }, sources.timing, sources)))
                 }
-                @if let Some(synced) = s.synchronized {
-                    (field("Synced", sourced(flag(synced, Some(if synced { "sync" } else { "unsync" })), sources.timing, sources)))
-                }
                 @if let Some(logic) = s.logic {
                     (field("Stateless", sourced(flag(logic == Logic::Stateless, Some(logic.name())), sources.logic, sources)))
                 }

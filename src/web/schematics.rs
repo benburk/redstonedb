@@ -312,11 +312,10 @@ async fn listing(
 fn has_tags(s: &Schematic, groups: &[String]) -> bool {
     let tags = s.every_tag();
     groups.iter().all(|group| {
-        group.split(',').map(tag::name).any(|wanted| {
-            tags.iter().any(|tag| {
-                tag.name == wanted || tag.token.as_deref() == Some(&*wanted)
-            })
-        })
+        group
+            .split(',')
+            .map(tag::name)
+            .any(|wanted| tags.iter().any(|tag| tag.is_named(&wanted)))
     })
 }
 

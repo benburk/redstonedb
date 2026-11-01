@@ -1,8 +1,6 @@
 //! A page for each Minecraft player the site credits, whether or not they
 //! have an account.
 
-use std::time::{Duration, Instant};
-
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Redirect, Response},
@@ -16,13 +14,9 @@ use crate::{
         schematic::{self, Schematic},
         user::User,
     },
-    mojang,
 };
 
 use super::pages;
-
-/// How long a player looked up is kept before Mojang is asked again.
-const KEPT: Duration = Duration::from_hours(6);
 
 /// The page of the player `name`, whatever its capitals: what they built,
 /// helped with, are named in with `@name`, and hold records for, and their
@@ -84,7 +78,9 @@ pub async fn show(
     };
     let uuid = match account.and_then(|u| u.minecraft_uuid.clone()) {
         Some(uuid) => Some(uuid),
-        None => player(&state, &spelling).await.map(|p| p.uuid),
+        None => super::heads::player(&state.db, &spelling)
+            .await
+            .map(|p| p.uuid),
     };
     Ok(pages::player(
         user_opt.as_ref(),
@@ -120,30 +116,8 @@ pub async fn head(
     if !schematic::valid_player_name(&name) {
         return Err(AppError::NotFound);
     }
-    let found = player(&state, &name).await.ok_or(AppError::NotFound)?;
+    let found = super::heads::player(&state.db, &name)
+        .await
+        .ok_or(AppError::NotFound)?;
     super::heads::show(Path(found.uuid), State(state)).await
-}
-
-/// The player Mojang knows as `name`, asked at most every few hours; `None`
-/// for a name no player has, or when Mojang cannot be reached.
-async fn player(state: &AppState, name: &str) -> Option<mojang::Profile> {
-    let key = name.to_lowercase();
-    let kept = state
-        .players
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&key)
-        .filter(|(asked, _)| asked.elapsed() < KEPT)
-        .map(|(_, found)| found.clone());
-    if let Some(found) = kept {
-        return found;
-    }
-    // Not remembered when Mojang cannot be reached, so the next view asks.
-    let found = mojang::profile(name).await.ok()?;
-    state
-        .players
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(key, (Instant::now(), found.clone()));
-    found
 }

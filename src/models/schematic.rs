@@ -342,6 +342,9 @@ pub struct Schematic {
 /// The tag a build carries whose copies stack.
 const STACKABLE: &str = "stackable";
 
+/// The tag a build carries whose outputs all settle on the same tick.
+const SYNCED: &str = "synced";
+
 impl Schematic {
     /// Whether it is verified as its category: recognized as one, if its
     /// category is one the site recognizes, and passing its test, if it
@@ -372,7 +375,8 @@ impl Schematic {
     /// Its tags with its design, orientation, and flags among them, as its
     /// page shows them and a list is narrowed by: `fails_verification` first,
     /// then its design, its orientation, its flags in its category's
-    /// order, `stackable` when its copies stack, and its other tags. One the site works out from a
+    /// order, `stackable` when its copies stack, `synced` when its outputs
+    /// settle together, and its other tags. One the site works out from a
     /// conventional build is found, as its category's test or file sets
     /// it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
@@ -386,7 +390,7 @@ impl Schematic {
         };
         let design = (self.design != "other").then(|| Tag {
             name: self.design.clone(),
-            token: self.design_abbreviation.as_ref().map(|a| a.to_lowercase()),
+            token: self.design_abbreviation.clone(),
             kind: found(tag::Kind::Design, behaviour.evaluated),
         });
         let orientation = Tag {
@@ -398,14 +402,20 @@ impl Schematic {
                     || behaviour.reads != crate::category::Reads::Nothing,
             ),
         };
-        let flags = self.flags.iter().map(|flag| Tag {
-            name: flag.name.clone(),
-            token: None,
-            kind: found(
-                tag::Kind::Feature,
-                behaviour.evaluated || behaviour.flags_from_file,
-            ),
-        });
+        // An inverted carry in says only how one line is read, as the
+        // inputs table shows.
+        let flags = self
+            .flags
+            .iter()
+            .filter(|flag| flag.name != "inverted_carry_in")
+            .map(|flag| Tag {
+                name: flag.name.clone(),
+                token: None,
+                kind: found(
+                    tag::Kind::Feature,
+                    behaviour.evaluated || behaviour.flags_from_file,
+                ),
+            });
         let stackable = (!self.stacking.is_empty()).then(|| Tag {
             name: STACKABLE.to_owned(),
             token: None,
@@ -413,6 +423,11 @@ impl Schematic {
                 tag::Kind::Feature,
                 behaviour.stacking == crate::category::Stacking::Inferred,
             ),
+        });
+        let synced = (self.synchronized == Some(true)).then(|| Tag {
+            name: SYNCED.to_owned(),
+            token: None,
+            kind: found(tag::Kind::Feature, behaviour.evaluated),
         });
         let (failing, rest): (Vec<&Tag>, Vec<&Tag>) =
             self.tags.iter().partition(|tag| tag.is_unverified());
@@ -423,6 +438,7 @@ impl Schematic {
             .chain([orientation])
             .chain(flags)
             .chain(stackable)
+            .chain(synced)
             .chain(rest.into_iter().cloned())
             .collect()
     }
