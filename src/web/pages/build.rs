@@ -122,9 +122,6 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 &build_info(s, similar, file, report),
                 false,
             ))
-            @if let Some(meant) = crate::models::simulation::stands_in(s) {
-                (not_recognized(s, meant, file))
-            }
             @let poll = format!("{path}/simulation");
             // Unverified or off the list, a build the simulator can't run
             // says why under Failed verification already.
@@ -147,8 +144,8 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
 }
 
 /// Why build `s`, unverified or filed off the list as one of category
-/// `meant`, isn't one: each fault the check by function finds, one to a
-/// line, or else why it was found unverified.
+/// `meant`, isn't one, one reason to a line: why it was found unverified,
+/// then each fault the check by function finds on its file.
 fn not_recognized(
     s: &Schematic,
     meant: &str,
@@ -160,21 +157,28 @@ fn not_recognized(
         .as_ref()
         .map(|file| file.unrecognized.as_slice())
         .unwrap_or_default();
+    let mut reasons: Vec<String> = s.unverified.iter().cloned().collect();
+    // Said once, whichever says it first.
+    let said = |reasons: &[String], words: &str| {
+        reasons.iter().any(|r| r.to_lowercase().contains(words))
+    };
+    if strength && !said(&reasons, "signal-strength") {
+        reasons.push("Signal-strength inputs".to_owned());
+    }
+    for fault in faults {
+        if !reasons.contains(fault) {
+            reasons.push(fault.clone());
+        }
+    }
+    if reasons.is_empty() {
+        reasons.push(format!("Fails {label} test or conventions"));
+    }
     html! {
-        section aria-labelledby="unrecognized-heading" class="mt-12 max-w-prose" {
+        section aria-labelledby="unrecognized-heading" {
             h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } { "Failed verification" }
             ul class="flex list-disc flex-col gap-1.5 pl-5" {
-                @if strength {
-                    li { "Signal-strength inputs" }
-                }
-                @for fault in faults {
-                    li { (fault) }
-                }
-                @if !strength && faults.is_empty() {
-                    @match &s.unverified {
-                        Some(why) => li { (why) },
-                        None => li { "Fails " (label) " test or conventions" },
-                    }
+                @for reason in &reasons {
+                    li { (reason) }
                 }
             }
         }
@@ -410,7 +414,7 @@ fn sourced(
                 " " span class="text-meta text-muted" { "unverified" }
             },
             Source::Unconfirmed(why) => {
-                " " a href="#simulation" class="text-meta text-danger" { (why) }
+                " " span class="text-meta text-danger" { (why) }
             },
         }
     }
@@ -433,6 +437,10 @@ pub fn build_info(
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
             (facts(s, &sources))
+            // Why it isn't verified comes first, as it qualifies the rest.
+            @if let Some(meant) = crate::models::simulation::stands_in(s) {
+                (not_recognized(s, meant, file))
+            }
             // A failing build says so beside its title, not among its tags;
             // its design, orientation, and flags are among them.
             @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| tag.name != tag::FAILS_VERIFICATION).collect();
