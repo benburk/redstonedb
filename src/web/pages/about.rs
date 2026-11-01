@@ -17,31 +17,37 @@ pub fn about(viewer: Option<&User>) -> Markup {
             div class="max-w-prose leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "About" }
                 p class="mb-4" {
-                    "RSDB is a site for sharing, verifying, and archiving high quality redstone builds. "
-                    "It was launched by embizone in October 2026, taking inspiration from and building "
-                    "upon many other plot-of-logic projects."
+                    "RSDB is a site for sharing, verifying, and archiving high-quality redstone builds. "
+                    "It was launched by embizone in October 2026, taking inspiration from and building on "
+                    "many earlier plot-of-logic projects."
                 }
-                p class="mb-2" { "Depending on the circuit, RSDB verifies builds by automatically testing for:" }
+                p class="mb-2" { "Depending on the circuit, RSDB tests every build automatically for:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
-                    li { "build type" }
-                    li { "latency" }
-                    li { "throughput" }
-                    li { "orientation (diagonal, vertical, horizontal)" }
-                    li { "stackability" }
-                    li { "correctness" }
-                    li { "the weakest signal strength its inputs need" }
-                    li { "the weakest signal strength its outputs give" }
+                    li { "build type: adder, register, ALU, and so on" }
+                    li { "correctness, across every input case, or every case of each byte for wide builds" }
+                    li { "latency, in ticks" }
+                    li { "throughput: how often it can take a new input" }
+                    li { "whether its outputs change in sync" }
+                    li { "orientation: horizontal, vertical, or diagonal" }
+                    li { "stackability, and how it ranks stacked to 8, 16, and 32 bits" }
+                    li { "the weakest signal strength its inputs need, and the weakest its outputs give" }
+                    li { "the oldest Minecraft version it works in" }
                     li { "and more" }
                 }
                 p class="mb-4" {
-                    "All of this is recognized mechanically. It can't drift out of date with a description, "
-                    "and an uploader can't specify incorrect information."
+                    "All of this is worked out mechanically, so it can't drift out of date with a "
+                    "description, and an uploader can't enter incorrect information. Even an adder's "
+                    "design, like ripple carry or carry lookahead, is read from the circuit."
+                }
+                p class="mb-2" { "A few other things:" }
+                ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
+                    li { "Builds RSDB can't test yet are still archived, as built, under Other." }
+                    li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
+                    li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
+                    li { "Search understands shorthand like " code { "8b" } ", " code { "3t" } ", " code { "torchless" } ", and " code { "version:1.12" } "." }
                 }
                 p class="mb-4" {
-                    "Builds RSDB can't test yet are still archived, as built, under Other."
-                }
-                p class="mb-4" {
-                    a href="/about/recognized" { "How builds are recognized" }
+                    a href="/about/recognized" { "How builds are recognized" } " covers what a build needs to be tested."
                 }
             }
         },
@@ -60,44 +66,49 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "How builds are recognized" }
                 p class="mb-4 max-w-prose" {
                     "Each type of build has an input and output contract. RSDB finds a build's inputs and "
-                    "outputs, then searches through the ways they could fit each type's truth table."
+                    "outputs, then searches through the ways they could fit each type's truth table, trying "
+                    "lines in different roles and orders until one fits. You don't need any particular "
+                    "colours or signs: once RSDB knows what each line does, it colours them for you."
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
                     "Outputs",
-                    "need to be lone coloured blocks. The dust, repeater, or comparator on top is the bit. \
-                     Any colour but white, gray, or an input colour, with no other block of that colour touching it.",
+                    "need to be lone coloured blocks, with dust, a repeater, or a comparator on top to read. \
+                     Any colour works except white, gray, and the input colours, as long as no other block of that colour touches it.",
                     &["output", "outputs-touching"],
                 ))
                 (rule(
                     "Data inputs",
                     "must be a lever on the side of a block, with no redstone on top or below. \
-                     The block powers at most two dusts, and needs room for a repeater where the lever is, so a bus could drive it.",
+                     The block can power up to two dusts, and there has to be room for a repeater where the lever is, so a bus could drive it instead.",
                     &["input", "input-three-dusts", "repeater", "data-dust-on-top"],
                 ))
                 (rule(
                     "Control lines",
-                    "like a carry in, can have dust on top.",
+                    "like a carry in or a write enable, can have dust on top, since only a lever or button will ever drive them.",
                     &["control-dust-on-top"],
                 ))
                 (rule(
                     "Buses",
-                    "are evenly spaced lines, straight or diagonal, or two lines with their bits alternating.",
+                    "need to be evenly spaced lines, straight or diagonal, or two lines with their bits alternating.",
                     &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
                 ))
                 div class="max-w-prose" {
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Stackability" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
-                        li { "RSDB tries a few different bounding boxes and sees if they " code { "//rstack" } " correctly." }
+                        li { "RSDB tries a few different bounding boxes and checks whether " code { "//rstack" } "ing them gives a working, wider build." }
+                        li { "If the whole box doesn't work, it tries smaller ones, leaving out as few blocks as it can." }
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
+                        li { "Stackable builds also compete on the leaderboards at 8, 16, and 32 bits." }
                     }
                     h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Per-category rules" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
                         li { "Some builds have optional control lines and data inputs, like an adder's carry in or an incrementer's increment line." }
-                        li { "Gates take A and B and give one output as wide." }
-                        li { "Multipliers take A and B, and at most one calculate button. No reset." }
+                        li { "Gates take A and B and give one output as wide. A torch on the output makes the inverse, so XOR and XNOR share a category, with a flag." }
+                        li { "Multipliers take A and B, and at most one calculate button. No reset. A third input can be an addend, for A × B + C." }
                         li { "Counters take A, one clock button, and one write enable lever." }
-                        li { "Popcounts and binary to hex converters can give their answer as one output's signal strength." }
+                        li { "Thresholds find their own number: how many inputs it takes to turn them on." }
+                        li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
                     }
                     p class="mb-4" {
                         "Recognized so far: adders, ALUs, multipliers, incrementers, decrementers, comparators, "
@@ -106,7 +117,8 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         "shift registers."
                     }
                     p class="mb-4" {
-                        "Anything else still goes up, as built, under Other, with a note saying what's in the way."
+                        "Anything else still goes up, as built, under Other, with a note on what's in the way. "
+                        "Upload a fixed version later and it moves onto the list."
                     }
                 }
             }
