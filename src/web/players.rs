@@ -64,12 +64,17 @@ pub async fn show(
         return Ok(Redirect::permanent(&format!("/players/{spelling}"))
             .into_response());
     }
-    let records = leaderboard::most_records(&all)
-        .into_iter()
-        .find(|s| same(&s.name))
-        .map_or(0, |s| s.count);
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    // Private builds compete with no one.
+    let public: Vec<&Schematic> = all.iter().filter(|s| s.public).collect();
+    let stacks = leaderboard::stacked(public.iter().copied());
+    let builds: Vec<&Schematic> = public.into_iter().chain(&stacks).collect();
+    let records = leaderboard::records(&builds);
+    let held: Vec<&leaderboard::Record> = records
+        .iter()
+        .filter(|r| r.holders.iter().any(|s| s.builders.iter().any(same)))
+        .collect();
     let pick = |names: fn(&Schematic) -> &Vec<String>| -> Vec<Schematic> {
         all.iter()
             .filter(|s| names(s).iter().any(same))
@@ -99,7 +104,7 @@ pub async fn show(
                 })
                 .cloned()
                 .collect::<Vec<_>>(),
-            records,
+            records: &held,
             viewing: &super::viewing(&state.db, user_opt.as_ref()).await?,
         },
     )

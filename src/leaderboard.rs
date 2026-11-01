@@ -3,11 +3,15 @@
 //! design, since only those compete: a stateful build never meets a
 //! stateless one.
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    str::FromStr,
+};
 
 use crate::models::{
     catalogue::Measure,
     schematic::{Logic, Orientation, Schematic},
+    tag::{Kind, Tag},
 };
 
 /// How many builds each ranking shows.
@@ -61,9 +65,14 @@ pub struct Wanted {
     /// A value of each measure asked for, such as a width of 8.
     pub measures: Vec<(Measure, i64)>,
     pub logic: Option<State>,
+    /// `None` for every orientation, where they compete.
     pub orientation: Option<Orientation>,
     /// A design's name; `None` for every design, where they compete.
     pub design: Option<String>,
+    /// A latency; `None` for every latency.
+    pub ticks: Option<i64>,
+    /// Tags each build must have, by name, as [`ranked_tags`] gives them.
+    pub tags: Vec<String>,
 }
 
 impl Wanted {
@@ -102,6 +111,7 @@ pub struct Board<'a> {
     pub logics: Vec<Choice<State>>,
     pub logic: Option<State>,
     pub orientations: Vec<Choice<Orientation>>,
+    /// `None` for every orientation together.
     pub orientation: Option<Orientation>,
     /// Empty when the category has a single design.
     pub designs: Vec<Choice<String>>,
@@ -109,14 +119,25 @@ pub struct Board<'a> {
     pub design: Option<String>,
     /// Whether "every design" is a choice.
     pub all_designs: bool,
+    /// The latencies of the builds left by the choices before.
+    pub latencies: Vec<Choice<i64>>,
+    /// `None` for every latency.
+    pub ticks: Option<i64>,
+    /// The tags builds left by the choices before have, but for their
+    /// designs and orientations, chosen above.
+    pub tag_choices: Vec<Choice<String>>,
+    /// The tags each build has.
+    pub tags: Vec<String>,
     pub builds: Vec<&'a Schematic>,
 }
 
 /// The board of `category`, whose measures are `measures`, that `wanted`
-/// asks for. Each choice not asked for falls to the most common value
-/// among the builds the earlier choices leave, so a board starts where
-/// most builds are. A build missing a measure, such as one of unknown
-/// width, competes on no board, nor does one not verified as its category.
+/// asks for. Each measure and state not asked for falls to the most common
+/// value among the builds the earlier choices leave, so a board starts
+/// where most builds are; every orientation, latency, and design compete
+/// unless asked for, but for a category's one design. A build missing a
+/// measure, such as one of unknown width, competes on no board, nor does
+/// one not verified as its category.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
@@ -142,14 +163,15 @@ pub fn board<'a>(
 
     // Stateless and stateful builds never compete: a stateful build's
     // latency is no stateless one's.
-    let (logics, logic, ranked) = narrow(ranked, wanted.logic, |s| {
+    let (logics, logic, mut ranked) = narrow(ranked, wanted.logic, |s| {
         let state = State::of(s);
         (state, state.label().to_owned())
     });
-    let (orientations, orientation, ranked) =
-        narrow(ranked, wanted.orientation, |s| {
-            (s.orientation, s.orientation.label().to_owned())
-        });
+    let orientations = choices(&ranked, |s| {
+        (s.orientation, s.orientation.label().to_owned())
+    });
+    let orientation = wanted.orientation;
+    ranked.retain(|s| orientation.is_none_or(|o| s.orientation == o));
 
     // By the short name people say, such as CCA, where there is one.
     let designs = choices(&ranked, |s| {
@@ -166,9 +188,38 @@ pub fn board<'a>(
             .then(|| most_common(&designs).cloned())
             .flatten()
     });
+    ranked.retain(|s| design.as_ref().is_none_or(|d| &s.design == d));
+    let latencies = choices(&ranked, |s| {
+        let ticks = s.latency.unwrap_or(i64::MAX);
+        let label = s.latency.map_or("Unknown".to_owned(), |t| t.to_string());
+        (ticks, label)
+    });
+    let ticks = wanted.ticks;
+    ranked.retain(|s| ticks.is_none_or(|t| s.latency == Some(t)));
+    let mut tag_choices: Vec<Choice<String>> = Vec::new();
+    for s in &ranked {
+        for tag in ranked_tags(s) {
+            if matches!(tag.kind, Kind::Design | Kind::Orientation) {
+                continue;
+            }
+            match tag_choices.iter_mut().find(|c| c.value == tag.name) {
+                Some(choice) => choice.count += 1,
+                None => tag_choices.push(Choice {
+                    label: tag.label(),
+                    value: tag.name,
+                    count: 1,
+                }),
+            }
+        }
+    }
+    tag_choices.sort_by(|a, b| a.label.cmp(&b.label));
+    let tags = wanted.tags.clone();
     let builds = ranked
         .into_iter()
-        .filter(|s| design.as_ref().is_none_or(|d| &s.design == d))
+        .filter(|s| {
+            let own = ranked_tags(s);
+            tags.iter().all(|t| own.iter().any(|tag| &tag.name == t))
+        })
         .collect();
     Board {
         splits,
@@ -183,6 +234,10 @@ pub fn board<'a>(
         },
         design,
         all_designs,
+        latencies,
+        ticks,
+        tag_choices,
+        tags,
         builds,
     }
 }
@@ -287,14 +342,6 @@ pub fn tradeoffs<'a>(builds: &[&'a Schematic]) -> Vec<&'a Schematic> {
         .collect()
 }
 
-/// The builds in first place, more than one on a tie.
-fn firsts(placed: Vec<Placed<'_>>) -> impl Iterator<Item = &Schematic> {
-    placed
-        .into_iter()
-        .take_while(|(place, _)| *place == 1)
-        .map(|(_, s)| s)
-}
-
 /// `sorted` with each build's place by `key`.
 fn placed<'a, K: PartialEq>(
     sorted: &[&'a Schematic],
@@ -376,79 +423,145 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
     }))
 }
 
-/// Builders by records held: first place, as fastest or as smallest, on a
-/// board of two or more verified builds. A board is a standard category's builds of
-/// one value of each of its measures, logic, orientation, and
-/// design, with copies of narrower ones stacked to its width; each builder
-/// of a record holder counts it, and a tie gives every holder one.
-pub fn most_records(builds: &[Schematic]) -> Vec<Standing> {
-    type Key<'a> = (&'a str, Vec<i64>, State, Orientation, &'a str);
-    let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
-    let stacks = stacked(builds);
-    for s in builds
-        .iter()
-        .chain(&stacks)
-        .filter(|s| s.category_label.is_some() && s.verified())
-    {
-        let Some(values) = s
-            .measures
-            .iter()
-            .map(|m| m.of(s))
-            .collect::<Option<Vec<i64>>>()
-            .filter(|values| !values.is_empty())
-        else {
-            continue;
-        };
-        boards
-            .entry((
-                &s.category,
-                values,
-                State::of(s),
-                s.orientation,
-                &s.design,
-            ))
-            .or_default()
-            .push(s);
-    }
-    let holders =
-        boards
-            .values()
-            .filter(|board| board.len() >= 2)
-            .flat_map(|board| {
-                firsts(fastest(board)).chain(firsts(smallest(board)))
-            });
-    tally(holders.flat_map(credited))
+/// Builders by records held: each record a build of theirs holds, see
+/// [`records`], a tie giving every holder's builders one.
+pub fn most_records(records: &[Record]) -> Vec<Standing> {
+    tally(records.iter().flat_map(|record| {
+        let mut names: Vec<(String, Option<String>)> = Vec::new();
+        for (name, account) in record.holders.iter().flat_map(|s| credited(s)) {
+            if !names.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                names.push((name, account));
+            }
+        }
+        names
+    }))
 }
 
-/// One board people compete on: a standard category's verified builds of
-/// one value of each of its measures, one state, and one orientation, of
-/// every design or of one, as its leaderboard shows them.
+/// The flags that only say which lines a build has, as a carry in, so
+/// never narrow a record's board.
+const PLAIN: [&str; 4] = ["carry_in", "carry_out", "borrow_in", "borrow_out"];
+
+/// The tags of a build a board may narrow to: those the site finds, such
+/// as its design, orientation, `synced`, or `torchless`, but for the
+/// flags that only say which lines it has.
+pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
+    s.every_tag()
+        .into_iter()
+        .filter(|tag| {
+            tag.is_found()
+                && !tag.is_unverified()
+                && !PLAIN.contains(&tag.name.as_str())
+        })
+        .collect()
+}
+
+/// How a board ranks its builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rank {
+    /// Quickest first, a tie going to the smaller.
+    Fastest,
+    /// Smallest first, a tie going to the quicker.
+    Smallest,
+}
+
+impl Rank {
+    pub fn label(self) -> &'static str {
+        match self {
+            Rank::Fastest => "Fastest",
+            Rank::Smallest => "Smallest",
+        }
+    }
+}
+
+/// One thing a record's board narrows to beyond its category, measures,
+/// and state: a latency, or a tag the site finds, by its name.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Trait {
+    Ticks(i64),
+    Tag(String),
+}
+
+/// The most traits a record's board narrows to.
+const MOST_TRAITS: usize = 3;
+
+/// First place on a board: a standard category's verified builds of one
+/// value of each of its measures and one state, narrowed to a latency and
+/// tags the site finds, ranked fastest or smallest.
 #[derive(Debug)]
-pub struct Arena<'a> {
+pub struct Record<'a> {
     pub category: &'a str,
     /// A value of each of the category's measures, such as a width of 8.
     pub measures: Vec<(Measure, i64)>,
     pub logic: State,
     /// Whether the category has builds of another state at these measures,
-    /// so the board's name says which.
+    /// so the record's name says which.
     pub logic_named: bool,
-    pub orientation: Orientation,
-    /// The design's name and label, such as `CCA`; `None` for every
-    /// design together.
-    pub design: Option<(String, String)>,
-    pub builds: Vec<&'a Schematic>,
-    /// How many people built them, whatever the case of their names.
+    pub ticks: Option<i64>,
+    /// The tags its board narrows to, in the order a build lists them.
+    pub tags: Vec<Tag>,
+    pub rank: Rank,
+    /// The builds it ranks.
+    pub field: Vec<&'a Schematic>,
+    /// The builds in first place, more than one on a tie.
+    pub holders: Vec<&'a Schematic>,
+    /// How many people built the field, whatever the case of their names.
     pub builders: usize,
 }
 
-/// The boards most contested: of two or more builds, by most builders,
-/// then most builds. Each set of measures, state, and orientation is one
-/// board of every design, and where it holds more than one design, one
-/// board of each design with two or more builds and fewer builders than
-/// every design together.
-pub fn arenas<'a>(builds: &[&'a Schematic]) -> Vec<Arena<'a>> {
-    type Key<'a> = (&'a str, Vec<i64>, State, Orientation);
-    let mut boards: BTreeMap<Key, Vec<&Schematic>> = BTreeMap::new();
+impl Record<'_> {
+    /// Such as `Smallest 3-tick 8-bit synced CCA adder`.
+    pub fn name(&self) -> String {
+        let (designs, tags): (Vec<&Tag>, Vec<&Tag>) =
+            self.tags.iter().partition(|tag| tag.kind == Kind::Design);
+        [self.rank.label().to_owned()]
+            .into_iter()
+            .chain(self.ticks.map(|t| format!("{t}-tick")))
+            .chain(self.measures.iter().map(|(m, n)| m.lead(*n)))
+            .chain(self.logic_named.then(|| self.logic.name().to_owned()))
+            .chain(tags.into_iter().chain(designs).map(Tag::label))
+            .chain([in_sentence(&self.holders[0].category_label())])
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// A category's name as a sentence carries it, such as `ripple adders`,
+/// each word lowercased but one that starts with two capitals, such as
+/// `ALUs`.
+pub fn in_sentence(name: &str) -> String {
+    name.split(' ')
+        .map(|word| {
+            let mut letters = word.chars().filter(char::is_ascii_alphabetic);
+            let acronym =
+                letters.next().is_some_and(|c| c.is_ascii_uppercase())
+                    && letters.next().is_some_and(|c| c.is_ascii_uppercase());
+            if acronym {
+                word.to_owned()
+            } else {
+                word.to_lowercase()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Every record `builds` hold, the most contested first: by most builders,
+/// then most builds. A board is one of a category's measures and state,
+/// narrowed to up to [`MOST_TRAITS`] traits: a latency, and tags the site
+/// finds, such as `synced`, a design, or an orientation. Its first place is
+/// a record when the board ranks two or more builds, and
+///
+/// - its traits each change who is first, so no board with one fewer has
+///   the same first place: a design nearly every fast build has makes no
+///   fastest board of its own;
+/// - as fastest, speed decides it: when builds tie on the fewest ticks,
+///   the record is the smallest at that latency, a board of its own;
+/// - as fastest, it narrows to no latency, which would rank by size.
+///
+/// Boards of the same builds with the same first place are one record.
+pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
+    type Base<'a> = (&'a str, Vec<i64>, State);
+    let mut bases: BTreeMap<Base, Vec<&Schematic>> = BTreeMap::new();
     for &s in builds
         .iter()
         .filter(|s| s.category_label.is_some() && s.verified())
@@ -462,66 +575,155 @@ pub fn arenas<'a>(builds: &[&'a Schematic]) -> Vec<Arena<'a>> {
         else {
             continue;
         };
-        boards
-            .entry((&s.category, values, State::of(s), s.orientation))
+        bases
+            .entry((&s.category, values, State::of(s)))
             .or_default()
             .push(s);
     }
-    let states = |category: &str, values: &[i64]| {
-        boards
+    let mut records = Vec::new();
+    for ((category, values, logic), base) in &bases {
+        let logic_named = bases
             .keys()
-            .filter(|(c, v, ..)| *c == category && v == values)
-            .map(|(_, _, state, _)| state)
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-    };
-    let mut arenas = Vec::new();
-    for ((category, values, logic, orientation), board) in &boards {
-        let arena = |design, builds: Vec<&'a Schematic>| Arena {
-            category,
-            measures: board[0]
-                .measures
-                .iter()
-                .copied()
-                .zip(values.iter().copied())
-                .collect(),
-            logic: *logic,
-            logic_named: states(category, values) > 1,
-            orientation: *orientation,
-            design,
-            builders: tally(builds.iter().flat_map(|s| credited(s))).len(),
-            builds,
-        };
-        let designs = choices(board, |s| {
-            let label = s
-                .design_abbreviation
-                .clone()
-                .or_else(|| s.design_label())
-                .unwrap_or_else(|| "Other".to_owned());
-            (s.design.clone(), label)
-        });
-        let whole = arena(None, board.clone());
-        if designs.len() > 1 {
-            for design in designs.into_iter().filter(|d| d.count >= 2) {
-                let builds = board
-                    .iter()
-                    .copied()
-                    .filter(|s| s.design == design.value)
-                    .collect();
-                let one = arena(Some((design.value, design.label)), builds);
-                // One design every builder built is no contest of its own.
-                if one.builders < whole.builders {
-                    arenas.push(one);
+            .any(|(c, v, l)| c == category && v == values && l != logic);
+        records.extend(records_of(base).into_iter().map(
+            |(ticks, tags, rank, field, holders)| {
+                Record {
+                    category,
+                    measures: base[0]
+                        .measures
+                        .iter()
+                        .copied()
+                        .zip(values.iter().copied())
+                        .collect(),
+                    logic: *logic,
+                    logic_named,
+                    ticks,
+                    tags,
+                    rank,
+                    builders: tally(field.iter().flat_map(|s| credited(s)))
+                        .len(),
+                    field,
+                    holders,
                 }
+            },
+        ));
+    }
+    records.sort_by(|a, b| {
+        (b.builders, b.field.len()).cmp(&(a.builders, a.field.len()))
+    });
+    records
+}
+
+/// What a record holds: its latency and tags, its rank, its field, and
+/// its holders.
+type Found<'a> = (
+    Option<i64>,
+    Vec<Tag>,
+    Rank,
+    Vec<&'a Schematic>,
+    Vec<&'a Schematic>,
+);
+
+/// The records of `base`, one category's builds of one value of each of
+/// its measures and one state; see [`records`].
+fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
+    let tags: Vec<Vec<Tag>> = base.iter().map(|s| ranked_tags(s)).collect();
+    let traits: Vec<BTreeSet<Trait>> = base
+        .iter()
+        .zip(&tags)
+        .map(|(s, tags)| {
+            tags.iter()
+                .map(|tag| Trait::Tag(tag.name.clone()))
+                .chain(s.latency.map(Trait::Ticks))
+                .collect()
+        })
+        .collect();
+    let mut boards: BTreeSet<BTreeSet<Trait>> = BTreeSet::new();
+    for own in &traits {
+        let own: Vec<&Trait> = own.iter().collect();
+        for mask in 0u32..(1 << own.len()) {
+            if mask.count_ones() as usize <= MOST_TRAITS {
+                boards.insert(
+                    (0..own.len())
+                        .filter(|i| mask >> i & 1 == 1)
+                        .map(|i| own[i].clone())
+                        .collect(),
+                );
             }
         }
-        arenas.push(whole);
     }
-    arenas.retain(|a| a.builds.len() >= 2);
-    arenas.sort_by(|a, b| {
-        (b.builders, b.builds.len()).cmp(&(a.builders, a.builds.len()))
-    });
-    arenas
+    // The builds a board of `wanted` ranks `rank`, by their place in base.
+    let field = |wanted: &BTreeSet<Trait>, rank: Rank| -> Vec<usize> {
+        (0..base.len())
+            .filter(|&i| wanted.is_subset(&traits[i]))
+            .filter(|&i| rank == Rank::Smallest || base[i].latency.is_some())
+            .collect()
+    };
+    let key = |i: usize, rank: Rank| {
+        let (s, ticks) = (base[i], base[i].latency.unwrap_or(i64::MAX));
+        match rank {
+            Rank::Fastest => (ticks, s.volume()),
+            Rank::Smallest => (s.volume(), ticks),
+        }
+    };
+    let firsts = |field: &[usize], rank: Rank| -> Vec<usize> {
+        let best = field.iter().map(|&i| key(i, rank)).min();
+        field
+            .iter()
+            .copied()
+            .filter(|&i| Some(key(i, rank)) == best)
+            .collect()
+    };
+    let mut seen: BTreeSet<(Vec<usize>, Vec<usize>)> = BTreeSet::new();
+    let mut found = Vec::new();
+    for wanted in &boards {
+        let ticks = wanted.iter().find_map(|t| match t {
+            Trait::Ticks(n) => Some(*n),
+            Trait::Tag(_) => None,
+        });
+        for rank in [Rank::Smallest, Rank::Fastest] {
+            if rank == Rank::Fastest && ticks.is_some() {
+                continue;
+            }
+            let ranked = field(wanted, rank);
+            if ranked.len() < 2 {
+                continue;
+            }
+            let first = firsts(&ranked, rank);
+            if rank == Rank::Fastest {
+                let fewest = base[first[0]].latency;
+                if ranked
+                    .iter()
+                    .filter(|&&i| base[i].latency == fewest)
+                    .count()
+                    > 1
+                {
+                    continue;
+                }
+            }
+            let changes = wanted.iter().all(|t| {
+                let mut fewer = wanted.clone();
+                fewer.remove(t);
+                firsts(&field(&fewer, rank), rank) != first
+            });
+            if !changes || !seen.insert((ranked.clone(), first.clone())) {
+                continue;
+            }
+            let named = tags[first[0]]
+                .iter()
+                .filter(|tag| wanted.contains(&Trait::Tag(tag.name.clone())))
+                .cloned()
+                .collect();
+            found.push((
+                ticks,
+                named,
+                rank,
+                ranked.iter().map(|&i| base[i]).collect(),
+                first.iter().map(|&i| base[i]).collect(),
+            ));
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -626,7 +828,8 @@ mod tests {
     }
 
     #[test]
-    fn a_board_starts_at_the_most_common_width_with_every_design() {
+    fn a_board_starts_at_the_most_common_width_with_every_orientation_and_design()
+     {
         let adders = adders();
         let all: Vec<&Schematic> = adders.iter().collect();
         let board = board(&all, &Wanted::default(), &[Measure::Width]);
@@ -639,7 +842,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             [8, 16]
         );
-        assert_eq!(board.orientation, Some(Orientation::Horizontal));
+        // Every orientation competes, as every design does.
+        assert_eq!(board.orientation, None);
         assert_eq!(board.design, None);
         assert!(board.all_designs);
         assert_eq!(board.builds.len(), 6);
@@ -714,65 +918,69 @@ mod tests {
         assert_eq!(ids(&fastest(&tied)), [(1, "z"), (2, "x"), (2, "y")]);
     }
 
-    #[test]
-    fn records_are_first_places_on_boards_of_two_or_more() {
+    /// The builds of the tests below, each by one builder.
+    fn credited_adders() -> Vec<Schematic> {
         let by = |name: &str, s: Schematic| Schematic {
             builders: vec![name.to_owned()],
             ..s
         };
-        let builds = [
-            // 8-bit CCAs: a is fastest and smallest.
+        vec![
+            // 8-bit: a is fastest and smallest.
             by("Alex", build("a", 8, "carry_cancel", Some(3), 684)),
             by("bob", build("b", 8, "carry_cancel", Some(4), 900)),
             // Alone on its board, so no record.
             by("bob", build("c", 16, "carry_cancel", Some(4), 1960)),
-            // 8-bit CLAs: d is fastest, e smallest.
             by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
             by("Bob", build("e", 8, "carry_lookahead", Some(8), 3762)),
-        ];
-        let counts: Vec<(String, usize)> = most_records(&builds)
-            .into_iter()
-            .map(|s| (s.name, s.count))
-            .collect();
-        assert_eq!(counts, [("Alex".to_owned(), 3), ("Bob".to_owned(), 1)]);
+        ]
     }
 
+    /// Records are first places on boards of two or more builds, each
+    /// trait changing who is first: a, first of all, is first of the CCAs
+    /// too, so they make no record; of the CLAs, d is fastest and e
+    /// smallest; and of the 4-tick builds, b is smallest.
     #[test]
-    fn the_most_contested_boards_have_the_most_builders() {
-        let by = |name: &str, s: Schematic| Schematic {
-            builders: vec![name.to_owned()],
-            ..s
-        };
-        let builds = [
-            // 8-bit: CCAs by all three people, so no board of their own,
-            // and CLAs by one.
-            by("alex", build("a", 8, "carry_cancel", Some(3), 684)),
-            by("Bob", build("b", 8, "carry_cancel", Some(4), 900)),
-            by("cy", build("c", 8, "carry_cancel", Some(4), 950)),
-            by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
-            by("ALEX", build("e", 8, "carry_lookahead", Some(8), 3762)),
-            // 16-bit: two CCAs by one person, so no CCA board of its own.
-            by("bob", build("f", 16, "carry_cancel", Some(4), 1960)),
-            by("bob", build("g", 16, "carry_cancel", Some(5), 1900)),
-            // Alone on its board.
-            by("cy", build("h", 32, "carry_cancel", Some(6), 4000)),
-        ];
-        let builds: Vec<&Schematic> = builds.iter().collect();
-        let arenas = arenas(&builds);
-        let found: Vec<(i64, Option<&str>, usize, usize)> = arenas
+    fn records_are_first_places_each_trait_changes() {
+        let adders = credited_adders();
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let records = records(&builds);
+        let found: Vec<(String, Vec<&str>)> = records
             .iter()
-            .map(|a| {
-                let design = a.design.as_ref().map(|(name, _)| name.as_str());
-                (a.measures[0].1, design, a.builders, a.builds.len())
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
             })
             .collect();
         assert_eq!(
             found,
             [
-                (8, None, 3, 5),
-                (8, Some("carry_lookahead"), 1, 2),
-                (16, None, 1, 2),
+                ("Smallest 8-bit adder".to_owned(), vec!["a"]),
+                ("Smallest 4-tick 8-bit adder".to_owned(), vec!["b"]),
+                ("Smallest 8-bit carry lookahead adder".to_owned(), vec!["e"]),
+                ("Fastest 8-bit carry lookahead adder".to_owned(), vec!["d"]),
             ]
+        );
+        let counts: Vec<(String, usize)> = most_records(&records)
+            .into_iter()
+            .map(|s| (s.name, s.count))
+            .collect();
+        assert_eq!(counts, [("Alex".to_owned(), 2), ("bob".to_owned(), 2)]);
+    }
+
+    /// When builds tie on the fewest ticks, size decides, so the record is
+    /// the smallest at that latency, not the fastest.
+    #[test]
+    fn a_tie_on_ticks_makes_a_record_of_the_smallest_at_them() {
+        let adders = [
+            build("a", 8, "other", Some(3), 900),
+            build("b", 8, "other", Some(3), 700),
+            build("c", 8, "other", Some(5), 400),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(
+            names,
+            ["Smallest 8-bit adder", "Smallest 3-tick 8-bit adder"]
         );
     }
 

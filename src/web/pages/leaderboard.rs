@@ -3,10 +3,14 @@
 use maud::{Markup, html};
 
 use crate::{
-    leaderboard::{self, Arena, Board, Choice, Placed, SHOWN, Standing, State},
+    leaderboard::{
+        self, Board, Choice, Placed, Rank, Record, SHOWN, Standing, State,
+        in_sentence,
+    },
     models::{
         catalogue::{Category, Measure},
         schematic::{Orientation, Schematic},
+        tag::Kind,
         user::User,
     },
 };
@@ -24,13 +28,13 @@ pub struct LeaderboardPage<'a> {
     pub facets: &'a [Facet],
 }
 
-/// The leaderboards' front page: the boards most contested, and who
-/// built, added, and holds the records for the most builds.
+/// The leaderboards' front page: the records most contested, and who
+/// built, added, and holds the most records.
 pub struct PeoplePage<'a> {
-    pub arenas: &'a [Arena<'a>],
+    pub records: &'a [Record<'a>],
     pub built: &'a [Standing],
     pub added: &'a [Standing],
-    pub records: &'a [Standing],
+    pub holders: &'a [Standing],
     /// Categories with builds to rank, for the sidebar.
     pub facets: &'a [Facet],
 }
@@ -49,10 +53,10 @@ fn board_menu(facets: &[Facet], current: &str) -> Markup {
 
 pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
     let PeoplePage {
-        arenas,
+        records,
         built,
         added,
-        records,
+        holders,
         facets,
     } = *page;
     let builder = |s: &Standing| super::player_href(&s.name);
@@ -71,87 +75,69 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
                     h1 class={ (PAGE_TITLE) " mr-auto" } { "Leaderboards" }
                     (board_menu(facets, ""))
                 }
-                (contested(arenas, facets))
-                h2 class={ (SECTION_TITLE) " mt-10 mb-1" } { "People" }
-                p class="mb-4 max-w-prose text-meta text-muted" {
-                    "A record is first place, fastest or smallest, on a board of two or more builds."
-                }
+                (contested(records))
+                h2 class={ (SECTION_TITLE) " mt-10 mb-4" } { "People" }
                 div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
                     (standings("most-built", "Most builds", "Builds", built, builder))
                     (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
-                    (standings("most-records", "Most records", "Records", records, builder))
+                    (standings("most-records", "Most records", "Records", holders, builder))
                 }
             }
         },
     )
 }
 
-/// The boards most contested, each linking to its leaderboard, with how
-/// many built for it and the records to beat; `facets` name the categories.
-fn contested(arenas: &[Arena], facets: &[Facet]) -> Markup {
+/// The records most contested, each build's under the board with the
+/// most builders it is first on.
+fn contested(records: &[Record]) -> Markup {
+    let mut shown: Vec<&Record> = Vec::new();
+    for record in records {
+        let same = |other: &&Record| {
+            other.holders.len() == record.holders.len()
+                && other
+                    .holders
+                    .iter()
+                    .zip(&record.holders)
+                    .all(|(a, b)| a.id == b.id)
+        };
+        if !shown.iter().any(same) {
+            shown.push(record);
+        }
+    }
     html! {
-        section aria-labelledby="contested" {
-            h2 id="contested" class={ (SECTION_TITLE) " mb-1" } { "Most contested" }
+        section aria-labelledby="records" {
+            h2 id="records" class={ (SECTION_TITLE) " mb-1" } { "Records" }
             p class="mb-2 max-w-prose text-meta text-muted" {
-                "Boards with the most builders, then the most builds."
+                "First place on boards of two or more builds, each tag or latency changing who is first. Most builders first."
             }
-            @if arenas.is_empty() {
+            @if shown.is_empty() {
                 p class="text-muted" { "No board has two builds yet." }
             } @else {
-                div class="relative overflow-x-auto" {
-                    table class="w-full border-collapse" {
-                        thead {
-                            tr {
-                                th scope="col" class=(TABLE_HEAD) { "Board" }
-                                th scope="col" class=(TABLE_HEAD) { "Fastest" }
-                                th scope="col" class=(TABLE_HEAD) { "Smallest" }
-                            }
-                        }
-                        tbody {
-                            @for arena in arenas.iter().take(SHOWN) {
-                                (arena_row(arena, facets))
-                            }
-                        }
-                    }
+                (record_table(&shown, None))
+                @if shown.len() > SHOWN {
+                    p class="mt-2 text-meta text-muted" { "And " (shown.len() - SHOWN) " more." }
                 }
             }
         }
     }
 }
 
-/// One contested board: its name, linking to it, with how many builds and
-/// builders, and the build first as fastest and as smallest.
-fn arena_row(arena: &Arena, facets: &[Facet]) -> Markup {
-    let path = format!("/leaderboards/{}", arena.category);
-    let href = Address {
-        measures: arena.measures.clone(),
-        logic: Some(arena.logic),
-        orientation: Some(arena.orientation),
-        design: arena.design.as_ref().map(|(name, _)| name.as_str()),
-    }
-    .href(&path);
-    let plural = facets
-        .iter()
-        .find(|f| f.name == arena.category)
-        .map_or_else(|| arena.category.to_owned(), |f| in_sentence(&f.label));
-    let name = arena
-        .measures
-        .iter()
-        .map(|(measure, n)| measure.lead(*n))
-        .chain(arena.logic_named.then(|| arena.logic.name().to_owned()))
-        .chain([arena.orientation.label().to_lowercase()])
-        .chain(arena.design.as_ref().map(|(_, label)| label.clone()))
-        .chain([plural])
-        .collect::<Vec<_>>()
-        .join(" ");
-    let fastest = leaderboard::fastest(&arena.builds);
-    let smallest = leaderboard::smallest(&arena.builds);
-    let record = |placed: &[Placed], value: fn(&Schematic) -> String| {
-        html! {
-            @if let Some((_, s)) = placed.first() {
-                a href={ "/schematics/" (s.id) } { (value(s)) }
-            }
-        }
+/// The first [`SHOWN`] of `records`, each linking to its board, with how
+/// many built for it and the record itself, linking to the build holding
+/// it; or, for a `player`, every one, with the name of the build of theirs
+/// holding it.
+pub(super) fn record_table(
+    records: &[&Record],
+    player: Option<&str>,
+) -> Markup {
+    let named = player.is_some();
+    let holder = |record: &Record<'_>| -> String {
+        let theirs = record.holders.iter().find(|s| {
+            s.builders
+                .iter()
+                .any(|b| player.is_some_and(|p| b.eq_ignore_ascii_case(p)))
+        });
+        theirs.unwrap_or(&record.holders[0]).id.clone()
     };
     let count = |n: usize, one: &str| {
         if n == 1 {
@@ -161,17 +147,71 @@ fn arena_row(arena: &Arena, facets: &[Facet]) -> Markup {
         }
     };
     html! {
-        tr class="hover:bg-selection/50" {
-            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                a href=(href) class="font-semibold" { (name) }
-                div class="mt-1 text-meta text-muted" {
-                    (count(arena.builders, "builder")) " · " (count(arena.builds.len(), "build"))
+        div class="relative overflow-x-auto" {
+            table class="w-full border-collapse" {
+                thead {
+                    tr {
+                        th scope="col" class=(TABLE_HEAD) { "Record" }
+                        @if named {
+                            th scope="col" class=(TABLE_HEAD) { "Build" }
+                        }
+                        th scope="col" class=(TABLE_HEAD) { "Holds at" }
+                    }
+                }
+                tbody {
+                    @for record in records.iter().take(if named { usize::MAX } else { SHOWN }) {
+                        @let id = holder(record);
+                        @let holder = record.holders.iter().find(|s| s.id == id).unwrap_or(&record.holders[0]);
+                        @let href = format!("/schematics/{}", holder.id);
+                        tr class="hover:bg-selection/50" {
+                            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
+                                a href=(record_href(record)) class="font-semibold" { (record.name()) }
+                                div class="mt-1 text-meta text-muted" {
+                                    (count(record.builders, "builder")) " · " (count(record.field.len(), "build"))
+                                }
+                            }
+                            @if named {
+                                td class=(TABLE_CELL) {
+                                    a href=(href) { (holder.title()) }
+                                }
+                            }
+                            td class={ (TABLE_CELL) " tabular-nums" } {
+                                a href=(href) {
+                                    @match record.rank {
+                                        Rank::Fastest => (ticks(holder)),
+                                        Rank::Smallest => (blocks(holder)),
+                                    }
+                                }
+                                @if record.holders.len() > 1 {
+                                    div class="mt-1 text-meta text-muted" { (record.holders.len()) " tied" }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            td class={ (TABLE_CELL) " tabular-nums" } { (record(&fastest, ticks)) }
-            td class={ (TABLE_CELL) " tabular-nums" } { (record(&smallest, blocks)) }
         }
     }
+}
+
+/// The address of the board a record is first on.
+fn record_href(record: &Record) -> String {
+    let of = |kind: Kind| record.tags.iter().find(|tag| tag.kind == kind);
+    Address {
+        measures: record.measures.clone(),
+        logic: Some(record.logic),
+        orientation: of(Kind::Orientation)
+            .map(|_| record.holders[0].orientation),
+        design: of(Kind::Design).map(|tag| tag.name.as_str()),
+        ticks: record.ticks,
+        tags: record
+            .tags
+            .iter()
+            .filter(|tag| !matches!(tag.kind, Kind::Design | Kind::Orientation))
+            .map(|tag| tag.name.as_str())
+            .collect(),
+    }
+    .href(&format!("/leaderboards/{}", record.category))
 }
 
 /// One people ranking under `heading`: the first [`SHOWN`], each linking
@@ -272,6 +312,8 @@ struct Address<'a> {
     logic: Option<State>,
     orientation: Option<Orientation>,
     design: Option<&'a str>,
+    ticks: Option<i64>,
+    tags: Vec<&'a str>,
 }
 
 impl Address<'_> {
@@ -282,10 +324,14 @@ impl Address<'_> {
         for (measure, n) in &self.measures {
             params.append_pair(measure.name(), &n.to_string());
         }
+        let ticks = self.ticks.map(|t| t.to_string());
+        let tags = (!self.tags.is_empty()).then(|| self.tags.join(","));
         let named = [
             ("logic", self.logic.map(State::name)),
             ("orientation", self.orientation.map(Orientation::name)),
             ("design", self.design),
+            ("ticks", ticks.as_deref()),
+            ("tags", tags.as_deref()),
         ];
         for (name, value) in named {
             if let Some(value) = value {
@@ -309,21 +355,36 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
         .collect()
 }
 
-/// The measures, such as width, then the logic, orientation, and design
-/// the board is narrowed to. Changing one resets those after it,
-/// which the new choice may not have.
+/// The measures, such as width, then the logic, orientation, design,
+/// latency, and tags the board is narrowed to. Changing a measure or the
+/// logic resets those after it, which the new choice may not have; the
+/// rest keep one another.
 fn choices(path: &str, board: &Board) -> Markup {
     let measured = Address {
         measures: chosen_measures(board, board.splits.len()),
         ..Address::default()
     };
-    let logic = Address {
+    let current = Address {
         logic: board.logic,
+        orientation: board.orientation,
+        design: board.design.as_deref().filter(|_| board.all_designs),
+        ticks: board.ticks,
+        tags: board.tags.iter().map(String::as_str).collect(),
         ..measured.clone()
     };
-    let orientation = Address {
-        orientation: board.orientation,
-        ..logic.clone()
+    let toggled = |tag: &str| {
+        let mut tags = current.tags.clone();
+        match tags.iter().position(|t| *t == tag) {
+            Some(i) => {
+                tags.remove(i);
+            }
+            None => tags.push(tag),
+        }
+        Address {
+            tags,
+            ..current.clone()
+        }
+        .href(path)
     };
     html! {
         div class="mb-6 flex flex-col gap-2" {
@@ -337,20 +398,35 @@ fn choices(path: &str, board: &Board) -> Markup {
             }
             @if !board.logics.is_empty() {
                 (choice_row("State", &board.logics, |c| {
-                    (logic.logic == Some(c.value),
+                    (board.logic == Some(c.value),
                         Address { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
             }
-            (choice_row("Orientation", &board.orientations, |c| {
-                (orientation.orientation == Some(c.value),
-                    Address { orientation: Some(c.value), ..logic.clone() }.href(path))
-            }, None))
+            @if board.orientations.len() > 1 || board.orientation.is_some() {
+                @let all = (board.orientation.is_none(), Address { orientation: None, ..current.clone() }.href(path));
+                (choice_row("Orientation", &board.orientations, |c| {
+                    (board.orientation == Some(c.value),
+                        Address { orientation: Some(c.value), ..current.clone() }.href(path))
+                }, Some(all)))
+            }
             @if !board.designs.is_empty() {
-                @let all = board.all_designs.then(|| (board.design.is_none(), orientation.href(path)));
+                @let all = board.all_designs.then(|| (board.design.is_none(), Address { design: None, ..current.clone() }.href(path)));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        Address { design: Some(&c.value), ..orientation.clone() }.href(path))
+                        Address { design: Some(&c.value), ..current.clone() }.href(path))
                 }, all))
+            }
+            @if board.latencies.len() > 1 || board.ticks.is_some() {
+                @let all = (board.ticks.is_none(), Address { ticks: None, ..current.clone() }.href(path));
+                (choice_row("Ticks", &board.latencies, |c| {
+                    (board.ticks == Some(c.value),
+                        Address { ticks: Some(c.value), ..current.clone() }.href(path))
+                }, Some(all)))
+            }
+            @if !board.tag_choices.is_empty() {
+                (choice_row("Tags", &board.tag_choices, |c| {
+                    (board.tags.contains(&c.value), toggled(&c.value))
+                }, None))
             }
         }
     }
@@ -441,8 +517,8 @@ fn rankings(category: &Category, board: &Board) -> Markup {
     }
 }
 
-/// What the board holds, such as `8-bit horizontal Carry Cancel (CCA)
-/// adders`.
+/// What the board holds, such as `3-tick 8-bit synced horizontal Carry
+/// Cancel (CCA) adders`.
 fn board_name(category: &Category, board: &Board) -> String {
     let orientation = board.orientation.map(|o| o.label().to_lowercase());
     let design = board.design.as_ref().and_then(|d| {
@@ -452,10 +528,22 @@ fn board_name(category: &Category, board: &Board) -> String {
             .find(|c| &c.value == d)
             .map(|c| c.label.clone())
     });
+    let tags = board.tags.iter().map(|t| {
+        board
+            .tag_choices
+            .iter()
+            .find(|c| &c.value == t)
+            .map_or_else(|| t.replace('_', " "), |c| c.label.clone())
+    });
     board
-        .splits
-        .iter()
-        .filter_map(|split| split.chosen.map(|n| split.measure.lead(n)))
+        .ticks
+        .map(|t| format!("{t}-tick"))
+        .into_iter()
+        .chain(
+            board.splits.iter().filter_map(|split| {
+                split.chosen.map(|n| split.measure.lead(n))
+            }),
+        )
         // Named only where the category has builds of each.
         .chain(
             board
@@ -463,29 +551,10 @@ fn board_name(category: &Category, board: &Board) -> String {
                 .filter(|_| !board.logics.is_empty())
                 .map(|logic| logic.name().to_owned()),
         )
+        .chain(tags)
         .chain(orientation)
         .chain(design)
         .chain([in_sentence(&category.plural)])
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// A category's name as a sentence carries it, such as `ripple adders`,
-/// each word lowercased but one that starts with two capitals, such as
-/// `ALUs`.
-fn in_sentence(name: &str) -> String {
-    name.split(' ')
-        .map(|word| {
-            let mut letters = word.chars().filter(char::is_ascii_alphabetic);
-            let acronym =
-                letters.next().is_some_and(|c| c.is_ascii_uppercase())
-                    && letters.next().is_some_and(|c| c.is_ascii_uppercase());
-            if acronym {
-                word.to_owned()
-            } else {
-                word.to_lowercase()
-            }
-        })
         .collect::<Vec<_>>()
         .join(" ")
 }

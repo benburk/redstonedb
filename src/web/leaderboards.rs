@@ -17,7 +17,7 @@ use crate::{
 
 use super::pages;
 
-/// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel`,
+/// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`,
 /// each optional, with a value of each of the category's measures, such as
 /// `throughput` for a serial one, `at_least` for a threshold, and `pulse`
 /// for a monostable.
@@ -31,6 +31,9 @@ pub struct BoardQuery {
     logic: Option<String>,
     orientation: Option<String>,
     design: Option<String>,
+    ticks: Option<String>,
+    /// Tag names joined by commas, as `synced,torchless`.
+    tags: Option<String>,
 }
 
 /// The category the menu of leaderboards chose, as in `?category=adder`.
@@ -39,8 +42,8 @@ pub struct Chosen {
     category: Option<String>,
 }
 
-/// A standard category's leaderboard, narrowed to one width, orientation,
-/// and design.
+/// A standard category's leaderboard, narrowed to one width and state, and
+/// any orientation, design, latency, and tags.
 pub async fn show(
     Path(category): Path<String>,
     Query(query): Query<BoardQuery>,
@@ -69,6 +72,14 @@ pub async fn show(
         logic: parsed(query.logic),
         orientation: parsed(query.orientation),
         design: query.design.filter(|d| !d.is_empty()),
+        ticks: parsed(query.ticks),
+        tags: query
+            .tags
+            .iter()
+            .flat_map(|tags| tags.split(','))
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_owned)
+            .collect(),
     };
     let own: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
@@ -92,7 +103,7 @@ fn parsed<T: std::str::FromStr>(value: Option<String>) -> Option<T> {
     value?.parse().ok()
 }
 
-/// The leaderboards' front page: the boards most contested, and who
+/// The leaderboards' front page: the records most contested, and who
 /// built, added, and holds the records for the most builds.
 pub async fn people(
     State(state): State<AppState>,
@@ -108,13 +119,14 @@ pub async fn people(
     let categories = catalogue::categories(&state.db).await?;
     let stacks = leaderboard::stacked(&all);
     let builds: Vec<&Schematic> = all.iter().chain(&stacks).collect();
+    let records = leaderboard::records(&builds);
     Ok(pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
-            arenas: &leaderboard::arenas(&builds),
+            records: &records,
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
-            records: &leaderboard::most_records(&all),
+            holders: &leaderboard::most_records(&records),
             facets: &facets(&categories, &all, ""),
         },
     )

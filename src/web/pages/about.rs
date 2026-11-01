@@ -111,6 +111,13 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
                         li { "Stackable builds also compete on the leaderboards at 8, 16, and 32 bits." }
                     }
+                    h2 id="records" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Records" }
+                    ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
+                        li { "A board is a category at one width and state, narrowed by up to three of: its latency, and tags RedstoneDB finds, like synced, torchless, alpha, a design, or an orientation." }
+                        li { "First place on a board of two or more builds, fastest or smallest, is a record." }
+                        li { "Each tag or latency has to change who's first. Most 8-bit adders are 3-tick CCAs, so there's no fastest CCA, but there is a smallest 3-tick adder." }
+                        li { "Fastest counts only when speed decides it. When builds tie on ticks, the record is the smallest at that latency." }
+                    }
                     h2 id="per-category" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Per-category rules" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
                         li { "Some builds have optional control lines and data inputs, like an adder's carry in or an incrementer's increment line." }
