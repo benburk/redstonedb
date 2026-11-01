@@ -131,10 +131,15 @@ const CASES: &[Case] = &[
     },
     Case {
         when: &[Starts("Couldn't recognize input")],
-        fix: "Put a lever on each input bit's block. Tests switch inputs on \
-              and off, so they can't give a signal strength through dust \
-              yet.",
+        fix: "Put a lever on each input bit's block. If its inputs take a hex \
+              digit per block through dust, upload it as a Hex Adder.",
         rule: Some("data-inputs"),
+    },
+    Case {
+        when: &[Is(crate::details::NO_HEX_INPUTS)],
+        fix: "Upload it as an Adder. A hex adder's inputs each take a hex \
+              digit, a signal strength through dust on top of the block.",
+        rule: Some("per-category"),
     },
     Case {
         when: &[Is("Couldn't read its inputs and outputs")],
@@ -235,6 +240,7 @@ mod tests {
     fn each_reason_for_an_unverified_build_has_advice() {
         for reason in [
             crate::details::WITHOUT_LEVERS,
+            crate::details::NO_HEX_INPUTS,
             "Couldn't read its inputs and outputs",
             "Couldn't read its file",
             "Couldn't count its bits",

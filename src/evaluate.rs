@@ -70,7 +70,12 @@ impl Evaluation {
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let prepared = import::prepare(file, false, true, true, false)?;
     let blocks = &prepared.blocks;
-    let category = simulate::guess(blocks).map(|guess| guess.category);
+    // An adder whose inputs take hex digits through dust is a hex adder.
+    let hex = !interface::dust_inputs(blocks).is_empty();
+    let category = simulate::guess(blocks).map(|guess| match guess.category {
+        "adder" if hex => "hex_adder",
+        category => category,
+    });
     let interface = interface::read(blocks);
     let read = category
         .map(|c| import::derived(c, &interface))
@@ -138,7 +143,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
                 Logic::Stateless
             }
         });
-        if category == Some("adder") {
+        if matches!(category, Some("adder" | "hex_adder")) {
             let variant = AdderVariant::of(&run.pattern);
             found.design = adder_design(&found.prepared.blocks, variant)?;
             run.design.clone_from(&found.design);

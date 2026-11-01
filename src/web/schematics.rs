@@ -613,8 +613,11 @@ pub async fn detail(
 /// function on its file `data`: one line for each fault. Empty for any
 /// other build.
 async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
+    // Probing doesn't read hex inputs, so a hex adder's faults are its
+    // test's.
     let Some(meant) = crate::models::simulation::stands_in(s)
         .filter(|meant| crate::category::BLESSED.contains(meant))
+        .filter(|meant| *meant != "hex_adder")
         .map(str::to_owned)
     else {
         return Vec::new();

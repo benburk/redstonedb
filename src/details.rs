@@ -224,7 +224,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
+            "Only adders, hex adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and shift registers go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )
@@ -397,9 +397,13 @@ pub async fn unrecognized(
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
         return off("Couldn't read its file".to_owned());
     };
-    // Until the simulator has a good way to drive one, a strength is no
-    // input a recognized build may take.
-    if !crate::interface::dust_inputs(&blocks).is_empty() {
+    // Inputs taking a strength, a hex digit per block, are a hex adder's,
+    // and no other's.
+    let hex = !crate::interface::dust_inputs(&blocks).is_empty();
+    if category.name == HEX_ADDER && !hex {
+        return off(NO_HEX_INPUTS.to_owned());
+    }
+    if category.name != HEX_ADDER && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
@@ -423,6 +427,12 @@ pub async fn unrecognized(
         _ => off(WRONG_OUTPUTS.to_owned()),
     }
 }
+
+/// The category of adders whose inputs take hex digits.
+const HEX_ADDER: &str = "hex_adder";
+
+/// Why a hex adder whose inputs are levers is not verified as one.
+pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
 
 /// Why a build that gets some cases of its test wrong is not verified.
 pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";

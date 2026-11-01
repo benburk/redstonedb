@@ -32,9 +32,15 @@ pub(super) enum Inverts {
 /// if it says any are.
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (category, flag) {
-        ("adder", "inverted_carry_in") => Inverts::Input(colour::CONTROL),
-        ("adder", "inverted_output") => Inverts::OutputsBut(colour::STATUS),
-        ("adder", "inverted_carry_out") => Inverts::Output(colour::STATUS),
+        ("adder" | "hex_adder", "inverted_carry_in") => {
+            Inverts::Input(colour::CONTROL)
+        }
+        ("adder" | "hex_adder", "inverted_output") => {
+            Inverts::OutputsBut(colour::STATUS)
+        }
+        ("adder" | "hex_adder", "inverted_carry_out") => {
+            Inverts::Output(colour::STATUS)
+        }
         (
             "register"
             | "buffer"

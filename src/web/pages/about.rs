@@ -116,11 +116,12 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Gates take A and B and give one output as wide. A torch on the output makes the inverse, so XOR and XNOR share a category, with a flag." }
                         li { "Multipliers take A and B, and at most one calculate button. No reset. A third input can be an addend, for A × B + C." }
                         li { "Counters take A, one clock button, and one write enable lever." }
+                        li { "Hex adders take A and B a hex digit per block, a signal strength through dust on top, in place of levers. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
                     }
                     p class="mb-4" {
-                        "Recognized so far: adders, ALUs, multipliers, incrementers, decrementers, comparators, "
+                        "Recognized so far: adders, hex adders, ALUs, multipliers, incrementers, decrementers, comparators, "
                         "carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, "
                         "inverters, decoders, barrel shifters, monostables, registers, buffers, counters, and "
                         "shift registers."

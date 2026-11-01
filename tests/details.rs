@@ -261,3 +261,27 @@ async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
     assert_eq!(ready.details.encoding, Some(Encoding::Binary));
     assert!(ready.details.flags.is_empty());
 }
+
+/// A hex adder, its inputs taking a hex digit per block through dust, is
+/// verified as a Hex Adder and not as an Adder; an adder driven by levers
+/// is verified as an Adder and not as a Hex Adder.
+#[tokio::test]
+async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
+    let db = setup_test_db().await;
+    // Standardized, as an upload is before it is checked.
+    let hex = prepared("hex-cca-8", true);
+    let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
+    assert_eq!(
+        why(check_file(&db, given("hex adder"), &hex, true).await),
+        None
+    );
+    assert_eq!(
+        why(check_file(&db, given("adder"), &hex, true).await).as_deref(),
+        Some(details::WITHOUT_LEVERS)
+    );
+    assert_eq!(why(check(&db, given("adder")).await), None);
+    assert_eq!(
+        why(check(&db, given("hex adder")).await).as_deref(),
+        Some(details::NO_HEX_INPUTS)
+    );
+}
