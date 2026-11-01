@@ -518,6 +518,22 @@ pub fn as_placed(state: &str) -> String {
     format!("{id}[{}]", kept.join(","))
 }
 
+/// `state` with its property `key` set to `value`.
+pub fn with_property(state: &str, key: &str, value: &str) -> String {
+    let Some((id, rest)) = state.split_once('[') else {
+        return state.to_owned();
+    };
+    let properties: Vec<String> = rest
+        .trim_end_matches(']')
+        .split(',')
+        .map(|pair| match pair.split_once('=') {
+            Some((k, _)) if k == key => format!("{k}={value}"),
+            _ => pair.to_owned(),
+        })
+        .collect();
+    format!("{id}[{}]", properties.join(","))
+}
+
 /// A property of a block state, such as `facing`.
 pub fn property<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     let properties = state.split_once('[')?.1.strip_suffix(']')?;

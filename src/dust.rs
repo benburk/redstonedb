@@ -121,27 +121,11 @@ pub fn reshaped(blocks: &Blocks) -> HashMap<Pos, String> {
             let sides = shape(blocks, pos);
             let mut now = state.to_owned();
             for (direction, side) in Direction::SIDES.iter().zip(sides) {
-                now = with_property(&now, direction.name(), side.name());
+                now = schem::with_property(&now, direction.name(), side.name());
             }
             (now != state).then_some((pos, now))
         })
         .collect()
-}
-
-/// `state` with its property `key` set to `value`.
-fn with_property(state: &str, key: &str, value: &str) -> String {
-    let Some((id, rest)) = state.split_once('[') else {
-        return state.to_owned();
-    };
-    let properties: Vec<String> = rest
-        .trim_end_matches(']')
-        .split(',')
-        .map(|pair| match pair.split_once('=') {
-            Some((k, _)) if k == key => format!("{k}={value}"),
-            _ => pair.to_owned(),
-        })
-        .collect();
-    format!("{id}[{}]", properties.join(","))
 }
 
 fn is_dust(state: &str) -> bool {

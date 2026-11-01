@@ -10,7 +10,7 @@
 //! same kind, solid, see-through, or one a comparator reads, as a furnace
 //! is and the barrel standing in for it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
@@ -177,7 +177,7 @@ pub fn apply(data: &[u8], colouring: &Colouring) -> Result<Vec<u8>> {
         let [w, h, l] = blocks.size;
         (0..w).contains(&x) && (0..h).contains(&y) && (0..l).contains(&z)
     };
-    let changes: BTreeMap<Pos, String> = colouring
+    let mut changes: BTreeMap<Pos, String> = colouring
         .iter()
         .filter(|(pos, block)| {
             inside(*pos)
@@ -189,7 +189,48 @@ pub fn apply(data: &[u8], colouring: &Colouring) -> Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data.to_vec());
     }
+    lamps_at_rest(data, &blocks, &mut changes)?;
     standardize::edit(data, &changes)
+}
+
+/// Each lamp among `changes`, a colouring of the file in `data` read as
+/// `blocks`, lit as the build at rest lights it, as `//update` would, not
+/// as its builder's file was saved: the stored file settled with those
+/// lamps in it and its levers as they are. Its other building blocks carry
+/// power as the builder's do, which the simulator may not model, such as
+/// wool.
+fn lamps_at_rest(
+    data: &[u8],
+    blocks: &Blocks,
+    changes: &mut BTreeMap<Pos, String>,
+) -> Result<()> {
+    let off = |state: &str| schem::with_property(state, "lit", "false");
+    let lamps: BTreeMap<Pos, String> = changes
+        .iter()
+        .filter(|(_, block)| schem::short(block) == "redstone_lamp")
+        .map(|(&pos, block)| (pos, off(block)))
+        .collect();
+    if lamps.is_empty() {
+        return Ok(());
+    }
+    let with_lamps = Blocks::read(&standardize::edit(data, &lamps)?)?;
+    let on: BTreeSet<Pos> = blocks
+        .iter()
+        .filter(|(_, state)| {
+            schem::short(state) == "lever"
+                && schem::property(state, "powered") == Some("true")
+        })
+        .map(|(pos, _)| pos)
+        .collect();
+    let (settled, _) = crate::simulate::settled(&with_lamps, &on)?;
+    for (pos, lamp) in lamps {
+        let lit = settled
+            .get(&pos)
+            .and_then(|state| schem::property(state, "lit"))
+            .unwrap_or("false");
+        changes.insert(pos, schem::with_property(&lamp, "lit", lit));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
