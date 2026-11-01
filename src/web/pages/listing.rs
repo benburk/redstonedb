@@ -560,7 +560,7 @@ fn badges(s: &Schematic, class: &str) -> Markup {
 }
 
 /// The tags of build `s` its card shows: not its design or orientation,
-/// nor a flag its picture shows plainly, nor any its name says in words.
+/// nor a flag in [`SEEN`], nor any its name says in words.
 fn on_card(s: &Schematic) -> Vec<Tag> {
     let name = format!(" {} ", s.name().to_lowercase());
     s.every_tag()
@@ -573,8 +573,15 @@ fn on_card(s: &Schematic) -> Vec<Tag> {
         .collect()
 }
 
-/// Flags a build's picture shows plainly, left off its card.
-const SEEN: [&str; 4] = ["carry_in", "carry_out", "borrow_in", "borrow_out"];
+/// Flags left off a card: those its picture shows plainly, and an
+/// inverted carry in, which says only how one line is read.
+const SEEN: [&str; 5] = [
+    "carry_in",
+    "carry_out",
+    "borrow_in",
+    "borrow_out",
+    "inverted_carry_in",
+];
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
@@ -897,8 +904,9 @@ mod tests {
         s
     }
 
-    /// A card leaves out what its picture or name makes plain, and keeps
-    /// what is hard to tell, such as an inverted line or stacking.
+    /// A card leaves out what its picture or name makes plain, or says
+    /// little, such as an inverted carry in, and keeps what is hard to
+    /// tell, such as stacking.
     #[test]
     fn a_card_shows_only_the_tags_hard_to_tell() {
         let mut s = adder(
@@ -916,7 +924,7 @@ mod tests {
         let names = |s: &Schematic| -> Vec<String> {
             on_card(s).into_iter().map(|tag| tag.name).collect()
         };
-        assert_eq!(names(&s), ["inverted_carry_in", "stackable", "pistons"]);
+        assert_eq!(names(&s), ["stackable", "pistons"]);
         let mut gate = adder("other", &["xnor"], &[]);
         gate.category = "xor_xnor_gate".to_owned();
         assert!(gate.name().contains("XNOR"), "{}", gate.name());
