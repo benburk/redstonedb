@@ -578,6 +578,32 @@ pub(super) fn remembers(
     Ok(false)
 }
 
+/// Whether the build holds state with any of `settings` held, each a
+/// value for the lines that choose what it does, as an ALU's operation, as
+/// [`remembers`] tells of a bench driving `inputs` and reading `outputs`.
+pub(super) fn remembers_any(
+    blocks: &Blocks,
+    interface: &Interface,
+    (inputs, outputs): (&[usize], &[usize]),
+    settings: impl IntoIterator<Item = Vec<(usize, u64)>>,
+) -> Result<bool> {
+    for held in settings {
+        let bench = Bench {
+            inputs: inputs.to_vec(),
+            outputs: outputs.to_vec(),
+            pattern: String::new(),
+            held,
+            care: u64::MAX,
+            press: None,
+            invertible: false,
+        };
+        if remembers(blocks, interface, &bench)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Presses control line `port`: its button, or its lever turned on and,
 /// once that settles, off.
 pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {

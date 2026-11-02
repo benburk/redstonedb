@@ -750,35 +750,31 @@ fn zero(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let interface = crate::recognize::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
-    let mut slowest: Option<Timing> = None;
-    let mut synced = true;
-    for selection in selections(blocks, &interface, &alu)? {
-        let mut inputs = vec![alu.a, alu.b];
-        let mut held = selection.held.clone();
-        if selection.op.takes_carry()
-            && let Some(port) = alu.carry_in
-        {
-            inputs.push(port);
-            held.retain(|&(p, _)| p != port);
-        }
-        let timing =
-            timing::measure(blocks, &interface, &inputs, &held, None, cancel)?;
-        synced &= timing
+    let timings =
+        selections(blocks, &interface, &alu)?
+            .into_iter()
+            .map(|selection| {
+                let mut inputs = vec![alu.a, alu.b];
+                let mut held = selection.held;
+                if selection.op.takes_carry()
+                    && let Some(port) = alu.carry_in
+                {
+                    inputs.push(port);
+                    held.retain(|&(p, _)| p != port);
+                }
+                timing::measure(
+                    blocks, &interface, &inputs, &held, None, cancel,
+                )
+            });
+    // Its status lines, such as a carry out, may settle in steps.
+    let synced = |timing: &Timing| {
+        timing
             .outputs
             .iter()
             .filter(|output| !output.status)
-            .all(|output| output.glitches == 0 && output.staggered == 0);
-        if slowest
-            .as_ref()
-            .is_none_or(|s| timing.latency() > s.latency())
-        {
-            slowest = Some(timing);
-        }
-    }
-    let mut timing =
-        slowest.ok_or_else(|| Broken("no operation to time".to_owned()))?;
-    timing.synced = synced;
-    Ok(timing)
+            .all(|output| output.glitches == 0 && output.staggered == 0)
+    };
+    timing::slowest(timings, synced, "no operation to time")
 }
 
 /// The flags the ALU in `blocks` shows: each operation its test checks but
@@ -816,21 +812,15 @@ pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
 pub fn remembers(blocks: &Blocks) -> Result<bool> {
     let interface = crate::recognize::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
-    for selection in selections(blocks, &interface, &alu)? {
-        let bench = Bench {
-            inputs: vec![alu.a, alu.b],
-            outputs: (0..interface.outputs.len()).collect(),
-            pattern: selection.label.clone(),
-            held: selection.held.clone(),
-            care: u64::MAX,
-            press: None,
-            invertible: false,
-        };
-        if bench::remembers(blocks, &interface, &bench)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    let outputs: Vec<usize> = (0..interface.outputs.len()).collect();
+    bench::remembers_any(
+        blocks,
+        &interface,
+        (&[alu.a, alu.b], &outputs),
+        selections(blocks, &interface, &alu)?
+            .into_iter()
+            .map(|selection| selection.held),
+    )
 }
 
 /// How often the ALU in `blocks`, timed as `timing`, takes a new case, as
@@ -846,44 +836,13 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if ops.is_empty() {
         return Ok(None);
     }
-    let latency: Vec<i32> = timing
-        .outputs
-        .iter()
-        .map(|o| o.latency + o.carried)
-        .collect();
-    if latency.len() != interface.outputs.len() {
-        return Ok(None);
-    }
-    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
-    let short = streamed(&interface, &alu, &ops, super::throughput::CASES);
-    let long = streamed(&interface, &alu, &ops, super::throughput::LONG);
-    let mut best: Option<i32> = None;
-    for offset in -slowest..=slowest {
-        let offsets: Vec<i32> = (0..interface.inputs.len())
-            .map(|port| {
-                if alu.lines.iter().any(|&(line, _)| line == port) {
-                    offset
-                } else {
-                    0
-                }
-            })
-            .collect();
-        let most = best.map_or(2 * slowest, |b| b - 1);
-        if most < 1 {
-            break;
-        }
-        let found = super::throughput::shortest(
-            blocks,
-            (&short, &long),
-            &offsets,
-            &latency,
-            most,
-        )?;
-        if found.is_some() {
-            best = found;
-        }
-    }
-    Ok(best)
+    super::throughput::controlled(
+        blocks,
+        &interface,
+        timing,
+        |port| alu.lines.iter().any(|&(line, _)| line == port),
+        |count| streamed(&interface, &alu, &ops, count),
+    )
 }
 
 /// A fixed stream of `count` cases for `alu`, from a simple generator:

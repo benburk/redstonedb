@@ -12,14 +12,7 @@ use super::{
     converters::byte_cases,
     stacking,
 };
-use crate::{
-    models::schematic::Orientation,
-    recognize::{
-        colour,
-        interface::{self, Interface},
-    },
-    schem::{Blocks, stack},
-};
+use crate::recognize::{colour, interface::Interface};
 
 /// An inverter's every case, or with too many, each byte's and the test
 /// patterns, each with its line off and on: A, or every bit of it
@@ -94,28 +87,11 @@ fn ports(interface: &Interface) -> Result<(usize, usize)> {
 /// invert every bit with the one line, then the most copies that do.
 /// `None` when it is no inverter.
 pub fn stacking(data: &[u8]) -> Option<Stacking> {
-    let blocks = Blocks::read(data).ok()?;
-    let interface = interface::read(&blocks);
-    let (a, _) = ports(&interface).ok()?;
-    let width = interface.inputs[a].bits.len();
-    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses = stack::Buses::of("inverter", Orientation::Horizontal);
-    let works = |blocks: &Blocks, copies: usize| {
-        let interface = interface::read(blocks);
-        let (a, _) = ports(&interface).ok()?;
-        let super::Report::Ran(run) = Test::Inverter.run(blocks) else {
-            return None;
-        };
-        (run.wrong == 0 && interface.inputs[a].bits.len() == width * copies)
-            .then_some(run.cases)
-    };
-    Some(stacking::into_bits(
+    stacking::bitwise(
         data,
-        reach,
-        width,
-        buses,
-        works,
+        Test::Inverter,
+        |interface| ports(interface).ok().map(|(a, _)| a),
         "No step west or up, as far as it reaches, makes copies that one \
          control line inverts together.",
-    ))
+    )
 }
