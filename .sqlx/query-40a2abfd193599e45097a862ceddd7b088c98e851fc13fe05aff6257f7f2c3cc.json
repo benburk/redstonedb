@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT uploaded_by AS \"uploaded_by: uuid::Uuid\"\n           FROM schematic WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "uploaded_by: uuid::Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "40a2abfd193599e45097a862ceddd7b088c98e851fc13fe05aff6257f7f2c3cc"
+}

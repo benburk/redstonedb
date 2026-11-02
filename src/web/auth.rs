@@ -94,11 +94,11 @@ pub async fn callback(
         }
     };
     // A new account sees the welcome steps, once.
-    let welcome: Option<i64> = sqlx::query_scalar(
+    let welcome = sqlx::query_scalar!(
         "UPDATE user SET welcomed = 1 WHERE id = ? AND welcomed = 0
-         RETURNING 1",
+         RETURNING welcomed",
+        user.id,
     )
-    .bind(user.id)
     .fetch_optional(&state.db)
     .await
     .unwrap_or(None);
