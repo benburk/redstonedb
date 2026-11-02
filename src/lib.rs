@@ -16,6 +16,5 @@ pub mod search;
 pub mod similarity;
 pub mod simulate;
 pub mod thumbnail;
-pub mod util;
 pub mod version;
 pub mod web;
