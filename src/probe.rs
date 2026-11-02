@@ -920,11 +920,12 @@ fn probed_as(
 }
 
 /// Of the faults probing found as each of [`KINDS`], the one to show: the
-/// one it is meant as, if any; else
-/// the decoder's when it has one input line; the register's when it has a
-/// button, which only a register's writes and a sequential multiplier's
-/// lines are; the ALU's when it has more than one lone lever, its control
-/// lines; else the adder's.
+/// one it is meant as, if any; else one whose test ran and got cases
+/// wrong, as nearest to holding, over those that could not run. Of either
+/// kind, the decoder's when it has one input line; the register's when it
+/// has a button, which only a register's writes and a sequential
+/// multiplier's lines are; the ALU's when it has more than one lone lever,
+/// its control lines; else the adder's.
 fn fault_of(
     blocks: &Blocks,
     report: &inspect::Report,
@@ -937,21 +938,29 @@ fn fault_of(
             .position(|&k| k == kind)
             .and_then(|i| faults[i].clone())
     };
+    if let Some(kind) = meant {
+        return of(kind).unwrap_or_default();
+    }
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
         .inputs
         .iter()
         .filter(|run| run.bits.len() == 1)
         .count();
-    let (adder, register, alu) = (of("adder"), of("register"), of("alu"));
-    match meant {
-        Some(kind) => of(kind),
-        _ if report.inputs.len() == 1 => of("decoder").or(adder).or(register),
-        _ if buttons => register.or(of("multiplier")).or(adder).or(alu),
-        _ if lone > 1 => alu.or(adder).or(register),
-        _ => adder.or(register).or(alu),
-    }
-    .unwrap_or_default()
+    let order: &[&str] = match () {
+        () if report.inputs.len() == 1 => &["decoder", "adder", "register"],
+        () if buttons => &["register", "multiplier", "adder", "alu"],
+        () if lone > 1 => &["alu", "adder", "register"],
+        () => &["adder", "register", "alu"],
+    };
+    let candidates: Vec<String> = order.iter().filter_map(|k| of(k)).collect();
+    let ran = |why: &&String| why.starts_with("Doesn't hold");
+    candidates
+        .iter()
+        .find(ran)
+        .or(candidates.first())
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// A register as probing found it: its data bus in, its controls, writes
@@ -1767,6 +1776,26 @@ mod tests {
             found.found,
             found.problems
         );
+    }
+
+    /// A multiplier of the low byte whose A's top bit is wired wrong, its
+    /// calculate a wooden button: the register's try can't run, as it has
+    /// a button, but the multiplier's runs, so its fault is the one shown,
+    /// with the file coloured as the multiplier's try had it.
+    #[test]
+    fn a_try_that_ran_is_shown_over_one_that_could_not() {
+        let data =
+            std::fs::read("tests/fixtures/mult-8-low-byte-top-bit-wrong.schem")
+                .unwrap();
+        let found = recognize(&data).unwrap();
+        assert_eq!(found.found, None);
+        assert_eq!(found.problems, ["Doesn't hold: 29 of 121 cases wrong"]);
+        let width = crate::models::simulation::derived_width(
+            "multiplier",
+            true,
+            &found.file,
+        );
+        assert_eq!(width.unwrap(), Some(8));
     }
 
     /// A subtractor whose output reads inverted one way round reads, with
