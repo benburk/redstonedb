@@ -1,11 +1,12 @@
 //! Testing a decoder: input A, of some bits, into one output with a bit for
-//! each of A's values, the one A names on and the rest off, or, for an
-//! inverted one, that one off and the rest on.
+//! each of A's values, the one A names off and the rest on. A decoder's
+//! outputs are inverted, as a row of torches gives them; one whose
+//! selected bit is on and the rest off gets every case wrong.
 
 use anyhow::Result;
 
 use super::{
-    Broken, Report, Test,
+    Broken, Test,
     bench::{Bench, Cases, Kind, Spec, mask},
     stacking::{Apart, Stacking, Step},
 };
@@ -16,16 +17,12 @@ use crate::{
 };
 
 /// A decoder's cases, as they are named.
-const ON: &str = "bit A on";
-
-/// An inverted decoder's cases, as they are named, which its flag follows.
-pub const INVERTED: &str = "bit A off";
+const OFF: &str = "bit A off";
 
 /// The widest A a decoder is tested at: its output has a bit for each value.
 const WIDEST: usize = 6;
 
-/// A decoder's every case: each value of A, its bit on and the rest off,
-/// or every bit of that inverted, whichever the build gives.
+/// A decoder's every case: each value of A, its bit off and the rest on.
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let &[a] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
@@ -52,14 +49,11 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     }
     let all = mask(out_bits);
     Ok(Spec {
-        bench: Bench::new(vec![a], vec![out], ON),
+        bench: Bench::new(vec![a], vec![out], OFF),
         cases: Cases::Combinations(Box::new(move || {
             ((0..1 << width).map(|a| [a, 0, 0]).collect(), 0)
         })),
-        kinds: vec![
-            Kind::new(ON, |case| 1 << case[0]),
-            Kind::new(INVERTED, move |case| !(1 << case[0]) & all),
-        ],
+        kinds: vec![Kind::new(OFF, move |case| !(1 << case[0]) & all)],
         by_digit: false,
     })
 }
@@ -76,10 +70,6 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
     let blocks = Blocks::read(data).ok()?;
     let interface = interface::read(&blocks);
     spec(&interface).ok()?;
-    let Report::Ran(run) = Test::Decoder.run(&blocks) else {
-        return None;
-    };
-    let inverted = run.pattern == INVERTED;
     let (low, high) = interface::measured(&blocks);
     let reach = |axis: usize| i64::from(high[axis] - low[axis] + 1) + 2;
     let mut steps: Vec<Step> = (1..=reach(0))
@@ -92,7 +82,7 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         let stacked = Blocks::read(&stacked).ok()?;
-        apart(&stacked, &interface, (step, copies), inverted)
+        apart(&stacked, &interface, (step, copies))
     };
     // The shortest step each way, west and up, at which copies work.
     let ways: Vec<Apart> = [true, false]
@@ -146,7 +136,6 @@ fn apart(
     blocks: &Blocks,
     single: &Interface,
     (step, copies): (Step, usize),
-    inverted: bool,
 ) -> Option<u64> {
     let interface = interface::read(blocks);
     let (&[a], &[out]) = (
@@ -195,8 +184,7 @@ fn apart(
             each[k] |= (value >> i & 1) << j;
         }
         out_bits.iter().enumerate().fold(0, |output, (i, &(k, j))| {
-            let on =
-                (u64::try_from(j).unwrap_or(u64::MAX) == each[k]) != inverted;
+            let on = u64::try_from(j).unwrap_or(u64::MAX) != each[k];
             output | u64::from(on) << i
         })
     };
@@ -217,9 +205,9 @@ fn apart(
         (values.into_iter().map(|a| [a, 0, 0]).collect(), 0)
     };
     let spec = Spec {
-        bench: Bench::new(vec![a], vec![out], ON),
+        bench: Bench::new(vec![a], vec![out], OFF),
         cases: Cases::Combinations(Box::new(cases)),
-        kinds: vec![Kind::new(ON, move |case| decode(case[0]))],
+        kinds: vec![Kind::new(OFF, move |case| decode(case[0]))],
         by_digit: false,
     };
     let run = spec.check(blocks, &interface, false).ok()?;

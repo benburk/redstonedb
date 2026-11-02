@@ -72,7 +72,6 @@ pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use converters::at_least;
-pub use decoder::INVERTED as DECODER_INVERTED;
 pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::Gate;
 pub use shifter::flags as shifter_flags;
@@ -89,9 +88,10 @@ pub use timing::{
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
     /// The sums of A, B, and any carry in, or, B inverted, the differences
-    /// of A and B, less any borrow in, any line read inverted.
+    /// of A and B, less any borrow in, which may read inverted.
     Adder,
-    /// A's every value into one bit of an output, the one A names.
+    /// A's every value into one bit of an output, the one A names, off
+    /// and the rest on.
     Decoder,
     /// A nand B and A xnor B, on outputs of their own.
     NandXnor,
@@ -755,9 +755,9 @@ pub struct Guess {
 
 /// What the build in `blocks` seems to be: of the tests its inputs and
 /// outputs fit, the one whose telling values come out right most often, if
-/// three in four do, reading the fewest lines inverted on a tie, as a
-/// comparator is a carry out with B inverted. Quick enough to run before anyone says what it is,
-/// even for a hex build, which runs slower.
+/// three in four do, reading the fewest control lines inverted on a tie.
+/// Quick enough to run before anyone says what it is, even for a hex
+/// build, which runs slower.
 pub fn guess(blocks: &Blocks) -> Option<Guess> {
     // An ALU's lines are tried only when their signs name operations, as
     // any build with a control line might otherwise pass for one.

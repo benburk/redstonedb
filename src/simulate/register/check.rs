@@ -515,8 +515,9 @@ fn cells(
 
 /// A buffer's cells, each write with the buses that show what it wrote,
 /// all the time. With every cell holding 0 and then each alone holding all
-/// ones, a bus that changes is the cell's: plain when it shows all ones,
-/// and inverted when it shows them as zeros. A write that changes the same
+/// ones, a bus that changes is the cell's, and shows it as it is: unlike a
+/// register's reads, a buffer's outputs may not show their cells inverted,
+/// so one that shows all ones as zeros gets its cases wrong. A write that changes the same
 /// buses as one before is a second button on that cell's line, as each
 /// copy of a stacked buffer keeps its own, and the first stands for it.
 /// Each bus must show one cell.
@@ -544,7 +545,7 @@ fn held(
             .map(|bus| Read {
                 line: None,
                 bus,
-                inverted: after[bus] == 0,
+                inverted: false,
             })
             .collect();
         if reads.is_empty() {
@@ -740,8 +741,7 @@ impl Tally {
                 let read = match (kind, inverted) {
                     (Kind::Register, false) => "read",
                     (Kind::Register, true) => "read inverted",
-                    (Kind::Buffer, false) => "shown",
-                    (Kind::Buffer, true) => "shown inverted",
+                    (Kind::Buffer, _) => "shown",
                 };
                 match cells {
                     1 => format!("written, then {read}"),

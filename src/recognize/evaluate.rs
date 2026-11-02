@@ -261,24 +261,19 @@ impl Evaluation {
         if test == Test::Alu {
             self.flags = simulate::alu_flags(&self.prepared.blocks)?;
         }
-        // A barrel shifter's are the shifts its lines give, and a
-        // decoder's whether its outputs are inverted.
+        // A barrel shifter's are the shifts its lines give.
         if test == Test::BarrelShifter {
             self.flags = simulate::shifter_flags(&self.prepared.blocks)?;
         }
-        if test == Test::Decoder && run.pattern == simulate::DECODER_INVERTED {
-            self.flags.push(INVERTED.to_owned());
-        }
-        // An adder's lines read inverted, as a subtractor's B is, and a
-        // register's or buffer's reads.
+        // An adder's carry in may read inverted, and its B, as a
+        // subtractor's does, and a register's reads may show its cells
+        // inverted.
         if test == Test::Adder {
             let variant = AdderVariant::of(&run.pattern);
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
         }
-        if matches!(test, Test::Register | Test::Buffer)
-            && run.pattern.ends_with(" inverted")
-        {
+        if test == Test::Register && run.pattern.ends_with(" inverted") {
             self.flags.push(INVERTED.to_owned());
         }
         if let Some(pulse) = timing.pulse {

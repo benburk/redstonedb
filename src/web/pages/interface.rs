@@ -22,35 +22,22 @@ use super::{
 pub(super) enum Inverts {
     /// The input of this colour.
     Input(&'static str),
-    /// The output of this colour.
-    Output(&'static str),
-    /// Every output but the one of this colour.
-    OutputsBut(&'static str),
     /// Every output.
     Outputs,
 }
 
 /// Which lines `flag` on a build of `category` says are read inverted,
-/// if it says any are.
+/// if it says any are: an adder's carry in, a control line, or the
+/// outputs of a register or a monostable, the only builds whose outputs
+/// may read inverted. A decoder's outputs always do, so no flag says so.
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (category, flag) {
-        ("adder" | "hex_adder", "inverted_carry_in") => {
+        ("adder" | "hex_adder" | "subtractor", "inverted_carry_in") => {
             Inverts::Input(colour::CONTROL)
         }
-        ("adder" | "hex_adder", "inverted_output") => {
-            Inverts::OutputsBut(colour::STATUS)
+        ("register" | "monostable" | "dual_edge_monostable", "inverted") => {
+            Inverts::Outputs
         }
-        ("adder" | "hex_adder", "inverted_carry_out") => {
-            Inverts::Output(colour::STATUS)
-        }
-        (
-            "register"
-            | "buffer"
-            | "decoder"
-            | "monostable"
-            | "dual_edge_monostable",
-            "inverted",
-        ) => Inverts::Outputs,
         _ => return None,
     })
 }
@@ -66,8 +53,6 @@ fn inverted_by<'f>(
     flags.iter().map(String::as_str).find(|flag| {
         match inverts(category, flag) {
             Some(Inverts::Input(colour)) => input && coloured(colour),
-            Some(Inverts::Output(colour)) => !input && coloured(colour),
-            Some(Inverts::OutputsBut(colour)) => !input && !coloured(colour),
             Some(Inverts::Outputs) => !input,
             None => false,
         }

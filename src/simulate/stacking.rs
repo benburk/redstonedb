@@ -414,8 +414,6 @@ fn stacked(
         .map_err(|err| format!("{copies} copies do not make one adder: {err}"))?
         .bench;
     // Its seams read as the copy does, as a subtractor's, B inverted.
-    let sum_bits = interface.outputs[bench.outputs[0]].bits.len();
-    let carry_out = bench.outputs.len() > 1;
     let bits = copies * width;
     let widths = bench.widths(&interface);
     if widths[..2] != [bits, bits] {
@@ -427,7 +425,7 @@ fn stacked(
     // Loading it settles it, so one that never settles stops here.
     Circuit::new(&blocks, &interface).map_err(|err| err.to_string())?;
     let seams = seam_cases(bits, width, widths.len() == 3);
-    let sum = |case: &Case| variant.apply(sum_bits, carry_out, case);
+    let sum = |case: &Case| variant.apply(case);
     let seam = sweep(&blocks, &interface, &bench, &seams, None, sum)
         .map_err(|err| err.to_string())?;
     if let Some(wrong) = seam.examples.first() {

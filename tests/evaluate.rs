@@ -454,14 +454,15 @@ fn inverted_lines_are_flags_not_categories() {
 }
 
 /// A decoder is read whole from its file: each value of A turns its own
-/// output bit on, or, as this one, off, the rest on.
+/// output bit off, the rest on, as every decoder's are, so no flag says
+/// so.
 #[test]
 fn a_decoder_is_read_whole_from_its_file() {
     let e = evaluate(&stored("decoder-4-inverted")).unwrap();
     assert_eq!(e.category, Some("decoder"));
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(4));
-    assert_eq!(e.flags, ["inverted"]);
+    assert!(e.flags.is_empty(), "{:?}", e.flags);
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
 }

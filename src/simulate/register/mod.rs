@@ -27,8 +27,9 @@
 //! button, or by a lever when none has a button, and which bus is whose is
 //! found by writing each cell alone. Each value is written into every
 //! cell, then the data bus changes, and each bus must still show its
-//! cell's value. Its timing counts from a write, as a register's counts
-//! from a read.
+//! cell's value, as it is: a register's read may show its cell inverted,
+//! but a buffer's output may not. Its timing counts from a write, as a
+//! register's counts from a read.
 
 use anyhow::Result;
 

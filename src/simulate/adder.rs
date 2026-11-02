@@ -56,142 +56,88 @@ const CARRY_OR_BORROW_OUT: [&str; 4] = [
 
 /// One way an adder's lines may read: as an add, or, B inverted and its
 /// carries borrows, a subtract, A − B less its borrow in; and with its
-/// output, carry in, or carry out inverted, as a torch on each of those
-/// bits gives. Inverting a line does not change what a build is, so a
-/// subtractor is an adder, its B inverted.
-// Each is a line of its own, inverted or not, independent of the rest.
-#[allow(clippy::struct_excessive_bools)]
+/// carry in inverted, as a torch on that line gives. Inverting a line does
+/// not change what a build is, so a subtractor is an adder, its B
+/// inverted. Its output and carry out, its answer, never read inverted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Variant {
     pub subtract: bool,
-    pub output: bool,
     pub carry_in: bool,
-    pub carry_out: bool,
 }
 
 impl Variant {
-    /// Every way an adder with a carry in and a carry out, if it has them,
-    /// may read, the plain add first.
-    fn all(carry_in: bool, carry_out: bool) -> Vec<Variant> {
+    /// Every way an adder with a carry in, if it has one, may read, the
+    /// plain add first.
+    fn all(carry_in: bool) -> Vec<Variant> {
         let mut all = Vec::new();
         for subtract in [false, true] {
-            for output in [false, true] {
-                for carry_in in
-                    [false, true].into_iter().take(1 + usize::from(carry_in))
-                {
-                    for carry_out in [false, true]
-                        .into_iter()
-                        .take(1 + usize::from(carry_out))
-                    {
-                        all.push(Variant {
-                            subtract,
-                            output,
-                            carry_in,
-                            carry_out,
-                        });
-                    }
-                }
+            for carry_in in
+                [false, true].into_iter().take(1 + usize::from(carry_in))
+            {
+                all.push(Variant { subtract, carry_in });
             }
         }
         all
     }
 
-    /// Its cases' name, such as `A − B − carry in`, `not (A + B)`, or
-    /// `A + B + not carry in, carry out inverted`, its lines named
-    /// `carry_in` and `carry_out`.
-    fn name(self, carry_in: Option<&str>, carry_out: Option<&str>) -> String {
+    /// Its cases' name, such as `A − B − carry in` or `A + B + not carry
+    /// in`, its carry in named `carry_in`.
+    fn name(self, carry_in: Option<&str>) -> String {
         let sign = if self.subtract { '−' } else { '+' };
-        // A subtract's unsigned lines are its borrows.
-        let borrow = |name: &str, carry: &str, borrow: &'static str| {
-            if self.subtract && name == carry {
-                borrow.to_owned()
-            } else {
-                name.to_owned()
-            }
-        };
+        // A subtract's unsigned carry in is its borrow in.
         let carry_in = carry_in.map(|name| {
-            borrow(name, colour::CARRY_IN[0], colour::BORROW_IN[0])
+            if self.subtract && name == colour::CARRY_IN[0] {
+                colour::BORROW_IN[0]
+            } else {
+                name
+            }
         });
-        let carry_out = carry_out.map(|name| {
-            borrow(name, colour::CARRY_OUT[0], colour::BORROW_OUT[0])
-        });
-        let (carry_in, carry_out) = (carry_in.as_deref(), carry_out.as_deref());
         let carry = carry_in.map_or(String::new(), |name| {
             let not = if self.carry_in { "not " } else { "" };
             format!(" {sign} {not}{name}")
         });
-        let sum = format!("A {sign} B{carry}");
-        let sum = if self.output {
-            format!("not ({sum})")
-        } else {
-            sum
-        };
-        match carry_out.filter(|_| self.carry_out) {
-            Some(name) => format!("{sum}, {name} inverted"),
-            None => sum,
-        }
+        format!("A {sign} B{carry}")
     }
 
-    /// What it gives for a case of A, B, and the carry in, as an output of
-    /// `sum_bits` bits, which may hold the carry as its top bit, and a
-    /// carry out above them if it has one.
-    pub(super) fn apply(
-        self,
-        sum_bits: usize,
-        carry_out: bool,
-        case: &Case,
-    ) -> u64 {
+    /// What it gives for a case of A, B, and the carry in, as an output
+    /// that may hold the carry as its top bit, and a carry out above it if
+    /// it has one.
+    pub(super) fn apply(self, case: &Case) -> u64 {
         let (a, b) = (case[0], case[1]);
         let carry = case[2] ^ u64::from(self.carry_in);
-        let mut value = if self.subtract {
+        if self.subtract {
             a.wrapping_sub(b).wrapping_sub(carry)
         } else {
             a + b + carry
-        };
-        if self.output {
-            value ^= mask(sum_bits);
         }
-        if self.carry_out && carry_out {
-            value ^= 1 << sum_bits;
-        }
-        value
     }
 
     /// The way an adder whose cases are named `pattern` reads.
     pub fn of(pattern: &str) -> Variant {
         Variant {
-            subtract: pattern.starts_with("A − ")
-                || pattern.starts_with("not (A − "),
-            output: pattern.starts_with("not ("),
+            subtract: pattern.starts_with("A − "),
             carry_in: pattern.contains("B + not ")
                 || pattern.contains("B − not "),
-            carry_out: pattern.ends_with(" inverted"),
         }
     }
 
-    /// The lines of `run`, an adder's, that it reads inverted, by name: the
-    /// carry in, the output, and the carry out. A subtract's B is read as
-    /// it is, subtracting being its function.
+    /// The lines of `run`, an adder's, that it reads inverted, by name: its
+    /// carry in, if so. A subtract's B is read as it is, subtracting being
+    /// its function.
     pub fn lines(self, run: &Run) -> Vec<String> {
-        [
-            (run.inputs.get(2), self.carry_in),
-            (run.outputs.first(), self.output),
-            (run.outputs.get(1), self.carry_out),
-        ]
-        .into_iter()
-        .filter_map(|(signal, inverted)| {
-            Some(signal?.name.clone()).filter(|_| inverted)
-        })
-        .collect()
+        run.inputs
+            .get(2)
+            .filter(|_| self.carry_in)
+            .map(|signal| signal.name.clone())
+            .into_iter()
+            .collect()
     }
 
-    /// Its flags, by name: `subtract`, and each line read inverted.
+    /// Its flags, by name: `subtract`, and `inverted_carry_in`.
     pub fn flags(self) -> Vec<&'static str> {
         [
             ("subtract", self.subtract),
-            ("inverted_output", self.output),
             ("inverted_carry_in", self.carry_in),
-            ("inverted_carry_out", self.carry_out),
         ]
         .into_iter()
         .filter(|&(_, on)| on)
@@ -201,14 +147,14 @@ impl Variant {
 }
 
 /// An adder's every sum: A + B, plus its carry in when it has one, into its
-/// output and its carry out, any of its lines read inverted, so a
-/// subtractor's every difference too.
+/// output and its carry out, its carry in perhaps read inverted, and B
+/// read inverted, so a subtractor's every difference too.
 pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     arithmetic(interface, &ADD)
 }
 
 /// Every case of an adder or subtractor, as `op` says, an adder's kinds
-/// each way its lines may read inverted. A hex build, slower to run, takes each
+/// each way its lines may read. A hex build, slower to run, takes each
 /// digit's every case when there are too many to try every one, and a
 /// binary one each byte's.
 fn arithmetic(
@@ -228,30 +174,22 @@ fn arithmetic(
         None => format!("A {sign} B"),
     };
     let mut bench = Bench::new(inputs, outputs, &pattern);
-    // An adder's kinds name each way its lines may read inverted.
+    // An adder's kinds name each way its carry in may read.
     bench.invertible = !std::ptr::eq(op, &ADD);
     let width = bench.widths(interface)[0];
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let piece = if hex { 4 } else { 8 };
-    // An adder may read any of its lines inverted, a subtractor being one
-    // whose B is; a subtractor's own test reads it as it is.
+    // An adder may read its carry in inverted, and its B, as a
+    // subtractor does; a subtractor's own test reads it as it is.
     let kinds = if std::ptr::eq(op, &ADD) {
-        let name = |port: Option<usize>, ports: &[Port]| {
-            port.map(|port| ports[port].name.clone())
-        };
-        let lines = (
-            name(ports.carry_in, &interface.inputs),
-            name(ports.carry_out, &interface.outputs),
-        );
-        let sum_bits = interface.outputs[ports.sum].bits.len();
-        Variant::all(carry_in, ports.carry_out.is_some())
+        let line = ports.carry_in.map(|port| &interface.inputs[port].name);
+        Variant::all(carry_in)
             .into_iter()
             .map(|variant| {
-                let carry_out = ports.carry_out.is_some();
                 Kind::new(
-                    &variant.name(lines.0.as_deref(), lines.1.as_deref()),
-                    move |case| variant.apply(sum_bits, carry_out, case),
+                    &variant.name(line.map(String::as_str)),
+                    move |case| variant.apply(case),
                 )
             })
             .collect()
