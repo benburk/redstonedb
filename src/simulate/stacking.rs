@@ -301,7 +301,7 @@ fn copies(step: Step, width: usize) -> Option<usize> {
     let length = u64::try_from(step.west + step.up + step.north).ok()?;
     let reach = u64::try_from(DUST_REACH + 1).ok()?;
     let reaching = usize::try_from(reach.div_ceil(length) + 1).ok()?;
-    let fitting = usize::try_from(MAX_WIDTH).ok()? / width;
+    let fitting = MAX_WIDTH / width;
     let copies = reaching.max(3).min(fitting);
     (copies >= 2).then_some(copies)
 }
@@ -508,9 +508,7 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
         // Copies that overlap may read as a bus wider than any test, so
         // only a stack of the bits its copies add is run.
         let stacked = interface::read(&blocks);
-        let wide = |port: &interface::Port| {
-            port.bits.len() > usize::try_from(MAX_WIDTH).unwrap_or(0)
-        };
+        let wide = |port: &interface::Port| port.bits.len() > MAX_WIDTH;
         if stacked.inputs.first()?.bits.len() != width * copies
             || stacked.inputs.iter().any(wide)
         {
