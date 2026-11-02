@@ -266,8 +266,9 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 //
 // The checks panel follows along, saying whether the build goes up as its
 // category or off the list, and the button waits for the cases' result,
-// though not the timing, which carries on after publishing. It also stays
-// held for anything the server found, such as a duplicate.
+// though not the timing, which carries on after publishing. Anything the
+// server found, such as a duplicate, it disables the button for itself and
+// says why beside it, which this leaves be.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
   const results = () => document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
@@ -275,21 +276,26 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const timingNote = form.querySelector("[data-timing-note]");
   const button = form.querySelector("[data-publish]");
   const reason = form.querySelector("[data-gate-reason]");
-  const blockedReason = reason.textContent;
   const key = () => category.value.trim().toLowerCase();
   let asked = form.hasAttribute("data-simulated") ? key() : null;
   // Requests for the cases under way; the button waits on them.
   let running = 0;
 
+  // Waiting is aria-disabled, not disabled, as the button may have focus,
+  // which disabling it would drop; a press while it waits is refused here.
   const gate = () => {
-    const blocked = button.dataset.blocked !== undefined;
-    button.disabled = blocked || running > 0;
-    reason.textContent = blocked
-      ? blockedReason
-      : running > 0
-      ? "Waiting for the simulation…"
-      : "";
+    if (button.disabled) return;
+    if (running > 0) {
+      button.setAttribute("aria-disabled", "true");
+      reason.textContent = "Waiting for the simulation…";
+    } else {
+      button.removeAttribute("aria-disabled");
+      reason.textContent = "";
+    }
   };
+  form.addEventListener("submit", (event) => {
+    if (button.getAttribute("aria-disabled") === "true") event.preventDefault();
+  });
 
   // One line of the checks panel: its state, `pass`, `warn`, `fail`,
   // `run`, or `wait`, and its words; no state hides it.

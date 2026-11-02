@@ -293,16 +293,16 @@ fn swap_button(what: &str, label: &str) -> Markup {
     }
 }
 
-/// What holds up publishing, decided here rather than as the page runs:
-/// its kind, for `form.js`, and why. Broken conventions hold nothing up:
-/// they only keep a build from being recognized.
-fn blocked(page: &DetailsPage) -> Option<(&'static str, &'static str)> {
+/// Why publishing is held up, if it is, decided here rather than as the
+/// page runs, so the button is disabled from the start. Broken conventions
+/// hold nothing up: they only keep a build from being recognized.
+fn blocked(page: &DetailsPage) -> Option<&'static str> {
     match &page.file {
         File::Upload {
             duplicate: Some(_), ..
-        } => Some(("duplicate", "This file is already on the site.")),
+        } => Some("This file is already on the site."),
         File::Version { refusals, .. } if !refusals.is_empty() => {
-            Some(("version", "This file can't replace the build."))
+            Some("This file can't replace the build.")
         }
         _ => None,
     }
@@ -527,12 +527,12 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             (tag_picker(&page.choices.tags, &page.form.tags, page.fixed, user.is_admin()))
             div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                 button type="submit" class="btn btn-primary" data-publish
-                    data-blocked=[blocked.map(|(kind, _)| kind)] disabled[blocked.is_some()] { (label) }
+                    disabled[blocked.is_some()] { (label) }
                 @if let Some(cancel) = cancel {
                     a href=(cancel) { "Cancel" }
                 }
                 span data-gate-reason role="status" class="text-meta text-muted" {
-                    (blocked.map_or("", |(_, why)| why))
+                    (blocked.unwrap_or_default())
                 }
             }
         }
