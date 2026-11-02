@@ -2,6 +2,10 @@
 name = "redstonedb"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+publish = false
+repository = "https://github.com/benburk/redstonedb"
+description = "A database of Minecraft redstone schematics, with a website and a command-line tool"
 
 # The library keeps a fixed crate name so the binary, the tests, and the
 # tracing filter never have to spell out the project's name.
