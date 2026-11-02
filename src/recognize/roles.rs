@@ -25,11 +25,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    colour, interface,
     models::schematic::StackDirection,
-    schem::{self, Blocks, Direction, Pos},
+    recognize::{colour, interface},
+    schem::{self, Blocks, Direction, Pos, stack},
     simulate::{Compiled, Link, compiled},
-    stack,
 };
 
 /// What a block must be.
@@ -100,7 +99,7 @@ pub fn prune(
     if gone.is_empty() {
         return Ok(None);
     }
-    let file = crate::standardize::edit(data, &gone)?;
+    let file = crate::schem::standardize::edit(data, &gone)?;
     let changed = changed(data, &file, ways, buses)?;
     if let Some(first) = changed.first() {
         anyhow::bail!(

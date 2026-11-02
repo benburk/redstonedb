@@ -33,9 +33,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    colour,
-    schem::{self, Blocks, Direction, Pos, Switch},
-    simulate, standardize,
+    recognize::colour,
+    schem::{self, Blocks, Direction, Pos, Switch, standardize},
+    simulate,
 };
 
 /// What the check found: what it puts right, and what it can't.
@@ -450,7 +450,9 @@ fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
         "redstone_wire" => true,
         "repeater" | "comparator" => {
             let powers = Direction::facing(blocks.get(top)).is_some_and(|f| {
-                crate::dust::solid(blocks.get(schem::step(top, f.opposite())))
+                crate::schem::dust::solid(
+                    blocks.get(schem::step(top, f.opposite())),
+                )
             });
             !powers
         }
@@ -469,7 +471,7 @@ fn marks(name: &str) -> bool {
     }
     !colour::is_component(name)
         && !name.ends_with("glass")
-        && crate::dust::solid(&format!("minecraft:{name}"))
+        && crate::schem::dust::solid(&format!("minecraft:{name}"))
 }
 
 /// Whether no block of kind `name` touches `pos`, even at a corner.
@@ -570,7 +572,7 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
         }
     }
     if adder && !report.inputs.is_empty() && !report.outputs.is_empty() {
-        match crate::probe::adder(&blocks, &report) {
+        match crate::recognize::probe::adder(&blocks, &report) {
             Ok(probed) => report.notes.push(format!(
                 "It adds, as {}: all {} cases right, {}.",
                 probed.layout.describe(),

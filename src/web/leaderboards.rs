@@ -5,14 +5,13 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
     leaderboard::{self, Wanted},
     models::{
         catalogue::{self, Category, Measure},
         schematic::{self, Schematic},
         user::User,
     },
+    web::{app_state::AppState, error::AppError},
 };
 
 use super::pages;

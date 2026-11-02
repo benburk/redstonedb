@@ -7,10 +7,9 @@ use tracing::{Span, warn};
 use uuid::Uuid;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
     models::{session::Session, user::User},
     util::current_time_micros,
+    web::{app_state::AppState, error::AppError},
 };
 
 impl OptionalFromRequestParts<AppState> for User {

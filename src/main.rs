@@ -1,10 +1,10 @@
 use std::io::IsTerminal as _;
 use std::net::SocketAddr;
 
-use app::app_state::AppState;
 use app::db::connect_to_database;
-use app::discord;
+use app::external::discord;
 use app::web;
+use app::web::app_state::AppState;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, header};

@@ -3,8 +3,7 @@
 use std::collections::HashMap;
 
 use app::{
-    schem::{self, Blocks},
-    standardize,
+    schem::{self, Blocks, standardize},
     version::{compare, refusals},
 };
 

@@ -227,7 +227,7 @@ fn badge(tag: &Tag, s: &Schematic) -> Markup {
 /// how to fix it, with a link to the rule it breaks when the Build
 /// Analysis page pictures it.
 fn reason_item(reason: &str) -> Markup {
-    let advice = crate::fault::advice(reason);
+    let advice = crate::recognize::fault::advice(reason);
     html! {
         li {
             span class="block" { (reason) }

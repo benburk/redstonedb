@@ -8,11 +8,11 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
-    extractors::session::SignedIn,
     models::user::User,
-    palette::{self, Palette},
+    recognize::palette::{self, Palette},
+    web::{
+        app_state::AppState, error::AppError, extractors::session::SignedIn,
+    },
 };
 
 use super::{

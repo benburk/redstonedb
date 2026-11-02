@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use app::{
     db::connect_to_database,
     details::{self, Details},
+    external::mojang,
     import,
     models::{
         catalogue::{self, Measure, Section},
@@ -20,9 +21,9 @@ use app::{
         user::{Role, User},
         version::{self, Replacing},
     },
-    mojang, search,
+    schem::stack,
+    search,
     simulate::{Action, Report, Signal, Stacking, Timing},
-    stack,
 };
 use clap::{Args, Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -867,7 +868,7 @@ async fn colours(db: &SqlitePool, id: &str, file: &Path) -> Result<()> {
         let Some(data) = version::data(db, &id, version).await? else {
             continue;
         };
-        match app::colouring::read(&original, &data)? {
+        match app::recognize::colouring::read(&original, &data)? {
             Ok(colours) => {
                 version::set_colours(db, &id, version, &colours).await?;
                 println!(
@@ -954,8 +955,8 @@ async fn list(
 /// Lints a file, or a stored schematic as a build of its category when no
 /// such file exists. A file's category is unknown, so a lone unsigned
 /// control or status line passes.
-/// Draws each of `app::guide`'s examples into `dir`, as the page shows
-/// them, fetching the game's files as thumbnails do.
+/// Draws each of `app::recognize::guide`'s examples into `dir`, as the page
+/// shows them, fetching the game's files as thumbnails do.
 async fn guide_images(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
     let assets = app::thumbnail::Assets::new(reqwest::Client::new());
@@ -967,7 +968,7 @@ async fn guide_images(dir: &Path) -> Result<()> {
             height: 300,
             padding: 12.0,
         };
-        for example in app::guide::examples() {
+        for example in app::recognize::guide::examples() {
             let webp = app::thumbnail::render_view(
                 &example.schematic(),
                 &renderer,
@@ -1012,10 +1013,10 @@ async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     if args.rest {
         return rebuild_rest(db, &args.from).await;
     }
-    if !app::category::BLESSED.contains(&args.category.as_str()) {
+    if !app::recognize::category::BLESSED.contains(&args.category.as_str()) {
         bail!(
             "only the blessed categories are probed: {}",
-            app::category::BLESSED.join(", ")
+            app::recognize::category::BLESSED.join(", ")
         );
     }
     let from =
@@ -1234,19 +1235,23 @@ async fn rebuild_one(
     s: &schematic::Schematic,
     data: &[u8],
 ) -> Result<Result<(), String>> {
-    let data = app::probe::simulatable(data)?;
+    let data = app::recognize::probe::simulatable(data)?;
     let data = data.as_slice();
     let blocks = app::schem::Blocks::read(data)?;
-    let report = app::inspect::inspect(&blocks);
+    let report = app::recognize::inspect::inspect(&blocks);
     if let Some(problem) = report.faults().next() {
         return Ok(Err(problem.message.clone()));
     }
     // Dust on top of an input is a fault only on a data input.
-    let (data_inputs, coloured, _) =
-        match app::probe::probe_as(&s.category, data, &blocks, &report)? {
-            Ok(found) => found,
-            Err(why) => return Ok(Err(why)),
-        };
+    let (data_inputs, coloured, _) = match app::recognize::probe::probe_as(
+        &s.category,
+        data,
+        &blocks,
+        &report,
+    )? {
+        Ok(found) => found,
+        Err(why) => return Ok(Err(why)),
+    };
     if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
         return Ok(Err(fault));
     }
@@ -1313,8 +1318,8 @@ async fn inspect_command(db: &SqlitePool, args: &Inspect) -> Result<()> {
     let mut clean = 0;
     for (name, data) in &files {
         let adder = category == Some("adder");
-        let report = app::inspect::inspect_file(data, adder)?;
-        let buses = |runs: &[app::inspect::Run]| {
+        let report = app::recognize::inspect::inspect_file(data, adder)?;
+        let buses = |runs: &[app::recognize::inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())
                 .collect::<Vec<_>>()
@@ -1409,7 +1414,7 @@ async fn new_version(
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
     // The colours its builder gave it, read off the file given.
-    match app::colouring::read(&raw, &kept.data)? {
+    match app::recognize::colouring::read(&raw, &kept.data)? {
         Ok(colours) if !colours.is_empty() => {
             version::set_colours(db, &id, number, &colours).await?;
             println!("{name}: kept {} blocks' colours", colours.len());
@@ -1531,7 +1536,7 @@ async fn evaluate(
             .await?
             .context("schematic vanished")?;
         // Its test and timing spread over every core already.
-        let e = match app::evaluate::evaluate(&file) {
+        let e = match app::recognize::evaluate::evaluate(&file) {
             Ok(e) => e,
             Err(err) => {
                 println!("{name}: could not evaluate: {err}");
@@ -1614,15 +1619,16 @@ async fn prune(db: &SqlitePool, id: Option<&str>, dry_run: bool) -> Result<()> {
         let data = version::current_file(db, id)
             .await?
             .context("schematic vanished")?;
-        let buses = app::stack::Buses::of(&s.category, s.orientation);
-        let pruned = match app::roles::prune(&data, &s.stacking, buses) {
-            Ok(Some(pruned)) => pruned,
-            Ok(None) => continue,
-            Err(err) => {
-                println!("skip    {name}: {err}");
-                continue;
-            }
-        };
+        let buses = app::schem::stack::Buses::of(&s.category, s.orientation);
+        let pruned =
+            match app::recognize::roles::prune(&data, &s.stacking, buses) {
+                Ok(Some(pruned)) => pruned,
+                Ok(None) => continue,
+                Err(err) => {
+                    println!("skip    {name}: {err}");
+                    continue;
+                }
+            };
         let checked = app::version::check(db, &s, &pruned.file, false).await?;
         if let Some(refusal) = checked.refusals.first() {
             println!("skip    {name}: {refusal}");

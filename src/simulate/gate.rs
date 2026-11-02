@@ -12,10 +12,9 @@ use super::{
     stacking,
 };
 use crate::{
-    interface::{self, Interface},
     models::schematic::Orientation,
-    schem::Blocks,
-    stack,
+    recognize::interface::{self, Interface},
+    schem::{Blocks, stack},
 };
 
 /// A family of two-input gates, its category's: one function and its

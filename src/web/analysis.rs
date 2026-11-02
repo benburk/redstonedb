@@ -12,11 +12,11 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    app_state::AppState,
     import::{self, Upload},
     models::{simulation, user::User},
-    probe::{self, Recognition},
+    recognize::probe::{self, Recognition},
     simulate::{self, Guess},
+    web::app_state::AppState,
 };
 
 /// Analyses under way or done, by id, each kept a while for its page to

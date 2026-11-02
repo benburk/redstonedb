@@ -5,10 +5,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
+    external::mojang,
     models::{schematic, user::User},
-    mojang,
+    web::{app_state::AppState, error::AppError},
 };
 
 use super::pages;

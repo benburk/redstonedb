@@ -3,7 +3,7 @@
 
 use maud::{Markup, html};
 
-use crate::{models::user::User, schemati::Folder};
+use crate::{external::schemati::Folder, models::user::User};
 
 use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base};
 
@@ -248,7 +248,7 @@ fn file_actions(index: usize, name: &str) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schemati::File;
+    use crate::external::schemati::File;
 
     /// Each file shows when it was saved, newest first and chosen.
     #[test]

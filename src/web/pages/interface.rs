@@ -4,9 +4,11 @@
 use maud::{Markup, html};
 
 use crate::{
-    colour,
     import::Analysis,
-    interface::{Bit, Interface, Port},
+    recognize::{
+        colour,
+        interface::{Bit, Interface, Port},
+    },
     simulate::{InputTiming, OutputTiming, Strength, Timing},
 };
 

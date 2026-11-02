@@ -15,10 +15,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::Result;
 
 use crate::{
-    colour,
-    orient::{self, Turn},
-    schem::{self, Blocks, Pos},
-    standardize,
+    recognize::colour,
+    schem::{
+        self, Blocks, Pos,
+        orient::{self, Turn},
+        standardize,
+    },
 };
 
 /// The block for each building block's place that differs from the

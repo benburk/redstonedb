@@ -1,5 +1,7 @@
 //! Reading and writing Sponge `.schem` files, versions 2 and 3: a build's
-//! blocks, its signs' text, and where `//paste` puts it.
+//! blocks, its signs' text, and where `//paste` puts it. Its submodules
+//! shape a build's blocks: turning it, fitting its box, stacking copies, and
+//! dating the oldest release it works in.
 
 use std::{
     collections::HashMap,
@@ -12,6 +14,12 @@ use fastnbt::Value;
 use fastnbt::{ByteArray, IntArray};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use mchprs_blocks::items::Item;
+
+pub mod dust;
+pub mod orient;
+pub mod stack;
+pub mod standardize;
+pub mod works_from;
 
 /// A build's size, in blocks along x, y, z.
 pub struct Size {

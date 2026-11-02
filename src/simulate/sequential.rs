@@ -27,7 +27,10 @@ use super::{
     circuit::{Circuit, MAX_TICKS},
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
-use crate::{colour, interface, schem::Blocks};
+use crate::{
+    recognize::{colour, interface},
+    schem::Blocks,
+};
 
 /// Which kind of build a test takes it for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

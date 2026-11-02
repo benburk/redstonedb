@@ -27,11 +27,12 @@ use super::{
     circuit::{Circuit, input_bits},
 };
 use crate::{
-    colour,
-    interface::{self, Interface},
     models::schematic::{Faces, Orientation, StackDirection},
-    schem::{Blocks, Pos},
-    stack,
+    recognize::{
+        colour,
+        interface::{self, Interface},
+    },
+    schem::{Blocks, Pos, stack},
 };
 
 /// The farthest dust carries a signal, which a stack tested must reach

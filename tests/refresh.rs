@@ -396,7 +396,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         (stray, "minecraft:white_concrete".to_owned()),
         (pos, lever.replace("powered=false", "powered=true")),
     ]);
-    let data = app::standardize::edit(&current, &thrown).unwrap();
+    let data = app::schem::standardize::edit(&current, &thrown).unwrap();
     eprintln!(
         "DEBUG same {} lever {lever} on now {}",
         data == current,

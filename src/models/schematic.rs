@@ -372,7 +372,7 @@ impl Schematic {
     pub fn evaluated(&self) -> bool {
         self.conventional
             && self.unverified.is_none()
-            && crate::category::behaviour(&self.category).evaluated
+            && crate::recognize::category::behaviour(&self.category).evaluated
     }
 
     fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
@@ -387,7 +387,7 @@ impl Schematic {
     /// conventional build is found, as its category's test or file sets
     /// it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
-        let behaviour = crate::category::behaviour(&self.category);
+        let behaviour = crate::recognize::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
             if self.conventional && self.unverified.is_none() && by_site {
                 kind
@@ -406,7 +406,8 @@ impl Schematic {
             kind: found(
                 tag::Kind::Orientation,
                 behaviour.evaluated
-                    || behaviour.reads != crate::category::Reads::Nothing,
+                    || behaviour.reads
+                        != crate::recognize::category::Reads::Nothing,
             ),
         };
         // An inverted carry in says only how one line is read, as the
@@ -428,7 +429,8 @@ impl Schematic {
             token: None,
             kind: found(
                 tag::Kind::Feature,
-                behaviour.stacking == crate::category::Stacking::Inferred,
+                behaviour.stacking
+                    == crate::recognize::category::Stacking::Inferred,
             ),
         });
         // How far apart copies stack, where that is a few blocks, the
@@ -445,7 +447,8 @@ impl Schematic {
                 token: None,
                 kind: found(
                     tag::Kind::Feature,
-                    behaviour.stacking == crate::category::Stacking::Inferred,
+                    behaviour.stacking
+                        == crate::recognize::category::Stacking::Inferred,
                 ),
             })
         });

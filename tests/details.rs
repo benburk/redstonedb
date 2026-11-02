@@ -5,8 +5,7 @@ use app::{
     details::{self, Build, Details, Ready},
     import,
     models::schematic::{Encoding, Orientation, StackDirection},
-    schem::Blocks,
-    standardize,
+    schem::{Blocks, standardize},
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -296,7 +295,7 @@ async fn adders_and_subtractors_are_each_their_own_category() {
     let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
     // Coloured by probing, then standardized, as an upload is.
     let raw = std::fs::read("tests/fixtures/sub-16-torchless.schem").unwrap();
-    let coloured = app::probe::recognize(&raw).unwrap().file;
+    let coloured = app::recognize::probe::recognize(&raw).unwrap().file;
     let subtractor = import::prepare(&coloured, true, true, false, false)
         .unwrap()
         .data;

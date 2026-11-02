@@ -236,11 +236,12 @@ mod tests {
     /// pointing to that rule's section.
     #[test]
     fn each_pictured_fault_has_advice() {
-        for example in crate::guide::examples() {
+        for example in crate::recognize::guide::examples() {
             if example.breaks.is_none() {
                 continue;
             }
-            let report = crate::inspect::inspect(&example.schematic());
+            let report =
+                crate::recognize::inspect::inspect(&example.schematic());
             for problem in &report.errors {
                 let advice = advice(&problem.message);
                 assert!(

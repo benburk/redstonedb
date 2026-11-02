@@ -8,7 +8,7 @@ use super::{
     Broken,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::{colour, interface::Interface};
+use crate::recognize::{colour, interface::Interface};
 
 /// Every value of A with its control line each way, checked against what
 /// each kind of the category named `category` gives: an incrementer's A

@@ -1,9 +1,9 @@
 //! The About pages: what the site is, and how it recognizes builds, each
-//! rule pictured by the examples in [`crate::guide`].
+//! rule pictured by the examples in [`crate::recognize::guide`].
 
 use maud::{Markup, html};
 
-use crate::{guide, models::user::User, web::guide_image};
+use crate::{models::user::User, recognize::guide, web::guide_image};
 
 use super::{PAGE_TITLE, SECTION_TITLE, base};
 

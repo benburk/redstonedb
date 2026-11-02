@@ -6,7 +6,7 @@ use std::{
 use axum::body::Bytes;
 use sqlx::SqlitePool;
 
-use crate::discord;
+use crate::external::discord;
 
 /// Thumbnails rendered, as PNGs, by their file's SHA-256 and palette.
 pub type Thumbnails = Arc<Mutex<Drawn>>;

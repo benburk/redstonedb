@@ -3,12 +3,11 @@
 use std::collections::BTreeMap;
 
 use app::{
-    evaluate::evaluate,
     import,
     models::schematic::{Logic, Orientation},
-    schem::Blocks,
+    recognize::evaluate::evaluate,
+    schem::{Blocks, standardize},
     simulate::{Report, Stacking},
-    standardize,
 };
 
 /// A fixture as the site stores it.

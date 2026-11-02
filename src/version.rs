@@ -14,12 +14,13 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use crate::{
-    colour,
     import::{self, Prepared},
-    inspect,
     models::{schematic::Schematic, version},
-    orient::{self, Turn},
-    schem::{self, Blocks, Pos},
+    recognize::{colour, inspect},
+    schem::{
+        self, Blocks, Pos,
+        orient::{self, Turn},
+    },
 };
 
 /// The share of blocks, in percent, a new version keeps at least, unless

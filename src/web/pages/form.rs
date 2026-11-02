@@ -5,12 +5,13 @@
 use maud::{Markup, html};
 
 use crate::{
-    category, import,
+    import,
     models::{
         catalogue::Category,
         schematic::{Logic, Orientation},
         tag::Tag,
     },
+    recognize::category,
 };
 
 use super::{

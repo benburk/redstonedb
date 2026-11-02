@@ -9,7 +9,7 @@ use super::{
     Broken, Run,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::{
+use crate::recognize::{
     colour,
     interface::{Interface, Port},
 };
@@ -593,7 +593,7 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface;
+    use crate::recognize::interface;
 
     #[test]
     fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {

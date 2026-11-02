@@ -5,9 +5,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    category,
     import::{self, Analysis},
-    interface::Interface,
     models::{
         catalogue::Measure,
         schematic::{Logic, Schematic, StackDirection},
@@ -15,6 +13,7 @@ use crate::{
         user::User,
         version::Version,
     },
+    recognize::{category, interface::Interface},
     simulate::{Report, Timing},
     web::schematics::Colours,
 };
@@ -48,7 +47,7 @@ pub struct FileRead {
     /// from being recognized.
     pub strength_inputs: bool,
     /// How its stacking looks, each way it stacks.
-    pub stacking: Vec<crate::stack::Review>,
+    pub stacking: Vec<crate::schem::stack::Review>,
 }
 
 /// What a build's page shows: the build, the builds like it, its file as read, its simulation, its versions, and

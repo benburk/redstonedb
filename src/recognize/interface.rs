@@ -12,8 +12,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
-    category::{self, Lines},
-    colour,
+    recognize::{
+        category::{self, Lines},
+        colour,
+    },
     schem::{self, Blocks, Direction, Pos, Switch},
 };
 

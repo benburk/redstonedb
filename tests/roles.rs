@@ -3,10 +3,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use app::{
-    roles::{self, Need, Role},
-    schem::{self, Blocks, Pos},
+    recognize::roles::{self, Need, Role},
+    schem::{self, Blocks, Pos, stack, standardize},
     simulate::{Report, Test},
-    stack, standardize,
 };
 
 /// A fixture as the site stores it.

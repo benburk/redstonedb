@@ -8,17 +8,23 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
-    category::{self, Lines},
-    colour,
     details::{self, Ready, Unrecognized},
-    interface::{self, Interface, Port},
-    models::catalogue::Category,
-    models::schematic::{self, Encoding, New, Orientation},
-    models::version,
-    orient::{self, Turn},
-    schem::{self, Blocks, Size},
-    standardize,
-    works_from::{self, WorksFrom},
+    models::{
+        catalogue::Category,
+        schematic::{self, Encoding, New, Orientation},
+        version,
+    },
+    recognize::{
+        category::{self, Lines},
+        colour,
+        interface::{self, Interface, Port},
+    },
+    schem::{
+        self, Blocks, Size,
+        orient::{self, Turn},
+        standardize,
+        works_from::{self, WorksFrom},
+    },
 };
 
 /// A file made ready to store.
@@ -72,7 +78,7 @@ pub fn prepare(
     };
     // Dust as the game shapes it among its neighbours, as `//update` leaves
     // it, whatever way it was saved.
-    let data = crate::dust::update(&data)?;
+    let data = crate::schem::dust::update(&data)?;
     let (data, turn) = if conventional && orient {
         orient::orient(&data)?
     } else {
@@ -536,7 +542,7 @@ pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
     let (data, meant) = (data.to_vec(), meant.to_owned());
     // Probing simulates, so off the async threads.
     let coloured = tokio::task::spawn_blocking(move || {
-        match crate::probe::recognize_as(&data, Some(&meant)) {
+        match crate::recognize::probe::recognize_as(&data, Some(&meant)) {
             Ok(recognition) if recognition.found.is_some() => recognition.file,
             // One the simulator can't run, as with a block it doesn't
             // model, isn't recognized either.

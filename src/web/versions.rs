@@ -7,10 +7,10 @@ use axum::{
 };
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
-    extractors::session::SignedIn,
     models::{schematic, user::User, version},
+    web::{
+        app_state::AppState, error::AppError, extractors::session::SignedIn,
+    },
 };
 
 use super::schematics::{editable, show_edit};

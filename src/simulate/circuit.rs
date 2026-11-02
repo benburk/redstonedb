@@ -22,8 +22,10 @@ use mchprs_world::{World, testing::TestWorld};
 
 use super::Broken;
 use crate::{
-    colour,
-    interface::{Interface, Port},
+    recognize::{
+        colour,
+        interface::{Interface, Port},
+    },
     schem::{self, Blocks, Direction, Pos},
 };
 
@@ -796,7 +798,7 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
             .first()
             .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
     };
-    let read: HashSet<Pos> = crate::interface::read(blocks)
+    let read: HashSet<Pos> = crate::recognize::interface::read(blocks)
         .outputs
         .iter()
         .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))
@@ -1033,7 +1035,7 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
                 bail!("A bit of input {} has no lever.", port.name);
             };
             let name = schem::short(id);
-            let (button, wooden) = match crate::works_from::like(name) {
+            let (button, wooden) = match crate::schem::works_from::like(name) {
                 "lever" => (false, false),
                 "stone_button" => (true, false),
                 "oak_button" => (true, true),
@@ -1056,7 +1058,7 @@ fn block(state: &str) -> Result<Block> {
     let name = schem::short(state);
     // A button is held down as long as any of its kind is: a wooden one as
     // a lever `Circuit` lets up, the simulator having none.
-    let id = match crate::works_from::like(name) {
+    let id = match crate::schem::works_from::like(name) {
         "stone_button" => "minecraft:stone_button",
         "oak_button" => "minecraft:lever",
         _ => schem::id(state),
@@ -1089,8 +1091,8 @@ fn block(state: &str) -> Result<Block> {
     // Any other full block that carries power, such as wool, terracotta,
     // or stone, does as concrete does.
     let id = if !known
-        && !crate::colour::is_component(name)
-        && crate::dust::solid(state)
+        && !crate::recognize::colour::is_component(name)
+        && crate::schem::dust::solid(state)
     {
         "minecraft:white_concrete"
     } else {

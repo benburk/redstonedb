@@ -11,17 +11,16 @@ use anyhow::Result;
 
 use crate::{
     import::{self, Prepared},
-    interface,
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
         simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
-    schem::Blocks,
+    recognize::interface,
+    schem::{Blocks, stack},
     simulate::{
         self, AdderVariant, Design, Edge, Report, Run, Stacking, Test, Timing,
         adder_design,
     },
-    stack,
 };
 
 /// The widths a stackable build's copies are stacked to, above its own, to
@@ -104,8 +103,8 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         && run.wrong == 0
     {
         let never = category.is_some_and(|c| {
-            crate::category::behaviour(c).stacking
-                == crate::category::Stacking::Never
+            crate::recognize::category::behaviour(c).stacking
+                == crate::recognize::category::Stacking::Never
         });
         run.stacking = if never {
             None

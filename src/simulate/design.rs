@@ -42,7 +42,7 @@ use super::{
     circuit::{Circuit, compiled},
 };
 use crate::{
-    interface::{self, Interface, Port},
+    recognize::interface::{self, Interface, Port},
     schem::{self, Blocks, Direction, Pos},
 };
 

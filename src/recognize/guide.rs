@@ -36,7 +36,7 @@ impl Example {
             .map(|&(pos, state)| (pos, format!("minecraft:{state}")))
             .collect();
         let placed = Blocks::from_grid(size, &states);
-        states.extend(crate::dust::reshaped(&placed));
+        states.extend(crate::schem::dust::reshaped(&placed));
         Blocks::from_grid(size, &states)
     }
 }
@@ -180,7 +180,7 @@ pub fn examples() -> Vec<Example> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inspect;
+    use crate::recognize::inspect;
 
     /// Each kept example passes the rule it shows; each broken one fails
     /// it, by name where the check names it.

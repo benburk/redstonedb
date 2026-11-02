@@ -8,11 +8,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
-    extractors::fixi::Fixi,
     models::{schematic, similarity, user::User},
     schem::Blocks,
+    web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
 };
 
 use super::{pages, upload};

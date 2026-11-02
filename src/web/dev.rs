@@ -10,10 +10,9 @@ use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
     models::user::{DiscordProfile, Role, User},
     util::current_time_micros,
+    web::{app_state::AppState, error::AppError},
 };
 
 use super::session::create_session;

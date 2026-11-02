@@ -14,11 +14,13 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
-    extractors::{fixi::Fixi, session::SignedIn},
+    external::schemati::{self, Folder, Refusal},
     models::user::User,
-    schemati::{self, Folder, Refusal},
+    web::{
+        app_state::AppState,
+        error::AppError,
+        extractors::{fixi::Fixi, session::SignedIn},
+    },
 };
 
 use super::{
@@ -398,7 +400,8 @@ pub async fn send(
     let session = User::schemati_session(&state.db, user.id).await?;
     let sent = match session {
         Some(session) => {
-            let palette = crate::palette::of(&state.db, user.id).await?;
+            let palette =
+                crate::recognize::palette::of(&state.db, user.id).await?;
             let (filename, data) = schematics::export(
                 &state.db,
                 &id,

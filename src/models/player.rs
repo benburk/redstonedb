@@ -3,7 +3,7 @@
 
 use sqlx::SqlitePool;
 
-use crate::mojang::Profile;
+use crate::external::mojang::Profile;
 
 /// How long a player found, or a head, is kept before Mojang is asked
 /// again, in the background.

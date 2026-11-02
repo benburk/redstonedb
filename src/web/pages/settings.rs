@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use crate::{
     models::user::User,
-    palette::{self, Palette},
+    recognize::palette::{self, Palette},
 };
 
 use super::{

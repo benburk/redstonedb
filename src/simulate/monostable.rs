@@ -35,11 +35,12 @@ use super::{
     },
 };
 use crate::{
-    colour,
-    interface::{self, Interface},
     models::schematic::Orientation,
-    schem::Blocks,
-    stack,
+    recognize::{
+        colour,
+        interface::{self, Interface},
+    },
+    schem::{Blocks, stack},
 };
 
 /// The most wrong cases a run keeps to show.

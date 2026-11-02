@@ -9,9 +9,11 @@ use std::{
 };
 
 use crate::{
-    category, colour,
-    inspect::{self, Run},
-    interface::{Bit, Interface, Port},
+    recognize::{
+        category, colour,
+        inspect::{self, Run},
+        interface::{Bit, Interface, Port},
+    },
     schem::{self, Blocks, Direction, Pos, Switch},
     simulate::{self, Gate, Test},
 };
@@ -501,7 +503,7 @@ fn paint(data: &[u8], roles: &HashMap<Pos, &str>) -> anyhow::Result<Vec<u8>> {
             (want != state).then_some((pos, want))
         })
         .collect();
-    crate::standardize::edit(data, &changes)
+    crate::schem::standardize::edit(data, &changes)
 }
 
 /// What the check by function makes of an uploaded file: the file with its
@@ -540,7 +542,7 @@ fn doesnt_hold(run: &simulate::Run, file: &[u8]) -> String {
 /// colour stays, so no input or output is lost, as standardizing would
 /// whiten an output it does not know.
 pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let data = crate::standardize::barrels(data, &[])?;
+    let data = crate::schem::standardize::barrels(data, &[])?;
     let blocks = Blocks::read(&data)?;
     let changes: BTreeMap<Pos, String> = blocks
         .iter()
@@ -555,7 +557,7 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data);
     }
-    crate::standardize::edit(&data, &changes)
+    crate::schem::standardize::edit(&data, &changes)
 }
 
 /// The file in `data` inspected and, if nothing is wrong with its levers
@@ -605,7 +607,7 @@ pub fn recognize_watched(
     // Inputs taking a hex digit per block through dust are a hex adder's,
     // which probing doesn't read, whatever else the check finds.
     if meant != Some("hex_adder")
-        && !crate::interface::dust_inputs(&blocks).is_empty()
+        && !crate::recognize::interface::dust_inputs(&blocks).is_empty()
     {
         return Ok(unrecognized(vec![
             crate::details::WITHOUT_LEVERS.to_owned(),
@@ -817,7 +819,7 @@ fn unlabelled(kind: &str, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data.to_vec());
     }
-    crate::standardize::edit(data, &changes)
+    crate::schem::standardize::edit(data, &changes)
 }
 
 /// As `probe_as`, the file as probing coloured it, its signs as they were.
@@ -1756,7 +1758,7 @@ mod tests {
             })
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();
-        crate::standardize::edit(&data, &changes).unwrap()
+        crate::schem::standardize::edit(&data, &changes).unwrap()
     }
 
     /// A 1-bit XNOR of wool, one input carried up through dust on its block,
@@ -1909,7 +1911,7 @@ mod tests {
         // Raw, with blocks the simulator doesn't model until they are
         // standardized.
         let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-        let standard = crate::standardize::standardize(&raw).unwrap();
+        let standard = crate::schem::standardize::standardize(&raw).unwrap();
         let found = recognize(&standard).unwrap();
         assert!(
             found
@@ -1944,7 +1946,8 @@ mod tests {
         ] {
             let raw =
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-            let standard = crate::standardize::standardize(&raw).unwrap();
+            let standard =
+                crate::schem::standardize::standardize(&raw).unwrap();
             let changes: BTreeMap<Pos, String> = Blocks::read(&standard)
                 .unwrap()
                 .iter()
@@ -1955,7 +1958,8 @@ mod tests {
                 })
                 .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
                 .collect();
-            let data = crate::standardize::edit(&standard, &changes).unwrap();
+            let data =
+                crate::schem::standardize::edit(&standard, &changes).unwrap();
             let found = recognize_as(&data, Some(kind)).unwrap();
             assert!(found.found.is_some(), "{name}: {:?}", found.problems);
         }
@@ -1984,7 +1988,7 @@ mod tests {
         // Raw, with blocks the simulator doesn't model until they are
         // standardized.
         let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-        let standard = crate::standardize::standardize(&raw).unwrap();
+        let standard = crate::schem::standardize::standardize(&raw).unwrap();
         let found = recognize_as(&standard, Some("multiplier")).unwrap();
         assert!(found.found.is_none(), "{:?}", found.found);
         assert!(

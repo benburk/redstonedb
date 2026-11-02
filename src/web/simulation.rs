@@ -18,9 +18,7 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    category, details,
-    error::AppError,
+    details,
     import::Upload,
     models::{
         catalogue, schematic,
@@ -28,7 +26,9 @@ use crate::{
         user::User,
         version,
     },
+    recognize::category,
     simulate::{Report, Test},
+    web::{app_state::AppState, error::AppError},
 };
 
 use super::{
@@ -267,7 +267,7 @@ async fn test(
     // what keeps it from being one.
     let Some(category) = details::meant(&categories, &form.category)
         .map(|c| c.name.as_str())
-        .filter(|c| crate::category::BLESSED.contains(c))
+        .filter(|c| crate::recognize::category::BLESSED.contains(c))
     else {
         return Ok(None);
     };

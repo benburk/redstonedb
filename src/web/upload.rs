@@ -17,12 +17,9 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
-    app_state::AppState,
-    category, details,
-    error::AppError,
-    extractors::{client_ip::ClientIp, session::SignedIn},
+    details,
+    external::schemati,
     import::{self, Kept, Upload},
-    interface,
     models::{
         catalogue,
         schematic::{self, Schematic},
@@ -30,11 +27,14 @@ use crate::{
         user::User,
         version,
     },
-    probe,
-    schem::Blocks,
-    schemati,
+    recognize::{category, interface, probe},
+    schem::{Blocks, standardize},
     simulate::{self, Guess},
-    standardize,
+    web::{
+        app_state::AppState,
+        error::AppError,
+        extractors::{client_ip::ClientIp, session::SignedIn},
+    },
 };
 
 use super::{
@@ -513,7 +513,8 @@ async fn publish_checked(
     // The colours its builder gave it, read off the file they sent.
     if let Ok(id) = &stored
         && !raw.is_empty()
-        && let Ok(Ok(colours)) = crate::colouring::read(raw, &prepared.data)
+        && let Ok(Ok(colours)) =
+            crate::recognize::colouring::read(raw, &prepared.data)
         && !colours.is_empty()
     {
         version::set_colours(db, id, 1, &colours).await?;

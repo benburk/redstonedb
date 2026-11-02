@@ -316,10 +316,10 @@ pub fn behaviour(category: &str) -> Behaviour {
 }
 
 /// The name an unsigned carry in goes by; see `colour::CARRY_IN`.
-const CARRY_IN: &str = crate::colour::CARRY_IN[0];
+const CARRY_IN: &str = crate::recognize::colour::CARRY_IN[0];
 
 /// The name an unsigned carry out goes by; see `colour::CARRY_OUT`.
-const CARRY_OUT: &str = crate::colour::CARRY_OUT[0];
+const CARRY_OUT: &str = crate::recognize::colour::CARRY_OUT[0];
 
 impl Lines {}
 

@@ -5,7 +5,7 @@
 use sqlx::SqlitePool;
 
 use crate::{
-    category,
+    external::mojang,
     import::Prepared,
     models::{
         catalogue::{self, Category, Measure},
@@ -14,9 +14,9 @@ use crate::{
         },
         simulation, tag,
     },
-    mojang,
+    recognize::category,
+    schem::stack,
     simulate::{AdderVariant, Report, Test},
-    stack,
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming
@@ -321,7 +321,7 @@ async fn evaluated(
         .map(|blocks| {
             crate::import::derived(
                 &category.name,
-                &crate::interface::read(&blocks),
+                &crate::recognize::interface::read(&blocks),
             )
         })
         .unwrap_or_default();
@@ -396,7 +396,7 @@ pub async fn unrecognized(
     };
     // Inputs taking a strength, a hex digit per block, are a hex adder's,
     // and no other's, as a build kept as built says too.
-    let hex = !crate::interface::dust_inputs(&blocks).is_empty();
+    let hex = !crate::recognize::interface::dust_inputs(&blocks).is_empty();
     if category.name != HEX_ADDER && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }

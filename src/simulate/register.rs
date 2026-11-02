@@ -42,11 +42,12 @@ use super::{
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
 use crate::{
-    colour,
-    interface::{self, Interface},
     models::schematic::Orientation,
-    schem::{Blocks, Pos},
-    stack,
+    recognize::{
+        colour,
+        interface::{self, Interface},
+    },
+    schem::{Blocks, Pos, stack},
 };
 
 /// One magenta line, by its port and bit, where its block is, and whether
@@ -1891,7 +1892,8 @@ pub fn throughput(
             (switch.pos, format!("minecraft:lever[{properties}"))
         })
         .collect();
-    let levered = Blocks::read(&crate::standardize::edit(data, &levers)?)?;
+    let levered =
+        Blocks::read(&crate::schem::standardize::edit(data, &levers)?)?;
     let latency: Vec<i32> = timing
         .outputs
         .iter()

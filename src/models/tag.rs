@@ -190,7 +190,7 @@ pub fn unverified(
 ) -> Option<Unverified> {
     match reason {
         _ if fails_simulation => Some(Unverified::Fails),
-        Some(reason) if crate::fault::wrong_outputs(reason) => {
+        Some(reason) if crate::recognize::fault::wrong_outputs(reason) => {
             Some(Unverified::Fails)
         }
         Some(_) => Some(Unverified::NonStandard),
@@ -207,7 +207,7 @@ pub(super) fn with_derived(
     torches: Option<i64>,
     works_from: Option<&str>,
 ) -> Vec<Tag> {
-    let alpha = works_from == Some(crate::works_from::RELEASES[0].name);
+    let alpha = works_from == Some(crate::schem::works_from::RELEASES[0].name);
     for (has, name) in [(alpha, ALPHA), (torches == Some(0), TORCHLESS)] {
         if !has {
             continue;

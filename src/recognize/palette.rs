@@ -15,10 +15,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{
-    schem::{self, Blocks, Pos},
-    standardize,
-};
+use crate::schem::{self, Blocks, Pos, standardize};
 
 /// Minecraft's dyes, in its own order.
 pub const DYES: [&str; 16] = [

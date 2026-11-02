@@ -19,14 +19,7 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
-    app_state::AppState,
-    category, details,
-    error::AppError,
-    extractors::{
-        client_ip::ClientIp,
-        fixi::Fixi,
-        session::{Moderator, SignedIn},
-    },
+    details,
     import::{self, Analysis, Prepared},
     leaderboard,
     models::{
@@ -36,10 +29,22 @@ use crate::{
         user::User,
         version::{self, Replacing},
     },
-    palette::{self, Palette},
-    schem::Blocks,
-    search, stack, standardize, thumbnail,
+    recognize::{
+        category,
+        palette::{self, Palette},
+    },
+    schem::{Blocks, stack, standardize},
+    search, thumbnail,
     version::{Checked, check as check_version},
+    web::{
+        app_state::AppState,
+        error::AppError,
+        extractors::{
+            client_ip::ClientIp,
+            fixi::Fixi,
+            session::{Moderator, SignedIn},
+        },
+    },
 };
 
 use super::{
@@ -550,8 +555,9 @@ pub async fn detail(
         .map(|blocks| pages::FileRead {
             unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
-            block_counts: crate::standardize::block_counts(&blocks),
-            strength_inputs: !crate::interface::dust_inputs(&blocks).is_empty(),
+            block_counts: crate::schem::standardize::block_counts(&blocks),
+            strength_inputs: !crate::recognize::interface::dust_inputs(&blocks)
+                .is_empty(),
             stacking: s
                 .stacking
                 .iter()
@@ -615,7 +621,7 @@ async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
     let Some(meant) = crate::models::simulation::stands_in(s)
-        .filter(|meant| crate::category::BLESSED.contains(meant))
+        .filter(|meant| crate::recognize::category::BLESSED.contains(meant))
         .filter(|meant| *meant != "hex_adder")
         .map(str::to_owned)
     else {
@@ -624,7 +630,7 @@ async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
     let data = data.to_vec();
     // Probing simulates, so off the async threads.
     let recognized = tokio::task::spawn_blocking(move || {
-        crate::probe::recognize_as(&data, Some(&meant))
+        crate::recognize::probe::recognize_as(&data, Some(&meant))
     })
     .await;
     match recognized {
@@ -1146,7 +1152,7 @@ pub(super) async fn export(
         _ => None,
     };
     if let Some(colours) = &original {
-        let data = crate::colouring::apply(&data, colours)?;
+        let data = crate::recognize::colouring::apply(&data, colours)?;
         return shaped(db, id, s, data, asked, counted).await;
     }
     let palette = palette

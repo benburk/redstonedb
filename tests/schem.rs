@@ -1,10 +1,11 @@
 //! Reading builds from their files, against the two stored adders.
 
 use app::{
-    import, interface,
+    import,
     models::schematic::{Orientation, StackDirection},
-    schem::{self, Blocks, Direction},
-    simulate, stack, standardize,
+    recognize::interface,
+    schem::{self, Blocks, Direction, stack, standardize},
+    simulate,
 };
 
 fn raw(name: &str) -> Vec<u8> {
@@ -637,7 +638,7 @@ fn an_output_sticking_out_is_not_measured() {
     let blocks = app::schem::Blocks::read(&data).unwrap();
     let size = app::import::measure(&blocks, true).unwrap();
     assert_eq!((size.y, size.x, size.z), (4, 4, 6));
-    let (low, high) = app::interface::core(&blocks);
+    let (low, high) = app::recognize::interface::core(&blocks);
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
 }
 

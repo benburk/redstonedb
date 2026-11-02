@@ -9,7 +9,10 @@ use axum_extra::extract::{
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{app_state::AppState, error::AppError, models::session::Session};
+use crate::{
+    models::session::Session,
+    web::{app_state::AppState, error::AppError},
+};
 
 /// How long a login lasts.
 const LIFETIME: time::Duration = time::Duration::WEEK;

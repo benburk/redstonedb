@@ -17,7 +17,7 @@ use super::{
     circuit::{Circuit, input_bits},
     timing::Timing,
 };
-use crate::{interface, schem::Blocks};
+use crate::{recognize::interface, schem::Blocks};
 
 /// The fewest random cases the stream a period is found on runs through,
 /// and the long one it is checked on.
@@ -161,7 +161,7 @@ fn settled_cases(
 /// each output read at its latency: what `throughput` tries at each period.
 struct Stream<'a> {
     blocks: &'a Blocks,
-    interface: &'a crate::interface::Interface,
+    interface: &'a crate::recognize::interface::Interface,
     cases: &'a [Vec<u64>],
     expected: &'a [Vec<u64>],
     offset: &'a [i32],

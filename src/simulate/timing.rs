@@ -40,7 +40,10 @@ use super::{
     bench::{self, EXHAUSTIVE_BITS},
     circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
 };
-use crate::{colour, interface::Interface, schem::Blocks};
+use crate::{
+    recognize::{colour, interface::Interface},
+    schem::Blocks,
+};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
 /// input A changing.

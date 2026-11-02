@@ -15,7 +15,9 @@ use axum::{
 use sqlx::SqlitePool;
 
 use crate::{
-    app_state::AppState, error::AppError, head, models::player, mojang,
+    external::{head, mojang},
+    models::player,
+    web::{app_state::AppState, error::AppError},
 };
 
 /// The head of the player with `uuid`, as an 8×8 PNG for a page to scale

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::{
-    interface,
+    recognize::interface,
     schem::{self, AIR, Blocks, Direction, Pos},
     simulate,
 };
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn a_build_with_no_a_turns_by_its_control_line() {
         let data = std::fs::read("tests/fixtures/t-flip-flop.schem").unwrap();
-        let probed = crate::probe::recognize(&data).unwrap();
+        let probed = crate::recognize::probe::recognize(&data).unwrap();
         assert!(probed.found.is_some(), "{:?}", probed.problems);
         for quarters in 0..4 {
             let turn = Turn {

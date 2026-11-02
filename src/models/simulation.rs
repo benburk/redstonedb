@@ -13,19 +13,23 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
-    category,
-    evaluate::{Evaluation, evaluate},
-    import, interface,
-    models::schematic::{
-        self, Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
+    import,
+    models::{
+        schematic::{
+            self, Encoding, Logic, Orientation, Schematic, StackDirection,
+            Widened,
+        },
+        version,
     },
-    models::version,
-    roles,
-    schem::Blocks,
+    recognize::{
+        category,
+        evaluate::{Evaluation, evaluate},
+        interface, roles,
+    },
+    schem::{Blocks, stack},
     simulate::{
         self, Edge, Gate, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
     },
-    stack,
 };
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
@@ -448,8 +452,9 @@ async fn at_zero(
     let (conventional, keeps_paste) = (s.conventional, s.keeps_paste);
     let was = data.clone();
     let fixed = tokio::task::spawn_blocking(move || {
-        let fixed =
-            crate::standardize::levers_at_zero(&was, &category, &inverted)?;
+        let fixed = crate::schem::standardize::levers_at_zero(
+            &was, &category, &inverted,
+        )?;
         if fixed == was {
             return Ok(None);
         }

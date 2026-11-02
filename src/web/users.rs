@@ -8,10 +8,12 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
-    extractors::{fixi::Fixi, session::Admin},
     models::user::{Role, User},
+    web::{
+        app_state::AppState,
+        error::AppError,
+        extractors::{fixi::Fixi, session::Admin},
+    },
 };
 
 use super::{pages, profile};

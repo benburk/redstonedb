@@ -1,7 +1,7 @@
 //! The list of categories a build may have, with what each is named, ranked,
 //! and searched by: its measures, designs, flags, and aliases. These are
 //! rows people add to with `rsdb`; what the code does with a category's
-//! builds is `crate::category`'s.
+//! builds is `crate::recognize::category`'s.
 
 use std::collections::HashMap;
 

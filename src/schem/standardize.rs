@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use anyhow::{Result, ensure};
 
 use crate::{
-    colour, interface,
+    recognize::{colour, interface},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 

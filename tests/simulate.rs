@@ -3,15 +3,14 @@
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
-    import, interface,
+    import,
     models::schematic::{Encoding, Orientation},
-    orient,
-    schem::{self, Blocks},
+    recognize::interface,
+    schem::{self, Blocks, orient, standardize},
     simulate::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Takes,
         Test,
     },
-    standardize,
 };
 
 /// A fixture as the site stores it: markers out, box fitted, and status
@@ -188,11 +187,12 @@ fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
 fn an_adder_stacks_by_its_box() {
     let raw =
         std::fs::read("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
-    let data = app::probe::simulatable(&raw).unwrap();
+    let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let report = app::inspect::inspect(&blocks);
-    let probed = app::probe::adder(&blocks, &report).unwrap();
-    let coloured = app::probe::colour(&data, &probed.layout).unwrap();
+    let report = app::recognize::inspect::inspect(&blocks);
+    let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
+    let coloured =
+        app::recognize::probe::colour(&data, &probed.layout).unwrap();
     let standard = import::prepare(&coloured, true, true, false, true).unwrap();
     let Some(Stacking::Stacks {
         step, copies, bits, ..
@@ -212,11 +212,12 @@ fn an_adder_stacks_by_its_box() {
 fn an_adder_stacks_by_a_box_found_by_testing() {
     let raw = std::fs::read("tests/fixtures/vert-adder-8-barrel-north.schem")
         .unwrap();
-    let data = app::probe::simulatable(&raw).unwrap();
+    let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let report = app::inspect::inspect(&blocks);
-    let probed = app::probe::adder(&blocks, &report).unwrap();
-    let coloured = app::probe::colour(&data, &probed.layout).unwrap();
+    let report = app::recognize::inspect::inspect(&blocks);
+    let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
+    let coloured =
+        app::recognize::probe::colour(&data, &probed.layout).unwrap();
     let standard = import::prepare(&coloured, true, true, false, true).unwrap();
     let Some(Stacking::Stacks { step, bits, .. }) =
         Test::Adder.stacking(&standard.data)

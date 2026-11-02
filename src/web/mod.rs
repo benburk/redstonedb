@@ -11,16 +11,21 @@ use axum::{
 };
 
 use crate::{
-    app_state::AppState,
-    error::{AppError, ErrorPage},
     models::user::User,
+    web::{
+        app_state::AppState,
+        error::{AppError, ErrorPage},
+    },
 };
 
 mod about;
 pub mod analysis;
+pub mod app_state;
 mod auth;
 #[cfg(debug_assertions)]
 mod dev;
+pub mod error;
+pub mod extractors;
 mod form;
 mod heads;
 mod leaderboards;
@@ -141,7 +146,7 @@ macro_rules! guide_image {
 }
 
 /// The How builds are recognized pictures, one for each of
-/// [`crate::guide::examples`].
+/// [`crate::recognize::guide::examples`].
 const GUIDE: [Asset; 10] = [
     guide_image!("input"),
     guide_image!("input-dust-below"),
@@ -172,7 +177,7 @@ async fn viewing(
     viewer: Option<&User>,
 ) -> anyhow::Result<pages::Viewing> {
     Ok(pages::Viewing {
-        palette: crate::palette::key_for(db, viewer).await?,
+        palette: crate::recognize::palette::key_for(db, viewer).await?,
         signed_in: viewer.is_some(),
         favorites: match viewer {
             Some(viewer) => crate::models::schematic::favorites(db, viewer.id)

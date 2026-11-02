@@ -13,11 +13,12 @@ use super::{
     stacking,
 };
 use crate::{
-    colour,
-    interface::{self, Interface},
     models::schematic::Orientation,
-    schem::Blocks,
-    stack,
+    recognize::{
+        colour,
+        interface::{self, Interface},
+    },
+    schem::{Blocks, stack},
 };
 
 /// An inverter's every case, or with too many, each byte's and the test

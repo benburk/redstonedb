@@ -10,7 +10,7 @@ use super::{
     bench::{mask, patterns},
     circuit::output_bits,
 };
-use crate::{
+use crate::recognize::{
     colour,
     interface::{Interface, Port},
 };

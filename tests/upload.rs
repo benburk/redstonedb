@@ -145,7 +145,7 @@ async fn an_off_list_name_reads_back_as_its_category() {
     let categories = categories().await;
     let evaluated = categories
         .iter()
-        .filter(|c| app::category::behaviour(&c.name).evaluated);
+        .filter(|c| app::recognize::category::behaviour(&c.name).evaluated);
     for category in evaluated {
         for width in [Some(8), None] {
             let name = details::off_list_name(category, width);
@@ -169,7 +169,8 @@ async fn an_off_list_name_reads_back_as_its_category() {
 #[ignore = "measures whole builds: just test-full"]
 async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
     let raw = fixture("cca-8-wool-lamps");
-    let recognition = app::probe::recognize(&raw).expect("it can be probed");
+    let recognition =
+        app::recognize::probe::recognize(&raw).expect("it can be probed");
     assert!(
         recognition.found.as_deref().is_some_and(
             |found| found.starts_with("an adder: all 131072 cases right")
@@ -193,7 +194,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
 #[ignore = "measures whole builds: just test-full"]
 async fn publishing_keeps_the_file_its_preview_evaluated() {
     let raw = fixture("cca-16-raw");
-    let coloured = app::probe::recognize(&raw).unwrap().file;
+    let coloured = app::recognize::probe::recognize(&raw).unwrap().file;
     let analyzed = Upload::read(&coloured).unwrap();
     let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
     let published = Upload::read(&analyzed.original.data).unwrap();
@@ -213,7 +214,8 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
 /// carry in as an input out of line.
 #[test]
 fn probing_a_hex_adder_says_its_inputs_take_no_levers() {
-    let recognition = app::probe::recognize(&fixture("hex-cca-8")).unwrap();
+    let recognition =
+        app::recognize::probe::recognize(&fixture("hex-cca-8")).unwrap();
     assert_eq!(recognition.found, None);
     assert_eq!(recognition.problems, [details::WITHOUT_LEVERS]);
 }

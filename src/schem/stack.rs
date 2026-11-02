@@ -34,8 +34,8 @@ use std::{
 use anyhow::{Result, ensure};
 
 use crate::{
-    category, colour, interface,
     models::schematic::{Faces, Orientation, StackDirection},
+    recognize::{category, colour, interface},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 

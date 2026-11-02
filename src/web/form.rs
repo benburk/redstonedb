@@ -7,17 +7,17 @@ use sqlx::SqlitePool;
 use super::pages::{self, Choices, DetailsPage, File};
 use crate::{
     details::Details,
-    error::AppError,
     import::{self, Analysis, FileFacts},
-    interface::{self, Interface},
     models::{
         catalogue::{self, Category},
         schematic::{self, Orientation, Schematic, StackDirection},
         tag,
         user::User,
     },
+    recognize::interface::{self, Interface},
     schem::{Blocks, Size},
     simulate::Guess,
+    web::error::AppError,
 };
 
 /// The ways the form can stack a build, as `StackDirection::name` gives

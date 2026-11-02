@@ -7,13 +7,12 @@ use axum::{
 };
 
 use crate::{
-    app_state::AppState,
-    error::AppError,
     leaderboard,
     models::{
         schematic::{self, Schematic},
         user::User,
     },
+    web::{app_state::AppState, error::AppError},
 };
 
 use super::pages;

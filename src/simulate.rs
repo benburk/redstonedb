@@ -18,8 +18,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    category, colour,
-    interface::{self, Interface},
+    recognize::{
+        category, colour,
+        interface::{self, Interface},
+    },
     schem::{Blocks, Pos},
 };
 

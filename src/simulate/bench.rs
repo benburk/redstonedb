@@ -12,7 +12,7 @@ use super::{
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
-use crate::{interface::Interface, schem::Blocks};
+use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// Up to this many input bits, every combination is tried; beyond it, every
 /// case of each byte and every pairing of the test patterns.

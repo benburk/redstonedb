@@ -13,7 +13,10 @@ use super::{
     bench::{Bench, Case, paired},
     circuit::{Circuit, output_bits},
 };
-use crate::{colour, interface::Interface, schem::Blocks};
+use crate::{
+    recognize::{colour, interface::Interface},
+    schem::Blocks,
+};
 
 /// What weak inputs do to a build.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

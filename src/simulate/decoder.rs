@@ -10,10 +10,9 @@ use super::{
     stacking::{Apart, Stacking, Step},
 };
 use crate::{
-    interface::{self, Interface},
     models::schematic::Orientation,
-    schem::Blocks,
-    stack,
+    recognize::interface::{self, Interface},
+    schem::{Blocks, stack},
 };
 
 /// A decoder's cases, as they are named.

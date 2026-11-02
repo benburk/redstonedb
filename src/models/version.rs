@@ -56,7 +56,7 @@ pub async fn set_colours<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
     version: i64,
-    colours: &crate::colouring::Colouring,
+    colours: &crate::recognize::colouring::Colouring,
 ) -> Result<(), sqlx::Error> {
     let json =
         serde_json::to_string(colours).expect("positions and names are JSON");
@@ -78,7 +78,7 @@ pub async fn set_colours<'e, E: SqliteExecutor<'e>>(
 pub async fn colours(
     db: &sqlx::SqlitePool,
     id: &str,
-) -> Result<Option<crate::colouring::Colouring>, sqlx::Error> {
+) -> Result<Option<crate::recognize::colouring::Colouring>, sqlx::Error> {
     let rows = sqlx::query!(
         "SELECT data, colours FROM schematic_version
          WHERE schematic_id = ? ORDER BY version DESC",

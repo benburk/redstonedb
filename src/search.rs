@@ -25,11 +25,11 @@
 use std::collections::HashSet;
 
 use crate::{
-    colour,
     models::{
         catalogue::Measure,
         schematic::{Logic, Schematic},
     },
+    recognize::colour,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,9 +392,9 @@ fn versions(s: &Schematic) -> Vec<String> {
     let Some(from) = &s.works_from else {
         return Vec::new();
     };
-    crate::works_from::known()
+    crate::schem::works_from::known()
         .into_iter()
-        .filter(|release| crate::works_from::works_in(from, release))
+        .filter(|release| crate::schem::works_from::works_in(from, release))
         .map(|release| format!("version:{}", release.to_lowercase()))
         .collect()
 }

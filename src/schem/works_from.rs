@@ -6,10 +6,7 @@
 //! could rest on sets the release. Every build on the site works in the
 //! latest release, so there is no newest one to find.
 
-use crate::{
-    schem::{self, Blocks, Direction, Pos},
-    standardize,
-};
+use crate::schem::{self, Blocks, Direction, Pos, standardize};
 
 /// A release that added redstone components or mechanics a build may use.
 pub struct Release {
