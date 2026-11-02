@@ -3,7 +3,10 @@
 //! A, B, carry in, sum, and carry out, with each bus either way round, is
 //! tried with the adder's test, and the one that adds is kept.
 
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+};
 
 use crate::{
     category, colour,
@@ -502,12 +505,32 @@ fn paint(data: &[u8], roles: &HashMap<Pos, &str>) -> anyhow::Result<Vec<u8>> {
 }
 
 /// What the check by function makes of an uploaded file: the file with its
-/// roles coloured in, when it is recognized as an adder, else as it came;
-/// what was found; and what only its builder can put right.
+/// roles coloured in, when it is recognized as a category; when not, as
+/// the try that came closest coloured it, when that try ran and got cases
+/// wrong, so its test shows which; else as it came; what was found; and
+/// what only its builder can put right.
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
     pub problems: Vec<String>,
+}
+
+thread_local! {
+    /// What the last try that ran but got cases wrong said, with the file
+    /// coloured as it had it; see [`doesnt_hold`].
+    static MISSED: RefCell<Option<(String, Vec<u8>)>> = const { RefCell::new(None) };
+}
+
+/// What a try whose roles are coloured into `file` says when its `run`
+/// got cases wrong, kept with `file`, so a build no try holds can show
+/// what the closest got wrong.
+fn doesnt_hold(run: &simulate::Run, file: &[u8]) -> String {
+    let why =
+        format!("Doesn't hold: {} of {} cases wrong", run.wrong, run.cases);
+    MISSED.with(|missed| {
+        *missed.borrow_mut() = Some((why.clone(), file.to_vec()));
+    });
+    why
 }
 
 /// The file in `data` with what the simulator does not model but redstone
@@ -599,21 +622,36 @@ pub fn recognize_watched(
     // Each blessed category in turn, or only the one meant, its fault kept
     // when it isn't one.
     let mut faults: Vec<Option<String>> = vec![None; KINDS.len()];
+    // The file each category's closest try coloured, when it said so.
+    let mut missed: Vec<Option<Vec<u8>>> = vec![None; KINDS.len()];
     for (i, kind) in KINDS.into_iter().enumerate() {
         if meant.is_some_and(|meant| meant != kind) {
             continue;
         }
         trying(kind, i);
+        MISSED.with(|missed| missed.borrow_mut().take());
         match probe_as(kind, data, &blocks, &report)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
-            Err(why) => faults[i] = Some(why),
+            Err(why) => {
+                let last = MISSED.with(|missed| missed.borrow_mut().take());
+                missed[i] =
+                    last.filter(|(said, _)| *said == why).map(|(_, file)| file);
+                faults[i] = Some(why);
+            }
         }
     }
     let fault = fault_of(&blocks, &report, meant, &faults);
+    let closest = faults
+        .iter()
+        .zip(missed)
+        .find_map(|(why, file)| file.filter(|_| why.as_ref() == Some(&fault)));
     problems.push(fault);
-    Ok(unrecognized(problems))
+    Ok(Recognition {
+        file: closest.unwrap_or_else(|| data.to_vec()),
+        ..unrecognized(problems)
+    })
 }
 
 /// The blessed categories, in the order probing tries them: gates first,
@@ -982,10 +1020,7 @@ pub fn register(
         match test.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
             Ok(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
                 continue;
             }
             Err(err) => {
@@ -1004,10 +1039,7 @@ pub fn register(
                 });
             }
             simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
             }
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
@@ -1088,10 +1120,7 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         match Test::Alu.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
             Ok(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
                 continue;
             }
             Err(err) => {
@@ -1112,10 +1141,7 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
                 });
             }
             simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
             }
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
@@ -1183,15 +1209,12 @@ pub fn multiplier(
     // Of the orders that ran, the share of cases the closest got wrong,
     // which `why` tells, rather than one that couldn't run.
     let mut closest = f64::INFINITY;
-    let mut wrong = |run: &simulate::Run, why: &mut String| {
+    let mut wrong = |run: &simulate::Run, file: &[u8], why: &mut String| {
         #[allow(clippy::cast_precision_loss)]
         let share = run.wrong as f64 / run.cases.max(1) as f64;
         if share < closest {
             closest = share;
-            *why = format!(
-                "Doesn't hold: {} of {} cases wrong",
-                run.wrong, run.cases
-            );
+            *why = doesnt_hold(run, file);
         }
     };
     let tries = operands.iter().flat_map(|&(a, b, c)| {
@@ -1215,7 +1238,7 @@ pub fn multiplier(
         match Test::Multiplier.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
             Ok(run) => {
-                wrong(&run, &mut why);
+                wrong(&run, &file, &mut why);
                 continue;
             }
             Err(err) => {
@@ -1237,7 +1260,7 @@ pub fn multiplier(
                     run: *run,
                 });
             }
-            simulate::Report::Ran(run) => wrong(&run, &mut why),
+            simulate::Report::Ran(run) => wrong(&run, &file, &mut why),
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
                 if !why.starts_with("Doesn't hold") {
@@ -1353,10 +1376,7 @@ pub fn operands_probe(
                 });
             }
             simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
             }
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
@@ -1406,10 +1426,7 @@ pub fn shifter(
                 });
             }
             simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
             }
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
@@ -1506,10 +1523,7 @@ pub fn one_operand(
                 return Ok(OneInputProbed { a, file, run: *run });
             }
             simulate::Report::Ran(run) => {
-                why = format!(
-                    "Doesn't hold: {} of {} cases wrong",
-                    run.wrong, run.cases
-                );
+                why = doesnt_hold(&run, &file);
             }
             simulate::Report::Broken { reason }
             | simulate::Report::Skipped { reason } => {
@@ -1624,10 +1638,7 @@ pub fn sequential(
             file,
             run: *run,
         }),
-        simulate::Report::Ran(run) => Err(format!(
-            "Doesn't hold: {} of {} cases wrong",
-            run.wrong, run.cases
-        )),
+        simulate::Report::Ran(run) => Err(doesnt_hold(&run, &file)),
         simulate::Report::Broken { reason }
         | simulate::Report::Skipped { reason } => {
             Err(format!("Test couldn't run: {reason}"))
@@ -1699,10 +1710,7 @@ pub fn decoder(
             file,
             run: *run,
         }),
-        simulate::Report::Ran(run) => Err(format!(
-            "Doesn't hold: {} of {} cases wrong",
-            run.wrong, run.cases
-        )),
+        simulate::Report::Ran(run) => Err(doesnt_hold(&run, &file)),
         simulate::Report::Broken { reason }
         | simulate::Report::Skipped { reason } => {
             Err(format!("Test couldn't run: {reason}"))

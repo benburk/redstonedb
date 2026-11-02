@@ -416,6 +416,27 @@ fn telling(width: usize) -> Vec<u64> {
     values
 }
 
+/// What `writes` and `reads`, a build's control lines, are, as its
+/// faults say: so many buttons, so many levers, as `2 buttons, no levers`.
+fn switches(writes: &[Line], reads: &[Line]) -> String {
+    let lines = writes.len() + reads.len();
+    let buttons = writes
+        .iter()
+        .chain(reads)
+        .filter(|line| line.button)
+        .count();
+    let count = |n: usize, one: &str| match n {
+        0 => format!("no {one}s"),
+        1 => format!("1 {one}"),
+        n => format!("{n} {one}s"),
+    };
+    format!(
+        "{}, {}",
+        count(buttons, "button"),
+        count(lines - buttons, "lever")
+    )
+}
+
 /// The register's ports, and its circuit settled with its levers off,
 /// with its cells found.
 fn ports(
@@ -488,22 +509,20 @@ fn ports(
             }
         }
     }
+    let found = switches(&writes, &reads);
     if writes.is_empty() {
         broken!(
-            "A {what}'s cells are written by a button on a magenta line, or a \
-             line signed write, but this has none."
+            "Control lines: expected a button writing each cell, found {found}."
         );
     }
     match kind {
         Kind::Register if reads.is_empty() => broken!(
-            "A register's cells are read by a lever on a magenta line, which \
-             keeps them off the shared bus until then, but this has none, so \
-             it may be a buffer."
+            "Control lines: expected a button writing each cell and a lever \
+             reading it, found {found}."
         ),
         Kind::Buffer if !reads.is_empty() => broken!(
-            "A buffer shows what it holds all the time, so it has no reads, \
-             but this has {}, so it may be a register.",
-            reads.len()
+            "Control lines: expected only writes, as a buffer shows what it \
+             holds, found {found}."
         ),
         _ => {}
     }

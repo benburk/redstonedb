@@ -152,6 +152,26 @@ const CASES: &[Case] = &[
         rule: Some("data-inputs"),
     },
     Case {
+        when: &[Starts(
+            "Control lines: expected a button writing each cell and",
+        )],
+        fix: "Give each cell a button that writes it and a lever that reads \
+              it onto the bus. One that shows what it holds all the time is \
+              a Buffer.",
+        rule: Some("per-category"),
+    },
+    Case {
+        when: &[Starts("Control lines: expected only writes")],
+        fix: "Take out its read levers, or upload it as a Register, which \
+              reads each cell with a lever.",
+        rule: Some("per-category"),
+    },
+    Case {
+        when: &[Starts("Control lines: expected a button writing")],
+        fix: "Give each cell a button that writes it.",
+        rule: Some("per-category"),
+    },
+    Case {
         when: &[Starts("Too many control lines")],
         fix: "Take out every control line but the one its category takes, so \
               a multiplier keeps only calculate.",
@@ -260,6 +280,12 @@ mod tests {
             "Output bus: 7 outputs, need 8",
             "A: no line of 8 levers",
             "Button at (1, 2, 3): oak button (need stone)",
+            "Test couldn't run: Control lines: expected a button writing \
+             each cell and a lever reading it, found 2 buttons, no levers.",
+            "Control lines: expected only writes, as a buffer shows what it \
+             holds, found 2 buttons, 2 levers.",
+            "Control lines: expected a button writing each cell, found no \
+             buttons, 3 levers.",
         ] {
             assert!(advice(reason).is_some(), "{reason}");
         }

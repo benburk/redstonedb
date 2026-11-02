@@ -706,7 +706,8 @@ fn a_buffer_shows_what_it_holds_without_a_read() {
     let Report::Broken { reason } = Test::Register.run(&blocks) else {
         panic!("the buffer passed as a register");
     };
-    assert!(reason.contains("may be a buffer"));
+    // Its lines are said: a write button, and no lever to read.
+    assert!(reason.contains("found 1 button, no levers"), "{reason}");
     let Report::Ran(run) = Test::Buffer.run(&blocks) else {
         panic!("the buffer was not simulated");
     };
@@ -747,7 +748,7 @@ fn a_register_is_no_buffer() {
     let Report::Broken { reason } = Test::Buffer.run(&blocks) else {
         panic!("the register passed as a buffer");
     };
-    assert!(reason.contains("may be a register"));
+    assert!(reason.contains("expected only writes"), "{reason}");
 }
 
 /// The register fixture with the levers on `colour` concrete saved on.
