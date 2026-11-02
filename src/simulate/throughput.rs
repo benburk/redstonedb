@@ -178,16 +178,21 @@ impl Stream<'_> {
         let (offset, latency, button) =
             (self.offset, self.latency, self.button);
         let earliest = offset.iter().copied().min().unwrap_or(0).min(0);
+        let mut circuit = Circuit::new(blocks, interface)?;
+        // Each input set as many ticks sooner as its drivers take, as its
+        // timing sets it, so its blocks take it at its own tick.
+        let lead = circuit.lead();
+        let soonest = offset.iter().zip(&lead).map(|(o, l)| o - l).min();
 
         // Ticks from the stream's start: case `i`'s A goes in at
         // `start + i * period`.
-        let start = -earliest;
+        let start = -soonest.unwrap_or(0).min(0);
         let mut sets: Vec<(i32, usize, u64)> = Vec::new();
         let mut reads: Vec<(i32, usize, usize)> = Vec::new();
         for ((i, case), n) in cases.iter().enumerate().zip(0..) {
             let a = start + n * period;
             for (port, &value) in case.iter().enumerate() {
-                sets.push((a + offset[port], port, value));
+                sets.push((a + offset[port] - lead[port], port, value));
             }
             for (o, &l) in latency.iter().enumerate() {
                 reads.push((a + l.max(period + earliest), o, i));
@@ -196,7 +201,6 @@ impl Stream<'_> {
         sets.sort_unstable();
         reads.sort_unstable();
         let end = reads.last().map_or(0, |r| r.0);
-        let mut circuit = Circuit::new(blocks, interface)?;
         circuit.settle()?;
         let (mut next_set, mut next_read, mut right) = (0, 0, true);
         for t in 0..=end {
