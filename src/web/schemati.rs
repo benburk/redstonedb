@@ -1,6 +1,8 @@
 //! The viewer's own Schemati folder, reached with the Schemati session
 //! they give: its files to download, publish, rename, and delete, files to
-//! add, and builds sent from their pages.
+//! add, and builds sent from their pages. These are the routes: Schemati is
+//! reached through `external::schemati`, and the page drawn by
+//! `pages::schemati`.
 
 use std::{
     future::Future,
