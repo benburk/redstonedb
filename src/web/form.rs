@@ -4,7 +4,7 @@
 use axum::response::{IntoResponse, Response};
 use sqlx::SqlitePool;
 
-use super::pages::{self, Choices, DetailsPage, File};
+use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
     details::Details,
     import::{self, Analysis, FileFacts},
@@ -380,17 +380,13 @@ pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     })
 }
 
-/// What a details page shows beside its form: the file, and why the last
-/// try was refused, if it was.
+/// What a details page shows beside its form: the file, and what it says
+/// back to the last thing sent.
 pub struct Shown<'a> {
     pub file: File<'a>,
     /// The file's blocks, when they can be read.
     pub blocks: Option<&'a Blocks>,
-    /// Why the last attempt to publish or save was refused, if it was.
-    pub message: &'a str,
-    /// Whether the fields for choosing another file start open, with why
-    /// the last file chosen could not be read, if it could not.
-    pub choosing: Option<&'a str>,
+    pub reply: Reply<'a>,
 }
 
 /// The details page for `user`, its form as `form` has it. What every
@@ -448,8 +444,7 @@ pub async fn page(
             choices: &choices,
             derived,
             fixed: &fixed,
-            message: shown.message,
-            choosing: shown.choosing,
+            reply: shown.reply,
             schemati: &super::schemati::connection(folder.as_ref()),
         },
     )

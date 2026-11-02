@@ -10,6 +10,6 @@ mod list;
 pub use detail::{detail, favorite, thumbnail};
 pub use download::{Colours, download};
 pub(super) use download::{Download, export};
+pub(super) use edit::{EditView, editable, show_edit};
 pub use edit::{delete, edit, save};
-pub(super) use edit::{editable, show_edit};
 pub use list::{home, list};

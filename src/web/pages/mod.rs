@@ -50,7 +50,7 @@ pub use build::{
     favorite_button, schematic_page, waiting,
 };
 pub use description::mentions;
-pub use details_page::{DetailsPage, File, article, details_page};
+pub use details_page::{DetailsPage, File, Reply, article, details_page};
 pub use form::Choices;
 use layout::base;
 pub use layout::{forbidden, not_found};
