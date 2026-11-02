@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     CHOICE, Connection, PAGE_TITLE, SWITCHES, base,
-    icons::{HELP, PENCIL, icon},
+    icons::{PENCIL, icon},
 };
 
 /// `user`'s settings, with their Schemati session as `connection` says it
@@ -43,7 +43,6 @@ pub fn settings(
                     }
                 }
             }
-            (session_help())
         },
     )
 }
@@ -130,11 +129,14 @@ fn minecraft_row(user: &User, message: &str) -> Markup {
 }
 
 /// The viewer's Schemati session: whose folder it opens, or that there is
-/// none, edited in place, with how to find one behind its help button.
+/// none and what one is for, edited in place, with how to find one under
+/// its field.
 fn schemati_row(connection: &Connection, message: &str) -> Markup {
     let shown = html! {
         @match connection {
-            Connection::Unset => span class="text-muted" { "Not connected" },
+            Connection::Unset => span class="text-muted" {
+                "Not connected. Connect it to upload builds from your Schemati folder and send builds to it."
+            },
             Connection::Forgotten => span class="text-danger" { "Expired" },
             Connection::Unreachable(why) => span class="text-danger" { (why) },
             Connection::Open(folder) => span { "Connected as " (folder.player) },
@@ -149,16 +151,10 @@ fn schemati_row(connection: &Connection, message: &str) -> Markup {
             button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
             button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
         }
+        (session_steps("mt-2 flex list-decimal flex-col gap-0.5 pl-5 text-meta text-muted"))
     };
     row(
-        &html! {
-            "Schemati session ID"
-            button type="button" commandfor="session-help" command="show-modal"
-                aria-label="How to find your session ID" title="How to find it"
-                class="inline-flex size-6 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink" {
-                (icon(HELP, "size-4"))
-            }
-        },
+        &html! { "Schemati session ID" },
         &editable(
             "Schemati session ID",
             &shown,
@@ -169,20 +165,14 @@ fn schemati_row(connection: &Connection, message: &str) -> Markup {
     )
 }
 
-/// How to find a Schemati session ID, in a dialog its help button opens.
-fn session_help() -> Markup {
+/// How to find a Schemati session ID, as steps in a list of `class`: on
+/// the welcome page, and under the field that takes one in Settings.
+fn session_steps(class: &str) -> Markup {
     html! {
-        dialog id="session-help" aria-labelledby="session-help-title"
-            class="m-auto max-w-prose rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
-            div class="mb-3 flex items-center justify-between gap-4" {
-                h2 id="session-help-title" class="font-semibold" { "Schemati session ID" }
-                button type="button" commandfor="session-help" command="close" class="btn btn-quiet" { "Close" }
-            }
-            ol class="flex list-decimal flex-col gap-1 pl-5" {
-                li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
-                li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
-                li { "Copy " code { "sessionId" } "." }
-            }
+        ol class=(class) {
+            li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
+            li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
+            li { "Copy " code { "sessionId" } " and paste it here." }
         }
     }
 }
@@ -525,11 +515,7 @@ pub fn welcome(
                     2 => {
                         h1 class={ (PAGE_TITLE) " mb-2" } { "Connect Schemati" }
                         p class="mb-4 text-muted" { "Upload builds straight from your Schemati folder, and send builds to it." }
-                        ol class="mb-4 flex list-decimal flex-col gap-1 pl-5" {
-                            li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
-                            li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
-                            li { "Copy " code { "sessionId" } " and paste it here." }
-                        }
+                        (session_steps("mb-4 flex list-decimal flex-col gap-1 pl-5"))
                         form action="/schemati/session" method="post" class="flex max-w-form flex-col gap-3" {
                             input type="hidden" name="next" value=(next(3));
                             input name="session" required autocomplete="off" spellcheck="false"
