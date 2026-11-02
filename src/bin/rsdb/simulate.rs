@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail, ensure};
 use app::{
     models::{schematic, simulation},
-    simulate::{Action, Report, Signal, Stacking, Timing},
+    simulate::{Action, Report, Stacking, Timing},
 };
 use sqlx::SqlitePool;
 
@@ -149,25 +149,8 @@ pub(super) fn print_report(name: &str, report: &Report) {
                 .map(|(bit, count)| format!("{bit} ({count})"))
                 .collect();
             println!("        wrong bits: {}", bits.join(", "));
-            let list = |signals: &[Signal], values: &[u64]| {
-                signals
-                    .iter()
-                    .zip(values)
-                    .map(|(signal, value)| format!("{} {value}", signal.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            };
-            for w in &run.examples {
-                let op =
-                    w.op.as_deref()
-                        .map(|op| format!("{op}: "))
-                        .unwrap_or_default();
-                println!(
-                    "        {op}{}: got {}, expected {}",
-                    list(&run.inputs, &w.inputs),
-                    list(&run.outputs, &w.got),
-                    list(&run.outputs, &w.expected)
-                );
+            for wrong in &run.examples {
+                println!("        {}", run.case(wrong));
             }
         }
         Report::Skipped { reason } => println!("skipped {name}: {reason}"),

@@ -715,6 +715,57 @@ pub enum Reading {
 }
 
 impl Run {
+    /// The case `wrong` as evidence: its operation, if any, each input's
+    /// value, and each output it got wrong as got and as expected, a bus
+    /// in binary, such as `A=3 B=5 carry in=0 → output=0b0110, expected
+    /// 0b1000`.
+    pub fn case(&self, wrong: &Wrong) -> String {
+        let value = |signal: &Signal, value: u64| {
+            if signal.bits > 1 {
+                format!("0b{value:0width$b}", width = signal.bits)
+            } else {
+                value.to_string()
+            }
+        };
+        let inputs: Vec<String> = self
+            .inputs
+            .iter()
+            .zip(&wrong.inputs)
+            .map(|(signal, value)| format!("{}={value}", signal.name))
+            .collect();
+        let outputs: Vec<String> = self
+            .outputs
+            .iter()
+            .zip(wrong.got.iter().zip(&wrong.expected))
+            .filter(|(_, (got, expected))| got != expected)
+            .map(|(signal, (&got, &expected))| {
+                format!(
+                    "{}={}, expected {}",
+                    signal.name,
+                    value(signal, got),
+                    value(signal, expected)
+                )
+            })
+            .collect();
+        let op = wrong
+            .op
+            .as_deref()
+            .map(|op| format!("{op}: "))
+            .unwrap_or_default();
+        format!("{op}{} → {}", inputs.join(" "), outputs.join("; "))
+    }
+
+    /// How many cases it got wrong, of how many, with the first as
+    /// evidence, such as `3 of 512 cases wrong: A=3 B=5 → output=0b0110,
+    /// expected 0b1000`.
+    pub fn wrong_cases(&self) -> String {
+        let counted = format!("{} of {} cases wrong", self.wrong, self.cases);
+        match self.examples.first() {
+            Some(first) => format!("{counted}: {}", self.case(first)),
+            None => counted,
+        }
+    }
+
     /// How an adder's cases read its lines.
     pub fn adder_variant(&self) -> AdderVariant {
         match self.reading {

@@ -64,9 +64,12 @@ pub enum Fault {
     NotRun(String),
     /// The kind's test ran on the roles coloured into `file`, getting
     /// `wrong` of its `cases` wrong: as near as a build comes to holding.
+    /// `said` is that, with the first wrong case as evidence; see
+    /// `Run::wrong_cases`.
     Wrong {
         wrong: u64,
         cases: u64,
+        said: String,
         file: Vec<u8>,
     },
 }
@@ -78,6 +81,7 @@ impl Fault {
         Fault::Wrong {
             wrong: run.wrong,
             cases: run.cases,
+            said: run.wrong_cases(),
             file: file.to_vec(),
         }
     }
@@ -102,9 +106,7 @@ impl fmt::Display for Fault {
         match self {
             Fault::Unfit(why) => f.write_str(why),
             Fault::NotRun(reason) => write!(f, "Test couldn't run: {reason}"),
-            Fault::Wrong { wrong, cases, .. } => {
-                write!(f, "Doesn't hold: {wrong} of {cases} cases wrong")
-            }
+            Fault::Wrong { said, .. } => f.write_str(said),
         }
     }
 }
@@ -524,7 +526,7 @@ pub fn adder(
         return Err(Fault::Unfit(format!("Width {width}: tested range 1-32")));
     }
     let outs = results(&report.outputs, width)?;
-    let mut best: Option<(u64, u64, Layout)> = None;
+    let mut best: Option<(simulate::Run, Layout)> = None;
     let mut reasons: Vec<String> = Vec::new();
     for (a, b, carry_in) in &pairs {
         for (sum, carry_out) in &outs {
@@ -538,25 +540,25 @@ pub fn adder(
             match Test::Adder.check_with(blocks, layout.interface(blocks), true)
             {
                 Ok(run) => {
-                    let better =
-                        best.as_ref().is_none_or(|(wrong, cases, _)| {
-                            run.wrong * cases < wrong * run.cases
-                        });
+                    let better = best.as_ref().is_none_or(|(best, _)| {
+                        run.wrong * best.cases < best.wrong * run.cases
+                    });
+                    let right = run.wrong == 0;
                     if better {
-                        best = Some((run.wrong, run.cases, layout));
+                        best = Some((run, layout));
                     }
-                    if run.wrong == 0 {
+                    if right {
                         break;
                     }
                 }
                 Err(err) => reasons.push(err.to_string()),
             }
         }
-        if best.as_ref().is_some_and(|(wrong, _, _)| *wrong == 0) {
+        if best.as_ref().is_some_and(|(run, _)| run.wrong == 0) {
             break;
         }
     }
-    let Some((wrong, cases, layout)) = best else {
+    let Some((closest, layout)) = best else {
         reasons.dedup();
         return Err(Fault::Unfit(format!(
             "Can't simulate: {}",
@@ -565,10 +567,8 @@ pub fn adder(
     };
     // An adder's own words, which its fault is shown in among the others
     // probing found as one that couldn't run.
-    if wrong > 0 {
-        return Err(Fault::Unfit(format!(
-            "Doesn't add: {wrong} of {cases} cases wrong"
-        )));
+    if closest.wrong > 0 {
+        return Err(Fault::Unfit(closest.wrong_cases()));
     }
     // A and B the other way round may add too, read more plainly, with
     // fewer of its lines inverted.
@@ -602,9 +602,8 @@ pub fn adder(
             .map(|(bit, n)| format!("{bit} ({n})"))
             .collect();
         return Err(Fault::Unfit(format!(
-            "Doesn't add: {} of {} cases wrong; wrong bits {}",
-            run.wrong,
-            run.cases,
+            "{}; wrong bits {}",
+            run.wrong_cases(),
             bits.join(", ")
         )));
     }

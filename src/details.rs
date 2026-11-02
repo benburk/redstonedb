@@ -455,11 +455,12 @@ pub async fn unrecognized(
                 _ => Ok(None),
             }
         }
+        Report::Ran(run) => off(run.wrong_cases()),
         // A block the simulator does not model, as a piston.
         Report::Skipped { reason } => {
             off(reason.trim().trim_end_matches('.').to_owned())
         }
-        _ => off(WRONG_OUTPUTS.to_owned()),
+        Report::Broken { .. } => off(WRONG_OUTPUTS.to_owned()),
     }
 }
 
@@ -472,7 +473,8 @@ pub const SUBTRACTS: &str = "It subtracts";
 /// Why an adder that adds is not verified as a subtractor.
 pub const ADDS: &str = "It adds";
 
-/// Why a build that gets some cases of its test wrong is not verified.
+/// Why a build its test finds broken is not verified, and a build that got
+/// some cases of its test wrong was, before each said which.
 pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";
 
 /// Why a build whose inputs take a signal strength, rather than a lever's

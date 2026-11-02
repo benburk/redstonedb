@@ -359,7 +359,11 @@ mod tests {
                 .unwrap();
         let found = recognize(&data).unwrap();
         assert_eq!(found.found, None);
-        assert_eq!(found.problems, ["Doesn't hold: 29 of 121 cases wrong"]);
+        assert_eq!(
+            found.problems,
+            ["29 of 121 cases wrong: A=128 B=0 → output=0b11111111, \
+              expected 0b00000000"]
+        );
         let width = crate::models::simulation::derived_width(
             "multiplier",
             true,

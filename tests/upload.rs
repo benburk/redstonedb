@@ -71,7 +71,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
         panic!("a failing adder was recognized");
     };
     assert_eq!(off.name, "8-bit adder");
-    assert!(off.why.contains("Gives wrong outputs"), "{}", off.why);
+    assert!(off.why.contains("cases wrong: A="), "{}", off.why);
 }
 
 #[tokio::test]
