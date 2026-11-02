@@ -15,8 +15,9 @@ use crate::recognize::{
     interface::{Interface, Port},
 };
 
-/// What an adder or a subtractor does with its operands and its lone
-/// lines, which are the same but for these.
+/// How an adder's messages name it and its lone lines: the adder's test
+/// reads a subtractor too, its B inverted, so its lines may go by a
+/// subtractor's names as well.
 pub(super) struct Arithmetic {
     /// The build, as its messages begin, such as `An adder`.
     a: &'static str,
@@ -25,19 +26,12 @@ pub(super) struct Arithmetic {
     line_in: &'static [&'static str],
     /// The same for its status line, its carry or borrow out.
     line_out: &'static [&'static str],
-    /// Between its operands in its cases' name, as in `A + B`.
-    sign: char,
-    /// What it gives for A, B, and its carry or borrow in, before it is cut
-    /// to the outputs' bits, so a borrow out is a difference's sign.
-    apply: fn(u64, u64, u64) -> u64,
 }
 
 pub(super) const ADD: Arithmetic = Arithmetic {
     a: "An adder",
     line_in: &CARRY_OR_BORROW_IN,
     line_out: &CARRY_OR_BORROW_OUT,
-    sign: '+',
-    apply: |a, b, c| a + b + c,
 };
 
 /// What an adder's lone lines may be signed: its carry in and out, or, as a
@@ -142,57 +136,40 @@ impl Variant {
 
 /// An adder's every sum: A + B, plus its carry in when it has one, into its
 /// output and its carry out, its carry in perhaps read inverted, and B
-/// read inverted, so a subtractor's every difference too.
+/// read inverted, so a subtractor's every difference too: a kind for each
+/// way its lines may read. A hex build, slower to run, takes each digit's
+/// every case when there are too many to try every one, and a binary one
+/// each byte's.
 pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
-    arithmetic(interface, &ADD)
-}
-
-/// Every case of an adder or subtractor, as `op` says, an adder's kinds
-/// each way its lines may read. A hex build, slower to run, takes each
-/// digit's every case when there are too many to try every one, and a
-/// binary one each byte's.
-fn arithmetic(
-    interface: &mut Interface,
-    op: &'static Arithmetic,
-) -> Result<Spec> {
-    let ports = adder_ports(interface, op)?;
+    let ports = adder_ports(interface, &ADD)?;
     let mut inputs = vec![ports.a, ports.b];
     inputs.extend(ports.carry_in);
     let mut outputs = vec![ports.sum];
     outputs.extend(ports.carry_out);
-    let sign = op.sign;
-    let pattern = match ports.carry_in {
-        Some(port) => {
-            format!("A {sign} B {sign} {}", interface.inputs[port].name)
-        }
-        None => format!("A {sign} B"),
+    let line = ports
+        .carry_in
+        .map(|port| interface.inputs[port].name.clone());
+    let pattern = match &line {
+        Some(name) => format!("A + B + {name}"),
+        None => "A + B".to_owned(),
     };
     let mut bench = Bench::new(inputs, outputs, &pattern);
-    // An adder's kinds name each way its carry in may read.
-    bench.invertible = !std::ptr::eq(op, &ADD);
+    // Its kinds name each way its carry in may read, so judging tries no
+    // other.
+    bench.invertible = false;
     let width = bench.widths(interface)[0];
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let piece = if hex { 4 } else { 8 };
-    // An adder may read its carry in inverted, and its B, as a
-    // subtractor does; a subtractor's own test reads it as it is.
-    let kinds = if std::ptr::eq(op, &ADD) {
-        let line = ports.carry_in.map(|port| &interface.inputs[port].name);
-        Variant::all(carry_in)
-            .into_iter()
-            .map(|variant| {
-                Kind::new(
-                    &variant.name(line.map(String::as_str)),
-                    move |case| variant.apply(case),
-                )
-                .reading(Reading::Adder(variant))
+    let kinds = Variant::all(carry_in)
+        .into_iter()
+        .map(|variant| {
+            Kind::new(&variant.name(line.as_deref()), move |case| {
+                variant.apply(case)
             })
-            .collect()
-    } else {
-        vec![Kind::new(&pattern, move |case| {
-            (op.apply)(case[0], case[1], case[2])
-        })]
-    };
+            .reading(Reading::Adder(variant))
+        })
+        .collect();
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || {
