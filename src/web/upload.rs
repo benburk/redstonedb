@@ -41,7 +41,7 @@ use crate::{
 use super::{
     analysis,
     form::{self, Form},
-    pages::{self, File},
+    pages::{self, File, Reply},
 };
 
 /// The file behind a Schemati download link, or why it could not be had.
@@ -370,7 +370,7 @@ pub async fn publish(
         Err(message) => message,
     };
     let said = Said {
-        message: &refused,
+        reply: Reply::NotSaved(&refused),
         original: &original,
         ..Said::default()
     };
@@ -403,7 +403,7 @@ async fn chosen_instead(
         Ok(read) => read,
         Err(message) => {
             let said = Said {
-                choosing: Some(&message),
+                reply: Reply::Choosing(Some(&message)),
                 original: &kept,
                 ..Said::default()
             };
@@ -522,14 +522,12 @@ async fn publish_checked(
     Ok(stored)
 }
 
-/// What the preview says beside the form: why publishing was refused,
-/// what the file seems to be, and why a file chosen in its place could not
-/// be read.
+/// What the preview says beside the form: what it says back to the last
+/// thing sent, and what the file seems to be.
 #[derive(Default)]
 struct Said<'a> {
-    message: &'a str,
+    reply: Reply<'a>,
     guess: Option<&'a Guess>,
-    choosing: Option<&'a str>,
     /// What the check by function made of the file, when already known.
     recognition: Option<&'a probe::Recognition>,
     /// The file as its builder made it, base64, carried for its colours.
@@ -586,8 +584,7 @@ async fn show_preview(
     let shown = form::Shown {
         file,
         blocks: Some(&upload.read_as().blocks),
-        message: said.message,
-        choosing: said.choosing,
+        reply: said.reply,
     };
     form::page(&state.db, user, form, shown).await
 }
