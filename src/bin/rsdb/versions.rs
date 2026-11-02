@@ -69,13 +69,8 @@ async fn refile(
     file: &[u8],
     standardize: bool,
 ) -> Result<()> {
-    let prepared = import::prepare(
-        file,
-        standardize,
-        s.conventional,
-        s.keeps_paste,
-        false,
-    )?;
+    let prepared =
+        import::prepare_for(file, import::Purpose::of(s, standardize))?;
     let facts = &prepared.facts;
     let stored = (
         s.torches,

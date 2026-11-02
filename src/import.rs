@@ -11,7 +11,7 @@ use crate::{
     details::{self, Ready, Unrecognized},
     models::{
         catalogue::Category,
-        schematic::{self, Encoding, New, Orientation},
+        schematic::{self, Encoding, New, Orientation, Schematic},
         version,
     },
     recognize::{
@@ -46,24 +46,66 @@ pub struct Prepared {
     pub turn: Turn,
 }
 
-/// The one way a file becomes the file the site keeps, whether uploaded, added,
-/// or read again: swaps cauldrons and cakes for barrels giving the same signal
-/// strength; standardizes it if asked, and in any case takes out corner markers
-/// and fits its box tightly; turns a conventional build's status lines pink, as
-/// older builds marked them on yellow; and sets it to paste from one block
-/// south of its south-east-bottom corner unless `keep_paste`, which keeps where
-/// its uploader's `//paste` put it. With `orient`, a conventional build is
-/// first turned and mirrored to lie the standard way, as `orient::orient` does;
-/// a new version is not, as it is compared block by block with the one before.
-/// Then measures it, reads its facts, and hashes it.
-#[allow(clippy::fn_params_excessive_bools)]
-pub fn prepare(
-    data: &[u8],
-    standardize: bool,
-    conventional: bool,
-    keep_paste: bool,
-    orient: bool,
-) -> Result<Prepared> {
+/// What a file is prepared for, which decides what `prepare_for` does to it
+/// beyond what it does to every file.
+#[derive(Clone, Copy, Debug)]
+pub enum Purpose {
+    /// A recognized build's file as the site first keeps it: standardized,
+    /// held to the conventions, and turned and mirrored to lie the standard
+    /// way, as `orient::orient` does. With `keep_paste` it keeps where its
+    /// uploader's `//paste` put it.
+    Standard { keep_paste: bool },
+    /// A file kept the way it lies, as a stored build's file read again, a
+    /// new version, which is compared block by block with the one before, or
+    /// a file read to evaluate it: standardized only if asked, held to the
+    /// conventions if `conventional`, and keeping where it pastes if
+    /// `keep_paste`.
+    InPlace {
+        standardize: bool,
+        conventional: bool,
+        keep_paste: bool,
+    },
+}
+
+impl Purpose {
+    /// A file as its builder made it, as an upload the site does not
+    /// recognize is kept: neither standardized nor turned, and measured
+    /// whole, interface and all.
+    pub const AS_BUILT: Purpose = Purpose::InPlace {
+        standardize: false,
+        conventional: false,
+        keep_paste: false,
+    };
+
+    /// A stored build's file as `s` keeps it: held to the conventions and
+    /// pasting from where it does, standardized only if `standardize`.
+    pub fn of(s: &Schematic, standardize: bool) -> Purpose {
+        Purpose::InPlace {
+            standardize,
+            conventional: s.conventional,
+            keep_paste: s.keeps_paste,
+        }
+    }
+}
+
+/// The one way a file becomes the file the site keeps, whether uploaded,
+/// added, or read again: swaps cauldrons and cakes for barrels giving the
+/// same signal strength; standardizes it if `purpose` says to, and in any
+/// case takes out corner markers and fits its box tightly; turns a
+/// conventional build's status lines pink, as older builds marked them on
+/// yellow; turns it to lie the standard way for `Purpose::Standard`; and sets
+/// it to paste from one block south of its south-east-bottom corner unless it
+/// keeps where its uploader's `//paste` put it. Then measures it, reads its
+/// facts, and hashes it.
+pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
+    let (standardize, conventional, keep_paste, orient) = match purpose {
+        Purpose::Standard { keep_paste } => (true, true, keep_paste, true),
+        Purpose::InPlace {
+            standardize,
+            conventional,
+            keep_paste,
+        } => (standardize, conventional, keep_paste, false),
+    };
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
     let data = standardize::barrels(data, &[])?;
     let data = if standardize {
@@ -79,7 +121,7 @@ pub fn prepare(
     // Dust as the game shapes it among its neighbours, as `//update` leaves
     // it, whatever way it was saved.
     let data = crate::schem::dust::update(&data)?;
-    let (data, turn) = if conventional && orient {
+    let (data, turn) = if orient {
         orient::orient(&data)?
     } else {
         (data, Turn::default())
@@ -105,11 +147,34 @@ pub fn prepare(
     })
 }
 
+/// `prepare_for` by four switches in a row, as the recognizer and the
+/// simulator's tests still call it. A file is turned only as
+/// `Purpose::Standard` turns it, standardized and conventional, the one way
+/// the site turns any.
+#[allow(clippy::fn_params_excessive_bools)]
+pub fn prepare(
+    data: &[u8],
+    standardize: bool,
+    conventional: bool,
+    keep_paste: bool,
+    orient: bool,
+) -> Result<Prepared> {
+    let purpose = if orient && standardize && conventional {
+        Purpose::Standard { keep_paste }
+    } else {
+        Purpose::InPlace {
+            standardize,
+            conventional,
+            keep_paste,
+        }
+    };
+    prepare_for(data, purpose)
+}
+
 /// `file` as its builder made it, as an upload the site does not recognize
-/// is kept: prepared as `prepare` does without standardizing or turning
-/// it, measured whole, interface and all.
+/// is kept; see `Purpose::AS_BUILT`.
 pub fn as_built(file: &[u8]) -> Result<Prepared> {
-    prepare(file, false, false, false, false)
+    prepare_for(file, Purpose::AS_BUILT)
 }
 
 /// What a build's file says about itself: its inputs and outputs, named as
@@ -435,8 +500,11 @@ pub struct Upload {
 impl Upload {
     pub fn read(file: &[u8]) -> anyhow::Result<Self> {
         let original = as_built(file)?;
-        let standard = prepare(&original.data, true, true, false, true)
-            .map_err(|err| format!("{err:#}"));
+        let standard = prepare_for(
+            &original.data,
+            Purpose::Standard { keep_paste: false },
+        )
+        .map_err(|err| format!("{err:#}"));
         Ok(Upload { original, standard })
     }
 
@@ -521,12 +589,13 @@ pub async fn kept(
 /// A recognized build's standardized file, `standard`, as it is kept:
 /// prepared again as it stands, neither standardized nor turned.
 pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
-    prepare(
+    prepare_for(
         &standard.data,
-        false,
-        standard.conventional,
-        standard.keeps_paste,
-        false,
+        Purpose::InPlace {
+            standardize: false,
+            conventional: standard.conventional,
+            keep_paste: standard.keeps_paste,
+        },
     )
 }
 
@@ -570,7 +639,9 @@ pub async fn moved_up<'a>(
         return Ok(None);
     };
     let coloured = probed(&file.data, &meant.name).await?;
-    let Ok(candidate) = prepare(&coloured, true, true, keep_paste, true) else {
+    let Ok(candidate) =
+        prepare_for(&coloured, Purpose::Standard { keep_paste })
+    else {
         return Ok(None);
     };
     let recognized =

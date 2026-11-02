@@ -253,7 +253,14 @@ async fn keep_off_list(
     data: &[u8],
     listed: &[catalogue::Category],
 ) -> Result<Result<String, String>> {
-    let prepared = import::prepare(data, false, s.conventional, true, false)?;
+    let prepared = import::prepare_for(
+        data,
+        import::Purpose::InPlace {
+            standardize: false,
+            conventional: s.conventional,
+            keep_paste: true,
+        },
+    )?;
     let mut given = Details::of(s);
     // A category off the list has no designs of its own.
     if let Some(category) = catalogue::Category::find(listed, &s.category) {
@@ -352,7 +359,10 @@ async fn rebuild_one(
     if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
         return Ok(Err(fault));
     }
-    let prepared = import::prepare(&coloured, true, true, false, true)?;
+    let prepared = import::prepare_for(
+        &coloured,
+        import::Purpose::Standard { keep_paste: false },
+    )?;
     let ready = match details::check(
         db,
         Details::of(s),
