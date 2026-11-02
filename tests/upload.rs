@@ -4,27 +4,19 @@
 //! the list, when it does not; and a new version that is recognized moving
 //! a build off the list up.
 
+mod common;
+
 use app::{
     details,
     import::{self, Kept, Upload},
     models::catalogue::{self, Category},
     schem::{self, Blocks},
 };
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
 /// The standard categories, as the migrations list them.
 async fn categories() -> Vec<Category> {
-    let pool: SqlitePool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("an in-memory database");
-    sqlx::migrate!().run(&pool).await.expect("migrations run");
-    catalogue::categories(&pool).await.expect("categories")
-}
-
-fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable")
+    let db = common::database().await;
+    catalogue::categories(&db).await.expect("categories")
 }
 
 /// Each block of `blocks` other than air, by position.
@@ -40,7 +32,7 @@ fn placed(blocks: &Blocks) -> Vec<(schem::Pos, String)> {
 #[ignore = "measures whole builds: just test-full"]
 async fn a_recognized_build_is_kept_standardized() {
     let categories = categories().await;
-    let upload = Upload::read(&fixture("cca-16-raw")).unwrap();
+    let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     let standard = upload.standard.as_ref().unwrap();
     assert_ne!(
         placed(&upload.original.blocks),
@@ -69,7 +61,7 @@ async fn a_recognized_build_is_kept_standardized() {
 #[ignore = "measures whole builds: just test-full"]
 async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
     let categories = categories().await;
-    let upload = Upload::read(&fixture("cca-16-raw")).unwrap();
+    let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     let Ok(Kept::Original(Some(off))) =
         import::kept(&categories, "multiplier", &upload)
             .await
@@ -78,7 +70,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
         panic!("an adder passed for a multiplier");
     };
     assert!(off.name.ends_with("multiplier"), "{}", off.name);
-    let failing = Upload::read(&fixture("cca-8-dust-out")).unwrap();
+    let failing = Upload::read(&common::fixture("cca-8-dust-out")).unwrap();
     let Ok(Kept::Original(Some(off))) =
         import::kept(&categories, "adder", &failing).await.unwrap()
     else {
@@ -91,7 +83,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
 #[tokio::test]
 async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
     let categories = categories().await;
-    let upload = Upload::read(&fixture("cca-16-raw")).unwrap();
+    let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     assert!(matches!(
         import::kept(&categories, "piston door", &upload)
             .await
@@ -116,7 +108,7 @@ async fn an_off_list_name_means_the_category_it_stands_in_for() {
 #[ignore = "measures whole builds: just test-full"]
 async fn a_new_version_that_is_recognized_moves_a_build_up() {
     let categories = categories().await;
-    let file = import::as_built(&fixture("cca-16-raw")).unwrap();
+    let file = import::as_built(&common::fixture("cca-16-raw")).unwrap();
     let (moved, to) =
         import::moved_up(&categories, "16-bit_adder", &file, false)
             .await
@@ -168,7 +160,7 @@ async fn an_off_list_name_reads_back_as_its_category() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
-    let raw = fixture("cca-8-wool-lamps");
+    let raw = common::fixture("cca-8-wool-lamps");
     let recognition =
         app::recognize::probe::recognize(&raw).expect("it can be probed");
     assert!(
@@ -193,7 +185,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn publishing_keeps_the_file_its_preview_evaluated() {
-    let raw = fixture("cca-16-raw");
+    let raw = common::fixture("cca-16-raw");
     let coloured = app::recognize::probe::recognize(&raw).unwrap().file;
     let analyzed = Upload::read(&coloured).unwrap();
     let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
@@ -215,7 +207,8 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
 #[test]
 fn probing_a_hex_adder_says_its_inputs_take_no_levers() {
     let recognition =
-        app::recognize::probe::recognize(&fixture("hex-cca-8")).unwrap();
+        app::recognize::probe::recognize(&common::fixture("hex-cca-8"))
+            .unwrap();
     assert_eq!(recognition.found, None);
     assert_eq!(recognition.problems, [details::WITHOUT_LEVERS]);
 }

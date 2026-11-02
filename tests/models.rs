@@ -1,41 +1,12 @@
 //! Integration tests for accounts and sessions.
 
+mod common;
+
 use app::models::{
     session::{Session, now_micros},
-    user::{DiscordProfile, Role, User},
+    user::{Role, User},
 };
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use uuid::Uuid;
-
-/// Creates an in-memory `SQLite` database with migrations applied.
-async fn setup_test_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory database");
-
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-
-    pool
-}
-
-fn profile(id: &str, username: &str) -> DiscordProfile {
-    DiscordProfile {
-        id: id.to_owned(),
-        username: username.to_owned(),
-        display_name: Some(format!("{username} shown")),
-        avatar: None,
-    }
-}
-
-async fn sign_in(db: &SqlitePool, id: &str, username: &str) -> User {
-    User::sign_in(db, &profile(id, username))
-        .await
-        .expect("sign in failed")
-}
 
 fn create_test_session(user_id: Uuid) -> Session {
     Session {
@@ -47,8 +18,8 @@ fn create_test_session(user_id: Uuid) -> Session {
 
 #[tokio::test]
 async fn first_login_makes_a_user_account() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "steve").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "steve").await;
     assert_eq!(user.username, "steve");
     assert_eq!(user.name(), "steve shown");
     assert_eq!(user.role, Role::User);
@@ -60,11 +31,11 @@ async fn first_login_makes_a_user_account() {
 
 #[tokio::test]
 async fn later_logins_keep_the_account_and_refresh_its_name() {
-    let db = setup_test_db().await;
-    let first = sign_in(&db, "1", "steve").await;
+    let db = common::database().await;
+    let first = common::sign_in(&db, "1", "steve").await;
     User::set_role(&db, first.id, Role::Mod).await.unwrap();
 
-    let again = sign_in(&db, "1", "steve_renamed").await;
+    let again = common::sign_in(&db, "1", "steve_renamed").await;
     assert_eq!(again.id, first.id);
     assert_eq!(again.username, "steve_renamed");
     assert_eq!(again.role, Role::Mod, "a login keeps the role");
@@ -73,11 +44,11 @@ async fn later_logins_keep_the_account_and_refresh_its_name() {
 
 #[tokio::test]
 async fn a_taken_username_moves_to_its_new_owner() {
-    let db = setup_test_db().await;
-    let old = sign_in(&db, "1", "alex").await;
+    let db = common::database().await;
+    let old = common::sign_in(&db, "1", "alex").await;
     // Discord gave the name to someone else after the first account
     // renamed itself there.
-    let new = sign_in(&db, "2", "alex").await;
+    let new = common::sign_in(&db, "2", "alex").await;
     assert_ne!(old.id, new.id);
     let old = User::get_by_id(&db, old.id).await.unwrap().unwrap();
     assert_eq!(old.username, "1", "the old holder keeps its Discord id");
@@ -85,8 +56,8 @@ async fn a_taken_username_moves_to_its_new_owner() {
 
 #[tokio::test]
 async fn roles_rank_user_mod_admin() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "steve").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "steve").await;
     // A mod edits and deletes any build; only an admin sets roles.
     for (role, moderates, admin) in [
         (Role::User, false, false),
@@ -103,8 +74,8 @@ async fn roles_rank_user_mod_admin() {
 
 #[tokio::test]
 async fn session_insert_and_get_by_id() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "sessionuser").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "sessionuser").await;
 
     let session = create_test_session(user.id);
     Session::insert(&db, &session)
@@ -120,8 +91,8 @@ async fn session_insert_and_get_by_id() {
 
 #[tokio::test]
 async fn logging_out_deletes_the_session() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "deleteuser").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "deleteuser").await;
 
     let session = create_test_session(user.id);
     Session::insert(&db, &session)
@@ -135,8 +106,8 @@ async fn logging_out_deletes_the_session() {
 
 #[tokio::test]
 async fn expired_sessions_are_cleared_out() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "expireuser").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "expireuser").await;
 
     let now = now_micros();
     let expired = Session {
@@ -155,8 +126,8 @@ async fn expired_sessions_are_cleared_out() {
 
 #[tokio::test]
 async fn deleting_a_user_deletes_their_sessions() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "cascadeuser").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "cascadeuser").await;
 
     let session = create_test_session(user.id);
     Session::insert(&db, &session)
@@ -174,8 +145,8 @@ async fn deleting_a_user_deletes_their_sessions() {
 
 #[tokio::test]
 async fn an_account_goes_by_its_minecraft_name() {
-    let db = setup_test_db().await;
-    let user = sign_in(&db, "1", "steve").await;
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "steve").await;
     User::set_minecraft_name(&db, user.id, Some("Steve_Builds"), None)
         .await
         .unwrap()
@@ -186,7 +157,7 @@ async fn an_account_goes_by_its_minecraft_name() {
 
 #[tokio::test]
 async fn a_confirmed_name_respells_its_credits_and_imports() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     sqlx::query(
         "INSERT INTO schematic (id, category, orientation, size_x, size_y,
             size_z, imported_by)
@@ -212,7 +183,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
         .unwrap()
     };
 
-    let user = sign_in(&db, "1", "pishleback").await;
+    let user = common::sign_in(&db, "1", "pishleback").await;
     User::set_minecraft_name(&db, user.id, Some("pishleback"), None)
         .await
         .unwrap()
@@ -239,7 +210,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 #[tokio::test]
 async fn only_an_admin_may_name_a_new_tag() {
     use app::models::tag::{Kind, check_new, define};
-    let db = setup_test_db().await;
+    let db = common::database().await;
     define(&db, "instant", None, Kind::Other).await.unwrap();
     let known = vec!["instant".to_owned()];
     let new = vec!["instant".to_owned(), "made_up".to_owned()];

@@ -1,65 +1,34 @@
 //! Private builds, seen only by their uploader and admins, and each
 //! account's favourites.
 
+mod common;
+
 use app::{
-    details::{self, Build, Details},
-    import,
+    details::Details,
     models::{
         schematic::{self, Orientation},
-        user::{DiscordProfile, Role, User},
+        user::{Role, User},
     },
 };
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::SqlitePool;
 
-async fn setup_test_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory database");
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-    pool
-}
-
-async fn sign_in(db: &SqlitePool, id: &str, username: &str) -> User {
-    let profile = DiscordProfile {
-        id: id.to_owned(),
-        username: username.to_owned(),
-        display_name: None,
-        avatar: None,
-    };
-    User::sign_in(db, &profile).await.expect("sign in failed")
-}
-
-/// Stores the fixture `name`, uploaded by `by`, and returns its id.
+/// Stores the fixture `name` as an adder uploaded by `by`, and returns its
+/// id.
 async fn store(db: &SqlitePool, name: &str, by: &User) -> String {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    let prepared = import::prepare(&raw, false, true, false, false)
-        .expect("fixture prepares");
     let given = Details {
         category: "adder".to_owned(),
         orientation: Orientation::Horizontal,
         ..Details::default()
     };
-    let ready = details::check(db, given, Build::of(&prepared), false)
-        .await
-        .expect("the database answers")
-        .expect("the details keep the rules");
-    import::store(db, &prepared, &ready, Some(by.id), None, None, None)
-        .await
-        .expect("the database answers")
-        .expect("the file is new")
+    common::store(db, name, given, Some(by)).await
 }
 
 #[tokio::test]
 async fn a_private_build_shows_only_to_its_uploader_and_admins() {
-    let db = setup_test_db().await;
-    let owner = sign_in(&db, "1", "steve").await;
-    let other = sign_in(&db, "2", "alex").await;
-    let admin = sign_in(&db, "3", "boss").await;
+    let db = common::database().await;
+    let owner = common::sign_in(&db, "1", "steve").await;
+    let other = common::sign_in(&db, "2", "alex").await;
+    let admin = common::sign_in(&db, "3", "boss").await;
     User::set_role(&db, admin.id, Role::Admin).await.unwrap();
     let admin = User::get_by_username(&db, "boss").await.unwrap().unwrap();
 
@@ -94,9 +63,9 @@ async fn a_private_build_shows_only_to_its_uploader_and_admins() {
 
 #[tokio::test]
 async fn favourites_are_each_accounts_own() {
-    let db = setup_test_db().await;
-    let steve = sign_in(&db, "1", "steve").await;
-    let alex = sign_in(&db, "2", "alex").await;
+    let db = common::database().await;
+    let steve = common::sign_in(&db, "1", "steve").await;
+    let alex = common::sign_in(&db, "2", "alex").await;
     let id = store(&db, "alpha-rca", &steve).await;
 
     assert!(!schematic::favorited(&db, alex.id, &id).await.unwrap());
