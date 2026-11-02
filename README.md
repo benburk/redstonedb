@@ -14,7 +14,7 @@ A folder of `.schem` files on Schemati or a Discord channel holds the same build
 
 ## Setup
 
-The dev shell has everything but `free-port`, which `just serve` uses to pick a port when none is given:
+The dev shell has everything `just serve` needs. Discord login redirects to port 3001, so serve there to sign in:
 
 ```sh
 nix develop
