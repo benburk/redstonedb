@@ -5,6 +5,7 @@ use maud::{Markup, html};
 
 use crate::{
     import::Analysis,
+    models::catalogue::Flag,
     recognize::{
         colour,
         interface::{Bit, Interface, Port},
@@ -32,7 +33,7 @@ pub(super) enum Inverts {
 /// may read inverted. A decoder's outputs always do, so no flag says so.
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (category, flag) {
-        ("adder" | "hex_adder" | "subtractor", "inverted_carry_in") => {
+        ("adder" | "hex_adder" | "subtractor", Flag::INVERTED_CARRY_IN) => {
             Inverts::Input(colour::CONTROL)
         }
         ("register" | "monostable" | "dual_edge_monostable", "inverted") => {

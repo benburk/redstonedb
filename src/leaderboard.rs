@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::models::{
-    catalogue::Measure,
+    catalogue::{Flag, Measure},
     schematic::{Logic, Orientation, Schematic},
     tag::{Kind, Tag},
 };
@@ -510,20 +510,17 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
     }))
 }
 
-/// The flags that only say which lines a build has, as a carry in, so
-/// never narrow a record's board.
-const PLAIN: [&str; 4] = ["carry_in", "carry_out", "borrow_in", "borrow_out"];
-
 /// The tags of a build a board may narrow to: those the site finds, such
 /// as its design, orientation, `synced`, or `torchless`, but for the
-/// flags that only say which lines it has.
+/// flags that only say which lines it has, as a carry in, which never
+/// narrow a record's board.
 pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
     s.every_tag()
         .into_iter()
         .filter(|tag| {
             tag.is_found()
                 && !tag.is_unverified()
-                && !PLAIN.contains(&tag.name.as_str())
+                && !Flag::LINES.contains(&tag.name.as_str())
         })
         .collect()
 }
