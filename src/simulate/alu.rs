@@ -34,6 +34,7 @@ use super::{
     adder::adder_cases,
     bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
     circuit::{input_bits, output_bits},
+    rng::Rng,
     timing,
 };
 use crate::{
@@ -816,28 +817,21 @@ fn streamed(
     ops: &[Selection],
     count: usize,
 ) -> Vec<Vec<u64>> {
-    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
+    let mut rng = Rng::default();
     let all = mask(alu.width);
     (0..count)
         .map(|_| {
-            let op =
-                &ops[usize::try_from(next() % ops.len() as u64).unwrap_or(0)];
+            let op = &ops[rng.below(ops.len())];
             let mut case = vec![0; interface.inputs.len()];
-            case[alu.a] = next() & all;
-            case[alu.b] = next() & all;
+            case[alu.a] = rng.draw() & all;
+            case[alu.b] = rng.draw() & all;
             for &(port, value) in &op.held {
                 case[port] = value;
             }
             if takes_carry(op.op)
                 && let Some(port) = alu.carry_in
             {
-                case[port] = next() & 1;
+                case[port] = rng.draw() & 1;
             }
             case
         })

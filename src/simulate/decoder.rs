@@ -8,6 +8,7 @@ use anyhow::Result;
 use super::{
     Broken, Test,
     bench::{Bench, Cases, Kind, Spec, mask},
+    rng::Rng,
     stacking::{Apart, Stacking, Step},
 };
 use crate::{
@@ -192,15 +193,8 @@ fn apart(
         let values: Vec<u64> = if bits <= EVERY {
             (0..1 << bits).collect()
         } else {
-            let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-            (0..4096)
-                .map(|_| {
-                    state ^= state << 13;
-                    state ^= state >> 7;
-                    state ^= state << 17;
-                    state & mask(bits)
-                })
-                .collect()
+            let mut rng = Rng::default();
+            (0..4096).map(|_| rng.draw() & mask(bits)).collect()
         };
         (values.into_iter().map(|a| [a, 0, 0]).collect(), 0)
     };
