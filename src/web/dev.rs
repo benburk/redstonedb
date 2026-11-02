@@ -11,7 +11,6 @@ use serde::Deserialize;
 
 use crate::{
     models::user::{DiscordProfile, Role, User},
-    util::current_time_micros,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -46,8 +45,7 @@ pub async fn login(
     };
     let user = User::sign_in(&state.db, &profile).await?;
     User::set_role(&state.db, user.id, role).await?;
-    let cookie =
-        create_session(&state.db, user.id, current_time_micros()).await?;
+    let cookie = create_session(&state.db, user.id).await?;
     // Only a path on this site, so the link cannot lead off it.
     let next = login
         .next

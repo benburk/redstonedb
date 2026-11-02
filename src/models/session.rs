@@ -1,6 +1,13 @@
 use sqlx::SqliteExecutor;
 use uuid::Uuid;
 
+/// The time now in microseconds since the Unix epoch, the unit a session's
+/// expiry is stored in. It cannot overflow: the clock reads no year past 9999.
+pub fn now_micros() -> i64 {
+    let now = time::OffsetDateTime::now_utc();
+    now.unix_timestamp() * 1_000_000 + i64::from(now.microsecond())
+}
+
 /// A login: a random id kept in the browser's cookie, the account it logs
 /// in, and when it stops working.
 #[derive(Debug, Clone)]
