@@ -458,8 +458,15 @@ async fn at_zero(
         if fixed == was {
             return Ok(None);
         }
-        import::prepare(&fixed, false, conventional, keeps_paste, false)
-            .map(Some)
+        import::prepare_for(
+            &fixed,
+            import::Purpose::InPlace {
+                standardize: false,
+                conventional,
+                keep_paste: keeps_paste,
+            },
+        )
+        .map(Some)
     })
     .await?;
     // A file that can't be settled, as one with a clock, is kept as saved.
@@ -524,7 +531,12 @@ async fn refresh_off_list(
     if !again && let Some(report) = current(db, s).await? {
         return Ok(Some(report));
     }
-    let standard = import::prepare(data, true, true, s.keeps_paste, true);
+    let standard = import::prepare_for(
+        data,
+        import::Purpose::Standard {
+            keep_paste: s.keeps_paste,
+        },
+    );
     let report = match standard {
         Ok(standard) => {
             // Its builder's width, when its file shows none.

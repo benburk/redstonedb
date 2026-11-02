@@ -194,12 +194,9 @@ pub async fn check(
         for quarters in 0..4 {
             let turned =
                 orient::turned(&coloured, Turn { mirrored, quarters })?;
-            let prepared = import::prepare(
+            let prepared = import::prepare_for(
                 &turned,
-                standardize,
-                s.conventional,
-                s.keeps_paste,
-                false,
+                import::Purpose::of(s, standardize),
             )?;
             let comparison = compare(&current, &prepared.blocks);
             if best

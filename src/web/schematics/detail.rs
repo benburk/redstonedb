@@ -141,8 +141,12 @@ pub struct Panel {
 /// as that category, as recognizing it would.
 fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
     if let Some(meant) = simulation::stands_in(s)
-        && let Ok(standard) =
-            import::prepare(data, true, true, s.keeps_paste, true)
+        && let Ok(standard) = import::prepare_for(
+            data,
+            import::Purpose::Standard {
+                keep_paste: s.keeps_paste,
+            },
+        )
     {
         return Analysis::of(&standard.blocks, meant);
     }
