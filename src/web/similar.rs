@@ -1,5 +1,6 @@
 //! Finding the stored builds most like a file, without uploading it: the
-//! file is read as it is, with no conventions checked and nothing kept.
+//! file is read as it is, with no conventions checked and nothing kept. It is
+//! scored by `crate::similarity`, as stored builds are against each other.
 
 use axum::{
     extract::{Multipart, Query, State},
