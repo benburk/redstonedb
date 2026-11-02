@@ -1,0 +1,384 @@
+//! Editing a build's details and tags, with a new version when one is
+//! chosen, and deleting it.
+
+use axum::{
+    extract::{Multipart, Path, State},
+    response::{IntoResponse, Redirect, Response},
+};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use sqlx::SqlitePool;
+
+use crate::{
+    details,
+    import::{self, Prepared},
+    models::{
+        catalogue::{self, Category},
+        schematic::{self, Schematic},
+        similarity, simulation,
+        user::User,
+        version::{self, Replacing},
+    },
+    recognize::category,
+    schem::Blocks,
+    version::{Checked, check as check_version},
+    web::{
+        app_state::AppState,
+        error::AppError,
+        extractors::{
+            client_ip::ClientIp,
+            session::{Moderator, SignedIn},
+        },
+    },
+};
+
+use super::super::{
+    form::{self, Form},
+    pages::File,
+    upload,
+};
+
+/// The page where a mod, or one of the build's confirmed builders, edits
+/// its details and tags.
+pub async fn edit(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let s = editable(&state.db, &user, &id).await?;
+    show_edit(&state.db, &user, &s, None, "", None, None).await
+}
+
+/// Build `id`, when `user` may edit it: a mod, one of its confirmed
+/// builders, or its uploader. A 404 for no build, or one `user` may not
+/// see, and a 403 for anyone else.
+pub(in crate::web) async fn editable(
+    db: &SqlitePool,
+    user: &User,
+    id: &str,
+) -> Result<Schematic, AppError> {
+    let s = schematic::get_visible(db, id, Some(user))
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if user.may_edit(&s) {
+        Ok(s)
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
+/// Saves an edit of a build's details and tags, by a mod or one of its
+/// builders, then shows its page; a refusal shows the edit page again with
+/// the values sent.
+pub async fn save(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+    ClientIp(ip): ClientIp,
+    mut multipart: Multipart,
+) -> Result<Response, AppError> {
+    let db = &state.db;
+    let s = editable(db, &user, &id).await?;
+    let mut posted = match upload::posted(&mut multipart).await {
+        Ok(posted) => posted,
+        Err(message) => {
+            return show_edit(db, &user, &s, None, "", None, Some(&message))
+                .await;
+        }
+    };
+    let form = Form::read(&posted.pairs);
+    let note: String = posted.get("note").trim().chars().take(500).collect();
+    // A new version, when the page carried one, is checked again first.
+    let checked = match attached(db, &s, posted.get("data")).await {
+        Ok(checked) => checked,
+        Err(message) => {
+            return show_edit(
+                db,
+                &user,
+                &s,
+                Some(&form),
+                "",
+                None,
+                Some(&message),
+            )
+            .await;
+        }
+    };
+    if posted.choosing() {
+        let chosen = match posted.fetch_own(db, &user).await {
+            Ok(()) => chosen_version(db, &s, &posted).await,
+            Err(message) => Err(message),
+        };
+        let (checked, refused) = match &chosen {
+            Ok(chosen) => (Some(chosen), None),
+            Err(message) => (checked.as_ref(), Some(message.as_str())),
+        };
+        let new_file = checked.map(|checked| NewFile {
+            checked,
+            note: &note,
+        });
+        return show_edit(db, &user, &s, Some(&form), "", new_file, refused)
+            .await;
+    }
+    let new_file = || {
+        checked.as_ref().map(|checked| NewFile {
+            checked,
+            note: &note,
+        })
+    };
+    let (kept, refused) =
+        save_details(db, &user, &s, &form, checked.as_ref()).await?;
+    let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
+    if let Some(message) = refused {
+        return show_edit(
+            db,
+            &user,
+            &s,
+            Some(&form),
+            &message,
+            new_file(),
+            None,
+        )
+        .await;
+    }
+    if form.public != s.public {
+        schematic::set_public(db, &id, form.public).await?;
+    }
+    if let Some(prepared) = new_prepared {
+        let how = Replacing::NextVersion {
+            added_by: Some(user.id),
+            added_from: ip.as_deref(),
+            note: Some(note.as_str()).filter(|note| !note.is_empty()),
+        };
+        version::replace(db, &id, prepared, how).await?;
+        tracing::info!(id, by = user.username, ip, "new version");
+    }
+    // A new file, category, or width may call for a test, or another.
+    simulation::refresh_soon(db, &id);
+    similarity::refresh_soon(db);
+    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
+}
+
+/// The file newly chosen on build `s`'s edit page, checked as its next
+/// version, or why it could not be read.
+async fn chosen_version(
+    db: &SqlitePool,
+    s: &Schematic,
+    posted: &upload::Posted,
+) -> Result<Checked, String> {
+    let chosen = posted.chosen().await?;
+    // A listed build that follows the conventions is kept standardized;
+    // one unverified or off the list as built, until a version it is
+    // recognized by moves it up.
+    let listed = Category::find(
+        &catalogue::categories(db)
+            .await
+            .map_err(|err| err.to_string())?,
+        &s.category,
+    )
+    .is_some();
+    let standardize = s.conventional && listed && s.unverified.is_none();
+    check_version(db, s, &chosen.file, standardize)
+        .await
+        .map_err(|err| format!("Could not read that file: {err:#}."))
+}
+
+/// The new version an edit page carried in `data`, base64, checked against
+/// build `s`; none for an empty `data`. The `Err` says the file cannot be
+/// read, for the page to ask for it again.
+async fn attached(
+    db: &SqlitePool,
+    s: &Schematic,
+    data: &str,
+) -> Result<Option<Checked>, String> {
+    if data.is_empty() {
+        return Ok(None);
+    }
+    let checked = match STANDARD.decode(data) {
+        Ok(data) => check_version(db, s, &data, false).await,
+        Err(_) => Err(anyhow::anyhow!("it did not arrive whole")),
+    };
+    checked.map(Some).map_err(|err| {
+        format!(
+            "Could not read the new version: {err:#}. Choose its file again."
+        )
+    })
+}
+
+/// Deletes a build for good, with its tags, credits, and stacking; mods
+/// and admins only.
+pub async fn delete(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Moderator(by): Moderator,
+) -> Result<Response, AppError> {
+    schematic::delete(&state.db, &id).await?;
+    tracing::info!(id, by = by.username, "deleted a build");
+    Ok(Redirect::to("/").into_response())
+}
+
+/// Checks and stores `user`'s edit of build `s`, with the new version
+/// `checked` when one waits: the file it is kept as, when that differs
+/// from the one checked, and why the edit was refused, if it was. A build
+/// its version moves up goes under the category the version passes.
+async fn save_details(
+    db: &SqlitePool,
+    user: &User,
+    s: &Schematic,
+    form: &Form,
+    checked: Option<&Checked>,
+) -> Result<(Option<Prepared>, Option<String>), AppError> {
+    if checked.is_some_and(|c| !c.refusals.is_empty()) {
+        let why = "The new version can't replace the build, as the checks say.";
+        return Ok((None, Some(why.to_owned())));
+    }
+    let kept = match checked {
+        Some(checked) => {
+            version_kept(db, s, &form.category, &checked.prepared).await?
+        }
+        None => None,
+    };
+    let (kept, moved_to) = kept.map_or((None, None), |(p, to)| (Some(p), to));
+    let moved;
+    let saving = match moved_to {
+        Some(category) => {
+            moved = Form {
+                category,
+                ..form.clone()
+            };
+            &moved
+        }
+        None => form,
+    };
+    let new = kept.as_ref().or(checked.map(|c| &c.prepared));
+    let refused = saved(db, user, s, saving, new).await?.err();
+    Ok((kept, refused))
+}
+
+/// The file a new version, `prepared`, is kept as, and the category build
+/// `s` goes up under with it, when either differs from what was given:
+/// a build unverified, or off the list, whose new version is recognized as
+/// the listed category it stands in for, as an 8-bit adder's as an adder,
+/// moves up,
+/// its file standardized and turned to lie the standard way, as an
+/// upload's is.
+/// Only a build whose category, as `category` gives it, is unchanged
+/// moves up.
+async fn version_kept(
+    db: &SqlitePool,
+    s: &Schematic,
+    category: &str,
+    prepared: &Prepared,
+) -> anyhow::Result<Option<(Prepared, Option<String>)>> {
+    let categories = catalogue::categories(db).await?;
+    let evaluated = |c: &&Category| category::behaviour(&c.name).evaluated;
+    if Category::name_of(&categories, category) == s.category
+        && let Some(meant) = simulation::stands_in(s)
+        && let Some((moved, to)) =
+            import::moved_up(&categories, meant, prepared, s.keeps_paste)
+                .await?
+    {
+        return Ok(Some((moved, Some(to.name.clone()))));
+    }
+    match Category::find(&categories, category).filter(evaluated) {
+        Some(_) if prepared.conventional && s.unverified.is_none() => {
+            Ok(Some((import::rewrapped(prepared)?, None)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Checks and stores `user`'s edit of build `s`, or says why it was
+/// refused. A new version's file, `new`, is what the stacking must fit,
+/// when there is one.
+async fn saved(
+    db: &SqlitePool,
+    user: &User,
+    s: &Schematic,
+    form: &Form,
+    new: Option<&Prepared>,
+) -> Result<Result<(), String>, AppError> {
+    let mut given = match form.parse() {
+        Ok(given) => given,
+        Err(message) => return Ok(Err(message)),
+    };
+    let categories = catalogue::categories(db).await?;
+    let same = Category::name_of(&categories, &form.category) == s.category;
+    // Its details saved alone, under its category, leave it as verified as
+    // it was; a new version, or another category, is recognized afresh.
+    if new.is_none() && same {
+        given.unverified.clone_from(&s.unverified);
+    }
+    let stored;
+    let build = if let Some(new) = new {
+        details::Build::of(new)
+    } else {
+        stored = version::current_file(db, &s.id).await?.unwrap_or_default();
+        // Its file, kept under its category, passed its test already,
+        // which a save of its details needn't run again.
+        details::Build {
+            data: &stored,
+            conventional: s.conventional,
+            passes: same
+                && simulation::current(db, s)
+                    .await?
+                    .is_some_and(|report| report.passed()),
+        }
+    };
+    match details::check(db, given, build, user.is_admin()).await? {
+        Ok(ready) => Ok(Ok(schematic::set_details(db, &s.id, &ready).await?)),
+        Err(message) => Ok(Err(message)),
+    }
+}
+
+/// A new version waiting on the edit page, to save with the details.
+pub(in crate::web) struct NewFile<'a> {
+    pub checked: &'a Checked,
+    pub note: &'a str,
+}
+
+/// The edit page for build `s`: its details as `sent`, else as stored,
+/// with `message` saying why a save was refused, and the file a new
+/// version would replace it with, if one is waiting. `choosing` opens the
+/// form for choosing one.
+pub(in crate::web) async fn show_edit(
+    db: &SqlitePool,
+    user: &User,
+    s: &Schematic,
+    sent: Option<&Form>,
+    message: &str,
+    new_file: Option<NewFile<'_>>,
+    choosing: Option<&str>,
+) -> Result<Response, AppError> {
+    let versions = version::list(db, &s.id).await?;
+    let simulation = simulation::current(db, s).await?;
+    let stored = Form::of(s);
+    // What the page shows is the new file's, when one is waiting.
+    let (encoded, stored_blocks);
+    let (file, blocks) = if let Some(new) = &new_file {
+        encoded = STANDARD.encode(&new.checked.prepared.data);
+        let file = File::Version {
+            s,
+            data: &encoded,
+            comparison: new.checked.comparison,
+            refusals: &new.checked.refusals,
+            version: versions.first().map_or(1, |v| v.version) + 1,
+            note: new.note,
+        };
+        (file, Some(&new.checked.prepared.blocks))
+    } else {
+        let data = version::current_file(db, &s.id).await?.unwrap_or_default();
+        stored_blocks = Blocks::read(&data).ok();
+        let file = File::Stored {
+            s,
+            simulation: simulation.as_ref(),
+        };
+        (file, stored_blocks.as_ref())
+    };
+    let shown = form::Shown {
+        file,
+        blocks,
+        message,
+        choosing,
+    };
+    form::page(db, user, sent.unwrap_or(&stored), shown).await
+}

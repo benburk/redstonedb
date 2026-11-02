@@ -1,0 +1,253 @@
+//! A build's file to download: in the colours asked for, as one of the
+//! parts the stacking procedure pastes, stacked, or with stacking markers.
+
+use std::collections::HashMap;
+
+use axum::{
+    extract::{Path, Query, State},
+    http::Method,
+    response::Response,
+};
+use serde::Deserialize;
+use sqlx::SqlitePool;
+
+use crate::{
+    models::{
+        schematic::{self, Schematic},
+        user::User,
+        version,
+    },
+    recognize::palette::{self, Palette},
+    schem::{stack, standardize},
+    web::{app_state::AppState, error::AppError},
+};
+
+/// What a download of a build's file asks for: from the download dialog,
+/// the stacking guide's links, and the 3D viewer.
+#[derive(Deserialize)]
+pub(in crate::web) struct Download {
+    /// Set when the 3D viewer fetches the file, which is no download.
+    preview: Option<String>,
+    /// The direction, by name, to put glass at two opposite corners of
+    /// the box `//rstack` stacks, for `WorldEdit` to select it by.
+    markers: Option<String>,
+    /// One of the files the in-game stacking procedure pastes, for the
+    /// `direction` it stacks.
+    part: Option<Part>,
+    direction: Option<String>,
+    /// Copies each way the build stacks.
+    west: Option<usize>,
+    up: Option<usize>,
+    north: Option<usize>,
+    #[serde(rename = "west-up")]
+    west_up: Option<usize>,
+    /// The colours to show it in: the site's own, its builder's, or the
+    /// viewer's theme, which is what shows when none is asked for.
+    pub(super) colours: Option<Colours>,
+}
+
+/// The colours a build is shown and downloaded in.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Colours {
+    /// The site's own, as stored.
+    Default,
+    /// The colours its builder gave it, where they are kept.
+    Original,
+    /// The viewer's theme.
+    Theme,
+}
+
+impl Colours {
+    /// Its name in an address, such as `original`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Colours::Default => "default",
+            Colours::Original => "original",
+            Colours::Theme => "theme",
+        }
+    }
+}
+
+/// A file the in-game stacking procedure pastes.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum Part {
+    /// The build without the parts only its first copy keeps.
+    Without,
+    /// Those parts alone.
+    First,
+}
+
+impl Download {
+    /// The copies asked for each way, by direction name, leaving out one
+    /// copy, which is the build itself.
+    fn copies(&self) -> HashMap<String, usize> {
+        [
+            ("west", self.west),
+            ("up", self.up),
+            ("north", self.north),
+            ("west-up", self.west_up),
+        ]
+        .into_iter()
+        .filter_map(|(name, copies)| Some((name.to_owned(), copies?)))
+        .filter(|&(_, copies)| copies != 1)
+        .collect()
+    }
+}
+
+/// The stored `.schem` file, named by the naming scheme. The viewer fetches
+/// the same URL.
+pub async fn download(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    viewer: Option<User>,
+    method: Method,
+    Query(asked): Query<Download>,
+) -> Result<Response, AppError> {
+    // The 3D viewer's fetch, and a HEAD request, is no download.
+    let preview = asked.preview.is_some();
+    let counted = !preview && method == Method::GET;
+    let palette = match &viewer {
+        Some(user) => palette::of(&state.db, user.id).await?,
+        None => None,
+    };
+    let (filename, data) = export(
+        &state.db,
+        &id,
+        viewer.as_ref(),
+        &asked,
+        counted,
+        palette.as_ref(),
+    )
+    .await?;
+    // Only readable files are stored, so the viewer's copy falls back to
+    // the file as it is only if that changes.
+    let data = if preview {
+        standardize::for_viewer(&data).unwrap_or(data)
+    } else {
+        data
+    };
+    Ok(super::super::attachment(&filename, data))
+}
+
+/// Build `id`'s file as `asked`, with its name, counted as a download if
+/// `counted`, in `palette` if it is a recognized build's; a 404 if
+/// `viewer` may not see it.
+pub(in crate::web) async fn export(
+    db: &SqlitePool,
+    id: &str,
+    viewer: Option<&User>,
+    asked: &Download,
+    counted: bool,
+    palette: Option<&Palette>,
+) -> Result<(String, Vec<u8>), AppError> {
+    let s = schematic::get_visible(db, id, viewer)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let data = version::current_file(db, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    // Its builder's colours go on a single copy as it is: a stack finds
+    // its buses by the site's colours.
+    let plain = asked.part.is_none() && asked.copies().is_empty();
+    let original = match asked.colours {
+        Some(Colours::Original) if plain => version::colours(db, id).await?,
+        _ => None,
+    };
+    if let Some(colours) = &original {
+        let data = crate::recognize::colouring::apply(&data, colours)?;
+        return shaped(db, id, s, data, asked, counted).await;
+    }
+    let palette = palette
+        .filter(|_| matches!(asked.colours, None | Some(Colours::Theme)));
+    // Its blocks before any stacking, by position; its colours after, as
+    // stacking finds buses by them.
+    let palette = match palette {
+        Some(palette) => palette::needs(db, id).await?.map(|n| (palette, n)),
+        None => None,
+    };
+    let data = match &palette {
+        Some((palette, needs)) => palette::blocks_in(&data, needs, palette)?,
+        None => data,
+    };
+    let (filename, data) = shaped(db, id, s, data, asked, counted).await?;
+    let data = match &palette {
+        Some((palette, _)) => palette::colour(&data, palette)?,
+        None => data,
+    };
+    Ok((filename, data))
+}
+
+/// Build `s`'s file `data` as `asked`: a part, copies stacked, or as it is,
+/// with stacking markers if asked; counted as a download if `counted`.
+async fn shaped(
+    db: &SqlitePool,
+    id: &str,
+    s: Schematic,
+    data: Vec<u8>,
+    asked: &Download,
+    counted: bool,
+) -> Result<(String, Vec<u8>), AppError> {
+    if let Some(part) = asked.part {
+        let direction = s
+            .stacking
+            .iter()
+            .find(|d| asked.direction.as_deref() == Some(d.name().as_str()))
+            .ok_or_else(|| AppError::BadRequest("no such part".to_owned()))?;
+        let first = part == Part::First;
+        let data = stack::part(&data, *direction, first)?;
+        let suffix = if first {
+            "_first_copy_parts"
+        } else {
+            "_without_first_copy_parts"
+        };
+        let filename =
+            s.filename().replace(".schem", &format!("{suffix}.schem"));
+        return Ok((filename, data));
+    }
+    let copies = asked.copies();
+    let markers = match asked.markers.as_deref() {
+        None | Some("") => None,
+        Some(name) => Some(
+            s.stacking
+                .iter()
+                .copied()
+                .find(|d| d.name() == name)
+                .ok_or_else(|| {
+                    AppError::BadRequest("no such direction".to_owned())
+                })?,
+        ),
+    };
+    if markers.is_some() && !copies.is_empty() {
+        return Err(AppError::BadRequest(
+            "Stacking markers go on a single copy.".to_owned(),
+        ));
+    }
+    let (data, s) = if copies.is_empty() {
+        (data, s)
+    } else {
+        let stacked = stack::plan(&s.stacking, &copies).and_then(|plan| {
+            let buses = stack::Buses::of(&s.category, s.orientation);
+            let (data, size) = stack::stack(&data, &plan, buses)?;
+            Ok((data, s.stacked(&plan, size)))
+        });
+        stacked.map_err(|err| AppError::BadRequest(err.to_string()))?
+    };
+    if counted {
+        schematic::count_download(db, id).await?;
+    }
+    let data = match markers {
+        Some(direction) => {
+            stack::with_markers(&data, direction)?.ok_or_else(|| {
+                AppError::BadRequest(
+                "Every pair of opposite corners of its box holds a block, so \
+                 there's nowhere to put the glass."
+                    .to_owned(),
+            )
+            })?
+        }
+        None => data,
+    };
+    Ok((s.filename(), data))
+}
