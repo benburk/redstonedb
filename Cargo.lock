@@ -1421,7 +1421,7 @@ dependencies = [
 [[package]]
 name = "mchprs_blocks"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "hematite-nbt",
  "mchprs_proc_macros",
@@ -1432,7 +1432,7 @@ dependencies = [
 [[package]]
 name = "mchprs_proc_macros"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "nom",
  "quote",
@@ -1445,7 +1445,7 @@ dependencies = [
 [[package]]
 name = "mchprs_redpiler"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "enum_dispatch",
  "indexmap",
@@ -1464,7 +1464,7 @@ dependencies = [
 [[package]]
 name = "mchprs_redstone"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "mchprs_blocks",
  "mchprs_world",
@@ -1475,12 +1475,12 @@ dependencies = [
 [[package]]
 name = "mchprs_utils"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 
 [[package]]
 name = "mchprs_world"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "hematite-nbt",
  "mchprs_blocks",
@@ -1954,7 +1954,7 @@ dependencies = [
 [[package]]
 name = "redpiler_graph"
 version = "0.5.2-dev"
-source = "git+https://github.com/benburk/MCHPRS?rev=f605490b5c414d5c54e927b019892815ea53698e#f605490b5c414d5c54e927b019892815ea53698e"
+source = "git+https://github.com/benburk/MCHPRS?rev=44c385c261ff2bb7a434f7601b666005ba900b9e#44c385c261ff2bb7a434f7601b666005ba900b9e"
 dependencies = [
  "bincode",
  "serde",
