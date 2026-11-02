@@ -7,9 +7,7 @@ use crate::{
     models::schematic::{Measured, Schematic, StackDirection, Widened},
     recognize::{category, evaluate::Evaluation, interface},
     schem::Blocks,
-    simulate::{
-        self, EVEN_PARITY, Edge, Report, SIGNED_GREATER_THAN, Stacking, Test,
-    },
+    simulate::{Edge, Report, Stacking, Test},
 };
 
 /// The flag of a monostable whose output rests on, so its pulse turns it
@@ -86,7 +84,7 @@ impl Derived {
                 && category::behaviour(&s.category).test
                     == Some(Test::Threshold)
             {
-                derived.measured.at_least = simulate::at_least(&run.pattern);
+                derived.measured.at_least = run.at_least();
             }
             derived.measured.throughput = e.throughput;
             if let Some(design) = &e.design {
@@ -141,7 +139,7 @@ impl Derived {
             && category::behaviour(&s.category).test == Some(Test::GreaterThan)
         {
             self.flags.retain(|flag| flag != SIGNED);
-            if run.pattern == SIGNED_GREATER_THAN {
+            if run.signed() {
                 self.flags.push(SIGNED.to_owned());
             }
         }
@@ -151,7 +149,7 @@ impl Derived {
             && category::behaviour(&s.category).test == Some(Test::Parity)
         {
             self.flags.retain(|flag| flag != EVEN);
-            if run.pattern == EVEN_PARITY {
+            if run.even() {
                 self.flags.push(EVEN.to_owned());
             }
         }
@@ -160,7 +158,7 @@ impl Derived {
             && run.wrong == 0
             && category::behaviour(&s.category).test == Some(Test::Threshold)
         {
-            self.measured.at_least = simulate::at_least(&run.pattern);
+            self.measured.at_least = run.at_least();
         }
         if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
             self.measured.pulse = Some(pulse.ticks.into());
@@ -309,7 +307,7 @@ mod tests {
     #[test]
     fn a_comparators_cases_say_whether_it_reads_signed() {
         let s = schematic("greater_than", Orientation::Horizontal, &[]);
-        let signed = ran(SIGNED_GREATER_THAN, 0, &json!(null));
+        let signed = ran("A > B, signed", 0, &json!(null));
         assert_eq!(decided(&s, &[], &signed).flags, [SIGNED]);
         let unsigned = ran("A > B", 0, &json!(null));
         assert!(decided(&s, &[SIGNED], &unsigned).flags.is_empty());

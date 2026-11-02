@@ -755,6 +755,7 @@ fn run(lines: &Lines, found: Found) -> Run {
         examples: found.examples,
         hint: None,
         inverted: Vec::new(),
+        reading: None,
         strength: None,
         cells: Vec::new(),
         faults: Vec::new(),

@@ -13,7 +13,7 @@ use crate::{
     },
     schem::Blocks,
     simulate::{
-        Action, Broken, CellControls, Run, Signal, Wrong,
+        Action, Broken, CellControls, Reading, Run, Signal, Wrong,
         bench::{mask, patterns},
         circuit::{Circuit, output_bits},
     },
@@ -732,12 +732,13 @@ impl Tally {
         exhaustive: bool,
     ) -> Run {
         let cells = register.cells.len();
+        let inverted = kind == Kind::Register
+            && register
+                .cells
+                .iter()
+                .any(|cell| cell.reads.iter().any(|read| read.inverted));
         Run {
             pattern: {
-                let inverted = register
-                    .cells
-                    .iter()
-                    .any(|cell| cell.reads.iter().any(|read| read.inverted));
                 let read = match (kind, inverted) {
                     (Kind::Register, false) => "read",
                     (Kind::Register, true) => "read inverted",
@@ -785,6 +786,7 @@ impl Tally {
                 reads.dedup();
                 reads
             },
+            reading: Some(Reading::Register { inverted }),
             strength: None,
             cells: Vec::new(),
             faults: Vec::new(),

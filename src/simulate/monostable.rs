@@ -228,6 +228,7 @@ fn run(found: &Cases, dual: bool) -> Run {
         examples,
         hint,
         inverted: Vec::new(),
+        reading: None,
         strength: None,
         cells: Vec::new(),
         faults: Vec::new(),
