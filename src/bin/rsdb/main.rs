@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use app::{
     db::connect_to_database,
-    models::{catalogue, schematic, similarity, tag},
+    models::{schematic, similarity, tag},
 };
 use clap::{Parser, Subcommand};
 use sqlx::SqlitePool;
@@ -22,9 +22,7 @@ use accounts::{list_users, respell, set_role};
 use builds::{
     Set, export, guide_images, list, remove, search_command, set, show,
 };
-use categories::{
-    NewCategory, define_category, define_flag, define_tag, print_categories,
-};
+use categories::{define_tag, print_categories};
 use inspect::{Inspect, evaluate, inspect_command};
 use rebuild::{Rebuild, finish, needs, rebuild};
 use simulate::simulate;
@@ -125,35 +123,8 @@ enum Command {
     /// Mojang: credits, importers, and accounts, which also gain the UUID
     Respell,
     /// List the standard categories, with their measures, designs, flags,
-    /// and aliases
+    /// and aliases, as the code lists them; a category is added there
     Categories,
-    /// Add a standard category to the list
-    DefineCategory(NewCategory),
-    /// Add a yes-or-no flag to a category's builds, such as a shift
-    /// register being bidirectional
-    DefineFlag {
-        category: String,
-        /// Lowercase words joined by underscores, such as `bidirectional`
-        name: String,
-        /// How people read it; the name's words by default
-        #[arg(long)]
-        label: Option<String>,
-    },
-    /// Give a category, of the list or off it, another word to be searched
-    /// by, such as `connect4` for a four-in-a-row detector
-    DefineAlias { category: String, alias: String },
-    /// Add a design to a category: a way of working, as its every design
-    /// does the same job
-    DefineDesign {
-        category: String,
-        name: String,
-        /// The usual short name, such as CLA
-        #[arg(long)]
-        abbreviation: Option<String>,
-        /// How people read it, such as LFSR; the name's words by default
-        #[arg(long)]
-        label: Option<String>,
-    },
     /// List accounts with their roles
     Users,
     /// Set an account's role: user, mod, or admin
@@ -261,31 +232,10 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Replace(args) => replace(db, &args).await,
         Command::Colours { id, file } => colours(db, &id, &file).await,
         Command::Respell => respell(db).await,
-        Command::Categories => print_categories(db).await,
-        Command::DefineCategory(args) => define_category(db, args).await,
-        Command::DefineAlias { category, alias } => {
-            Ok(catalogue::define_alias(db, &alias, &category).await?)
+        Command::Categories => {
+            print_categories();
+            Ok(())
         }
-        Command::DefineFlag {
-            category,
-            name,
-            label,
-        } => define_flag(db, category, name, label).await,
-        Command::DefineDesign {
-            category,
-            name,
-            abbreviation,
-            label,
-        } => Ok(catalogue::define_design(
-            db,
-            &catalogue::Design {
-                category,
-                name,
-                abbreviation,
-                label,
-            },
-        )
-        .await?),
         Command::Users => list_users(db).await,
         Command::Role { username, role } => {
             set_role(db, &username, &role).await

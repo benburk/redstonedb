@@ -8,10 +8,9 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
-    category::{self, Kind, Lines},
+    category::{self, Category, Flag, Kind, Lines},
     details::{self, Ready, Unrecognized},
     models::{
-        catalogue::{Category, Flag},
         schematic::{self, Encoding, New, Orientation, Schematic},
         version,
     },

@@ -24,10 +24,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    models::{
-        catalogue::{Flag, Measure},
-        schematic::{Logic, Schematic},
-    },
+    category::{Flag, Measure},
+    models::schematic::{Logic, Schematic},
     recognize::colour,
 };
 
@@ -334,7 +332,7 @@ fn facts(s: &Schematic) -> Vec<String> {
         facts.push(label.to_lowercase());
     }
     for flag in &s.flags {
-        match flag.name.as_str() {
+        match flag.name {
             // The short names a carry or borrow line's sign may use.
             Flag::CARRY_IN => facts.push(colour::CARRY_IN[1].to_owned()),
             Flag::CARRY_OUT => facts.push(colour::CARRY_OUT[1].to_owned()),

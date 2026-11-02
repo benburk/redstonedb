@@ -6,10 +6,8 @@ mod load;
 mod stacking;
 mod write;
 
-use super::{
-    catalogue::{self, Flag, Measure},
-    tag::{self, Tag},
-};
+use super::tag::{self, Tag};
+use crate::category::{self, Flag, Measure};
 
 pub use load::{
     all, all_people, get, get_many, get_visible, ids_with_prefix,
@@ -257,7 +255,7 @@ impl Schematic {
             .iter()
             .filter(|flag| flag.name != Flag::INVERTED_CARRY_IN)
             .map(|flag| Tag {
-                name: flag.name.clone(),
+                name: flag.name.to_owned(),
                 token: None,
                 kind: found(
                     tag::Kind::Feature,
@@ -321,7 +319,7 @@ impl Schematic {
     pub fn category_label(&self) -> String {
         self.category_label
             .clone()
-            .unwrap_or_else(|| catalogue::words(&self.category))
+            .unwrap_or_else(|| category::words(&self.category))
     }
 
     /// What the build is: its given name, or else its category.
@@ -408,7 +406,7 @@ impl Schematic {
         (self.design != "other").then(|| {
             self.design_given_label
                 .clone()
-                .unwrap_or_else(|| catalogue::words(&self.design))
+                .unwrap_or_else(|| category::words(&self.design))
         })
     }
 
@@ -628,9 +626,8 @@ mod tests {
     fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
         let mut s = cla();
         s.flags = vec![Flag {
-            category: "adder".to_owned(),
-            name: "carry_in".to_owned(),
-            label: "Carry in".to_owned(),
+            name: "carry_in",
+            label: "Carry in",
         }];
         s.tags.insert(
             0,
@@ -724,9 +721,8 @@ mod tests {
     fn an_adder_that_subtracts_is_named_a_subtractor() {
         let mut subtractor = cla();
         subtractor.flags = vec![Flag {
-            category: "adder".to_owned(),
-            name: "subtract".to_owned(),
-            label: String::new(),
+            name: "subtract",
+            label: "Subtract",
         }];
         assert_eq!(subtractor.name(), "8-bit Carry Lookahead Subtractor");
         assert_eq!(cla().name(), "8-bit Carry Lookahead Adder");
@@ -737,16 +733,12 @@ mod tests {
     /// left on a build calls it nothing else.
     #[test]
     fn a_gate_is_named_by_its_category() {
-        let gate = |category: &str, label: &str, flag: Option<&str>| {
+        let gate = |category: &str, label: &str, flag: Option<&'static str>| {
             let mut gate = cla();
             gate.category = category.to_owned();
             gate.category_label = Some(label.to_owned());
             gate.flags = flag
-                .map(|name| Flag {
-                    category: category.to_owned(),
-                    name: name.to_owned(),
-                    label: String::new(),
-                })
+                .map(|name| Flag { name, label: "" })
                 .into_iter()
                 .collect();
             gate.what()
@@ -759,11 +751,7 @@ mod tests {
 
     #[test]
     fn a_multiplier_is_named_by_its_operands_and_product() {
-        let flag = |name: &str| Flag {
-            category: "multiplier".to_owned(),
-            name: name.to_owned(),
-            label: String::new(),
-        };
+        let flag = |name: &'static str| Flag { name, label: "" };
         let mut multiplier = Schematic {
             category: "multiplier".to_owned(),
             category_label: Some("Multiplier".to_owned()),

@@ -8,10 +8,12 @@ use std::{
     str::FromStr,
 };
 
-use crate::models::{
-    catalogue::{Flag, Measure},
-    schematic::{Logic, Orientation, Schematic},
-    tag::{Kind, Tag},
+use crate::{
+    category::{Flag, Measure},
+    models::{
+        schematic::{Logic, Orientation, Schematic},
+        tag::{Kind, Tag},
+    },
 };
 
 /// How many builds each ranking shows.

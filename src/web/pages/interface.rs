@@ -4,9 +4,9 @@
 use maud::{Markup, html};
 
 use crate::{
+    category::Flag,
     category::Kind,
     import::Analysis,
-    models::catalogue::Flag,
     recognize::{
         colour,
         interface::{Bit, Interface, Port},

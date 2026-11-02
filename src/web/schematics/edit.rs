@@ -9,10 +9,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sqlx::SqlitePool;
 
 use crate::{
-    category, details,
+    category::{self, Category},
+    details,
     import::{self, Prepared},
     models::{
-        catalogue::{self, Category},
         schematic::{self, Schematic},
         similarity, simulation,
         user::User,
@@ -164,13 +164,7 @@ async fn chosen_version(
     // A listed build that follows the conventions is kept standardized;
     // one unverified or off the list as built, until a version it is
     // recognized by moves it up.
-    let listed = Category::find(
-        &catalogue::categories(db)
-            .await
-            .map_err(|err| err.to_string())?,
-        &s.category,
-    )
-    .is_some();
+    let listed = s.kind().is_some();
     let standardize = s.conventional && listed && s.unverified.is_none();
     check_version(db, s, &chosen.file, standardize)
         .await
@@ -228,7 +222,7 @@ async fn save_details(
     }
     let kept = match checked {
         Some(checked) => {
-            version_kept(db, s, &form.category, &checked.prepared).await?
+            version_kept(s, &form.category, &checked.prepared).await?
         }
         None => None,
     };
@@ -259,12 +253,11 @@ async fn save_details(
 /// Only a build whose category, as `category` gives it, is unchanged
 /// moves up.
 async fn version_kept(
-    db: &SqlitePool,
     s: &Schematic,
     category: &str,
     prepared: &Prepared,
 ) -> anyhow::Result<Option<(Prepared, Option<String>)>> {
-    let categories = catalogue::categories(db).await?;
+    let categories = Category::all();
     let evaluated = |c: &&Category| category::behaviour(&c.name).evaluated;
     if Category::name_of(&categories, category) == s.category
         && let Some(meant) = simulation::stands_in(s)
@@ -296,7 +289,7 @@ async fn saved(
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
-    let categories = catalogue::categories(db).await?;
+    let categories = Category::all();
     let same = Category::name_of(&categories, &form.category) == s.category;
     // Its details saved alone, under its category, leave it as verified as
     // it was; a new version, or another category, is recognized afresh.

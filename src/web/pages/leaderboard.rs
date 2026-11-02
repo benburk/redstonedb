@@ -3,16 +3,12 @@
 use maud::{Markup, html};
 
 use crate::{
+    category::{Category, Measure},
     leaderboard::{
         self, Board, Choice, Placed, Rank, Record, SHOWN, Standing, Wanted,
         in_sentence,
     },
-    models::{
-        catalogue::{Category, Measure},
-        schematic::Schematic,
-        tag::Kind,
-        user::User,
-    },
+    models::{schematic::Schematic, tag::Kind, user::User},
 };
 
 use super::{

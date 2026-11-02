@@ -5,11 +5,10 @@
 use sqlx::SqlitePool;
 
 use crate::{
-    category::{self, Kind},
+    category::{self, Category, Kind, Measure},
     external::mojang,
     import::Prepared,
     models::{
-        catalogue::{self, Category, Measure},
         schematic::{
             self, Encoding, Logic, Orientation, Schematic, StackDirection,
         },
@@ -84,7 +83,7 @@ impl Details {
             at_least: s.at_least,
             pulse: s.pulse,
             design: Some(s.design.clone()),
-            flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
+            flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
             builders: s.builders.clone(),
             contributors: s.contributors.clone(),
             stacking: s.stacking.clone(),
@@ -201,7 +200,7 @@ async fn ready(
     shaped(&details)?;
     tag::check_new(db, &details.tags, may_create_tags).await??;
 
-    let categories = catalogue::categories(db).await?;
+    let categories = Category::all();
     let listed = Category::find(&categories, &details.category).is_some();
     details.category = Category::name_of(&categories, &details.category);
     if details.category.is_empty() {
@@ -210,13 +209,7 @@ async fn ready(
             .into());
     }
     let design = details.design.take().unwrap_or_else(|| "other".to_owned());
-    let designs = catalogue::designs(db).await?;
-    let category = catalogue::check_category(
-        &categories,
-        &designs,
-        &details.category,
-        &design,
-    )?;
+    let category = category::check_category(&details.category, &design)?;
     details.design = Some(design);
     // Only a blessed build, one probing recognizes, goes on the list.
     if listed && !category::blessed(&category.name) {
@@ -243,8 +236,10 @@ async fn ready(
         positive(details.at_least).filter(|_| category.has(Measure::AtLeast));
     details.pulse =
         positive(details.pulse).filter(|_| category.has(Measure::Pulse));
-    details.flags =
-        catalogue::keep_flags(db, &category.name, &details.flags).await?;
+    details.flags = category::flags_among(&category.name, &details.flags)
+        .into_iter()
+        .map(|flag| flag.name.to_owned())
+        .collect();
 
     // Only a build of a category the site recognizes builds of is
     // unverified as one.

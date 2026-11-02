@@ -521,7 +521,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
                     input type="hidden" name="data" value=(data);
                     // An off-list build's is as built, to be tested as the
                     // category it may move up to.
-                    @if crate::models::catalogue::Category::find(&page.choices.categories, &s.category).is_none() {
+                    @if crate::category::Category::find(&page.choices.categories, &s.category).is_none() {
                         input type="hidden" name="as_built" value="yes";
                     }
                     label class="field" {

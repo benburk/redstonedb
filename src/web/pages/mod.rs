@@ -4,10 +4,9 @@
 
 use maud::{Markup, PreEscaped, html};
 
-use crate::models::{
-    catalogue::{Category, Section},
-    schematic::Schematic,
-    tag::Tag,
+use crate::{
+    category::{Category, Section},
+    models::{schematic::Schematic, tag::Tag},
 };
 
 const PAGE_TITLE: &str = "text-page font-bold";

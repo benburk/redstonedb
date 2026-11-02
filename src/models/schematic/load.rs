@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{Encoding, Logic, Orientation, Schematic, StackDirection, Widened};
-use crate::models::{
-    catalogue::{self, Flag},
-    tag::{self, Tag},
+use crate::{
+    category::{self, Design, Flag, Kind},
+    models::tag::{self, Tag},
 };
 
 /// Every schematic, ordered by category, width, then insertion.
@@ -79,21 +79,14 @@ async fn load(
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
             public as "public: bool", unverified,
             schematic.logic as "own_logic: Logic",
-            coalesce(schematic.logic, category.logic) as "logic?: Logic",
             conventional as "conventional: bool", description, given_name,
-            design, design.abbreviation as "design_abbreviation?: String",
-            design.label as "design_given_label?: String", category.label
-                as "category_label?: String",
-            user.username as "uploader?: String", coalesce(user.minecraft_name,
-                user.username) as "uploader_name?: String",
+            design, user.username as "uploader?: String",
+            coalesce(user.minecraft_name, user.username) as "uploader_name?: String",
             EXISTS (SELECT 1 FROM simulation WHERE simulation.failed
                 AND simulation.schematic_id = schematic.id
                 AND simulation.sha256 = file.sha256) as "fails_simulation!: bool"
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
-         LEFT JOIN category ON category.name = schematic.category
-         LEFT JOIN design ON design.category = schematic.category
-            AND design.name = schematic.design
          LEFT JOIN user ON user.id = schematic.uploaded_by
          WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))
          ORDER BY schematic.category, width, added_at"#,
@@ -106,15 +99,16 @@ async fn load(
     let mut stacking = stacking_by_schematic(db, only.as_deref()).await?;
     let mut widened = widened_by_schematic(db, only.as_deref()).await?;
     let mut credits = credits_by_schematic(db, only.as_deref()).await?;
-    let extras = catalogue::Extras::load(db).await?;
     Ok(rows
         .into_iter()
         .map(|row| {
             let (builders, contributors) =
                 credits.remove(&row.id).unwrap_or_default();
+            let facts = Kind::named(&row.category).map(Kind::facts);
+            let design = Design::of(&row.category, &row.design);
             Schematic {
-                measures: extras.measures(&row.category),
-                aliases: extras.aliases(&row.category),
+                measures: facts.map_or_else(Vec::new, |f| f.measures.to_vec()),
+                aliases: category::aliases(&row.category),
                 tags: tag::with_derived(
                     tags.remove(&row.id).unwrap_or_default(),
                     tag::unverified(
@@ -131,14 +125,14 @@ async fn load(
                 builders,
                 contributors,
                 id: row.id,
+                category_label: facts.map(|f| f.label.to_owned()),
                 category: row.category,
-                category_label: row.category_label,
                 width: row.width,
                 orientation: row.orientation,
                 encoding: row.encoding,
                 latency: row.latency,
                 synchronized: row.synchronized,
-                logic: row.logic,
+                logic: row.own_logic.or(facts.and_then(|f| f.logic)),
                 own_logic: row.own_logic,
                 throughput: row.throughput,
                 at_least: row.at_least,
@@ -153,8 +147,12 @@ async fn load(
                 conventional: row.conventional,
                 keeps_paste: row.keeps_paste,
                 design: row.design,
-                design_abbreviation: row.design_abbreviation,
-                design_given_label: row.design_given_label,
+                design_abbreviation: design
+                    .and_then(|d| d.abbreviation)
+                    .map(str::to_owned),
+                design_given_label: design
+                    .and_then(|d| d.label)
+                    .map(str::to_owned),
                 description: row.description,
                 given_name: row.given_name,
                 uploader: row.uploader,
@@ -198,34 +196,38 @@ async fn tags_by_schematic(
     Ok(tags)
 }
 
-/// The flags of the builds `only` names, by id, in their category's order.
+/// The flags of the builds `only` names, by id, in their category's order;
+/// a name no flag of its category has is none.
 async fn flags_by_schematic(
     db: &SqlitePool,
     only: Option<&str>,
 ) -> Result<HashMap<String, Vec<Flag>>, sqlx::Error> {
-    let mut flags: HashMap<String, Vec<Flag>> = HashMap::new();
+    let mut names: HashMap<String, (String, Vec<String>)> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_flag.schematic_id, flag.category, flag.name,
-            flag.label
+        "SELECT schematic_flag.schematic_id, schematic.category,
+            schematic_flag.name
          FROM schematic_flag
          JOIN schematic ON schematic.id = schematic_flag.schematic_id
-         JOIN flag ON flag.category = schematic.category
-            AND flag.name = schematic_flag.name
          WHERE ?1 IS NULL
-            OR schematic_flag.schematic_id IN (SELECT value FROM json_each(?1))
-         ORDER BY flag.position",
+            OR schematic_flag.schematic_id IN (SELECT value FROM json_each(?1))",
         only
     )
     .fetch_all(db)
     .await?
     {
-        flags.entry(row.schematic_id).or_default().push(Flag {
-            category: row.category,
-            name: row.name,
-            label: row.label,
-        });
+        names
+            .entry(row.schematic_id)
+            .or_insert_with(|| (row.category, Vec::new()))
+            .1
+            .push(row.name);
     }
-    Ok(flags)
+    Ok(names
+        .into_iter()
+        .map(|(id, (category, names))| {
+            let flags = category::flags_among(&category, &names);
+            (id, flags.into_iter().copied().collect())
+        })
+        .collect())
 }
 
 /// The stacking directions of the builds `only` names, by id, the most

@@ -7,9 +7,15 @@
 //! the list, in the same form, which the code knows nothing about: it gets
 //! the default [`Behaviour`], nothing special.
 
+mod catalogue;
 mod table;
 
-use crate::{recognize::probe::Line, simulate::Test};
+pub use catalogue::{
+    Category, Design, Flag, Measure, Section, aliases, check_category,
+    flags_among, words,
+};
+
+use crate::{models::schematic::Logic, recognize::probe::Line, simulate::Test};
 
 /// A standard category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -75,6 +81,27 @@ pub struct Facts {
     /// A build of it in a sentence, without its article, such as
     /// `equality comparator`.
     pub noun: &'static str,
+    /// The label for many builds, such as `ALUs`; `None` for the label
+    /// with an `s`.
+    pub plural: Option<&'static str>,
+    /// Whether each build gives its own name, as bussing's do: a build
+    /// named Bus Crossing shows as, say, 8-bit Bus Crossing.
+    pub named: bool,
+    /// The heading it sits under, as the home page and the menu of
+    /// categories group them.
+    pub section: Section,
+    /// Its builds' usual logic; `None` for none.
+    pub logic: Option<Logic>,
+    /// The numbers its builds are named and ranked by, in order, such as
+    /// width then capacity for a memory, or throughput for a serial adder.
+    pub measures: &'static [Measure],
+    /// The ways its builds may work, alphabetically, which all do its one
+    /// job, so compete on one leaderboard; a build of none has no design.
+    pub designs: &'static [Design],
+    /// The yes-or-no facts its builds may record, in order.
+    pub flags: &'static [Flag],
+    /// Other words search takes for it, alphabetically, such as `inc`.
+    pub aliases: &'static [&'static str],
     /// For a blessed category, how the kinds of build that go on the list
     /// name it among them, such as `comparators`, which several share;
     /// `None` for any other. A blessed category's build is recognized by
@@ -182,6 +209,14 @@ impl Kind {
 
     pub fn label(self) -> &'static str {
         self.facts().label
+    }
+
+    /// The label for many builds, such as `Adders` or `RAM`.
+    pub fn plural(self) -> String {
+        let facts = self.facts();
+        facts
+            .plural
+            .map_or_else(|| format!("{}s", facts.label), str::to_owned)
     }
 
     /// The simulation test its builds get, when they are as wide as the

@@ -9,10 +9,11 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use app::{
+    category::Category,
     details::{self, Details},
     import,
     models::{
-        catalogue, schematic, simulation,
+        schematic, simulation,
         version::{self, Replacing},
     },
 };
@@ -189,7 +190,7 @@ pub(super) async fn new_version(
     };
     // Unverified or off the list, a version recognized as the category it
     // stands in for moves it up, as on the site.
-    let categories = catalogue::categories(db).await?;
+    let categories = Category::all();
     let moved = match simulation::stands_in(&s) {
         Some(meant) => {
             import::moved_up(

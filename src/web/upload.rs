@@ -18,11 +18,11 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
-    category, details,
+    category::{self, Category},
+    details,
     external::schemati,
     import::{self, Kept, Upload},
     models::{
-        catalogue,
         schematic::{self, Schematic},
         similarity, simulation,
         user::User,
@@ -463,7 +463,7 @@ async fn publish_checked(
     raw: &[u8],
 ) -> Result<Result<String, String>, AppError> {
     let db = &state.db;
-    let categories = catalogue::categories(db).await?;
+    let categories = Category::all();
     let mut given = match form.parse() {
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),

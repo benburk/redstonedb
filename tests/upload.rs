@@ -7,17 +7,11 @@
 mod common;
 
 use app::{
+    category::Category,
     details,
     import::{self, Kept, Upload},
-    models::catalogue::{self, Category},
     schem::{self, Blocks},
 };
-
-/// The standard categories, as the migrations list them.
-async fn categories() -> Vec<Category> {
-    let db = common::database().await;
-    catalogue::categories(&db).await.expect("categories")
-}
 
 /// Each block of `blocks` other than air, by position.
 fn placed(blocks: &Blocks) -> Vec<(schem::Pos, String)> {
@@ -31,7 +25,7 @@ fn placed(blocks: &Blocks) -> Vec<(schem::Pos, String)> {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn a_recognized_build_is_kept_standardized() {
-    let categories = categories().await;
+    let categories = Category::all();
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     let standard = upload.standard.as_ref().unwrap();
     assert_ne!(
@@ -60,7 +54,7 @@ async fn a_recognized_build_is_kept_standardized() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
-    let categories = categories().await;
+    let categories = Category::all();
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     let Ok(Kept::Original(Some(off))) =
         import::kept(&categories, "multiplier", &upload)
@@ -82,7 +76,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
 
 #[tokio::test]
 async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
-    let categories = categories().await;
+    let categories = Category::all();
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     assert!(matches!(
         import::kept(&categories, "piston door", &upload)
@@ -94,7 +88,7 @@ async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
 
 #[tokio::test]
 async fn an_off_list_name_means_the_category_it_stands_in_for() {
-    let categories = categories().await;
+    let categories = Category::all();
     let meant =
         |name| details::meant(&categories, name).map(|c| c.name.clone());
     assert_eq!(meant("8-bit adder").as_deref(), Some("adder"));
@@ -107,7 +101,7 @@ async fn an_off_list_name_means_the_category_it_stands_in_for() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn a_new_version_that_is_recognized_moves_a_build_up() {
-    let categories = categories().await;
+    let categories = Category::all();
     let file = import::as_built(&common::fixture("cca-16-raw")).unwrap();
     let (moved, to) =
         import::moved_up(&categories, "16-bit_adder", &file, false)
@@ -134,7 +128,7 @@ async fn a_new_version_that_is_recognized_moves_a_build_up() {
 /// so it reads back, whatever its label holds, as NAND+XNOR Gate's plus.
 #[tokio::test]
 async fn an_off_list_name_reads_back_as_its_category() {
-    let categories = categories().await;
+    let categories = Category::all();
     let evaluated = categories
         .iter()
         .filter(|c| app::category::behaviour(&c.name).evaluated);
@@ -172,7 +166,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
         recognition.problems
     );
     let upload = Upload::read(&recognition.file).expect("it reads");
-    let kept = import::kept(&categories().await, "adder", &upload)
+    let kept = import::kept(&Category::all(), "adder", &upload)
         .await
         .expect("it is checked")
         .expect("it can be simulated");
@@ -190,7 +184,7 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
     let analyzed = Upload::read(&coloured).unwrap();
     let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
     let published = Upload::read(&analyzed.original.data).unwrap();
-    let categories = categories().await;
+    let categories = Category::all();
     let Ok(Kept::Standard { file, .. }) =
         import::kept(&categories, "adder", &published)
             .await

@@ -5,10 +5,9 @@
 use maud::{Markup, html};
 
 use crate::{
-    category,
+    category::{self, Measure},
     import::{self, Analysis},
     models::{
-        catalogue::Measure,
         schematic::{Logic, Schematic, StackDirection},
         simulation::Status,
         tag,
@@ -448,7 +447,7 @@ pub fn build_info(
     let interface = file.as_ref().ok().map(|file| &file.analysis.interface);
     let sources = Sources::of(s, interface, report);
     let flag_names: Vec<String> =
-        s.flags.iter().map(|flag| flag.name.clone()).collect();
+        s.flags.iter().map(|flag| flag.name.to_owned()).collect();
     html! {
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {

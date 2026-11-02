@@ -12,8 +12,8 @@ use super::{
 };
 use crate::{
     APP_NAME,
+    category::{Flag, Section},
     models::{
-        catalogue::{Flag, Section},
         schematic::{Encoding, Schematic},
         tag::{self, Tag},
         user::User,
@@ -1014,7 +1014,7 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{catalogue::Flag, schematic::Orientation};
+    use crate::{category::Flag, models::schematic::Orientation};
 
     /// An address reads back as it was written, but for a sort field the
     /// site does not know, which is left out.
@@ -1034,7 +1034,7 @@ mod tests {
         assert!(!HomeQuery::parse("view=list").narrows());
     }
 
-    fn adder(design: &str, flags: &[&str], tags: &[&str]) -> Schematic {
+    fn adder(design: &str, flags: &[&'static str], tags: &[&str]) -> Schematic {
         let mut s = crate::search::tests::schematic(
             "adder",
             Orientation::Horizontal,
@@ -1044,11 +1044,7 @@ mod tests {
         s.design_abbreviation = Some("CCA".to_owned());
         s.flags = flags
             .iter()
-            .map(|&name| Flag {
-                category: "adder".to_owned(),
-                name: name.to_owned(),
-                label: name.to_owned(),
-            })
+            .map(|&name| Flag { name, label: name })
             .collect();
         s
     }

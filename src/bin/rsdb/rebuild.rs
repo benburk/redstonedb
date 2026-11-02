@@ -9,9 +9,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use app::{
+    category::Category,
     details::{self, Details},
     import,
-    models::{catalogue, schematic, simulation, user::User, version},
+    models::{schematic, simulation, user::User, version},
     recognize::palette,
 };
 use clap::Args;
@@ -121,12 +122,11 @@ pub(super) async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     let from =
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", args.from.display()))
             .await?;
-    let listed = catalogue::categories(db).await?;
+    let listed = Category::all();
     let (mut built, mut refused, mut other) = (0, 0, 0);
     for mut s in schematic::all(&from).await? {
         let meant = app::models::simulation::meant_by(&s.category);
-        let off_list =
-            catalogue::Category::find(&listed, &s.category).is_none();
+        let off_list = Category::find(&listed, &s.category).is_none();
         // A word of its name, as `adder` of `adder_accumulator`, not
         // letters within one, as `alu` of `absolute_value`.
         let akin = off_list
@@ -214,7 +214,7 @@ async fn rebuild_rest(db: &SqlitePool, from: &Path) -> Result<()> {
     let from =
         SqlitePool::connect(&format!("sqlite:{}?mode=ro", from.display()))
             .await?;
-    let listed = catalogue::categories(db).await?;
+    let listed = Category::all();
     let (mut other, mut refused) = (0, 0);
     for s in schematic::all(&from).await? {
         if schematic::get(db, &s.id).await?.is_some() {
@@ -255,7 +255,7 @@ async fn keep_off_list(
     from: &SqlitePool,
     s: &schematic::Schematic,
     data: &[u8],
-    listed: &[catalogue::Category],
+    listed: &[Category],
 ) -> Result<Result<String, String>> {
     let prepared = import::prepare_for(
         data,
@@ -267,7 +267,7 @@ async fn keep_off_list(
     )?;
     let mut given = Details::of(s);
     // A category off the list has no designs of its own.
-    if let Some(category) = catalogue::Category::find(listed, &s.category) {
+    if let Some(category) = Category::find(listed, &s.category) {
         given.category = details::off_list_name(category, s.width);
         given.design = None;
     }

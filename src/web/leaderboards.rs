@@ -5,9 +5,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    category::Category,
     leaderboard::{self, Wanted},
     models::{
-        catalogue::{self, Category},
         schematic::{self, Schematic},
         user::User,
     },
@@ -48,7 +48,7 @@ pub async fn show(
     }
     // Private builds compete with no one.
     let all = schematic::visible(&state.db, None).await?;
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
         return Err(AppError::NotFound);
     };
@@ -84,7 +84,7 @@ pub async fn people(
         return Ok(Redirect::to(&path).into_response());
     }
     let all = schematic::visible(&state.db, None).await?;
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     let stacks = leaderboard::stacked(&all);
     let builds: Vec<&Schematic> = all.iter().chain(&stacks).collect();
     let records = leaderboard::records(&builds);
