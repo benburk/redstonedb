@@ -52,7 +52,7 @@ pub enum Reads {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 32] = [
+pub const BLESSED: [&str; 33] = [
     "adder",
     "hex_adder",
     "subtractor",
@@ -83,6 +83,7 @@ pub const BLESSED: [&str; 32] = [
     "barrel_shifter",
     "popcount",
     "threshold",
+    "parity",
     "binary_to_hex",
     "t_flip_flop",
 ];
@@ -265,6 +266,7 @@ pub fn behaviour(category: &str) -> Behaviour {
         "popcount" => evaluated(Test::Popcount, Stacking::Never),
         "binary_to_hex" => evaluated(Test::BinaryToHex, Stacking::Never),
         "threshold" => evaluated(Test::Threshold, Stacking::Never),
+        "parity" => evaluated(Test::Parity, Stacking::Never),
         "greater_than" => compares("A > B", Test::GreaterThan),
         "equality" => compares("A = B", Test::Equality),
         // Its copies add bits, each with its own A, B, and output.

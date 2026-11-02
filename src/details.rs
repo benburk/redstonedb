@@ -224,7 +224,7 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops go on the list so far: \
+            "Only adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, parity circuits, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops go on the list so far: \
              give it a category of its own, such as {}.",
             off_list_name(&category, width).replace('_', " ")
         )

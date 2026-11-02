@@ -141,6 +141,8 @@ pub enum Test {
     BinaryToHex,
     /// Whether at least some number of A's bits are on.
     Threshold,
+    /// Whether an odd number of A's bits are on, the xor of them all.
+    Parity,
     /// A xor B.
     Xor,
     /// A xor B, every bit of it inverted.
@@ -168,7 +170,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 32] = [
+    pub const ALL: [Test; 33] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -192,6 +194,7 @@ impl Test {
         Test::Popcount,
         Test::BinaryToHex,
         Test::Threshold,
+        Test::Parity,
         Test::Xor,
         Test::Xnor,
         Test::And,
@@ -240,6 +243,7 @@ impl Test {
             Test::Popcount => "popcount",
             Test::BinaryToHex => "binary_to_hex",
             Test::Threshold => "threshold",
+            Test::Parity => "parity",
             Test::CarryOut => "carry_out",
             Test::GreaterThan => "greater_than",
             Test::Equality => "equality",
@@ -394,6 +398,7 @@ impl Test {
             Test::Popcount => converters::popcount(interface),
             Test::BinaryToHex => converters::binary_to_hex(interface),
             Test::Threshold => converters::threshold(interface),
+            Test::Parity => converters::parity(interface),
             Test::Inverter => {
                 // Its lone control line is named for its role, invert.
                 interface::name_lines(self.name(), blocks, interface);
@@ -705,8 +710,11 @@ pub struct Wrong {
 /// carry out is A xor its line, as a 1-bit inverter is. An XNOR gate comes
 /// before an equality comparator, as a 1-bit one is A xnor B. A
 /// popcount and a threshold come before the BCD converters, whose telling
-/// values a popcount's strength output can pass.
-const GUESSED: [Test; 30] = [
+/// values a popcount's strength output can pass. A parity comes after the
+/// popcount and the threshold, as a 1-bit one is a wire, as theirs are, so
+/// a wire is still taken for a popcount; from 2 bits it gives A's bits
+/// xor, as neither does.
+const GUESSED: [Test; 31] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
@@ -721,6 +729,7 @@ const GUESSED: [Test; 30] = [
     Test::Popcount,
     Test::BinaryToHex,
     Test::Threshold,
+    Test::Parity,
     Test::Incrementer,
     Test::Multiplier,
     Test::BinaryToBcd,

@@ -180,7 +180,7 @@ pub fn recognize_watched(
 /// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
 /// NAND+XNOR an adder's inverted, which no wider build of those is; an
 /// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-pub const KINDS: [&str; 30] = [
+pub const KINDS: [&str; 31] = [
     "xor_gate",
     "xnor_gate",
     "and_gate",
@@ -202,6 +202,7 @@ pub const KINDS: [&str; 30] = [
     "popcount",
     "binary_to_hex",
     "threshold",
+    "parity",
     "register",
     "buffer",
     "alu",
@@ -268,6 +269,7 @@ fn named(kind: &str) -> String {
         "greater_than" => "greater-than comparator",
         "dual_edge_monostable" => "dual-edge monostable",
         "t_flip_flop" => "T flip-flop",
+        "parity" => "parity circuit",
         _ => &kind.replace('_', " "),
     };
     let article = if name.starts_with(['a', 'e', 'i', 'o', 'u', 'A', 'O', 'X'])
@@ -411,7 +413,8 @@ fn probed_as(
         | "dual_edge_monostable"
         | "popcount"
         | "binary_to_hex"
-        | "threshold" => {
+        | "threshold"
+        | "parity" => {
             let test = category::behaviour(kind)
                 .test
                 .expect("a blessed category has a test");

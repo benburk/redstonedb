@@ -926,6 +926,24 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
     assert_eq!(simulate::guess(&blocks).unwrap().category, "absolute_value");
 }
 
+/// An 8-bit parity circuit: on when an odd number of A's bits are, in
+/// every one of its 256 cases, timed by its one output.
+#[test]
+fn a_parity_circuit_gives_whether_an_odd_number_of_bits_are_on() {
+    let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
+    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
+    let blocks = Blocks::read(&data).unwrap();
+    let Report::Ran(run) = Test::Parity.run(&blocks) else {
+        panic!("the parity circuit was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (256, 0), "{:?}", run.examples);
+    assert_eq!(run.pattern, "xor of A's bits");
+    assert!(run.inverted.is_empty());
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "parity");
+    let timing = Test::Parity.time(&blocks, &AtomicBool::new(false)).unwrap();
+    assert!(timing.latency().is_some());
+}
+
 /// An 8-bit carry out: of A + B, only the carry, on one unsigned status
 /// line, in every one of its 65,536 cases, timed by that line, as it has no
 /// other output.

@@ -232,6 +232,36 @@ fn a_comparison_and_an_absolute_value_are_read_whole_from_their_files() {
     assert_eq!((weak.latency, weak.throughput), (None, None));
 }
 
+/// A parity circuit built on lamps, standardized and coloured by probing
+/// as an upload is, is read whole from its file, its width A's and its
+/// orientation the way A runs, up; copies of one make no wider one, so it
+/// is never searched for stacking.
+#[test]
+fn a_parity_circuit_is_read_whole_from_its_file() {
+    let recognition =
+        app::recognize::probe::recognize(&uploaded("parity-8")).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a parity circuit: all 256 cases right, xor of A's bits"),
+        "{:?}",
+        recognition.problems
+    );
+    let e = evaluate(&recognition.file).unwrap();
+    assert_eq!(e.category, Some("parity"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    assert_eq!(e.orientation, Some(Orientation::Vertical));
+    assert!(e.flags.is_empty(), "{:?}", e.flags);
+    assert!(e.stacking.is_empty());
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert_eq!((run.cases, run.wrong), (256, 0));
+    assert!(run.stacking.is_none(), "it is never searched");
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
 /// A register is read whole from its file: holding what it was written is
 /// its test, so passing it is holding state; its throughput is its burnout
 /// floor once synchronized, and its copies stack west into a register file.

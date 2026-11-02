@@ -1,6 +1,7 @@
 //! Testing stateless builds of one input, A, that convert it: to binary-
 //! coded decimal and back, to its absolute value, and to how many of its
-//! bits are on, as a popcount and a threshold read it.
+//! bits are on, as a popcount and a threshold read it, and whether that
+//! is odd, as a parity circuit does.
 
 use anyhow::{Result, bail};
 
@@ -171,6 +172,28 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
                 })
             })
             .collect(),
+        by_digit: false,
+    })
+}
+
+/// A parity build's every value of A, or with too many, each byte's and
+/// the test patterns: whether an odd number of A's bits are on, the xor of
+/// them all, on its one output. A build whose output is on for an even
+/// number gives the inverse, which is wrong.
+pub(super) fn parity(interface: &Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "parity circuit")?;
+    let width = bench.widths(interface)[0];
+    if bench.outputs.len() != 1
+        || interface.outputs[bench.outputs[0]].bits.len() != 1
+    {
+        broken!("A parity circuit has one output bit.");
+    }
+    Ok(Spec {
+        bench,
+        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        kinds: vec![Kind::new("xor of A's bits", |case| {
+            u64::from(case[0].count_ones() % 2 == 1)
+        })],
         by_digit: false,
     })
 }

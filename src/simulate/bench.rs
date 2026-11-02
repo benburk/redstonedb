@@ -814,6 +814,30 @@ mod tests {
         assert_eq!(on.wrong, on.cases);
     }
 
+    /// A parity circuit's output is on for an odd number of A's bits on;
+    /// one on for an even number, the inverse, gets every case wrong.
+    #[test]
+    fn a_parity_circuit_is_odd_parity() {
+        let interface = || {
+            (
+                vec![port("A", "lime concrete", 4)],
+                vec![port("output", "yellow concrete", 1)],
+            )
+        };
+        let (inputs, outputs) = interface();
+        let spec = super::super::converters::parity(&Interface {
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+        })
+        .unwrap();
+        let odd = |case: &Case| u64::from(case[0].count_ones() % 2 == 1);
+        let right = judged(inputs, outputs, &spec.kinds, odd);
+        assert_eq!((right.wrong, right.cases), (0, 16));
+        let (inputs, outputs) = interface();
+        let even = judged(inputs, outputs, &spec.kinds, |case| odd(case) ^ 1);
+        assert_eq!(even.wrong, even.cases);
+    }
+
     #[test]
     fn the_patterns_take_every_shift_and_each_bit_alone() {
         let found = patterns(16);
