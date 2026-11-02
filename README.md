@@ -125,7 +125,7 @@ src/
     category.rs     what the code does with each category
     evaluate.rs     a build worked out from its file alone
   details.rs        the rules a build's details keep
-  simulate.rs       the simulator's entry point; tests in simulate/
+  simulate/         the simulator, its entry point in mod.rs
   version.rs        whether a new file is the same build
   similarity.rs     how alike two builds are
   search.rs         the search query
@@ -138,7 +138,7 @@ src/
     schemati.rs     the Open Redstone Engineers schematic store
   models/           queries, one module per table or group of tables
   web/              routes and handlers
-  web/pages/        each page's markup, with shared pieces in web/pages.rs
+  web/pages/        each page's markup, with shared pieces in mod.rs
 static/             fixi, page scripts, and the built app.css
 styles/app.css      the Tailwind source
 migrations/         the schema, applied in order at startup
