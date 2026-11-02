@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use axum::{
     Form,
-    extract::{FromRequestParts, Multipart, Path, State},
+    extract::{FromRequestParts, Multipart, Path, RawForm, State},
     http::request::Parts,
     response::{IntoResponse, Redirect, Response},
 };
@@ -26,6 +26,7 @@ use crate::{
 use super::{
     pages::{self, Connection},
     schematics,
+    settings::PaletteFields,
 };
 
 /// The Schemati page.
@@ -389,19 +390,28 @@ async fn put(
 /// Sends a build's file, as the download dialog's choices make it, to the
 /// viewer's folder, under the name it downloads with. Its button, through
 /// fixi, gets only the sentence saying how it went, to show in the dialog;
-/// the form sent without it goes on to the Schemati page.
+/// the form sent without it goes on to the Schemati page. The form is read
+/// twice, for the download's choices and for its custom colours' fields.
 pub async fn send(
     Path(id): Path<String>,
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
     Fixi(fixi): Fixi,
-    Form(asked): Form<schematics::Download>,
+    RawForm(form): RawForm,
 ) -> Result<Response, AppError> {
+    let unread = |err: serde_urlencoded::de::Error| {
+        AppError::BadRequest(format!("The form could not be read: {err}."))
+    };
+    let asked: schematics::Download =
+        serde_urlencoded::from_bytes(&form).map_err(unread)?;
+    let fields: PaletteFields =
+        serde_urlencoded::from_bytes(&form).map_err(unread)?;
     let session = User::schemati_session(&state.db, user.id).await?;
     let sent = match session {
         Some(session) => {
-            let palette =
+            let theme =
                 crate::recognize::palette::of(&state.db, user.id).await?;
+            let palette = asked.palette(fields, theme)?;
             let (filename, data) = schematics::export(
                 &state.db,
                 &id,

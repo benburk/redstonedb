@@ -19,8 +19,8 @@ use crate::{
 };
 
 use super::{
-    PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base, beside_viewer_under,
-    field, grouped,
+    CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base,
+    beside_viewer_under, field, grouped,
     icons::{self, icon},
     interface::{Inversions, interface_section},
     name_badges, percent, person_badge, plural, search_link,
@@ -107,7 +107,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 // there is room.
                 div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
                     button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
-                    (download_dialog(s, viewer.is_some(), colours.chosen))
+                    (download_dialog(s, viewer.is_some(), colours))
                     @if viewer.is_some() {
                         (favorite_button(&path, favorited))
                     }
@@ -887,19 +887,67 @@ fn delete_dialog(s: &Schematic) -> Markup {
     }
 }
 
-/// The choices for downloading a build: copies of a stackable one, or one
-/// copy with glass at two corners of the box `//rstack` stacks, for
-/// `WorldEdit` to select it by; and, for someone `signed_in`, a
-/// button that sends the file so made to their Schemati instead.
-fn download_dialog(s: &Schematic, signed_in: bool, colours: Colours) -> Markup {
+/// The choices for downloading a build: the file's name; its colours, the
+/// page's own first, or a palette made for this download alone, in an
+/// editor custom asks the server for, with the fields so far, so choosing
+/// it again keeps them; copies of a stackable one, or one copy with glass
+/// at two corners of the box `//rstack` stacks, for `WorldEdit` to select
+/// it by; and, for someone `signed_in`, a button that sends the file so
+/// made to their Schemati instead.
+fn download_dialog(
+    s: &Schematic,
+    signed_in: bool,
+    colours: ColoursShown,
+) -> Markup {
     let path = format!("/schematics/{}", s.id);
+    let filename = s.filename();
+    let stem = filename.trim_end_matches(".schem");
+    let options = [
+        (Colours::Default, "Default", true),
+        (Colours::Original, "Original", colours.original),
+        (Colours::Theme, "Your theme", colours.theme),
+        (Colours::Custom, "Custom", true),
+    ];
     html! {
         dialog id="download" aria-labelledby="download-heading"
             class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
             form action={ (path) "/download" } method="get" class="flex flex-col gap-4" {
-                // The file comes in the colours the page shows.
-                input type="hidden" name="colours" value=(colours.name());
                 h2 id="download-heading" class=(SECTION_TITLE) { "Download" }
+                label class="field" {
+                    span { "File name" }
+                    div class="flex items-center gap-2" {
+                        input name="name" value=(stem) required maxlength="100"
+                            autocomplete="off" spellcheck="false" data-caret-end class="input flex-1";
+                        span aria-hidden="true" class="text-muted" { ".schem" }
+                    }
+                }
+                fieldset class="field" {
+                    legend class="mb-1.5 text-meta font-semibold text-muted" { "Colours" }
+                    // The page's colours first; custom asks for its editor.
+                    div class={ (SWITCHES) " self-start" } {
+                        @for (choice, label, offered) in options {
+                            @if offered {
+                                label class=(CHOICE) {
+                                    @if choice == Colours::Custom {
+                                        input type="radio" name="colours" value=(choice.name()) class="sr-only"
+                                            fx-action="/palette/custom" fx-trigger="click" fx-target="#custom-colours";
+                                    } @else {
+                                        input type="radio" name="colours" value=(choice.name())
+                                            checked[choice == colours.chosen] class="sr-only";
+                                    }
+                                    (label)
+                                }
+                            }
+                        }
+                    }
+                    @if colours.original && !s.stacking.is_empty() {
+                        span class="message text-meta text-muted" {
+                            "Original colours come on one copy; copies stacked come in Default."
+                        }
+                    }
+                }
+                // Where custom colours' editor comes in.
+                div id="custom-colours" hidden {}
                 @if !s.stacking.is_empty() {
                     div class="flex gap-2" {
                         @for direction in &s.stacking {
@@ -912,12 +960,21 @@ fn download_dialog(s: &Schematic, signed_in: bool, colours: Colours) -> Markup {
                         }
                     }
                 }
-                @for direction in &s.stacking {
-                    label class="flex items-start gap-2" {
-                        input type="checkbox" name="markers" value=(direction.name()) class="mt-1 size-4 appearance-auto";
-                        span {
-                            "Mark the box to //rstack " (direction.name().replace('-', " and "))
-                            " with two glass blocks, to select and then break; one copy only"
+                // One box marked, on one copy, as the server takes them.
+                @if !s.stacking.is_empty() {
+                    fieldset class="flex flex-col gap-1.5" {
+                        legend class="mb-1.5 text-meta font-semibold text-muted" {
+                            "Glass at the corners of the box to //rstack, to select and then break; one copy only"
+                        }
+                        label class="flex items-center gap-2" {
+                            input type="radio" name="markers" value="" checked class="size-4 appearance-auto";
+                            span { "None" }
+                        }
+                        @for direction in &s.stacking {
+                            label class="flex items-center gap-2" {
+                                input type="radio" name="markers" value=(direction.name()) class="size-4 appearance-auto";
+                                span { "To stack " (direction.name().replace('-', " and ")) }
+                            }
                         }
                     }
                 }

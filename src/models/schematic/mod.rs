@@ -181,6 +181,22 @@ const SYNCED: &str = "synced";
 /// The tag a build carries whose outputs settle on different ticks.
 const UNSYNCED: &str = "unsynced";
 
+/// `name` as a file's name, less `.schem`: an underscore for each run of
+/// anything but letters and digits, none at either end, as Schemati takes
+/// no other characters. Empty when `name` has no letter or digit.
+pub fn file_stem(name: &str) -> String {
+    let name = name.strip_suffix(".schem").unwrap_or(name);
+    let mut stem = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            stem.push(c);
+        } else if !stem.is_empty() && !stem.ends_with('_') {
+            stem.push('_');
+        }
+    }
+    stem.trim_end_matches('_').to_owned()
+}
+
 impl Schematic {
     /// Whether it is verified as its category: recognized as one, if its
     /// category is one the site recognizes, and passing its test, if it
@@ -406,15 +422,7 @@ impl Schematic {
     /// `8_bit_Carry_Lookahead_Adder.schem`, as Schemati, the Open Redstone
     /// Engineers server's schematic store, takes no other characters.
     pub fn filename(&self) -> String {
-        let mut stem = String::new();
-        for c in self.name().chars() {
-            if c.is_ascii_alphanumeric() {
-                stem.push(c);
-            } else if !stem.is_empty() && !stem.ends_with('_') {
-                stem.push('_');
-            }
-        }
-        format!("{}.schem", stem.trim_end_matches('_'))
+        format!("{}.schem", file_stem(&self.name()))
     }
 
     /// The blocks a build takes, as it is compared: for a stackable build,
@@ -673,6 +681,14 @@ mod tests {
     #[test]
     fn filename_is_the_name() {
         assert_eq!(cla().filename(), "8_bit_Carry_Lookahead_Adder.schem");
+    }
+
+    #[test]
+    fn a_name_given_for_a_file_keeps_only_what_schemati_takes() {
+        assert_eq!(file_stem("my adder (v2).schem"), "my_adder_v2");
+        assert_eq!(file_stem("  __CCA-8__ "), "CCA_8");
+        assert_eq!(file_stem("ünïcode"), "n_code");
+        assert_eq!(file_stem("../"), "");
     }
 
     #[test]

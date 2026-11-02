@@ -19,7 +19,7 @@ use crate::{
     },
     recognize::palette::{self, Palette},
     schem::{stack, standardize},
-    web::{app_state::AppState, error::AppError},
+    web::{app_state::AppState, error::AppError, settings::PaletteFields},
 };
 
 /// What a download of a build's file asks for: from the download dialog,
@@ -41,9 +41,13 @@ pub(in crate::web) struct Download {
     north: Option<usize>,
     #[serde(rename = "west-up")]
     west_up: Option<usize>,
-    /// The colours to show it in: the site's own, its builder's, or the
-    /// viewer's theme, which is what shows when none is asked for.
+    /// The colours to show it in: the site's own, its builder's, the
+    /// viewer's theme, which is what shows when none is asked for, or a
+    /// palette of the download's own, its fields sent beside these.
     pub(super) colours: Option<Colours>,
+    /// The file's name, less `.schem`, when it is to be named otherwise
+    /// than the build is.
+    name: Option<String>,
 }
 
 /// The colours a build is shown and downloaded in.
@@ -56,6 +60,8 @@ pub enum Colours {
     Original,
     /// The viewer's theme.
     Theme,
+    /// A palette made for one download, kept nowhere.
+    Custom,
 }
 
 impl Colours {
@@ -65,6 +71,7 @@ impl Colours {
             Colours::Default => "default",
             Colours::Original => "original",
             Colours::Theme => "theme",
+            Colours::Custom => "custom",
         }
     }
 }
@@ -94,6 +101,37 @@ impl Download {
         .filter(|&(_, copies)| copies != 1)
         .collect()
     }
+
+    /// The palette to colour the file in, if any: for custom colours, the
+    /// one `fields` make, refused unless every block is one a palette may
+    /// use; else, or with none given, `theme`, the viewer's.
+    pub(in crate::web) fn palette(
+        &self,
+        fields: PaletteFields,
+        theme: Option<Palette>,
+    ) -> Result<Option<Palette>, AppError> {
+        // Custom with no fields, as when its editor never came in, is
+        // what that editor starts from.
+        if self.colours != Some(Colours::Custom) || !fields.given() {
+            return Ok(theme);
+        }
+        let custom = fields.palette();
+        if !custom.valid() {
+            return Err(AppError::BadRequest(
+                "A custom colour isn't a block a theme may use.".to_owned(),
+            ));
+        }
+        Ok(Some(custom))
+    }
+
+    /// The name, less `.schem`, given in place of `filename`, the build's
+    /// own: `None` when none is given, or it is the build's own, so a
+    /// stack keeps the name it is given for its width.
+    fn renamed(&self, filename: &str) -> Option<String> {
+        let stem = schematic::file_stem(self.name.as_deref()?);
+        let own = filename.trim_end_matches(".schem");
+        (!stem.is_empty() && stem != own).then_some(stem)
+    }
 }
 
 /// The stored `.schem` file, named by the naming scheme. The viewer fetches
@@ -104,14 +142,16 @@ pub async fn download(
     viewer: Option<User>,
     method: Method,
     Query(asked): Query<Download>,
+    Query(fields): Query<PaletteFields>,
 ) -> Result<Response, AppError> {
     // The 3D viewer's fetch, and a HEAD request, is no download.
     let preview = asked.preview.is_some();
     let counted = !preview && method == Method::GET;
-    let palette = match &viewer {
+    let theme = match &viewer {
         Some(user) => palette::of(&state.db, user.id).await?,
         None => None,
     };
+    let palette = asked.palette(fields, theme)?;
     let (filename, data) = export(
         &state.db,
         &id,
@@ -159,8 +199,9 @@ pub(in crate::web) async fn export(
         let data = crate::recognize::colouring::apply(&data, colours)?;
         return shaped(db, id, s, data, asked, counted).await;
     }
-    let palette = palette
-        .filter(|_| matches!(asked.colours, None | Some(Colours::Theme)));
+    let palette = palette.filter(|_| {
+        matches!(asked.colours, None | Some(Colours::Theme | Colours::Custom))
+    });
     // Its blocks before any stacking, by position; its colours after, as
     // stacking finds buses by them.
     let palette = match palette {
@@ -189,6 +230,7 @@ async fn shaped(
     asked: &Download,
     counted: bool,
 ) -> Result<(String, Vec<u8>), AppError> {
+    let renamed = asked.renamed(&s.filename());
     if let Some(part) = asked.part {
         let direction = s
             .stacking
@@ -202,9 +244,10 @@ async fn shaped(
         } else {
             "_without_first_copy_parts"
         };
-        let filename =
-            s.filename().replace(".schem", &format!("{suffix}.schem"));
-        return Ok((filename, data));
+        let stem = renamed.unwrap_or_else(|| {
+            s.filename().trim_end_matches(".schem").to_owned()
+        });
+        return Ok((format!("{stem}{suffix}.schem"), data));
     }
     let copies = asked.copies();
     let markers = match asked.markers.as_deref() {
@@ -249,5 +292,7 @@ async fn shaped(
         }
         None => data,
     };
-    Ok((s.filename(), data))
+    let filename =
+        renamed.map_or_else(|| s.filename(), |stem| format!("{stem}.schem"));
+    Ok((filename, data))
 }

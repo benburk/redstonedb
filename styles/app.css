@@ -83,6 +83,12 @@
     overflow: hidden;
   }
 
+  /* So too while a modal is open: a scroll over it, or past its end,
+     never moves the page behind it. */
+  html:has(dialog:modal) {
+    overflow: hidden;
+  }
+
   input,
   select,
   textarea {

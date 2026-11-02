@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    Connection, PAGE_TITLE, SWITCHES, base,
+    CHOICE, Connection, PAGE_TITLE, SWITCHES, base,
     icons::{HELP, PENCIL, icon},
 };
 
@@ -221,7 +221,6 @@ fn block_theme_row(chosen: &Palette) -> Markup {
 /// The choice of a light or dark site, or the system's, which a script
 /// applies on every page.
 fn appearance_row() -> Markup {
-    let choice = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     row(
         &html! { "Appearance" },
         &html! {
@@ -229,7 +228,7 @@ fn appearance_row() -> Markup {
                 legend class="sr-only" { "Appearance" }
                 div class={ (SWITCHES) " inline-flex" } {
                     @for (value, label) in [("system", "System"), ("light", "Light"), ("dark", "Dark")] {
-                        label class=(choice) {
+                        label class=(CHOICE) {
                             input type="radio" name="theme" value=(value)
                                 checked[value == "system"] class="sr-only";
                             (label)
@@ -241,10 +240,60 @@ fn appearance_row() -> Markup {
     )
 }
 
-/// The palette's form, as `chosen`: presets to start from, then each block
-/// and colour as a button that opens its picker. It saves itself as each
+/// The palette's form, as `chosen`: its fields, as [`palette_fields`]
+/// gives them, its presets saved as chosen. It saves itself as each
 /// changes; `save`, if not empty, names a button going on to `next`.
 pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
+    html! {
+        form action="/settings/palette" method="post" data-autosave="Block theme saved"
+            class="flex max-w-form flex-col gap-4" {
+            input type="hidden" name="next" value=(next);
+            (palette_fields(chosen, Presets::Saved))
+            // It saves itself as it changes; this goes on from it.
+            @if !save.is_empty() {
+                div { a href=(next) class="btn btn-primary" { (save) } }
+            }
+        }
+    }
+}
+
+/// What choosing a preset does: saves it as the viewer's block theme, the
+/// answer the fields as it saved them, or only shows it, in the download's
+/// custom colours, the answer that editor redrawn.
+#[derive(Clone, Copy)]
+pub enum Presets {
+    Saved,
+    Shown,
+}
+
+/// The download's custom colours: the block theme's editor, as `start`,
+/// in a dialog that opens once it is in, for the download's form to send
+/// and nothing to keep; for someone `signed_in`, a pointer to keeping a
+/// theme in Settings.
+pub fn custom_colours(start: &Palette, signed_in: bool) -> Markup {
+    html! {
+        dialog id="custom-colours" data-show aria-labelledby="custom-colours-title"
+            class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+            div class="mb-2 flex items-center justify-between gap-4" {
+                h3 id="custom-colours-title" class="font-semibold" { "Custom colours" }
+                button type="button" commandfor="custom-colours" command="close" class="btn btn-quiet" { "Done" }
+            }
+            p class="mb-4 text-meta text-muted" {
+                "For this download only."
+                @if signed_in {
+                    " To see every build in them, set your "
+                    a href="/settings" { "block theme" } "."
+                }
+            }
+            (palette_fields(start, Presets::Shown))
+        }
+    }
+}
+
+/// A palette's fields, as `chosen`, for whichever form holds them: presets
+/// to start from, each doing as `presets` says, then each block and colour
+/// as a button that opens its picker.
+pub fn palette_fields(chosen: &Palette, presets: Presets) -> Markup {
     let plain = |groups: Vec<(&'static str, Vec<String>)>| -> Vec<(&'static str, Vec<(String, String)>)> {
         groups
             .into_iter()
@@ -258,20 +307,17 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
         "None",
         vec![(palette::NONE.to_owned(), palette::NONE.to_owned())],
     ));
-    let switch = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
     html! {
-        form action="/settings/palette" method="post" data-autosave="Block theme saved"
-            class="flex max-w-form flex-col gap-4" {
-            input type="hidden" name="next" value=(next);
+        div id="palette-fields" class="flex flex-col gap-4" {
             div {
                 button type="button" popovertarget="presets" class="btn btn-quiet" { "Start from a preset ▾" }
                 div id="presets" popover
                     class="m-auto rounded-overlay border border-line bg-raised p-2 text-ink shadow-lg backdrop:bg-black/20" {
                     ul class="flex flex-col" {
                         @for (key, name, preset) in palette::presets() {
-                            li { (preset_choice("preset", key, name, &preset)) }
+                            li { (preset_choice(presets, ("preset", key), name, &preset)) }
                         }
-                        li { (preset_choice("reset", "yes", "Default", &Palette::default())) }
+                        li { (preset_choice(presets, ("reset", "yes"), "Default", &Palette::default())) }
                     }
                 }
             }
@@ -280,7 +326,7 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
                 span aria-hidden="true" { "Where either works:" }
                 div class={ (SWITCHES) " inline-flex" } {
                     @for (value, label) in [("solid", "Solid"), ("transparent", "Transparent")] {
-                        label class=(switch) {
+                        label class=(CHOICE) {
                             input type="radio" name="prefer" value=(value)
                                 checked[(value == "solid") == chosen.prefer_solid] class="sr-only";
                             (label)
@@ -299,10 +345,6 @@ pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
                     @let mark = chosen.mark(key).unwrap_or_else(|| palette::NONE.to_owned());
                     (picker(key, label, &marks, &mark, &mark))
                 }
-            }
-            // It saves itself as it changes; this goes on from it.
-            @if !save.is_empty() {
-                div { a href=(next) class="btn btn-primary" { (save) } }
             }
         }
     }
@@ -325,10 +367,12 @@ fn same_as_solid(
 
 /// A preset in the presets menu: a button sending `name` as `value`, with
 /// whose it is and its blocks, solid, transparent, and the kind blocks that
-/// may be either take, at the end.
+/// may be either take, at the end. Saved, it sends the form, and through
+/// fixi the answer is the fields; shown, it asks for the custom colours'
+/// editor as that preset makes it.
 fn preset_choice(
-    name: &str,
-    value: &str,
+    presets: Presets,
+    (name, value): (&str, &str),
     label: &str,
     preset: &Palette,
 ) -> Markup {
@@ -338,14 +382,24 @@ fn preset_choice(
         "glass"
     };
     html! {
-        button type="submit" name=(name) value=(value)
-            class="flex w-full items-center justify-between gap-6 rounded-control px-3 py-2 text-left hover:bg-selection" {
+        @let class = "flex w-full items-center justify-between gap-6 rounded-control px-3 py-2 text-left hover:bg-selection";
+        @let inside = html! {
             span class="font-semibold" { (label) }
             span class="flex items-center gap-1 text-meta text-muted" {
                 @for block in [&preset.solid, &preset.transparent] {
                     span title=(palette::label(block)) class="inline-flex size-6" { (maud::PreEscaped(palette::icon(block))) }
                 }
                 span class="ml-1" { (either) " by default" }
+            }
+        };
+        @match presets {
+            Presets::Saved => {
+                button type="submit" name=(name) value=(value) class=(class)
+                    fx-action="/settings/palette" fx-method="post" fx-target="#palette-fields" { (inside) }
+            }
+            Presets::Shown => {
+                button type="button" class=(class)
+                    fx-action={ "/palette/custom?" (name) "=" (value) } fx-target="#custom-colours" { (inside) }
             }
         }
     }

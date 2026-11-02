@@ -17,6 +17,9 @@ const TABLE_CELL: &str = "border-b border-line py-2.5 pr-4 align-top";
 /// One link of a segmented control, such as Cards and List; the chosen one
 /// carries `aria-current`.
 const SWITCH: &str = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+/// One choice of a segmented control in a form: a label around a hidden
+/// radio, the chosen one marked as `SWITCH` marks its link.
+const CHOICE: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
 /// The bar holding a segmented control's links.
 const SWITCHES: &str =
     "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";
@@ -58,7 +61,9 @@ pub use listing::{
 };
 pub use player::{PlayerPage, player};
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
-pub use settings::{settings, welcome};
+pub use settings::{
+    Presets, custom_colours, palette_fields, settings, welcome,
+};
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,

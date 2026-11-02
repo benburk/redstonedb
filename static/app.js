@@ -15,7 +15,10 @@
 // - An answer's `FX-Replace-Url` header becomes the page's address.
 // - A `<dialog data-show>` in an answer opens as a modal once it is in.
 // - A dialog's form with `data-wait` keeps the dialog open while it sends,
-//   so it shows the work under way, and closes it once answered.
+//   so it shows the work under way, and closes it once answered. One whose
+//   answer lands in the dialog keeps it open.
+// - A field with `data-caret-end` takes focus with the caret at its end,
+//   as when its dialog opens on it.
 // - A form with `data-live` sends as its fields change, typing once it
 //   pauses, and a new send replaces one under way, as a search does.
 // - A button with `data-disclose` shows or hides the elements its
@@ -93,10 +96,15 @@ document.addEventListener("fx:config", (event) => {
     cfg.drop = 0;
     cfg.swap = swapPanel;
   }
+  // A field that sends, as a radio asking for its editor, still takes its
+  // click, so it is chosen.
+  if (element.matches("input")) cfg.preventTrigger = false;
   // A dialog's form closes it as it sends, so the swap never lands under
-  // an open modal, unless it waits for the answer.
-  if (element.closest("dialog[open]") && !element.matches("[data-wait]")) {
-    element.closest("dialog").close();
+  // an open modal, unless it waits for the answer or the answer lands in
+  // the dialog itself.
+  const dialog = element.closest("dialog[open]");
+  if (dialog && !dialog.contains(cfg.target) && !element.matches("[data-wait]")) {
+    dialog.close();
   }
 });
 
@@ -224,6 +232,32 @@ document.addEventListener("visibilitychange", () => {
 });
 addEventListener("pageshow", (event) => {
   if (event.persisted) document.querySelectorAll(LIVE).forEach(redraw);
+});
+
+// A browser without `commandfor`, as an older Safari, opens and closes
+// dialogs from their buttons here instead, as the attributes would.
+if (!("commandForElement" in HTMLButtonElement.prototype)) {
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("button[commandfor]");
+    const dialog = button && document.getElementById(button.getAttribute("commandfor"));
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    const command = button.getAttribute("command");
+    if (command === "show-modal" && !dialog.open) dialog.showModal();
+    if (command === "close") dialog.close();
+  });
+}
+
+// A field with `data-caret-end`, as the download's file name, takes focus
+// with the caret after what it holds, ready to add to it, as when its
+// dialog opens on it; one clicked into keeps the caret where it was put.
+let pressed = null;
+addEventListener("pointerdown", (event) => (pressed = event.target), true);
+document.addEventListener("focusin", (event) => {
+  const field = event.target;
+  const clicked = field === pressed;
+  pressed = null;
+  if (clicked || !field.matches("input[data-caret-end]")) return;
+  field.setSelectionRange(field.value.length, field.value.length);
 });
 
 // A dialog's download form closes it once the download starts, since a

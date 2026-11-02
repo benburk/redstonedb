@@ -317,6 +317,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/settings", get(settings::show))
         .route("/settings/minecraft", post(settings::set_minecraft_name))
         .route("/settings/palette", post(settings::set_palette))
+        .route("/palette/custom", get(settings::custom_colours))
         .route("/welcome", get(settings::welcome))
         .route("/schemati", get(schemati::show))
         .route("/schemati/session", post(schemati::connect))
