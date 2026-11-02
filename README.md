@@ -91,8 +91,8 @@ just rsdb remove bb62
 - `export --copies` joins copies of a stackable build into one file: a count, or one per direction. `--markers` puts glass at two opposite corners of the box `//rstack` stacks, to select in WorldEdit and then break; it takes one copy.
 - `new-version` replaces a build's file with a fix, as the site's edit page does; `replace` puts a file in place without adding a version or comparing.
 - `simulate` runs the named builds' tests and timing again, four at once, or every build's with `--all`; `search --ids` lists the builds a change touches. Nothing reruns on its own, so run them after the simulator changes. `reread` reads every stored file again, after the import rules change.
-- `evaluate` works every build of a category, or one build, out from its file alone, as `src/evaluate.rs` does, trusting nothing stored: the category its test recognizes, whether every case comes out right, its width, orientation, and flags, how it stacks, its latency, whether its outputs change together, and its throughput, the fewest ticks between inputs that keep every result right. It lists each field where that differs from what is stored.
-- `prune` takes out the blocks no part of a build's circuit uses, found by the rules in `src/roles.rs`: a block holding nothing up that passes no power, cuts no step between dust, and lets no dust on it power dust a step down, and dust that powers nothing a component reads, from its ends inwards, each read alone and stacked every way the build stacks. It works on one build or every build of a category the site tests, each as a new version noted `Unused blocks taken out`. Each is proven the same circuit first: Redpiler compiles it before and after, alone and stacked, and every link between components and the strength it loses must match, so the build's stored test result and timing move to the new file rather than being run again. The whole site takes seconds. `--dry-run` lists what it would take out.
+- `evaluate` works every build of a category, or one build, out from its file alone, as `src/recognize/evaluate.rs` does, trusting nothing stored: the category its test recognizes, whether every case comes out right, its width, orientation, and flags, how it stacks, its latency, whether its outputs change together, and its throughput, the fewest ticks between inputs that keep every result right. It lists each field where that differs from what is stored.
+- `prune` takes out the blocks no part of a build's circuit uses, found by the rules in `src/recognize/roles.rs`: a block holding nothing up that passes no power, cuts no step between dust, and lets no dust on it power dust a step down, and dust that powers nothing a component reads, from its ends inwards, each read alone and stacked every way the build stacks. It works on one build or every build of a category the site tests, each as a new version noted `Unused blocks taken out`. Each is proven the same circuit first: Redpiler compiles it before and after, alone and stacked, and every link between components and the strength it loses must match, so the build's stored test result and timing move to the new file rather than being run again. The whole site takes seconds. `--dry-run` lists what it would take out.
 - `categories` lists the standard categories with their measures, designs, flags, and aliases; `define-category`, `define-design`, `define-flag`, and `define-alias` add to them. `tags` and `define-tag` do the same for tags, which must exist before use.
 - `respell` asks Mojang how each stored Minecraft name is spelled.
 
@@ -100,8 +100,8 @@ On the server, `rsdb` runs against the live database as the site's user; see [de
 
 ## How it works
 
-1. **Import.** `import::prepare` reads a Sponge `.schem` file, versions 2 and 3 (`schem.rs`), standardizes it if asked, takes out corner markers, and fits its box (`standardize.rs`), then sets where `//paste` puts it, the same for every file. `import::store` keeps it as the build's first version; files live only in `schematic_version` (`models/version.rs`). A later file replaces it as a new version only if `version.rs` finds it the same build, fixed.
-2. **Analysis.** `inspect.rs` checks each input and output by what it does, `probe.rs` finds each line's role by trying the blessed categories' tests and colours the build by them, `interface.rs` reads the coloured lines back, and `works_from.rs` finds the oldest release the build works in. `details.rs` holds a build's details to one set of rules, whether they come from the upload page, the edit page, or `rsdb`.
+1. **Import.** `import::prepare` reads a Sponge `.schem` file, versions 2 and 3 (`schem/`), standardizes it if asked, takes out corner markers, and fits its box (`standardize.rs`), then sets where `//paste` puts it, the same for every file. `import::store` keeps it as the build's first version; files live only in `schematic_version` (`models/version.rs`). A later file replaces it as a new version only if `version.rs` finds it the same build, fixed.
+2. **Analysis.** `inspect.rs` checks each input and output by what it does, `probe/` finds each line's role by trying the blessed categories' tests and colours the build by them, `interface.rs` reads the coloured lines back, and `works_from.rs` finds the oldest release the build works in. `details.rs` holds a build's details to one set of rules, whether they come from the upload page, the edit page, or `rsdb`.
 3. **Simulation.** `category.rs` says which test each category gets and what is read from its file. `simulate/` runs the build in MCHPRS's Redpiler through its cases, times it, and for an adder or register finds how its copies stack, joined by `stack.rs` as `//rstack` joins them in game. `models/simulation.rs` stores each result with its file's hash, and runs a build whose file has none, as a new upload or version. A change to a test reruns nothing on its own: `rsdb search --ids` lists the builds it touches, and `rsdb simulate` runs those again, four at once, or every build with `--all`.
 4. **Search, leaderboards, and similarity.** `search.rs` parses a query such as `register vertical -torchless`, `leaderboard.rs` ranks builds against those they compete with, copies of a stackable build stacked to each wider standard width among them, and `similarity.rs` scores how alike two builds are by the share of their redstone components that line up.
 
@@ -110,29 +110,34 @@ On the server, `rsdb` runs against the live database as the site's user; see [de
 ```text
 src/
   main.rs           the web server
-  bin/rsdb.rs       the command-line tool
+  bin/rsdb/         the command-line tool
   db.rs             opening the database and applying migrations
-  schem.rs          reading and writing .schem files
-  standardize.rs    the palette and box fitting
+  schem/            reading and writing .schem files
+    standardize.rs  the palette and box fitting
+    stack.rs        copies of a build joined into one
+    works_from.rs   the oldest release a build works in
   import.rs         a file into a stored build
-  inspect.rs        the check of inputs and outputs by function
-  probe.rs          recognizing a build by trying its lines
-  interface.rs      inputs and outputs, from blocks and signs
-  colour.rs         the colours a recognized build's roles take
-  works_from.rs     the oldest release a build works in
+  recognize/        what a build is
+    inspect.rs      the check of inputs and outputs by function
+    probe/          recognizing a build by trying its lines
+    interface.rs    inputs and outputs, from blocks and signs
+    colour.rs       the colours a recognized build's roles take
+    palette.rs      a viewer's block theme
+    roles.rs        what each block of a build is for
+    category.rs     what the code does with each category
+    evaluate.rs     a build worked out from its file alone
   details.rs        the rules a build's details keep
-  category.rs       what the code does with each category
   simulate.rs       the simulator's entry point; tests in simulate/
-  stack.rs          copies of a build joined into one
   version.rs        whether a new file is the same build
   similarity.rs     how alike two builds are
   search.rs         the search query
   leaderboard.rs    rankings and records
   thumbnail.rs      a build's card picture
-  head.rs           a player's head from their skin
-  mojang.rs         Minecraft player lookups
-  discord.rs        Discord login
-  schemati.rs       the Open Redstone Engineers schematic store
+  external/         the services the site asks
+    head.rs         a player's head from their skin
+    mojang.rs       Minecraft player lookups
+    discord.rs      Discord login
+    schemati.rs     the Open Redstone Engineers schematic store
   models/           queries, one module per table or group of tables
   web/              routes and handlers
   web/pages/        each page's markup, with shared pieces in web/pages.rs

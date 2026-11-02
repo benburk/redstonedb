@@ -127,7 +127,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "outputs",
                     "Outputs",
                     "need to be lone blocks, with dust, a repeater, or a comparator on top to read. \
-                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained a colour. \
+                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained, any colour but white. \
                      A block under a repeater or comparator that powers another block isn't one: that's just wiring.",
                     &["output", "outputs-touching"],
                 ))
