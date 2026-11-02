@@ -164,7 +164,7 @@ pub struct Build<'a> {
 }
 
 impl<'a> Build<'a> {
-    /// A file as `import::prepare` made it.
+    /// A file as `import::prepare_for` made it.
     pub fn of(prepared: &'a Prepared) -> Self {
         Build {
             data: &prepared.data,

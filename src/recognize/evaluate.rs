@@ -66,7 +66,14 @@ impl Evaluation {
 
 /// Reads the build in `file`.
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
-    let prepared = import::prepare(file, false, true, true, false)?;
+    let prepared = import::prepare_for(
+        file,
+        import::Purpose::InPlace {
+            standardize: false,
+            conventional: true,
+            keep_paste: true,
+        },
+    )?;
     let blocks = &prepared.blocks;
     // An adder whose inputs take hex digits through dust is guessed a hex
     // adder.

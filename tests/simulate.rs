@@ -193,7 +193,11 @@ fn an_adder_stacks_by_its_box() {
     let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::colour(&data, &probed.layout).unwrap();
-    let standard = import::prepare(&coloured, true, true, false, true).unwrap();
+    let standard = import::prepare_for(
+        &coloured,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
     let Some(Stacking::Stacks {
         step, copies, bits, ..
     }) = Test::Adder.stacking(&standard.data)
@@ -218,7 +222,11 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
     let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::colour(&data, &probed.layout).unwrap();
-    let standard = import::prepare(&coloured, true, true, false, true).unwrap();
+    let standard = import::prepare_for(
+        &coloured,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
     let Some(Stacking::Stacks { step, bits, .. }) =
         Test::Adder.stacking(&standard.data)
     else {
@@ -470,9 +478,12 @@ fn a_lever_saved_on_by_mistake_changes_nothing() {
 #[ignore = "measures whole builds: just test-full"]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false, true)
-        .unwrap()
-        .blocks;
+    let blocks = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .blocks;
     let report = Test::Alu.run(&blocks);
     let Report::Ran(run) = &report else {
         panic!("the ALU was not simulated: {report:?}");
@@ -520,9 +531,12 @@ fn an_alu_runs_each_operation_its_signs_name() {
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
         std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false, true)
-        .unwrap()
-        .blocks;
+    let blocks = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .blocks;
     let Report::Ran(run) = Test::Alu.run(&blocks) else {
         panic!("the ALU was not simulated");
     };
@@ -553,7 +567,12 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
 /// blocks.
 fn register(name: &str) -> (Vec<u8>, Blocks) {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
+    let data = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .data;
     let blocks = Blocks::read(&data).unwrap();
     (data, blocks)
 }
@@ -916,7 +935,12 @@ fn a_register_with_wide_cells_stacks_at_its_width() {
 #[test]
 fn an_absolute_value_gives_each_inputs_magnitude() {
     let raw = std::fs::read("tests/fixtures/abs-8.schem").unwrap();
-    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
+    let data = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .data;
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::AbsoluteValue.run(&blocks) else {
         panic!("the absolute value was not simulated");
@@ -932,7 +956,12 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
 #[test]
 fn a_carry_out_gives_the_carry_of_every_sum() {
     let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
-    let data = import::prepare(&raw, true, true, false, true).unwrap().data;
+    let data = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .data;
     let blocks = Blocks::read(&data).unwrap();
     let Report::Ran(run) = Test::CarryOut.run(&blocks) else {
         panic!("the carry out was not simulated");
@@ -955,9 +984,12 @@ fn one_lsb_sign_orders_the_buses_alongside() {
     // As an upload standardizes it, its blocks then all ones the
     // simulator models.
     let raw = std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false, true)
-        .unwrap()
-        .blocks;
+    let blocks = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .blocks;
     let read = interface::read(&blocks);
     for port in read.inputs.iter().chain(&read.outputs) {
         let (first, last) =
@@ -983,9 +1015,12 @@ fn one_lsb_sign_orders_the_buses_alongside() {
 #[test]
 fn a_double_density_subtractor_takes_b_from_a() {
     let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
-    let blocks = import::prepare(&raw, true, true, false, true)
-        .unwrap()
-        .blocks;
+    let blocks = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .blocks;
     let read = interface::read(&blocks);
     for port in read.inputs.iter().chain(&read.outputs) {
         let heights: Vec<i32> =
@@ -1024,8 +1059,13 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
         ("inc-8", "incrementer"),
         ("alu-8-ops-raw", "alu"),
     ];
-    let upload =
-        |data: &[u8]| import::prepare(data, true, true, false, true).unwrap();
+    let upload = |data: &[u8]| {
+        import::prepare_for(
+            data,
+            import::Purpose::Standard { keep_paste: false },
+        )
+        .unwrap()
+    };
     for (name, category) in fixtures {
         let raw =
             std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
@@ -1067,7 +1107,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
 /// A comparison fixture as an upload standardizes it.
 fn comparison(name: &str) -> Blocks {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    import::prepare(&raw, true, true, false, true)
+    import::prepare_for(&raw, import::Purpose::Standard { keep_paste: false })
         .unwrap()
         .blocks
 }
@@ -1346,7 +1386,11 @@ fn a_glass_output_is_read_from_the_repeater_on_it() {
 #[test]
 fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
+    let prepared = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
     let report = Test::Adder.run(&prepared.blocks);
     let Report::Broken { reason } = report else {
         panic!("it passed for an adder: {report:?}");
@@ -1364,7 +1408,11 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
 #[test]
 fn an_xor_gate_is_no_xnor_gate() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
+    let prepared = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
     let wrong = |test: Test| match test.run(&prepared.blocks) {
         Report::Ran(run) => (run.pattern, run.wrong, run.cases),
         report => panic!("it did not run: {report:?}"),
@@ -1379,7 +1427,11 @@ fn an_xor_gate_is_no_xnor_gate() {
 #[ignore = "measures whole builds: just test-full"]
 fn an_xor_gate_stacks_west_into_wider_ones() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
+    let prepared = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
     let Some(Stacking::Wider { step, copies, .. }) =
         Test::Xor.stacking(&prepared.data)
     else {

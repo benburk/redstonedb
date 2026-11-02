@@ -532,7 +532,15 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
         .iter()
         .find(|(_, state)| state.starts_with("minecraft:furnace"))
         .unwrap();
-    let prepared = import::prepare(&data, false, true, false, false).unwrap();
+    let prepared = import::prepare_for(
+        &data,
+        import::Purpose::InPlace {
+            standardize: false,
+            conventional: true,
+            keep_paste: false,
+        },
+    )
+    .unwrap();
     assert_eq!(prepared.swapped, [("furnace".to_owned(), 36)]);
     let after = &prepared.blocks;
     assert!(after.iter().all(|(_, state)| !state.contains("furnace")));
@@ -823,9 +831,19 @@ fn an_incrementers_unsigned_line_is_its_increment() {
 fn signs_written_as_text_components_are_read_and_written_plain() {
     let raw = raw("alu-8-extra-signs");
     for standardized in [false, true] {
-        let prepared =
-            import::prepare(&raw, standardized, true, false, standardized)
-                .unwrap();
+        let prepared = import::prepare_for(
+            &raw,
+            if standardized {
+                import::Purpose::Standard { keep_paste: false }
+            } else {
+                import::Purpose::InPlace {
+                    standardize: false,
+                    conventional: true,
+                    keep_paste: false,
+                }
+            },
+        )
+        .unwrap();
         let read = interface::read(&prepared.blocks);
         let names: Vec<&str> =
             read.inputs.iter().map(|p| p.name.as_str()).collect();
@@ -923,7 +941,9 @@ fn input_levers(data: &[u8]) -> (Vec<bool>, Vec<bool>) {
 }
 
 fn standardized(data: &[u8]) -> Vec<u8> {
-    import::prepare(data, true, true, false, true).unwrap().data
+    import::prepare_for(data, import::Purpose::Standard { keep_paste: false })
+        .unwrap()
+        .data
 }
 
 /// Standardizing a file twice gives the same bytes, its barrels' contents

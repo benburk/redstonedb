@@ -147,30 +147,6 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     })
 }
 
-/// `prepare_for` by four switches in a row, as the recognizer and the
-/// simulator's tests still call it. A file is turned only as
-/// `Purpose::Standard` turns it, standardized and conventional, the one way
-/// the site turns any.
-#[allow(clippy::fn_params_excessive_bools)]
-pub fn prepare(
-    data: &[u8],
-    standardize: bool,
-    conventional: bool,
-    keep_paste: bool,
-    orient: bool,
-) -> Result<Prepared> {
-    let purpose = if orient && standardize && conventional {
-        Purpose::Standard { keep_paste }
-    } else {
-        Purpose::InPlace {
-            standardize,
-            conventional,
-            keep_paste,
-        }
-    };
-    prepare_for(data, purpose)
-}
-
 /// `file` as its builder made it, as an upload the site does not recognize
 /// is kept; see `Purpose::AS_BUILT`.
 pub fn as_built(file: &[u8]) -> Result<Prepared> {
