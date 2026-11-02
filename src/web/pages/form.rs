@@ -5,9 +5,9 @@
 use maud::{Markup, html};
 
 use crate::{
-    category, import,
+    category::{self, Category},
+    import,
     models::{
-        catalogue::Category,
         schematic::{Logic, Orientation},
         tag::Tag,
     },

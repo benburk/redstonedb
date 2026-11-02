@@ -18,10 +18,11 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
-    category, details,
+    category::{self, Category},
+    details,
     import::Upload,
     models::{
-        catalogue, schematic,
+        schematic,
         simulation::{self, Status},
         user::User,
         version,
@@ -107,7 +108,7 @@ pub async fn upload(
 ) -> Result<Response, AppError> {
     let (pairs, data) = upload_file(user_opt.as_ref(), &body)?;
     let (data, filing) = if form::first(&pairs, "as_built") == "yes" {
-        readied(&state, &pairs, &data).await?
+        readied(&pairs, &data).await?
     } else {
         (data, None)
     };
@@ -122,14 +123,13 @@ pub async fn upload(
 /// as it is kept once recognized, else as built; with a note, for the
 /// checks, saying whether it goes up as that category or off the list.
 async fn readied(
-    state: &AppState,
     pairs: &[(String, String)],
     data: &[u8],
 ) -> Result<(Vec<u8>, Option<Markup>), AppError> {
     let Ok(upload) = Upload::read(data) else {
         return Ok((data.to_vec(), None));
     };
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     let typed = Form::read(pairs).category;
     let Some(meant) = details::meant(&categories, &typed)
         .filter(|c| category::behaviour(&c.name).evaluated)
@@ -255,13 +255,12 @@ async fn stored_file(
 /// The test the form's category calls for on `data`, at the width it
 /// reads from the file: only a blessed category's, see
 /// `category::Facts::listed_as`, as only such a build goes on the list.
-async fn test(
-    state: &AppState,
+fn test(
     pairs: &[(String, String)],
     data: &[u8],
 ) -> Result<Option<Test>, AppError> {
     let form = Form::read(pairs);
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     // An off-list name such as 8-bit adder is tested as an adder, to show
     // what keeps it from being one.
     let Some(category) = details::meant(&categories, &form.category)
@@ -302,7 +301,7 @@ async fn cases(
         let content = html! { (filing.clone().unwrap_or_default()) (content) };
         pages::simulation_results(&simulate, &content).into_response()
     };
-    let Some(test) = test(state, pairs, &data).await? else {
+    let Some(test) = test(pairs, &data)? else {
         return Ok(panel(&html! {}));
     };
     let report = match stored_result(state, s, test).await? {
@@ -331,7 +330,7 @@ async fn timing(
     data: Vec<u8>,
     s: Option<&schematic::Schematic>,
 ) -> Result<Response, AppError> {
-    let Some(test) = test(state, pairs, &data).await? else {
+    let Some(test) = test(pairs, &data)? else {
         return Ok(nothing());
     };
     if let Ok(Some(report)) = stored_result(state, s, test).await

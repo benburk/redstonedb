@@ -350,17 +350,18 @@ pub async fn set_flags(
     id: &str,
     names: &[String],
 ) -> Result<(), sqlx::Error> {
+    let category =
+        sqlx::query_scalar!("SELECT category FROM schematic WHERE id = ?", id)
+            .fetch_one(&mut *tx)
+            .await?;
     sqlx::query!("DELETE FROM schematic_flag WHERE schematic_id = ?", id)
         .execute(&mut *tx)
         .await?;
-    for name in names {
+    for flag in crate::category::flags_among(&category, names) {
         sqlx::query!(
-            "INSERT OR IGNORE INTO schematic_flag (schematic_id, name)
-             SELECT schematic.id, flag.name FROM schematic
-             JOIN flag ON flag.category = schematic.category AND flag.name = ?
-             WHERE schematic.id = ?",
-            name,
-            id
+            "INSERT INTO schematic_flag (schematic_id, name) VALUES (?, ?)",
+            id,
+            flag.name
         )
         .execute(&mut *tx)
         .await?;

@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use app::{
-    models::{catalogue, schematic, version},
+    models::{schematic, version},
     recognize::inspect,
 };
 use clap::Args;
@@ -59,13 +59,8 @@ pub(super) async fn inspect_command(
             ));
         }
         None => {
-            let listed: Vec<String> = catalogue::categories(db)
-                .await?
-                .into_iter()
-                .map(|c| c.name)
-                .collect();
             for s in schematic::all(db).await? {
-                if !listed.contains(&s.category)
+                if s.kind().is_none()
                     || category.is_some_and(|c| c != s.category)
                 {
                     continue;
@@ -165,7 +160,7 @@ pub(super) async fn evaluate(
         };
         let show = |v: &dyn std::fmt::Debug| format!("{v:?}");
         let mut stored_flags: Vec<String> =
-            s.flags.iter().map(|f| f.name.clone()).collect();
+            s.flags.iter().map(|f| f.name.to_owned()).collect();
         stored_flags.sort();
         let mut flags = e.flags.clone();
         flags.sort();

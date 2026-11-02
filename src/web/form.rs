@@ -6,10 +6,10 @@ use sqlx::SqlitePool;
 
 use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
+    category::Category,
     details::Details,
     import::{self, Analysis, FileFacts},
     models::{
-        catalogue::{self, Category},
         schematic::{self, Orientation, Schematic, StackDirection},
         tag,
         user::User,
@@ -374,7 +374,7 @@ impl Form {
 /// The lists a details form chooses from or suggests.
 pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
-        categories: catalogue::categories(db).await?,
+        categories: Category::all(),
         people: schematic::all_people(db).await?,
         tags: tag::all(db).await?,
     })

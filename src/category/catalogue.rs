@@ -1,14 +1,13 @@
-//! The list of categories a build may have, with what each is named, ranked,
-//! and searched by: its measures, designs, flags, and aliases. These are
-//! rows people add to with `rsdb`; what the code does with a category's
-//! builds is `crate::category`'s.
+//! What the standard categories are named, ranked, and searched by, as
+//! their rows in the table give it: their measures, sections, designs,
+//! flags, and aliases; and a category as a build gives it, standard or
+//! off the list.
 
-use std::collections::HashMap;
-
-use sqlx::{SqliteExecutor, SqlitePool};
-
-use super::schematic::{Logic, Schematic};
-use super::tag;
+use super::Kind;
+use crate::models::{
+    schematic::{Logic, Schematic},
+    tag,
+};
 
 /// A name's words for people to read, each capitalized, such as
 /// `Carry Lookahead` for `carry_lookahead`.
@@ -106,7 +105,8 @@ named_values! {
 }
 
 /// An entry in the list of categories a build may have: one function, so
-/// any of its builds could stand in for another.
+/// any of its builds could stand in for another. A standard one's is its
+/// kind's row; one off the list has its name alone.
 #[derive(Debug, Clone)]
 pub struct Category {
     pub name: String,
@@ -129,6 +129,28 @@ pub struct Category {
 }
 
 impl Category {
+    /// Every standard category, alphabetically by label.
+    pub fn all() -> Vec<Category> {
+        let mut all: Vec<Category> = Kind::all().map(Category::of).collect();
+        all.sort_by_key(|c| c.label.to_lowercase());
+        all
+    }
+
+    /// The standard category `kind`.
+    pub fn of(kind: Kind) -> Category {
+        let facts = kind.facts();
+        Category {
+            name: facts.name.to_owned(),
+            label: facts.label.to_owned(),
+            plural: kind.plural(),
+            named: facts.named,
+            section: Some(facts.section),
+            logic: facts.logic,
+            measures: facts.measures.to_vec(),
+            aliases: aliases(facts.name),
+        }
+    }
+
     pub fn has(&self, measure: Measure) -> bool {
         self.measures.contains(&measure)
     }
@@ -163,42 +185,50 @@ impl Category {
             section: None,
             logic: None,
             measures: Vec::new(),
-            aliases: Vec::new(),
+            aliases: aliases(name),
         }
     }
 }
 
 /// A design within a category, such as the carry lookahead adder.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Design {
-    pub category: String,
-    pub name: String,
+    pub name: &'static str,
     /// The usual short name, such as `CLA`.
-    pub abbreviation: Option<String>,
-    /// How people read it, such as `XOR`; `None` for the name's words.
-    pub label: Option<String>,
+    pub abbreviation: Option<&'static str>,
+    /// How people read it, such as `LFSR`; `None` for the name's words.
+    pub label: Option<&'static str>,
 }
 
 impl Design {
     /// Such as `Carry Lookahead (CLA)`.
     pub fn label(&self) -> String {
-        let words = self.label.clone().unwrap_or_else(|| words(&self.name));
-        match &self.abbreviation {
+        let words = self.label.map_or_else(|| words(self.name), str::to_owned);
+        match self.abbreviation {
             Some(short) => format!("{words} ({short})"),
             None => words,
         }
+    }
+
+    /// The design of the category named `category` named `name`, if it
+    /// has one so named.
+    pub fn of(category: &str, name: &str) -> Option<&'static Design> {
+        Kind::named(category)?
+            .facts()
+            .designs
+            .iter()
+            .find(|design| design.name == name)
     }
 }
 
 /// A yes-or-no fact a category's builds record, such as an adder's carry
 /// in or a shift register being bidirectional.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Flag {
-    pub category: String,
     /// Such as `carry_in`.
-    pub name: String,
+    pub name: &'static str,
     /// Such as `Carry in`.
-    pub label: String,
+    pub label: &'static str,
 }
 
 impl Flag {
@@ -223,119 +253,48 @@ impl Flag {
     pub const INVERTED_CARRY_IN: &str = "inverted_carry_in";
 }
 
-/// What every category is named and searched by beyond its row: its
-/// measures and its aliases. A category off the list may have aliases too.
-pub(super) struct Extras {
-    measures: HashMap<String, Vec<Measure>>,
-    aliases: HashMap<String, Vec<String>>,
-}
-
-impl Extras {
-    pub(super) async fn load(db: &SqlitePool) -> Result<Self, sqlx::Error> {
-        let mut measures: HashMap<String, Vec<Measure>> = HashMap::new();
-        for row in sqlx::query!(
-            r#"SELECT category, measure as "measure: Measure"
-             FROM category_measure ORDER BY category, position"#
-        )
-        .fetch_all(db)
-        .await?
-        {
-            measures.entry(row.category).or_default().push(row.measure);
-        }
-        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
-        for row in sqlx::query!(
-            "SELECT category, alias FROM category_alias ORDER BY alias"
-        )
-        .fetch_all(db)
-        .await?
-        {
-            aliases.entry(row.category).or_default().push(row.alias);
-        }
-        Ok(Extras { measures, aliases })
-    }
-
-    pub(super) fn measures(&self, category: &str) -> Vec<Measure> {
-        self.measures.get(category).cloned().unwrap_or_default()
-    }
-
-    pub(super) fn aliases(&self, category: &str) -> Vec<String> {
-        self.aliases.get(category).cloned().unwrap_or_default()
-    }
-}
-
-/// Every standard category, alphabetically by label.
-pub async fn categories(db: &SqlitePool) -> Result<Vec<Category>, sqlx::Error> {
-    let extras = Extras::load(db).await?;
-    Ok(sqlx::query!(
-        r#"SELECT name as "name!", label,
-            coalesce(plural, label || 's') as "plural!: String",
-            named as "named: bool", section as "section: Section",
-            logic as "logic: Logic"
-         FROM category ORDER BY label COLLATE NOCASE"#
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| Category {
-        measures: extras.measures(&row.name),
-        aliases: extras.aliases(&row.name),
-        name: row.name,
-        label: row.label,
-        plural: row.plural,
-        named: row.named,
-        section: row.section,
-        logic: row.logic,
-    })
-    .collect())
-}
-
-/// Every design, grouped by category.
-pub async fn designs<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Design>, sqlx::Error> {
-    sqlx::query_as!(
-        Design,
-        "SELECT category, name, abbreviation, label FROM design
-         ORDER BY category, name = 'other', name"
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// Every category's flags, each category's in its order.
-pub async fn flags<'e, E: SqliteExecutor<'e>>(
-    db: E,
-) -> Result<Vec<Flag>, sqlx::Error> {
-    sqlx::query_as!(
-        Flag,
-        "SELECT category, name, label FROM flag ORDER BY category, position"
-    )
-    .fetch_all(db)
-    .await
-}
-
-/// The names among `names` that are flags of `category`, in its order; any
-/// other means nothing for its builds.
-pub async fn keep_flags<'e, E: SqliteExecutor<'e>>(
-    db: E,
+/// The flags of the category named `category` among `names`, in its
+/// order; any other means nothing for its builds, and one off the list has
+/// none.
+pub fn flags_among<S: AsRef<str>>(
     category: &str,
-    names: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
-    Ok(flags(db)
-        .await?
-        .into_iter()
-        .filter(|flag| flag.category == category && names.contains(&flag.name))
-        .map(|flag| flag.name)
-        .collect())
+    names: &[S],
+) -> Vec<&'static Flag> {
+    Kind::named(category).map_or_else(Vec::new, |kind| {
+        kind.facts()
+            .flags
+            .iter()
+            .filter(|flag| names.iter().any(|name| name.as_ref() == flag.name))
+            .collect()
+    })
+}
+
+/// Words search takes for a category off the list, which has no row to
+/// hold them.
+const OFF_LIST_ALIASES: &[(&str, &str)] = &[
+    ("connect 4", "four_in_a_row_detector"),
+    ("connect4", "four_in_a_row_detector"),
+];
+
+/// The other words search takes for the category named `category`, of the
+/// list or off it, alphabetically.
+pub fn aliases(category: &str) -> Vec<String> {
+    let aliases = match Kind::named(category) {
+        Some(kind) => kind.facts().aliases.to_vec(),
+        None => OFF_LIST_ALIASES
+            .iter()
+            .filter(|(_, of)| *of == category)
+            .map(|(alias, _)| *alias)
+            .collect(),
+    };
+    aliases.into_iter().map(str::to_owned).collect()
 }
 
 /// Checks a build's category and design, and returns the category. A
-/// category is a standard one from the list, or any other name made of
-/// lowercase words joined by underscores. A design is `other`, or one the
-/// category lists among `designs`. The `Err` is a sentence for the person.
+/// category is a standard one, or any other name made of lowercase words
+/// joined by underscores. A design is none, or one the category lists.
+/// The `Err` is a sentence for the person.
 pub fn check_category(
-    categories: &[Category],
-    designs: &[Design],
     category: &str,
     design: &str,
 ) -> Result<Category, String> {
@@ -359,114 +318,15 @@ pub fn check_category(
     if category == "other" {
         return Err("Name the category, rather than other.".to_owned());
     }
-    let listed = designs
-        .iter()
-        .any(|d| d.category == category && d.name == design);
-    if design != "other" && !listed {
+    if design != "other" && Design::of(category, design).is_none() {
         return Err(format!(
             "{} is not a design of {}.",
             design.replace('_', " "),
             category.replace('_', " ")
         ));
     }
-    Ok(categories
-        .iter()
-        .find(|f| f.name == category)
-        .cloned()
-        .unwrap_or_else(|| Category::off_the_list(category)))
-}
-
-/// Adds a standard category. A plural that is the label with an `s` is
-/// left for the database to make.
-pub async fn define_category(
-    db: &SqlitePool,
-    category: &Category,
-) -> Result<(), sqlx::Error> {
-    let plural = (category.plural != format!("{}s", category.label))
-        .then_some(category.plural.as_str());
-    let mut tx = db.begin().await?;
-    sqlx::query!(
-        "INSERT INTO category (name, label, plural, named, section, logic)
-         VALUES (?, ?, ?, ?, ?, ?)",
-        category.name,
-        category.label,
-        plural,
-        category.named,
-        category.section,
-        category.logic
-    )
-    .execute(&mut *tx)
-    .await?;
-    for (position, measure) in (1_i64..).zip(&category.measures) {
-        sqlx::query!(
-            "INSERT INTO category_measure (category, measure, position)
-             VALUES (?, ?, ?)",
-            category.name,
-            measure,
-            position
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    for alias in &category.aliases {
-        define_alias(&mut *tx, alias, &category.name).await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Gives `category`, of the list or off it, another word to be searched
-/// by, in the form a search term takes: lowercase, with spaces.
-pub async fn define_alias<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    alias: &str,
-    category: &str,
-) -> Result<(), sqlx::Error> {
-    let alias = alias.trim().to_lowercase().replace('_', " ");
-    sqlx::query!(
-        "INSERT INTO category_alias (alias, category) VALUES (?, ?)",
-        alias,
-        category
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn define_design<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    design: &Design,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO design (category, name, abbreviation, label)
-         VALUES (?, ?, ?, ?)",
-        design.category,
-        design.name,
-        design.abbreviation,
-        design.label
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Adds a flag to the end of its category's.
-pub async fn define_flag<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    flag: &Flag,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO flag (category, name, label, position)
-         VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM flag
-            WHERE category = ?))",
-        flag.category,
-        flag.name,
-        flag.label,
-        flag.category
-    )
-    .execute(db)
-    .await?;
-    Ok(())
+    Ok(Kind::named(category)
+        .map_or_else(|| Category::off_the_list(category), Category::of))
 }
 
 #[cfg(test)]
@@ -475,24 +335,29 @@ mod tests {
 
     #[test]
     fn a_standard_category_is_typed_by_name_or_label() {
-        let hex = Category {
-            label: "Hex to Binary".to_owned(),
-            measures: vec![Measure::Width],
-            ..Category::off_the_list("hex_to_binary")
-        };
-        let categories = std::slice::from_ref(&hex);
+        let categories = Category::all();
         for typed in [
             "Hex to Binary",
             "hex to binary",
             "hex_to_binary",
             " HEX TO BINARY ",
         ] {
-            assert_eq!(Category::name_of(categories, typed), "hex_to_binary");
+            assert_eq!(Category::name_of(&categories, typed), "hex_to_binary");
         }
         assert_eq!(
-            Category::name_of(categories, "8-Bit Horizontal Diode"),
+            Category::name_of(&categories, "8-Bit Horizontal Diode"),
             "8-bit_horizontal_diode"
         );
-        assert!(Category::find(categories, "piston door").is_none());
+        assert!(Category::find(&categories, "piston door").is_none());
+    }
+
+    #[test]
+    fn a_category_off_the_list_has_its_aliases_too() {
+        assert_eq!(
+            aliases("four_in_a_row_detector"),
+            ["connect 4", "connect4"]
+        );
+        assert_eq!(aliases("monostable"), ["mono", "pulse generator"]);
+        assert!(aliases("piston_door").is_empty());
     }
 }

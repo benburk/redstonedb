@@ -13,9 +13,9 @@ use axum::{
 };
 
 use crate::{
+    category::Category,
     leaderboard,
     models::{
-        catalogue::{self, Category},
         schematic::{self, Schematic},
         tag,
         user::User,
@@ -91,7 +91,7 @@ async fn index(
     viewer: Option<&User>,
 ) -> Result<Response, AppError> {
     let all = schematic::visible(&state.db, viewer).await?;
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     let viewing = super::super::viewing(&state.db, viewer).await?;
     // A category's tile counts and pictures its verified builds.
     let verified: Vec<Schematic> =
@@ -188,7 +188,7 @@ async fn listing(
 ) -> Result<Response, AppError> {
     let terms = search::parse(&query.q);
     let all = schematic::visible(&state.db, viewer).await?;
-    let categories = catalogue::categories(&state.db).await?;
+    let categories = Category::all();
     let total = all.len();
     let mut found: Vec<Schematic> = search::matching(&terms, all)
         .into_iter()

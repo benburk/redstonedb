@@ -34,9 +34,10 @@ INSERT INTO _sqlx_migrations (version, description, success, checksum, execution
 VALUES ($version, 'baseline', 1, X'$checksum', 0);
 SQL
 
-# The old database's catalogue replaces the baseline's, as it may have been
-# added to since. Each table's rows go across by the columns both tables
-# have; a column the old one lacks takes its default.
+# Each table of the baseline takes the old one's rows, by the columns both
+# have; a column the old one lacks takes its default. A table the baseline
+# lacks stays behind, as the catalogue of categories, designs, flags,
+# aliases, and measures does, which the code now holds.
 tables=$(sqlite3 "$new" "SELECT name FROM sqlite_master WHERE type = 'table'
     AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'")
 # Written out whole before it runs: the copy holds the new database's write

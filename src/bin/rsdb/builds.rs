@@ -380,7 +380,7 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let by = s.works_from_by.as_deref().map(|by| format!(" ({by})"));
     println!("works from   {from}{}", by.unwrap_or_default());
     println!("design       {}", s.design.replace('_', " "));
-    let flags: Vec<&str> = s.flags.iter().map(|f| f.label.as_str()).collect();
+    let flags: Vec<&str> = s.flags.iter().map(|f| f.label).collect();
     println!("flags        {}", flags.join(", "));
     let stacking: Vec<String> =
         s.stacking.iter().map(StackDirection::describe).collect();

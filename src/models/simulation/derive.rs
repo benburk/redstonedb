@@ -40,7 +40,7 @@ impl Derived {
     pub(super) fn of(s: &Schematic) -> Self {
         Derived {
             measured: Measured::of(s),
-            flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
+            flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
             stacking: s.stacking.clone(),
             widened: s.widened.clone(),
         }
