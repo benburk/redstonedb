@@ -80,6 +80,19 @@ pub enum File<'a> {
     },
 }
 
+/// What a details page says back to the last thing sent from it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reply<'a> {
+    /// Nothing: the page as first opened.
+    #[default]
+    Fresh,
+    /// Publishing or saving was refused, and why.
+    NotSaved(&'a str),
+    /// The fields for choosing another file start open, saying why the last
+    /// file chosen could not be read, if it could not.
+    Choosing(Option<&'a str>),
+}
+
 /// What a details page shows.
 pub struct DetailsPage<'a> {
     pub file: File<'a>,
@@ -93,11 +106,7 @@ pub struct DetailsPage<'a> {
     /// The tags its file gives it, such as torchless, shown in the tag
     /// field but not to be removed.
     pub fixed: &'a [crate::models::tag::Tag],
-    /// Why the last attempt to publish or save was refused, if it was.
-    pub message: &'a str,
-    /// Whether the fields for choosing another file start open, with why
-    /// the last file chosen could not be read, if it could not.
-    pub choosing: Option<&'a str>,
+    pub reply: Reply<'a>,
     /// How the viewer's Schemati session stands, as the site keeps it,
     /// for the slot their files load into.
     pub schemati: Option<&'a crate::models::user::SchematiLink>,
@@ -149,10 +158,10 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             h1 class={ (PAGE_TITLE) " mb-6" } { (heading) }
             (beside_viewer(&viewer, &html! {
                 // A refused publish or save comes back here, so say why first.
-                @if !page.message.is_empty() {
+                @if let Reply::NotSaved(message) = page.reply {
                     p id="refusal" role="alert" tabindex="-1" autofocus
                         class="rounded-control border border-danger p-3 text-danger" {
-                        strong { "Not saved. " } (page.message)
+                        strong { "Not saved. " } (message)
                     }
                 }
                 (checks(page))
@@ -422,8 +431,7 @@ fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
 /// a new upload's in its place, and a stored build's next version, or
 /// another in place of the one waiting. They belong to the details form,
 /// so the details filled in so far come back with the file. Folded away
-/// unless `page.choosing`, which says why the last file chosen could not
-/// be read, if it could not.
+/// unless the page replies `Reply::Choosing`.
 fn file_chooser(page: &DetailsPage) -> Markup {
     let (summary, button) = match &page.file {
         File::Upload { .. } => ("Choose a different file", "Check it instead"),
@@ -434,7 +442,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
         ),
     };
     html! {
-        details id="file-chooser" open[page.choosing.is_some()]
+        details id="file-chooser" open[matches!(page.reply, Reply::Choosing(_))]
             class="rounded-overlay border border-line bg-raised p-4 shadow-sm" {
             summary class="cursor-pointer font-semibold" { (summary) }
             div class="mt-2 flex flex-col gap-3" {
@@ -452,7 +460,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
                     }
                 }
                 (file_fields(Offered::Details, page.schemati))
-                @if let Some(message) = page.choosing.filter(|message| !message.is_empty()) {
+                @if let Reply::Choosing(Some(message)) = page.reply {
                     p role="alert" class="text-danger" { (message) }
                 }
                 div {

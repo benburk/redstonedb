@@ -14,7 +14,10 @@ use crate::{
     },
 };
 
-use super::schematics::{editable, show_edit};
+use super::{
+    pages::Reply,
+    schematics::{EditView, editable, show_edit},
+};
 
 /// The edit page, its form for choosing a new version open.
 pub async fn form(
@@ -23,7 +26,11 @@ pub async fn form(
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
     let s = editable(&state.db, &user, &id).await?;
-    show_edit(&state.db, &user, &s, None, "", None, Some("")).await
+    let view = EditView {
+        reply: Reply::Choosing(None),
+        ..EditView::default()
+    };
+    show_edit(&state.db, &user, &s, view).await
 }
 
 /// An earlier version's file, under the build's filename with its number.

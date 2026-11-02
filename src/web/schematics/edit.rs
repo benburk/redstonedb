@@ -33,7 +33,7 @@ use crate::{
 
 use super::super::{
     form::{self, Form},
-    pages::File,
+    pages::{File, Reply},
     upload,
 };
 
@@ -45,7 +45,7 @@ pub async fn edit(
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
     let s = editable(&state.db, &user, &id).await?;
-    show_edit(&state.db, &user, &s, None, "", None, None).await
+    show_edit(&state.db, &user, &s, EditView::default()).await
 }
 
 /// Build `id`, when `user` may edit it: a mod, one of its confirmed
@@ -81,8 +81,11 @@ pub async fn save(
     let mut posted = match upload::posted(&mut multipart).await {
         Ok(posted) => posted,
         Err(message) => {
-            return show_edit(db, &user, &s, None, "", None, Some(&message))
-                .await;
+            let view = EditView {
+                reply: Reply::Choosing(Some(&message)),
+                ..EditView::default()
+            };
+            return show_edit(db, &user, &s, view).await;
         }
     };
     let form = Form::read(&posted.pairs);
@@ -91,16 +94,12 @@ pub async fn save(
     let checked = match attached(db, &s, posted.get("data")).await {
         Ok(checked) => checked,
         Err(message) => {
-            return show_edit(
-                db,
-                &user,
-                &s,
-                Some(&form),
-                "",
-                None,
-                Some(&message),
-            )
-            .await;
+            let view = EditView {
+                sent: Some(&form),
+                reply: Reply::Choosing(Some(&message)),
+                ..EditView::default()
+            };
+            return show_edit(db, &user, &s, view).await;
         }
     };
     if posted.choosing() {
@@ -108,38 +107,35 @@ pub async fn save(
             Ok(()) => chosen_version(db, &s, &posted).await,
             Err(message) => Err(message),
         };
+        // A file that could not be read leaves the one waiting, if any.
         let (checked, refused) = match &chosen {
             Ok(chosen) => (Some(chosen), None),
             Err(message) => (checked.as_ref(), Some(message.as_str())),
         };
-        let new_file = checked.map(|checked| NewFile {
-            checked,
-            note: &note,
-        });
-        return show_edit(db, &user, &s, Some(&form), "", new_file, refused)
-            .await;
+        let view = EditView {
+            sent: Some(&form),
+            new_file: checked.map(|checked| NewFile {
+                checked,
+                note: &note,
+            }),
+            reply: Reply::Choosing(refused),
+        };
+        return show_edit(db, &user, &s, view).await;
     }
-    let new_file = || {
-        checked.as_ref().map(|checked| NewFile {
-            checked,
-            note: &note,
-        })
-    };
     let (kept, refused) =
         save_details(db, &user, &s, &form, checked.as_ref()).await?;
-    let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
     if let Some(message) = refused {
-        return show_edit(
-            db,
-            &user,
-            &s,
-            Some(&form),
-            &message,
-            new_file(),
-            None,
-        )
-        .await;
+        let view = EditView {
+            sent: Some(&form),
+            new_file: checked.as_ref().map(|checked| NewFile {
+                checked,
+                note: &note,
+            }),
+            reply: Reply::NotSaved(&message),
+        };
+        return show_edit(db, &user, &s, view).await;
     }
+    let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
     if form.public != s.public {
         schematic::set_public(db, &id, form.public).await?;
     }
@@ -336,19 +332,29 @@ pub(in crate::web) struct NewFile<'a> {
     pub note: &'a str,
 }
 
-/// The edit page for build `s`: its details as `sent`, else as stored,
-/// with `message` saying why a save was refused, and the file a new
-/// version would replace it with, if one is waiting. `choosing` opens the
-/// form for choosing one.
+/// What a build's edit page shows of what was last sent from it.
+#[derive(Default)]
+pub(in crate::web) struct EditView<'a> {
+    /// The details as sent; `None` shows them as stored.
+    pub sent: Option<&'a Form>,
+    /// The file a new version would replace the build's with, if one is
+    /// waiting.
+    pub new_file: Option<NewFile<'a>>,
+    pub reply: Reply<'a>,
+}
+
+/// The edit page for build `s`, showing `view`.
 pub(in crate::web) async fn show_edit(
     db: &SqlitePool,
     user: &User,
     s: &Schematic,
-    sent: Option<&Form>,
-    message: &str,
-    new_file: Option<NewFile<'_>>,
-    choosing: Option<&str>,
+    view: EditView<'_>,
 ) -> Result<Response, AppError> {
+    let EditView {
+        sent,
+        new_file,
+        reply,
+    } = view;
     let versions = version::list(db, &s.id).await?;
     let simulation = simulation::current(db, s).await?;
     let stored = Form::of(s);
@@ -377,8 +383,7 @@ pub(in crate::web) async fn show_edit(
     let shown = form::Shown {
         file,
         blocks,
-        message,
-        choosing,
+        reply,
     };
     form::page(db, user, sent.unwrap_or(&stored), shown).await
 }
