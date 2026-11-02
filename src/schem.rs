@@ -648,16 +648,94 @@ pub fn container_strength(items: &[(String, u32)], slots: u32) -> u8 {
     }
     let full: f64 = items
         .iter()
-        .map(|(id, count)| {
-            let stack = Item::from_name(id).map_or(64, Item::max_stack_size);
-            f64::from(*count) / f64::from(stack)
-        })
+        .map(|(id, count)| f64::from(*count) / f64::from(max_stack(id)))
         .sum();
     let strength = 1.0 + full / f64::from(slots) * 14.0;
     // At most 15, as a container holds at most its slots' worth.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let strength = strength.floor().clamp(0.0, 15.0) as u8;
     strength
+}
+
+/// How many of item `id` stack in a slot, as the game has it: as the
+/// simulator's own list says, and where it lacks the item, 1 for a tool,
+/// weapon, armour, or anything else that never stacks, as a builder may
+/// fill a barrel with wooden shovels, 16 for one that stacks only so far,
+/// such as an ender pearl or a sign, and 64 for the rest.
+fn max_stack(id: &str) -> u32 {
+    const ALONE_ENDINGS: [&str; 17] = [
+        "_shovel",
+        "_pickaxe",
+        "_axe",
+        "_hoe",
+        "_sword",
+        "_helmet",
+        "_chestplate",
+        "_leggings",
+        "_boots",
+        "_horse_armor",
+        "_bucket",
+        "_boat",
+        "_raft",
+        "_minecart",
+        "_shulker_box",
+        "_bed",
+        "_stew",
+    ];
+    const ALONE: [&str; 26] = [
+        "bow",
+        "crossbow",
+        "trident",
+        "shield",
+        "elytra",
+        "mace",
+        "totem_of_undying",
+        "potion",
+        "splash_potion",
+        "lingering_potion",
+        "saddle",
+        "flint_and_steel",
+        "shears",
+        "fishing_rod",
+        "carrot_on_a_stick",
+        "warped_fungus_on_a_stick",
+        "enchanted_book",
+        "written_book",
+        "writable_book",
+        "cake",
+        "minecart",
+        "brush",
+        "spyglass",
+        "bundle",
+        "goat_horn",
+        "beetroot_soup",
+    ];
+    const SIXTEEN_ENDINGS: [&str; 3] = ["_sign", "_banner", "_egg"];
+    const SIXTEEN: [&str; 6] = [
+        "ender_pearl",
+        "snowball",
+        "egg",
+        "bucket",
+        "honey_bottle",
+        "armor_stand",
+    ];
+    if let Some(item) = Item::from_name(id) {
+        return item.max_stack_size();
+    }
+    let name = id.strip_prefix("minecraft:").unwrap_or(id);
+    let ends = |endings: &[&str]| endings.iter().any(|e| name.ends_with(e));
+    if ALONE.contains(&name)
+        || name.starts_with("music_disc_")
+        || ends(&ALONE_ENDINGS)
+    {
+        1
+    } else if SIXTEEN.contains(&name)
+        || ends(&SIXTEEN_ENDINGS) && !name.ends_with("_spawn_egg")
+    {
+        16
+    } else {
+        64
+    }
 }
 
 /// The fewest redstone dust that make a barrel give `strength`, in stacks
@@ -1136,6 +1214,16 @@ mod tests {
             plain_line(&string(r#"{"text":"","extra":["shr"]}"#)),
             string(r#""shr""#)
         );
+    }
+
+    #[test]
+    fn a_barrel_of_things_that_never_stack_counts_each_as_a_full_slot() {
+        let shovels = vec![("minecraft:wooden_shovel".to_owned(), 1); 2];
+        assert_eq!(container_strength(&shovels, 27), 2);
+        let pearls = vec![("minecraft:ender_pearl".to_owned(), 16); 2];
+        assert_eq!(container_strength(&pearls, 27), 2);
+        assert_eq!(max_stack("minecraft:redstone"), 64);
+        assert_eq!(max_stack("minecraft:pig_spawn_egg"), 64);
     }
 
     #[test]

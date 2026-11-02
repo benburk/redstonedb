@@ -306,9 +306,10 @@ fn is_container(name: &str) -> bool {
 
 /// The file with each furnace, cauldron, and cake, and each container whose
 /// id is in `also`, such as `hopper`, swapped for a barrel holding redstone
-/// dust that gives a comparator the same signal strength. Barrels are how
-/// a build takes a fixed strength; a hopper, which does not conduct as a
-/// barrel does, stays unless its builder asks.
+/// dust that gives a comparator the same signal strength, and each barrel
+/// holding anything else, such as wooden shovels, given that dust in its
+/// place. Barrels are how a build takes a fixed strength; a hopper, which
+/// does not conduct as a barrel does, stays unless its builder asks.
 pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let swapped: HashMap<Pos, u8> = blocks
@@ -323,6 +324,22 @@ pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
                     items.map_or(&[], Vec::as_slice),
                     schem::slots(state)?,
                 )
+            } else if name == "barrel" {
+                let items =
+                    blocks.containers.get(&pos).map_or(&[][..], Vec::as_slice);
+                let strength = schem::container_strength(items, 27);
+                let dust: Vec<(String, u32)> = schem::barrel_redstone(strength)
+                    .into_iter()
+                    .map(|count| ("minecraft:redstone".to_owned(), count))
+                    .collect();
+                let mut held = items.to_vec();
+                held.sort();
+                let mut standard = dust;
+                standard.sort();
+                if held == standard {
+                    return None;
+                }
+                strength
             } else {
                 return None;
             };
