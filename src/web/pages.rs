@@ -60,7 +60,10 @@ pub use listing::{
     home_index, home_results, schematics,
 };
 pub use player::{PlayerPage, player};
-pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
+pub use schemati::{
+    Connection, Offered, own_file_field, schemati, schemati_folder,
+    schemati_sent,
+};
 pub use settings::{
     Presets, block_theme, block_theme_page, custom_colours, palette_fields,
     settings, welcome,

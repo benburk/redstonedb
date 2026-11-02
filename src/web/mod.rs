@@ -325,6 +325,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schemati", get(schemati::show))
         .route("/schemati/session", post(schemati::connect))
         .route("/schemati/session/delete", post(schemati::disconnect))
+        .route("/schemati/picker", get(schemati::picker))
         .route("/schemati/files", post(schemati::add))
         .route("/schemati/files/{name}", get(schemati::download))
         .route("/schemati/files/{name}/rename", post(schemati::rename))

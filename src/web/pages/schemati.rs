@@ -3,7 +3,12 @@
 
 use maud::{Markup, html};
 
-use crate::{external::schemati::Folder, models::user::User};
+use serde::Deserialize;
+
+use crate::{
+    external::schemati::Folder,
+    models::user::{SchematiLink, User},
+};
 
 use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base};
 
@@ -72,15 +77,77 @@ pub fn schemati_folder(
     }
 }
 
+/// Where the viewer's Schemati files are offered, which the slot they
+/// load into names in asking for them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Offered {
+    /// The upload page's form.
+    Upload,
+    /// A details page's fields for choosing another file, which stand
+    /// outside its form.
+    Details,
+    /// The dialog for finding similar builds.
+    Similar,
+}
+
+impl Offered {
+    /// The form the files belong to when they stand outside it.
+    pub(super) fn form(self) -> Option<&'static str> {
+        match self {
+            Offered::Details => Some("details-form"),
+            Offered::Upload | Offered::Similar => None,
+        }
+    }
+
+    /// Where the files are asked for.
+    fn url(self) -> &'static str {
+        match self {
+            Offered::Upload => "/schemati/picker?for=upload",
+            Offered::Details => "/schemati/picker?for=details",
+            Offered::Similar => "/schemati/picker?for=similar",
+        }
+    }
+}
+
+/// The id of the slot the viewer's Schemati files load into.
+const SLOT: &str = "schemati-files";
+
+/// Where the viewer's Schemati files go, decided from what the site keeps
+/// of their session, so the page asks Schemati nothing: a note saying how
+/// to connect it, or that it expired, or while it seems to work, a slot
+/// that asks for the files once the page is in, as `own_file_field` shows
+/// them. Without scripts, the slot says where else to find them.
+pub(super) fn own_files_slot(
+    link: Option<&SchematiLink>,
+    offered: Offered,
+) -> Markup {
+    match link {
+        None => own_file_field(&Connection::Unset, offered),
+        Some(link) if link.expired => {
+            own_file_field(&Connection::Forgotten, offered)
+        }
+        Some(_) => html! {
+            div id=(SLOT) fx-action=(offered.url()) fx-trigger="load" role="status" {
+                p class="text-muted" { "Loading your Schemati files…" }
+                noscript {
+                    p class="text-muted" {
+                        a href="/schemati" { "See your Schemati files" } " on their own page."
+                    }
+                }
+            }
+        },
+    }
+}
+
 /// The viewer's Schemati files to choose one from, the newest chosen
 /// already when Schemati says which it is, or the only one; or why there
-/// are none to choose. `form` names the form they belong to when they stand
+/// are none to choose, with a button to ask again when Schemati could not
+/// be asked. They belong to the form `offered` names when they stand
 /// outside it.
-pub(super) fn own_file_field(
-    connection: &Connection,
-    form: Option<&str>,
-) -> Markup {
+pub fn own_file_field(connection: &Connection, offered: Offered) -> Markup {
     let note = "text-muted";
+    let form = offered.form();
     html! {
         @match connection {
             Connection::Open(folder) if !folder.files.is_empty() => {
@@ -111,7 +178,12 @@ pub(super) fn own_file_field(
             Connection::Forgotten => p class=(note) {
                 "Your Schemati session expired. " a href="/settings" { "Give a new one" } "."
             },
-            Connection::Unreachable(why) => p class=(note) { "Schemati: " (why) },
+            // Asking again takes this one's place.
+            Connection::Unreachable(why) => div id=(SLOT) class="flex flex-wrap items-center gap-3" {
+                p class=(note) { "Schemati: " (why) }
+                button type="button" fx-action=(offered.url()) fx-target={ "#" (SLOT) }
+                    class="btn btn-quiet" { "Retry" }
+            },
         }
     }
 }
@@ -270,10 +342,42 @@ mod tests {
                 },
             ],
         };
-        let page =
-            own_file_field(&Connection::Open(&folder), None).into_string();
+        let page = own_file_field(&Connection::Open(&folder), Offered::Upload)
+            .into_string();
         assert!(page.contains("5 min ago"), "{page}");
         assert!(page.contains("3 days ago"), "{page}");
         assert!(page.contains(r#"value="new.schem" checked"#), "{page}");
+    }
+
+    /// The slot for the viewer's files is decided from what the site
+    /// keeps of their session: how to connect it, that it expired, or,
+    /// while it seems to work, the files to load once the page is in.
+    #[test]
+    fn the_slot_asks_for_the_files_only_while_the_session_works() {
+        let unset = own_files_slot(None, Offered::Upload).into_string();
+        assert!(unset.contains("Connect your Schemati"), "{unset}");
+        assert!(!unset.contains("fx-action"), "{unset}");
+
+        let mut link = SchematiLink {
+            player: Some("embizone".to_owned()),
+            checked: Some(0),
+            expired: true,
+        };
+        let expired =
+            own_files_slot(Some(&link), Offered::Upload).into_string();
+        assert!(expired.contains("session expired"), "{expired}");
+        assert!(expired.contains(r#"href="/settings""#), "{expired}");
+        assert!(!expired.contains("fx-action"), "{expired}");
+
+        link.expired = false;
+        let loading =
+            own_files_slot(Some(&link), Offered::Details).into_string();
+        assert!(
+            loading.contains(r#"fx-action="/schemati/picker?for=details""#),
+            "{loading}"
+        );
+        assert!(loading.contains(r#"fx-trigger="load""#), "{loading}");
+        assert!(loading.contains("Loading your Schemati files"), "{loading}");
+        assert!(loading.contains(r#"href="/schemati""#), "{loading}");
     }
 }

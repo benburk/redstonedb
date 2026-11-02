@@ -5,25 +5,31 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::user::User,
+    models::user::{SchematiLink, User},
     web::analysis::{KINDS, Step},
 };
 
 use super::{
-    Connection, PAGE_TITLE, SECTION_TITLE, base,
+    Offered, PAGE_TITLE, SECTION_TITLE, base,
     icons::{self, LINK, UPLOAD, icon},
     schemati,
 };
 
 /// The ways to choose a file, the same wherever one is chosen: from the
 /// viewer's Schemati folder, from their computer, or from a Schemati link,
-/// each its own section, a quiet "or" between them. `form` names the form
-/// they belong to when they stand outside it.
-pub(super) fn file_fields(form: Option<&str>, schemati: &Connection) -> Markup {
+/// each its own section, a quiet "or" between them, the Schemati files
+/// loading once the page is in, as `schemati` says how the viewer's
+/// session stands. `offered` says where they are, which names the form they
+/// belong to when they stand outside it.
+pub(super) fn file_fields(
+    offered: Offered,
+    schemati: Option<&SchematiLink>,
+) -> Markup {
+    let form = offered.form();
     html! {
         section aria-labelledby="from-schemati" {
             h2 id="from-schemati" class={ (SECTION_TITLE) " mb-2" } { "From your Schemati" }
-            (schemati::own_file_field(schemati, form))
+            (schemati::own_files_slot(schemati, offered))
         }
         (or())
         section aria-labelledby="from-computer" {
@@ -69,7 +75,11 @@ fn or() -> Markup {
 /// The upload page's first step: choosing a file, which goes on to its
 /// preview as soon as one is picked, with the guide to read first a link
 /// away.
-pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
+pub fn upload(
+    user: &User,
+    message: &str,
+    schemati: Option<&SchematiLink>,
+) -> Markup {
     base(
         Some(user),
         "Upload",
@@ -85,7 +95,7 @@ pub fn upload(user: &User, message: &str, connection: &Connection) -> Markup {
                 }
                 form action="/upload/preview" method="post" enctype="multipart/form-data"
                     data-submit-on-pick data-analyzing class="flex flex-col gap-5" {
-                    (file_fields(None, connection))
+                    (file_fields(Offered::Upload, schemati))
                 }
                 // Shown in place of the form as soon as a file is sent.
                 div data-uploading hidden role="status" aria-live="polite" {

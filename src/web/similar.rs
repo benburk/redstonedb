@@ -104,16 +104,14 @@ pub async fn form(
         };
         return Ok(Redirect::to(&home).into_response());
     }
-    let folder = match &user_opt {
-        Some(user) => {
-            Some(super::schemati::own_folder_quickly(&state.db, user).await?)
-        }
+    let link = match &user_opt {
+        Some(user) => User::schemati_link(&state.db, user.id).await?,
         None => None,
     };
-    let connection = folder
-        .as_ref()
-        .map(|folder| super::schemati::connection(folder.as_ref()));
-    Ok(pages::similar_dialog(connection.as_ref()).into_response())
+    Ok(
+        pages::similar_dialog(user_opt.is_some(), link.as_ref())
+            .into_response(),
+    )
 }
 
 /// The home page showing the builds `found` names, as the address of a

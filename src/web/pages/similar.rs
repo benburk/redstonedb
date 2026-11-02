@@ -4,9 +4,12 @@
 
 use maud::{Markup, html};
 
-use crate::models::{schematic::Schematic, user::User};
+use crate::models::{
+    schematic::Schematic,
+    user::{SchematiLink, User},
+};
 
-use super::{Connection, PAGE_TITLE, SECTION_TITLE, facts, schemati};
+use super::{Offered, PAGE_TITLE, SECTION_TITLE, facts, schemati};
 
 /// What a search found: the file's name and the builds most like it, with
 /// how alike, the most alike first.
@@ -15,10 +18,14 @@ pub struct Found<'a> {
     pub builds: &'a [(Schematic, u32)],
 }
 
-/// The dialog to choose a file in, opening as it arrives, with `viewer`'s
-/// Schemati files to choose from when they have a `connection`. It sends
-/// to the home page's results, and stays open until they come.
-pub fn similar_dialog(connection: Option<&Connection>) -> Markup {
+/// The dialog to choose a file in, opening as it arrives, with the
+/// viewer's Schemati files to choose from when they are `signed_in`,
+/// loading once it is in, as `schemati` says how their session stands. It
+/// sends to the home page's results, and stays open until they come.
+pub fn similar_dialog(
+    signed_in: bool,
+    schemati: Option<&SchematiLink>,
+) -> Markup {
     html! {
         dialog id="similar" data-show aria-labelledby="similar-heading"
             class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
@@ -40,14 +47,15 @@ pub fn similar_dialog(connection: Option<&Connection>) -> Markup {
                     input type="url" name="schemati" inputmode="url" autocomplete="off"
                         placeholder="https://schemati.openredstone.org/download?file=…" class="input";
                 }
-                @if let Some(connection) = connection {
-                    (schemati::own_file_field(connection, None))
+                @if signed_in {
+                    (schemati::own_files_slot(schemati, Offered::Similar))
                 }
                 div class="flex flex-wrap items-center gap-3" {
                     button type="submit" class="btn btn-primary" { "Search" }
                     button type="button" commandfor="similar" command="close" class="btn btn-quiet" { "Cancel" }
-                    // Shown while the search runs, as its button is busy.
-                    span class="hidden text-meta text-muted group-has-[[aria-busy=true]]:inline" {
+                    // Shown while the search runs, as its button is busy,
+                    // not while the Schemati files load.
+                    span class="hidden text-meta text-muted group-has-[[type=submit][aria-busy=true]]:inline" {
                         "Comparing with every build…"
                     }
                 }

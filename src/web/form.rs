@@ -395,10 +395,11 @@ pub struct Shown<'a> {
 
 /// The details page for `user`, its form as `form` has it. What every
 /// details page shows beside the file is worked out here: the lists the
-/// form chooses from, the viewer's Schemati folder, the file's inputs and
-/// outputs read for the category shown, typed for an upload and stored for
-/// a stored build, and what a category that reads the file, such as an
-/// adder, would take from it.
+/// form chooses from, how the viewer's Schemati session stands, for the
+/// slot their files load into, the file's inputs and outputs read for the
+/// category shown, typed for an upload and stored for a stored build, and
+/// what a category that reads the file, such as an adder, would take from
+/// it.
 pub async fn page(
     db: &SqlitePool,
     user: &User,
@@ -406,7 +407,7 @@ pub async fn page(
     shown: Shown<'_>,
 ) -> Result<Response, AppError> {
     let choices = choices(db).await?;
-    let folder = super::schemati::own_folder_quickly(db, user).await?;
+    let link = User::schemati_link(db, user.id).await?;
     let (category, conventional) = match &shown.file {
         File::Upload { unconventional, .. } => (
             Category::name_of(&choices.categories, &form.category),
@@ -450,7 +451,7 @@ pub async fn page(
             fixed: &fixed,
             message: shown.message,
             choosing: shown.choosing,
-            schemati: &super::schemati::connection(folder.as_ref()),
+            schemati: link.as_ref(),
         },
     )
     .into_response())

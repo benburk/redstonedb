@@ -16,7 +16,7 @@ use crate::{
 
 use super::{
     super::form::Form,
-    Choices, PAGE_TITLE, SECTION_TITLE, base, beside_viewer,
+    Choices, Offered, PAGE_TITLE, SECTION_TITLE, base, beside_viewer,
     form::{fields, tag_picker},
     grouped,
     interface::{Inversions, interface_section},
@@ -98,8 +98,9 @@ pub struct DetailsPage<'a> {
     /// Whether the fields for choosing another file start open, with why
     /// the last file chosen could not be read, if it could not.
     pub choosing: Option<&'a str>,
-    /// The viewer's Schemati folder, its files to choose from.
-    pub schemati: &'a super::Connection<'a>,
+    /// How the viewer's Schemati session stands, as the site keeps it,
+    /// for the slot their files load into.
+    pub schemati: Option<&'a crate::models::user::SchematiLink>,
 }
 
 pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
@@ -450,7 +451,7 @@ fn file_chooser(page: &DetailsPage) -> Markup {
                         }
                     }
                 }
-                (file_fields(Some("details-form"), page.schemati))
+                (file_fields(Offered::Details, page.schemati))
                 @if let Some(message) = page.choosing.filter(|message| !message.is_empty()) {
                     p role="alert" class="text-danger" { (message) }
                 }

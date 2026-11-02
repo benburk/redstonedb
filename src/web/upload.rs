@@ -192,16 +192,15 @@ pub async fn form(
 }
 
 /// The upload page for `user`, with their Schemati folder's files to
-/// choose from if they gave a session, and `message` saying why the last
-/// try was refused.
+/// choose from if they gave a session, loading once the page is in, and
+/// `message` saying why the last try was refused.
 async fn upload_page(
     state: &AppState,
     user: &User,
     message: &str,
 ) -> Result<Response, AppError> {
-    let folder = super::schemati::own_folder_quickly(&state.db, user).await?;
-    let connection = super::schemati::connection(folder.as_ref());
-    Ok(pages::upload(user, message, &connection).into_response())
+    let link = User::schemati_link(&state.db, user.id).await?;
+    Ok(pages::upload(user, message, link.as_ref()).into_response())
 }
 
 /// Takes the chosen file and starts analyzing it, then goes to the page
