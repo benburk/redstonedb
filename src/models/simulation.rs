@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
-use tokio::sync::Semaphore;
+use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
     category,
@@ -174,6 +174,60 @@ pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
 /// someone is waiting on.
 static CASES: Semaphore = Semaphore::const_new(1);
 static TIMING: Semaphore = Semaphore::const_new(1);
+
+/// An evaluation of a file, once it is done; `None` when it failed.
+type Ahead = Arc<OnceCell<Option<Arc<Evaluation>>>>;
+
+/// Evaluations of files not yet stored, by their hash, as an upload's
+/// while its uploader fills in its details, so storing one takes that
+/// evaluation, or waits on it, rather than starting over. The latest
+/// [`AHEAD_KEPT`] only, as most previews are never published.
+static AHEAD: Mutex<Vec<(String, Ahead)>> = Mutex::new(Vec::new());
+const AHEAD_KEPT: usize = 8;
+
+/// Starts evaluating `data`, a file as the site keeps it whose hash is
+/// `sha256`, in the background, for the build it becomes once stored to
+/// take; see [`AHEAD`].
+pub fn evaluate_ahead(data: Vec<u8>, sha256: String) {
+    let cell = {
+        let mut ahead = AHEAD.lock().expect("the list is whole");
+        if ahead.iter().any(|(hash, _)| *hash == sha256) {
+            return;
+        }
+        let cell = Ahead::default();
+        ahead.push((sha256, Arc::clone(&cell)));
+        if ahead.len() > AHEAD_KEPT {
+            ahead.remove(0);
+        }
+        cell
+    };
+    // Behind timings, as it takes a while, so it holds up no cases
+    // someone is waiting on, as publishing it runs.
+    tokio::spawn(async move {
+        cell.get_or_init(|| evaluated(data, &TIMING)).await;
+    });
+}
+
+/// The evaluation started ahead of the file whose hash is `sha256`, taken
+/// off the list; `None` when none was.
+fn taken_ahead(sha256: &str) -> Option<Ahead> {
+    let mut ahead = AHEAD.lock().expect("the list is whole");
+    let at = ahead.iter().position(|(hash, _)| hash == sha256)?;
+    Some(ahead.remove(at).1)
+}
+
+/// `data` evaluated, one at a time with others `turns` lets go; `None`
+/// when it failed.
+async fn evaluated(
+    data: Vec<u8>,
+    turns: &Semaphore,
+) -> Option<Arc<Evaluation>> {
+    let _turn = turns.acquire().await.ok()?;
+    tokio::task::spawn_blocking(move || evaluate(&data).ok().map(Arc::new))
+        .await
+        .ok()
+        .flatten()
+}
 
 /// Lets `at_once` runs of cases, and as many timings, go at a time, as on
 /// a machine with the cores for them; call once, before any runs.
@@ -505,28 +559,39 @@ async fn refresh_evaluated(
         reused_at_zero(db, s, data, &report).await?;
         return Ok(Some(report));
     }
+    // One evaluated as it was uploaded is taken, or waited on.
+    let ahead = match taken_ahead(&s.sha256) {
+        Some(cell) => cell
+            .get_or_init(|| evaluated(data.clone(), &TIMING))
+            .await
+            .clone(),
+        None => None,
+    };
+    let e = if let Some(e) = ahead {
+        tracing::info!(id = s.id, "taking the evaluation made on upload");
+        e
+    } else {
+        let _turn = CASES.acquire().await?;
+        let data = data.clone();
+        Arc::new(tokio::task::spawn_blocking(move || evaluate(&data)).await??)
+    };
     // Its result is the evaluation's when the test recognizes it as its
     // category; else its category's own test's, saying what is wrong.
-    let (e, report) = {
-        let _turn = CASES.acquire().await?;
-        let (data, category) = (data.clone(), s.category.clone());
-        tokio::task::spawn_blocking(move || -> Result<_> {
-            let e = evaluate(&data)?;
-            let report = match &e.report {
-                Some(report) if e.category == Some(category.as_str()) => {
-                    Some(report.clone())
-                }
-                _ => {
-                    let blocks = &e.prepared.blocks;
-                    let width =
-                        import::derived(&category, &interface::read(blocks))
-                            .width;
-                    Test::of(&category, width).map(|test| test.run(blocks))
-                }
-            };
-            Ok((e, report))
-        })
-        .await??
+    let report = match &e.report {
+        Some(report) if e.category == Some(s.category.as_str()) => {
+            Some(report.clone())
+        }
+        _ => {
+            let _turn = CASES.acquire().await?;
+            let (e, category) = (Arc::clone(&e), s.category.clone());
+            tokio::task::spawn_blocking(move || {
+                let blocks = &e.prepared.blocks;
+                let width =
+                    import::derived(&category, &interface::read(blocks)).width;
+                Test::of(&category, width).map(|test| test.run(blocks))
+            })
+            .await?
+        }
     };
     let derived = Derived::evaluated(s, &e);
     let (data, sha256) = match &report {

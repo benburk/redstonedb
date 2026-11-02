@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    import::Upload,
-    models::user::User,
+    import::{self, Upload},
+    models::{simulation, user::User},
     probe::{self, Recognition},
     simulate::{self, Guess},
 };
@@ -144,6 +144,15 @@ pub fn start(
                 recognition,
             })
             .map_err(|err| format!("Could not read that file: {err:#}."));
+        // A build recognized as its category is evaluated now, while its
+        // uploader fills in its details, for publishing it to take.
+        if let Ok(analyzed) = &analyzed
+            && analyzed.recognition.found.is_some()
+            && let Ok(standard) = &analyzed.upload.standard
+            && let Ok(kept) = import::rewrapped(standard)
+        {
+            simulation::evaluate_ahead(kept.data, kept.sha256);
+        }
         if let Some(analysis) = analyses.lock().unwrap().get_mut(&id) {
             analysis.done = Some(Arc::new(analyzed));
         }

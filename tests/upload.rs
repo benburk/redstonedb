@@ -181,3 +181,24 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
         .expect("it can be simulated");
     assert!(matches!(kept, Kept::Standard { .. }));
 }
+
+/// Publishing reads again the file its preview carries, the upload as
+/// built, and keeps the same file its analysis would, hash and all, so an
+/// evaluation the analysis starts is the one the build takes.
+#[tokio::test]
+async fn publishing_keeps_the_file_its_preview_evaluated() {
+    let raw = fixture("cca-16-raw");
+    let coloured = app::probe::recognize(&raw).unwrap().file;
+    let analyzed = Upload::read(&coloured).unwrap();
+    let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
+    let published = Upload::read(&analyzed.original.data).unwrap();
+    let categories = categories().await;
+    let Ok(Kept::Standard { file, .. }) =
+        import::kept(&categories, "adder", &published)
+            .await
+            .unwrap()
+    else {
+        panic!("the adder is not recognized");
+    };
+    assert_eq!(file.sha256, ahead.sha256);
+}
