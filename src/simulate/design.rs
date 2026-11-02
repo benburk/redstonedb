@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     adder::Variant,
     circuit::{Circuit, compiled},
+    rng::Rng,
 };
 use crate::{
     recognize::interface::{self, Interface, Port},
@@ -231,14 +232,9 @@ impl Adder {
         let cases = if vars <= EVERY {
             (0..1u64 << vars).collect()
         } else {
-            let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+            let mut rng = Rng::default();
             (0..SAMPLED)
-                .map(|_| {
-                    state ^= state << 13;
-                    state ^= state >> 7;
-                    state ^= state << 17;
-                    state & (u64::MAX >> (64 - vars))
-                })
+                .map(|_| rng.draw() & (u64::MAX >> (64 - vars)))
                 .collect()
         };
         Some(Adder {

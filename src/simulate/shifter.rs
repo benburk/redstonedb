@@ -19,6 +19,7 @@ use super::{
     Broken, Run, Timing,
     bench::{self, Bench, Case, mask, observe, sweep},
     circuit::output_bits,
+    rng::Rng,
     timing,
 };
 use crate::{
@@ -463,20 +464,12 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     }
     let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
     let stream = |count: usize| {
-        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
+        let mut rng = Rng::default();
         (0..count)
             .map(|_| {
-                let setting =
-                    &settings[usize::try_from(next() % settings.len() as u64)
-                        .unwrap_or(0)];
+                let setting = &settings[rng.below(settings.len())];
                 let mut case = vec![0; interface.inputs.len()];
-                case[shifter.a] = next() & mask(shifter.width);
+                case[shifter.a] = rng.draw() & mask(shifter.width);
                 for &(port, value) in &setting.held {
                     case[port] = value;
                 }
