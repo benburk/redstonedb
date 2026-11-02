@@ -1,5 +1,9 @@
 set dotenv-load
 
+# Variables are evaluated only when a recipe uses them, so the port lookup
+# below runs for `serve` alone.
+set lazy
+
 # Display available recipes
 default:
     just --list --unsorted
@@ -43,18 +47,15 @@ css:
     tailwindcss --input styles/app.css --minify > static/app.css
 
 # Build release binary
-[group('podium')]
 build: css
     cargo build --release
 
-# A second line of comment would be all `just --list` shows, and this one is a
-# button's tooltip, so it is stated outright.
-# The default port is the first in 3000-3050 that nothing listens on at
-# loopback or every address, the listeners that would stop the server binding
-# 127.0.0.1.
-[doc('Serve until interrupted, on a free port')]
-[group('podium')]
-serve port=`ss -Hltn | awk '$4 ~ /^(127\.|0\.0\.0\.0:|\*:|\[::1?\]:)/ {sub(/.*:/, "", $4); used[$4]} END {for (p = 3000; p <= 3050; p++) if (!(p in used)) {print p; exit}}'`: css
+# The first port in 3000-3050 that nothing listens on at loopback or every
+# address, the listeners that would stop the server binding 127.0.0.1.
+free_port := `lsof -nP -iTCP -sTCP:LISTEN | awk '$9 ~ /^(127\.|\*:|\[::1?\]:)/ {sub(/.*:/, "", $9); used[$9]} END {for (p = 3000; p <= 3050; p++) if (!(p in used)) {print p; exit}}'`
+
+# Serve until interrupted, on a free port
+serve port=free_port: css
     cargo run --bin redstonedb -- {{ port }}
 
 # Test, unless the suite passed on exactly these files, then build the
@@ -69,11 +70,11 @@ pull-db:
 
 # Follow the live site's log
 logs:
-    ssh root@157.180.85.191 journalctl -u redstonedb -f -o cat
+    ssh "$DEPLOY_HOST" journalctl -u redstonedb -f -o cat
 
 # Show the live site's commit, service state, and latest backups
 status:
-    ssh root@157.180.85.191 'echo "Live commit: $(cat /usr/local/lib/redstonedb/DEPLOYED)"; systemctl --no-pager status redstonedb | head -5; ls -t /var/backups/redstonedb | head -3'
+    ssh "$DEPLOY_HOST" 'echo "Live commit: $(cat /usr/local/lib/redstonedb/DEPLOYED)"; systemctl --no-pager status redstonedb | head -5; ls -t /var/backups/redstonedb | head -3'
 
 # Restart the server when source files change
 watch:
