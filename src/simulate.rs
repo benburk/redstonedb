@@ -71,7 +71,7 @@ pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
-pub use converters::at_least;
+pub use converters::{EVEN_PARITY, at_least};
 pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::Gate;
 pub use shifter::flags as shifter_flags;
@@ -141,7 +141,8 @@ pub enum Test {
     BinaryToHex,
     /// Whether at least some number of A's bits are on.
     Threshold,
-    /// Whether an odd number of A's bits are on, the xor of them all.
+    /// Whether an odd number of A's bits are on, the xor of them all, or
+    /// an even number, its inverse.
     Parity,
     /// A xor B.
     Xor,
@@ -711,9 +712,9 @@ pub struct Wrong {
 /// before an equality comparator, as a 1-bit one is A xnor B. A
 /// popcount and a threshold come before the BCD converters, whose telling
 /// values a popcount's strength output can pass. A parity comes after the
-/// popcount and the threshold, as a 1-bit one is a wire, as theirs are, so
-/// a wire is still taken for a popcount; from 2 bits it gives A's bits
-/// xor, as neither does.
+/// popcount and the threshold, as a 1-bit odd one is a wire, as theirs
+/// are, so a wire is still taken for a popcount; a 1-bit even one is a NOT
+/// gate, and from 2 bits it gives A's bits xor or xnor, as neither does.
 const GUESSED: [Test; 31] = [
     Test::Adder,
     Test::Decoder,

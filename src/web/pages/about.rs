@@ -176,7 +176,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Hex adders take A and B a hex digit per block, a signal strength through dust on top, in place of levers. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
-                        li { "Parity circuits give one output, on when an odd number of inputs are on. One that's on for an even number is wrong." }
+                        li { "Parity circuits give one output, on when an odd number of inputs are on, or an even number, which is flagged Even." }
                     }
                     p class="mb-4" {
                         "Recognized so far: adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, "

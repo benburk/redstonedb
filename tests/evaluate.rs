@@ -262,6 +262,39 @@ fn a_parity_circuit_is_read_whole_from_its_file() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
+/// A parity circuit whose output a torch inverts, on for an even number of
+/// A's bits on, is one too, flagged even; the owner's, on for an odd
+/// number, is not.
+#[test]
+fn an_even_parity_circuit_is_flagged_even() {
+    // The output's dust, which its two last comparators power, powers a
+    // block north of it in place of the output block below it, and a torch
+    // on that block powers the output, moved above the torch.
+    let standard = uploaded("parity-8");
+    let changes: BTreeMap<[i32; 3], String> = [
+        ([1, 0, 0], "white_concrete"),
+        ([1, 1, -1], "white_concrete"),
+        ([1, 2, -1], "redstone_torch[lit=true]"),
+        ([1, 3, -1], "yellow_concrete"),
+        ([1, 4, -1], "redstone_wire[power=0]"),
+    ]
+    .into_iter()
+    .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+    .collect();
+    let (even, _) = standardize::edit_grown(&standard, &changes).unwrap();
+    let recognition = app::recognize::probe::recognize(&even).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a parity circuit: all 256 cases right, xnor of A's bits"),
+        "{:?}",
+        recognition.problems
+    );
+    let e = evaluate(&recognition.file).unwrap();
+    assert_eq!(e.category, Some("parity"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.flags, ["even"]);
+}
+
 /// A register is read whole from its file: holding what it was written is
 /// its test, so passing it is holding state; its throughput is its burnout
 /// floor once synchronized, and its copies stack west into a register file.

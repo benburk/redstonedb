@@ -13,7 +13,7 @@ use crate::{
     import::{self, Prepared},
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
-        simulation::{FALLING_EDGE, INVERTED, SIGNED},
+        simulation::{EVEN, FALLING_EDGE, INVERTED, SIGNED},
     },
     recognize::interface,
     schem::{Blocks, stack},
@@ -245,8 +245,9 @@ impl Evaluation {
 
     /// Takes the flags its `test`'s cases, `run`, and its `timing` show: a
     /// comparator's whether it reads its operands signed, an ALU's its
-    /// operations and plain lines, and a monostable's pulse and whether it
-    /// rests on or pulses as A turns off.
+    /// operations and plain lines, a parity circuit's whether it is on for
+    /// an even number, and a monostable's pulse and whether it rests on or
+    /// pulses as A turns off.
     fn flagged(
         &mut self,
         test: Test,
@@ -272,6 +273,11 @@ impl Evaluation {
             let variant = AdderVariant::of(&run.pattern);
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
+        }
+        // A parity circuit's cases say whether it is on for an even number
+        // of A's bits.
+        if test == Test::Parity && run.pattern == simulate::EVEN_PARITY {
+            self.flags.push(EVEN.to_owned());
         }
         if test == Test::Register && run.pattern.ends_with(" inverted") {
             self.flags.push(INVERTED.to_owned());
