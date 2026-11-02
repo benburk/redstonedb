@@ -130,6 +130,12 @@
     @apply bg-danger text-on-danger hover:opacity-90;
   }
 
+  /* A modal `<dialog>`, centred over a dimmed page; its width is the
+     caller's, as a form's and a settings panel's differ. */
+  .dialog {
+    @apply m-auto rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30;
+  }
+
   .field {
     @apply flex flex-col gap-1.5;
   }
