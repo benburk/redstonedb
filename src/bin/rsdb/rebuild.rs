@@ -354,7 +354,7 @@ async fn rebuild_one(
         &report,
     )? {
         Ok(found) => found,
-        Err(why) => return Ok(Err(why)),
+        Err(why) => return Ok(Err(why.to_string())),
     };
     if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
         return Ok(Err(fault));

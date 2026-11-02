@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold, split};
+use super::{Fault, lengths, split, try_roles};
 use crate::{
     recognize::{colour, inspect},
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Test},
 };
 
@@ -41,10 +41,10 @@ pub fn one_operand(
     report: &inspect::Report,
     test: Test,
     line: Line,
-) -> Result<OneInputProbed, String> {
+) -> Result<OneInputProbed, Fault> {
     let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err("Outputs: none".to_owned());
+        return Err(Fault::Unfit("Outputs: none".to_owned()));
     };
     let status: Vec<Pos> = report
         .outputs
@@ -57,10 +57,10 @@ pub fn one_operand(
         .iter()
         .any(|run| run.bits != out.bits && run.bits.len() > 1)
     {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Outputs: line lengths {}, need one line and lone status lines",
             lengths(&report.outputs)
-        ));
+        )));
     }
     let mut levers: Vec<Pos> = report
         .inputs
@@ -76,7 +76,7 @@ pub fn one_operand(
             .collect(),
         Line::Never => vec![None],
     };
-    let mut why = "Inputs: none".to_owned();
+    let mut why = Fault::Unfit("Inputs: none".to_owned());
     for line in tried {
         let a: Vec<Pos> = levers
             .iter()
@@ -91,19 +91,9 @@ pub fn one_operand(
         roles.extend(line.map(|p| (p, colour::CONTROL)));
         roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
         roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
-        let file = paint(data, &roles).map_err(|err| err.to_string())?;
-        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match test.run(&coloured) {
-            simulate::Report::Ran(run) if run.wrong == 0 => {
-                return Ok(OneInputProbed { a, file, run: *run });
-            }
-            simulate::Report::Ran(run) => {
-                why = doesnt_hold(&run, &file);
-            }
-            simulate::Report::Broken { reason }
-            | simulate::Report::Skipped { reason } => {
-                why = format!("Test couldn't run: {reason}");
-            }
+        match try_roles(data, &roles, test, false)? {
+            Ok((file, run)) => return Ok(OneInputProbed { a, file, run }),
+            Err(fault) => why = fault,
         }
     }
     Err(why)

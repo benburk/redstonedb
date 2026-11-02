@@ -567,7 +567,12 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
                 probed.run.pattern
             )),
             Err(message) => {
-                problem(&mut report, "not an adder", Vec::new(), message);
+                problem(
+                    &mut report,
+                    "not an adder",
+                    Vec::new(),
+                    message.to_string(),
+                );
             }
         }
     }
