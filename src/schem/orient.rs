@@ -1,5 +1,5 @@
 //! Turning and mirroring a build so it lies the standard way, as
-//! `conventions.md` lays it out: A's inputs entered from the south, and its
+//! `docs/conventions.md` lays it out: A's inputs entered from the south, and its
 //! least significant bits at the south-east-bottom corner, so its buses
 //! count up as they should.
 //!

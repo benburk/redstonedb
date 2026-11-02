@@ -1,5 +1,5 @@
 //! A build's inputs and outputs, read from its blocks and signs as
-//! `conventions.md` lays them out. An input is a block with a lever on it,
+//! `docs/conventions.md` lays them out. An input is a block with a lever on it,
 //! or for a control line a button, or for a signal-strength input dust on
 //! top; an output is a block of an output colour. Each colour is one bus, named by a sign on any of its blocks,
 //! except magenta control lines and pink status lines, each one line named
