@@ -499,7 +499,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
     );
     html! {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
-            data-simulate=(simulate)
+            data-simulate=(simulate) data-listed-kinds=(crate::details::listed_kinds())
             data-simulated[stored_result] data-unverified[unverified] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
