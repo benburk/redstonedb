@@ -34,14 +34,18 @@ fn configure_logging() {
         .init();
 }
 
-/// Read the required server port from `PORT`.
+/// Read the required server port from the first argument, else `PORT`. `just
+/// serve` passes a free one; the deployed service sets `PORT`.
 fn port() -> u16 {
-    let Ok(value) = std::env::var("PORT") else {
-        eprintln!("no PORT. `just serve` picks a free one with free-port.");
+    let Some(value) = std::env::args()
+        .nth(1)
+        .or_else(|| std::env::var("PORT").ok())
+    else {
+        eprintln!("no port. Pass one, set PORT, or let `just serve` pick one.");
         std::process::exit(2);
     };
     value.parse().unwrap_or_else(|_| {
-        eprintln!("PORT is `{value}`, which is not a port number.");
+        eprintln!("`{value}` is not a port number.");
         std::process::exit(2);
     })
 }
