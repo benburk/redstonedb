@@ -63,12 +63,16 @@ pub struct BuildPage<'a> {
 }
 
 /// The colours a build's page shows it in, and which others it offers:
-/// its builder's, when kept, and the viewer's theme, when they have one.
+/// its builder's, when kept, and the viewer's theme, when they have one
+/// and the build can take it.
 #[derive(Clone, Copy)]
 pub struct ColoursShown {
     pub chosen: Colours,
     pub original: bool,
     pub theme: bool,
+    /// Whether the build can take a theme at all, as one the site knows
+    /// the needs of: else it is shown and downloaded only in its own.
+    pub themeable: bool,
 }
 
 /// One schematic's page, with an edit button for a mod.
@@ -906,7 +910,7 @@ fn download_dialog(
         (Colours::Default, "Default", true),
         (Colours::Original, "Original", colours.original),
         (Colours::Theme, "Your theme", colours.theme),
-        (Colours::Custom, "Custom", true),
+        (Colours::Custom, "Custom", colours.themeable),
     ];
     html! {
         dialog id="download" aria-labelledby="download-heading"
@@ -921,6 +925,9 @@ fn download_dialog(
                         span aria-hidden="true" class="text-muted" { ".schem" }
                     }
                 }
+                // Default alone is no choice, as for a build that takes no
+                // theme and keeps no other colours.
+                @if colours.original || colours.themeable {
                 fieldset class="field" {
                     legend class="mb-1.5 text-meta font-semibold text-muted" { "Colours" }
                     // The page's colours first; custom asks for its editor.
@@ -945,6 +952,7 @@ fn download_dialog(
                             "Original colours come on one copy; copies stacked come in Default."
                         }
                     }
+                }
                 }
                 // Where custom colours' editor comes in.
                 div id="custom-colours" hidden {}

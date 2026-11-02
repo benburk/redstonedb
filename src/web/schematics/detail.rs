@@ -210,11 +210,16 @@ pub async fn detail(
         Some(user) => schematic::favorited(db, user.id, &id).await?,
         None => false,
     };
-    // A theme or a builder's colours give the page a choice of colours.
-    let theme = match &user_opt {
-        Some(user) => palette::of(db, user.id).await?.is_some(),
-        None => false,
-    };
+    // A theme or a builder's colours give the page a choice of colours; a
+    // theme only for a build recognized, verified, and passing, whose
+    // blocks the site knows the needs of, as any other's blocks are its
+    // builder's own.
+    let themeable = palette::needs(db, &id).await?.is_some();
+    let theme = themeable
+        && match &user_opt {
+            Some(user) => palette::of(db, user.id).await?.is_some(),
+            None => false,
+        };
     let original = version::colours(db, &id).await?.is_some();
     let colours = pages::ColoursShown {
         chosen: match colours {
@@ -224,6 +229,7 @@ pub async fn detail(
         },
         original,
         theme,
+        themeable,
     };
     Ok(pages::schematic_page(
         user_opt.as_ref(),
