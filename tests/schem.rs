@@ -1,5 +1,7 @@
 //! Reading builds from their files, against the two stored adders.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use app::{
     import,
     models::schematic::{Orientation, StackDirection},
@@ -869,4 +871,133 @@ fn blocks_are_counted_by_kind() {
     let total: usize = counts.iter().map(|(_, n)| n).sum();
     assert!(total > 0);
     assert!(counts.windows(2).all(|w| w[0].1 >= w[1].1), "most first");
+}
+
+/// The register fixture standardized, as the simulator takes it.
+fn register() -> Vec<u8> {
+    standardize::standardize(&raw("register-8-2-cells")).unwrap()
+}
+
+/// The file of the standardized register `raw` with its levers on
+/// `colours` of concrete switched on and every component at rest with
+/// them.
+fn with_levers_on(raw: &[u8], colours: &[&str]) -> Vec<u8> {
+    let blocks = Blocks::read(raw).unwrap();
+    let on: BTreeSet<schem::Pos> = blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| {
+            !switch.button
+                && colours.iter().any(|colour| {
+                    blocks.get(switch.block)
+                        == format!("minecraft:{colour}_concrete")
+                })
+        })
+        .map(|switch| switch.pos)
+        .collect();
+    assert!(!on.is_empty(), "it has levers on {colours:?}");
+    standardize::with_levers(raw, &on).unwrap()
+}
+
+/// Whether each lever of the inputs of the file `data` is on, the data
+/// inputs' and the control lines' apart.
+fn input_levers(data: &[u8]) -> (Vec<bool>, Vec<bool>) {
+    let blocks = Blocks::read(data).unwrap();
+    let mut levers = (Vec::new(), Vec::new());
+    for port in interface::read(&blocks).inputs {
+        let control = port.block.starts_with("magenta");
+        for bit in &port.bits {
+            let state = blocks.get(schem::step(bit.pos, bit.entry.unwrap()));
+            if schem::short(state) != "lever" {
+                continue;
+            }
+            let on = state.contains("powered=true");
+            if control {
+                levers.1.push(on);
+            } else {
+                levers.0.push(on);
+            }
+        }
+    }
+    levers
+}
+
+fn standardized(data: &[u8]) -> Vec<u8> {
+    import::prepare(data, true, true, false, true).unwrap().data
+}
+
+/// Saved with its data levers on, an uploaded build is kept with them off
+/// and its circuit at rest with them: the same file as one saved with them
+/// off, as a data input never reads inverted.
+#[test]
+fn an_uploads_data_levers_are_switched_off() {
+    let saved_off = register();
+    let saved_on = with_levers_on(&saved_off, &["lime"]);
+    let as_saved = Blocks::read(&saved_on).unwrap();
+    let off = Blocks::read(&saved_off).unwrap();
+    assert!(
+        as_saved.iter().any(|(pos, state)| {
+            schem::short(state) == "redstone_wire" && off.get(pos) != state
+        }),
+        "its dust is powered with them"
+    );
+    let kept = standardized(&saved_on);
+    let (data, control) = input_levers(&kept);
+    assert!(!data.is_empty() && !control.is_empty());
+    assert!(data.iter().all(|on| !on), "{data:?}");
+    assert_eq!(kept, standardized(&saved_off));
+}
+
+/// A control line's levers are left as saved, as which read inverted is
+/// for its test to find, while its data levers are switched off.
+#[test]
+fn an_uploads_control_levers_are_left_as_saved() {
+    let register = register();
+    let saved_on = with_levers_on(&register, &["lime", "magenta"]);
+    let (data, control) = input_levers(&standardized(&saved_on));
+    assert!(data.iter().all(|on| !on), "{data:?}");
+    assert!(!control.is_empty() && control.iter().all(|on| *on));
+    let control_on = with_levers_on(&register, &["magenta"]);
+    assert_eq!(standardized(&saved_on), standardized(&control_on));
+}
+
+/// A build that never comes to rest, here for a torch clock set beside it,
+/// keeps its data levers as saved.
+#[test]
+fn an_upload_that_cannot_settle_keeps_its_levers() {
+    let saved_on = with_levers_on(&register(), &["lime"]);
+    let size = Blocks::read(&saved_on).unwrap().size;
+    // A torch on the side of a block, powering dust that runs round to a
+    // repeater back into that block, all on a floor a block above the
+    // build.
+    let (floor, y) = (size[1] + 1, size[1] + 2);
+    let mut clock: BTreeMap<schem::Pos, String> = BTreeMap::new();
+    for x in 0..3 {
+        for z in 0..3 {
+            clock.insert([x, floor, z], "minecraft:stone".to_owned());
+        }
+    }
+    let dust = "minecraft:redstone_wire[east=side,north=side,power=0,\
+                south=side,west=side]";
+    clock.insert([0, y, 0], "minecraft:stone".to_owned());
+    clock.insert(
+        [1, y, 0],
+        "minecraft:redstone_wall_torch[facing=east,lit=true]".to_owned(),
+    );
+    for pos in [[2, y, 0], [2, y, 1], [2, y, 2], [1, y, 2], [0, y, 2]] {
+        clock.insert(pos, dust.to_owned());
+    }
+    clock.insert(
+        [0, y, 1],
+        "minecraft:repeater[delay=1,facing=south,locked=false,\
+         powered=false]"
+            .to_owned(),
+    );
+    let (ticking, _) = standardize::edit_grown(&saved_on, &clock).unwrap();
+    assert!(
+        standardize::with_levers(&ticking, &BTreeSet::new()).is_err(),
+        "the clock never comes to rest"
+    );
+    let (data, _) = input_levers(&standardized(&ticking));
+    assert!(!data.is_empty() && data.iter().all(|on| *on), "{data:?}");
 }

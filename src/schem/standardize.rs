@@ -21,6 +21,11 @@
 //!   it does air. A sign's commas are taken out, as its words are separated
 //!   by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
+//! - Each data input's lever is switched off, every other component coming
+//!   to rest with it, as a data input never reads inverted, so its lever
+//!   off is its 0. A control line's levers stay as they were, for its test
+//!   to find which read inverted; see `levers_at_zero`. A build that cannot
+//!   be settled, as one with a clock, keeps its levers as they were.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -74,7 +79,35 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
          should have some, check the selection it was saved from covers \
          the whole build"
     );
-    Ok(standardized)
+    Ok(data_levers_off(&standardized).unwrap_or(standardized))
+}
+
+/// The file with the lever of each data input, any input but a magenta
+/// control line, switched off, every other lever as it was, and every
+/// component at rest with them, as `with_levers` settles them. A file with
+/// no data input's lever on comes back as it was.
+pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let data_levers: BTreeSet<Pos> = interface::read(&blocks)
+        .inputs
+        .iter()
+        .filter(|port| !port.block.starts_with(colour::CONTROL))
+        .flat_map(|port| &port.bits)
+        .filter_map(|bit| Some(schem::step(bit.pos, bit.entry?)))
+        .filter(|&pos| schem::short(blocks.get(pos)) == "lever")
+        .collect();
+    let on: BTreeSet<Pos> = blocks
+        .iter()
+        .filter(|(_, state)| {
+            schem::short(state) == "lever"
+                && schem::property(state, "powered") == Some("true")
+        })
+        .map(|(pos, _)| pos)
+        .collect();
+    if on.is_disjoint(&data_levers) {
+        return Ok(data.to_vec());
+    }
+    with_levers(data, &(&on - &data_levers))
 }
 
 /// The signs on a block that is neither an input, one of `inputs`, nor an
