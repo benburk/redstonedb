@@ -38,7 +38,7 @@ pub fn shifter(
                     run,
                 });
             }
-            Err(fault) => why = fault,
+            Err(fault) => why = why.nearer(fault),
         }
     }
     Err(why)

@@ -191,7 +191,7 @@ fn an_adder_stacks_by_its_box() {
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let report = app::recognize::inspect::inspect(&blocks);
-    let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
+    let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::colour(&data, &probed.layout).unwrap();
     let standard = import::prepare_for(
@@ -220,7 +220,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let report = app::recognize::inspect::inspect(&blocks);
-    let probed = app::recognize::probe::adder(&blocks, &report).unwrap();
+    let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::colour(&data, &probed.layout).unwrap();
     let standard = import::prepare_for(

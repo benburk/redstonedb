@@ -86,6 +86,35 @@ impl Fault {
         }
     }
 
+    /// Of this, one try's fault, and `later`, the next try's, the one
+    /// nearest holding: one whose test ran over one whose test couldn't,
+    /// so the closest real try is the one shown; of two that ran, the one
+    /// with the smaller share of its cases wrong, the earlier on a tie;
+    /// else the later.
+    #[must_use]
+    pub fn nearer(self, later: Fault) -> Fault {
+        match (&self, &later) {
+            (
+                Fault::Wrong { wrong, cases, .. },
+                Fault::Wrong {
+                    wrong: later_wrong,
+                    cases: later_cases,
+                    ..
+                },
+            ) => {
+                let share =
+                    |wrong: u64, of: u64| u128::from(wrong) * u128::from(of);
+                if share(*later_wrong, *cases) < share(*wrong, *later_cases) {
+                    later
+                } else {
+                    self
+                }
+            }
+            (Fault::Wrong { .. }, _) => self,
+            _ => later,
+        }
+    }
+
     /// Whether the kind's test ran, getting cases wrong.
     pub fn ran(&self) -> bool {
         matches!(self, Fault::Wrong { .. })
@@ -512,6 +541,7 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
 /// of every layout they could make, the one whose quick test gets fewest
 /// wrong, then tested in full; or why none adds.
 pub fn adder(
+    data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
 ) -> Result<Probed, Fault> {
@@ -565,10 +595,13 @@ pub fn adder(
             reasons.first().map_or("no layout fits", String::as_str)
         )));
     };
-    // An adder's own words, which its fault is shown in among the others
-    // probing found as one that couldn't run.
+    // Its test ran, so its fault ranks with the others that did, the file
+    // coloured as the closest layout has it.
+    let coloured = |layout: &Layout| {
+        colour(data, layout).map_err(|err| Fault::Unfit(err.to_string()))
+    };
     if closest.wrong > 0 {
-        return Err(Fault::Unfit(closest.wrong_cases()));
+        return Err(Fault::wrong(&closest, &coloured(&layout)?));
     }
     // A and B the other way round may add too, read more plainly, with
     // fewer of its lines inverted.
@@ -601,11 +634,14 @@ pub fn adder(
             .iter()
             .map(|(bit, n)| format!("{bit} ({n})"))
             .collect();
-        return Err(Fault::Unfit(format!(
-            "{}; wrong bits {}",
-            run.wrong_cases(),
-            bits.join(", ")
-        )));
+        let said =
+            format!("{}; wrong bits {}", run.wrong_cases(), bits.join(", "));
+        return Err(Fault::Wrong {
+            wrong: run.wrong,
+            cases: run.cases,
+            said,
+            file: coloured(&layout)?,
+        });
     }
     Ok(Probed { layout, run })
 }

@@ -93,7 +93,7 @@ pub fn register(
                     run,
                 });
             }
-            Err(fault) => why = fault,
+            Err(fault) => why = why.nearer(fault),
         }
     }
     Err(why)

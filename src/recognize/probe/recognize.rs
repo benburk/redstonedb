@@ -252,7 +252,7 @@ fn probed_as(
     found: impl Fn(&simulate::Run) -> String,
 ) -> anyhow::Result<Result<Found, Fault>> {
     Ok(match how {
-        Probe::Adder => match adder(blocks, report) {
+        Probe::Adder => match adder(data, blocks, report) {
             Ok(probed) => Ok((
                 [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
                 colour(data, &probed.layout)?,

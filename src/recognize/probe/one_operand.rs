@@ -91,7 +91,7 @@ pub fn one_operand(
         roles.mark(Role::Status, &status);
         match try_roles(data, &roles, test, false)? {
             Ok((file, run)) => return Ok(OneInputProbed { a, file, run }),
-            Err(fault) => why = fault,
+            Err(fault) => why = why.nearer(fault),
         }
     }
     Err(why)

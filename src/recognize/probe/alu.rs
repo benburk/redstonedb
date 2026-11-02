@@ -87,7 +87,7 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, Fault> {
                     run,
                 });
             }
-            Err(fault) => why = fault,
+            Err(fault) => why = why.nearer(fault),
         }
     }
     Err(why)
