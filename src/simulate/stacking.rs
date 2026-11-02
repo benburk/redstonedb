@@ -624,6 +624,34 @@ pub(super) fn into_bits(
     }
 }
 
+/// Whether copies of the build in `data`, a gate or another whose bits
+/// each work alone, stack into more bits as [`into_bits`] tries: a stack
+/// works when every case of `test` comes out right and its A, the input
+/// `a` finds, has every copy's bits. `None` when `a` finds no A in the
+/// build itself; `not` says why none stacks.
+pub(super) fn bitwise(
+    data: &[u8],
+    test: Test,
+    a: impl Fn(&Interface) -> Option<usize>,
+    not: &str,
+) -> Option<Stacking> {
+    let blocks = Blocks::read(data).ok()?;
+    let interface = interface::read(&blocks);
+    let width = interface.inputs[a(&interface)?].bits.len();
+    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
+    let buses = stack::Buses::of(test.name(), Orientation::Horizontal);
+    let works = |blocks: &Blocks, copies: usize| {
+        let interface = interface::read(blocks);
+        let a = a(&interface)?;
+        let Report::Ran(run) = test.run(blocks) else {
+            return None;
+        };
+        (run.wrong == 0 && interface.inputs[a].bits.len() == width * copies)
+            .then_some(run.cases)
+    };
+    Some(into_bits(data, reach, width, buses, works, not))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

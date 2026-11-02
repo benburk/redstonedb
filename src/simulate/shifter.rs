@@ -432,21 +432,14 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
     let interface = crate::recognize::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
-    for Setting { held, .. } in settings(&shifter, &found) {
-        let bench = Bench {
-            inputs: vec![shifter.a],
-            outputs: vec![shifter.output],
-            pattern: String::new(),
-            held,
-            care: u64::MAX,
-            press: None,
-            invertible: false,
-        };
-        if bench::remembers(blocks, &interface, &bench)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    bench::remembers_any(
+        blocks,
+        &interface,
+        (&[shifter.a], &[shifter.output]),
+        settings(&shifter, &found)
+            .into_iter()
+            .map(|setting| setting.held),
+    )
 }
 
 /// Measures each setting of its lines, every shift at every amount, and
@@ -455,33 +448,21 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let interface = crate::recognize::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
-    let mut slowest: Option<Timing> = None;
-    let mut synced = true;
-    for Setting { shift: k, held, .. } in settings(&shifter, &found) {
+    let timings = settings(&shifter, &found)
+        .into_iter()
         // An off shift's output never changes, so it has nothing to time.
-        if found[k].shift == Shift::Off {
-            continue;
-        }
-        let timing = timing::measure(
-            blocks,
-            &interface,
-            &[shifter.a],
-            &held,
-            None,
-            cancel,
-        )?;
-        synced &= timing.synced;
-        if slowest
-            .as_ref()
-            .is_none_or(|s| timing.latency() > s.latency())
-        {
-            slowest = Some(timing);
-        }
-    }
-    let mut timing =
-        slowest.ok_or_else(|| Broken("no shift to time".to_owned()))?;
-    timing.synced = synced;
-    Ok(timing)
+        .filter(|setting| found[setting.shift].shift != Shift::Off)
+        .map(|Setting { held, .. }| {
+            timing::measure(
+                blocks,
+                &interface,
+                &[shifter.a],
+                &held,
+                None,
+                cancel,
+            )
+        });
+    timing::slowest(timings, |timing| timing.synced, "no shift to time")
 }
 
 /// How often the barrel shifter in `blocks`, timed as `timing`, takes a new
@@ -494,15 +475,6 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     let settings = settings(&shifter, &found);
-    let latency: Vec<i32> = timing
-        .outputs
-        .iter()
-        .map(|o| o.latency + o.carried)
-        .collect();
-    if latency.len() != interface.outputs.len() {
-        return Ok(None);
-    }
-    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
     let stream = |count: usize| {
         let mut rng = Rng::default();
         (0..count)
@@ -515,33 +487,15 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
                 }
                 case
             })
-            .collect::<Vec<_>>()
+            .collect()
     };
-    let (short, long) = (
-        stream(super::throughput::CASES),
-        stream(super::throughput::LONG),
-    );
-    let mut best: Option<i32> = None;
-    for offset in -slowest..=slowest {
-        let offsets: Vec<i32> = (0..interface.inputs.len())
-            .map(|port| if port == shifter.a { 0 } else { offset })
-            .collect();
-        let most = best.map_or(2 * slowest, |b| b - 1);
-        if most < 1 {
-            break;
-        }
-        let found = super::throughput::shortest(
-            blocks,
-            (&short, &long),
-            &offsets,
-            &latency,
-            most,
-        )?;
-        if found.is_some() {
-            best = found;
-        }
-    }
-    Ok(best)
+    super::throughput::controlled(
+        blocks,
+        &interface,
+        timing,
+        |port| port != shifter.a,
+        stream,
+    )
 }
 
 #[cfg(test)]
