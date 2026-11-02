@@ -5,6 +5,7 @@ use std::{collections::HashMap, fs, io::Write as _, path::Path};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
+    category,
     details::{self, Details},
     models::{
         schematic::{self, Encoding, Logic, Orientation, StackDirection},
@@ -379,7 +380,11 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let from = s.works_from.as_deref().unwrap_or("unknown");
     let by = s.works_from_by.as_deref().map(|by| format!(" ({by})"));
     println!("works from   {from}{}", by.unwrap_or_default());
-    println!("design       {}", s.design.replace('_', " "));
+    let design = s
+        .design
+        .as_deref()
+        .map_or("none".to_owned(), category::words);
+    println!("design       {design}");
     let flags: Vec<&str> = s.flags.iter().map(|f| f.label).collect();
     println!("flags        {}", flags.join(", "));
     let stacking: Vec<String> =

@@ -290,13 +290,17 @@ pub fn aliases(category: &str) -> Vec<String> {
     aliases.into_iter().map(str::to_owned).collect()
 }
 
+/// The word search and a leaderboard's address name no design by, as a
+/// build of none is found and ranked as one of `other`.
+pub const NO_DESIGN: &str = "other";
+
 /// Checks a build's category and design, and returns the category. A
 /// category is a standard one, or any other name made of lowercase words
 /// joined by underscores. A design is none, or one the category lists.
 /// The `Err` is a sentence for the person.
 pub fn check_category(
     category: &str,
-    design: &str,
+    design: Option<&str>,
 ) -> Result<Category, String> {
     let valid = |name: &str| {
         name.chars().any(|c| c.is_ascii_alphanumeric())
@@ -318,7 +322,9 @@ pub fn check_category(
     if category == "other" {
         return Err("Name the category, rather than other.".to_owned());
     }
-    if design != "other" && Design::of(category, design).is_none() {
+    if let Some(design) = design
+        && Design::of(category, design).is_none()
+    {
         return Err(format!(
             "{} is not a design of {}.",
             design.replace('_', " "),

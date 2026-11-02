@@ -11,8 +11,7 @@ use app::{
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
-/// An in-memory database with the migrations applied, which list the
-/// standard categories.
+/// An in-memory database with the migrations applied.
 pub async fn database() -> SqlitePool {
     migrated(SqlitePoolOptions::new()).await
 }

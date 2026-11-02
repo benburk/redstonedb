@@ -100,7 +100,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
     let report = simulation::refresh(&db, &id, false).await.unwrap();
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.design, "ripple_carry");
+    assert_eq!(s.design.as_deref(), Some("ripple_carry"));
     assert_ne!(s.latency, Some(99));
     assert!(s.throughput.is_some_and(|t| (2..99).contains(&t)));
 }

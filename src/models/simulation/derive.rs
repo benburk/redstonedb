@@ -59,7 +59,7 @@ impl Derived {
                 latency: None,
                 synchronized: None,
                 throughput: None,
-                design: "other".to_owned(),
+                design: None,
                 ..stored.measured
             },
             stacking: Vec::new(),
@@ -87,9 +87,11 @@ impl Derived {
                 derived.measured.at_least = run.at_least();
             }
             derived.measured.throughput = e.throughput;
-            if let Some(design) = &e.design {
-                design.name.clone_into(&mut derived.measured.design);
-            }
+            derived.measured.design = e
+                .design
+                .as_ref()
+                .and_then(|design| design.given())
+                .map(str::to_owned);
             if e.logic.is_some() {
                 derived.measured.logic = e.logic;
             }

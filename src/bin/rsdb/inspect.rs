@@ -164,7 +164,9 @@ pub(super) async fn evaluate(
         stored_flags.sort();
         let mut flags = e.flags.clone();
         flags.sort();
-        let design = e.design.as_ref().map_or("other", |d| d.name.as_str());
+        let show_design =
+            |design: Option<&str>| design.unwrap_or("none").to_owned();
+        let design = e.design.as_ref().and_then(|d| d.given());
         let fields: [(&str, String, String); 12] = [
             (
                 "category",
@@ -184,7 +186,11 @@ pub(super) async fn evaluate(
             ("latency", show(&s.latency), show(&e.latency)),
             ("synchronized", show(&s.synchronized), show(&e.synchronized)),
             ("throughput", show(&s.throughput), show(&e.throughput)),
-            ("design", s.design.clone(), design.to_owned()),
+            (
+                "design",
+                show_design(s.design.as_deref()),
+                show_design(design),
+            ),
             ("logic", show(&s.logic), show(&e.logic)),
         ];
         let differ: Vec<String> = fields

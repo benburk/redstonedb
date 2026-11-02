@@ -24,7 +24,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    category::{Flag, Measure},
+    category::{Flag, Measure, NO_DESIGN},
     models::schematic::{Logic, Schematic},
     recognize::colour,
 };
@@ -326,8 +326,9 @@ fn facts(s: &Schematic) -> Vec<String> {
     if !s.conventional {
         facts.push("unconventional".to_owned());
     }
-    // Its design by its own label, and `other` too, which is no tag.
-    facts.push(s.design.replace('_', " "));
+    // Its design by its own label, and no design as `other`, which is no
+    // tag.
+    facts.push(s.design.as_deref().unwrap_or(NO_DESIGN).replace('_', " "));
     if let Some(label) = &s.design_given_label {
         facts.push(label.to_lowercase());
     }
@@ -440,7 +441,7 @@ pub(crate) mod tests {
             imported_by: None,
             conventional: true,
             keeps_paste: false,
-            design: "other".to_owned(),
+            design: None,
             design_abbreviation: None,
             design_given_label: None,
             flags: Vec::new(),
