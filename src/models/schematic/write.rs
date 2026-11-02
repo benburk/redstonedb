@@ -1,12 +1,13 @@
 //! The writes that change stored builds: storing a new one, its details,
-//! credits, tags, flags, and stacking, what its simulation works out,
+//! credits, tags, flags, and stacking, what its file and simulation decide,
 //! whether it is public, its downloads, and deleting it; and the builds
 //! people favourite.
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{
-    Encoding, Logic, Orientation, StackDirection, Widened, load::Credit,
+    Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
+    load::Credit,
 };
 use crate::{
     details::Ready,
@@ -367,91 +368,71 @@ pub async fn set_flags(
     Ok(())
 }
 
-/// Sets the details worked out from a build's file and its simulation
-/// rather than typed: its width, orientation, and encoding as its file
-/// shows them, and its latency and whether it is synchronized as the
-/// simulation measured them. None of it is a person's edit.
-pub async fn set_derived<'e, E: SqliteExecutor<'e>>(
+/// What a build's file and its simulation decide of its details, rather
+/// than a person: its width, orientation, and encoding as its file shows
+/// them; its latency, whether it is synchronized, a monostable's pulse, and
+/// a threshold's count as the simulation measured them; and, for a category
+/// whose details are all evaluated, its throughput, design, and whether it
+/// holds state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Measured {
+    pub width: Option<i64>,
+    pub orientation: Orientation,
+    pub encoding: Option<Encoding>,
+    pub latency: Option<i64>,
+    pub synchronized: Option<bool>,
+    /// A monostable's pulse, in ticks.
+    pub pulse: Option<i64>,
+    /// A threshold's count of A's bits on that turns it on.
+    pub at_least: Option<i64>,
+    pub throughput: Option<i64>,
+    pub design: String,
+    /// Whether it holds state, where set on the build itself; `None`
+    /// follows its category.
+    pub logic: Option<Logic>,
+}
+
+impl Measured {
+    /// Build `s`'s, as stored.
+    pub fn of(s: &Schematic) -> Self {
+        Measured {
+            width: s.width,
+            orientation: s.orientation,
+            encoding: s.encoding,
+            latency: s.latency,
+            synchronized: s.synchronized,
+            pulse: s.pulse,
+            at_least: s.at_least,
+            throughput: s.throughput,
+            design: s.design.clone(),
+            logic: s.own_logic,
+        }
+    }
+}
+
+/// Sets what build `id`'s file and simulation decide, `measured`, none of
+/// it a person's edit.
+pub async fn set_measured<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    width: Option<i64>,
-    orientation: Orientation,
-    encoding: Option<Encoding>,
-    latency: Option<i64>,
-    synchronized: Option<bool>,
+    measured: &Measured,
 ) -> Result<(), sqlx::Error> {
+    let logic = measured.logic.map(Logic::name);
     sqlx::query!(
         "UPDATE schematic SET width = ?, orientation = ?, encoding = ?,
-            latency = ?, synchronized = ?
+            latency = ?, synchronized = ?, pulse = ?, at_least = ?,
+            throughput = ?, design = ?, logic = ?
          WHERE id = ?",
-        width,
-        orientation,
-        encoding,
-        latency,
-        synchronized,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Sets the details `evaluate` gives a build of a category whose details
-/// are all evaluated, beside those `set_derived` sets.
-pub async fn set_evaluated<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    throughput: Option<i64>,
-    design: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET throughput = ?, design = ? WHERE id = ?",
-        throughput,
-        design,
-        id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Sets whether build `id` holds state, where it differs from its
-/// category's; `None` follows the category.
-pub async fn set_logic<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    logic: Option<Logic>,
-) -> Result<(), sqlx::Error> {
-    let logic = logic.map(Logic::name);
-    sqlx::query!("UPDATE schematic SET logic = ? WHERE id = ?", logic, id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Sets a monostable's pulse as the simulation measured it, which is no
-/// person's edit either.
-pub async fn set_pulse<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    pulse: Option<i64>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE schematic SET pulse = ? WHERE id = ?", pulse, id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Sets a threshold's count of its inputs on that turns it on, as its
-/// simulation finds it.
-pub async fn set_at_least<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    at_least: Option<i64>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE schematic SET at_least = ? WHERE id = ?",
-        at_least,
+        measured.width,
+        measured.orientation,
+        measured.encoding,
+        measured.latency,
+        measured.synchronized,
+        measured.pulse,
+        measured.at_least,
+        measured.throughput,
+        measured.design,
+        logic,
         id
     )
     .execute(db)

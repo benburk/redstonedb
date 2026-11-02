@@ -213,7 +213,7 @@ pub async fn refresh(
     if s.conventional {
         derived.read(&s.category, &Blocks::read(&data)?);
     }
-    let test = Test::of(&s.category, derived.width);
+    let test = Test::of(&s.category, derived.measured.width);
     let mut ran = None;
     let report = match test {
         Some(test) => {
@@ -248,7 +248,7 @@ pub async fn refresh(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(&s.category, derived.orientation),
+                stack::Buses::of(&s.category, derived.measured.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -446,12 +446,12 @@ async fn refresh_evaluated(
     };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
-    match (Test::of(&s.category, derived.width), &report) {
+    match (Test::of(&s.category, derived.measured.width), &report) {
         (Some(test), Some(report)) => {
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(&s.category, derived.orientation),
+                stack::Buses::of(&s.category, derived.measured.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -474,32 +474,8 @@ impl Derived {
         if *self == stored {
             return Ok(());
         }
-        let columns = |d: &Derived| {
-            (
-                d.width,
-                d.orientation,
-                d.encoding,
-                d.latency,
-                d.synchronized,
-            )
-        };
-        if columns(self) != columns(&stored) {
-            schematic::set_derived(
-                &mut *tx,
-                &s.id,
-                self.width,
-                self.orientation,
-                self.encoding,
-                self.latency,
-                self.synchronized,
-            )
-            .await?;
-        }
-        if self.pulse != stored.pulse {
-            schematic::set_pulse(&mut *tx, &s.id, self.pulse).await?;
-        }
-        if self.at_least != stored.at_least {
-            schematic::set_at_least(&mut *tx, &s.id, self.at_least).await?;
+        if self.measured != stored.measured {
+            schematic::set_measured(&mut *tx, &s.id, &self.measured).await?;
         }
         if self.flags != stored.flags {
             schematic::set_flags(tx, &s.id, &self.flags).await?;
@@ -509,20 +485,6 @@ impl Derived {
         }
         if self.widened != stored.widened {
             schematic::set_widened(tx, &s.id, &self.widened).await?;
-        }
-        if self.logic != stored.logic {
-            schematic::set_logic(&mut *tx, &s.id, self.logic).await?;
-        }
-        if (self.throughput, &self.design)
-            != (stored.throughput, &stored.design)
-        {
-            schematic::set_evaluated(
-                &mut *tx,
-                &s.id,
-                self.throughput,
-                &self.design,
-            )
-            .await?;
         }
         Ok(())
     }

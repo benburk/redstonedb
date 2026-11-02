@@ -4,9 +4,7 @@
 
 use crate::{
     import,
-    models::schematic::{
-        Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
-    },
+    models::schematic::{Measured, Schematic, StackDirection, Widened},
     recognize::{category, evaluate::Evaluation, interface},
     schem::Blocks,
     simulate::{self, Edge, Report, SIGNED_GREATER_THAN, Stacking, Test},
@@ -26,41 +24,21 @@ pub const FALLING_EDGE: &str = "falling_edge";
 /// what was typed, as they stand or are to be.
 #[derive(PartialEq)]
 pub(super) struct Derived {
-    pub(super) width: Option<i64>,
-    pub(super) orientation: Orientation,
-    pub(super) encoding: Option<Encoding>,
-    pub(super) latency: Option<i64>,
-    pub(super) synchronized: Option<bool>,
-    pub(super) pulse: Option<i64>,
-    /// A threshold's count of A's bits on that turns it on.
-    pub(super) at_least: Option<i64>,
+    pub(super) measured: Measured,
     pub(super) flags: Vec<String>,
     pub(super) stacking: Vec<StackDirection>,
     /// Its copies stacked into wider builds; see `Widened`.
     pub(super) widened: Vec<Widened>,
-    pub(super) throughput: Option<i64>,
-    pub(super) design: String,
-    /// Whether it holds state, where set on the build itself.
-    pub(super) logic: Option<Logic>,
 }
 
 impl Derived {
     /// Build `s`'s, as stored.
     pub(super) fn of(s: &Schematic) -> Self {
         Derived {
-            width: s.width,
-            orientation: s.orientation,
-            encoding: s.encoding,
-            latency: s.latency,
-            synchronized: s.synchronized,
-            pulse: s.pulse,
-            at_least: s.at_least,
+            measured: Measured::of(s),
             flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
             stacking: s.stacking.clone(),
             widened: s.widened.clone(),
-            throughput: s.throughput,
-            design: s.design.clone(),
-            logic: s.own_logic,
         }
     }
 
@@ -71,41 +49,45 @@ impl Derived {
     /// recognizes it as the category, what the simulation measured. What
     /// could not be worked out is unknown, not what was typed.
     pub(super) fn evaluated(s: &Schematic, e: &Evaluation) -> Self {
+        let stored = Derived::of(s);
         let mut derived = Derived {
-            latency: None,
-            synchronized: None,
+            measured: Measured {
+                latency: None,
+                synchronized: None,
+                throughput: None,
+                design: "other".to_owned(),
+                ..stored.measured
+            },
             stacking: Vec::new(),
             widened: Vec::new(),
-            throughput: None,
-            design: "other".to_owned(),
-            ..Derived::of(s)
+            ..stored
         };
         derived.read(&s.category, &e.prepared.blocks);
         if e.category == Some(s.category.as_str()) {
             if let Some(orientation) = e.orientation {
-                derived.orientation = orientation;
+                derived.measured.orientation = orientation;
             }
-            derived.latency = e.latency;
-            derived.synchronized = e.synchronized;
+            derived.measured.latency = e.latency;
+            derived.measured.synchronized = e.synchronized;
             derived.stacking.clone_from(&e.stacking);
             derived.widened.clone_from(&e.widened);
             derived.flags.clone_from(&e.flags);
             if e.pulse.is_some() {
-                derived.pulse = e.pulse;
+                derived.measured.pulse = e.pulse;
             }
             if let Some(Report::Ran(run)) = &e.report
                 && run.wrong == 0
                 && category::behaviour(&s.category).test
                     == Some(Test::Threshold)
             {
-                derived.at_least = simulate::at_least(&run.pattern);
+                derived.measured.at_least = simulate::at_least(&run.pattern);
             }
-            derived.throughput = e.throughput;
+            derived.measured.throughput = e.throughput;
             if let Some(design) = &e.design {
-                design.name.clone_into(&mut derived.design);
+                design.name.clone_into(&mut derived.measured.design);
             }
             if e.logic.is_some() {
-                derived.logic = e.logic;
+                derived.measured.logic = e.logic;
             }
         }
         derived
@@ -116,13 +98,13 @@ impl Derived {
         let interface = interface::read(blocks);
         let found = import::derived(category, &interface);
         if let Some(width) = found.width {
-            self.width = Some(width);
+            self.measured.width = Some(width);
         }
         if let Some(orientation) = found.orientation {
-            self.orientation = orientation;
+            self.measured.orientation = orientation;
         }
         if let Some(encoding) = found.encoding {
-            self.encoding = Some(encoding);
+            self.measured.encoding = Some(encoding);
         }
         if let Some(flags) = import::derived_flags(category, &interface) {
             self.flags = flags;
@@ -144,8 +126,8 @@ impl Derived {
         if let Some(timing) = report.timing()
             && let Some(latency) = timing.latency()
         {
-            self.latency = Some(latency.max(0).into());
-            self.synchronized = Some(timing.synced);
+            self.measured.latency = Some(latency.max(0).into());
+            self.measured.synchronized = Some(timing.synced);
         }
         // A comparator's cases say whether it reads its operands signed.
         if let Report::Ran(run) = report
@@ -162,10 +144,10 @@ impl Derived {
             && run.wrong == 0
             && category::behaviour(&s.category).test == Some(Test::Threshold)
         {
-            self.at_least = simulate::at_least(&run.pattern);
+            self.measured.at_least = simulate::at_least(&run.pattern);
         }
         if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
-            self.pulse = Some(pulse.ticks.into());
+            self.measured.pulse = Some(pulse.ticks.into());
             self.flags
                 .retain(|flag| flag != INVERTED && flag != FALLING_EDGE);
             if pulse.inverted {
@@ -231,7 +213,7 @@ impl Derived {
         ) = &run.stacking
             && let Some(orientation) = step.orientation()
         {
-            self.orientation = orientation;
+            self.measured.orientation = orientation;
         }
     }
 }
@@ -241,7 +223,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::search::tests::schematic;
+    use crate::{models::schematic::Orientation, search::tests::schematic};
 
     /// A result that ran every case of `pattern`, `wrong` of them wrong,
     /// with `timing` if it was measured.
@@ -324,7 +306,7 @@ mod tests {
     fn a_thresholds_cases_say_how_many_bits_turn_it_on() {
         let s = schematic("threshold", Orientation::Horizontal, &[]);
         let report = ran("at least 3 of A on", 0, &json!(null));
-        assert_eq!(decided(&s, &[], &report).at_least, Some(3));
+        assert_eq!(decided(&s, &[], &report).measured.at_least, Some(3));
     }
 
     #[test]
@@ -333,11 +315,11 @@ mod tests {
         let pulse = json!({"ticks": 4, "inverted": true, "edge": "falling"});
         let report = ran("A", 0, &timing(2, 6, &pulse));
         let derived = decided(&s, &[], &report);
-        assert_eq!(derived.pulse, Some(4));
+        assert_eq!(derived.measured.pulse, Some(4));
         assert_eq!(derived.flags, [INVERTED, FALLING_EDGE]);
         // A pulse's latency is when the output first changes.
-        assert_eq!(derived.latency, Some(2));
-        assert_eq!(derived.synchronized, Some(true));
+        assert_eq!(derived.measured.latency, Some(2));
+        assert_eq!(derived.measured.synchronized, Some(true));
         // One that rests off and pulses as A turns on loses both flags.
         let pulse = json!({"ticks": 4, "inverted": false, "edge": "rising"});
         let report = ran("A", 0, &timing(2, 6, &pulse));
@@ -353,7 +335,7 @@ mod tests {
         };
         let derived = decided(&s, &[SIGNED], &skipped);
         assert_eq!(derived.flags, [SIGNED]);
-        assert_eq!(derived.latency, s.latency);
+        assert_eq!(derived.measured.latency, s.latency);
         assert_eq!(derived.stacking, s.stacking);
     }
 }
