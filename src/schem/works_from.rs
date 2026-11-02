@@ -6,7 +6,7 @@
 //! could rest on sets the release. Every build on the site works in the
 //! latest release, so there is no newest one to find.
 
-use crate::schem::{self, Blocks, Direction, Pos, standardize};
+use crate::schem::{self, Blocks, Direction, Pos, block};
 
 /// A release that added redstone components or mechanics a build may use.
 pub struct Release {
@@ -187,7 +187,7 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
             raise(DOT, "a dot of dust".to_owned());
         }
         if let Some((on, top)) = support(pos, state, id)
-            && standardize::see_through(schem::short(blocks.get(on)))
+            && block::see_through(schem::short(blocks.get(on)))
         {
             let what = match id {
                 "redstone_wire" => "dust",

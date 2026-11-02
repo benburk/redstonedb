@@ -56,12 +56,7 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let blocks = Blocks::read(&data)?;
     let changes: BTreeMap<Pos, String> = blocks
         .iter()
-        .filter(|&(_, state)| {
-            let name = schem::short(state);
-            name.ends_with("_slab")
-                || name.ends_with("_stairs")
-                || name == "glowstone"
-        })
+        .filter(|&(_, state)| schem::block::like_glass(schem::short(state)))
         .map(|(pos, _)| (pos, "minecraft:white_stained_glass".to_owned()))
         .collect();
     if changes.is_empty() {

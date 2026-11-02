@@ -19,7 +19,7 @@ use sqlx::SqlitePool;
 use crate::{
     import::{self, Prepared},
     models::{schematic::Schematic, version},
-    recognize::{colour, inspect},
+    recognize::inspect,
     schem::{
         self, Blocks, Pos,
         orient::{self, Turn},
@@ -133,7 +133,7 @@ fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
 /// container without its power, and any other block only as a block.
 fn compared(state: &str) -> String {
     let name = schem::short(state);
-    if colour::is_component(name)
+    if schem::block::is_component(name)
         || name.ends_with("_sign")
         || schem::slots(state).is_some()
     {

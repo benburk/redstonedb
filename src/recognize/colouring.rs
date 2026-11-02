@@ -17,7 +17,7 @@ use anyhow::Result;
 use crate::{
     recognize::colour,
     schem::{
-        self, Blocks, Pos,
+        self, Blocks, Pos, block,
         orient::{self, Turn},
         standardize,
     },
@@ -39,12 +39,12 @@ fn kind(state: &str) -> &str {
         || colour::barrel_stands_in(name)
     {
         "container"
-    } else if standardize::see_through(name) {
+    } else if block::see_through(name) {
         "see-through"
     } else if name == "redstone_lamp" {
         // A lamp an input's lever sat on was made that input's block.
         "solid"
-    } else if colour::is_component(name) {
+    } else if block::is_component(name) {
         name
     } else {
         "solid"

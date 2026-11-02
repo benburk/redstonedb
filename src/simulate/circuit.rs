@@ -1091,8 +1091,8 @@ fn block(state: &str) -> Result<Block> {
     // Any other full block that carries power, such as wool, terracotta,
     // or stone, does as concrete does.
     let id = if !known
-        && !crate::recognize::colour::is_component(name)
-        && crate::schem::dust::solid(state)
+        && !crate::schem::block::is_component(name)
+        && crate::schem::block::solid(state)
     {
         "minecraft:white_concrete"
     } else {

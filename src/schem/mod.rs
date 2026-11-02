@@ -3,6 +3,7 @@
 //! shape a build's blocks: turning it, fitting its box, stacking copies, and
 //! dating the oldest release it works in.
 
+pub mod block;
 pub mod dust;
 pub mod orient;
 pub mod stack;
