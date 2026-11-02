@@ -126,10 +126,11 @@ pub(super) async fn colours(
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let original = fs::read(file)?;
-    let versions: Vec<i64> = sqlx::query_scalar(
-        "SELECT version FROM schematic_version WHERE schematic_id = ? ORDER BY version DESC",
+    let versions = sqlx::query_scalar!(
+        "SELECT version FROM schematic_version WHERE schematic_id = ?
+         ORDER BY version DESC",
+        id,
     )
-    .bind(&id)
     .fetch_all(db)
     .await?;
     let mut closest = None;
