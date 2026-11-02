@@ -27,43 +27,76 @@ use crate::{
     schem::Blocks,
 };
 
-/// The shifts a barrel shifter may give, each of A, by the amount `n`, of
-/// `width` bits; and how its cases read.
-const SHIFTS: [(&str, &str); 8] = [
-    ("shl", "A << n"),
-    ("shr", "A >> n"),
-    ("rol", "A rotated left n"),
-    ("ror", "A rotated right n"),
-    ("asr", "A >> n, signed"),
-    ("shl_rest", "A << (width − n)"),
-    ("shr_rest", "A >> (width − n)"),
-    ("off", "0"),
-];
+/// A shift a barrel shifter may give, of A by the amount `n`, of `width`
+/// bits. On a tie, the one first in `Shift::ALL` is taken.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shift {
+    Left,
+    Right,
+    RotateLeft,
+    RotateRight,
+    /// Right, keeping the sign.
+    Arithmetic,
+    /// Left by the width less the amount.
+    LeftRest,
+    /// Right by the width less the amount, as a shifter that shifts right
+    /// through its left shifter's wrapped bits does.
+    RightRest,
+    /// Nothing: every bit off.
+    Off,
+}
 
-/// What `shift` gives for A and the amount `n`, of `width` bits.
-fn apply(shift: &str, a: u64, n: u64, width: usize) -> u64 {
-    let all = mask(width);
-    let w = u64::try_from(width).unwrap_or(64);
-    let n = n.min(w);
-    let left = |by: u64| if by >= w { 0 } else { a << by & all };
-    let right = |by: u64| if by >= w { 0 } else { a >> by };
-    let top = a >> (w - 1) & 1;
-    match shift {
-        "shl" => left(n),
-        "shr" => right(n),
-        "rol" => (left(n % w) | right((w - n % w) % w)) & all,
-        "ror" => (right(n % w) | left((w - n % w) % w)) & all,
-        "asr" => {
-            let kept = right(n);
-            if top == 1 {
-                kept | (all & !(all >> n.min(w)))
-            } else {
-                kept
-            }
+impl Shift {
+    const ALL: [Shift; 8] = [
+        Shift::Left,
+        Shift::Right,
+        Shift::RotateLeft,
+        Shift::RotateRight,
+        Shift::Arithmetic,
+        Shift::LeftRest,
+        Shift::RightRest,
+        Shift::Off,
+    ];
+
+    /// How its cases read.
+    fn pattern(self) -> &'static str {
+        match self {
+            Shift::Left => "A << n",
+            Shift::Right => "A >> n",
+            Shift::RotateLeft => "A rotated left n",
+            Shift::RotateRight => "A rotated right n",
+            Shift::Arithmetic => "A >> n, signed",
+            Shift::LeftRest => "A << (width − n)",
+            Shift::RightRest => "A >> (width − n)",
+            Shift::Off => "0",
         }
-        "shl_rest" => left(w - n),
-        "shr_rest" => right(w - n),
-        _ => 0,
+    }
+
+    /// What it gives for A and the amount `n`, of `width` bits.
+    fn apply(self, a: u64, n: u64, width: usize) -> u64 {
+        let all = mask(width);
+        let w = u64::try_from(width).unwrap_or(64);
+        let n = n.min(w);
+        let left = |by: u64| if by >= w { 0 } else { a << by & all };
+        let right = |by: u64| if by >= w { 0 } else { a >> by };
+        let top = a >> (w - 1) & 1;
+        match self {
+            Shift::Left => left(n),
+            Shift::Right => right(n),
+            Shift::RotateLeft => (left(n % w) | right((w - n % w) % w)) & all,
+            Shift::RotateRight => (right(n % w) | left((w - n % w) % w)) & all,
+            Shift::Arithmetic => {
+                let kept = right(n);
+                if top == 1 {
+                    kept | (all & !(all >> n.min(w)))
+                } else {
+                    kept
+                }
+            }
+            Shift::LeftRest => left(w - n),
+            Shift::RightRest => right(w - n),
+            Shift::Off => 0,
+        }
     }
 }
 
@@ -184,7 +217,7 @@ fn ports(interface: &Interface) -> Result<Shifter> {
 
 /// One way its lines are set, and the shift it gives.
 struct Selection {
-    shift: &'static str,
+    shift: Shift,
     /// Each mode line's value.
     modes: Vec<(usize, u64)>,
     /// How it reads in a result, such as `A << n (shift left on)`.
@@ -217,7 +250,7 @@ fn selections(
             .enumerate()
             .map(|(k, &port)| (port, combination >> k & 1))
             .collect();
-        let mut right = [0usize; SHIFTS.len()];
+        let mut right = [0usize; Shift::ALL.len()];
         let mut tried = 0;
         for n in shifter.amounts() {
             let bench = Bench {
@@ -236,14 +269,14 @@ fn selections(
             let got = observe(blocks, interface, &bench, &telling, None)?;
             for (case, &got) in telling.iter().zip(&got) {
                 tried += 1;
-                for (k, (shift, _)) in SHIFTS.iter().enumerate() {
+                for (k, shift) in Shift::ALL.iter().enumerate() {
                     right[k] += usize::from(
-                        apply(shift, case[0], n, shifter.width) == got,
+                        shift.apply(case[0], n, shifter.width) == got,
                     );
                 }
             }
         }
-        let best = (0..SHIFTS.len())
+        let best = (0..Shift::ALL.len())
             .filter(|&k| right[k] * 4 >= tried * 3)
             .max_by_key(|&k| (right[k], std::cmp::Reverse(k)));
         let Some(k) = best else {
@@ -259,13 +292,14 @@ fn selections(
         } else {
             format!("{} on", on.join(" + "))
         };
+        let shift = Shift::ALL[k];
         found.push(Selection {
-            shift: SHIFTS[k].0,
+            shift,
             modes,
-            label: format!("{} ({lines})", SHIFTS[k].1),
+            label: format!("{} ({lines})", shift.pattern()),
         });
     }
-    if found.iter().all(|s| s.shift == "off") {
+    if found.iter().all(|s| s.shift == Shift::Off) {
         broken!("No setting of its lines shifts A.");
     }
     Ok(found)
@@ -342,7 +376,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
         let (shift, width) = (selection.shift, shifter.width);
         let mut run =
             sweep(blocks, &interface, &bench, &cases, None, move |case| {
-                apply(shift, case[0], n, width)
+                shift.apply(case[0], n, width)
             })?
             .covering(exhaustive, patterns);
         for wrong in &mut run.examples {
@@ -370,17 +404,23 @@ pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
     let interface = crate::recognize::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
-    let has = |shifts: &[&str]| found.iter().any(|s| shifts.contains(&s.shift));
-    let left = has(&["shl", "rol", "shl_rest"]);
-    let right = has(&["shr", "ror", "asr", "shr_rest"]);
+    let has =
+        |shifts: &[Shift]| found.iter().any(|s| shifts.contains(&s.shift));
+    let left = has(&[Shift::Left, Shift::RotateLeft, Shift::LeftRest]);
+    let right = has(&[
+        Shift::Right,
+        Shift::RotateRight,
+        Shift::Arithmetic,
+        Shift::RightRest,
+    ]);
     let mut flags = Vec::new();
     if left && right {
         flags.push("bidirectional".to_owned());
     }
-    if has(&["rol", "ror"]) {
+    if has(&[Shift::RotateLeft, Shift::RotateRight]) {
         flags.push("rotate".to_owned());
     }
-    if has(&["asr"]) {
+    if has(&[Shift::Arithmetic]) {
         flags.push("arithmetic".to_owned());
     }
     Ok(flags)
@@ -419,7 +459,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let mut synced = true;
     for Setting { shift: k, held, .. } in settings(&shifter, &found) {
         // An off shift's output never changes, so it has nothing to time.
-        if found[k].shift == "off" {
+        if found[k].shift == Shift::Off {
             continue;
         }
         let timing = timing::measure(
@@ -510,14 +550,14 @@ mod tests {
 
     #[test]
     fn each_shift_gives_its_result_on_eight_bits() {
-        assert_eq!(apply("shl", 0b1001_0110, 1, 8), 0b0010_1100);
-        assert_eq!(apply("shr", 0b1001_0110, 1, 8), 0b0100_1011);
-        assert_eq!(apply("rol", 0b1001_0110, 1, 8), 0b0010_1101);
-        assert_eq!(apply("ror", 0b1001_0110, 1, 8), 0b0100_1011);
-        assert_eq!(apply("asr", 0b1001_0110, 2, 8), 0b1110_0101);
-        assert_eq!(apply("shr_rest", 0x80, 1, 8), 0x01);
-        assert_eq!(apply("shl_rest", 0x01, 7, 8), 0x02);
-        assert_eq!(apply("rol", 0x96, 0, 8), 0x96);
-        assert_eq!(apply("shr_rest", 0x96, 0, 8), 0);
+        assert_eq!(Shift::Left.apply(0b1001_0110, 1, 8), 0b0010_1100);
+        assert_eq!(Shift::Right.apply(0b1001_0110, 1, 8), 0b0100_1011);
+        assert_eq!(Shift::RotateLeft.apply(0b1001_0110, 1, 8), 0b0010_1101);
+        assert_eq!(Shift::RotateRight.apply(0b1001_0110, 1, 8), 0b0100_1011);
+        assert_eq!(Shift::Arithmetic.apply(0b1001_0110, 2, 8), 0b1110_0101);
+        assert_eq!(Shift::RightRest.apply(0x80, 1, 8), 0x01);
+        assert_eq!(Shift::LeftRest.apply(0x01, 7, 8), 0x02);
+        assert_eq!(Shift::RotateLeft.apply(0x96, 0, 8), 0x96);
+        assert_eq!(Shift::RightRest.apply(0x96, 0, 8), 0);
     }
 }

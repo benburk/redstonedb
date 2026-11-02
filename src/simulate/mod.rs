@@ -775,7 +775,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         .iter()
         .filter(|port| port.block.starts_with(colour::CONTROL))
         .flat_map(|port| port.words.iter())
-        .any(|word| alu::op(word).is_some());
+        .any(|word| alu::Op::named(word).is_some());
     // Inputs taking a hex digit per block through dust are a hex adder's.
     let hex = !interface::dust_inputs(blocks).is_empty();
     GUESSED
