@@ -156,6 +156,22 @@ pub async fn set_palette(
     let preset = form.fields.preset.is_some();
     let reset = form.reset.reset.is_some();
     let chosen = form.fields.palette();
+    // Roles that couldn't be told apart are refused, the theme as it was.
+    if let Some(why) = chosen.clash().filter(|_| !reset) {
+        if !fixi {
+            return Ok(Redirect::to(&onward(
+                form.next.as_deref(),
+                "/settings",
+            ))
+            .into_response());
+        }
+        let kept = palette::of(&state.db, user.id).await?.unwrap_or_default();
+        return Ok((
+            [("FX-Notice", super::notice(&why))],
+            pages::palette_fields(&kept, pages::Presets::Saved),
+        )
+            .into_response());
+    }
     let keep = !reset && chosen.valid() && chosen != site;
     palette::set(&state.db, user.id, keep.then_some(&chosen)).await?;
     if fixi {
@@ -206,7 +222,7 @@ pub async fn custom_colours(
         Palette::default()
     } else if fields.given() {
         Some(fields.palette())
-            .filter(Palette::valid)
+            .filter(Palette::known)
             .unwrap_or_default()
     } else {
         match &viewer {

@@ -462,12 +462,14 @@ fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
 
 /// Whether a block of kind `name` can mark an output: any full block that
 /// carries power but a redstone component, such as a target or lamp, or
-/// stained glass of a colour; plain glass, and white or gray, is what a
-/// build holds dust up with. Whether it does is up to its kind's blocks:
-/// each alone, with something reading it on top.
+/// stained glass of any colour but white. Plain glass and white glass are
+/// what a build holds dust up with, and the site stores its own plain
+/// transparent blocks as white glass, so a small build's lone white glass
+/// under dust would read as outputs. Whether it does is up to its kind's
+/// blocks: each alone, with something reading it on top.
 fn marks(name: &str) -> bool {
     if let Some(colour) = name.strip_suffix("_stained_glass") {
-        return !matches!(colour, "white" | "gray" | "light_gray");
+        return colour != "white";
     }
     !colour::is_component(name)
         && !name.ends_with("glass")
@@ -813,6 +815,9 @@ mod tests {
             "magenta_wool",
             "lime_concrete",
             "light_blue_stained_glass",
+            "gray_stained_glass",
+            "light_gray_stained_glass",
+            "white_wool",
             "gold_block",
             "stone",
         ] {

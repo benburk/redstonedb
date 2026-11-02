@@ -222,19 +222,14 @@ pub fn icon(block: &str) -> String {
     )
 }
 
-/// The colours a role may be marked with: any dye but white and gray, which
-/// mark plain blocks and a stack's first copy's logic.
-pub fn colours() -> impl Iterator<Item = &'static str> {
-    DYES.into_iter().filter(|d| !matches!(*d, "white" | "gray"))
-}
-
 /// What marks no role: its blocks are plain, the palette's own.
 pub const NONE: &str = "none";
 
 /// The blocks a role may be marked with, by group: any coloured concrete,
 /// wool, or terracotta, solid as an input's block must be.
 pub fn marks() -> Vec<(&'static str, Vec<String>)> {
-    let dyed = |kind: &str| colours().map(|d| format!("{d}_{kind}")).collect();
+    let dyed =
+        |kind: &str| DYES.iter().map(|d| format!("{d}_{kind}")).collect();
     vec![
         ("Concrete", dyed("concrete")),
         ("Wool", dyed("wool")),
@@ -354,6 +349,11 @@ impl Default for Palette {
 impl Palette {
     /// Whether every choice is one a palette may make.
     pub fn valid(&self) -> bool {
+        self.known() && self.clash().is_none()
+    }
+
+    /// Whether each of its blocks is one a palette may build or mark with.
+    pub fn known(&self) -> bool {
         let among = |groups: Vec<(&str, Vec<String>)>, block: &str| {
             groups
                 .iter()
@@ -368,6 +368,52 @@ impl Palette {
                 ROLES.iter().any(|(k, ..)| k == key)
                     && (mark == NONE || among(marks(), mark))
             })
+    }
+
+    /// Why its roles couldn't be told from its plain blocks or each other,
+    /// if they couldn't: a role marked with the solid, hard-powered, or
+    /// soft-powered block, two roles marked alike, or an output's glass the
+    /// palette's own glass. An output is a block no block of its kind
+    /// touches, so one of the blocks around it is no output.
+    pub fn clash(&self) -> Option<String> {
+        let marked: Vec<(&str, &str, String)> = ROLES
+            .iter()
+            .filter_map(|&(key, name, _)| {
+                let name = name.split(',').next().unwrap_or(name);
+                Some((key, name, self.mark(key)?))
+            })
+            .collect();
+        let plain = [Some(&self.solid), self.hard.as_ref(), self.soft.as_ref()];
+        for (i, (_, name, block)) in marked.iter().enumerate() {
+            if plain.iter().flatten().any(|plain| *plain == block) {
+                return Some(format!(
+                    "{name} can't be {}, a block the theme builds with.",
+                    label(block)
+                ));
+            }
+            if let Some((_, other, _)) =
+                marked[..i].iter().find(|(.., other)| other == block)
+            {
+                return Some(format!(
+                    "{other} and {name} can't both be {}.",
+                    label(block)
+                ));
+            }
+        }
+        for (key, name, block) in &marked {
+            let site = ROLES.iter().find(|(k, ..)| k == key).map(|r| r.2);
+            let glass = site
+                .map(|site| role_glass(site, Some(block), &self.transparent));
+            if matches!(*key, "output" | "status")
+                && glass.as_deref() == Some(self.transparent.as_str())
+            {
+                return Some(format!(
+                    "{name} in glass would be {}, the theme's own glass.",
+                    label(&self.transparent)
+                ));
+            }
+        }
+        None
     }
 
     /// A short name for it, for a picture's address, so each palette's
@@ -475,15 +521,11 @@ pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
         let name = schem::short(state);
         for (key, _, site) in ROLES {
             let mark = palette.mark(key);
-            // A role's glass stays glass: its colour's, or the palette's
-            // plain glass for an undyed mark or none.
+            // A role's glass stays glass, as `role_glass` colours it.
             let to = if name == format!("{site}_concrete") {
                 mark.unwrap_or_else(|| palette.solid.clone())
             } else if name == format!("{site}_stained_glass") {
-                match mark.as_deref().and_then(dye) {
-                    Some(dye) => format!("{dye}_stained_glass"),
-                    None => palette.transparent.clone(),
-                }
+                role_glass(site, mark.as_deref(), &palette.transparent)
             } else {
                 continue;
             };
@@ -493,6 +535,18 @@ pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
         }
     }
     standardize::edit(data, &changes)
+}
+
+/// The glass a role marked `mark`, of the site's colour `site`, takes
+/// where its build has glass: its mark's colour, but for white, as white
+/// glass reads as no output, the site's own; or the palette's plain glass,
+/// `transparent`, for a role marked with nothing.
+fn role_glass(site: &str, mark: Option<&str>, transparent: &str) -> String {
+    match mark.and_then(dye) {
+        Some("white") => format!("{site}_stained_glass"),
+        Some(dye) => format!("{dye}_stained_glass"),
+        None => transparent.to_owned(),
+    }
 }
 
 /// `user`'s palette, if they chose one.
@@ -545,4 +599,79 @@ pub async fn needs(db: &SqlitePool, id: &str) -> Result<Option<Needs>> {
     .await?
     .flatten();
     Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The site's palette with role `key` marked `mark`.
+    fn marking(key: &str, mark: &str) -> Palette {
+        let mut palette = Palette::default();
+        palette.colours.insert(key.to_owned(), mark.to_owned());
+        palette
+    }
+
+    #[test]
+    fn every_dye_may_mark_a_role() {
+        let marks = marks();
+        for dye in ["white", "gray", "light_gray", "black"] {
+            for kind in ["concrete", "wool", "terracotta"] {
+                let block = format!("{dye}_{kind}");
+                assert!(
+                    marks.iter().any(|(_, b)| b.contains(&block)),
+                    "{block}"
+                );
+            }
+        }
+        assert!(marking("output", "white_wool").valid());
+        assert!(marking("output", "gray_concrete").valid());
+    }
+
+    #[test]
+    fn a_role_must_differ_from_the_blocks_around_it() {
+        // The site builds with white concrete, so an output of it touches
+        // its own kind.
+        assert_eq!(
+            marking("output", "white_concrete").clash().as_deref(),
+            Some(
+                "Outputs can't be white concrete, a block the theme builds with."
+            )
+        );
+        let mut powered = marking("a", "gray_wool");
+        powered.hard = Some("gray_wool".to_owned());
+        assert!(powered.clash().is_some());
+        assert_eq!(
+            marking("b", "lime_concrete").clash().as_deref(),
+            Some("A and B can't both be lime concrete.")
+        );
+        // An output's glass the theme's own glass.
+        let mut glass = marking("output", "orange_wool");
+        glass.transparent = "orange_stained_glass".to_owned();
+        assert!(glass.clash().is_some());
+    }
+
+    #[test]
+    fn a_white_role_keeps_its_own_glass() {
+        // White glass reads as no output, so the role's glass stays the
+        // site's, where any other colour's glass is its own.
+        let glass = "white_stained_glass";
+        assert_eq!(
+            role_glass("yellow", Some("white_wool"), glass),
+            "yellow_stained_glass"
+        );
+        assert_eq!(
+            role_glass("yellow", Some("light_gray_concrete"), glass),
+            "light_gray_stained_glass"
+        );
+        assert_eq!(role_glass("yellow", None, glass), glass);
+    }
+
+    #[test]
+    fn every_preset_is_a_palette_that_may_be_kept() {
+        for (key, _, preset) in presets() {
+            assert!(preset.valid(), "{key}: {:?}", preset.clash());
+        }
+        assert!(Palette::default().valid());
+    }
 }

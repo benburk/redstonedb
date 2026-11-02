@@ -104,7 +104,8 @@ impl Download {
 
     /// The palette to colour the file in, if any: for custom colours, the
     /// one `fields` make, refused unless every block is one a palette may
-    /// use; else, or with none given, `theme`, the viewer's.
+    /// use and its roles can be told apart; else, or with none given,
+    /// `theme`, the viewer's.
     pub(in crate::web) fn palette(
         &self,
         fields: PaletteFields,
@@ -116,10 +117,13 @@ impl Download {
             return Ok(theme);
         }
         let custom = fields.palette();
-        if !custom.valid() {
+        if !custom.known() {
             return Err(AppError::BadRequest(
                 "A custom colour isn't a block a theme may use.".to_owned(),
             ));
+        }
+        if let Some(why) = custom.clash() {
+            return Err(AppError::BadRequest(why));
         }
         Ok(Some(custom))
     }
