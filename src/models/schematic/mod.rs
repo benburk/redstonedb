@@ -11,10 +11,6 @@ use super::{
     tag::{self, Tag},
 };
 
-// Only the docs link to `version`.
-#[cfg(doc)]
-use super::version;
-
 pub use load::{
     all, all_people, get, get_many, get_visible, ids_with_prefix,
     valid_player_name, visible,
@@ -63,7 +59,7 @@ named_values! {
     }
 }
 /// A stored schematic's metadata. Its file stays in the database until
-/// [`version::current_file`] fetches it.
+/// [`super::version::current_file`] fetches it.
 #[derive(Debug, Clone)]
 pub struct Schematic {
     pub id: String,
