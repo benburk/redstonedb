@@ -24,57 +24,23 @@ use crate::{
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
 };
 
-use super::super::pages;
+use super::super::pages::{self, HomeQuery, Sort, SortField};
 
-/// What the home page's address asks for. Separate parameters narrow
-/// together; within one, commas mean any of them, as in
-/// `?category=adder,subtractor`. `tag` may repeat, each needing a match:
-/// `?tag=alpha&tag=torchless` is both, and `?tag=alpha,torchless` either.
-#[derive(Default)]
-struct ListQuery {
-    view: String,
-    /// A search such as `register vertical alpha -torchless`.
-    q: String,
-    category: String,
-    /// Fields such as `-downloads,volume`; see [`order`].
-    sort: String,
-    tags: Vec<String>,
-    /// Whether builds not verified as their category are listed too.
-    unverified: bool,
-    /// The file a search for similar builds was for, and what it found;
-    /// see `similar::shown_page`.
-    file: String,
-    found: Option<String>,
-}
-
-impl ListQuery {
-    fn read(raw: Option<&str>) -> Self {
-        let mut query = ListQuery::default();
-        let pairs = form_urlencoded::parse(raw.unwrap_or_default().as_bytes());
-        for (key, value) in pairs {
-            let value = value.trim().to_owned();
-            match key.as_ref() {
-                "view" => query.view = value,
-                "q" => query.q = value,
-                "category" => query.category = value,
-                "sort" => query.sort = value,
-                // Asking for the unverified by their tag shows them.
-                "tag"
-                    if [tag::FAILS_VERIFICATION, tag::NON_STANDARD]
-                        .contains(&tag::name(&value).as_str()) =>
-                {
-                    query.unverified = true;
-                    query.tags.push(value);
-                }
-                "tag" if !value.is_empty() => query.tags.push(value),
-                "unverified" => query.unverified = value == "show",
-                "file" => query.file = value,
-                "found" => query.found = Some(value),
-                _ => {}
-            }
-        }
-        query
-    }
+/// The file a search for similar builds was for, and what it found, when
+/// the address `raw` carries them; see `similar::shown_page`.
+fn similar_found(raw: &str) -> Option<(String, String)> {
+    let given: Vec<(String, String)> = form_urlencoded::parse(raw.as_bytes())
+        .into_owned()
+        .collect();
+    // The last of a repeated key counts.
+    let value = |key: &str| {
+        given
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, value)| value.trim().to_owned())
+    };
+    Some((value("file").unwrap_or_default(), value("found")?))
 }
 
 /// The home page: every category until something is searched for or
@@ -85,18 +51,18 @@ pub async fn home(
     Fixi(fixi): Fixi,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
-    let query = ListQuery::read(raw.as_deref());
-    if let Some(found) = &query.found {
+    let raw = raw.unwrap_or_default();
+    if let Some((file, found)) = similar_found(&raw) {
         return super::super::similar::shown_page(
             &state,
             user_opt.as_ref(),
-            &query.file,
-            found,
+            &file,
+            &found,
         )
         .await;
     }
-    if query.q.is_empty() && query.category.is_empty() && query.tags.is_empty()
-    {
+    let query = HomeQuery::parse(&raw);
+    if !query.narrows() {
         return index(&state, fixi, user_opt.as_ref()).await;
     }
     listing(&state, query, fixi, user_opt.as_ref()).await
@@ -109,7 +75,7 @@ pub async fn list(
     Fixi(fixi): Fixi,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
-    let query = ListQuery::read(raw.as_deref());
+    let query = HomeQuery::parse(raw.as_deref().unwrap_or_default());
     listing(&state, query, fixi, user_opt.as_ref()).await
 }
 
@@ -216,14 +182,10 @@ fn recent(all: &[Schematic]) -> Vec<(&Schematic, usize)> {
 /// search, with the search's address.
 async fn listing(
     state: &AppState,
-    query: ListQuery,
+    query: HomeQuery,
     fixi: bool,
     viewer: Option<&User>,
 ) -> Result<Response, AppError> {
-    let view = match query.view.as_str() {
-        "list" => pages::View::List,
-        _ => pages::View::Cards,
-    };
     let terms = search::parse(&query.q);
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = catalogue::categories(&state.db).await?;
@@ -259,16 +221,9 @@ async fn listing(
     let listing = pages::Listing {
         shown: &shown,
         total,
-        view,
-        sort: &query.sort,
-        query: &query.q,
+        query: &query,
         terms: &terms,
-        category: &query.category,
-        tags: &query.tags,
-        unverified: pages::Unverified {
-            shown: query.unverified,
-            count: unverified,
-        },
+        unverified,
         facets: &facets,
         viewing: &viewing,
     };
@@ -276,7 +231,7 @@ async fn listing(
     // search in the address, so Back and reloading keep it.
     if fixi {
         return Ok((
-            [("FX-Replace-Url", listing.href())],
+            [("FX-Replace-Url", query.href())],
             pages::home_results(&listing),
         )
             .into_response());
@@ -297,27 +252,21 @@ fn has_tags(s: &Schematic, groups: &[String]) -> bool {
     })
 }
 
-/// Orders builds by `sort`: fields separated by commas, each with `-` for
-/// descending, such as `-downloads,volume`. The fields are `added_at`,
-/// `volume`, `latency`, and `downloads`; an unknown latency goes last
-/// either way. Ties, and an empty sort, fall back to newest first.
-fn order(shown: &mut [Schematic], sort: &str) {
+/// Orders builds by `sort`. An unknown latency goes last either way. Ties,
+/// and an empty sort, fall back to newest first.
+fn order(shown: &mut [Schematic], sort: &Sort) {
     shown.sort_by(|a, b| {
-        for key in sort.split(',').map(str::trim).filter(|k| !k.is_empty()) {
-            let (field, descending) = key
-                .strip_prefix('-')
-                .map_or((key, false), |field| (field, true));
+        for &(field, descending) in &sort.0 {
             let ordering = match field {
-                "added_at" => a.added_at.cmp(&b.added_at),
-                "volume" => a.volume().cmp(&b.volume()),
-                "downloads" => a.downloads.cmp(&b.downloads),
-                "latency" => match (a.latency, b.latency) {
+                SortField::AddedAt => a.added_at.cmp(&b.added_at),
+                SortField::Volume => a.volume().cmp(&b.volume()),
+                SortField::Downloads => a.downloads.cmp(&b.downloads),
+                SortField::Latency => match (a.latency, b.latency) {
                     (Some(x), Some(y)) => x.cmp(&y),
                     (None, Some(_)) => return Ordering::Greater,
                     (Some(_), None) => return Ordering::Less,
                     (None, None) => Ordering::Equal,
                 },
-                _ => Ordering::Equal,
             };
             let ordering = if descending {
                 ordering.reverse()

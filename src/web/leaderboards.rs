@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::{
     leaderboard::{self, Wanted},
     models::{
-        catalogue::{self, Category, Measure},
+        catalogue::{self, Category},
         schematic::{self, Schematic},
         user::User,
     },
@@ -15,26 +15,6 @@ use crate::{
 };
 
 use super::pages;
-
-/// A leaderboard's address, such as
-/// `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`, each
-/// part optional, with a value of each of the category's measures, such as
-/// `throughput` for a serial one, `at_least` for a threshold, and `pulse` for
-/// a monostable.
-#[derive(Deserialize)]
-pub struct BoardQuery {
-    width: Option<String>,
-    throughput: Option<String>,
-    bytes: Option<String>,
-    at_least: Option<String>,
-    pulse: Option<String>,
-    logic: Option<String>,
-    orientation: Option<String>,
-    design: Option<String>,
-    ticks: Option<String>,
-    /// Tag names joined by commas, as `synced,torchless`.
-    tags: Option<String>,
-}
 
 /// The category the menu of leaderboards chose, as in `?category=adder`.
 #[derive(Deserialize)]
@@ -55,13 +35,12 @@ const SPLIT: [(&str, &str); 3] = [
 /// any orientation, design, latency, and tags.
 pub async fn show(
     Path(category): Path<String>,
-    Query(query): Query<BoardQuery>,
     RawQuery(raw): RawQuery,
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
     if let Some((_, gate)) = SPLIT.iter().find(|(old, _)| *old == category) {
-        let path = match raw {
+        let path = match &raw {
             Some(raw) => format!("/leaderboards/{gate}?{raw}"),
             None => format!("/leaderboards/{gate}"),
         };
@@ -74,30 +53,7 @@ pub async fn show(
         return Err(AppError::NotFound);
     };
     let facets = facets(&categories, &all, &category);
-    let asked = [
-        (Measure::Width, query.width),
-        (Measure::Bytes, query.bytes),
-        (Measure::Throughput, query.throughput),
-        (Measure::AtLeast, query.at_least),
-        (Measure::Pulse, query.pulse),
-    ];
-    let wanted = Wanted {
-        measures: asked
-            .into_iter()
-            .filter_map(|(m, n)| Some((m, parsed(n)?)))
-            .collect(),
-        logic: parsed(query.logic),
-        orientation: parsed(query.orientation),
-        design: query.design.filter(|d| !d.is_empty()),
-        ticks: parsed(query.ticks),
-        tags: query
-            .tags
-            .iter()
-            .flat_map(|tags| tags.split(','))
-            .filter(|tag| !tag.is_empty())
-            .map(str::to_owned)
-            .collect(),
-    };
+    let wanted = Wanted::parse(raw.as_deref().unwrap_or_default());
     let own: Vec<&Schematic> =
         all.iter().filter(|s| s.category == category).collect();
     // Copies of a narrower build stacked to a board's width compete on it.
@@ -113,11 +69,6 @@ pub async fn show(
         },
     )
     .into_response())
-}
-
-/// A value an address gives; one naming nothing is as good as none.
-fn parsed<T: std::str::FromStr>(value: Option<String>) -> Option<T> {
-    value?.parse().ok()
 }
 
 /// The leaderboards' front page: the records most contested, and who
