@@ -60,6 +60,7 @@ mod inverter;
 mod monostable;
 mod multiplier;
 mod register;
+mod rng;
 mod sequential;
 mod shifter;
 mod stacking;

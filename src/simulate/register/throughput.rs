@@ -15,6 +15,7 @@ use crate::{
     simulate::{
         bench::mask,
         circuit::Circuit,
+        rng::Rng,
         stacking::{Stacking, Step},
         timing::Timing,
     },
@@ -247,18 +248,11 @@ struct Access {
 /// file may not read one cell while it writes another; a buffer's each
 /// write a cell and look at what it shows.
 fn accesses(register: &Register, count: usize, kind: Kind) -> Vec<Access> {
-    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
-    let pick = |n: usize, r: u64| usize::try_from(r % n as u64).unwrap_or(0);
+    let mut rng = Rng::default();
     (0..count)
         .map(|_| {
-            let value = next() & mask(register.width);
-            let cell = pick(register.cells.len(), next());
+            let value = rng.draw() & mask(register.width);
+            let cell = rng.below(register.cells.len());
             if kind == Kind::Buffer {
                 return Access {
                     value,
@@ -266,7 +260,7 @@ fn accesses(register: &Register, count: usize, kind: Kind) -> Vec<Access> {
                     read: Some((cell, 0)),
                 };
             }
-            if next() & 1 == 0 {
+            if rng.draw() & 1 == 0 {
                 Access {
                     value,
                     write: Some(cell),
@@ -277,7 +271,7 @@ fn accesses(register: &Register, count: usize, kind: Kind) -> Vec<Access> {
                 Access {
                     value,
                     write: None,
-                    read: Some((cell, pick(reads, next()))),
+                    read: Some((cell, rng.below(reads))),
                 }
             }
         })

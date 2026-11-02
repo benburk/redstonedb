@@ -14,7 +14,9 @@
 use anyhow::Result;
 
 use super::{
+    bench::mask,
     circuit::{Circuit, input_bits},
+    rng::Rng,
     timing::Timing,
 };
 use crate::{recognize::interface, schem::Blocks};
@@ -236,7 +238,6 @@ impl Stream<'_> {
 /// alternating bits, then as many from a simple generator, so every build
 /// is measured on the same stream.
 fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
-    let mask = |w: usize| if w >= 64 { u64::MAX } else { (1 << w) - 1 };
     let special = |w: usize| {
         [0, u64::MAX, 1, 0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa]
             .map(|v| v & mask(w))
@@ -261,23 +262,17 @@ fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
             })
             .collect();
     }
-    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
+    let mut rng = Rng::default();
     let random = cases.len().max(random);
     // Each special case beside random ones, so every case follows others
     // of every kind.
     let mut stream = Vec::new();
     for case in cases {
         stream.push(case);
-        stream.push(widths.iter().map(|&w| next() & mask(w)).collect());
+        stream.push(widths.iter().map(|&w| rng.draw() & mask(w)).collect());
     }
     while stream.len() < 2 * random {
-        stream.push(widths.iter().map(|&w| next() & mask(w)).collect());
+        stream.push(widths.iter().map(|&w| rng.draw() & mask(w)).collect());
     }
     stream
 }
