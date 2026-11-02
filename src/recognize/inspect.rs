@@ -1,15 +1,14 @@
 //! The check of a build by its function rather than its colours: its
-//! inputs are its levers and stone buttons, found wherever they are, and
+//! inputs are its levers and buttons, found wherever they are, and
 //! its outputs lone coloured blocks, each read through the dust or
 //! repeater on it. What the site can put right itself, it does and lists;
 //! what only the builder can, it names with the blocks at fault.
 //!
 //! The rules:
 //!
-//! - An input is a lever, or a stone button for a pulse, on a side of a
-//!   solid block, a lamp too, its input block. Other buttons' longer pulses are
-//!   errors, never swapped, as a build may rely on them. The lever touches
-//!   nothing else that carries power.
+//! - An input is a lever, or any button for a pulse, on a side of a solid
+//!   block, a lamp too, its input block. The lever touches nothing else
+//!   that carries power.
 //! - The input block drives dust on any side, on top and below too,
 //!   torches, repeaters, and comparators, and nothing else powers it or
 //!   touches it but plain blocks, a target, and, on top, a redstone block,

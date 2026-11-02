@@ -1,15 +1,15 @@
 //! Turning and mirroring a build so it lies the standard way, as
-//! `docs/conventions.md` lays it out: A's inputs entered from the south, and its
-//! least significant bits at the south-east-bottom corner, so its buses
+//! `docs/conventions.md` lays it out: A's inputs entered from the south, and
+//! its least significant bits at the south-east-bottom corner, so its buses
 //! count up as they should.
 //!
 //! A build turns about the vertical until A's levers are on the south side
-//! of their blocks. It is
-//! then mirrored east for west, which keeps them south, when that makes
-//! more of the quick cases of the test it seems to be come out right, as
-//! it does for a build whose least significant bits sit at its west end. It
-//! never turns upside down, which redstone does not survive; a build whose
-//! least significant bits sit at its top says so with an `lsb` sign.
+//! of their blocks. It is then mirrored east for west, which keeps them
+//! south, when that makes more of the quick cases of the test it seems to
+//! be come out right, as it does for a build whose least significant bits
+//! sit at its west end. It never turns upside down, which redstone does not
+//! survive; a build whose least significant bits sit at its top says so with
+//! an `lsb` sign.
 //!
 //! Redpiler, and so the simulator, works a mirrored build as it does the
 //! original. Turning and mirroring rewrite every block's `facing`, `axis`,
@@ -115,8 +115,7 @@ pub fn orient(data: &[u8]) -> Result<(Vec<u8>, Turn)> {
 /// wrong as what it seems to be; `None` for a build not recognized, which
 /// is only turned.
 fn wrong(blocks: &Blocks) -> Option<u64> {
-    let guess = simulate::guess(blocks)?;
-    Some(guess.wrong * 1000 / guess.cases.max(1))
+    simulate::guess(blocks).map(|guess| guess.wrong_share())
 }
 
 /// The side A's levers are on, when every one is on the same side, north,

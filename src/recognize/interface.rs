@@ -1,13 +1,14 @@
 //! A build's inputs and outputs, read from its blocks and signs as
-//! `docs/conventions.md` lays them out. An input is a block with a lever on it,
-//! or for a control line a button, or for a signal-strength input dust on
-//! top; an output is a block of an output colour. Each colour is one bus, named by a sign on any of its blocks,
-//! except magenta control lines and pink status lines, each one line named
-//! by its own sign, or a row of them named by one sign on any of the row, as
-//! a memory's read lines are. Each bus's least significant bit, and a row's
-//! first line, is the one nearest the south-east-bottom corner of the
-//! bounding box, unless an `lsb` or `msb` sign says otherwise; such a sign
-//! on one bus orders every unmarked bus running alongside it too.
+//! `docs/conventions.md` lays them out. An input is a block with a lever on
+//! it, or for a control line a button, or for a signal-strength input dust
+//! on top; an output is a block of an output colour. Each colour is one
+//! bus, named by a sign on any of its blocks, except magenta control lines
+//! and pink status lines, each one line named by its own sign, or a row of
+//! them named by one sign on any of the row, as a memory's read lines are.
+//! Each bus's least significant bit, and a row's first line, is the one
+//! nearest the south-east-bottom corner of the bounding box, unless an
+//! `lsb` or `msb` sign says otherwise; such a sign on one bus orders every
+//! unmarked bus running alongside it too.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 

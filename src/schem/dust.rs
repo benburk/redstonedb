@@ -1,8 +1,8 @@
 //! Dust's shape as the game gives it among its neighbours, ported from
 //! Minecraft's `RedStoneWireBlock.getConnectionState`, which both a block
-//! update beside it and the world editor's `//update` run: which sides it joins,
-//! and whether it climbs the block beside it. A dot touching nothing stays
-//! a dot, as a player can make one.
+//! update beside it and the world editor's `//update` run: which sides it
+//! joins, and whether it climbs the block beside it. A dot touching nothing
+//! stays a dot, as a player can make one.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -99,9 +99,10 @@ fn side(
     }
 }
 
-/// The file in `data` with its dust shaped as the game shapes it, as
-/// the world editor's `//update` leaves it, so a file saved with dust pointing the
-/// wrong way is set right. A file whose dust is right comes back as it was.
+/// The file in `data` with its dust shaped as the game shapes it, as the
+/// world editor's `//update` leaves it, so a file saved with dust pointing
+/// the wrong way is set right. A file whose dust is right comes back as it
+/// was.
 pub fn update(data: &[u8]) -> Result<Vec<u8>> {
     let changes: BTreeMap<Pos, String> =
         reshaped(&Blocks::read(data)?).into_iter().collect();

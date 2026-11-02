@@ -1,7 +1,7 @@
-//! The example builds the How builds are recognized page pictures, one or two for
-//! each rule a build must keep, each kept or broken as its caption says.
-//! A test holds every one to the site's own check, so a picture can't say
-//! what the check doesn't.
+//! The example builds the How builds are recognized page pictures, one or
+//! two for each rule a build must keep, each kept or broken as its caption
+//! says. A test holds every one to the site's own check, so a picture can't
+//! say what the check doesn't.
 
 use std::collections::HashMap;
 

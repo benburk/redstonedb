@@ -129,11 +129,11 @@ pub(super) fn check_on(
 }
 
 /// The cells' controls, and each fault the cells show from the build with
-/// its levers off, as the writes and reads that show it: a cell that reads wrong
-/// after a write into it alone, and a cell that reads differently after
-/// another is written. The value written into another cell is narrowed to
-/// a single bit set, or else clear, so the steps point at the bit that
-/// disturbs it.
+/// its levers off, as the writes and reads that show it: a cell that reads
+/// wrong after a write into it alone, and a cell that reads differently
+/// after another is written. The value written into another cell is
+/// narrowed to a single bit set, or else clear, so the steps point at the
+/// bit that disturbs it.
 fn faults(
     blocks: &Blocks,
     interface: &Interface,
@@ -513,14 +513,14 @@ fn cells(
     );
 }
 
-/// A buffer's cells, each write with the buses that show what it wrote,
-/// all the time. With every cell holding 0 and then each alone holding all
+/// A buffer's cells, each write with the buses that show what it wrote, all
+/// the time. With every cell holding 0 and then each alone holding all
 /// ones, a bus that changes is the cell's, and shows it as it is: unlike a
 /// register's reads, a buffer's outputs may not show their cells inverted,
-/// so one that shows all ones as zeros gets its cases wrong. A write that changes the same
-/// buses as one before is a second button on that cell's line, as each
-/// copy of a stacked buffer keeps its own, and the first stands for it.
-/// Each bus must show one cell.
+/// so one that shows all ones as zeros gets its cases wrong. A write that
+/// changes the same buses as one before is a second button on that cell's
+/// line, as each copy of a stacked buffer keeps its own, and the first
+/// stands for it. Each bus must show one cell.
 fn held(
     circuit: &mut Circuit,
     interface: &Interface,

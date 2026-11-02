@@ -4,12 +4,11 @@
 //! loading input A into it, clearing it, or toggling it.
 //!
 //! A counter has one way to be driven: input A, as wide as its value, a
-//! clock button, which counts it up or down, and a write enable lever,
-//! with which the clock loads A instead. A T flip-flop has one too: one
-//! bit, toggled by each pulse of its one control line. A shift register's
-//! lines are
-//! found by trying each, pulsed alone or with one of its other levers held
-//! on, from a value no two operations agree on; one must shift.
+//! clock button, which counts it up or down, and a write enable lever, with
+//! which the clock loads A instead. A T flip-flop has one too: one bit,
+//! toggled by each pulse of its one control line. A shift register's lines
+//! are found by trying each, pulsed alone or with one of its other levers
+//! held on, from a value no two operations agree on; one must shift.
 //!
 //! Each operation is then checked: a count through every value and round,
 //! a load of every value of A, and a clear or a shift from many values.
