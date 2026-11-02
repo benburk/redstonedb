@@ -17,10 +17,9 @@ pub use load::{
 };
 pub use stacking::{Faces, StackDirection, Widened};
 pub use write::{
-    New, count_download, delete, favorited, favorites, insert, set_at_least,
-    set_derived, set_details, set_evaluated, set_favorite, set_flags,
-    set_import_details, set_logic, set_public, set_pulse, set_stacking,
-    set_widened,
+    Measured, New, count_download, delete, favorited, favorites, insert,
+    set_details, set_favorite, set_flags, set_import_details, set_measured,
+    set_public, set_stacking, set_widened,
 };
 
 named_values! {
