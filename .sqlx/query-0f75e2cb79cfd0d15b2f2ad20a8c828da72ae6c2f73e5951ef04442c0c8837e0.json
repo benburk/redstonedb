@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET welcomed = 1 WHERE id = ? AND welcomed = 0\n         RETURNING welcomed",
+  "describe": {
+    "columns": [
+      {
+        "name": "welcomed",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0f75e2cb79cfd0d15b2f2ad20a8c828da72ae6c2f73e5951ef04442c0c8837e0"
+}

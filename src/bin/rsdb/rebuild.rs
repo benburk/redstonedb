@@ -217,13 +217,13 @@ async fn rebuild_rest(db: &SqlitePool, from: &Path) -> Result<()> {
             continue;
         }
         let name = format!("{}  {}", &s.id[..8], s.filename());
-        let data: Vec<u8> = sqlx::query_scalar(
+        let data = sqlx::query_scalar!(
             "SELECT data FROM schematic_version
              WHERE schematic_id = ?
                AND coalesce(note, '') <> 'Unused blocks taken out'
              ORDER BY version DESC LIMIT 1",
+            s.id,
         )
-        .bind(&s.id)
         .fetch_one(&from)
         .await?;
         match keep_off_list(db, &from, &s, &data, &listed).await? {
@@ -285,11 +285,13 @@ async fn store_as_before(
     prepared: &import::Prepared,
     ready: &details::Ready,
 ) -> Result<Result<(), String>> {
-    let uploader: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT uploaded_by FROM schematic WHERE id = ?")
-            .bind(&s.id)
-            .fetch_one(from)
-            .await?;
+    let uploader = sqlx::query_scalar!(
+        r#"SELECT uploaded_by AS "uploaded_by: uuid::Uuid"
+           FROM schematic WHERE id = ?"#,
+        s.id,
+    )
+    .fetch_one(from)
+    .await?;
     let uploader = match uploader {
         Some(id) if User::get_by_id(db, id).await?.is_some() => Some(id),
         _ => None,
@@ -307,12 +309,12 @@ async fn store_as_before(
     if let Err(why) = stored {
         return Ok(Err(why));
     }
-    sqlx::query(
+    sqlx::query!(
         "UPDATE schematic SET added_at = ?, downloads = ? WHERE id = ?",
+        s.added_at,
+        s.downloads,
+        s.id,
     )
-    .bind(&s.added_at)
-    .bind(s.downloads)
-    .bind(&s.id)
     .execute(db)
     .await?;
     Ok(Ok(()))
