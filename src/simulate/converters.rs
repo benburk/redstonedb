@@ -5,7 +5,7 @@
 use anyhow::{Result, bail};
 
 use super::{
-    Broken,
+    Broken, Reading,
     bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
     bench::{mask, patterns},
     circuit::output_bits,
@@ -135,18 +135,8 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
 }
 
 /// A threshold's cases, at least `k` of A's bits on, as they are named.
-fn threshold_pattern(k: u32) -> String {
+pub(super) fn threshold_pattern(k: u32) -> String {
     format!("at least {k} of A on")
-}
-
-/// How many of A's bits a threshold's cases, named `pattern`, turn it on
-/// at; `None` for any other cases.
-pub fn at_least(pattern: &str) -> Option<i64> {
-    pattern
-        .strip_prefix("at least ")?
-        .strip_suffix(" of A on")?
-        .parse()
-        .ok()
 }
 
 /// A threshold's every value of A, or with too many, each byte's and the
@@ -169,6 +159,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
                 Kind::new(&threshold_pattern(k), move |case| {
                     u64::from(case[0].count_ones() >= k)
                 })
+                .reading(Reading::Threshold { at_least: k })
             })
             .collect(),
         by_digit: false,

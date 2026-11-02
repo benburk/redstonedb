@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::atomic::AtomicBool};
 use anyhow::{Context, Result};
 
 use super::{
-    Run, Signal, Timing, Wrong,
+    Reading, Run, Signal, Timing, Wrong,
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
@@ -98,10 +98,12 @@ pub(super) struct Spec {
     pub by_digit: bool,
 }
 
-/// One thing a build may compute: its cases' name, such as `A + B`, and
-/// what it gives for a case, before it is cut to the outputs' bits.
+/// One thing a build may compute: its cases' name, such as `A + B`, what
+/// sets it apart from the test's other kinds where more depends on it,
+/// and what it gives for a case, before it is cut to the outputs' bits.
 pub(super) struct Kind {
     pub pattern: String,
+    pub reading: Option<Reading>,
     pub expected: Box<dyn Fn(&Case) -> u64>,
 }
 
@@ -112,7 +114,17 @@ impl Kind {
     ) -> Self {
         Kind {
             pattern: pattern.to_owned(),
+            reading: None,
             expected: Box::new(expected),
+        }
+    }
+
+    /// The kind, set apart from the test's others by `reading`, which a run
+    /// it wins keeps.
+    pub fn reading(self, reading: Reading) -> Self {
+        Kind {
+            reading: Some(reading),
+            ..self
         }
     }
 }
@@ -465,6 +477,7 @@ fn best(
             let mut run =
                 judge(interface, bench, cases, got, expected(kind, inversion));
             run.pattern.clone_from(&kind.pattern);
+            run.reading = kind.reading;
             run.inverted = bench
                 .inputs
                 .iter()
@@ -712,6 +725,7 @@ pub(super) fn judge(
         examples,
         hint: None,
         inverted: Vec::new(),
+        reading: None,
         strength: None,
         cells: Vec::new(),
         faults: Vec::new(),

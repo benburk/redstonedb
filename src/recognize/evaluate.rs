@@ -18,8 +18,7 @@ use crate::{
     recognize::interface,
     schem::{Blocks, stack},
     simulate::{
-        self, AdderVariant, Design, Edge, Report, Run, Stacking, Test, Timing,
-        adder_design,
+        self, Design, Edge, Report, Run, Stacking, Test, Timing, adder_design,
     },
 };
 
@@ -140,7 +139,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             }
         });
         if matches!(category, Some("adder" | "hex_adder" | "subtractor")) {
-            let variant = AdderVariant::of(&run.pattern);
+            let variant = run.adder_variant();
             found.design = adder_design(&found.prepared.blocks, variant)?;
             run.design.clone_from(&found.design);
         }
@@ -253,9 +252,7 @@ impl Evaluation {
         run: &Run,
         timing: &Timing,
     ) -> Result<()> {
-        if test == Test::GreaterThan
-            && run.pattern == simulate::SIGNED_GREATER_THAN
-        {
+        if test == Test::GreaterThan && run.signed() {
             self.flags.push(SIGNED.to_owned());
         }
         if test == Test::Alu {
@@ -269,11 +266,11 @@ impl Evaluation {
         // subtractor's does, and a register's reads may show its cells
         // inverted.
         if test == Test::Adder {
-            let variant = AdderVariant::of(&run.pattern);
+            let variant = run.adder_variant();
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
         }
-        if test == Test::Register && run.pattern.ends_with(" inverted") {
+        if test == Test::Register && run.reads_inverted() {
             self.flags.push(INVERTED.to_owned());
         }
         if let Some(pulse) = timing.pulse {

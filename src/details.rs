@@ -16,7 +16,7 @@ use crate::{
     },
     recognize::category,
     schem::stack,
-    simulate::{AdderVariant, Report, Test},
+    simulate::{Report, Test},
 };
 
 /// The kinds of build that go on the list, as a sentence names them, each
@@ -501,7 +501,7 @@ pub async fn unrecognized(
     match &report {
         // An adder adds and a subtractor subtracts, each its own category.
         Report::Ran(run) if report.passed() => {
-            let subtracts = AdderVariant::of(&run.pattern).subtract;
+            let subtracts = run.adder_variant().subtract;
             match category.name.as_str() {
                 "adder" | "hex_adder" if subtracts => off(SUBTRACTS.to_owned()),
                 "subtractor" if !subtracts => off(ADDS.to_owned()),
