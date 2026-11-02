@@ -110,7 +110,7 @@ pub async fn unasked(
     mentioned: &[String],
 ) -> Result<Vec<String>, sqlx::Error> {
     let mut names: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT DISTINCT lower(name) AS "name!" FROM (
+        r#"SELECT DISTINCT lower(name) AS "name!: String" FROM (
             SELECT name FROM credit
             UNION SELECT imported_by FROM schematic WHERE imported_by IS NOT NULL
             UNION SELECT minecraft_name FROM user WHERE minecraft_name IS NOT NULL)
