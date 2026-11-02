@@ -8,7 +8,7 @@ User=redstonedb
 Group=redstonedb
 EnvironmentFile=/etc/redstonedb.env
 WorkingDirectory=/var/lib/redstonedb
-ExecStart=/usr/local/lib/redstonedb/redstone-database
+ExecStart=/usr/local/lib/redstonedb/redstonedb
 Restart=on-failure
 RestartSec=2
 

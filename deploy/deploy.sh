@@ -5,7 +5,7 @@
 set -euo pipefail
 
 host=${DEPLOY_HOST:-root@157.180.85.191}
-src=/root/build/redstone-database
+src=/root/build/redstonedb
 lib=/usr/local/lib/redstonedb
 
 cd "$(git rev-parse --show-toplevel)"
@@ -31,7 +31,7 @@ ssh "$host" "set -e
     runuser -u redstonedb -- sqlite3 /var/lib/redstonedb/redstone.db \
         \".backup /var/backups/redstonedb/redstone-$(date +%F-%H%M%S)-before-$commit.db\"
     install -d $lib
-    for bin in redstone-database rsdb; do
+    for bin in redstonedb rsdb; do
         if [ -e $lib/\$bin ]; then cp -p $lib/\$bin $lib/\$bin.previous; fi
         install -m 755 /root/build/target/release/\$bin $lib/
     done

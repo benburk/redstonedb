@@ -26,7 +26,7 @@ fn configure_logging() {
             EnvFilter::try_from_default_env()
                 .or_else(|_| {
                     EnvFilter::try_new(
-                        "app=info,redstone_database=info,tower_http=info",
+                        "app=info,redstonedb=info,tower_http=info",
                     )
                 })
                 .unwrap(),

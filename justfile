@@ -52,7 +52,7 @@ build: css
 [doc('Serve until interrupted, on a free port')]
 [group('podium')]
 serve port=`free-port`: css
-    PORT={{ port }} cargo run --bin redstone-database
+    PORT={{ port }} cargo run --bin redstonedb
 
 # Test, unless the suite passed on exactly these files, then build the
 # committed HEAD on the server and restart the site
