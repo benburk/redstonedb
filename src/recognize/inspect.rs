@@ -464,9 +464,9 @@ fn outputs(blocks: &Blocks, marks: Marks, report: &mut Report) -> Vec<Pos> {
 /// The kinds of block that might mark a build's outputs where it marks
 /// none as [`YELLOW`] says, each with how many blocks it has: any kind
 /// that could, as [`could_mark`] says, every block of which is alone, with
-/// something reading it on top, as an output's is. The most blocks first. Which of them, if any, marks its outputs only its builder can
-/// say: a hex adder's digit inputs or a build's glass under dust may be
-/// lone too.
+/// something reading it on top, as an output's is. The most blocks first.
+/// Which of them, if any, marks its outputs only its builder can say: a hex
+/// adder's digit inputs or a build's glass under dust may be lone too.
 pub fn candidates(blocks: &Blocks) -> Vec<(String, usize)> {
     let mut found: Vec<(String, usize)> = kinds(blocks, could_mark)
         .into_iter()
