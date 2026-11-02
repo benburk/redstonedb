@@ -33,7 +33,7 @@ use anyhow::{Result, ensure};
 
 use crate::{
     recognize::{colour, interface},
-    schem::{self, AIR, Blocks, Direction, Pos},
+    schem::{self, AIR, Blocks, Direction, Pos, block},
 };
 
 const WHITE: &str = "minecraft:white_concrete";
@@ -625,7 +625,7 @@ fn restyle(state: &str, input: bool) -> String {
         };
         let properties = &state[id.len()..];
         format!("minecraft:oak_{wall}sign{properties}")
-    } else if see_through(name) {
+    } else if block::see_through(name) {
         WHITE_GLASS.to_owned()
     } else {
         WHITE.to_owned()
@@ -660,7 +660,7 @@ pub fn block_kind(name: &str) -> Option<&'static str> {
         "furnace" => "Furnace",
         "cake" => "Cake",
         _ if name.ends_with("cauldron") => "Cauldron",
-        _ if see_through(name) => "Transparent",
+        _ if block::see_through(name) => "Transparent",
         _ => "Solid",
     })
 }
@@ -677,14 +677,4 @@ pub fn block_counts(blocks: &Blocks) -> Vec<(&'static str, usize)> {
     let mut counts: Vec<(&'static str, usize)> = counts.into_iter().collect();
     counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     counts
-}
-
-/// Whether a block id without its namespace is one redstone sees through,
-/// neither powered nor cutting dust, which standardizing makes white
-/// stained glass: glass of any kind, a slab, stairs, or glowstone.
-pub fn see_through(name: &str) -> bool {
-    name.contains("glass")
-        || name.ends_with("_slab")
-        || name.ends_with("_stairs")
-        || name == "glowstone"
 }

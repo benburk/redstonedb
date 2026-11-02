@@ -21,57 +21,6 @@ pub const OUTPUT_COLOURS: [&str; 3] = ["yellow", "orange", "brown"];
 /// `carry out`.
 pub const STATUS: &str = "pink";
 
-/// Redstone components and the other blocks every build may use. Besides
-/// dust, torches, and the like, this keeps the blocks a comparator reads,
-/// such as barrels, since a build uses them for their signal; furnaces,
-/// cauldrons, and cakes are swapped for barrels. Every kind of button is
-/// allowed as well.
-const COMPONENTS: [&str; 43] = [
-    "air",
-    "redstone_wire",
-    "redstone_torch",
-    "redstone_wall_torch",
-    "repeater",
-    "comparator",
-    "lever",
-    "oak_sign",
-    "oak_wall_sign",
-    "piston",
-    "sticky_piston",
-    "piston_head",
-    "observer",
-    "redstone_block",
-    "redstone_lamp",
-    "hopper",
-    "target",
-    "note_block",
-    "dropper",
-    "dispenser",
-    "daylight_detector",
-    "tripwire_hook",
-    "tripwire",
-    "stone_pressure_plate",
-    "light_weighted_pressure_plate",
-    "heavy_weighted_pressure_plate",
-    "blast_furnace",
-    "smoker",
-    "chest",
-    "trapped_chest",
-    "barrel",
-    "composter",
-    "jukebox",
-    "lectern",
-    "brewing_stand",
-    "beehive",
-    "bee_nest",
-    "respawn_anchor",
-    "end_portal_frame",
-    "chiseled_bookshelf",
-    "crafter",
-    "sculk_sensor",
-    "calibrated_sculk_sensor",
-];
-
 /// The names an adder's control line, its carry in, may be signed with;
 /// an unsigned one goes by the first.
 pub const CARRY_IN: [&str; 2] = ["carry in", "cin"];
@@ -101,17 +50,10 @@ pub fn is_interface(state: &str, support: Option<&str>) -> bool {
             && support.is_some_and(|s| is_input(schem::short(s))))
 }
 
-/// Whether a block id without its namespace is a redstone component, such
-/// as dust, a lever, a button, or a sign, rather than a block that only
-/// holds or carries power.
-pub fn is_component(name: &str) -> bool {
-    COMPONENTS.contains(&name) || name.ends_with("_button")
-}
-
 /// Whether standardizing keeps `name` as it is: a redstone component, an
 /// output block, or a block only a stack's first copy keeps.
 pub fn keeps(name: &str) -> bool {
-    is_component(name) || is_output(name)
+    schem::block::is_component(name) || is_output(name)
 }
 
 /// Whether a block id without its namespace is one a barrel stands in for:

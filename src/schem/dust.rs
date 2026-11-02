@@ -8,7 +8,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 
-use crate::schem::{self, Blocks, Direction, Pos};
+use crate::schem::{
+    self, Blocks, Direction, Pos,
+    block::{conductor, whole},
+};
 
 /// How dust meets one side: not at all, along the ground, or up the block
 /// beside it.
@@ -160,48 +163,6 @@ fn connects_to(state: &str, direction: Direction) -> bool {
     }
 }
 
-/// Whether the block in `state` passes power through itself, as a full
-/// solid block does; glass, slabs, stairs, glowstone, a redstone block,
-/// and redstone parts do not.
-pub fn conductor(state: &str) -> bool {
-    let name = schem::short(state);
-    if name.ends_with("_slab") {
-        return schem::property(state, "type") == Some("double");
-    }
-    !(name == "air"
-        || name.contains("glass")
-        || name.ends_with("_stairs")
-        || name.ends_with("_leaves")
-        || name.ends_with("_wall")
-        || name.ends_with("_fence")
-        || name.ends_with("trapdoor")
-        || name.ends_with("_carpet")
-        || name.ends_with("sign")
-        || matches!(
-            name,
-            "glowstone"
-                | "redstone_block"
-                | "observer"
-                | "piston"
-                | "sticky_piston"
-                | "piston_head"
-                | "hopper"
-                | "cauldron"
-                | "water_cauldron"
-                | "lava_cauldron"
-                | "cake"
-                | "ice"
-                | "sea_lantern"
-        )
-        || partial(name))
-}
-
-/// Whether the block in `state` is a full block that carries power as
-/// concrete does, such as wool, terracotta, planks, stone, or a lamp.
-pub fn solid(state: &str) -> bool {
-    whole(state) && conductor(state)
-}
-
 /// Whether the block in `state` can hold dust on top: its top face whole,
 /// as a full block's, glass's, a top or double slab's, or upside-down
 /// stairs'; or a hopper.
@@ -227,47 +188,6 @@ fn sturdy_face(state: &str, face: Direction) -> bool {
         return Direction::facing(state) == Some(face);
     }
     whole(state)
-}
-
-/// Whether the block in `state` is a whole cube: neither air, a redstone
-/// part smaller than a block, a partial block, nor a container shaped
-/// otherwise.
-pub fn whole(state: &str) -> bool {
-    let name = schem::short(state);
-    !(name == "air"
-        || name.ends_with("_slab")
-        || name.ends_with("_stairs")
-        || name.ends_with("_wall")
-        || name.ends_with("_fence")
-        || name.ends_with("_pane")
-        || name.ends_with("trapdoor")
-        || name.ends_with("_carpet")
-        || name.ends_with("sign")
-        || matches!(
-            name,
-            "hopper" | "cauldron" | "water_cauldron" | "lava_cauldron" | "cake"
-        )
-        || partial(name))
-}
-
-/// Whether `name` is a redstone part smaller than a block, such as dust, a
-/// torch, a repeater, or a lever; a target, a redstone block, an observer,
-/// and the like are whole blocks.
-fn partial(name: &str) -> bool {
-    matches!(
-        name,
-        "redstone_wire"
-            | "redstone_torch"
-            | "redstone_wall_torch"
-            | "repeater"
-            | "comparator"
-            | "lever"
-            | "piston_head"
-            | "daylight_detector"
-            | "tripwire_hook"
-            | "tripwire"
-    ) || name.ends_with("_button")
-        || name.ends_with("_pressure_plate")
 }
 
 #[cfg(test)]

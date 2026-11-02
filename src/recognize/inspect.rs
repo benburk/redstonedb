@@ -34,8 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    recognize::colour,
-    schem::{self, Blocks, Direction, Pos, Switch, standardize},
+    schem::{self, Blocks, Direction, Pos, Switch, block, standardize},
     simulate,
 };
 
@@ -221,18 +220,6 @@ fn noun(name: &str) -> &'static str {
     }
 }
 
-/// A full block a lever can hang on and dust stand on.
-fn solid(name: &str) -> bool {
-    // A lamp is a full block that carries power, as any other is.
-    name == "redstone_lamp"
-        || !colour::is_component(name)
-            && !name.contains("glass")
-            && !name.ends_with("slab")
-            && !name.ends_with("stairs")
-            && !name.ends_with("sign")
-            && name != "air"
-}
-
 /// Whether a component at `from` pointing its `facing` points into `to`:
 /// a repeater's or comparator's `facing` is the side it reads from.
 fn points_into(blocks: &Blocks, from: Pos, to: Pos) -> bool {
@@ -284,7 +271,7 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         return false;
     }
     let block_name = short(blocks, block).to_owned();
-    if !solid(&block_name) {
+    if !block::holds_input(&block_name) {
         problem(
             report,
             "input block not solid",
@@ -385,7 +372,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
             "redstone_block" if side == Direction::Up => None,
             _ if next_name.ends_with("_button")
                 || next_name.ends_with("sign")
-                || !colour::is_component(next_name)
+                || !block::is_component(next_name)
                 || schem::slots(state).is_some() =>
             {
                 None
@@ -429,7 +416,7 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     let below = short(blocks, schem::step(lever, Direction::Down));
     let behind = schem::step(lever, switch.side);
     let behind_name = short(blocks, behind);
-    if !(below == "air" || solid(below)) {
+    if !(below == "air" || block::holds_input(below)) {
         problem(
             report,
             "no room for a repeater",
@@ -524,9 +511,7 @@ fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
         "redstone_wire" => true,
         "repeater" | "comparator" => {
             let powers = Direction::facing(blocks.get(top)).is_some_and(|f| {
-                crate::schem::dust::solid(
-                    blocks.get(schem::step(top, f.opposite())),
-                )
+                block::solid(blocks.get(schem::step(top, f.opposite())))
             });
             !powers
         }
@@ -544,9 +529,9 @@ fn could_mark(name: &str) -> bool {
     if let Some(colour) = name.strip_suffix("_stained_glass") {
         return colour != "white";
     }
-    !colour::is_component(name)
+    !block::is_component(name)
         && !name.ends_with("glass")
-        && crate::schem::dust::solid(&format!("minecraft:{name}"))
+        && block::solid(&format!("minecraft:{name}"))
 }
 
 /// Whether no block of kind `name` touches `pos`, even at a corner.
@@ -763,6 +748,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::recognize::colour;
 
     /// The input-block faults the check finds in an input, its lever on
     /// the south and dust to the north, with `other` beside its block, on
