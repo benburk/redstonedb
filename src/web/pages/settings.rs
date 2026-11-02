@@ -144,7 +144,7 @@ fn schemati_row(connection: &Connection, message: &str) -> Markup {
         form action="/schemati/session" method="post" class="flex items-center gap-2" {
             input type="hidden" name="next" value="/settings";
             input name="session" required autocomplete="off" spellcheck="false"
-                aria-label="Schemati session ID" placeholder="e2565926ee94c42943f6a68b88e1fe07"
+                aria-label="Schemati session ID" placeholder="Paste your sessionId"
                 class="inline-input font-mono";
             button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
             button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
@@ -501,7 +501,7 @@ pub fn welcome(
                         form action="/schemati/session" method="post" class="flex max-w-form flex-col gap-3" {
                             input type="hidden" name="next" value=(next(3));
                             input name="session" required autocomplete="off" spellcheck="false"
-                                aria-label="Schemati session" placeholder="e2565926ee94c42943f6a68b88e1fe07"
+                                aria-label="Schemati session" placeholder="Paste your sessionId"
                                 class="input font-mono";
                             @if !message.is_empty() { p role="alert" class="text-meta text-danger" { (message) } }
                             div class="flex gap-2" {

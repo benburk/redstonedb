@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn a_session_is_found_however_it_is_copied() {
-        let id = "e2565926ee94c42943f6a68b88e1fe07";
+        let id = "0123456789abcdef0123456789abcdef";
         for pasted in [
             id.to_owned(),
             format!(" {id}\n"),
