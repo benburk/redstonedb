@@ -11,8 +11,8 @@ mod catalogue;
 mod table;
 
 pub use catalogue::{
-    Category, Design, Flag, Measure, Section, aliases, check_category,
-    flags_among, words,
+    Category, Design, Flag, Measure, NO_DESIGN, Section, aliases,
+    check_category, flags_among, words,
 };
 
 use crate::{models::schematic::Logic, recognize::probe::Line, simulate::Test};

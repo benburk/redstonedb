@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    category::{Flag, Measure},
+    category::{Flag, Measure, NO_DESIGN},
     models::{
         schematic::{Logic, Orientation, Schematic},
         tag::{Kind, Tag},
@@ -73,7 +73,8 @@ pub struct Wanted {
     pub logic: Option<State>,
     /// `None` for every orientation, where they compete.
     pub orientation: Option<Orientation>,
-    /// A design's name; `None` for every design, where they compete.
+    /// A design's name, or `other` for builds of none; `None` for every
+    /// design, where they compete.
     pub design: Option<String>,
     /// A latency; `None` for every latency.
     pub ticks: Option<i64>,
@@ -255,7 +256,7 @@ pub fn board<'a>(
             .clone()
             .or_else(|| s.design_label())
             .unwrap_or_else(|| "Other".to_owned());
-        (s.design.clone(), label)
+        (s.design.as_deref().unwrap_or(NO_DESIGN).to_owned(), label)
     });
     let all_designs = designs.len() > 1;
     let design = wanted.design.clone().or_else(|| {
@@ -263,7 +264,11 @@ pub fn board<'a>(
             .then(|| most_common(&designs).cloned())
             .flatten()
     });
-    ranked.retain(|s| design.as_ref().is_none_or(|d| &s.design == d));
+    ranked.retain(|s| {
+        design
+            .as_deref()
+            .is_none_or(|d| s.design.as_deref().unwrap_or(NO_DESIGN) == d)
+    });
     let latencies = choices(&ranked, |s| {
         let ticks = s.latency.unwrap_or(i64::MAX);
         let label = s.latency.map_or("Unknown".to_owned(), |t| t.to_string());
@@ -829,7 +834,7 @@ mod tests {
     fn build(
         id: &str,
         width: i64,
-        design: &str,
+        design: Option<&str>,
         latency: Option<i64>,
         volume: i64,
     ) -> Schematic {
@@ -863,7 +868,7 @@ mod tests {
             imported_by: None,
             conventional: true,
             keeps_paste: false,
-            design: design.to_owned(),
+            design: design.map(str::to_owned),
             design_abbreviation: None,
             design_given_label: None,
             flags: Vec::new(),
@@ -883,13 +888,13 @@ mod tests {
 
     fn adders() -> Vec<Schematic> {
         vec![
-            build("a", 8, "carry_cancel", Some(3), 684),
-            build("b", 8, "carry_cancel", Some(3), 2640),
-            build("c", 8, "carry_lookahead", Some(4), 6498),
-            build("d", 8, "carry_look_everywhere", Some(4), 3696),
-            build("e", 8, "carry_lookahead", Some(8), 3762),
-            build("f", 16, "carry_cancel", Some(4), 1960),
-            build("g", 8, "ripple_carry", None, 500),
+            build("a", 8, Some("carry_cancel"), Some(3), 684),
+            build("b", 8, Some("carry_cancel"), Some(3), 2640),
+            build("c", 8, Some("carry_lookahead"), Some(4), 6498),
+            build("d", 8, Some("carry_look_everywhere"), Some(4), 3696),
+            build("e", 8, Some("carry_lookahead"), Some(8), 3762),
+            build("f", 16, Some("carry_cancel"), Some(4), 1960),
+            build("g", 8, Some("ripple_carry"), None, 500),
         ]
     }
 
@@ -948,7 +953,7 @@ mod tests {
     fn memories_compete_only_at_one_capacity() {
         let ram = |id: &str, bytes: Option<i64>| Schematic {
             bytes,
-            ..build(id, 8, "other", Some(4), 100)
+            ..build(id, 8, None, Some(4), 100)
         };
         let rams = [
             ram("a", Some(32)),
@@ -975,7 +980,7 @@ mod tests {
     fn a_threshold_competes_only_at_one_k() {
         let threshold = |id: &str, at_least: i64| Schematic {
             at_least: Some(at_least),
-            ..build(id, 8, "other", Some(4), 100)
+            ..build(id, 8, None, Some(4), 100)
         };
         let all = [threshold("a", 3), threshold("b", 5), threshold("c", 5)];
         let all: Vec<&Schematic> = all.iter().collect();
@@ -1005,9 +1010,9 @@ mod tests {
             [(1, "g"), (2, "a"), (3, "b"), (4, "d"), (5, "e"), (6, "c")]
         );
         let tied = [
-            build("x", 8, "other", Some(3), 100),
-            build("y", 8, "other", Some(3), 100),
-            build("z", 8, "other", Some(2), 100),
+            build("x", 8, None, Some(3), 100),
+            build("y", 8, None, Some(3), 100),
+            build("z", 8, None, Some(2), 100),
         ];
         let tied: Vec<&Schematic> = tied.iter().collect();
         assert_eq!(ids(&fastest(&tied)), [(1, "z"), (2, "x"), (2, "y")]);
@@ -1021,12 +1026,15 @@ mod tests {
         };
         vec![
             // 8-bit: a is fastest and smallest.
-            by("Alex", build("a", 8, "carry_cancel", Some(3), 684)),
-            by("bob", build("b", 8, "carry_cancel", Some(4), 900)),
+            by("Alex", build("a", 8, Some("carry_cancel"), Some(3), 684)),
+            by("bob", build("b", 8, Some("carry_cancel"), Some(4), 900)),
             // Alone on its board, so no record.
-            by("bob", build("c", 16, "carry_cancel", Some(4), 1960)),
-            by("alex", build("d", 8, "carry_lookahead", Some(4), 6498)),
-            by("Bob", build("e", 8, "carry_lookahead", Some(8), 3762)),
+            by("bob", build("c", 16, Some("carry_cancel"), Some(4), 1960)),
+            by(
+                "alex",
+                build("d", 8, Some("carry_lookahead"), Some(4), 6498),
+            ),
+            by("Bob", build("e", 8, Some("carry_lookahead"), Some(8), 3762)),
         ]
     }
 
@@ -1066,9 +1074,9 @@ mod tests {
     #[test]
     fn a_tie_on_ticks_makes_a_record_of_the_smallest_at_them() {
         let adders = [
-            build("a", 8, "other", Some(3), 900),
-            build("b", 8, "other", Some(3), 700),
-            build("c", 8, "other", Some(5), 400),
+            build("a", 8, None, Some(3), 900),
+            build("b", 8, None, Some(3), 700),
+            build("c", 8, None, Some(5), 400),
         ];
         let builds: Vec<&Schematic> = adders.iter().collect();
         let names: Vec<String> =
@@ -1093,11 +1101,11 @@ mod tests {
         let adders = [
             Schematic {
                 tags: tags.clone(),
-                ..build("a", 8, "other", Some(3), 900)
+                ..build("a", 8, None, Some(3), 900)
             },
             Schematic {
                 tags,
-                ..build("b", 8, "other", Some(3), 700)
+                ..build("b", 8, None, Some(3), 700)
             },
         ];
         let builds: Vec<&Schematic> = adders.iter().collect();
@@ -1112,13 +1120,13 @@ mod tests {
             Schematic {
                 builders: vec!["embizone".to_owned()],
                 imported_by: Some("embizone".to_owned()),
-                ..build("a", 8, "other", None, 1)
+                ..build("a", 8, None, None, 1)
             },
             Schematic {
                 builders: vec!["EmbiZone".to_owned(), "alex".to_owned()],
                 uploader: Some("lookaside".to_owned()),
                 uploader_name: Some("EMBIZONE".to_owned()),
-                ..build("b", 8, "other", None, 1)
+                ..build("b", 8, None, None, 1)
             },
         ];
         let built: Vec<(String, usize)> = most_built(&builds)
@@ -1154,9 +1162,10 @@ mod tests {
                 throughput: Some(19),
             }],
             size: (3, 4, 5),
-            ..build("s", 1, "ripple_carry", Some(6), 60)
+            ..build("s", 1, Some("ripple_carry"), Some(6), 60)
         };
-        let adders = [slice, build("a", 8, "ripple_carry", Some(25), 1000)];
+        let adders =
+            [slice, build("a", 8, Some("ripple_carry"), Some(25), 1000)];
         let stacks = stacked(&adders);
         let all: Vec<&Schematic> = adders.iter().chain(&stacks).collect();
         let wanted = Wanted {
@@ -1176,10 +1185,10 @@ mod tests {
     #[test]
     fn tradeoffs_keep_each_build_smaller_than_all_quicker_ones() {
         let builds = [
-            build("a", 8, "other", Some(3), 900),
-            build("b", 8, "other", Some(4), 950),
-            build("c", 8, "other", Some(5), 400),
-            build("d", 8, "other", Some(9), 380),
+            build("a", 8, None, Some(3), 900),
+            build("b", 8, None, Some(4), 950),
+            build("c", 8, None, Some(5), 400),
+            build("d", 8, None, Some(9), 380),
         ];
         let builds: Vec<&Schematic> = builds.iter().collect();
         let kept: Vec<&str> =

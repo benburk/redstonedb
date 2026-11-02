@@ -66,6 +66,14 @@ pub struct Design {
     pub terms: Vec<Terms>,
 }
 
+impl Design {
+    /// The design a build of it is given, as its category lists them;
+    /// `None` for [`OTHER`], as its carries name none.
+    pub fn given(&self) -> Option<&str> {
+        (self.name != OTHER).then_some(self.name.as_str())
+    }
+}
+
 /// A group's lookahead terms: how many have a component of their own, of
 /// how many it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,10 +172,14 @@ fn group_size(groups: &[RangeInclusive<usize>]) -> Option<usize> {
     }
 }
 
+/// The name a report gives an adder whose carries name no design, as one
+/// with a carry no component holds; a build of it is given none.
+pub const OTHER: &str = "other";
+
 /// The design a carry signature names, given each group's lookahead terms.
 pub fn design_of(signature: &str, terms: &[Terms]) -> &'static str {
     if signature.contains('?') {
-        return "other";
+        return OTHER;
     }
     if signature.chars().all(|c| c == 'r') {
         return "ripple_carry";

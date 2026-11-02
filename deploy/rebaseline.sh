@@ -50,6 +50,8 @@ for table in $tables; do
     copy="$copy DELETE FROM main.$table;
         INSERT INTO main.$table ($columns) SELECT $columns FROM old.$table;"
 done
+# A build of no design had the word other, where it now has none.
+copy="$copy UPDATE main.schematic SET design = NULL WHERE design = 'other';"
 sqlite3 "$new" "$copy COMMIT;"
 
 problems=$(sqlite3 "$new" "PRAGMA foreign_key_check" | head -5)

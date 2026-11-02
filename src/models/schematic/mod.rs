@@ -117,9 +117,9 @@ pub struct Schematic {
     /// The name the build was given, for a category that takes one, such
     /// as `Bus Crossing` under bussing.
     pub given_name: Option<String>,
-    /// The design within its category, such as `carry_lookahead`, or
-    /// `other`.
-    pub design: String,
+    /// The design within its category, such as `carry_lookahead`; `None`
+    /// for none.
+    pub design: Option<String>,
     /// The design's usual short name, such as `CLA`.
     pub design_abbreviation: Option<String>,
     /// How people read the design when that is not just its name's words,
@@ -234,8 +234,8 @@ impl Schematic {
                 tag::Kind::Other
             }
         };
-        let design = (self.design != "other").then(|| Tag {
-            name: self.design.clone(),
+        let design = self.design.as_ref().map(|design| Tag {
+            name: design.clone(),
             token: self.design_abbreviation.clone(),
             kind: found(tag::Kind::Design, behaviour.evaluated),
         });
@@ -401,12 +401,12 @@ impl Schematic {
     }
 
     /// The design in words, such as `Carry Lookahead`; `None` for no
-    /// design or `other`.
+    /// design.
     pub fn design_label(&self) -> Option<String> {
-        (self.design != "other").then(|| {
+        self.design.as_ref().map(|design| {
             self.design_given_label
                 .clone()
-                .unwrap_or_else(|| category::words(&self.design))
+                .unwrap_or_else(|| category::words(design))
         })
     }
 
@@ -597,7 +597,7 @@ mod tests {
             imported_by: None,
             conventional: true,
             keeps_paste: false,
-            design: "carry_lookahead".to_owned(),
+            design: Some("carry_lookahead".to_owned()),
             design_abbreviation: None,
             design_given_label: None,
             flags: Vec::new(),
@@ -755,7 +755,7 @@ mod tests {
         let mut multiplier = Schematic {
             category: "multiplier".to_owned(),
             category_label: Some("Multiplier".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             tags: Vec::new(),
             ..cla()
         };
@@ -772,7 +772,7 @@ mod tests {
         let ram = Schematic {
             category: "ram".to_owned(),
             category_label: Some("RAM".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             bytes: Some(32),
             measures: vec![Measure::Width, Measure::Bytes],
             tags: Vec::new(),
@@ -796,7 +796,7 @@ mod tests {
         let s = Schematic {
             category: "inc_dec".to_owned(),
             category_label: Some("Inc/Dec".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             tags: Vec::new(),
             ..cla()
         };
@@ -809,7 +809,7 @@ mod tests {
         let s = Schematic {
             category: "rng".to_owned(),
             category_label: Some("RNG".to_owned()),
-            design: "lfsr".to_owned(),
+            design: Some("lfsr".to_owned()),
             design_given_label: Some("LFSR".to_owned()),
             tags: Vec::new(),
             ..cla()
@@ -822,7 +822,7 @@ mod tests {
         let s = Schematic {
             category: "threshold".to_owned(),
             category_label: Some("Threshold".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             at_least: Some(3),
             measures: vec![Measure::Width, Measure::AtLeast],
             tags: Vec::new(),
@@ -837,7 +837,7 @@ mod tests {
         let serial = Schematic {
             category: "serial_adder".to_owned(),
             category_label: Some("Serial Adder".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             width: None,
             throughput: Some(2),
             measures: vec![Measure::Throughput],
@@ -915,7 +915,7 @@ mod tests {
         let s = Schematic {
             category: "ram".to_owned(),
             category_label: Some("RAM".to_owned()),
-            design: "other".to_owned(),
+            design: None,
             ..cla()
         };
         assert_eq!(s.name(), "8-bit RAM");
@@ -927,7 +927,7 @@ mod tests {
             category: "maze_screen".to_owned(),
             category_label: None,
             width: None,
-            design: "other".to_owned(),
+            design: None,
             ..cla()
         };
         assert_eq!(s.name(), "Maze Screen");
@@ -937,7 +937,7 @@ mod tests {
     fn unknown_parts_are_left_out() {
         let s = Schematic {
             width: None,
-            design: "other".to_owned(),
+            design: None,
             latency: None,
             synchronized: None,
             throughput: None,

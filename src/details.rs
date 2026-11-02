@@ -82,7 +82,7 @@ impl Details {
             bytes: s.bytes,
             at_least: s.at_least,
             pulse: s.pulse,
-            design: Some(s.design.clone()),
+            design: s.design.clone(),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
             builders: s.builders.clone(),
             contributors: s.contributors.clone(),
@@ -208,9 +208,8 @@ async fn ready(
             .to_owned()
             .into());
     }
-    let design = details.design.take().unwrap_or_else(|| "other".to_owned());
-    let category = category::check_category(&details.category, &design)?;
-    details.design = Some(design);
+    let category =
+        category::check_category(&details.category, details.design.as_deref())?;
     // Only a blessed build, one probing recognizes, goes on the list.
     if listed && !category::blessed(&category.name) {
         let width = simulation::derived_width(&category.name, true, build.data)
@@ -340,7 +339,7 @@ async fn evaluated(
     details.logic = None;
     details.pulse = None;
     details.at_least = None;
-    details.design = Some("other".to_owned());
+    details.design = None;
     details.flags.clear();
     let read = crate::schem::Blocks::read(build.data)
         .map(|blocks| {

@@ -387,7 +387,8 @@ pub struct Measured {
     /// A threshold's count of A's bits on that turns it on.
     pub at_least: Option<i64>,
     pub throughput: Option<i64>,
-    pub design: String,
+    /// One of its category's designs; `None` for none.
+    pub design: Option<String>,
     /// Whether it holds state, where set on the build itself; `None`
     /// follows its category.
     pub logic: Option<Logic>,

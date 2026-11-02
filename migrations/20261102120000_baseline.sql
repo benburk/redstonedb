@@ -67,9 +67,9 @@ CREATE TABLE schematic (
     ),
     -- The build's own name, for a category that takes one.
     given_name TEXT CHECK (given_name <> '' AND length(given_name) <= 60),
-    design TEXT NOT NULL DEFAULT 'other' CHECK (
-        design <> '' AND design NOT GLOB '*[^a-z0-9_]*'
-    ),
+    -- One of its category's designs, as the code lists them; NULL for
+    -- none.
+    design TEXT CHECK (design <> '' AND design NOT GLOB '*[^a-z0-9_]*'),
     description TEXT CHECK (description <> ''),
     built_on TEXT CHECK (
         built_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'

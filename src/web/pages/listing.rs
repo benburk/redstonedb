@@ -693,7 +693,7 @@ fn on_card(s: &Schematic) -> Vec<Tag> {
                     tag.kind,
                     tag::Kind::Design | tag::Kind::Orientation
                 )
-                && tag.name != s.design
+                && s.design.as_deref() != Some(tag.name.as_str())
                 && !SEEN.contains(&tag.name.as_str())
                 && !name.contains(&format!(" {} ", tag.label()))
         })
@@ -1034,13 +1034,17 @@ mod tests {
         assert!(!HomeQuery::parse("view=list").narrows());
     }
 
-    fn adder(design: &str, flags: &[&'static str], tags: &[&str]) -> Schematic {
+    fn adder(
+        design: Option<&str>,
+        flags: &[&'static str],
+        tags: &[&str],
+    ) -> Schematic {
         let mut s = crate::search::tests::schematic(
             "adder",
             Orientation::Horizontal,
             tags,
         );
-        s.design = design.to_owned();
+        s.design = design.map(str::to_owned);
         s.design_abbreviation = Some("CCA".to_owned());
         s.flags = flags
             .iter()
@@ -1055,7 +1059,7 @@ mod tests {
     #[test]
     fn a_card_shows_only_the_tags_hard_to_tell() {
         let mut s = adder(
-            "carry_cancel",
+            Some("carry_cancel"),
             &["carry_in", "carry_out", "inverted_carry_in"],
             &["pistons"],
         );
@@ -1071,7 +1075,7 @@ mod tests {
         };
         // How far apart its copies stack says it stacks.
         assert_eq!(names(&s), ["2-wide_stackable", "pistons"]);
-        let mut gate = adder("other", &[], &[]);
+        let mut gate = adder(None, &[], &[]);
         gate.category = "xnor_gate".to_owned();
         gate.category_label = Some("XNOR Gate".to_owned());
         assert!(gate.name().contains("XNOR"), "{}", gate.name());
@@ -1091,9 +1095,9 @@ mod tests {
     #[test]
     fn a_category_is_narrowed_by_the_tags_some_of_its_builds_carry() {
         let builds = [
-            adder("carry_cancel", &["carry_in"], &["pistons"]),
-            adder("ripple_carry", &["carry_in", "carry_out"], &[]),
-            adder("ripple_carry", &["carry_in"], &[]),
+            adder(Some("carry_cancel"), &["carry_in"], &["pistons"]),
+            adder(Some("ripple_carry"), &["carry_in", "carry_out"], &[]),
+            adder(Some("ripple_carry"), &["carry_in"], &[]),
         ];
         assert_eq!(
             shown(&filters(&builds, &[])),
