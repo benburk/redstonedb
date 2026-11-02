@@ -46,16 +46,16 @@ pub struct Prepared {
     pub turn: Turn,
 }
 
-/// The one way a file becomes the file the site keeps, whether uploaded,
-/// added, or read again: swaps cauldrons and cakes for barrels giving the
-/// same signal strength; standardizes it if asked, and in any case takes out corner markers and fits its box
-/// tightly; turns a conventional build's status lines pink, as older builds
-/// marked them on yellow; and sets it to paste from one block south of its
-/// south-east-bottom corner unless `keep_paste`, which keeps where its
-/// uploader's `//paste` put it. With `orient`, a conventional build is first
-/// turned and mirrored to lie the standard way, as `orient::orient` does; a
-/// new version is not, as it is compared block by block with the one
-/// before. Then measures it, reads its facts, and hashes it.
+/// The one way a file becomes the file the site keeps, whether uploaded, added,
+/// or read again: swaps cauldrons and cakes for barrels giving the same signal
+/// strength; standardizes it if asked, and in any case takes out corner markers
+/// and fits its box tightly; turns a conventional build's status lines pink, as
+/// older builds marked them on yellow; and sets it to paste from one block
+/// south of its south-east-bottom corner unless `keep_paste`, which keeps where
+/// its uploader's `//paste` put it. With `orient`, a conventional build is
+/// first turned and mirrored to lie the standard way, as `orient::orient` does;
+/// a new version is not, as it is compared block by block with the one before.
+/// Then measures it, reads its facts, and hashes it.
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn prepare(
     data: &[u8],

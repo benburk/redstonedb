@@ -16,10 +16,11 @@ use crate::{
 
 use super::pages;
 
-/// A leaderboard's address: `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`,
-/// each optional, with a value of each of the category's measures, such as
-/// `throughput` for a serial one, `at_least` for a threshold, and `pulse`
-/// for a monostable.
+/// A leaderboard's address, such as
+/// `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`, each
+/// part optional, with a value of each of the category's measures, such as
+/// `throughput` for a serial one, `at_least` for a threshold, and `pulse` for
+/// a monostable.
 #[derive(Deserialize)]
 pub struct BoardQuery {
     width: Option<String>,

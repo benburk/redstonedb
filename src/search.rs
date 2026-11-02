@@ -1,26 +1,25 @@
 //! Narrowing the schematic list with a query such as
 //! `register vertical alpha -torchless`.
 //!
-//! Every term must match, so terms AND together. A term prefixed with `-`
-//! or written after `not` must not match. A term matches a schematic when
-//! it names one of its facts (category or one of its aliases, such as
-//! `connect4`, orientation, a tag, its design or a flag, its width such as
-//! `8b`, or a width its copies stack to where they add bits, as `16b` finds
-//! a 1-bit adder slice that stacks, a threshold's `at least 3`, its latency such as `3t`, a builder,
-//! contributor, or importer, `stackable`, `sync` or `unsync`, `stateless`
-//! or `stateful`, as `comb` and `seq` still are, `pipelined`). A name can be tied to its role, as in
-//! `builder:embizone`, `contributor:alex_you`, or `importer:lookaside`, a
-//! release it works in is
-//! `version:1.12` or `version:beta_1.3`, and the throughput is
-//! `throughput:3`, or `3t` for a serial build, whose throughput leads its
-//! name as its width would. A term that is no fact
-//! of any schematic, nor in the singular, as `adders` is `adder`, matches
-//! when it appears in a schematic's title, description, or credited names
-//! instead, so `add` finds adders, `owen` finds Owenage_'s builds, and
-//! `sync` does not find `unsync`. Six or more hex digits, as `3234d4a4`,
-//! find the build whose id holds them. Quotes keep a multi-word term together,
-//! as in `"carry lookahead"`; underscores work too, and a number before a
-//! unit, as in `3 ticks` or `8 bit`, is one term.
+//! Every term must match, so terms AND together. A term prefixed with `-` or
+//! written after `not` must not match. A term matches a schematic when it names
+//! one of its facts (category or one of its aliases, such as `connect4`,
+//! orientation, a tag, its design or a flag, its width such as `8b`, or a width
+//! its copies stack to where they add bits, as `16b` finds a 1-bit adder slice
+//! that stacks, a threshold's `at least 3`, its latency such as `3t`, a
+//! builder, contributor, or importer, `stackable`, `sync` or `unsync`,
+//! `stateless` or `stateful`, as `comb` and `seq` still are, `pipelined`). A
+//! name can be tied to its role, as in `builder:embizone`,
+//! `contributor:alex_you`, or `importer:lookaside`, a release it works in is
+//! `version:1.12` or `version:beta_1.3`, and the throughput is `throughput:3`,
+//! or `3t` for a serial build, whose throughput leads its name as its width
+//! would. A term that is no fact of any schematic, nor in the singular, as
+//! `adders` is `adder`, matches when it appears in a schematic's title,
+//! description, or credited names instead, so `add` finds adders, `owen` finds
+//! Owenage_'s builds, and `sync` does not find `unsync`. Six or more hex
+//! digits, as `3234d4a4`, find the build whose id holds them. Quotes keep a
+//! multi-word term together, as in `"carry lookahead"`; underscores work too,
+//! and a number before a unit, as in `3 ticks` or `8 bit`, is one term.
 
 use std::collections::HashSet;
 

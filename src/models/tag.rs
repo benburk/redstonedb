@@ -89,8 +89,8 @@ impl Tag {
     }
 
     /// The class that colours its badge: failing in the colour of danger,
-    /// non-standard in a caution's, any other the site finds in its own, and one a person gives by its
-    /// kind.
+    /// non-standard in a caution's, any other the site finds in its own, and
+    /// one a person gives by its kind.
     pub fn class(&self) -> &'static str {
         match self.kind {
             Kind::Failing => "badge-failing",

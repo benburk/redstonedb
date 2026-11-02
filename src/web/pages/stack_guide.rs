@@ -50,9 +50,9 @@ fn way(direction: StackDirection) -> String {
     direction.name().replace('-', " and ")
 }
 
-/// The `//rstack` command for `copies` copies of a build stacked
-/// `direction`: its direction as the `RedstoneTools` plugin takes it, the copies after
-/// the first, and the step.
+/// The `//rstack` command for `copies` copies of a build stacked `direction`:
+/// its direction as the `RedstoneTools` plugin takes it, the copies after the
+/// first, and the step.
 fn rstack(direction: StackDirection, copies: i64) -> String {
     let token = match direction.name().as_str() {
         "west" => "w",
