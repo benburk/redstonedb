@@ -1,15 +1,14 @@
 //! The check of a build by its function rather than its colours: its
-//! inputs are its levers and stone buttons, found wherever they are, and
+//! inputs are its levers and buttons, found wherever they are, and
 //! its outputs lone coloured blocks, each read through the dust or
 //! repeater on it. What the site can put right itself, it does and lists;
 //! what only the builder can, it names with the blocks at fault.
 //!
 //! The rules:
 //!
-//! - An input is a lever, or a stone button for a pulse, on a side of a
-//!   solid block, a lamp too, its input block. Other buttons' longer pulses are
-//!   errors, never swapped, as a build may rely on them. The lever touches
-//!   nothing else that carries power.
+//! - An input is a lever, or any button for a pulse, on a side of a solid
+//!   block, a lamp too, its input block. The lever touches nothing else
+//!   that carries power.
 //! - The input block drives dust on any side, on top and below too,
 //!   torches, repeaters, and comparators, and nothing else powers it or
 //!   touches it but plain blocks, a target, and, on top, a redstone block,
@@ -22,9 +21,10 @@
 //! - Every output, data or status, is a block with dust, a repeater, or a
 //!   comparator on top, which is what is read, but a repeater or comparator
 //!   powering a block in front of it, which carries the circuit on; and no
-//!   block like it touching it, even diagonally, of a kind used for nothing else: any
-//!   full block that carries power but a component, or stained glass of a
-//!   colour, as plain, white, and gray glass hold a build's dust up.
+//!   block like it touching it, even diagonally, of a kind used for nothing
+//!   else: any full block that carries power but a component, or stained
+//!   glass of a colour, as plain, white, and gray glass hold a build's dust
+//!   up.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -403,11 +403,11 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: blocks of a kind that can mark one, as [`marks`] says,
-/// each with dust, a repeater, or a comparator on top reading it out, as
-/// [`reads_out`] says, and no block of its own kind touching it, even diagonally, of a
-/// kind every block of which is so. An input's block, under its switch, is
-/// never one.
+/// The outputs: blocks of a kind that can mark one, as [`marks`] says, each
+/// with dust, a repeater, or a comparator on top reading it out, as
+/// [`reads_out`] says, and no block of its own kind touching it, even
+/// diagonally, of a kind every block of which is so. An input's block,
+/// under its switch, is never one.
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
     let switched: HashSet<Pos> =
         blocks.switches().iter().map(|s| s.block).collect();

@@ -10,11 +10,11 @@
 //! changes only once, with all its bits on the same tick. An output whose
 //! every block has a repeater or comparator standing on it, carrying it
 //! out of the build, is timed from when it reaches them, leaving out their
-//! delay. An output whose
-//! bit changes more than once glitches: it pulses when it should stay put,
-//! or flips back and forth on its way to a new value.
+//! delay. An output whose bit changes more than once glitches: it pulses
+//! when it should stay put, or flips back and forth on its way to a new
+//! value.
 //!
-//! Three kinds of change are measured, each from a settled state:
+//! Two kinds of change are measured, each from a settled state:
 //!
 //! - each input alone, from 0 to every value and back, with the other
 //!   inputs held at every combination of theirs, which gives each input's
@@ -76,8 +76,8 @@ pub struct Timing {
     /// For a register, the most ticks for data to pass through a cell, its
     /// read on: from its data in changing, with its write held open, or for
     /// a cell that takes its data as its write closes, as it closes, until
-    /// the bus shows it. `None` for one that takes its data only
-    /// as its write opens.
+    /// the bus shows it. `None` for one that takes its data only as its
+    /// write opens.
     pub data: Option<i32>,
     /// When a register's cells take their data.
     pub takes: Takes,
@@ -178,9 +178,9 @@ impl Timing {
     /// The latency of the slowest data output, leaving out status lines
     /// such as carry out: the build's latency. A register's, or a
     /// buffer's, is data in to data out, through a cell whose write is held
-    /// open and read on, so a
-    /// data loop's latency is its ALU's plus its registers'; or, for one
-    /// that takes its data only as its write opens, from the write's button.
+    /// open and read on, so a data loop's latency is its ALU's plus its
+    /// registers'; or, for one that takes its data only as its write opens,
+    /// from the write's button.
     /// A monostable's is from A changing on its edge to its pulse
     /// starting.
     pub fn latency(&self) -> Option<i32> {
@@ -464,9 +464,8 @@ pub(super) fn pressed(
 
 /// What each case of `cases` showed, its operands set at tick 0 and its
 /// calculate, the bench's press, pressed `offset` ticks from them; with
-/// what each output's
-/// repeaters or comparators take to carry it out. `None` when some case
-/// does not come out as `expected`.
+/// what each output's repeaters or comparators take to carry it out. `None`
+/// when some case does not come out as `expected`.
 fn press_at(
     blocks: &Blocks,
     interface: &Interface,
@@ -880,9 +879,9 @@ impl Rig<'_> {
 /// the input's own blocks take it, so set as many ticks sooner as its
 /// drivers take, and runs until nothing is left to update, recording how
 /// each output bit changed, less the ticks the components standing on its
-/// blocks take to carry it out. A change from all off gives its `case`, its number and
-/// input values, to keep as an example of a glitch. Returns the last tick
-/// any output changed on, if one did.
+/// blocks take to carry it out. A change from all off gives its `case`,
+/// its number and input values, to keep as an example of a glitch. Returns
+/// the last tick any output changed on, if one did.
 fn transition(
     circuit: &mut Circuit,
     changes: &[(i32, usize, u64)],

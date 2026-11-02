@@ -149,11 +149,12 @@ const LONG_STEPS: usize = 1024;
 /// pulse is not a press. Each read must show what was last written into
 /// its cell, some ticks after it starts, the same for every read, no
 /// sooner than its bus's latency: a read that follows another may take
-/// longer, as the bus lets go of the last. The shortest period that holds, at some timing of its
-/// writes, on a short stream and then a long one; `None` when none up to
-/// twice its slowest read, write, or data does. A buffer, which has no
-/// reads, is written every period, a cell at random, and its cell's bus
-/// must show what it was given, as its timing counts from a write.
+/// longer, as the bus lets go of the last. The shortest period that holds,
+/// at some timing of its writes, on a short stream and then a long one;
+/// `None` when none up to twice its slowest read, write, or data does. A
+/// buffer, which has no reads, is written every period, a cell at random,
+/// and its cell's bus must show what it was given, as its timing counts
+/// from a write.
 pub fn throughput(
     data: &[u8],
     timing: &Timing,

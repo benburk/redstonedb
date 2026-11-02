@@ -10,9 +10,9 @@
 //! The checks run cheapest first and stop at the first that fails: a carry
 //! in to take the carry from the copy before, the spacing of the bits, then
 //! whether the copies, stacked as `//rstack` stacks them, fit together and
-//! read as one adder, then whether the
-//! stack settles, then a few sums whose carry crosses from one copy to the
-//! next, and only then the stack's full test.
+//! read as one adder, then whether the stack settles, then a few sums whose
+//! carry crosses from one copy to the next, and only then the stack's full
+//! test.
 //!
 //! Each step is tried with each box its copies may repeat, the box rule's
 //! first, then boxes leaving more to the first copy; see `stack::find_box`.
@@ -472,12 +472,12 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
     cases
 }
 
-/// The shortest step up, west, or north, as far as the build reaches,
-/// whose copies of the incrementer, decrementer, or carry out in `data`
-/// make a wider one under `test`: each copy's carry out, landing on the
-/// next's control line, takes its place, as an adder's carry does. One with no carry out
-/// keeps every copy's own line, so none does. Copies are as many as
-/// `copies` gives, so the stack reaches past what dust carries.
+/// The shortest step up, west, or north, as far as the build reaches, whose
+/// copies of the incrementer, decrementer, or carry out in `data` make a
+/// wider one under `test`: each copy's carry out, landing on the next's
+/// control line, takes its place, as an adder's carry does. One with no
+/// carry out keeps every copy's own line, so none does. Copies are as many
+/// as `copies` gives, so the stack reaches past what dust carries.
 pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
     let not = |reason: &str| Stacking::Not {
         step: None,
