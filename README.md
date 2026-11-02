@@ -6,10 +6,9 @@ A folder of `.schem` files on Schemati or a Discord channel holds the same build
 
 ## Docs
 
-- [conventions.md](conventions.md): what a build needs, what the site does with it, and stacking.
-- [glossary.md](glossary.md): categories, designs, fields, and their abbreviations.
-- [naming.md](naming.md): how a build is named, and its download filename.
-- [RATIONALE.md](RATIONALE.md): why server-rendered HTML, SQLite, and Rust.
+- [docs/conventions.md](docs/conventions.md): what a build needs, what the site does with it, and stacking.
+- [docs/glossary.md](docs/glossary.md): categories, designs, fields, and their abbreviations.
+- [docs/naming.md](docs/naming.md): how a build is named, and its download filename.
 
 ## Setup
 
@@ -145,6 +144,7 @@ styles/app.css      the Tailwind source
 migrations/         the schema, applied in order at startup
 tests/              integration tests, with .schem fixtures
 deploy/             the server's units, Caddyfile, and scripts
+docs/               building conventions, the glossary, and naming
 ```
 
 The site is axum, maud, and sqlx over SQLite. Pages are server-rendered HTML with forms; [fixi](https://github.com/bigskysoftware/fixi), vendored as `static/fixi.js`, swaps in a fragment where a form changes only part of a page, and `static/app.js` holds its policies for every page. The 3D viewer is [schematic-renderer](https://github.com/Schem-at/schematic-renderer), loaded from jsDelivr with its resource pack.
