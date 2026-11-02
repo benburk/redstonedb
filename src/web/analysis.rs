@@ -76,8 +76,9 @@ pub struct Analyzed {
     pub recognition: Recognition,
 }
 
-/// Starts analyzing `file` for `user`, naming each category it is probed
-/// as by its label in `labels`, pairs of name and label, and returns the analysis's id.
+/// Starts analyzing `file` for `user`, naming each category it is probed as by
+/// its label in `labels`, pairs of name and label, and returns the analysis's
+/// id.
 pub fn start(
     state: &AppState,
     user: &User,

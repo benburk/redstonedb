@@ -350,7 +350,8 @@ fn glitch_example(
                         th scope="row" class={ (TABLE_CELL) " text-left font-normal" } { (name) }
                         @for t in 0..=last {
                             @let value = at(t);
-                            // Before its first change it holds its old value, as it should.
+                            // Before its first change it holds its old value,
+                            // as it should.
                             @if t < first || value == settled {
                                 td class={ (TABLE_CELL) " text-center" } { (value) }
                             } @else {

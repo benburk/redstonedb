@@ -135,7 +135,8 @@ const ASSETS: [Asset; 7] = [
     CSS, FIXI_JS, APP_JS, FORM_JS, SIDEBAR_JS, THEME_JS, VIEWER_JS,
 ];
 
-/// A How builds are recognized picture, drawn by `rsdb guide-images static/guide`.
+/// A How builds are recognized picture, drawn by
+/// `rsdb guide-images static/guide`.
 macro_rules! guide_image {
     ($name:literal) => {
         Asset::new(
@@ -202,7 +203,8 @@ pub fn static_router() -> Router<AppState> {
                     (
                         [
                             (header::CONTENT_TYPE, asset.content_type),
-                            // Its address names its version, so it never changes.
+                            // Its address names its version, so it never
+                            // changes.
                             (
                                 header::CACHE_CONTROL,
                                 "public, max-age=31536000, immutable",
