@@ -48,13 +48,7 @@ pub fn throughput(
             found.and_then(|i| i.tick).unwrap_or(0)
         })
         .collect();
-    // Each output's tick from A's, past the repeaters or comparators that
-    // carry it out, where the site reads it.
-    let latency: Vec<i32> = timing
-        .outputs
-        .iter()
-        .map(|o| o.latency + o.carried)
-        .collect();
+    let latency = read_at(timing);
     if latency.len() != interface.outputs.len() {
         return Ok(None);
     }
@@ -76,6 +70,55 @@ pub fn throughput(
     let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
     let long = stream(&widths, LONG);
     shortest(blocks, (&cases, &long), &offset, &latency, 2 * slowest)
+}
+
+/// Each output's tick from A's, past the repeaters or comparators that
+/// carry it out, where the site reads it.
+fn read_at(timing: &Timing) -> Vec<i32> {
+    timing
+        .outputs
+        .iter()
+        .map(|o| o.latency + o.carried)
+        .collect()
+}
+
+/// How often the build in `blocks`, timed as `timing`, takes a new case
+/// when the inputs `control` picks out choose what it does, as an ALU's
+/// operation, set as a decoder sets them: `stream` gives so many cases,
+/// each a value for every input, and the control lines are timed against
+/// the other inputs as works best, from as many ticks before them as its
+/// slowest output takes to as many after. The shortest period at any such
+/// timing; `None` when none up to twice its slowest output keeps every
+/// result right.
+pub(super) fn controlled(
+    blocks: &Blocks,
+    interface: &interface::Interface,
+    timing: &Timing,
+    control: impl Fn(usize) -> bool,
+    stream: impl Fn(usize) -> Vec<Vec<u64>>,
+) -> Result<Option<i32>> {
+    let latency = read_at(timing);
+    if latency.len() != interface.outputs.len() {
+        return Ok(None);
+    }
+    let slowest = latency.iter().copied().max().unwrap_or(1).max(1);
+    let (short, long) = (stream(CASES), stream(LONG));
+    let mut best: Option<i32> = None;
+    for offset in -slowest..=slowest {
+        let offsets: Vec<i32> = (0..interface.inputs.len())
+            .map(|port| if control(port) { offset } else { 0 })
+            .collect();
+        let most = best.map_or(2 * slowest, |b| b - 1);
+        if most < 1 {
+            break;
+        }
+        let found =
+            shortest(blocks, (&short, &long), &offsets, &latency, most)?;
+        if found.is_some() {
+            best = found;
+        }
+    }
+    Ok(best)
 }
 
 /// The shortest period, up to `most`, at which the `short` stream of cases

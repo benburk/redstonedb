@@ -37,6 +37,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::{
+    Broken,
     bench::{self, EXHAUSTIVE_BITS},
     circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
 };
@@ -377,6 +378,32 @@ pub(super) fn measure(
         data: None,
         pulse: None,
     })
+}
+
+/// The slowest of `timings`, one for each way a build's lines can be set,
+/// as an ALU's operations: the one with the most latency, the first on a
+/// tie, synced only when `synced` says each is. Fails as broken, saying
+/// `none`, when there are none; any timing that fails fails it.
+pub(super) fn slowest(
+    timings: impl IntoIterator<Item = Result<Timing>>,
+    synced: impl Fn(&Timing) -> bool,
+    none: &str,
+) -> Result<Timing> {
+    let mut slowest: Option<Timing> = None;
+    let mut all_synced = true;
+    for timing in timings {
+        let timing = timing?;
+        all_synced &= synced(&timing);
+        if slowest
+            .as_ref()
+            .is_none_or(|s| timing.latency() > s.latency())
+        {
+            slowest = Some(timing);
+        }
+    }
+    let mut timing = slowest.ok_or_else(|| Broken(none.to_owned()))?;
+    timing.synced = all_synced;
+    Ok(timing)
 }
 
 /// The most ticks before or after its operands a sequential build's

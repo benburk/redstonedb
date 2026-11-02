@@ -7,16 +7,12 @@
 use anyhow::Result;
 
 use super::{
-    Broken, Report, Stacking, Test,
+    Broken, Stacking, Test,
     adder::adder_cases,
     bench::{Bench, Cases, Kind, Spec, mask},
     stacking,
 };
-use crate::{
-    models::schematic::Orientation,
-    recognize::interface::{self, Interface},
-    schem::{Blocks, stack},
-};
+use crate::recognize::interface::Interface;
 
 /// A two-input gate, its category's: one function, or that function
 /// inverted, as a torch on the output makes it.
@@ -182,59 +178,27 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
 /// How copies of the NAND+XNOR gate in `data` stack west into a wider one,
 /// as an XOR gate's do.
 pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
-    let blocks = Blocks::read(data).ok()?;
-    let interface = interface::read(&blocks);
-    nand_xnor(&interface).ok()?;
-    let width = interface.inputs[0].bits.len();
-    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses =
-        stack::Buses::of(Test::NandXnor.name(), Orientation::Horizontal);
-    let works = |blocks: &Blocks, copies: usize| {
-        let Report::Ran(run) = Test::NandXnor.run(blocks) else {
-            return None;
-        };
-        let bits = interface::read(blocks).inputs.first()?.bits.len();
-        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
-    };
-    Some(stacking::into_bits(
+    stacking::bitwise(
         data,
-        reach,
-        width,
-        buses,
-        works,
+        Test::NandXnor,
+        |interface| nand_xnor(interface).ok().map(|_| 0),
         "No step west or up, as far as it reaches, makes copies whose bits \
          together give A nand B and A xnor B.",
-    ))
+    )
 }
 
 /// How copies of the `gate` in `data` stack west into a wider one, each
 /// adding its bits to A, B, and the output, as the inverter's do; `None`
 /// when it is not one.
 pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
-    let blocks = Blocks::read(data).ok()?;
-    let interface = interface::read(&blocks);
-    spec(&interface, gate).ok()?;
-    let width = interface.inputs[0].bits.len();
-    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let test = gate.test();
-    let buses = stack::Buses::of(test.name(), Orientation::Horizontal);
-    let works = |blocks: &Blocks, copies: usize| {
-        let Report::Ran(run) = test.run(blocks) else {
-            return None;
-        };
-        let bits = interface::read(blocks).inputs.first()?.bits.len();
-        (run.wrong == 0 && bits == width * copies).then_some(run.cases)
-    };
     let pattern = gate.pattern();
-    Some(stacking::into_bits(
+    stacking::bitwise(
         data,
-        reach,
-        width,
-        buses,
-        works,
+        gate.test(),
+        |interface| spec(interface, gate).ok().map(|_| 0),
         &format!(
             "No step west or up, as far as it reaches, makes copies whose \
              bits together give {pattern}."
         ),
-    ))
+    )
 }
