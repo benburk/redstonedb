@@ -1,37 +1,33 @@
 //! Each build's simulation result, kept for the file it ran on, and what is
 //! derived from the file and the simulation in place of details a person
 //! types: an adder's width, and a tested build's latency and whether it is
-//! synchronized.
+//! synchronized. Running the tests is `runner`'s, and deciding the details
+//! from what they found `derive`'s; this module stores both.
 
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, Mutex, atomic::AtomicBool},
-};
+mod derive;
+mod runner;
+
+pub use derive::{EVEN, FALLING_EDGE, INVERTED, SIGNED};
+pub use runner::{evaluate_ahead, refresh_soon, run, run_at_once, time};
+
+use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
-use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
     import,
     models::{
-        schematic::{
-            self, Encoding, Logic, Orientation, Schematic, StackDirection,
-            Widened,
-        },
+        schematic::{self, Schematic, StackDirection},
         version,
     },
-    recognize::{
-        category,
-        evaluate::{Evaluation, evaluate},
-        interface, roles,
-    },
+    recognize::{category, evaluate::evaluate, interface, roles},
     schem::{Blocks, stack},
-    simulate::{
-        self, EVEN_PARITY, Edge, Report, SIGNED_GREATER_THAN, Stacking, Test,
-        Timing,
-    },
+    simulate::{Report, Test},
 };
+
+use derive::Derived;
+use runner::{CASES, TIMING, evaluated, taken_ahead};
 
 /// Build `id`'s stored result, when it ran on the file whose hash is
 /// `sha256` under `test`; a result of another file or test, none. A change
@@ -172,174 +168,6 @@ pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
         Some(test) => stored(db, &s.id, &s.sha256, test).await,
         None => Ok(None),
     }
-}
-
-/// One run of a test's cases at a time, and one timing: the server has two
-/// cores, and a timing, which takes a while, should not hold up the cases
-/// someone is waiting on.
-static CASES: Semaphore = Semaphore::const_new(1);
-static TIMING: Semaphore = Semaphore::const_new(1);
-
-/// An evaluation of a file, once it is done; `None` when it failed.
-type Ahead = Arc<OnceCell<Option<Arc<Evaluation>>>>;
-
-/// Evaluations of files not yet stored, by their hash, as an upload's
-/// while its uploader fills in its details, so storing one takes that
-/// evaluation, or waits on it, rather than starting over. The latest
-/// [`AHEAD_KEPT`] only, as most previews are never published.
-static AHEAD: Mutex<Vec<(String, Ahead)>> = Mutex::new(Vec::new());
-const AHEAD_KEPT: usize = 8;
-
-/// Starts evaluating `data`, a file as the site keeps it whose hash is
-/// `sha256`, in the background, for the build it becomes once stored to
-/// take; see [`AHEAD`].
-pub fn evaluate_ahead(data: Vec<u8>, sha256: String) {
-    let cell = {
-        let mut ahead = AHEAD.lock().expect("the list is whole");
-        if ahead.iter().any(|(hash, _)| *hash == sha256) {
-            return;
-        }
-        let cell = Ahead::default();
-        ahead.push((sha256, Arc::clone(&cell)));
-        if ahead.len() > AHEAD_KEPT {
-            ahead.remove(0);
-        }
-        cell
-    };
-    // Behind timings, as it takes a while, so it holds up no cases
-    // someone is waiting on, as publishing it runs.
-    tokio::spawn(async move {
-        cell.get_or_init(|| evaluated(data, &TIMING)).await;
-    });
-}
-
-/// The evaluation started ahead of the file whose hash is `sha256`, taken
-/// off the list; `None` when none was.
-fn taken_ahead(sha256: &str) -> Option<Ahead> {
-    let mut ahead = AHEAD.lock().expect("the list is whole");
-    let at = ahead.iter().position(|(hash, _)| hash == sha256)?;
-    Some(ahead.remove(at).1)
-}
-
-/// `data` evaluated, one at a time with others `turns` lets go; `None`
-/// when it failed.
-async fn evaluated(
-    data: Vec<u8>,
-    turns: &Semaphore,
-) -> Option<Arc<Evaluation>> {
-    let _turn = turns.acquire().await.ok()?;
-    tokio::task::spawn_blocking(move || evaluate(&data).ok().map(Arc::new))
-        .await
-        .ok()
-        .flatten()
-}
-
-/// Lets `at_once` runs of cases, and as many timings, go at a time, as on
-/// a machine with the cores for them; call once, before any runs.
-pub fn run_at_once(at_once: usize) {
-    CASES.add_permits(at_once.saturating_sub(1));
-    TIMING.add_permits(at_once.saturating_sub(1));
-}
-
-/// The results of the latest files run, by the file's hash and the test,
-/// so a file previewed and then published, the same bytes, takes what its
-/// preview found rather than running again. A restart forgets them.
-static RECENT: Mutex<Vec<(String, &'static str, Report)>> =
-    Mutex::new(Vec::new());
-
-/// How many results `RECENT` keeps, the latest.
-const KEPT: usize = 16;
-
-/// The result `RECENT` holds for `sha256` under `test`, if any.
-fn recent(sha256: &str, test: Test) -> Option<Report> {
-    let kept = RECENT.lock().expect("the results are whole");
-    kept.iter()
-        .find(|(sha, name, _)| sha == sha256 && *name == test.name())
-        .map(|(_, _, report)| report.clone())
-}
-
-/// Keeps `report` for `sha256` under `test`, in place of any before, and
-/// forgets the oldest past `KEPT`.
-fn remember(sha256: &str, test: Test, report: &Report) {
-    let mut kept = RECENT.lock().expect("the results are whole");
-    kept.retain(|(sha, name, _)| !(sha == sha256 && *name == test.name()));
-    kept.push((sha256.to_owned(), test.name(), report.clone()));
-    if kept.len() > KEPT {
-        kept.remove(0);
-    }
-}
-
-/// Runs `test`'s cases on `data`, a `.schem` file, away from the async
-/// threads, and, when they all come out right, whether its copies stack;
-/// or takes the result of the same file run lately.
-pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
-    let sha256 = import::sha256(&data);
-    if let Some(report) = recent(&sha256, test) {
-        return Ok(report);
-    }
-    let _turn = CASES.acquire().await?;
-    // Run while this waited for its turn, as by the preview just before.
-    if let Some(report) = recent(&sha256, test) {
-        return Ok(report);
-    }
-    let ran = tokio::task::spawn_blocking(move || {
-        let mut report = test.run(&Blocks::read(&data)?);
-        if let Report::Ran(run) = &mut report
-            && run.wrong == 0
-        {
-            run.stacking = test.stacking(&data);
-        }
-        anyhow::Ok(report)
-    })
-    .await;
-    // A run that panics is stored as skipped, so asking again does not
-    // run it again and again.
-    let report = match ran {
-        Ok(report) => report?,
-        Err(err) if err.is_panic() => Report::Skipped {
-            reason: format!(
-                "The simulator failed on it: {}.",
-                crate::simulate::panic_message(&*err.into_panic())
-            ),
-        },
-        Err(err) => return Err(err.into()),
-    };
-    remember(&sha256, test, &report);
-    Ok(report)
-}
-
-/// Measures when `data`'s outputs settle under `test`, away from the async
-/// threads, or takes the timing of the same file measured lately. Setting
-/// `cancel` stops it early, as when nobody waits for it any more.
-pub async fn time(
-    test: Test,
-    data: Vec<u8>,
-    cancel: Arc<AtomicBool>,
-) -> Result<Timing> {
-    let sha256 = import::sha256(&data);
-    let measured = |sha256: &str| {
-        recent(sha256, test).and_then(|report| report.timing().cloned())
-    };
-    if let Some(timing) = measured(&sha256) {
-        return Ok(timing);
-    }
-    let _turn = TIMING.acquire().await?;
-    // Measured while this waited for its turn, as by the preview just
-    // before.
-    if let Some(timing) = measured(&sha256) {
-        return Ok(timing);
-    }
-    let timing = tokio::task::spawn_blocking(move || {
-        test.time(&Blocks::read(&data)?, &cancel)
-    })
-    .await??;
-    if let Some(mut report) = recent(&sha256, test) {
-        if let Report::Ran(run) = &mut report {
-            run.timing = Some(timing.clone());
-        }
-        remember(&sha256, test, &report);
-    }
-    Ok(timing)
 }
 
 /// The width `category` reads from a conventional build's file, if it reads
@@ -635,243 +463,7 @@ async fn refresh_evaluated(
     Ok(report)
 }
 
-/// The flag of a monostable whose output rests on, so its pulse turns it
-/// off.
-pub const INVERTED: &str = "inverted";
-
-/// The flag of a comparator that reads its operands in two's complement.
-pub const SIGNED: &str = "signed";
-
-/// The flag of a monostable that pulses as A turns off, not on.
-pub const FALLING_EDGE: &str = "falling_edge";
-
-/// The flag of a parity circuit whose output is on for an even number of
-/// A's bits on, not an odd number.
-pub const EVEN: &str = "even";
-
-/// The details worked out from a build's file and its simulation, over
-/// what was typed, as they stand or are to be.
-#[derive(PartialEq)]
-struct Derived {
-    width: Option<i64>,
-    orientation: Orientation,
-    encoding: Option<Encoding>,
-    latency: Option<i64>,
-    synchronized: Option<bool>,
-    pulse: Option<i64>,
-    /// A threshold's count of A's bits on that turns it on.
-    at_least: Option<i64>,
-    flags: Vec<String>,
-    stacking: Vec<StackDirection>,
-    /// Its copies stacked into wider builds; see `Widened`.
-    widened: Vec<Widened>,
-    throughput: Option<i64>,
-    design: String,
-    /// Whether it holds state, where set on the build itself.
-    logic: Option<Logic>,
-}
-
 impl Derived {
-    /// Build `s`'s, as stored.
-    fn of(s: &Schematic) -> Self {
-        Derived {
-            width: s.width,
-            orientation: s.orientation,
-            encoding: s.encoding,
-            latency: s.latency,
-            synchronized: s.synchronized,
-            pulse: s.pulse,
-            at_least: s.at_least,
-            flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
-            stacking: s.stacking.clone(),
-            widened: s.widened.clone(),
-            throughput: s.throughput,
-            design: s.design.clone(),
-            logic: s.own_logic,
-        }
-    }
-
-    /// Everything `e` worked out from build `s`'s file, for a build of a
-    /// category whose details all come from `evaluate`: what its file
-    /// shows as the category, its ports' width, orientation, encoding,
-    /// and flags, whatever the test made of it, and, once the test
-    /// recognizes it as the category, what the simulation measured. What
-    /// could not be worked out is unknown, not what was typed.
-    fn evaluated(s: &Schematic, e: &Evaluation) -> Self {
-        let mut derived = Derived {
-            latency: None,
-            synchronized: None,
-            stacking: Vec::new(),
-            widened: Vec::new(),
-            throughput: None,
-            design: "other".to_owned(),
-            ..Derived::of(s)
-        };
-        derived.read(&s.category, &e.prepared.blocks);
-        if e.category == Some(s.category.as_str()) {
-            if let Some(orientation) = e.orientation {
-                derived.orientation = orientation;
-            }
-            derived.latency = e.latency;
-            derived.synchronized = e.synchronized;
-            derived.stacking.clone_from(&e.stacking);
-            derived.widened.clone_from(&e.widened);
-            derived.flags.clone_from(&e.flags);
-            if e.pulse.is_some() {
-                derived.pulse = e.pulse;
-            }
-            if let Some(Report::Ran(run)) = &e.report
-                && run.wrong == 0
-                && category::behaviour(&s.category).test
-                    == Some(Test::Threshold)
-            {
-                derived.at_least = simulate::at_least(&run.pattern);
-            }
-            derived.throughput = e.throughput;
-            if let Some(design) = &e.design {
-                design.name.clone_into(&mut derived.design);
-            }
-            if e.logic.is_some() {
-                derived.logic = e.logic;
-            }
-        }
-        derived
-    }
-
-    /// Takes what a build of `category` reads from its file, `blocks`.
-    fn read(&mut self, category: &str, blocks: &Blocks) {
-        let interface = interface::read(blocks);
-        let found = import::derived(category, &interface);
-        if let Some(width) = found.width {
-            self.width = Some(width);
-        }
-        if let Some(orientation) = found.orientation {
-            self.orientation = orientation;
-        }
-        if let Some(encoding) = found.encoding {
-            self.encoding = Some(encoding);
-        }
-        if let Some(flags) = import::derived_flags(category, &interface) {
-            self.flags = flags;
-        }
-    }
-
-    /// Takes what build `s`'s result `report` decides: the latency and
-    /// synchronized of a result that measured its timing, a monostable's
-    /// pulse and whether it is inverted, and, for a
-    /// conventional build of a category whose stacking the simulation
-    /// decides, how it stacks. An adder takes the step its copies added
-    /// right at, with no limit on copies, or none. A register takes the
-    /// step west its copies stored and read right at, with the most copies
-    /// that did, in place of its builder's west step and beside their
-    /// others, which the search does not try; it keeps its builder's
-    /// stacking when none was found. A result that did not stack copies,
-    /// such as one with wrong cases, leaves the stacking as it was.
-    fn decide(&mut self, s: &Schematic, report: &Report) {
-        if let Some(timing) = report.timing()
-            && let Some(latency) = timing.latency()
-        {
-            self.latency = Some(latency.max(0).into());
-            self.synchronized = Some(timing.synced);
-        }
-        // A comparator's cases say whether it reads its operands signed.
-        if let Report::Ran(run) = report
-            && run.wrong == 0
-            && category::behaviour(&s.category).test == Some(Test::GreaterThan)
-        {
-            self.flags.retain(|flag| flag != SIGNED);
-            if run.pattern == SIGNED_GREATER_THAN {
-                self.flags.push(SIGNED.to_owned());
-            }
-        }
-        // A parity circuit's cases say whether it is on for an even number.
-        if let Report::Ran(run) = report
-            && run.wrong == 0
-            && category::behaviour(&s.category).test == Some(Test::Parity)
-        {
-            self.flags.retain(|flag| flag != EVEN);
-            if run.pattern == EVEN_PARITY {
-                self.flags.push(EVEN.to_owned());
-            }
-        }
-        // A threshold's cases say how many of A's bits turn it on.
-        if let Report::Ran(run) = report
-            && run.wrong == 0
-            && category::behaviour(&s.category).test == Some(Test::Threshold)
-        {
-            self.at_least = simulate::at_least(&run.pattern);
-        }
-        if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
-            self.pulse = Some(pulse.ticks.into());
-            self.flags
-                .retain(|flag| flag != INVERTED && flag != FALLING_EDGE);
-            if pulse.inverted {
-                self.flags.push(INVERTED.to_owned());
-            }
-            if pulse.edge == Edge::Falling {
-                self.flags.push(FALLING_EDGE.to_owned());
-            }
-        }
-        let policy = category::behaviour(&s.category).stacking;
-        let Report::Ran(run) = report else {
-            return;
-        };
-        if !s.conventional
-            || matches!(
-                policy,
-                category::Stacking::Given | category::Stacking::Never
-            )
-        {
-            return;
-        }
-        match &run.stacking {
-            Some(Stacking::Stacks { step, .. }) => {
-                self.stacking = vec![step.direction()];
-            }
-            Some(Stacking::Separate { ways }) => {
-                self.stacking =
-                    ways.iter().map(|way| way.direction()).collect();
-            }
-            Some(
-                Stacking::Registers { step, most, .. }
-                | Stacking::Wider { step, most, .. },
-            ) => {
-                let found = StackDirection {
-                    max_copies: most.and_then(|n| i64::try_from(n).ok()),
-                    ..step.direction()
-                };
-                let also = match &run.stacking {
-                    Some(Stacking::Wider { also, .. }) => also.as_slice(),
-                    _ => &[],
-                };
-                self.stacking = s
-                    .stacking
-                    .iter()
-                    .filter(|typed| typed.west == 0 && also.is_empty())
-                    .copied()
-                    .chain([found])
-                    .chain(also.iter().map(|way| way.direction()))
-                    .collect();
-            }
-            Some(Stacking::Not { .. })
-                if policy == category::Stacking::Inferred =>
-            {
-                self.stacking = Vec::new();
-            }
-            Some(Stacking::Not { .. }) | None => {}
-        }
-        // Copies that add up as a wider adder, or store as a wider register,
-        // run the way its bits do, which a 1-bit build's lone input cannot
-        // show.
-        if let Some(
-            Stacking::Stacks { step, .. } | Stacking::Wider { step, .. },
-        ) = &run.stacking
-            && let Some(orientation) = step.orientation()
-        {
-            self.orientation = orientation;
-        }
-    }
-
     /// Writes over build `s`'s stored details whatever of these differs.
     async fn save(
         &self,
@@ -978,32 +570,6 @@ pub async fn refresh_timing(
     derived.save(&mut tx, &s).await?;
     tx.commit().await?;
     Ok(Some(report))
-}
-
-/// The builds being simulated in the background.
-static REFRESHING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-
-/// Brings build `id`'s result and timing up to date in the background, as
-/// the site does once a build is published or edited, unless that is
-/// already under way: see `refresh` and `refresh_timing`. Asking again is
-/// how one lost to a restart starts over.
-pub fn refresh_soon(db: &SqlitePool, id: &str) {
-    let mut running = REFRESHING.lock().expect("the list is whole");
-    if !running.insert(id.to_owned()) {
-        return;
-    }
-    let (db, id) = (db.clone(), id.to_owned());
-    tokio::spawn(async move {
-        let refreshed = async {
-            refresh(&db, &id, false).await?;
-            refresh_timing(&db, &id, false).await?;
-            finish(&db, &id).await
-        };
-        if let Err(err) = refreshed.await {
-            tracing::error!(id, "simulating a build: {err:#}");
-        }
-        REFRESHING.lock().expect("the list is whole").remove(&id);
-    });
 }
 
 /// For a recognized build whose test passes, as once it is uploaded: for

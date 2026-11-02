@@ -1,0 +1,375 @@
+//! What a build's file and its simulation decide of its details, in place
+//! of what was typed: worked out here without touching the database, and
+//! written by `Derived::save` in the module above.
+
+use crate::{
+    import,
+    models::schematic::{
+        Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
+    },
+    recognize::{category, evaluate::Evaluation, interface},
+    schem::Blocks,
+    simulate::{
+        self, EVEN_PARITY, Edge, Report, SIGNED_GREATER_THAN, Stacking, Test,
+    },
+};
+
+/// The flag of a monostable whose output rests on, so its pulse turns it
+/// off.
+pub const INVERTED: &str = "inverted";
+
+/// The flag of a comparator that reads its operands in two's complement.
+pub const SIGNED: &str = "signed";
+
+/// The flag of a monostable that pulses as A turns off, not on.
+pub const FALLING_EDGE: &str = "falling_edge";
+
+/// The flag of a parity circuit whose output is on for an even number of
+/// A's bits on, not an odd number.
+pub const EVEN: &str = "even";
+
+/// The details worked out from a build's file and its simulation, over
+/// what was typed, as they stand or are to be.
+#[derive(PartialEq)]
+pub(super) struct Derived {
+    pub(super) width: Option<i64>,
+    pub(super) orientation: Orientation,
+    pub(super) encoding: Option<Encoding>,
+    pub(super) latency: Option<i64>,
+    pub(super) synchronized: Option<bool>,
+    pub(super) pulse: Option<i64>,
+    /// A threshold's count of A's bits on that turns it on.
+    pub(super) at_least: Option<i64>,
+    pub(super) flags: Vec<String>,
+    pub(super) stacking: Vec<StackDirection>,
+    /// Its copies stacked into wider builds; see `Widened`.
+    pub(super) widened: Vec<Widened>,
+    pub(super) throughput: Option<i64>,
+    pub(super) design: String,
+    /// Whether it holds state, where set on the build itself.
+    pub(super) logic: Option<Logic>,
+}
+
+impl Derived {
+    /// Build `s`'s, as stored.
+    pub(super) fn of(s: &Schematic) -> Self {
+        Derived {
+            width: s.width,
+            orientation: s.orientation,
+            encoding: s.encoding,
+            latency: s.latency,
+            synchronized: s.synchronized,
+            pulse: s.pulse,
+            at_least: s.at_least,
+            flags: s.flags.iter().map(|flag| flag.name.clone()).collect(),
+            stacking: s.stacking.clone(),
+            widened: s.widened.clone(),
+            throughput: s.throughput,
+            design: s.design.clone(),
+            logic: s.own_logic,
+        }
+    }
+
+    /// Everything `e` worked out from build `s`'s file, for a build of a
+    /// category whose details all come from `evaluate`: what its file
+    /// shows as the category, its ports' width, orientation, encoding,
+    /// and flags, whatever the test made of it, and, once the test
+    /// recognizes it as the category, what the simulation measured. What
+    /// could not be worked out is unknown, not what was typed.
+    pub(super) fn evaluated(s: &Schematic, e: &Evaluation) -> Self {
+        let mut derived = Derived {
+            latency: None,
+            synchronized: None,
+            stacking: Vec::new(),
+            widened: Vec::new(),
+            throughput: None,
+            design: "other".to_owned(),
+            ..Derived::of(s)
+        };
+        derived.read(&s.category, &e.prepared.blocks);
+        if e.category == Some(s.category.as_str()) {
+            if let Some(orientation) = e.orientation {
+                derived.orientation = orientation;
+            }
+            derived.latency = e.latency;
+            derived.synchronized = e.synchronized;
+            derived.stacking.clone_from(&e.stacking);
+            derived.widened.clone_from(&e.widened);
+            derived.flags.clone_from(&e.flags);
+            if e.pulse.is_some() {
+                derived.pulse = e.pulse;
+            }
+            if let Some(Report::Ran(run)) = &e.report
+                && run.wrong == 0
+                && category::behaviour(&s.category).test
+                    == Some(Test::Threshold)
+            {
+                derived.at_least = simulate::at_least(&run.pattern);
+            }
+            derived.throughput = e.throughput;
+            if let Some(design) = &e.design {
+                design.name.clone_into(&mut derived.design);
+            }
+            if e.logic.is_some() {
+                derived.logic = e.logic;
+            }
+        }
+        derived
+    }
+
+    /// Takes what a build of `category` reads from its file, `blocks`.
+    pub(super) fn read(&mut self, category: &str, blocks: &Blocks) {
+        let interface = interface::read(blocks);
+        let found = import::derived(category, &interface);
+        if let Some(width) = found.width {
+            self.width = Some(width);
+        }
+        if let Some(orientation) = found.orientation {
+            self.orientation = orientation;
+        }
+        if let Some(encoding) = found.encoding {
+            self.encoding = Some(encoding);
+        }
+        if let Some(flags) = import::derived_flags(category, &interface) {
+            self.flags = flags;
+        }
+    }
+
+    /// Takes what build `s`'s result `report` decides: the latency and
+    /// synchronized of a result that measured its timing, a monostable's
+    /// pulse and whether it is inverted, and, for a
+    /// conventional build of a category whose stacking the simulation
+    /// decides, how it stacks. An adder takes the step its copies added
+    /// right at, with no limit on copies, or none. A register takes the
+    /// step west its copies stored and read right at, with the most copies
+    /// that did, in place of its builder's west step and beside their
+    /// others, which the search does not try; it keeps its builder's
+    /// stacking when none was found. A result that did not stack copies,
+    /// such as one with wrong cases, leaves the stacking as it was.
+    pub(super) fn decide(&mut self, s: &Schematic, report: &Report) {
+        if let Some(timing) = report.timing()
+            && let Some(latency) = timing.latency()
+        {
+            self.latency = Some(latency.max(0).into());
+            self.synchronized = Some(timing.synced);
+        }
+        // A comparator's cases say whether it reads its operands signed.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::GreaterThan)
+        {
+            self.flags.retain(|flag| flag != SIGNED);
+            if run.pattern == SIGNED_GREATER_THAN {
+                self.flags.push(SIGNED.to_owned());
+            }
+        }
+        // A parity circuit's cases say whether it is on for an even number.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::Parity)
+        {
+            self.flags.retain(|flag| flag != EVEN);
+            if run.pattern == EVEN_PARITY {
+                self.flags.push(EVEN.to_owned());
+            }
+        }
+        // A threshold's cases say how many of A's bits turn it on.
+        if let Report::Ran(run) = report
+            && run.wrong == 0
+            && category::behaviour(&s.category).test == Some(Test::Threshold)
+        {
+            self.at_least = simulate::at_least(&run.pattern);
+        }
+        if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
+            self.pulse = Some(pulse.ticks.into());
+            self.flags
+                .retain(|flag| flag != INVERTED && flag != FALLING_EDGE);
+            if pulse.inverted {
+                self.flags.push(INVERTED.to_owned());
+            }
+            if pulse.edge == Edge::Falling {
+                self.flags.push(FALLING_EDGE.to_owned());
+            }
+        }
+        let policy = category::behaviour(&s.category).stacking;
+        let Report::Ran(run) = report else {
+            return;
+        };
+        if !s.conventional
+            || matches!(
+                policy,
+                category::Stacking::Given | category::Stacking::Never
+            )
+        {
+            return;
+        }
+        match &run.stacking {
+            Some(Stacking::Stacks { step, .. }) => {
+                self.stacking = vec![step.direction()];
+            }
+            Some(Stacking::Separate { ways }) => {
+                self.stacking =
+                    ways.iter().map(|way| way.direction()).collect();
+            }
+            Some(
+                Stacking::Registers { step, most, .. }
+                | Stacking::Wider { step, most, .. },
+            ) => {
+                let found = StackDirection {
+                    max_copies: most.and_then(|n| i64::try_from(n).ok()),
+                    ..step.direction()
+                };
+                let also = match &run.stacking {
+                    Some(Stacking::Wider { also, .. }) => also.as_slice(),
+                    _ => &[],
+                };
+                self.stacking = s
+                    .stacking
+                    .iter()
+                    .filter(|typed| typed.west == 0 && also.is_empty())
+                    .copied()
+                    .chain([found])
+                    .chain(also.iter().map(|way| way.direction()))
+                    .collect();
+            }
+            Some(Stacking::Not { .. })
+                if policy == category::Stacking::Inferred =>
+            {
+                self.stacking = Vec::new();
+            }
+            Some(Stacking::Not { .. }) | None => {}
+        }
+        // Copies that add up as a wider adder, or store as a wider register,
+        // run the way its bits do, which a 1-bit build's lone input cannot
+        // show.
+        if let Some(
+            Stacking::Stacks { step, .. } | Stacking::Wider { step, .. },
+        ) = &run.stacking
+            && let Some(orientation) = step.orientation()
+        {
+            self.orientation = orientation;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::search::tests::schematic;
+
+    /// A result that ran every case of `pattern`, `wrong` of them wrong,
+    /// with `timing` if it was measured.
+    fn ran(pattern: &str, wrong: u64, timing: &serde_json::Value) -> Report {
+        serde_json::from_value(json!({
+            "outcome": "ran",
+            "pattern": pattern,
+            "cases": 4,
+            "exhaustive": true,
+            "patterns": 0,
+            "by_digit": false,
+            "wrong": wrong,
+            "inputs": [],
+            "outputs": [],
+            "wrong_bits": [],
+            "examples": [],
+            "hint": null,
+            "timing": timing,
+            "stacking": null,
+        }))
+        .expect("a result")
+    }
+
+    /// A timing whose one data output first changes on tick `first` and
+    /// settles by `last`, all its bits together, with `pulse` if any.
+    fn timing(
+        first: i32,
+        last: i32,
+        pulse: &serde_json::Value,
+    ) -> serde_json::Value {
+        json!({
+            "inputs": [],
+            "outputs": [{
+                "name": "output",
+                "status": false,
+                "latency": last,
+                "first_change": first,
+                "carried": 0,
+                "glitches": 0,
+                "staggered": 0,
+                "glitch": null,
+                "bits": [],
+            }],
+            "synced": true,
+            "median": last,
+            "p99": last,
+            "slowest": last,
+            "slowest_case": [],
+            "changes": 1,
+            "patterns": false,
+            "write": null,
+            "data": null,
+            "takes": "open",
+            "pulse": pulse,
+        })
+    }
+
+    fn decided(s: &Schematic, flags: &[&str], report: &Report) -> Derived {
+        let mut derived = Derived {
+            flags: flags.iter().map(|&flag| flag.to_owned()).collect(),
+            ..Derived::of(s)
+        };
+        derived.decide(s, report);
+        derived
+    }
+
+    #[test]
+    fn a_comparators_cases_say_whether_it_reads_signed() {
+        let s = schematic("greater_than", Orientation::Horizontal, &[]);
+        let signed = ran(SIGNED_GREATER_THAN, 0, &json!(null));
+        assert_eq!(decided(&s, &[], &signed).flags, [SIGNED]);
+        let unsigned = ran("A > B", 0, &json!(null));
+        assert!(decided(&s, &[SIGNED], &unsigned).flags.is_empty());
+        // Wrong cases say nothing of how it reads its operands.
+        let failing = ran("A > B", 1, &json!(null));
+        assert_eq!(decided(&s, &[SIGNED], &failing).flags, [SIGNED]);
+    }
+
+    #[test]
+    fn a_thresholds_cases_say_how_many_bits_turn_it_on() {
+        let s = schematic("threshold", Orientation::Horizontal, &[]);
+        let report = ran("at least 3 of A on", 0, &json!(null));
+        assert_eq!(decided(&s, &[], &report).at_least, Some(3));
+    }
+
+    #[test]
+    fn a_monostables_timing_gives_its_pulse_and_flags() {
+        let s = schematic("monostable", Orientation::Horizontal, &[]);
+        let pulse = json!({"ticks": 4, "inverted": true, "edge": "falling"});
+        let report = ran("A", 0, &timing(2, 6, &pulse));
+        let derived = decided(&s, &[], &report);
+        assert_eq!(derived.pulse, Some(4));
+        assert_eq!(derived.flags, [INVERTED, FALLING_EDGE]);
+        // A pulse's latency is when the output first changes.
+        assert_eq!(derived.latency, Some(2));
+        assert_eq!(derived.synchronized, Some(true));
+        // One that rests off and pulses as A turns on loses both flags.
+        let pulse = json!({"ticks": 4, "inverted": false, "edge": "rising"});
+        let report = ran("A", 0, &timing(2, 6, &pulse));
+        let derived = decided(&s, &[INVERTED, FALLING_EDGE], &report);
+        assert!(derived.flags.is_empty());
+    }
+
+    #[test]
+    fn a_result_that_did_not_run_decides_nothing() {
+        let s = schematic("greater_than", Orientation::Horizontal, &[]);
+        let skipped = Report::Skipped {
+            reason: "a piston".to_owned(),
+        };
+        let derived = decided(&s, &[SIGNED], &skipped);
+        assert_eq!(derived.flags, [SIGNED]);
+        assert_eq!(derived.latency, s.latency);
+        assert_eq!(derived.stacking, s.stacking);
+    }
+}
