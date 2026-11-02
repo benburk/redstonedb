@@ -103,6 +103,7 @@ async fn refile(
     }
     simulation::refresh(db, &s.id, false).await?;
     simulation::refresh_timing(db, &s.id, false).await?;
+    simulation::keep_needs(db, &s.id).await?;
     Ok(())
 }
 
@@ -240,6 +241,9 @@ pub(super) async fn new_version(
     {
         print_report(&name, &report);
     }
+    // As the site does once a version is in, without taking anything out,
+    // so a fix by hand is shown in each theme.
+    simulation::keep_needs(db, &id).await?;
     Ok(())
 }
 
@@ -308,6 +312,7 @@ pub(super) async fn prune(
         if simulation::refresh(db, id, false).await?.is_some() {
             simulation::refresh_timing(db, id, false).await?;
         }
+        simulation::keep_needs(db, id).await?;
     }
     let verb = if dry_run { "would take" } else { "took" };
     println!("{verb} {blocks} blocks out of {builds} builds");

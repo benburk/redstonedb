@@ -26,7 +26,7 @@ use categories::{
     NewCategory, define_category, define_flag, define_tag, print_categories,
 };
 use inspect::{Inspect, evaluate, inspect_command};
-use rebuild::{Rebuild, finish, rebuild};
+use rebuild::{Rebuild, finish, needs, rebuild};
 use simulate::simulate;
 use versions::{
     Replace, Standardizing, colours, new_version, prune, replace, reread,
@@ -54,6 +54,10 @@ enum Command {
     /// one: take out its unused blocks, as a new version, and keep what
     /// each building block must be, for palettes
     Finish { id: Option<String> },
+    /// For a recognized build that passes its test, or with no id every one
+    /// that has none: keep what each building block must be, for block
+    /// themes, taking nothing out, as after a version fixed by hand
+    Needs { id: Option<String> },
     /// Draw the How builds are recognized page's example builds into `dir`, one
     /// WebP each, named for the example
     GuideImages { dir: PathBuf },
@@ -233,6 +237,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Rebuild(args) => rebuild(db, &args).await,
         Command::Finish { id } => finish(db, id.as_deref()).await,
+        Command::Needs { id } => needs(db, id.as_deref()).await,
         Command::GuideImages { dir } => guide_images(&dir).await,
         Command::Simulate { ids, all } => simulate(db, &ids, all).await,
         Command::Evaluate { id, category } => {

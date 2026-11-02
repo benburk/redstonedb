@@ -12,6 +12,7 @@ use app::{
     details::{self, Details},
     import,
     models::{catalogue, schematic, simulation, user::User, version},
+    recognize::palette,
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -45,6 +46,35 @@ pub(super) struct Rebuild {
     /// `adder_accumulator`
     #[arg(long)]
     other: bool,
+}
+
+/// Runs `simulation::keep_needs` on build `id`, or on every build whose
+/// current file has no needs kept, as a version made by hand may not, and
+/// says which gained them.
+pub(super) async fn needs(db: &SqlitePool, id: Option<&str>) -> Result<()> {
+    let ids = match id {
+        Some(prefix) => vec![resolve(db, prefix).await?],
+        None => schematic::all(db)
+            .await?
+            .into_iter()
+            .map(|s| s.id)
+            .collect(),
+    };
+    let mut gained = 0;
+    for id in &ids {
+        let had = palette::needs(db, id).await?.is_some();
+        if had && ids.len() > 1 {
+            continue;
+        }
+        simulation::keep_needs(db, id).await?;
+        if !had && palette::needs(db, id).await?.is_some() {
+            let s = load(db, id).await?;
+            println!("{}  {}: needs kept", &id[..8], s.filename());
+            gained += 1;
+        }
+    }
+    println!("{gained} builds gained their needs");
+    Ok(())
 }
 
 /// Runs `simulation::finish` on build `id`, or on every build, and says

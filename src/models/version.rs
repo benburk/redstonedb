@@ -206,11 +206,15 @@ pub async fn replace(
             .await?;
             (version, true)
         }
+        // A file changed in place may have moved its blocks, so what each
+        // must be is read again rather than kept for the old file.
         Replacing::InPlace => {
             sqlx::query!(
-                "UPDATE schematic_version SET data = ?, sha256 = ?
+                "UPDATE schematic_version SET data = ?,
+                    needs = iif(sha256 = ?, needs, NULL), sha256 = ?
                  WHERE schematic_id = ? AND version = ?",
                 file.data,
+                file.sha256,
                 file.sha256,
                 id,
                 current

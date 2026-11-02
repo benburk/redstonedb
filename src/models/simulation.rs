@@ -982,9 +982,8 @@ pub fn refresh_soon(db: &SqlitePool, id: &str) {
 /// For a recognized build whose test passes, as once it is uploaded: for
 /// a blessed build, see `category::BLESSED`, its unused blocks taken
 /// out, as a new version once compiling it shows the circuit unchanged;
-/// then what each of its building blocks must be, solid, transparent, or
-/// either, and which carry hard or soft power, kept with its version, for
-/// block themes. Any other build is left as it came.
+/// then its needs kept, as [`keep_needs`] keeps them. Any other build is
+/// left as it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
     if !s.evaluated() {
@@ -1021,7 +1020,22 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
             refresh(db, id, false).await?;
         }
     }
+    keep_needs(db, id).await
+}
+
+/// For a recognized build whose test passes, what each of its current
+/// file's building blocks must be, solid, transparent, or either, and
+/// which carry hard or soft power, kept with its version, for block
+/// themes, with nothing taken out; whatever made the version, so a fix by
+/// hand is shown in a theme too. Any other build is left as it came.
+pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
+    if !s.evaluated() {
+        return Ok(());
+    }
+    if !current(db, &s).await?.is_some_and(|report| report.passed()) {
+        return Ok(());
+    }
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
