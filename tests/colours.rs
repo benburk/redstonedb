@@ -2,6 +2,8 @@
 //! matches, carried by later versions of the same size, such as one with
 //! its unused blocks taken out, and dropped by one of another size.
 
+mod common;
+
 use app::{
     details::{self, Build, Details},
     import,
@@ -11,38 +13,11 @@ use app::{
     },
     recognize::colouring,
 };
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
-
-async fn setup_test_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory database");
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-    pool
-}
-
-fn prepared(name: &str) -> import::Prepared {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    import::prepare_for(
-        &raw,
-        import::Purpose::InPlace {
-            standardize: false,
-            conventional: true,
-            keep_paste: false,
-        },
-    )
-    .expect("fixture prepares")
-}
 
 #[tokio::test]
 async fn colours_carry_to_later_versions_of_the_same_size() {
-    let db = setup_test_db().await;
-    let first = prepared("alpha-rca");
+    let db = common::database().await;
+    let first = common::conventional("alpha-rca");
     let given = Details {
         category: "adder".to_owned(),
         orientation: Orientation::Horizontal,
@@ -76,7 +51,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
     version::set_colours(&db, &id, 1, &colours).await.unwrap();
 
     // A version the site makes of the same size keeps them.
-    let mut same = prepared("alpha-rca");
+    let mut same = common::conventional("alpha-rca");
     same.data = app::schem::standardize::edit(
         &first.data,
         &std::collections::BTreeMap::from([(
@@ -95,7 +70,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
     assert_eq!(version::colours(&db, &id).await.unwrap(), Some(colours));
 
     // Another size is another arrangement, and has none.
-    version::replace(&db, &id, &prepared("inverter-1"), how)
+    version::replace(&db, &id, &common::conventional("inverter-1"), how)
         .await
         .unwrap();
     assert!(version::colours(&db, &id).await.unwrap().is_none());
@@ -105,8 +80,8 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
 /// turn, is compared turned back, so it keeps every block.
 #[tokio::test]
 async fn a_turned_new_version_is_compared_turned_back() {
-    let db = setup_test_db().await;
-    let first = prepared("alpha-rca");
+    let db = common::database().await;
+    let first = common::conventional("alpha-rca");
     let given = Details {
         category: "adder".to_owned(),
         orientation: Orientation::Horizontal,

@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+mod common;
+
 use app::{
     schem::{self, Blocks, standardize},
     version::{compare, refusals},
@@ -9,9 +11,8 @@ use app::{
 
 /// A fixture as the site stores it.
 fn stored(name: &str) -> Vec<u8> {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    let tidied = standardize::tidy(&raw).expect("fixture tidies");
+    let tidied =
+        standardize::tidy(&common::fixture(name)).expect("fixture tidies");
     standardize::pink_status(&tidied).expect("fixture recolours")
 }
 
