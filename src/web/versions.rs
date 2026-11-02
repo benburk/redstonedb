@@ -1,5 +1,6 @@
 //! A build's new version, chosen on its edit page and saved with its
-//! details there, and its earlier versions' files.
+//! details there, and its earlier versions' files. Whether a file may be one
+//! is `crate::version`'s to say, and keeping it `models::version`'s.
 
 use axum::{
     extract::{Path, State},

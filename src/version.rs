@@ -8,6 +8,9 @@
 //! recolouring one changes nothing. So compared, different builds of one
 //! category share at most 68% of their blocks, and every stored version
 //! kept 95% or more of the one before, so the line sits well between.
+//!
+//! This decides alone: `models::version` keeps the versions, and
+//! `web::versions` serves them.
 
 use std::collections::HashMap;
 
