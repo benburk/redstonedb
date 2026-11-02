@@ -549,16 +549,17 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
 /// this many is taken to stack any number of times.
 const MOST_COPIES: usize = 16;
 
-/// The farthest apart copies that don't touch stack: a bus's widest
-/// spacing, so copies far apart, each on its own, don't count as stacking.
+/// The farthest apart copies that don't overlap stack: a bus's widest
+/// spacing, so copies side by side or apart, each on its own, don't count
+/// as stacking.
 const BUS_PITCH: i64 = 4;
 
 /// Whether copies of the build in `data`, whose own cases came out right,
 /// stack into more bits, each copy one more bit as `buses` stacks them:
-/// each way, west and up, the shortest step at which two copies work, as
-/// far as the file reaches that way, `reach`, so copies touch or overlap,
-/// or, apart, at most [`BUS_PITCH`], as a bus's bits are, and the most
-/// copies that do, up to `MOST_COPIES`. The shorter step comes
+/// each way, west and up, the shortest step at which two copies work,
+/// short of how far the file reaches that way, `reach`, so copies overlap,
+/// or else at most [`BUS_PITCH`], as a bus's bits are, and the most copies
+/// that do, up to `MOST_COPIES`. The shorter step comes
 /// first, west on a tie, the other kept as `also`. `works` tests a stack of
 /// so many copies, giving the cases it ran when every one came out right;
 /// `not` says why none stacks.
@@ -570,7 +571,7 @@ pub(super) fn into_bits(
     works: impl Fn(&Blocks, usize) -> Option<u64>,
     not: &str,
 ) -> Stacking {
-    let reach = reach.map(|n| n.max(BUS_PITCH));
+    let reach = reach.map(|n| (n - 1).max(BUS_PITCH));
     let tried = |step: Step, copies: usize| {
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
