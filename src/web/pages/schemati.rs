@@ -118,7 +118,7 @@ pub(super) fn own_file_field(
 
 /// How long ago `millis`, milliseconds since 1970, was, such as `5 min
 /// ago`, or its date once a month has passed.
-fn ago(millis: u64) -> String {
+pub(super) fn ago(millis: u64) -> String {
     let now = time::OffsetDateTime::now_utc();
     let then = i64::try_from(millis / 1000)
         .ok()

@@ -4,21 +4,21 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::user::User,
+    models::user::{SchematiLink, User},
     recognize::palette::{self, Palette},
 };
 
 use super::{
-    CHOICE, Connection, PAGE_TITLE, SWITCHES, base,
+    CHOICE, PAGE_TITLE, SWITCHES, base,
     icons::{PENCIL, icon},
 };
 
-/// `user`'s settings, with their Schemati session as `connection` says it
-/// stands; `minecraft` and `schemati`, why a change to either could not be
-/// made, when one could not, which opens that row for editing.
+/// `user`'s settings, with their Schemati session as `schemati_link` says
+/// it stands; `minecraft` and `schemati`, why a change to either could not
+/// be made, when one could not, which opens that row for editing.
 pub fn settings(
     user: &User,
-    connection: &Connection,
+    schemati_link: Option<&SchematiLink>,
     minecraft: &str,
     schemati: &str,
     chosen: &Palette,
@@ -32,7 +32,7 @@ pub fn settings(
                 h1 class={ (PAGE_TITLE) " mb-6" } { "Settings" }
                 dl class="divide-y divide-line" {
                     (minecraft_row(user, minecraft))
-                    (schemati_row(connection, schemati))
+                    (schemati_row(schemati_link, schemati))
                     (block_theme_row(chosen))
                     (appearance_row())
                 }
@@ -61,25 +61,41 @@ fn row(name: &Markup, value: &Markup) -> Markup {
 /// The look of a bare icon button at a row's end.
 const ICON_BUTTON: &str = "inline-flex size-8 shrink-0 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink";
 
-/// A value shown with its edit button at the row's end, and the form that
-/// takes its place, open already when `open`, as when its last try was
-/// refused, saying `message`.
-fn editable(
-    what: &str,
-    shown: &Markup,
-    form: &Markup,
+/// A value shown with its edit button at the row's end, after `actions`,
+/// anything else done to it, and the form that takes its place, open
+/// already when `open`, as when its last try was refused, saying
+/// `message`. The edit button says it does `edit`, such as `Edit`.
+struct Editable<'a> {
+    what: &'a str,
+    edit: &'a str,
+    shown: Markup,
+    actions: Markup,
+    form: Markup,
     open: bool,
-    message: &str,
-) -> Markup {
+    message: &'a str,
+}
+
+/// The value and its form, as `e` gives them.
+fn editable(e: &Editable) -> Markup {
+    let Editable {
+        what,
+        edit,
+        shown,
+        actions,
+        form,
+        open,
+        message,
+    } = e;
     html! {
         div data-editable {
-            div data-view hidden[open] class="flex items-center gap-2" {
+            div data-view hidden[*open] class="flex items-center gap-2" {
                 div class="flex min-w-0 flex-1 items-center gap-2" { (shown) }
-                button type="button" data-edit aria-label={ "Edit " (what) } title="Edit" class=(ICON_BUTTON) {
+                (actions)
+                button type="button" data-edit aria-label={ (edit) " " (what) } title=(edit) class=(ICON_BUTTON) {
                     (icon(PENCIL, "size-4"))
                 }
             }
-            div data-editor hidden[!open] {
+            div data-editor hidden[!*open] {
                 (form)
                 @if !message.is_empty() {
                     p role="alert" class="mt-1 text-meta text-danger" { (message) }
@@ -118,35 +134,63 @@ fn minecraft_row(user: &User, message: &str) -> Markup {
     };
     row(
         &html! { "Minecraft username" },
-        &editable(
-            "Minecraft username",
-            &shown,
-            &form,
-            !message.is_empty(),
+        &editable(&Editable {
+            what: "Minecraft username",
+            edit: "Edit",
+            shown,
+            actions: html! {},
+            form,
+            open: !message.is_empty(),
             message,
-        ),
+        }),
     )
 }
 
-/// The viewer's Schemati session: whose folder it opens, or that there is
-/// none and what one is for, edited in place, with how to find one under
-/// its field.
-fn schemati_row(connection: &Connection, message: &str) -> Markup {
+/// The viewer's Schemati session, as `link` keeps what Schemati last said
+/// of it, so showing it asks Schemati nothing: whose folder it opens and
+/// when that was last seen, that it expired, or that there is none and
+/// what one is for. It is replaced in place, with how to find one under
+/// its field, and once given may be disconnected.
+fn schemati_row(link: Option<&SchematiLink>, message: &str) -> Markup {
     let shown = html! {
-        @match connection {
-            Connection::Unset => span class="text-muted" {
+        @match link {
+            None => span class="text-muted" {
                 "Not connected. Connect it to upload builds from your Schemati folder and send builds to it."
             },
-            Connection::Forgotten => span class="text-danger" { "Expired" },
-            Connection::Unreachable(why) => span class="text-danger" { (why) },
-            Connection::Open(folder) => span { "Connected as " (folder.player) },
+            Some(link) if link.expired => span class="text-danger" {
+                "Expired. Paste a new session to reconnect."
+            },
+            Some(link) => {
+                span class="min-w-0 truncate" {
+                    @match &link.player {
+                        Some(player) => { "Connected as " strong { (player) } }
+                        None => "Connected",
+                    }
+                    @if let Some(checked) = link.checked {
+                        span class="text-muted" { " · checked " (super::schemati::ago(checked.max(0).unsigned_abs() * 1000)) }
+                    }
+                }
+            }
         }
+    };
+    // Disconnecting goes back to this page, the session gone.
+    let actions = html! {
+        @if link.is_some() {
+            form action="/schemati/session/delete" method="post" class="contents" {
+                button type="submit" class="btn btn-quiet min-h-8 px-3" { "Disconnect" }
+            }
+        }
+    };
+    let placeholder = if link.is_some() {
+        "Paste a new sessionId"
+    } else {
+        "Paste your sessionId"
     };
     let form = html! {
         form action="/schemati/session" method="post" class="flex items-center gap-2" {
             input type="hidden" name="next" value="/settings";
             input name="session" required autocomplete="off" spellcheck="false"
-                aria-label="Schemati session ID" placeholder="Paste your sessionId"
+                aria-label="Schemati session ID" placeholder=(placeholder)
                 class="inline-input font-mono";
             button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
             button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
@@ -155,13 +199,15 @@ fn schemati_row(connection: &Connection, message: &str) -> Markup {
     };
     row(
         &html! { "Schemati session ID" },
-        &editable(
-            "Schemati session ID",
-            &shown,
-            &form,
-            !message.is_empty(),
+        &editable(&Editable {
+            what: "Schemati session ID",
+            edit: if link.is_some() { "Replace" } else { "Edit" },
+            shown,
+            actions,
+            form,
+            open: !message.is_empty(),
             message,
-        ),
+        }),
     )
 }
 
@@ -537,4 +583,62 @@ pub fn welcome(
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(player: Option<&str>, checked: Option<i64>) -> SchematiLink {
+        SchematiLink {
+            player: player.map(str::to_owned),
+            checked,
+            expired: false,
+        }
+    }
+
+    fn now() -> i64 {
+        time::OffsetDateTime::now_utc().unix_timestamp()
+    }
+
+    /// The row shows what the database keeps, with no folder to read.
+    #[test]
+    fn the_schemati_row_shows_the_session_as_kept() {
+        let none = schemati_row(None, "").into_string();
+        assert!(none.contains("Not connected."), "{none}");
+        assert!(!none.contains("Disconnect"), "{none}");
+
+        let known =
+            schemati_row(Some(&link(Some("embizone"), Some(now() - 300))), "")
+                .into_string();
+        assert!(
+            known.contains("Connected as <strong>embizone</strong>"),
+            "{known}"
+        );
+        assert!(known.contains("checked 5 min ago"), "{known}");
+        assert!(known.contains(r#"action="/schemati/session/delete""#));
+        assert!(known.contains("Disconnect"), "{known}");
+        assert!(known.contains(r#"aria-label="Replace Schemati session ID""#));
+
+        // A session given before players were kept: connected, no one named.
+        let unconfirmed =
+            schemati_row(Some(&link(None, None)), "").into_string();
+        assert!(unconfirmed.contains("Connected"), "{unconfirmed}");
+        assert!(!unconfirmed.contains("Connected as"), "{unconfirmed}");
+        assert!(!unconfirmed.contains("checked"), "{unconfirmed}");
+        assert!(unconfirmed.contains("Disconnect"), "{unconfirmed}");
+
+        let expired = SchematiLink {
+            expired: true,
+            ..link(Some("embizone"), Some(now()))
+        };
+        let expired = schemati_row(Some(&expired), "").into_string();
+        assert!(expired.contains(r#"class="text-danger""#), "{expired}");
+        assert!(
+            expired.contains("Expired. Paste a new session"),
+            "{expired}"
+        );
+        assert!(!expired.contains("Connected"), "{expired}");
+        assert!(expired.contains("Disconnect"), "{expired}");
+    }
 }

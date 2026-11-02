@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET schemati_session = ?, schemati_player = ?,\n                schemati_checked_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),\n                schemati_expired_at = NULL\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6686757f718cffe48484c23c4b5b54db593184fde6f9e310d8b417908592f360"
+}

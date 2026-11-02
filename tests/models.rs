@@ -2,7 +2,7 @@
 
 use app::models::{
     session::Session,
-    user::{DiscordProfile, Role, User},
+    user::{DiscordProfile, Role, SchematiLink, User},
 };
 use app::util::current_time_micros;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -249,4 +249,76 @@ async fn only_an_admin_may_name_a_new_tag() {
     assert!(refused.contains("made up"), "{refused}");
     assert!(refused.contains("only an admin"), "{refused}");
     assert_eq!(check_new(&db, &new, true).await.unwrap(), Ok(()));
+}
+
+/// What the account's Schemati session is known to be, as Settings reads
+/// it.
+async fn schemati_link(db: &SqlitePool, user: &User) -> Option<SchematiLink> {
+    User::schemati_link(db, user.id).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_saved_schemati_session_keeps_its_player_until_disconnected() {
+    let db = setup_test_db().await;
+    let user = sign_in(&db, "1", "steve").await;
+    assert_eq!(schemati_link(&db, &user).await, None);
+
+    User::connect_schemati(&db, user.id, "aaaa", Some("embizone"))
+        .await
+        .unwrap();
+    let link = schemati_link(&db, &user).await.unwrap();
+    assert_eq!(link.player.as_deref(), Some("embizone"));
+    assert!(link.checked.is_some());
+    assert!(!link.expired);
+    let session = User::schemati_session(&db, user.id).await.unwrap();
+    assert_eq!(session.as_deref(), Some("aaaa"));
+
+    User::schemati_forgot(&db, user.id, "aaaa").await.unwrap();
+    User::disconnect_schemati(&db, user.id).await.unwrap();
+    assert_eq!(schemati_link(&db, &user).await, None);
+    assert_eq!(User::schemati_session(&db, user.id).await.unwrap(), None);
+    // Nothing of the old session is left for a new one to show.
+    User::schemati_answered(&db, user.id, "aaaa", Some("embizone"))
+        .await
+        .unwrap();
+    assert_eq!(schemati_link(&db, &user).await, None);
+}
+
+/// What Schemati says of a session is kept only while it is the one the
+/// account gave, so an answer to an older one changes nothing.
+#[tokio::test]
+async fn schemati_answers_mark_the_session_expired_or_working() {
+    let db = setup_test_db().await;
+    let user = sign_in(&db, "1", "steve").await;
+    User::connect_schemati(&db, user.id, "aaaa", None)
+        .await
+        .unwrap();
+
+    User::schemati_forgot(&db, user.id, "bbbb").await.unwrap();
+    assert!(!schemati_link(&db, &user).await.unwrap().expired);
+    User::schemati_forgot(&db, user.id, "aaaa").await.unwrap();
+    assert!(schemati_link(&db, &user).await.unwrap().expired);
+
+    // Answering again, it works after all, and names its player.
+    User::schemati_answered(&db, user.id, "aaaa", Some("embizone"))
+        .await
+        .unwrap();
+    let link = schemati_link(&db, &user).await.unwrap();
+    assert!(!link.expired);
+    assert_eq!(link.player.as_deref(), Some("embizone"));
+    // An answer naming no one keeps the player known.
+    User::schemati_answered(&db, user.id, "aaaa", None)
+        .await
+        .unwrap();
+    let link = schemati_link(&db, &user).await.unwrap();
+    assert_eq!(link.player.as_deref(), Some("embizone"));
+
+    // A new session starts over, whatever the old one was.
+    User::schemati_forgot(&db, user.id, "aaaa").await.unwrap();
+    User::connect_schemati(&db, user.id, "cccc", Some("Other"))
+        .await
+        .unwrap();
+    let link = schemati_link(&db, &user).await.unwrap();
+    assert!(!link.expired);
+    assert_eq!(link.player.as_deref(), Some("Other"));
 }

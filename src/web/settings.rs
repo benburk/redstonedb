@@ -20,7 +20,6 @@ use crate::{
 use super::{
     pages,
     profile::{player_named, saved},
-    schemati::{connection, own_folder_quickly},
 };
 
 /// The settings page.
@@ -39,18 +38,19 @@ pub(super) struct Said<'a> {
     pub schemati: &'a str,
 }
 
-/// The settings page for `user`, their Schemati session as Schemati has it
-/// now, with `said`.
+/// The settings page for `user`, their Schemati session as Schemati last
+/// answered with it, so the page waits on nothing but the database, with
+/// `said`.
 pub(super) async fn page(
     state: &AppState,
     user: &User,
     said: &Said<'_>,
 ) -> Result<Response, AppError> {
-    let folder = own_folder_quickly(&state.db, user).await?;
+    let link = User::schemati_link(&state.db, user.id).await?;
     let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
     Ok(pages::settings(
         user,
-        &connection(folder.as_ref()),
+        link.as_ref(),
         said.minecraft,
         said.schemati,
         &chosen,

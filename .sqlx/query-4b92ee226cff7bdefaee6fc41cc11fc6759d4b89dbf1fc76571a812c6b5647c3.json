@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user SET schemati_expired_at = COALESCE(\n                    schemati_expired_at,\n                    strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))\n             WHERE id = ? AND schemati_session = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "4b92ee226cff7bdefaee6fc41cc11fc6759d4b89dbf1fc76571a812c6b5647c3"
+}

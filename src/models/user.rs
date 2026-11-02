@@ -54,6 +54,19 @@ pub struct User {
     pub minecraft_uuid: Option<String>,
 }
 
+/// What is known of an account's Schemati session, from Schemati's last
+/// answer with it, so it can be shown without asking again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchematiLink {
+    /// The player whose folder it opened, once Schemati has said.
+    pub player: Option<String>,
+    /// When Schemati last answered with it, in seconds since 1970; `None`
+    /// for a session given before this was kept, until it next answers.
+    pub checked: Option<i64>,
+    /// Whether Schemati has said it no longer knows the session.
+    pub expired: bool,
+}
+
 /// Who Discord says a person is, from its `/users/@me`.
 pub struct DiscordProfile {
     pub id: String,
@@ -347,17 +360,101 @@ impl User {
         .await
     }
 
-    /// Keeps `session` as the account's Schemati session, or forgets it
-    /// for `None`.
-    pub async fn set_schemati_session(
+    /// How the account's Schemati session is known to stand, as kept from
+    /// Schemati's last answer with it; `None` when none is given.
+    pub async fn schemati_link(
         db: &SqlitePool,
         id: Uuid,
-        session: Option<&str>,
+    ) -> Result<Option<SchematiLink>, sqlx::Error> {
+        sqlx::query_as!(
+            SchematiLink,
+            r#"SELECT schemati_player AS player,
+                unixepoch(schemati_checked_at) AS "checked: i64",
+                schemati_expired_at IS NOT NULL AS "expired!: bool"
+             FROM user WHERE id = ? AND schemati_session IS NOT NULL"#,
+            id
+        )
+        .fetch_optional(db)
+        .await
+    }
+
+    /// Keeps `session` as the account's Schemati session, just checked and
+    /// found to open `player`'s folder, in place of any it gave before.
+    pub async fn connect_schemati(
+        db: &SqlitePool,
+        id: Uuid,
+        session: &str,
+        player: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            "UPDATE user SET schemati_session = ? WHERE id = ?",
+            "UPDATE user SET schemati_session = ?, schemati_player = ?,
+                schemati_checked_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                schemati_expired_at = NULL
+             WHERE id = ?",
             session,
+            player,
             id
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
+    /// Forgets the account's Schemati session and all that was known of
+    /// it.
+    pub async fn disconnect_schemati(
+        db: &SqlitePool,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE user SET schemati_session = NULL, schemati_player = NULL,
+                schemati_checked_at = NULL, schemati_expired_at = NULL
+             WHERE id = ?",
+            id
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
+    /// Notes that Schemati just answered with `session`, so it still works,
+    /// greeting `player` if the answer named one. Nothing changes if the
+    /// account has since given another session, or none.
+    pub async fn schemati_answered(
+        db: &SqlitePool,
+        id: Uuid,
+        session: &str,
+        player: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE user SET schemati_player = COALESCE(?, schemati_player),
+                schemati_checked_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                schemati_expired_at = NULL
+             WHERE id = ? AND schemati_session = ?",
+            player,
+            id,
+            session
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
+    /// Notes that Schemati no longer knows `session`, when it first says
+    /// so. Nothing changes if the account has since given another session,
+    /// or none.
+    pub async fn schemati_forgot(
+        db: &SqlitePool,
+        id: Uuid,
+        session: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE user SET schemati_expired_at = COALESCE(
+                    schemati_expired_at,
+                    strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             WHERE id = ? AND schemati_session = ?",
+            id,
+            session
         )
         .execute(db)
         .await?;

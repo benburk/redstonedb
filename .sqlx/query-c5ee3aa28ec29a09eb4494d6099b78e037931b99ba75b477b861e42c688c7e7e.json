@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schemati_player AS player,\n                unixepoch(schemati_checked_at) AS \"checked: i64\",\n                schemati_expired_at IS NOT NULL AS \"expired!: bool\"\n             FROM user WHERE id = ? AND schemati_session IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "player",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "checked: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      },
+      {
+        "name": "expired!: bool",
+        "ordinal": 2,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "c5ee3aa28ec29a09eb4494d6099b78e037931b99ba75b477b861e42c688c7e7e"
+}
