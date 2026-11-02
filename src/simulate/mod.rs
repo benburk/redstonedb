@@ -68,13 +68,13 @@ mod strength;
 mod throughput;
 mod timing;
 
-pub use adder::{SIGNED_GREATER_THAN, Variant as AdderVariant};
+pub use adder::Variant as AdderVariant;
 pub use alu::{flags as alu_flags, op as alu_op};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
-pub use converters::{EVEN_PARITY, at_least};
 pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::Gate;
+pub use incrementer::Counts;
 pub use shifter::flags as shifter_flags;
 pub use stacking::{Stacking, Step};
 pub use strength::Strength;
@@ -328,7 +328,7 @@ impl Test {
                 let mut run = spec.check(blocks, &interface, quick)?;
                 // An adder's kinds name the lines it reads inverted.
                 if self == Test::Adder {
-                    run.inverted = adder::Variant::of(&run.pattern).lines(&run);
+                    run.inverted = run.adder_variant().lines(&run);
                 }
                 Ok(run)
             }
@@ -619,6 +619,13 @@ pub struct Run {
     /// The lines found to read inverted, powered meaning 0, by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inverted: Vec<String>,
+    /// What set apart the reading of the build its cases came out best
+    /// under, which `pattern` names, for a test whose readings mean more
+    /// than their names, such as an adder's subtracting. `None` for any
+    /// other test, and for a report stored before readings were kept,
+    /// whose pattern alone says; see `Run::adder_variant` and the like.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reading: Option<Reading>,
     /// For a stateless build that gets every case right, how weakly its
     /// data inputs may be driven, and how weak its data outputs then get.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -642,6 +649,115 @@ pub struct Run {
     /// its design, the letter of each carry, its groups and their terms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub design: Option<Design>,
+}
+
+/// What sets one reading of a build apart from a test's others, where more
+/// than its cases' name depends on it. A kind's cases' name is made from
+/// it, never the other way round.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(tag = "of", rename_all = "snake_case")]
+pub enum Reading {
+    /// How an adder reads its lines: B subtracted, its carry in inverted.
+    Adder(AdderVariant),
+    /// Whether a greater-than comparator reads its operands in two's
+    /// complement.
+    GreaterThan { signed: bool },
+    /// How many of A's bits turn a threshold on.
+    Threshold { at_least: u32 },
+    /// Whether an incrementer counts up, down, or either way.
+    Incrementer { counts: Counts },
+    /// Whether a register's reads show its cells inverted.
+    Register { inverted: bool },
+    /// Whether a parity circuit is on for an even number of A's bits, not
+    /// an odd number.
+    Parity { even: bool },
+}
+
+impl Run {
+    /// How an adder's cases read its lines.
+    pub fn adder_variant(&self) -> AdderVariant {
+        match self.reading {
+            Some(Reading::Adder(variant)) => variant,
+            _ => stored::adder_variant(&self.pattern),
+        }
+    }
+
+    /// Whether a greater-than comparator's cases read its operands signed.
+    pub fn signed(&self) -> bool {
+        match self.reading {
+            Some(Reading::GreaterThan { signed }) => signed,
+            _ => stored::signed(&self.pattern),
+        }
+    }
+
+    /// How many of A's bits turn on a threshold, as its cases found.
+    pub fn at_least(&self) -> Option<i64> {
+        match self.reading {
+            Some(Reading::Threshold { at_least }) => Some(at_least.into()),
+            _ => stored::at_least(&self.pattern),
+        }
+    }
+
+    /// Whether a register's reads show its cells inverted.
+    pub fn reads_inverted(&self) -> bool {
+        match self.reading {
+            Some(Reading::Register { inverted }) => inverted,
+            _ => stored::reads_inverted(&self.pattern),
+        }
+    }
+
+    /// Whether a parity circuit's cases are on for an even number of A's
+    /// bits.
+    pub fn even(&self) -> bool {
+        match self.reading {
+            Some(Reading::Parity { even }) => even,
+            _ => stored::even(&self.pattern),
+        }
+    }
+}
+
+/// Reading a report stored before `Run::reading` was kept, whose reading
+/// only its cases' name, `Run::pattern`, says. Each answers as the name a
+/// fresh run of that reading gives it would.
+mod stored {
+    use super::AdderVariant;
+
+    /// The way an adder whose cases are named `pattern` reads.
+    pub fn adder_variant(pattern: &str) -> AdderVariant {
+        AdderVariant {
+            subtract: pattern.starts_with("A − "),
+            carry_in: pattern.contains("B + not ")
+                || pattern.contains("B − not "),
+        }
+    }
+
+    /// Whether a comparison whose cases are named `pattern` reads its
+    /// operands in two's complement.
+    pub fn signed(pattern: &str) -> bool {
+        pattern == super::adder::SIGNED_GREATER_THAN
+    }
+
+    /// How many of A's bits a threshold's cases, named `pattern`, turn it
+    /// on at; `None` for any other cases.
+    pub fn at_least(pattern: &str) -> Option<i64> {
+        pattern
+            .strip_prefix("at least ")?
+            .strip_suffix(" of A on")?
+            .parse()
+            .ok()
+    }
+
+    /// Whether a register whose cases are named `pattern` reads its cells
+    /// inverted.
+    pub fn reads_inverted(pattern: &str) -> bool {
+        pattern.ends_with(" inverted")
+    }
+
+    /// Whether a parity circuit whose cases are named `pattern` is on for
+    /// an even number of A's bits.
+    pub fn even(pattern: &str) -> bool {
+        pattern == super::converters::EVEN_PARITY
+    }
 }
 
 /// A register's or buffer's cell, by the block each control is on: its
@@ -801,14 +917,11 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
             }
             .ok()?;
             let category = if test == Test::Incrementer {
-                let line = run.inputs.get(1).map(|signal| signal.name.as_str());
-                incrementer::changes(line)
-                    .into_iter()
-                    .find(|change| change.name == run.pattern)
-                    .map_or("incrementer", |change| change.category)
-            } else if test == Test::Adder
-                && AdderVariant::of(&run.pattern).subtract
-            {
+                match run.reading {
+                    Some(Reading::Incrementer { counts }) => counts.category(),
+                    _ => "incrementer",
+                }
+            } else if test == Test::Adder && run.adder_variant().subtract {
                 // An adder whose B is subtracted is a subtractor.
                 "subtractor"
             } else if test == Test::Adder && hex {
@@ -843,5 +956,33 @@ mod tests {
         assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
         assert_eq!(Test::of("ram", Some(8)), None);
         assert_eq!(Test::of("multiplier", Some(33)), None);
+    }
+
+    /// A report stored before readings were kept is read from its cases'
+    /// name, so the name each reading gives must read back as it.
+    #[test]
+    fn a_stored_pattern_reads_as_the_reading_that_named_it() {
+        for subtract in [false, true] {
+            for carry_in in [false, true] {
+                let variant = AdderVariant { subtract, carry_in };
+                for line in [None, Some("carry in"), Some("cin")] {
+                    let pattern = variant.name(line);
+                    let read = stored::adder_variant(&pattern);
+                    // With no carry in, there is none to read inverted.
+                    let carry_in = carry_in && line.is_some();
+                    assert_eq!(read, AdderVariant { subtract, carry_in });
+                }
+            }
+        }
+        assert!(stored::signed(adder::SIGNED_GREATER_THAN));
+        assert!(!stored::signed("A > B"));
+        for k in 1..=8 {
+            let pattern = converters::threshold_pattern(k);
+            assert_eq!(stored::at_least(&pattern), Some(k.into()));
+        }
+        assert!(stored::reads_inverted("written, then read inverted"));
+        assert!(!stored::reads_inverted(
+            "each of 2 cells written, then read"
+        ));
     }
 }

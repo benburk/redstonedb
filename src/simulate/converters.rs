@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 
 use super::{
-    Broken,
+    Broken, Reading,
     bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
     bench::{mask, patterns},
     circuit::output_bits,
@@ -136,18 +136,8 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
 }
 
 /// A threshold's cases, at least `k` of A's bits on, as they are named.
-fn threshold_pattern(k: u32) -> String {
+pub(super) fn threshold_pattern(k: u32) -> String {
     format!("at least {k} of A on")
-}
-
-/// How many of A's bits a threshold's cases, named `pattern`, turn it on
-/// at; `None` for any other cases.
-pub fn at_least(pattern: &str) -> Option<i64> {
-    pattern
-        .strip_prefix("at least ")?
-        .strip_suffix(" of A on")?
-        .parse()
-        .ok()
 }
 
 /// A threshold's every value of A, or with too many, each byte's and the
@@ -170,6 +160,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
                 Kind::new(&threshold_pattern(k), move |case| {
                     u64::from(case[0].count_ones() >= k)
                 })
+                .reading(Reading::Threshold { at_least: k })
             })
             .collect(),
         by_digit: false,
@@ -178,7 +169,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
 
 /// The cases of a parity circuit whose output is on for an even number of
 /// A's bits, the inverse of the xor of them all.
-pub const EVEN_PARITY: &str = "xnor of A's bits";
+pub(super) const EVEN_PARITY: &str = "xnor of A's bits";
 
 /// A parity build's every value of A, or with too many, each byte's and
 /// the test patterns: whether an odd number of A's bits are on, the xor of
@@ -198,10 +189,12 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
         kinds: vec![
             Kind::new("xor of A's bits", |case| {
                 u64::from(case[0].count_ones() % 2 == 1)
-            }),
+            })
+            .reading(Reading::Parity { even: false }),
             Kind::new(EVEN_PARITY, |case| {
                 u64::from(case[0].count_ones() % 2 == 0)
-            }),
+            })
+            .reading(Reading::Parity { even: true }),
         ],
         by_digit: false,
     })

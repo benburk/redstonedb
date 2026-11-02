@@ -3,9 +3,10 @@
 //! subtracting 1.
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken,
+    Broken, Reading,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::recognize::{colour, interface::Interface};
@@ -27,10 +28,13 @@ pub(super) fn spec(
         .map(|&i| interface.inputs[i].name.as_str());
     let kinds: Vec<Kind> = changes(line)
         .into_iter()
-        .filter(|change| category.is_none_or(|c| change.category == c))
+        .filter(|change| category.is_none_or(|c| change.counts.category() == c))
         .map(|change| {
             Kind::new(&change.name, move |case| {
                 (change.apply)(case[0], case[1])
+            })
+            .reading(Reading::Incrementer {
+                counts: change.counts,
             })
         })
         .collect();
@@ -51,34 +55,57 @@ pub(super) fn spec(
     })
 }
 
+/// Which way an incrementer counts, which names its category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Counts {
+    /// Up, by 1 or by its control line: an incrementer.
+    Up,
+    /// Down, by 1 or by its control line: a decrementer.
+    Down,
+    /// Up one way of its control line and down the other: an inc/dec.
+    Either,
+}
+
+impl Counts {
+    /// The category of a build that counts so.
+    pub fn category(self) -> &'static str {
+        match self {
+            Counts::Up => "incrementer",
+            Counts::Down => "decrementer",
+            Counts::Either => "inc_dec",
+        }
+    }
+}
+
 /// One kind of incrementer: its cases' name, such as `A + increment`, the
-/// category it is, and what it gives for A and its control line.
+/// way it counts, and what it gives for A and its control line.
 pub(super) struct Change {
     pub name: String,
-    pub category: &'static str,
+    pub counts: Counts,
     pub apply: fn(u64, u64) -> u64,
 }
 
 /// The kinds of incrementer with control line `line`, if any.
 pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
-    let change = |name: String, category, apply| Change {
+    let change = |name: String, counts, apply| Change {
         name,
-        category,
+        counts,
         apply,
     };
     match line {
         None => vec![
-            change("A + 1".to_owned(), "incrementer", |a, _| a.wrapping_add(1)),
-            change("A − 1".to_owned(), "decrementer", |a, _| {
+            change("A + 1".to_owned(), Counts::Up, |a, _| a.wrapping_add(1)),
+            change("A − 1".to_owned(), Counts::Down, |a, _| {
                 a.wrapping_sub(1)
             }),
         ],
         Some(line) => vec![
-            change(format!("A + {line}"), "incrementer", u64::wrapping_add),
-            change(format!("A − {line}"), "decrementer", u64::wrapping_sub),
+            change(format!("A + {line}"), Counts::Up, u64::wrapping_add),
+            change(format!("A − {line}"), Counts::Down, u64::wrapping_sub),
             change(
                 format!("A + 1, or − 1 with {line} on"),
-                "inc_dec",
+                Counts::Either,
                 |a, c| {
                     if c == 1 {
                         a.wrapping_sub(1)
@@ -89,7 +116,7 @@ pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
             ),
             change(
                 format!("A − 1, or + 1 with {line} on"),
-                "inc_dec",
+                Counts::Either,
                 |a, c| {
                     if c == 1 {
                         a.wrapping_add(1)
@@ -178,7 +205,7 @@ mod tests {
     fn an_incrementer_names_what_it_does_by_its_control_line() {
         let kinds: Vec<(String, &str)> = changes(Some("increment"))
             .into_iter()
-            .map(|change| (change.name, change.category))
+            .map(|change| (change.name, change.counts.category()))
             .collect();
         assert_eq!(kinds[0], ("A + increment".to_owned(), "incrementer"));
         assert_eq!(kinds[1].1, "decrementer");

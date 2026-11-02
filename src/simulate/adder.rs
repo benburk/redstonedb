@@ -4,9 +4,10 @@
 //! the carry alone.
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken, Run,
+    Broken, Reading, Run,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::recognize::{
@@ -59,7 +60,9 @@ const CARRY_OR_BORROW_OUT: [&str; 4] = [
 /// carry in inverted, as a torch on that line gives. Inverting a line does
 /// not change what a build is, so a subtractor is an adder, its B
 /// inverted. Its output and carry out, its answer, never read inverted.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
 pub struct Variant {
     pub subtract: bool,
     pub carry_in: bool,
@@ -82,7 +85,7 @@ impl Variant {
 
     /// Its cases' name, such as `A − B − carry in` or `A + B + not carry
     /// in`, its carry in named `carry_in`.
-    fn name(self, carry_in: Option<&str>) -> String {
+    pub(super) fn name(self, carry_in: Option<&str>) -> String {
         let sign = if self.subtract { '−' } else { '+' };
         // A subtract's unsigned carry in is its borrow in.
         let carry_in = carry_in.map(|name| {
@@ -109,15 +112,6 @@ impl Variant {
             a.wrapping_sub(b).wrapping_sub(carry)
         } else {
             a + b + carry
-        }
-    }
-
-    /// The way an adder whose cases are named `pattern` reads.
-    pub fn of(pattern: &str) -> Variant {
-        Variant {
-            subtract: pattern.starts_with("A − "),
-            carry_in: pattern.contains("B + not ")
-                || pattern.contains("B − not "),
         }
     }
 
@@ -191,6 +185,7 @@ fn arithmetic(
                     &variant.name(line.map(String::as_str)),
                     move |case| variant.apply(case),
                 )
+                .reading(Reading::Adder(variant))
             })
             .collect()
     } else {
@@ -244,7 +239,7 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
 }
 
 /// The cases of a comparison that reads its operands in two's complement.
-pub const SIGNED_GREATER_THAN: &str = "A > B, signed";
+pub(super) const SIGNED_GREATER_THAN: &str = "A > B, signed";
 
 /// A greater-than comparator's every case: whether A is greater than B,
 /// both unsigned or both in two's complement, whichever it gets more
@@ -260,13 +255,15 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
             adder_cases(width, false, 8)
         })),
         kinds: vec![
-            Kind::new("A > B", |case| u64::from(case[0] > case[1])),
+            Kind::new("A > B", |case| u64::from(case[0] > case[1]))
+                .reading(Reading::GreaterThan { signed: false }),
             Kind::new(SIGNED_GREATER_THAN, move |case| {
                 u64::from(
                     sign_extended(case[0], width)
                         > sign_extended(case[1], width),
                 )
-            }),
+            })
+            .reading(Reading::GreaterThan { signed: true }),
         ],
         by_digit: false,
     })

@@ -426,7 +426,6 @@ pub fn adder(
         b: layout.a.clone(),
         ..layout.clone()
     };
-    let inversions = |pattern: &str| pattern.matches("not").count();
     let quick = |layout: &Layout| {
         Test::Adder
             .check_with(blocks, layout.interface(blocks), true)
@@ -435,7 +434,8 @@ pub fn adder(
     };
     let layout = match (quick(&layout), quick(&swapped)) {
         (Some(run), Some(other))
-            if inversions(&other.pattern) < inversions(&run.pattern) =>
+            if !other.adder_variant().carry_in
+                && run.adder_variant().carry_in =>
         {
             swapped
         }

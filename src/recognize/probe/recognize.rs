@@ -227,9 +227,7 @@ pub fn probe_as(
 ) -> anyhow::Result<Result<Found, String>> {
     let found = |run: &simulate::Run| {
         // An adder whose B is subtracted is a subtractor.
-        let kind = if kind == "adder"
-            && simulate::AdderVariant::of(&run.pattern).subtract
-        {
+        let kind = if kind == "adder" && run.adder_variant().subtract {
             "subtractor"
         } else {
             kind

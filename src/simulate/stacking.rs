@@ -207,10 +207,9 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
     let width = input_bits(&interface.inputs[ports.a]);
     // How the copy reads, as a subtractor's, B inverted, so its stack is
     // read alike.
-    let variant = Test::Adder.check(&blocks, true).map_or_else(
-        |_| adder::Variant::default(),
-        |run| adder::Variant::of(&run.pattern),
-    );
+    let variant = Test::Adder
+        .check(&blocks, true)
+        .map_or_else(|_| adder::Variant::default(), |run| run.adder_variant());
     // A 1-bit adder's carry out need not be where the next copy's carry in
     // goes, as when the copy above covers it, or it may have none, its carry
     // leaving by dust that carry in lands on; short steps are tried with
