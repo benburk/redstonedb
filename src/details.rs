@@ -5,6 +5,7 @@
 use sqlx::SqlitePool;
 
 use crate::{
+    category::{self, Kind},
     external::mojang,
     import::Prepared,
     models::{
@@ -14,62 +15,9 @@ use crate::{
         },
         simulation, tag,
     },
-    recognize::category,
     schem::stack,
     simulate::{Report, Test},
 };
-
-/// The kinds of build that go on the list, as a sentence names them, each
-/// with the blessed categories it covers; see `category::BLESSED`, which a
-/// test holds this to.
-const LISTED_KINDS: [(&str, &[&str]); 24] = [
-    ("adders", &["adder"]),
-    ("hex adders", &["hex_adder"]),
-    ("subtractors", &["subtractor"]),
-    ("ALUs", &["alu"]),
-    ("multipliers", &["multiplier"]),
-    ("incrementers", &["incrementer", "inc_dec"]),
-    ("decrementers", &["decrementer"]),
-    ("comparators", &["equality", "greater_than"]),
-    ("carry outs", &["carry_out"]),
-    ("absolute values", &["absolute_value"]),
-    ("popcounts", &["popcount"]),
-    ("thresholds", &["threshold"]),
-    ("parity circuits", &["parity"]),
-    ("binary-to-hex converters", &["binary_to_hex"]),
-    (
-        "gates",
-        &[
-            "xor_gate",
-            "xnor_gate",
-            "and_gate",
-            "nand_gate",
-            "or_gate",
-            "nor_gate",
-            "nand_xnor_gate",
-        ],
-    ),
-    ("inverters", &["inverter"]),
-    ("decoders", &["decoder"]),
-    ("barrel shifters", &["barrel_shifter"]),
-    ("monostables", &["monostable", "dual_edge_monostable"]),
-    ("registers", &["register"]),
-    ("buffers", &["buffer"]),
-    ("counters", &["counter"]),
-    ("shift registers", &["shift_register"]),
-    ("T flip-flops", &["t_flip_flop"]),
-];
-
-/// The kinds of build that go on the list, which are the kinds the site
-/// recognizes and simulates, as a list in a sentence: `adders, hex adders,
-/// …, and T flip-flops`.
-pub fn listed_kinds() -> String {
-    let (last, rest) = LISTED_KINDS
-        .split_last()
-        .expect("some kinds go on the list");
-    let rest: Vec<&str> = rest.iter().map(|(kind, _)| *kind).collect();
-    format!("{}, and {}", rest.join(", "), last.0)
-}
 
 /// A build's details, typed. As given they may break a rule, such as naming
 /// the category by its label, giving a capacity to a category not ranked
@@ -271,14 +219,14 @@ async fn ready(
     )?;
     details.design = Some(design);
     // Only a blessed build, one probing recognizes, goes on the list.
-    if listed && !category::BLESSED.contains(&category.name.as_str()) {
+    if listed && !category::blessed(&category.name) {
         let width = simulation::derived_width(&category.name, true, build.data)
             .ok()
             .flatten();
         return Err(format!(
             "Only {} go on the list so far: give it a category of its own, \
              such as {}.",
-            listed_kinds(),
+            Kind::listed(),
             off_list_name(&category, width).replace('_', " ")
         )
         .into());
@@ -300,7 +248,7 @@ async fn ready(
 
     // Only a build of a category the site recognizes builds of is
     // unverified as one.
-    if !category::BLESSED.contains(&category.name.as_str()) {
+    if !category::blessed(&category.name) {
         details.unverified = None;
     }
     evaluated(&category, &mut details, build).await?;
@@ -313,7 +261,8 @@ async fn ready(
         && verified
         && policy == category::Stacking::Inferred;
     if !stacking_inferred && policy != category::Stacking::Never {
-        let buses = stack::Buses::of(&category.name, details.orientation);
+        let buses =
+            stack::Buses::of(Kind::named(&category.name), details.orientation);
         stack::check(build.data, &details.stacking, buses)?;
     }
 
@@ -454,7 +403,7 @@ pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
 }
 
 /// Why `build` is not recognized as a build of `category`, a blessed one,
-/// see `category::BLESSED`: it must be standardized, take no
+/// see `category::Facts::listed_as`: it must be standardized, take no
 /// signal-strength input, be of a width its test reads, and pass it.
 /// `None` when it is, or when the category is not blessed. The `Err` says
 /// it could not be simulated at all.
@@ -462,9 +411,9 @@ pub async fn unrecognized(
     category: &Category,
     build: Build<'_>,
 ) -> Result<Option<Unrecognized>, String> {
-    if !category::BLESSED.contains(&category.name.as_str()) {
+    let Some(kind) = Kind::named(&category.name).filter(|k| k.blessed()) else {
         return Ok(None);
-    }
+    };
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
@@ -478,13 +427,13 @@ pub async fn unrecognized(
     // Inputs taking a strength, a hex digit per block, are a hex adder's,
     // and no other's, as a build kept as built says too.
     let hex = !crate::recognize::interface::dust_inputs(&blocks).is_empty();
-    if category.name != HEX_ADDER && hex {
+    if kind != Kind::HexAdder && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }
     if !build.conventional {
         return off("Couldn't read its inputs and outputs".to_owned());
     }
-    if category.name == HEX_ADDER && !hex {
+    if kind == Kind::HexAdder && !hex {
         return off(NO_HEX_INPUTS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
@@ -503,9 +452,11 @@ pub async fn unrecognized(
         // An adder adds and a subtractor subtracts, each its own category.
         Report::Ran(run) if report.passed() => {
             let subtracts = run.adder_variant().subtract;
-            match category.name.as_str() {
-                "adder" | "hex_adder" if subtracts => off(SUBTRACTS.to_owned()),
-                "subtractor" if !subtracts => off(ADDS.to_owned()),
+            match kind {
+                Kind::Adder | Kind::HexAdder if subtracts => {
+                    off(SUBTRACTS.to_owned())
+                }
+                Kind::Subtractor if !subtracts => off(ADDS.to_owned()),
                 _ => Ok(None),
             }
         }
@@ -516,9 +467,6 @@ pub async fn unrecognized(
         _ => off(WRONG_OUTPUTS.to_owned()),
     }
 }
-
-/// The category of adders whose inputs take hex digits.
-const HEX_ADDER: &str = "hex_adder";
 
 /// Why a hex adder whose inputs are levers is not verified as one.
 pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
@@ -621,20 +569,10 @@ fn is_date(d: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Every blessed category is one kind on the list, and every kind's
-    /// categories are blessed.
     #[test]
-    fn the_listed_kinds_cover_the_blessed_categories() {
-        let mut covered: Vec<&str> = LISTED_KINDS
-            .iter()
-            .flat_map(|(_, categories)| categories.iter().copied())
-            .collect();
-        let mut blessed = category::BLESSED.to_vec();
-        covered.sort_unstable();
-        blessed.sort_unstable();
-        assert_eq!(covered, blessed);
-        assert!(listed_kinds().starts_with("adders, hex adders, "));
-        assert!(listed_kinds().ends_with(", and T flip-flops"));
+    fn the_listed_kinds_read_as_a_sentence() {
+        assert!(Kind::listed().starts_with("adders, hex adders, "));
+        assert!(Kind::listed().ends_with(", and T flip-flops"));
     }
 
     #[test]

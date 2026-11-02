@@ -638,7 +638,7 @@ pub(super) fn bitwise(
     let interface = interface::read(&blocks);
     let width = interface.inputs[a(&interface)?].bits.len();
     let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses = stack::Buses::of(test.name(), Orientation::Horizontal);
+    let buses = stack::Buses::of(test.kind(), Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
         let interface = interface::read(blocks);
         let a = a(&interface)?;

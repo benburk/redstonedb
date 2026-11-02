@@ -9,7 +9,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sqlx::SqlitePool;
 
 use crate::{
-    details,
+    category, details,
     import::{self, Prepared},
     models::{
         catalogue::{self, Category},
@@ -18,7 +18,6 @@ use crate::{
         user::User,
         version::{self, Replacing},
     },
-    recognize::category,
     schem::Blocks,
     version::{Checked, check as check_version},
     web::{

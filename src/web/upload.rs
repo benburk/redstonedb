@@ -18,7 +18,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
-    details,
+    category, details,
     external::schemati,
     import::{self, Kept, Upload},
     models::{
@@ -28,7 +28,7 @@ use crate::{
         user::User,
         version,
     },
-    recognize::{category, interface, probe},
+    recognize::{interface, probe},
     schem::{Blocks, standardize},
     simulate::{self, Guess},
     web::{
@@ -214,12 +214,7 @@ pub async fn preview(
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let labels = catalogue::categories(&state.db)
-        .await?
-        .into_iter()
-        .map(|c| (c.name, c.label))
-        .collect();
-    let id = analysis::start(&state, &user, file.to_vec(), labels);
+    let id = analysis::start(&state, &user, file.to_vec());
     Ok(Redirect::to(&format!("/upload/{id}")).into_response())
 }
 
@@ -485,7 +480,7 @@ async fn publish_checked(
         Kept::Original(off) => {
             let meant = details::meant(&categories, &given.category)
                 .map(|c| c.name.clone())
-                .filter(|c| category::BLESSED.contains(&c.as_str()));
+                .filter(|c| category::blessed(c));
             match (off, meant) {
                 (Some(off), Some(meant)) => {
                     given.category = meant;

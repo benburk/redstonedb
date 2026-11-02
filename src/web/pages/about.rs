@@ -179,7 +179,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Parity circuits give one output, on when an odd number of inputs are on, or an even number, which is flagged Even." }
                     }
                     p class="mb-4" {
-                        "Recognized so far: " (crate::details::listed_kinds()) "."
+                        "Recognized so far: " (crate::category::Kind::listed()) "."
                     }
                     p class="mb-4" {
                         "A build that doesn't fit goes up as built, unverified, with a note on what's in the way. "

@@ -34,8 +34,9 @@ use std::{
 use anyhow::{Result, ensure};
 
 use crate::{
+    category::{self, Behaviour, Kind},
     models::schematic::{Faces, Orientation, StackDirection},
-    recognize::{category, colour, interface},
+    recognize::{colour, interface},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -64,8 +65,10 @@ pub struct Buses {
 }
 
 impl Buses {
-    pub fn of(category: &str, orientation: Orientation) -> Self {
-        let behaviour = category::behaviour(category);
+    /// For a build of `kind`, or `None` a category off the list, its bits
+    /// running `orientation`.
+    pub fn of(kind: impl Into<Option<Kind>>, orientation: Orientation) -> Self {
+        let behaviour = Behaviour::of(kind);
         Buses {
             shared: behaviour.copies == category::Copies::SharedBuses,
             orientation: Some(orientation),

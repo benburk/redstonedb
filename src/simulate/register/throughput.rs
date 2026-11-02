@@ -47,7 +47,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
         } else {
             Orientation::Vertical
         };
-        let buses = stack::Buses::of(kind.name(), orientation);
+        let buses = stack::Buses::of(kind.category(), orientation);
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
         let blocks = Blocks::read(&stacked).ok()?;
@@ -75,7 +75,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
             } else {
                 Orientation::Vertical
             };
-            let buses = stack::Buses::of(kind.name(), orientation);
+            let buses = stack::Buses::of(kind.category(), orientation);
             let found = step.find(data, bits, buses, |step| {
                 (works(step, 2, bits, true).is_some()
                     && works(step, 2, bits, false).is_some())

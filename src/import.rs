@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
+    category::{self, Kind, Lines},
     details::{self, Ready, Unrecognized},
     models::{
         catalogue::{Category, Flag},
@@ -15,7 +16,6 @@ use crate::{
         version,
     },
     recognize::{
-        category::{self, Lines},
         colour,
         interface::{self, Interface, Port},
     },
@@ -164,7 +164,7 @@ impl Analysis {
     /// `blocks` read as a build of the category named `category`.
     pub fn of(blocks: &Blocks, category: &str) -> Self {
         let mut interface = interface::read(blocks);
-        interface::name_lines(category, blocks, &mut interface);
+        interface::name_lines(Kind::named(category), blocks, &mut interface);
         Analysis { interface }
     }
 }
@@ -411,7 +411,7 @@ pub fn derived_flags(
     if !behaviour.flags_from_file {
         return None;
     }
-    if category == "multiplier" {
+    if Kind::named(category) == Some(Kind::Multiplier) {
         return Some(multiplier_flags(interface));
     }
     let Lines::Lone {
@@ -529,7 +529,7 @@ pub async fn kept(
     };
     // Only a blessed build goes on the list; any other listed category's
     // goes off it, named for what it is.
-    if !category::BLESSED.contains(&meant.name.as_str()) {
+    if !category::blessed(&meant.name) {
         let width = upload.standard.as_ref().ok().and_then(|standard| {
             derived_width(&meant.name, &interface::read(&standard.blocks))
         });
@@ -586,11 +586,11 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
 
 /// The file in `data` with its inputs and outputs coloured by probing,
 /// as an upload's are, for a build meant as one of a blessed category,
-/// see `category::BLESSED`: its inputs are its levers and buttons,
+/// see `category::Facts::listed_as`: its inputs are its levers and buttons,
 /// whatever colour they sit on. Any other build, or one probing doesn't
 /// recognize, as it is.
 pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
-    if !category::BLESSED.contains(&meant) {
+    if !category::blessed(meant) {
         return Ok(data.to_vec());
     }
     let (data, meant) = (data.to_vec(), meant.to_owned());
@@ -619,7 +619,7 @@ pub async fn moved_up<'a>(
     keep_paste: bool,
 ) -> Result<Option<(Prepared, &'a Category)>> {
     let Some(meant) = details::meant(categories, category)
-        .filter(|c| category::BLESSED.contains(&c.name.as_str()))
+        .filter(|c| category::blessed(&c.name))
     else {
         return Ok(None);
     };

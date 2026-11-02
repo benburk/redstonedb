@@ -108,10 +108,14 @@ pub(super) async fn rebuild(db: &SqlitePool, args: &Rebuild) -> Result<()> {
     if args.rest {
         return rebuild_rest(db, &args.from).await;
     }
-    if !app::recognize::category::BLESSED.contains(&args.category.as_str()) {
+    if !app::category::blessed(&args.category) {
         bail!(
             "only the blessed categories are probed: {}",
-            app::recognize::category::BLESSED.join(", ")
+            app::category::Kind::all()
+                .filter(|kind| kind.blessed())
+                .map(app::category::Kind::name)
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     let from =
@@ -347,15 +351,14 @@ async fn rebuild_one(
         return Ok(Err(problem.message.clone()));
     }
     // Dust on top of an input is a fault only on a data input.
-    let (data_inputs, coloured, _) = match app::recognize::probe::probe_as(
-        &s.category,
-        data,
-        &blocks,
-        &report,
-    )? {
-        Ok(found) => found,
-        Err(why) => return Ok(Err(why.to_string())),
+    let Some(kind) = s.kind() else {
+        return Ok(Err(format!("{} is no standard category", s.category)));
     };
+    let (data_inputs, coloured, _) =
+        match app::recognize::probe::probe_as(kind, data, &blocks, &report)? {
+            Ok(found) => found,
+            Err(why) => return Ok(Err(why.to_string())),
+        };
     if let Some(fault) = report.data_faults(&data_inputs).into_iter().next() {
         return Ok(Err(fault));
     }

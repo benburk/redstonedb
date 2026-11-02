@@ -5,13 +5,12 @@
 use maud::{Markup, html};
 
 use crate::{
-    import,
+    category, import,
     models::{
         catalogue::Category,
         schematic::{Logic, Orientation},
         tag::Tag,
     },
-    recognize::category,
 };
 
 use super::{
@@ -60,7 +59,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             div id={ "category-group-" (key) } role="presentation"
                                 class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
-                                @let blessed = category::BLESSED.contains(&category.name.as_str());
+                                @let blessed = category::blessed(&category.name);
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name)
@@ -209,7 +208,7 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
         .and_then(|c| c.logic)
         .map_or("unknown", Logic::name);
     // A blessed category's builds are found to hold state or not.
-    let evaluated = category::BLESSED.contains(&f.category.as_str());
+    let evaluated = category::blessed(&f.category);
     html! {
         label class="field" data-logic-field hidden[evaluated] {
             span { "Stateless" }

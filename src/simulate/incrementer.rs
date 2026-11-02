@@ -9,17 +9,20 @@ use super::{
     Broken, Reading,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::recognize::{colour, interface::Interface};
+use crate::{
+    category,
+    recognize::{colour, interface::Interface},
+};
 
 /// Every value of A with its control line each way, checked against what
-/// each kind of the category named `category` gives: an incrementer's A
-/// plus 1 or plus its control line, a decrementer's A minus either, and an
-/// inc/dec's plus 1 one way and minus 1 the other. With no category, every
-/// kind is tried, as for a guess. The kind it gets most right names its
+/// each kind of incrementer that `counts` gives: an incrementer's A plus 1
+/// or plus its control line, a decrementer's A minus either, and an
+/// inc/dec's plus 1 one way and minus 1 the other. With no way of
+/// counting, every kind is tried, as for a guess. The kind it gets most right names its
 /// cases.
 pub(super) fn spec(
     interface: &Interface,
-    category: Option<&str>,
+    counts: Option<Counts>,
 ) -> Result<Spec> {
     let bench = incrementer_bench(interface)?;
     let line = bench
@@ -28,7 +31,7 @@ pub(super) fn spec(
         .map(|&i| interface.inputs[i].name.as_str());
     let kinds: Vec<Kind> = changes(line)
         .into_iter()
-        .filter(|change| category.is_none_or(|c| change.counts.category() == c))
+        .filter(|change| counts.is_none_or(|c| change.counts == c))
         .map(|change| {
             Kind::new(&change.name, move |case| {
                 (change.apply)(case[0], case[1])
@@ -69,11 +72,11 @@ pub enum Counts {
 
 impl Counts {
     /// The category of a build that counts so.
-    pub fn category(self) -> &'static str {
+    pub fn kind(self) -> category::Kind {
         match self {
-            Counts::Up => "incrementer",
-            Counts::Down => "decrementer",
-            Counts::Either => "inc_dec",
+            Counts::Up => category::Kind::Incrementer,
+            Counts::Down => category::Kind::Decrementer,
+            Counts::Either => category::Kind::IncDec,
         }
     }
 }
@@ -205,7 +208,7 @@ mod tests {
     fn an_incrementer_names_what_it_does_by_its_control_line() {
         let kinds: Vec<(String, &str)> = changes(Some("increment"))
             .into_iter()
-            .map(|change| (change.name, change.counts.category()))
+            .map(|change| (change.name, change.counts.kind().name()))
             .collect();
         assert_eq!(kinds[0], ("A + increment".to_owned(), "incrementer"));
         assert_eq!(kinds[1].1, "decrementer");

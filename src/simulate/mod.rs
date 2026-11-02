@@ -18,8 +18,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    category::{self, Kind},
     recognize::{
-        category, colour,
+        colour,
         interface::{self, Interface},
     },
     schem::{Blocks, Pos},
@@ -170,43 +171,253 @@ pub enum Test {
 /// for a carry.
 const MAX_WIDTH: i64 = 32;
 
+/// What a stateless test drives, reads, and expects of a build, from its
+/// file and its interface, whose lines it names for their roles.
+type SpecOf = fn(&Blocks, &mut Interface) -> Result<bench::Spec>;
+
+/// Whether copies of a build, its file, whose own cases came out right,
+/// stack into a wider one of its kind; see `Test::stacking`.
+type StacksOf = fn(&[u8]) -> Option<Stacking>;
+
+/// How a test runs: from a spec, as most stateless ones do, or its own
+/// way.
+#[derive(Clone, Copy)]
+enum Way {
+    /// Driven by `spec`, which `bench` runs, its copies stacking as
+    /// `stacks` finds, when they are tried.
+    Spec {
+        spec: SpecOf,
+        stacks: Option<StacksOf>,
+    },
+    /// Each operation an ALU's control lines name.
+    Alu,
+    /// Each shift a barrel shifter's lines give.
+    Shifter,
+    /// Each value written into a register's or buffer's every cell.
+    Register(register::Kind),
+    /// A pulse on one edge of A, or with `dual` on both.
+    Monostable { dual: bool },
+    /// A value held and changed as control lines pulse.
+    Sequential(sequential::Kind),
+}
+
+impl Way {
+    /// A test driven by `spec` whose copies are never tried stacked.
+    const fn spec(spec: SpecOf) -> Way {
+        Way::Spec { spec, stacks: None }
+    }
+
+    /// A test driven by `spec` whose copies stack as `stacks` finds.
+    const fn stacked(spec: SpecOf, stacks: StacksOf) -> Way {
+        Way::Spec {
+            spec,
+            stacks: Some(stacks),
+        }
+    }
+}
+
+/// The interface of the build in `blocks` with its lines named as `spec`
+/// names them, and the spec.
+fn bench(spec: SpecOf, blocks: &Blocks) -> Result<(Interface, bench::Spec)> {
+    let mut interface = interface::read(blocks);
+    let spec = spec(blocks, &mut interface)?;
+    Ok((interface, spec))
+}
+
+/// An incrementer's kind of test, counting `counts`: its unsigned line is
+/// named for its role, such as increment, so the cases read `A +
+/// increment`.
+fn counting(
+    kind: Kind,
+    counts: Counts,
+    blocks: &Blocks,
+    interface: &mut Interface,
+) -> Result<bench::Spec> {
+    interface::name_lines(kind, blocks, interface);
+    incrementer::spec(interface, Some(counts))
+}
+
 impl Test {
-    /// Every test.
-    pub const ALL: [Test; 33] = [
-        Test::Adder,
-        Test::Decoder,
-        Test::NandXnor,
-        Test::BarrelShifter,
-        Test::Incrementer,
-        Test::Decrementer,
-        Test::IncDec,
-        Test::Multiplier,
-        Test::BinaryToBcd,
-        Test::BcdToBinary,
-        Test::Alu,
-        Test::Register,
-        Test::Buffer,
-        Test::AbsoluteValue,
-        Test::CarryOut,
-        Test::GreaterThan,
-        Test::Equality,
-        Test::Monostable,
-        Test::DualEdgeMonostable,
-        Test::Inverter,
-        Test::Popcount,
-        Test::BinaryToHex,
-        Test::Threshold,
-        Test::Parity,
-        Test::Xor,
-        Test::Xnor,
-        Test::And,
-        Test::Nand,
-        Test::Or,
-        Test::Nor,
-        Test::Counter,
-        Test::ShiftRegister,
-        Test::TFlipFlop,
-    ];
+    /// The category the test is made for, which its results are stored
+    /// under the name of, and how it runs.
+    #[allow(clippy::too_many_lines, reason = "a table, one arm per test")]
+    fn made(self) -> (Kind, Way) {
+        match self {
+            Test::Adder => (
+                Kind::Adder,
+                Way::stacked(|_, i| adder::adder(i), stacking::check),
+            ),
+            Test::Decoder => (
+                Kind::Decoder,
+                Way::stacked(|_, i| decoder::spec(i), decoder::stacking),
+            ),
+            Test::NandXnor => (
+                Kind::NandXnorGate,
+                Way::stacked(
+                    |_, i| gate::nand_xnor(i),
+                    gate::nand_xnor_stacking,
+                ),
+            ),
+            Test::BarrelShifter => (Kind::BarrelShifter, Way::Shifter),
+            Test::Incrementer => (
+                Kind::Incrementer,
+                Way::stacked(
+                    |b, i| counting(Kind::Incrementer, Counts::Up, b, i),
+                    |data| Some(stacking::chained(data, Test::Incrementer)),
+                ),
+            ),
+            Test::Decrementer => (
+                Kind::Decrementer,
+                Way::stacked(
+                    |b, i| counting(Kind::Decrementer, Counts::Down, b, i),
+                    |data| Some(stacking::chained(data, Test::Decrementer)),
+                ),
+            ),
+            Test::IncDec => (
+                Kind::IncDec,
+                Way::spec(|b, i| counting(Kind::IncDec, Counts::Either, b, i)),
+            ),
+            Test::Multiplier => (
+                Kind::Multiplier,
+                // Its lone control line is named for its role, calculate.
+                Way::spec(|b, i| {
+                    interface::name_lines(Kind::Multiplier, b, i);
+                    multiplier::spec(i)
+                }),
+            ),
+            Test::BinaryToBcd => (
+                Kind::BinaryToBcd,
+                Way::spec(|_, i| converters::binary_to_bcd(i)),
+            ),
+            Test::BcdToBinary => (
+                Kind::BcdToBinary,
+                Way::spec(|_, i| converters::bcd_to_binary(i)),
+            ),
+            Test::Alu => (Kind::Alu, Way::Alu),
+            Test::Register => {
+                (Kind::Register, Way::Register(register::Kind::Register))
+            }
+            Test::Buffer => {
+                (Kind::Buffer, Way::Register(register::Kind::Buffer))
+            }
+            Test::AbsoluteValue => (
+                Kind::AbsoluteValue,
+                Way::spec(|_, i| converters::absolute_value(i)),
+            ),
+            Test::CarryOut => (
+                Kind::CarryOut,
+                Way::stacked(
+                    |_, i| adder::carry_out(i),
+                    |data| Some(stacking::chained(data, Test::CarryOut)),
+                ),
+            ),
+            Test::GreaterThan => {
+                (Kind::GreaterThan, Way::spec(|_, i| adder::greater_than(i)))
+            }
+            Test::Equality => {
+                (Kind::Equality, Way::spec(|_, i| adder::equality(i)))
+            }
+            Test::Monostable => {
+                (Kind::Monostable, Way::Monostable { dual: false })
+            }
+            Test::DualEdgeMonostable => {
+                (Kind::DualEdgeMonostable, Way::Monostable { dual: true })
+            }
+            Test::Inverter => (
+                Kind::Inverter,
+                // Its lone control line is named for its role, invert.
+                Way::stacked(
+                    |b, i| {
+                        interface::name_lines(Kind::Inverter, b, i);
+                        inverter::spec(i)
+                    },
+                    inverter::stacking,
+                ),
+            ),
+            Test::Popcount => {
+                (Kind::Popcount, Way::spec(|_, i| converters::popcount(i)))
+            }
+            Test::BinaryToHex => (
+                Kind::BinaryToHex,
+                Way::spec(|_, i| converters::binary_to_hex(i)),
+            ),
+            Test::Threshold => {
+                (Kind::Threshold, Way::spec(|_, i| converters::threshold(i)))
+            }
+            Test::Parity => {
+                (Kind::Parity, Way::spec(|_, i| converters::parity(i)))
+            }
+            Test::Xor => (
+                Kind::XorGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::Xor),
+                    |data| gate::stacking(data, Gate::Xor),
+                ),
+            ),
+            Test::Xnor => (
+                Kind::XnorGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::Xnor),
+                    |data| gate::stacking(data, Gate::Xnor),
+                ),
+            ),
+            Test::And => (
+                Kind::AndGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::And),
+                    |data| gate::stacking(data, Gate::And),
+                ),
+            ),
+            Test::Nand => (
+                Kind::NandGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::Nand),
+                    |data| gate::stacking(data, Gate::Nand),
+                ),
+            ),
+            Test::Or => (
+                Kind::OrGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::Or),
+                    |data| gate::stacking(data, Gate::Or),
+                ),
+            ),
+            Test::Nor => (
+                Kind::NorGate,
+                Way::stacked(
+                    |_, i| gate::spec(i, Gate::Nor),
+                    |data| gate::stacking(data, Gate::Nor),
+                ),
+            ),
+            Test::Counter => {
+                (Kind::Counter, Way::Sequential(sequential::Kind::Counter))
+            }
+            Test::ShiftRegister => (
+                Kind::ShiftRegister,
+                Way::Sequential(sequential::Kind::ShiftRegister),
+            ),
+            Test::TFlipFlop => (
+                Kind::TFlipFlop,
+                Way::Sequential(sequential::Kind::TFlipFlop),
+            ),
+        }
+    }
+
+    /// The category it is made for, whose name its results are stored
+    /// under: an adder's for a hex adder's and a subtractor's too.
+    pub fn kind(self) -> Kind {
+        self.made().0
+    }
+
+    fn way(self) -> Way {
+        self.made().1
+    }
+
+    /// Every test, each its own category's, in the order of their
+    /// categories.
+    pub fn all() -> impl Iterator<Item = Test> {
+        Kind::all().filter_map(|kind| kind.test().filter(|t| t.kind() == kind))
+    }
 
     /// The test a build of `category` and `width` gets: its category's,
     /// when it has one and the build is no wider than `MAX_WIDTH`.
@@ -217,51 +428,9 @@ impl Test {
         category::behaviour(category).test
     }
 
-    /// Whether `guess` may take a build for one of this test's category,
-    /// a decrementer or inc/dec by the incrementer's run; an ALU only when
-    /// its control lines' signs name operations.
-    pub fn guessed(self) -> bool {
-        matches!(self, Test::Decrementer | Test::IncDec)
-            || GUESSED.contains(&self)
-    }
-
     /// The name stored with its result, which is its category's.
     pub fn name(self) -> &'static str {
-        match self {
-            Test::Adder => "adder",
-            Test::Decoder => "decoder",
-            Test::NandXnor => "nand_xnor_gate",
-            Test::BarrelShifter => "barrel_shifter",
-            Test::Incrementer => "incrementer",
-            Test::Decrementer => "decrementer",
-            Test::IncDec => "inc_dec",
-            Test::Multiplier => "multiplier",
-            Test::BinaryToBcd => "binary_to_bcd",
-            Test::BcdToBinary => "bcd_to_binary",
-            Test::Alu => "alu",
-            Test::Register => "register",
-            Test::Buffer => "buffer",
-            Test::AbsoluteValue => "absolute_value",
-            Test::Popcount => "popcount",
-            Test::BinaryToHex => "binary_to_hex",
-            Test::Threshold => "threshold",
-            Test::Parity => "parity",
-            Test::CarryOut => "carry_out",
-            Test::GreaterThan => "greater_than",
-            Test::Equality => "equality",
-            Test::Monostable => "monostable",
-            Test::DualEdgeMonostable => "dual_edge_monostable",
-            Test::Inverter => "inverter",
-            Test::Xor => "xor_gate",
-            Test::Xnor => "xnor_gate",
-            Test::And => "and_gate",
-            Test::Nand => "nand_gate",
-            Test::Or => "or_gate",
-            Test::Nor => "nor_gate",
-            Test::Counter => "counter",
-            Test::ShiftRegister => "shift_register",
-            Test::TFlipFlop => "t_flip_flop",
-        }
+        self.kind().name()
     }
 
     /// Runs the test's cases on `blocks` and checks each result.
@@ -287,44 +456,27 @@ impl Test {
 
     /// The test's cases run on `blocks` through `interface`, as probing
     /// finds it rather than as colours mark it, or with `quick` a few
-    /// telling ones. For the tests driven by a spec only, such as an
-    /// adder's.
+    /// telling ones. Only a test driven by a spec, such as an adder's,
+    /// runs so; any other fails.
     pub fn check_with(
         self,
         blocks: &Blocks,
         mut interface: Interface,
         quick: bool,
     ) -> Result<Run> {
-        let spec = self.spec(blocks, &mut interface)?;
+        let Way::Spec { spec, .. } = self.way() else {
+            anyhow::bail!("{} runs its own way", self.kind().a());
+        };
+        let spec = spec(blocks, &mut interface)?;
         spec.check(blocks, &interface, quick)
     }
 
     /// The test's cases run on `blocks`, or with `quick` a few telling
     /// ones, quick enough for a guess at what a build is.
     fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
-        match self {
-            Test::Alu => alu::check(blocks, quick),
-            Test::BarrelShifter => shifter::check(blocks, quick),
-            Test::Register => {
-                register::check(blocks, register::Kind::Register, quick)
-            }
-            Test::Buffer => {
-                register::check(blocks, register::Kind::Buffer, quick)
-            }
-            Test::Monostable => monostable::check(blocks, false),
-            Test::DualEdgeMonostable => monostable::check(blocks, true),
-            Test::Counter => {
-                sequential::check(blocks, sequential::Kind::Counter)
-            }
-            Test::ShiftRegister => {
-                sequential::check(blocks, sequential::Kind::ShiftRegister)
-            }
-            Test::TFlipFlop => {
-                sequential::check(blocks, sequential::Kind::TFlipFlop)
-            }
-            _ => {
-                let mut interface = interface::read(blocks);
-                let spec = self.spec(blocks, &mut interface)?;
+        match self.way() {
+            Way::Spec { spec, .. } => {
+                let (interface, spec) = bench(spec, blocks)?;
                 let mut run = spec.check(blocks, &interface, quick)?;
                 // An adder's kinds name the lines it reads inverted.
                 if self == Test::Adder {
@@ -332,6 +484,11 @@ impl Test {
                 }
                 Ok(run)
             }
+            Way::Alu => alu::check(blocks, quick),
+            Way::Shifter => shifter::check(blocks, quick),
+            Way::Register(kind) => register::check(blocks, kind, quick),
+            Way::Monostable { dual } => monostable::check(blocks, dual),
+            Way::Sequential(kind) => sequential::check(blocks, kind),
         }
     }
 
@@ -339,95 +496,20 @@ impl Test {
     /// state, as `bench::remembers` tells: what is left of each case once
     /// its presses are over, against a fresh copy given only the case's
     /// inputs. A register's or buffer's cases are what it holds once its
-    /// data bus has changed, so passing them is holding state; an ALU's is
+    /// data bus has changed, so passing them is holding state, as a
+    /// counter's, shift register's, or T flip-flop's are; an ALU's is
     /// told of each of its operations; a monostable, a pulse generator,
-    /// holds none.
+    /// holds none, its pulse being its input's change, not a held value.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
-        if matches!(
-            self,
-            Test::Register
-                | Test::Buffer
-                | Test::Counter
-                | Test::ShiftRegister
-                | Test::TFlipFlop
-        ) {
-            return Ok(Some(true));
-        }
-        if self == Test::Alu {
-            return alu::remembers(blocks).map(Some);
-        }
-        if self == Test::BarrelShifter {
-            return shifter::remembers(blocks).map(Some);
-        }
-        // A pulse generator's pulse is its input's change, not a held
-        // value, so it holds no state.
-        if matches!(self, Test::Monostable | Test::DualEdgeMonostable) {
-            return Ok(Some(false));
-        }
-        let mut interface = interface::read(blocks);
-        let spec = self.spec(blocks, &mut interface)?;
-        bench::remembers(blocks, &interface, &spec.bench).map(Some)
-    }
-
-    /// What a stateless test drives, reads, and expects of a build with
-    /// `interface`, its lines named for their roles.
-    fn spec(
-        self,
-        blocks: &Blocks,
-        interface: &mut Interface,
-    ) -> Result<bench::Spec> {
-        match self {
-            Test::Adder => adder::adder(interface),
-            Test::Decoder => decoder::spec(interface),
-            Test::NandXnor => gate::nand_xnor(interface),
-            Test::CarryOut => adder::carry_out(interface),
-            Test::GreaterThan => adder::greater_than(interface),
-            Test::Equality => adder::equality(interface),
-            Test::Incrementer | Test::Decrementer | Test::IncDec => {
-                // An unsigned line is named for its role, such as
-                // increment, so the cases read `A + increment`.
-                interface::name_lines(self.name(), blocks, interface);
-                incrementer::spec(interface, Some(self.name()))
+        match self.way() {
+            Way::Spec { spec, .. } => {
+                let (interface, spec) = bench(spec, blocks)?;
+                bench::remembers(blocks, &interface, &spec.bench).map(Some)
             }
-            Test::Multiplier => {
-                // Its lone control line is named for its role, calculate.
-                interface::name_lines(self.name(), blocks, interface);
-                multiplier::spec(interface)
-            }
-            Test::BinaryToBcd => converters::binary_to_bcd(interface),
-            Test::BcdToBinary => converters::bcd_to_binary(interface),
-            Test::AbsoluteValue => converters::absolute_value(interface),
-            Test::Popcount => converters::popcount(interface),
-            Test::BinaryToHex => converters::binary_to_hex(interface),
-            Test::Threshold => converters::threshold(interface),
-            Test::Parity => converters::parity(interface),
-            Test::Inverter => {
-                // Its lone control line is named for its role, invert.
-                interface::name_lines(self.name(), blocks, interface);
-                inverter::spec(interface)
-            }
-            Test::Xor
-            | Test::Xnor
-            | Test::And
-            | Test::Nand
-            | Test::Or
-            | Test::Nor => {
-                gate::spec(interface, Gate::of(self).expect("a gate's test"))
-            }
-            Test::Alu
-            | Test::BarrelShifter
-            | Test::Register
-            | Test::Buffer
-            | Test::Monostable
-            | Test::DualEdgeMonostable
-            | Test::Counter
-            | Test::ShiftRegister
-            | Test::TFlipFlop => {
-                unreachable!(
-                    "an ALU, a register, a buffer, a monostable, a counter, \
-                     a shift register, and a T flip-flop run their own way"
-                )
-            }
+            Way::Register(_) | Way::Sequential(_) => Ok(Some(true)),
+            Way::Alu => alu::remembers(blocks).map(Some),
+            Way::Shifter => shifter::remembers(blocks).map(Some),
+            Way::Monostable { .. } => Ok(Some(false)),
         }
     }
 
@@ -437,61 +519,37 @@ impl Test {
     /// or bits, and a buffer, a monostable, an inverter, and a gate,
     /// whose copies add bits; `None` for any other.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
-        match self {
-            Test::Adder => stacking::check(data),
-            Test::Register => {
-                register::stacking(data, register::Kind::Register)
-            }
-            Test::Buffer => register::stacking(data, register::Kind::Buffer),
-            Test::Monostable => monostable::stacking(data, false),
-            Test::DualEdgeMonostable => monostable::stacking(data, true),
-            Test::Inverter => inverter::stacking(data),
-            Test::Xor
-            | Test::Xnor
-            | Test::And
-            | Test::Nand
-            | Test::Or
-            | Test::Nor => gate::stacking(data, Gate::of(self)?),
-            Test::NandXnor => gate::nand_xnor_stacking(data),
-            Test::Decoder => decoder::stacking(data),
-            Test::Incrementer | Test::Decrementer | Test::CarryOut => {
-                Some(stacking::chained(data, self))
-            }
-            _ => None,
+        match self.way() {
+            Way::Spec { stacks, .. } => stacks.and_then(|stacks| stacks(data)),
+            Way::Register(kind) => register::stacking(data, kind),
+            Way::Monostable { dual } => monostable::stacking(data, dual),
+            Way::Alu | Way::Shifter | Way::Sequential(_) => None,
         }
     }
 
     /// How often the build in `blocks`, its file `data`, timed as
     /// `timing`, takes a new case, as `throughput::throughput` streams
-    /// them; a register's cases are its accesses, as `register::throughput`
-    /// streams them. Meant for a build whose cases all came out right.
+    /// them, through its lines named as its test names them, as its timing
+    /// names them, so each goes in at its own tick; a register's cases are
+    /// its accesses, as `register::throughput` streams them. Meant for a
+    /// build whose cases all came out right.
     pub fn throughput(
         self,
         blocks: &Blocks,
         data: &[u8],
         timing: &Timing,
     ) -> Result<Option<i32>> {
-        match self {
-            Test::Register => {
-                register::throughput(data, timing, register::Kind::Register)
-            }
-            Test::Buffer => {
-                register::throughput(data, timing, register::Kind::Buffer)
-            }
-            Test::Monostable | Test::DualEdgeMonostable => {
-                monostable::throughput(blocks, timing)
-            }
-            Test::Alu => alu::throughput(blocks, timing),
-            Test::BarrelShifter => shifter::throughput(blocks, timing),
-            // How fast one may be clocked isn't measured yet.
-            Test::Counter | Test::ShiftRegister | Test::TFlipFlop => Ok(None),
-            _ => {
-                // Its lines named as its test names them, as its timing
-                // names them, so each goes in at its own tick.
-                let mut interface = interface::read(blocks);
-                self.spec(blocks, &mut interface)?;
+        match self.way() {
+            Way::Spec { spec, .. } => {
+                let (interface, _) = bench(spec, blocks)?;
                 throughput::throughput(blocks, &interface, timing)
             }
+            Way::Register(kind) => register::throughput(data, timing, kind),
+            Way::Monostable { .. } => monostable::throughput(blocks, timing),
+            Way::Alu => alu::throughput(blocks, timing),
+            Way::Shifter => shifter::throughput(blocks, timing),
+            // How fast one may be clocked isn't measured yet.
+            Way::Sequential(_) => Ok(None),
         }
     }
 
@@ -499,33 +557,16 @@ impl Test {
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-        match self {
-            Test::Alu => alu::time(blocks, cancel),
-            Test::BarrelShifter => shifter::time(blocks, cancel),
-            Test::Register => {
-                register::time(blocks, register::Kind::Register, cancel)
-            }
-            Test::Buffer => {
-                register::time(blocks, register::Kind::Buffer, cancel)
-            }
-            Test::Monostable => monostable::time(blocks, false, cancel),
-            Test::DualEdgeMonostable => monostable::time(blocks, true, cancel),
-            Test::Counter => {
-                sequential::time(blocks, sequential::Kind::Counter, cancel)
-            }
-            Test::ShiftRegister => sequential::time(
-                blocks,
-                sequential::Kind::ShiftRegister,
-                cancel,
-            ),
-            Test::TFlipFlop => {
-                sequential::time(blocks, sequential::Kind::TFlipFlop, cancel)
-            }
-            _ => {
-                let mut interface = interface::read(blocks);
-                let spec = self.spec(blocks, &mut interface)?;
+        match self.way() {
+            Way::Spec { spec, .. } => {
+                let (interface, spec) = bench(spec, blocks)?;
                 spec.time(blocks, &interface, cancel)
             }
+            Way::Alu => alu::time(blocks, cancel),
+            Way::Shifter => shifter::time(blocks, cancel),
+            Way::Register(kind) => register::time(blocks, kind, cancel),
+            Way::Monostable { dual } => monostable::time(blocks, dual, cancel),
+            Way::Sequential(kind) => sequential::time(blocks, kind, cancel),
         }
     }
 }
@@ -685,13 +726,13 @@ impl Run {
     /// The category of a build the adder's test ran as this: a subtractor
     /// when it subtracts B, else a hex adder when its inputs take `hex`
     /// digits, else an adder.
-    pub fn adder_category(&self, hex: bool) -> &'static str {
+    pub fn adder_category(&self, hex: bool) -> Kind {
         if self.adder_variant().subtract {
-            "subtractor"
+            Kind::Subtractor
         } else if hex {
-            "hex_adder"
+            Kind::HexAdder
         } else {
-            "adder"
+            Kind::Adder
         }
     }
 
@@ -835,50 +876,6 @@ pub struct Wrong {
     pub got: Vec<u64>,
 }
 
-/// The tests `guess` tries, the first winning a tie. One run tries every
-/// kind of incrementer, and the kind it gets most right names its
-/// category. An inverter comes before it, as a 1-bit incrementer without a
-/// carry out is A xor its line, as a 1-bit inverter is. An XNOR gate comes
-/// before an equality comparator, as a 1-bit one is A xnor B. A
-/// popcount and a threshold come before the BCD converters, whose telling
-/// values a popcount's strength output can pass. A parity comes after the
-/// popcount and the threshold, as a 1-bit odd one is a wire, as theirs
-/// are, so a wire is still taken for a popcount; a 1-bit even one is a NOT
-/// gate, and from 2 bits it gives A's bits xor or xnor, as neither does.
-const GUESSED: [Test; 31] = [
-    Test::Adder,
-    Test::Decoder,
-    Test::NandXnor,
-    Test::BarrelShifter,
-    Test::Inverter,
-    Test::Xor,
-    Test::Xnor,
-    Test::And,
-    Test::Nand,
-    Test::Or,
-    Test::Nor,
-    Test::Popcount,
-    Test::BinaryToHex,
-    Test::Threshold,
-    Test::Parity,
-    Test::Incrementer,
-    Test::Multiplier,
-    Test::BinaryToBcd,
-    Test::BcdToBinary,
-    Test::Register,
-    Test::Buffer,
-    Test::AbsoluteValue,
-    Test::CarryOut,
-    Test::GreaterThan,
-    Test::Equality,
-    Test::Monostable,
-    Test::DualEdgeMonostable,
-    Test::Alu,
-    Test::Counter,
-    Test::ShiftRegister,
-    Test::TFlipFlop,
-];
-
 /// What a build seems to be, from a few telling values run through each
 /// test its inputs and outputs fit.
 #[derive(Debug, Clone)]
@@ -917,10 +914,12 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         .any(|word| alu::Op::named(word).is_some());
     // Inputs taking a hex digit per block through dust are a hex adder's.
     let hex = !interface::dust_inputs(blocks).is_empty();
-    GUESSED
+    category::Kind::guessed()
         .into_iter()
-        .filter(|&test| test != Test::Alu || names_ops)
-        .filter_map(|test| {
+        .filter(|&(_, test)| test != Test::Alu || names_ops)
+        .filter_map(|(kind, test)| {
+            // One run tries every kind of incrementer, and the kind it gets
+            // most right names its category.
             let run = if test == Test::Incrementer {
                 let interface = interface::read(blocks);
                 incrementer::spec(&interface, None)
@@ -929,18 +928,13 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                 test.check(blocks, true)
             }
             .ok()?;
-            let category = if test == Test::Incrementer {
-                match run.reading {
-                    Some(Reading::Incrementer { counts }) => counts.category(),
-                    _ => "incrementer",
-                }
-            } else if test == Test::Adder {
-                run.adder_category(hex)
-            } else {
-                test.name()
+            let kind = match run.reading {
+                Some(Reading::Incrementer { counts }) => counts.kind(),
+                _ if test == Test::Adder => run.adder_category(hex),
+                _ => kind,
             };
             Some(Guess {
-                category,
+                category: kind.name(),
                 pattern: run.pattern,
                 cases: run.cases,
                 wrong: run.wrong,

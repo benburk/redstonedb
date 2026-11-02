@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
+    category::{self, Kind},
     import::{self, Prepared},
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
@@ -109,8 +110,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         && run.wrong == 0
     {
         let never = category.is_some_and(|c| {
-            crate::recognize::category::behaviour(c).stacking
-                == crate::recognize::category::Stacking::Never
+            category::behaviour(c).stacking == category::Stacking::Never
         });
         run.stacking = if never {
             None
@@ -224,7 +224,7 @@ impl Evaluation {
                 let (data, _) = stack::stack(
                     &self.prepared.data,
                     &[(along, usize::try_from(copies)?)],
-                    stack::Buses::of(category, orientation),
+                    stack::Buses::of(Kind::named(category), orientation),
                 )?;
                 let blocks = Blocks::read(&data)?;
                 if !test.run(&blocks).passed() {

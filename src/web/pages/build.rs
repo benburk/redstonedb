@@ -5,6 +5,7 @@
 use maud::{Markup, html};
 
 use crate::{
+    category,
     import::{self, Analysis},
     models::{
         catalogue::Measure,
@@ -14,7 +15,7 @@ use crate::{
         user::User,
         version::Version,
     },
-    recognize::{category, interface::Interface},
+    recognize::interface::Interface,
     simulate::{Report, Timing},
     web::schematics::Colours,
 };

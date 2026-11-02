@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use app::{
+    category::Kind,
     import,
     models::schematic::{Orientation, StackDirection},
     recognize::interface,
@@ -205,7 +206,7 @@ fn a_register_stacks_two_ways() {
     let (data, size) = stack::stack(
         &slice("alpha-register"),
         &plan,
-        stack::Buses::of("register", Orientation::Horizontal),
+        stack::Buses::of(Kind::Register, Orientation::Horizontal),
     )
     .unwrap();
     // Seven 2-wide copies, and the first copy's feed for the control lines.
@@ -737,9 +738,9 @@ fn an_adders_unsigned_carry_lines_are_named() {
         };
         let before = unnamed(&read.inputs) + unnamed(&read.outputs);
         let mut adder = interface::read(&blocks);
-        interface::name_lines("adder", &blocks, &mut adder);
+        interface::name_lines(Kind::Adder, &blocks, &mut adder);
         let mut other = interface::read(&blocks);
-        interface::name_lines("piston_door", &blocks, &mut other);
+        interface::name_lines(None, &blocks, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,
@@ -770,7 +771,7 @@ fn an_adders_unsigned_carry_lines_are_named() {
 fn a_registers_lines_are_named_by_their_roles() {
     let blocks = Blocks::read(&raw("register-8-2-cells")).unwrap();
     let mut read = interface::read(&blocks);
-    interface::name_lines("register", &blocks, &mut read);
+    interface::name_lines(Kind::Register, &blocks, &mut read);
     let inputs: Vec<&str> =
         read.inputs.iter().map(|p| p.name.as_str()).collect();
     let outputs: Vec<&str> =
@@ -816,7 +817,7 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     let read = interface::read(&blocks);
     assert!(read.inputs.iter().any(|p| p.name == "unnamed control"));
     let mut named = interface::read(&blocks);
-    interface::name_lines("incrementer", &blocks, &mut named);
+    interface::name_lines(Kind::Incrementer, &blocks, &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
     let simulate::Report::Ran(run) = simulate::Test::Incrementer.run(&blocks)
     else {

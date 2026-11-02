@@ -13,10 +13,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
-    recognize::{
-        category::{self, Lines},
-        colour,
-    },
+    category::{Behaviour, Kind, Lines},
+    recognize::colour,
     schem::{self, Blocks, Direction, Pos, Switch},
 };
 
@@ -75,7 +73,11 @@ pub struct Bit {
 /// write; a comparison's one output is its result, such as `A > B`; and an
 /// inverter's lone control line is its invert. A sign's name always
 /// stands.
-pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
+pub fn name_lines(
+    category: impl Into<Option<Kind>>,
+    blocks: &Blocks,
+    interface: &mut Interface,
+) {
     let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
         let mut lines =
             ports.iter_mut().filter(|p| p.block.starts_with(colour));
@@ -86,32 +88,31 @@ pub fn name_lines(category: &str, blocks: &Blocks, interface: &mut Interface) {
             name.clone_into(&mut line.name);
         }
     };
-    let (control, status, lone_output) =
-        match category::behaviour(category).lines {
-            Lines::Lone {
-                control,
-                status,
-                lone_output,
-            } => (control, status, lone_output),
-            Lines::Register => {
-                return name_register(blocks, interface, false);
+    let (control, status, lone_output) = match Behaviour::of(category).lines {
+        Lines::Lone {
+            control,
+            status,
+            lone_output,
+        } => (control, status, lone_output),
+        Lines::Register => {
+            return name_register(blocks, interface, false);
+        }
+        Lines::Buffer => return name_register(blocks, interface, true),
+        Lines::Counter => return name_counter(blocks, interface),
+        Lines::Result(name) => {
+            if let [out] = interface.outputs.as_mut_slice()
+                && !out.labelled
+                && out.bits.len() == 1
+            {
+                name.clone_into(&mut out.name);
             }
-            Lines::Buffer => return name_register(blocks, interface, true),
-            Lines::Counter => return name_counter(blocks, interface),
-            Lines::Result(name) => {
-                if let [out] = interface.outputs.as_mut_slice()
-                    && !out.labelled
-                    && out.bits.len() == 1
-                {
-                    name.clone_into(&mut out.name);
-                }
-                return;
-            }
-            Lines::Control(name) => {
-                return lone(&mut interface.inputs, colour::CONTROL, name);
-            }
-            Lines::Signed => return,
-        };
+            return;
+        }
+        Lines::Control(name) => {
+            return lone(&mut interface.inputs, colour::CONTROL, name);
+        }
+        Lines::Signed => return,
+    };
     lone(&mut interface.inputs, colour::CONTROL, control);
     lone(&mut interface.outputs, colour::STATUS, status);
     if lone_output

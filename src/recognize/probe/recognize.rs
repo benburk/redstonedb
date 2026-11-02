@@ -7,13 +7,14 @@
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, Line, adder, alu, colour, decoder, multiplier, one_operand,
+    Fault, adder, alu, colour, decoder, multiplier, one_operand,
     operands_probe, register, sequential, shifter,
 };
 use crate::{
-    recognize::{category, inspect},
+    category::{Kind, Probe, Probing},
+    recognize::inspect,
     schem::{self, Blocks, Pos},
-    simulate::{self, Gate, Test},
+    simulate::{self, Test},
 };
 
 /// What the check by function makes of an uploaded file: the file with its
@@ -54,9 +55,9 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     recognize_as(data, None)
 }
 
-/// As `recognize`, probing only as `meant`, one of [`KINDS`], when given.
-/// Probed as each and recognized as none, its fault is as `fault_of`
-/// chooses.
+/// As `recognize`, probing only as the category named `meant`, when
+/// given. Probed as each and recognized as none, its fault is as
+/// `fault_of` chooses.
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
@@ -65,14 +66,25 @@ pub fn recognize_as(
 }
 
 /// As [`recognize_as`], telling `trying` each kind as it is probed, with
-/// how many of [`KINDS`] came before it.
+/// how many of the kinds probing tries came before it; see
+/// [`Kind::probed`].
 pub fn recognize_watched(
     data: &[u8],
     meant: Option<&str>,
-    trying: &mut dyn FnMut(&'static str, usize),
+    trying: &mut dyn FnMut(Kind, usize),
 ) -> anyhow::Result<Recognition> {
-    // A subtractor is probed as the adder it is, its B subtracted.
-    let meant = meant.map(|m| if m == "subtractor" { "adder" } else { m });
+    let hex_adder = meant.and_then(Kind::named) == Some(Kind::HexAdder);
+    // Each meant as another, as a subtractor is the adder it is, its B
+    // subtracted, is probed as that one; one never probed, as a hex adder,
+    // or a category off the list, is probed as nothing.
+    let meant: Option<Option<Kind>> = meant.map(|meant| {
+        let kind = Kind::named(meant)?;
+        match kind.facts().probe {
+            Probing::As(other) => Some(other),
+            Probing::Tried { .. } => Some(kind),
+            Probing::Not => None,
+        }
+    });
     let simulated = simulatable(data)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
@@ -93,7 +105,7 @@ pub fn recognize_watched(
     };
     // Inputs taking a hex digit per block through dust are a hex adder's,
     // which probing doesn't read, whatever else the check finds.
-    if meant != Some("hex_adder")
+    if !hex_adder
         && !crate::recognize::interface::dust_inputs(&blocks).is_empty()
     {
         return Ok(unrecognized(vec![
@@ -117,22 +129,24 @@ pub fn recognize_watched(
             unrecognized(faults)
         }
     };
-    // Each blessed category in turn, or only the one meant, its fault kept
-    // when it isn't one.
-    let mut faults: Vec<Option<Fault>> = vec![None; KINDS.len()];
-    for (i, kind) in KINDS.into_iter().enumerate() {
-        if meant.is_some_and(|meant| meant != kind) {
+    // Each kind probing tries in turn, or only the one meant, its fault
+    // kept when it isn't one.
+    let probed = Kind::probed();
+    let mut faults: Vec<(Kind, Fault)> = Vec::new();
+    for (i, &(kind, how, test)) in probed.iter().enumerate() {
+        if meant.is_some_and(|meant| meant != Some(kind)) {
             continue;
         }
         trying(kind, i);
-        match probe_as(kind, data, &blocks, &report)? {
+        match probe_by(kind, how, test, data, &blocks, &report)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
-            Err(fault) => faults[i] = Some(fault),
+            Err(fault) => faults.push((kind, fault)),
         }
     }
-    let fault = fault_of(&blocks, &report, meant, &faults);
+    // Meant as a kind never probed, nothing was, so there is no fault.
+    let fault = fault_of(&blocks, &report, meant.flatten(), &faults);
     problems.push(fault.map_or_else(String::new, ToString::to_string));
     // The file as the try whose fault is shown coloured it, when it ran.
     let closest = fault.and_then(Fault::file).unwrap_or(data);
@@ -142,74 +156,57 @@ pub fn recognize_watched(
     })
 }
 
-/// The blessed categories, in the order probing tries them: gates first,
-/// as a 1-bit XOR is a sum without a carry, an inverter's bit, and a 1-bit
-/// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
-/// NAND+XNOR an adder's inverted, which no wider build of those is; an
-/// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-pub const KINDS: [&str; 31] = [
-    "xor_gate",
-    "xnor_gate",
-    "and_gate",
-    "nand_gate",
-    "or_gate",
-    "nor_gate",
-    "nand_xnor_gate",
-    "equality",
-    "greater_than",
-    "carry_out",
-    "inverter",
-    "absolute_value",
-    "monostable",
-    "dual_edge_monostable",
-    "adder",
-    "incrementer",
-    "decrementer",
-    "inc_dec",
-    "popcount",
-    "binary_to_hex",
-    "threshold",
-    "parity",
-    "register",
-    "buffer",
-    "alu",
-    "decoder",
-    "barrel_shifter",
-    "multiplier",
-    "counter",
-    "shift_register",
-    "t_flip_flop",
-];
-
 /// What a probe found: the build's data inputs, its file coloured by the
 /// roles found, and what it is, in words.
 pub type Found = (Vec<Pos>, Vec<u8>, String);
 
-/// The file in `data`, with `blocks` and `report`, probed as a `kind` of
-/// [`KINDS`]: its data inputs, the file coloured by the roles found, and
-/// what it was found to be, such as `an adder: all 131072 cases right, A +
-/// B + carry in`; or why it isn't one.
+/// The file in `data`, with `blocks` and `report`, probed as `kind`, or as
+/// the kind it is probed as, such as an adder for a subtractor: its data
+/// inputs, the file coloured by the roles found, and what it was found to
+/// be, such as `an adder: all 131072 cases right, A + B + carry in`; or why
+/// it isn't one.
 pub fn probe_as(
-    kind: &str,
+    kind: Kind,
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+) -> anyhow::Result<Result<Found, Fault>> {
+    let kind = match kind.facts().probe {
+        Probing::As(other) => other,
+        _ => kind,
+    };
+    let probed = Kind::probed();
+    let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)
+    else {
+        return Ok(Err(Fault::Unfit(format!("{} isn't probed", kind.a()))));
+    };
+    probe_by(kind, how, test, data, blocks, report)
+}
+
+/// As [`probe_as`], `kind` probed `how` its row says, by its `test`.
+fn probe_by(
+    kind: Kind,
+    how: Probe,
+    test: Test,
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
 ) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
         // Probing reads no hex digits, so an adder is one or a subtractor.
-        let kind = if kind == "adder" {
+        let kind = if kind == Kind::Adder {
             run.adder_category(false)
         } else {
             kind
         };
         format!(
             "{}: all {} cases right, {}",
-            named(kind),
+            kind.a(),
             run.cases,
             run.pattern
         )
     };
-    let probed = probed_as(kind, data, blocks, report, found)?;
+    let probed = probed_as(how, test, data, blocks, report, found)?;
     Ok(match probed {
         Ok((inputs, file, found)) => {
             Ok((inputs, unlabelled(kind, &file)?, found))
@@ -218,72 +215,11 @@ pub fn probe_as(
     })
 }
 
-/// A build of `kind`, one of [`KINDS`], in words, such as `an adder`.
-fn named(kind: &str) -> String {
-    let name = match kind {
-        "alu" => "ALU",
-        "inc_dec" => "inc/dec",
-        "xor_gate" => "XOR gate",
-        "xnor_gate" => "XNOR gate",
-        "and_gate" => "AND gate",
-        "nand_gate" => "NAND gate",
-        "or_gate" => "OR gate",
-        "nor_gate" => "NOR gate",
-        "nand_xnor_gate" => "NAND+XNOR gate",
-        "equality" => "equality comparator",
-        "greater_than" => "greater-than comparator",
-        "dual_edge_monostable" => "dual-edge monostable",
-        "t_flip_flop" => "T flip-flop",
-        "parity" => "parity circuit",
-        _ => &kind.replace('_', " "),
-    };
-    let article = if name.starts_with(['a', 'e', 'i', 'o', 'u', 'A', 'O', 'X'])
-    {
-        "an"
-    } else {
-        "a"
-    };
-    format!("{article} {name}")
-}
-
-/// The words a sign may name a role by that probing finds anyway, for a
-/// `kind` of [`KINDS`]; an ALU's, a decoder's, and a shift register's
-/// signs are kept, as they tell what their lines do.
-fn role_words(kind: &str) -> &'static [&'static str] {
-    match kind {
-        "adder" => &[
-            "carry in",
-            "carry-in",
-            "cin",
-            "c in",
-            "carry out",
-            "carry-out",
-            "cout",
-            "c out",
-            "borrow in",
-            "borrow out",
-            "bin",
-            "bout",
-            "subtract",
-        ],
-        "register" => &["write", "read", "write enable", "data in", "data out"],
-        "buffer" => &["write", "write enable", "data in", "data out"],
-        "multiplier" => &["calculate", "calc", "reset"],
-        "counter" => &["clock", "clk", "write", "write enable", "load"],
-        "t_flip_flop" => &["toggle", "t", "clock", "clk", "q"],
-        "incrementer" => &["increment", "inc", "carry out", "cout"],
-        "decrementer" => &["decrement", "dec", "borrow out", "bout"],
-        "inverter" => &["invert", "inv"],
-        "carry_out" => &["carry in", "cin", "carry out", "cout"],
-        _ => &[],
-    }
-}
-
-/// The file in `data`, found to be a `kind` of [`KINDS`], less each sign
-/// that only names a role probing found, such as `carry in`; a sign saying
-/// anything more, such as a strength, stays.
-fn unlabelled(kind: &str, data: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let words = role_words(kind);
+/// The file in `data`, found to be a `kind`, less each sign that only
+/// names a role probing found, such as `carry in`; a sign saying anything
+/// more, such as a strength, stays.
+fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let words = kind.facts().role_words;
     let blocks = Blocks::read(data)?;
     let changes: BTreeMap<Pos, String> = blocks
         .signs
@@ -307,14 +243,15 @@ fn unlabelled(kind: &str, data: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// As `probe_as`, the file as probing coloured it, its signs as they were.
 fn probed_as(
-    kind: &str,
+    how: Probe,
+    test: Test,
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
     found: impl Fn(&simulate::Run) -> String,
 ) -> anyhow::Result<Result<Found, Fault>> {
-    Ok(match kind {
-        "adder" => match adder(blocks, report) {
+    Ok(match how {
+        Probe::Adder => match adder(blocks, report) {
             Ok(probed) => Ok((
                 [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
                 colour(data, &probed.layout)?,
@@ -322,92 +259,45 @@ fn probed_as(
             )),
             Err(why) => Err(why),
         },
-        "register" | "buffer" => {
-            let test = if kind == "register" {
-                Test::Register
-            } else {
-                Test::Buffer
-            };
-            register(data, report, test).map(|probed| {
-                let found = found(&probed.run);
-                (probed.data_in, probed.file, found)
-            })
-        }
-        "barrel_shifter" => shifter(data, report).map(|probed| {
+        Probe::Register => register(data, report, test).map(|probed| {
+            let found = found(&probed.run);
+            (probed.data_in, probed.file, found)
+        }),
+        Probe::Shifter => shifter(data, report).map(|probed| {
             let found = found(&probed.run);
             (probed.a, probed.file, found)
         }),
-        "alu" => alu(data, report).map(|probed| {
+        Probe::Alu => alu(data, report).map(|probed| {
             let found = found(&probed.run);
             ([probed.a, probed.b].concat(), probed.file, found)
         }),
-        "decoder" => decoder(data, report).map(|probed| {
+        Probe::Decoder => decoder(data, report).map(|probed| {
             let found = found(&probed.run);
             (probed.a, probed.file, found)
         }),
-        "multiplier" => multiplier(data, report).map(|probed| {
+        Probe::Multiplier => multiplier(data, report).map(|probed| {
             let found = found(&probed.run);
             ([probed.a, probed.b, probed.c].concat(), probed.file, found)
         }),
-        "xor_gate" | "xnor_gate" | "and_gate" | "nand_gate" | "or_gate"
-        | "nor_gate" => {
-            let gate = category::behaviour(kind)
-                .test
-                .and_then(Gate::of)
-                .expect("a gate's category has a gate's test");
-            operands_probe(data, report, gate.test()).map(|probed| {
-                let found = found(&probed.run);
-                (probed.inputs, probed.file, found)
-            })
-        }
-        "equality" | "greater_than" | "carry_out" | "nand_xnor_gate" => {
-            let test = category::behaviour(kind)
-                .test
-                .expect("a comparison's category has a test");
-            operands_probe(data, report, test).map(|probed| {
-                let found = found(&probed.run);
-                (probed.inputs, probed.file, found)
-            })
-        }
-        "inverter"
-        | "absolute_value"
-        | "incrementer"
-        | "decrementer"
-        | "inc_dec"
-        | "monostable"
-        | "dual_edge_monostable"
-        | "popcount"
-        | "binary_to_hex"
-        | "threshold"
-        | "parity" => {
-            let test = category::behaviour(kind)
-                .test
-                .expect("a blessed category has a test");
-            let line = match kind {
-                "inverter" => Line::Always,
-                "incrementer" | "decrementer" | "inc_dec" => Line::Maybe,
-                _ => Line::Never,
-            };
+        Probe::Operands => operands_probe(data, report, test).map(|probed| {
+            let found = found(&probed.run);
+            (probed.inputs, probed.file, found)
+        }),
+        Probe::OneOperand(line) => {
             one_operand(data, report, test, line).map(|probed| {
                 let found = found(&probed.run);
                 (probed.a, probed.file, found)
             })
         }
-        "counter" | "shift_register" | "t_flip_flop" => {
-            let test = category::behaviour(kind)
-                .test
-                .expect("a blessed category has a test");
-            sequential(data, report, test).map(|probed| {
-                let found = found(&probed.run);
-                (probed.data, probed.file, found)
-            })
-        }
-        _ => unreachable!("{kind} is not one of KINDS"),
+        Probe::Sequential => sequential(data, report, test).map(|probed| {
+            let found = found(&probed.run);
+            (probed.data, probed.file, found)
+        }),
     })
 }
 
-/// Of the faults probing found as each of [`KINDS`], the one to show: the
-/// one it is meant as, if any; else one whose test ran and got cases
+/// Of the `faults` probing found as each kind it tried, the one to show:
+/// the one it is meant as, if any; else one whose test ran and got cases
 /// wrong, as nearest to holding, over those that could not run. Of either
 /// kind, the decoder's when it has one input line; the register's when it
 /// has a button, which only a register's writes and a sequential
@@ -416,14 +306,14 @@ fn probed_as(
 fn fault_of<'f>(
     blocks: &Blocks,
     report: &inspect::Report,
-    meant: Option<&str>,
-    faults: &'f [Option<Fault>],
+    meant: Option<Kind>,
+    faults: &'f [(Kind, Fault)],
 ) -> Option<&'f Fault> {
-    let of = |kind: &str| {
-        KINDS
+    let of = |kind: Kind| {
+        faults
             .iter()
-            .position(|&k| k == kind)
-            .and_then(|i| faults[i].as_ref())
+            .find(|(k, _)| *k == kind)
+            .map(|(_, fault)| fault)
     };
     if let Some(kind) = meant {
         return of(kind);
@@ -434,13 +324,17 @@ fn fault_of<'f>(
         .iter()
         .filter(|run| run.bits.len() == 1)
         .count();
-    let order: &[&str] = match () {
-        () if report.inputs.len() == 1 => &["decoder", "adder", "register"],
-        () if buttons => &["register", "multiplier", "adder", "alu"],
-        () if lone > 1 => &["alu", "adder", "register"],
-        () => &["adder", "register", "alu"],
+    let order: &[Kind] = match () {
+        () if report.inputs.len() == 1 => {
+            &[Kind::Decoder, Kind::Adder, Kind::Register]
+        }
+        () if buttons => {
+            &[Kind::Register, Kind::Multiplier, Kind::Adder, Kind::Alu]
+        }
+        () if lone > 1 => &[Kind::Alu, Kind::Adder, Kind::Register],
+        () => &[Kind::Adder, Kind::Register, Kind::Alu],
     };
-    let candidates: Vec<&Fault> = order.iter().filter_map(|k| of(k)).collect();
+    let candidates: Vec<&Fault> = order.iter().filter_map(|&k| of(k)).collect();
     candidates
         .iter()
         .find(|fault| fault.ran())

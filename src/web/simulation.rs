@@ -18,7 +18,7 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
-    details,
+    category, details,
     import::Upload,
     models::{
         catalogue, schematic,
@@ -26,7 +26,6 @@ use crate::{
         user::User,
         version,
     },
-    recognize::category,
     simulate::{Report, Test},
     web::{app_state::AppState, error::AppError},
 };
@@ -255,7 +254,7 @@ async fn stored_file(
 
 /// The test the form's category calls for on `data`, at the width it
 /// reads from the file: only a blessed category's, see
-/// `category::BLESSED`, as only such a build goes on the list.
+/// `category::Facts::listed_as`, as only such a build goes on the list.
 async fn test(
     state: &AppState,
     pairs: &[(String, String)],
@@ -267,7 +266,7 @@ async fn test(
     // what keeps it from being one.
     let Some(category) = details::meant(&categories, &form.category)
         .map(|c| c.name.as_str())
-        .filter(|c| crate::recognize::category::BLESSED.contains(c))
+        .filter(|c| crate::category::blessed(c))
     else {
         return Ok(None);
     };

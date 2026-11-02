@@ -316,7 +316,7 @@ pub(super) fn ports(
     interface: &Interface,
     kind: Kind,
 ) -> Result<(Circuit, Register)> {
-    let what = kind.name();
+    let what = kind.category().facts().noun;
     let control = format!("{} concrete", colour::CONTROL);
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| interface.inputs[i].block != control)

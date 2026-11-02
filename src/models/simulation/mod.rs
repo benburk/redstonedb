@@ -16,12 +16,12 @@ use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use crate::{
-    import,
+    category, import,
     models::{
         schematic::{self, Schematic, StackDirection},
         version,
     },
-    recognize::{category, evaluate::evaluate, interface, roles},
+    recognize::{evaluate::evaluate, interface, roles},
     schem::{Blocks, stack},
     simulate::{Report, Test},
 };
@@ -90,7 +90,7 @@ async fn set<'e, E: SqliteExecutor<'e>>(
 /// How build `s`'s copies stacked share its buses, as its category and the
 /// way its bits run say.
 fn buses(s: &Schematic) -> stack::Buses {
-    stack::Buses::of(&s.category, s.orientation)
+    stack::Buses::of(s.kind(), s.orientation)
 }
 
 /// Moves build `id`'s stored result to its file `data`, whose hash is
@@ -248,7 +248,7 @@ pub async fn refresh(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(&s.category, derived.measured.orientation),
+                stack::Buses::of(s.kind(), derived.measured.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -451,7 +451,7 @@ async fn refresh_evaluated(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(&s.category, derived.measured.orientation),
+                stack::Buses::of(s.kind(), derived.measured.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -535,7 +535,7 @@ pub async fn refresh_timing(
 }
 
 /// For a recognized build whose test passes, as once it is uploaded: for
-/// a blessed build, see `category::BLESSED`, its unused blocks taken
+/// a blessed build, see `category::Facts::listed_as`, its unused blocks taken
 /// out, as a new version once compiling it shows the circuit unchanged;
 /// then its needs kept, as [`keep_needs`] keeps them. Any other build is
 /// left as it came.
@@ -553,7 +553,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     // When taking them out would change its circuit, which the proof by
     // compiling it shows, the blocks found unused are not, so it keeps
     // them.
-    let pruned = if category::BLESSED.contains(&s.category.as_str()) {
+    let pruned = if category::blessed(&s.category) {
         roles::prune(&data, &s.stacking, buses(&s)).unwrap_or_else(|err| {
             tracing::warn!(id, "keeping its blocks: {err:#}");
             None

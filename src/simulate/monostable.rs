@@ -26,7 +26,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Run, Signal, Test, Wrong,
+    Broken, Run, Signal, Wrong,
     bench::mask,
     circuit::{Circuit, MAX_TICKS},
     stacking::{self, Stacking},
@@ -35,6 +35,7 @@ use super::{
     },
 };
 use crate::{
+    category::Kind,
     models::schematic::Orientation,
     recognize::{
         colour,
@@ -274,7 +275,7 @@ fn fault(
 /// alone, then off, and every bit together, each from rest.
 fn cases(blocks: &Blocks) -> Result<Cases> {
     let mut interface = interface::read(blocks);
-    interface::name_lines(Test::Monostable.name(), blocks, &mut interface);
+    interface::name_lines(Kind::Monostable, blocks, &mut interface);
     let [input] = interface.inputs.as_slice() else {
         broken!(
             "A monostable takes one input, A, but this has {}.",
@@ -555,7 +556,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
         return Ok(None);
     };
     let mut interface = interface::read(blocks);
-    interface::name_lines(Test::Monostable.name(), blocks, &mut interface);
+    interface::name_lines(Kind::Monostable, blocks, &mut interface);
     let outputs = output_bits(&interface)?;
     let width = interface.inputs[0].bits.len();
     let all = mask(width);
@@ -705,7 +706,7 @@ pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
     let edge = single.edge(dual);
     let pulse = single.pulse(edge)?;
     let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses = stack::Buses::of("monostable", Orientation::Horizontal);
+    let buses = stack::Buses::of(Kind::Monostable, Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
         let found = cases(blocks).ok()?;
         let run = run(&found, dual);
