@@ -190,7 +190,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     unverified(
         check_file(&db, typed(), &prepared("cca-8-dust-out", false), true)
             .await,
-        "Gives wrong outputs",
+        "cases wrong: A=",
     );
     unverified(
         check_file(&db, typed(), &common::fixture("hex-cca-8"), true).await,
