@@ -1,5 +1,5 @@
-//! A page for each Minecraft player the site credits, whether or not they
-//! have an account.
+//! A page for each Minecraft player, whether or not they have an account
+//! or the site credits them yet.
 
 use axum::{
     extract::{Path, State},
@@ -20,7 +20,8 @@ use super::pages;
 /// The page of the player `name`, whatever its capitals: what they built,
 /// helped with, are named in with `@name`, and hold records for, and their
 /// account if they have signed up. The address takes the spelling the
-/// site credits, or else the first a description writes.
+/// site credits, or else the first a description writes, or else Mojang's;
+/// a 404 for a name no player has.
 pub async fn show(
     Path(name): Path<String>,
     State(state): State<AppState>,
@@ -52,12 +53,20 @@ pub async fn show(
             .find(|n| same(n))
     };
     let mentioned_as = all.iter().find_map(named);
-    let Some(spelling) = account
+    let known = account
         .and_then(|u| u.minecraft_name.clone())
         .or(credited)
-        .or(mentioned_as)
-    else {
-        return Err(AppError::NotFound);
+        .or(mentioned_as);
+    // A player the site has no build of yet, as one the Credits page names,
+    // still has a page, spelled as Mojang spells them.
+    let spelling = match known {
+        Some(spelling) => spelling,
+        None => {
+            super::heads::player(&state.db, &name)
+                .await
+                .ok_or(AppError::NotFound)?
+                .name
+        }
     };
     if spelling != name {
         return Ok(Redirect::permanent(&format!("/players/{spelling}"))

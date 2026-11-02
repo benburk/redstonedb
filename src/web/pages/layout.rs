@@ -172,6 +172,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                 ul class="flex flex-col gap-0.5" {
                     (link("/about", icons::INFO, "About", current("/about")))
                     (link("/about/recognized", icons::CHECK, "Build Analysis", current("/about/recognized")))
+                    (link("/about/credits", icons::HEART, "Credits", current("/about/credits")))
                     @if viewer.is_some_and(User::is_admin) {
                         (link("/users", icons::USERS, "Users", current("/users")))
                     }

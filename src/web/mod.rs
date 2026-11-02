@@ -46,6 +46,7 @@ use about::about;
 use profile::profile;
 
 pub use heads::fetch_ahead as fetch_heads_ahead;
+pub use pages::mentions;
 
 /// A file under `static/`, built into the binary and served at `path`.
 /// Pages link it at [`Asset::url`], which names its version, so browsers
@@ -326,6 +327,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schemati/files/{name}/delete", post(schemati::delete))
         .route("/about", get(about))
         .route("/about/recognized", get(about::recognized))
+        .route("/about/credits", get(about::credits))
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
         .route("/players/{name}/head.png", get(players::head))

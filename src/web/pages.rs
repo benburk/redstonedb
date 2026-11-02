@@ -41,7 +41,7 @@ mod upload;
 mod users;
 mod version;
 
-pub use about::{about, recognized};
+pub use about::{about, credits, recognized};
 pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
     favorite_button, schematic_page, waiting,

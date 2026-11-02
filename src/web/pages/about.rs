@@ -1,11 +1,12 @@
-//! The About pages: what the site is, and how it recognizes builds, each
-//! rule pictured by the examples in [`crate::recognize::guide`].
+//! The About pages: what the site is, how it recognizes builds, each rule
+//! pictured by the examples in [`crate::recognize::guide`], and the work it
+//! is built on.
 
-use maud::{Markup, html};
+use maud::{Markup, PreEscaped, html};
 
 use crate::{models::user::User, recognize::guide, web::guide_image};
 
-use super::{PAGE_TITLE, SECTION_TITLE, base};
+use super::{PAGE_TITLE, SECTION_TITLE, base, description::player_badge};
 
 /// What the site is and what it verifies.
 pub fn about(viewer: Option<&User>) -> Markup {
@@ -57,6 +58,52 @@ pub fn about(viewer: Option<&User>) -> Markup {
             }
         },
     )
+}
+
+/// The open-source work the site runs on, under its licenses: MCHPRS,
+/// which simulates every build, and schematic-renderer, which draws the 3D
+/// view.
+pub fn credits(viewer: Option<&User>) -> Markup {
+    base(
+        viewer,
+        "Credits",
+        "/about/credits",
+        &html! {
+            div class="max-w-prose leading-prose" {
+                h1 class={ (PAGE_TITLE) " mb-4" } { "Credits" }
+                p class="mb-4" {
+                    "RedstoneDB is built by Ben Burk, " (badge("embizone")) " in game, "
+                    "and " a href="https://github.com/benburk" { "benburk" } " on GitHub. "
+                    "Two open-source projects do the heavy lifting."
+                }
+                h2 class={ (SECTION_TITLE) " mt-8 mb-2" } {
+                    a href="https://github.com/MCHPR/MCHPRS" { "MCHPRS" }
+                }
+                p class="mb-4" {
+                    "Every test, latency, and throughput on this site comes from running the build in "
+                    "MCHPRS, the Minecraft High Performance Redstone Server, and its redstone compiler, "
+                    "Redpiler, by " (badge("StackDoubleFlow")) " and its contributors. RedstoneDB uses "
+                    a href="https://github.com/benburk/MCHPRS" { "a fork" }
+                    " of it. MIT License."
+                }
+                h2 class={ (SECTION_TITLE) " mt-8 mb-2" } {
+                    a href="https://github.com/Schem-at/schematic-renderer" { "schematic-renderer" }
+                }
+                p class="mb-4" {
+                    "The 3D view on every build's page is schematic-renderer, by Schem.at, loaded unchanged "
+                    "from jsDelivr with its resource pack. GNU AGPL v3; its source is on GitHub."
+                }
+                p class="mt-8 mb-4 text-meta text-muted" {
+                    "RedstoneDB is not an official Minecraft product, and is not approved by or associated with Mojang or Microsoft."
+                }
+            }
+        },
+    )
+}
+
+/// The player `name` as a badge, as a description's `@name` shows them.
+fn badge(name: &str) -> Markup {
+    PreEscaped(player_badge(name))
 }
 
 /// How builds are recognized: the input and output contract, each rule

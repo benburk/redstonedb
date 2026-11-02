@@ -196,7 +196,7 @@ pub fn mentions(text: &str) -> Vec<String> {
 
 /// A player as a badge in running text: their head, blank until it loads,
 /// and their name, linking to their page.
-fn player_badge(name: &str) -> String {
+pub(super) fn player_badge(name: &str) -> String {
     format!(
         r#"<a href="/players/{name}" class="mention"><img src="/players/{name}/head.png" alt="" width="16" height="16" loading="lazy">{name}</a>"#
     )

@@ -267,6 +267,16 @@ async fn ready(
     // Asked last, as it goes to Mojang, which is slow.
     details.builders = mojang::respell(&details.builders).await?;
     details.contributors = mojang::respell(&details.contributors).await?;
+    // A player the description names with `@name` must be one, as a
+    // builder must; the description keeps the names as written.
+    let named = details
+        .description
+        .as_deref()
+        .map(crate::web::mentions)
+        .unwrap_or_default();
+    if let Some(message) = unnamed(&mojang::unknown_names(&named).await) {
+        return Err(message.into());
+    }
     let evaluated = build.conventional
         && verified
         && category::behaviour(&category.name).evaluated;
@@ -276,6 +286,24 @@ async fn ready(
         stacking_inferred,
         evaluated,
     })
+}
+
+/// A sentence naming the `@name`s in a description that no player has,
+/// to be checked; `None` when there are none.
+fn unnamed(unknown: &[String]) -> Option<String> {
+    let named: Vec<String> = unknown.iter().map(|n| format!("@{n}")).collect();
+    match named.as_slice() {
+        [] => None,
+        [one] => Some(format!(
+            "The description names {one}, but no Minecraft player is named \
+             that. Check the spelling."
+        )),
+        many => Some(format!(
+            "The description names {}, but no Minecraft players are named \
+             those. Check the spelling.",
+            many.join(", ")
+        )),
+    }
 }
 
 /// For a build of a category whose measured details all come from
@@ -548,5 +576,24 @@ mod tests {
         assert!(!is_date("02/29/2024"));
         assert!(!is_date("2024-2-29"));
         assert!(!is_date("2024-02-2é"));
+    }
+
+    #[test]
+    fn names_a_description_gives_no_player_are_named_back() {
+        assert_eq!(unnamed(&[]), None);
+        assert_eq!(
+            unnamed(&["Nobody_Here".to_owned()]).as_deref(),
+            Some(
+                "The description names @Nobody_Here, but no Minecraft player \
+                 is named that. Check the spelling."
+            )
+        );
+        assert_eq!(
+            unnamed(&["abc_x".to_owned(), "abc_y".to_owned()]).as_deref(),
+            Some(
+                "The description names @abc_x, @abc_y, but no Minecraft \
+                 players are named those. Check the spelling."
+            )
+        );
     }
 }

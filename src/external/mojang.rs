@@ -73,6 +73,18 @@ pub async fn respell(names: &[String]) -> Result<Vec<String>, String> {
     }
 }
 
+/// The names in `names` no player has, as given. None when Mojang cannot
+/// be reached, so an outage does not stop anyone naming a player.
+pub async fn unknown_names(names: &[String]) -> Vec<String> {
+    let Ok(found) = profiles(names).await else {
+        return Vec::new();
+    };
+    unknown(names, &found)
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
 /// The names in `names` that none of `found` has.
 fn unknown<'a>(names: &'a [String], found: &[Profile]) -> Vec<&'a str> {
     names
