@@ -345,7 +345,7 @@ fn is_container(name: &str) -> bool {
 /// does not conduct as a barrel does, stays unless its builder asks.
 pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
-    let swapped: HashMap<Pos, u8> = blocks
+    let swapped: BTreeMap<Pos, u8> = blocks
         .iter()
         .filter_map(|(pos, state)| {
             let name = schem::short(state);

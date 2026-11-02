@@ -926,6 +926,14 @@ fn standardized(data: &[u8]) -> Vec<u8> {
     import::prepare(data, true, true, false, true).unwrap().data
 }
 
+/// Standardizing a file twice gives the same bytes, its barrels' contents
+/// included, so one build always comes out as one file.
+#[test]
+fn standardizing_is_the_same_each_time() {
+    let raw = raw("register-8-2-cells");
+    assert_eq!(standardized(&raw), standardized(&raw));
+}
+
 /// Saved with its data levers on, an uploaded build is kept with them off
 /// and its circuit at rest with them: the same file as one saved with them
 /// off, as a data input never reads inverted.
