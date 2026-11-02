@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold};
+use super::{Fault, lengths, try_roles};
 use crate::{
     recognize::inspect::{self, Run},
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Test},
 };
 
@@ -30,10 +30,10 @@ pub struct AluProbed {
 /// by its sign; two input lines as wide its operands, A first either way
 /// round; and every other lever a control line, each coloured and run
 /// through the ALU test, quick cases first. Or why none holds.
-pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
+pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, Fault> {
     let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err("Outputs: none".to_owned());
+        return Err(Fault::Unfit("Outputs: none".to_owned()));
     };
     let width = out.bits.len();
     let status: Vec<Pos> = report
@@ -47,10 +47,10 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         .iter()
         .any(|run| run.bits != out.bits && run.bits.len() > 1)
     {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Outputs: line lengths {}, need one bus and lone status lines",
             lengths(&report.outputs)
-        ));
+        )));
     }
     let operands: Vec<&Run> = report
         .inputs
@@ -58,10 +58,10 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         .filter(|run| run.bits.len() == width)
         .collect();
     let [first, second] = operands.as_slice() else {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Operands: {} lines of {width} levers, need A and B",
             operands.len()
-        ));
+        )));
     };
     let controls: Vec<Pos> = report
         .inputs
@@ -69,7 +69,7 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         .filter(|run| run.bits.len() != width)
         .flat_map(|run| run.bits.clone())
         .collect();
-    let mut why = String::new();
+    let mut why = Fault::Unfit(String::new());
     for (a, b) in [(first, second), (second, first)] {
         let mut roles: HashMap<Pos, &str> = HashMap::new();
         roles.extend(a.bits.iter().map(|&p| (p, "lime")));
@@ -77,21 +77,8 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
         roles.extend(controls.iter().map(|&p| (p, "magenta")));
         roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
         roles.extend(status.iter().map(|&p| (p, "pink")));
-        let file = paint(data, &roles).map_err(|err| err.to_string())?;
-        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match Test::Alu.quick(&coloured) {
-            Ok(run) if run.wrong == 0 => {}
-            Ok(run) => {
-                why = doesnt_hold(&run, &file);
-                continue;
-            }
-            Err(err) => {
-                why = format!("Test couldn't run: {err}");
-                continue;
-            }
-        }
-        match Test::Alu.run(&coloured) {
-            simulate::Report::Ran(run) if run.wrong == 0 => {
+        match try_roles(data, &roles, Test::Alu, true)? {
+            Ok((file, run)) => {
                 return Ok(AluProbed {
                     a: a.bits.clone(),
                     b: b.bits.clone(),
@@ -99,16 +86,10 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, String> {
                     output: out.bits.clone(),
                     status,
                     file,
-                    run: *run,
+                    run,
                 });
             }
-            simulate::Report::Ran(run) => {
-                why = doesnt_hold(&run, &file);
-            }
-            simulate::Report::Broken { reason }
-            | simulate::Report::Skipped { reason } => {
-                why = format!("Test couldn't run: {reason}");
-            }
+            Err(fault) => why = fault,
         }
     }
     Err(why)

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold};
+use super::{Fault, lengths, try_roles};
 use crate::{
     recognize::inspect::{self, Run},
     schem::{Blocks, Pos},
@@ -32,15 +32,16 @@ pub fn register(
     data: &[u8],
     report: &inspect::Report,
     test: Test,
-) -> Result<RegisterProbed, String> {
+) -> Result<RegisterProbed, Fault> {
     let [out] = report.outputs.as_slice() else {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Output bus: line lengths {}",
             lengths(&report.outputs)
-        ));
+        )));
     };
     let width = out.bits.len();
-    let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
+    let blocks =
+        Blocks::read(data).map_err(|err| Fault::Unfit(err.to_string()))?;
     let buttons: Vec<Pos> = blocks
         .switches()
         .into_iter()
@@ -62,9 +63,11 @@ pub fn register(
         })
         .collect();
     if buses.is_empty() {
-        return Err(format!("Data bus: no line of {width} levers"));
+        return Err(Fault::Unfit(format!(
+            "Data bus: no line of {width} levers"
+        )));
     }
-    let mut why = String::new();
+    let mut why = Fault::Unfit(String::new());
     for bus in buses {
         let controls: Vec<Pos> = every
             .iter()
@@ -75,43 +78,24 @@ pub fn register(
         if test == Test::Register
             && !controls.iter().any(|bit| buttons.contains(bit))
         {
-            "Controls: no write button".clone_into(&mut why);
+            why = Fault::Unfit("Controls: no write button".to_owned());
             continue;
         }
         let mut roles: HashMap<Pos, &str> = HashMap::new();
         roles.extend(bus.bits.iter().map(|&p| (p, "lime")));
         roles.extend(controls.iter().map(|&p| (p, "magenta")));
         roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
-        let file = paint(data, &roles).map_err(|err| err.to_string())?;
-        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match test.quick(&coloured) {
-            Ok(run) if run.wrong == 0 => {}
-            Ok(run) => {
-                why = doesnt_hold(&run, &file);
-                continue;
-            }
-            Err(err) => {
-                why = format!("Test couldn't run: {err}");
-                continue;
-            }
-        }
-        match test.run(&coloured) {
-            simulate::Report::Ran(run) if run.wrong == 0 => {
+        match try_roles(data, &roles, test, true)? {
+            Ok((file, run)) => {
                 return Ok(RegisterProbed {
                     data_in: bus.bits.clone(),
                     controls,
                     data_out: out.bits.clone(),
                     file,
-                    run: *run,
+                    run,
                 });
             }
-            simulate::Report::Ran(run) => {
-                why = doesnt_hold(&run, &file);
-            }
-            simulate::Report::Broken { reason }
-            | simulate::Report::Skipped { reason } => {
-                why = format!("Test couldn't run: {reason}");
-            }
+            Err(fault) => why = fault,
         }
     }
     Err(why)

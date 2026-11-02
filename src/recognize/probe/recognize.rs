@@ -4,11 +4,11 @@
 //! found taken out; and, when none holds, the fault to show and the file
 //! as the closest try coloured it.
 
-use std::{cell::RefCell, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use super::{
-    Line, adder, alu, colour, decoder, multiplier, one_operand, operands_probe,
-    register, sequential, shifter,
+    Fault, Line, adder, alu, colour, decoder, multiplier, one_operand,
+    operands_probe, register, sequential, shifter,
 };
 use crate::{
     recognize::{category, inspect},
@@ -25,24 +25,6 @@ pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
     pub problems: Vec<String>,
-}
-
-thread_local! {
-    /// What the last try that ran but got cases wrong said, with the file
-    /// coloured as it had it; see [`doesnt_hold`].
-    static MISSED: RefCell<Option<(String, Vec<u8>)>> = const { RefCell::new(None) };
-}
-
-/// What a try whose roles are coloured into `file` says when its `run`
-/// got cases wrong, kept with `file`, so a build no try holds can show
-/// what the closest got wrong.
-pub(super) fn doesnt_hold(run: &simulate::Run, file: &[u8]) -> String {
-    let why =
-        format!("Doesn't hold: {} of {} cases wrong", run.wrong, run.cases);
-    MISSED.with(|missed| {
-        *missed.borrow_mut() = Some((why.clone(), file.to_vec()));
-    });
-    why
 }
 
 /// The file in `data` with what the simulator does not model but redstone
@@ -139,35 +121,25 @@ pub fn recognize_watched(
     };
     // Each blessed category in turn, or only the one meant, its fault kept
     // when it isn't one.
-    let mut faults: Vec<Option<String>> = vec![None; KINDS.len()];
-    // The file each category's closest try coloured, when it said so.
-    let mut missed: Vec<Option<Vec<u8>>> = vec![None; KINDS.len()];
+    let mut faults: Vec<Option<Fault>> = vec![None; KINDS.len()];
     for (i, kind) in KINDS.into_iter().enumerate() {
         if meant.is_some_and(|meant| meant != kind) {
             continue;
         }
         trying(kind, i);
-        MISSED.with(|missed| missed.borrow_mut().take());
         match probe_as(kind, data, &blocks, &report)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
-            Err(why) => {
-                let last = MISSED.with(|missed| missed.borrow_mut().take());
-                missed[i] =
-                    last.filter(|(said, _)| *said == why).map(|(_, file)| file);
-                faults[i] = Some(why);
-            }
+            Err(fault) => faults[i] = Some(fault),
         }
     }
     let fault = fault_of(&blocks, &report, meant, &faults);
-    let closest = faults
-        .iter()
-        .zip(missed)
-        .find_map(|(why, file)| file.filter(|_| why.as_ref() == Some(&fault)));
-    problems.push(fault);
+    problems.push(fault.map_or_else(String::new, ToString::to_string));
+    // The file as the try whose fault is shown coloured it, when it ran.
+    let closest = fault.and_then(Fault::file).unwrap_or(data);
     Ok(Recognition {
-        file: closest.unwrap_or_else(|| data.to_vec()),
+        file: closest.to_vec(),
         ..unrecognized(problems)
     })
 }
@@ -224,7 +196,7 @@ pub fn probe_as(
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
-) -> anyhow::Result<Result<Found, String>> {
+) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
         // An adder whose B is subtracted is a subtractor.
         let kind = if kind == "adder" && run.adder_variant().subtract {
@@ -342,7 +314,7 @@ fn probed_as(
     blocks: &Blocks,
     report: &inspect::Report,
     found: impl Fn(&simulate::Run) -> String,
-) -> anyhow::Result<Result<Found, String>> {
+) -> anyhow::Result<Result<Found, Fault>> {
     Ok(match kind {
         "adder" => match adder(blocks, report) {
             Ok(probed) => Ok((
@@ -443,20 +415,20 @@ fn probed_as(
 /// has a button, which only a register's writes and a sequential
 /// multiplier's lines are; the ALU's when it has more than one lone lever,
 /// its control lines; else the adder's.
-fn fault_of(
+fn fault_of<'f>(
     blocks: &Blocks,
     report: &inspect::Report,
     meant: Option<&str>,
-    faults: &[Option<String>],
-) -> String {
+    faults: &'f [Option<Fault>],
+) -> Option<&'f Fault> {
     let of = |kind: &str| {
         KINDS
             .iter()
             .position(|&k| k == kind)
-            .and_then(|i| faults[i].clone())
+            .and_then(|i| faults[i].as_ref())
     };
     if let Some(kind) = meant {
-        return of(kind).unwrap_or_default();
+        return of(kind);
     }
     let buttons = blocks.switches().iter().any(|switch| switch.button);
     let lone = report
@@ -470,14 +442,12 @@ fn fault_of(
         () if lone > 1 => &["alu", "adder", "register"],
         () => &["adder", "register", "alu"],
     };
-    let candidates: Vec<String> = order.iter().filter_map(|k| of(k)).collect();
-    let ran = |why: &&String| why.starts_with("Doesn't hold");
+    let candidates: Vec<&Fault> = order.iter().filter_map(|k| of(k)).collect();
     candidates
         .iter()
-        .find(ran)
+        .find(|fault| fault.ran())
         .or(candidates.first())
-        .cloned()
-        .unwrap_or_default()
+        .copied()
 }
 
 #[cfg(test)]

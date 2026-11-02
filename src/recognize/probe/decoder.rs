@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold};
+use super::{Fault, lengths, try_roles};
 use crate::{
     recognize::inspect,
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Test},
 };
 
@@ -25,42 +25,34 @@ pub struct DecoderProbed {
 pub fn decoder(
     data: &[u8],
     report: &inspect::Report,
-) -> Result<DecoderProbed, String> {
+) -> Result<DecoderProbed, Fault> {
     let [a] = report.inputs.as_slice() else {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Input: line lengths {}, need one line A",
             lengths(&report.inputs)
-        ));
+        )));
     };
     let [out] = report.outputs.as_slice() else {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Output: line lengths {}, need one line",
             lengths(&report.outputs)
-        ));
+        )));
     };
     if out.bits.len() != 1 << a.bits.len().min(16) {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Output: {} bits, need one for each of A's {} values",
             out.bits.len(),
             1_usize << a.bits.len().min(16)
-        ));
+        )));
     }
     let mut roles: HashMap<Pos, &str> = HashMap::new();
     roles.extend(a.bits.iter().map(|&p| (p, "lime")));
     roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
-    let file = paint(data, &roles).map_err(|err| err.to_string())?;
-    let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-    match Test::Decoder.run(&coloured) {
-        simulate::Report::Ran(run) if run.wrong == 0 => Ok(DecoderProbed {
-            a: a.bits.clone(),
-            output: out.bits.clone(),
-            file,
-            run: *run,
-        }),
-        simulate::Report::Ran(run) => Err(doesnt_hold(&run, &file)),
-        simulate::Report::Broken { reason }
-        | simulate::Report::Skipped { reason } => {
-            Err(format!("Test couldn't run: {reason}"))
-        }
-    }
+    let (file, run) = try_roles(data, &roles, Test::Decoder, false)??;
+    Ok(DecoderProbed {
+        a: a.bits.clone(),
+        output: out.bits.clone(),
+        file,
+        run,
+    })
 }
