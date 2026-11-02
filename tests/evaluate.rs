@@ -153,7 +153,12 @@ fn a_multiplier_calculated_on_a_wooden_button_holds() {
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-    let file = import::prepare(&raw, true, true, false, true).unwrap().data;
+    let file = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .data;
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("xor_gate"));
     assert!(e.passes(), "{:?}", e.report);
@@ -196,7 +201,9 @@ fn an_incrementer_with_no_carry_out_does_not_stack() {
 /// way.
 fn uploaded(name: &str) -> Vec<u8> {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    import::prepare(&raw, true, true, false, true).unwrap().data
+    import::prepare_for(&raw, import::Purpose::Standard { keep_paste: false })
+        .unwrap()
+        .data
 }
 
 /// A comparator or absolute value is read whole from its file, a
@@ -484,9 +491,16 @@ fn inverted_lines_are_flags_not_categories() {
     assert!(subtractor.design.is_some());
 
     let raw = std::fs::read("tests/fixtures/vert-3t-cca.schem").unwrap();
-    let file = import::prepare(&raw, false, true, false, false)
-        .unwrap()
-        .data;
+    let file = import::prepare_for(
+        &raw,
+        import::Purpose::InPlace {
+            standardize: false,
+            conventional: true,
+            keep_paste: false,
+        },
+    )
+    .unwrap()
+    .data;
     let inverted = evaluate(&file).unwrap();
     assert_eq!(inverted.category, Some("adder"));
     assert!(inverted.passes(), "{:?}", inverted.report);
