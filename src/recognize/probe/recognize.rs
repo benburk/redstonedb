@@ -196,9 +196,9 @@ pub fn probe_as(
     report: &inspect::Report,
 ) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
-        // An adder whose B is subtracted is a subtractor.
-        let kind = if kind == "adder" && run.adder_variant().subtract {
-            "subtractor"
+        // Probing reads no hex digits, so an adder is one or a subtractor.
+        let kind = if kind == "adder" {
+            run.adder_category(false)
         } else {
             kind
         };
