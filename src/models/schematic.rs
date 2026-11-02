@@ -349,6 +349,9 @@ const MOST_PITCH: i64 = 4;
 /// The tag a build carries whose outputs all settle on the same tick.
 const SYNCED: &str = "synced";
 
+/// The tag a build carries whose outputs settle on different ticks.
+const UNSYNCED: &str = "unsynced";
+
 impl Schematic {
     /// Whether it is verified as its category: recognized as one, if its
     /// category is one the site recognizes, and passing its test, if it
@@ -380,7 +383,7 @@ impl Schematic {
     /// page shows them and a list is narrowed by: `fails_verification` first,
     /// then its design, its orientation, its flags in its category's
     /// order, `stackable` when its copies stack, `synced` when its outputs
-    /// settle together, and its other tags. One the site works out from a
+    /// settle together or `unsynced` when they don't, and its other tags. One the site works out from a
     /// conventional build is found, as its category's test or file sets
     /// it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
@@ -446,8 +449,9 @@ impl Schematic {
                 ),
             })
         });
-        let synced = (self.synchronized == Some(true)).then(|| Tag {
-            name: SYNCED.to_owned(),
+        // Whether its outputs settle together, once measured, either way.
+        let synced = self.synchronized.map(|synced| Tag {
+            name: if synced { SYNCED } else { UNSYNCED }.to_owned(),
             token: None,
             kind: found(tag::Kind::Feature, behaviour.evaluated),
         });
@@ -1665,6 +1669,8 @@ mod tests {
                 "carry_lookahead",
                 "horizontal",
                 "carry_in",
+                // Its outputs settle apart, as measured.
+                "unsynced",
                 "alpha"
             ]
         );
@@ -1673,6 +1679,7 @@ mod tests {
             classes,
             [
                 "badge-failing",
+                "badge-found",
                 "badge-found",
                 "badge-found",
                 "badge-found",

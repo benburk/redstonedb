@@ -651,6 +651,9 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
                     (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
                 }
+                @if let Some(synced) = s.synchronized {
+                    (field("Synced", sourced(flag(synced, Some(if synced { "synced" } else { "unsynced" })), sources.timing, sources)))
+                }
                 // Whether it stacks is among its tags; how, here.
                 @if !s.stacking.is_empty() {
                     (field("Stacks", sourced(html! {

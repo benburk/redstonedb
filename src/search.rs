@@ -368,8 +368,8 @@ fn ticks(n: i64) -> [String; 4] {
 /// as combinational and sequential still find them, and pipelined.
 fn timing(s: &Schematic) -> Vec<&'static str> {
     let mut words = match s.synchronized {
-        Some(true) => vec!["sync", "synchronized"],
-        Some(false) => vec!["unsync", "unsynchronized"],
+        Some(true) => vec!["sync", "synced", "synchronized"],
+        Some(false) => vec!["unsync", "unsynced", "unsynchronized"],
         None => Vec::new(),
     };
     match s.logic {
