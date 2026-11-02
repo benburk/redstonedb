@@ -10,9 +10,6 @@ use mchprs_blocks::items::Item;
 
 use super::{Pos, blocks::id};
 
-/// A sign block entity's position and front text. Version 3 nests an
-/// entity's fields in `Data`; signs before Minecraft 1.20 keep their lines
-/// in `Text1` to `Text4`.
 /// A block entity's position and fields, when its id ends with `kind`.
 /// Version 3 nests the fields in `Data`.
 fn entity<'a>(
@@ -198,6 +195,9 @@ fn item(value: &Value) -> Option<(String, u32)> {
     Some((id.clone(), count))
 }
 
+/// A sign block entity's position and front text. Version 3 nests an
+/// entity's fields in `Data`; signs before Minecraft 1.20 keep their lines
+/// in `Text1` to `Text4`.
 pub(super) fn sign(value: &Value) -> Option<(Pos, Vec<String>)> {
     let (pos, fields) = entity(value, "sign")?;
     let side = |key: &str| match fields.get(key) {

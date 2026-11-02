@@ -1,4 +1,4 @@
-# redstone-database
+# redstonedb
 
 A database of Minecraft redstone schematics, with a website and a command-line tool, `rsdb`. Each upload is probed to find what it is, by its levers and outputs alone, then run in a redstone simulator, so its width, latency, and whether it computes the right answer are measured from its file rather than typed in. Adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops are recognized so far; any other build goes up as built, off the list. The site is live at <https://redstonedb.benburk.ca>.
 

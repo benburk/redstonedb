@@ -311,9 +311,6 @@ pub(super) async fn list(
     Ok(())
 }
 
-/// Lints a file, or a stored schematic as a build of its category when no
-/// such file exists. A file's category is unknown, so a lone unsigned
-/// control or status line passes.
 /// Draws each of `app::recognize::guide`'s examples into `dir`, as the page
 /// shows them, fetching the game's files as thumbnails do.
 pub(super) async fn guide_images(dir: &Path) -> Result<()> {
