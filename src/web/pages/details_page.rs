@@ -389,11 +389,18 @@ fn checks(page: &DetailsPage) -> Markup {
 }
 
 /// What the check by function made of an upload: recognized, with its
-/// inputs and outputs found and coloured in, or what only its builder can
-/// put right.
+/// inputs and outputs found and coloured in; inputs taking a hex digit per
+/// block, which it doesn't read, so the category's test says; or what
+/// only its builder can put right.
 fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
+    let hex = problems == [crate::details::WITHOUT_LEVERS];
     html! {
-        @if let Some(found) = recognized {
+        @if hex {
+            (check("recognized", State::Pass, &html! {
+                "Its inputs take a hex digit per block, as a hex adder's do. "
+                "Its test says whether it's recognized as one."
+            }, false))
+        } @else if let Some(found) = recognized {
             (check("recognized", State::Pass, &html! {
                 "Recognized as " (found) ". Its inputs and outputs are coloured in for it."
             }, false))

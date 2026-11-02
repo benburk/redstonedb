@@ -314,6 +314,8 @@ fn a_hex_adder_is_driven_digit_by_digit() {
         (derived.width, derived.orientation, derived.encoding),
         (Some(32), Some(Orientation::Vertical), Some(Encoding::Hex))
     );
+    // Its inputs taking hex digits, it's taken for a hex adder.
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "hex_adder");
     let Report::Ran(run) = Test::Adder.run(&blocks) else {
         panic!("the hex adder was not simulated");
     };
@@ -325,7 +327,6 @@ fn a_hex_adder_is_driven_digit_by_digit() {
     assert_eq!(widths, [("output", 32), ("carry out", 1)]);
     assert!(!run.exhaustive && run.by_digit && run.cases < 20_000);
     assert_eq!(run.wrong, 0);
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
 }
 
 /// A 1-bit ripple carry slice two blocks high whose carry leaves by dust,

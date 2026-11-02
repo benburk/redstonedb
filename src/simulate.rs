@@ -742,6 +742,8 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         .filter(|port| port.block.starts_with(colour::CONTROL))
         .flat_map(|port| port.words.iter())
         .any(|word| alu::op(word).is_some());
+    // Inputs taking a hex digit per block through dust are a hex adder's.
+    let hex = !interface::dust_inputs(blocks).is_empty();
     GUESSED
         .into_iter()
         .filter(|&test| test != Test::Alu || names_ops)
@@ -765,6 +767,8 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
             {
                 // An adder whose B is subtracted is a subtractor.
                 "subtractor"
+            } else if test == Test::Adder && hex {
+                "hex_adder"
             } else {
                 test.name()
             };
