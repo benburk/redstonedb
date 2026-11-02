@@ -50,6 +50,28 @@ pub const FAILS_VERIFICATION: &str = "fails_verification";
 /// work. It is not stored either.
 pub const NON_STANDARD: &str = "non-standard";
 
+/// The tag a build carries whose copies stack.
+pub const STACKABLE: &str = "stackable";
+
+/// The tag a build carries whose copies stack a few blocks apart, `pitch`
+/// such as `2-high`, a bus's spacing: `2-high_stackable`.
+pub fn pitch_stackable(pitch: &str) -> String {
+    format!("{pitch}_{STACKABLE}")
+}
+
+/// Whether the tag `name` says how far apart copies stack; see
+/// [`pitch_stackable`].
+pub fn is_pitch_stackable(name: &str) -> bool {
+    name.strip_suffix(STACKABLE)
+        .is_some_and(|pitch| pitch.ends_with('_'))
+}
+
+/// The tag a build carries whose outputs all settle on the same tick.
+pub const SYNCED: &str = "synced";
+
+/// The tag a build carries whose outputs settle on different ticks.
+pub const UNSYNCED: &str = "unsynced";
+
 /// The name of the tag a build whose file has no redstone torches carries.
 /// It is not stored, so no one can add or remove it.
 const TORCHLESS: &str = "torchless";

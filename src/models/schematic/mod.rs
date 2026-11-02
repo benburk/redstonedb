@@ -168,18 +168,9 @@ pub struct Schematic {
     pub tags: Vec<Tag>,
 }
 
-/// The tag a build carries whose copies stack.
-const STACKABLE: &str = "stackable";
-
 /// The farthest apart copies stack for a tag to say how far, as
 /// `4-wide_stackable`: a bus's spacing, not a whole build's length.
 const MOST_PITCH: i64 = 4;
-
-/// The tag a build carries whose outputs all settle on the same tick.
-const SYNCED: &str = "synced";
-
-/// The tag a build carries whose outputs settle on different ticks.
-const UNSYNCED: &str = "unsynced";
 
 /// `name` as a file's name, less `.schem`: an underscore for each run of
 /// anything but letters and digits, none at either end, as Schemati takes
@@ -260,7 +251,7 @@ impl Schematic {
         let flags = self
             .flags
             .iter()
-            .filter(|flag| flag.name != "inverted_carry_in")
+            .filter(|flag| flag.name != Flag::INVERTED_CARRY_IN)
             .map(|flag| Tag {
                 name: flag.name.clone(),
                 token: None,
@@ -270,7 +261,7 @@ impl Schematic {
                 ),
             });
         let stackable = (!self.stacking.is_empty()).then(|| Tag {
-            name: STACKABLE.to_owned(),
+            name: tag::STACKABLE.to_owned(),
             token: None,
             kind: found(
                 tag::Kind::Feature,
@@ -288,7 +279,7 @@ impl Schematic {
                 _ => return None,
             };
             (way.west + way.up + way.north <= MOST_PITCH).then(|| Tag {
-                name: format!("{pitch}_{STACKABLE}"),
+                name: tag::pitch_stackable(&pitch),
                 token: None,
                 kind: found(
                     tag::Kind::Feature,
@@ -299,7 +290,7 @@ impl Schematic {
         });
         // Whether its outputs settle together, once measured, either way.
         let synced = self.synchronized.map(|synced| Tag {
-            name: if synced { SYNCED } else { UNSYNCED }.to_owned(),
+            name: if synced { tag::SYNCED } else { tag::UNSYNCED }.to_owned(),
             token: None,
             kind: found(tag::Kind::Feature, behaviour.evaluated),
         });

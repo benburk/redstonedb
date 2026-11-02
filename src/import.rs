@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use crate::{
     details::{self, Ready, Unrecognized},
     models::{
-        catalogue::Category,
+        catalogue::{Category, Flag},
         schematic::{self, Encoding, New, Orientation, Schematic},
         version,
     },
@@ -288,10 +288,19 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
             .any(|port| port.labelled && names.contains(&port.name.as_str()))
     };
     [
-        (named(&interface.inputs, &colour::CARRY_IN), "carry_in"),
-        (named(&interface.outputs, &colour::CARRY_OUT), "carry_out"),
-        (named(&interface.inputs, &colour::BORROW_IN), "borrow_in"),
-        (named(&interface.outputs, &colour::BORROW_OUT), "borrow_out"),
+        (named(&interface.inputs, &colour::CARRY_IN), Flag::CARRY_IN),
+        (
+            named(&interface.outputs, &colour::CARRY_OUT),
+            Flag::CARRY_OUT,
+        ),
+        (
+            named(&interface.inputs, &colour::BORROW_IN),
+            Flag::BORROW_IN,
+        ),
+        (
+            named(&interface.outputs, &colour::BORROW_OUT),
+            Flag::BORROW_OUT,
+        ),
         (named(&interface.outputs, &["overflow"]), "overflow"),
         (named(&interface.outputs, &["zero"]), "zero"),
     ]

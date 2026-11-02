@@ -25,7 +25,7 @@ use std::collections::HashSet;
 
 use crate::{
     models::{
-        catalogue::Measure,
+        catalogue::{Flag, Measure},
         schematic::{Logic, Schematic},
     },
     recognize::colour,
@@ -251,13 +251,14 @@ pub fn stacked_width(terms: &[Term], s: &Schematic) -> Option<(i64, i64)> {
 fn facts(s: &Schematic) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
     facts.extend(s.aliases.iter().cloned());
-    facts.extend([
-        s.orientation.name().to_owned(),
-        s.orientation.label().to_lowercase(),
-    ]);
-    for tag in &s.tags {
-        facts.push(tag.label());
-        facts.push(tag.token().replace('_', " "));
+    // Its tags as its page shows them, its design, orientation, flags, and
+    // stacking among them, each by its name, label, and token.
+    for tag in s.every_tag() {
+        facts.extend([
+            tag.name.replace('_', " "),
+            tag.label().to_lowercase(),
+            tag.token().to_lowercase().replace('_', " "),
+        ]);
     }
     // Its own width, and each its copies reach where they add bits.
     for (w, _) in widths(s) {
@@ -324,27 +325,25 @@ fn facts(s: &Schematic) -> Vec<String> {
                 .map(|name| format!("{role}:{}", person(name))),
         );
     }
-    if !s.stacking.is_empty() {
-        facts.push("stackable".to_owned());
-    }
     if !s.conventional {
         facts.push("unconventional".to_owned());
     }
+    // Its design by its own label, and `other` too, which is no tag.
     facts.push(s.design.replace('_', " "));
-    if let Some(short) = &s.design_abbreviation {
-        facts.push(short.to_lowercase());
-    }
     if let Some(label) = &s.design_given_label {
         facts.push(label.to_lowercase());
     }
     for flag in &s.flags {
-        facts.push(flag.name.replace('_', " "));
-        // The short names a carry or borrow line's sign may use.
         match flag.name.as_str() {
-            "carry_in" => facts.push(colour::CARRY_IN[1].to_owned()),
-            "carry_out" => facts.push(colour::CARRY_OUT[1].to_owned()),
-            "borrow_in" => facts.push(colour::BORROW_IN[1].to_owned()),
-            "borrow_out" => facts.push(colour::BORROW_OUT[1].to_owned()),
+            // The short names a carry or borrow line's sign may use.
+            Flag::CARRY_IN => facts.push(colour::CARRY_IN[1].to_owned()),
+            Flag::CARRY_OUT => facts.push(colour::CARRY_OUT[1].to_owned()),
+            Flag::BORROW_IN => facts.push(colour::BORROW_IN[1].to_owned()),
+            Flag::BORROW_OUT => facts.push(colour::BORROW_OUT[1].to_owned()),
+            // How one line reads, which no tag says.
+            Flag::INVERTED_CARRY_IN => {
+                facts.push(flag.name.replace('_', " "));
+            }
             _ => {}
         }
     }
@@ -564,6 +563,9 @@ pub(crate) mod tests {
         let file = stacks(8, 0, 4, None);
         assert!(!find("16b", &file));
         assert_eq!(stacked_width(&parse("8b"), &eight), None);
+        // Each tag its page shows finds it, how far apart copies stack too.
+        assert!(find("stackable", &slice) && find("2-wide_stackable", &slice));
+        assert!(!find("2-wide_stackable", &eight));
     }
 
     #[test]
