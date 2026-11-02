@@ -178,10 +178,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
                     }
                     p class="mb-4" {
-                        "Recognized so far: adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, "
-                        "carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, "
-                        "inverters, decoders, barrel shifters, monostables, registers, buffers, counters, "
-                        "shift registers, and T flip-flops."
+                        "Recognized so far: " (crate::details::listed_kinds()) "."
                     }
                     p class="mb-4" {
                         "A build that doesn't fit goes up as built, unverified, with a note on what's in the way. "
