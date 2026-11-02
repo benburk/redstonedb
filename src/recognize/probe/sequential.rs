@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold};
+use super::{Fault, lengths, try_roles};
 use crate::{
     recognize::{colour, inspect},
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Test},
 };
 
@@ -31,10 +31,10 @@ pub fn sequential(
     data: &[u8],
     report: &inspect::Report,
     test: Test,
-) -> Result<SequentialProbed, String> {
+) -> Result<SequentialProbed, Fault> {
     let Some(held) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err("Outputs: none".to_owned());
+        return Err(Fault::Unfit("Outputs: none".to_owned()));
     };
     let width = held.bits.len();
     if report
@@ -42,10 +42,10 @@ pub fn sequential(
         .iter()
         .any(|run| run.bits != held.bits && run.bits.len() > 1)
     {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Outputs: line lengths {}, need one line and lone status lines",
             lengths(&report.outputs)
-        ));
+        )));
     }
     let status: Vec<Pos> = report
         .outputs
@@ -70,20 +70,8 @@ pub fn sequential(
     roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
     roles.extend(held.bits.iter().map(|&p| (p, "yellow")));
     roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
-    let file = paint(data, &roles).map_err(|err| err.to_string())?;
-    let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-    match test.run(&coloured) {
-        simulate::Report::Ran(run) if run.wrong == 0 => Ok(SequentialProbed {
-            data: a,
-            file,
-            run: *run,
-        }),
-        simulate::Report::Ran(run) => Err(doesnt_hold(&run, &file)),
-        simulate::Report::Broken { reason }
-        | simulate::Report::Skipped { reason } => {
-            Err(format!("Test couldn't run: {reason}"))
-        }
-    }
+    let (file, run) = try_roles(data, &roles, test, false)??;
+    Ok(SequentialProbed { data: a, file, run })
 }
 
 #[cfg(test)]

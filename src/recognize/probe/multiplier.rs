@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, paint, recognize::doesnt_hold, split};
+use super::{Fault, lengths, split, try_roles};
 use crate::{
     recognize::{
         colour,
         inspect::{self, Run},
     },
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Test},
 };
 
@@ -39,7 +39,7 @@ pub struct MultiplierProbed {
 pub fn multiplier(
     data: &[u8],
     report: &inspect::Report,
-) -> Result<MultiplierProbed, String> {
+) -> Result<MultiplierProbed, Fault> {
     let (buses, controls) = split(&report.inputs);
     // A and B, and for a fused multiply-add its addend, C, each line tried
     // as C; A and B are as wide.
@@ -56,30 +56,22 @@ pub fn multiplier(
         .filter(|(a, b, _)| a.bits.len() == b.bits.len())
         .collect();
     if operands.is_empty() {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Operands: line lengths {}, need A and B as wide, and perhaps C",
             lengths(&report.inputs)
-        ));
+        )));
     }
     let lines: Vec<&Run> = report.outputs.iter().collect();
     if lines.is_empty() || lines.len() > colour::OUTPUT_COLOURS.len() {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Product: line lengths {}, need one to three lines",
             lengths(&report.outputs)
-        ));
+        )));
     }
-    let mut why = String::new();
+    let mut why = Fault::Unfit(String::new());
     // Of the orders that ran, the share of cases the closest got wrong,
     // which `why` tells, rather than one that couldn't run.
     let mut closest = f64::INFINITY;
-    let mut wrong = |run: &simulate::Run, file: &[u8], why: &mut String| {
-        #[allow(clippy::cast_precision_loss)]
-        let share = run.wrong as f64 / run.cases.max(1) as f64;
-        if share < closest {
-            closest = share;
-            *why = doesnt_hold(run, file);
-        }
-    };
     let tries = operands.iter().flat_map(|&(a, b, c)| {
         orders(lines.len())
             .into_iter()
@@ -96,23 +88,8 @@ pub fn multiplier(
         for (bits, colour) in product.iter().zip(colour::OUTPUT_COLOURS) {
             roles.extend(bits.iter().map(|&p| (p, colour)));
         }
-        let file = paint(data, &roles).map_err(|err| err.to_string())?;
-        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match Test::Multiplier.quick(&coloured) {
-            Ok(run) if run.wrong == 0 => {}
-            Ok(run) => {
-                wrong(&run, &file, &mut why);
-                continue;
-            }
-            Err(err) => {
-                if !why.starts_with("Doesn't hold") {
-                    why = format!("Test couldn't run: {err}");
-                }
-                continue;
-            }
-        }
-        match Test::Multiplier.run(&coloured) {
-            simulate::Report::Ran(run) if run.wrong == 0 => {
+        match try_roles(data, &roles, Test::Multiplier, true)? {
+            Ok((file, run)) => {
                 return Ok(MultiplierProbed {
                     a: a.bits.clone(),
                     b: b.bits.clone(),
@@ -120,14 +97,20 @@ pub fn multiplier(
                     controls,
                     product,
                     file,
-                    run: *run,
+                    run,
                 });
             }
-            simulate::Report::Ran(run) => wrong(&run, &file, &mut why),
-            simulate::Report::Broken { reason }
-            | simulate::Report::Skipped { reason } => {
-                if !why.starts_with("Doesn't hold") {
-                    why = format!("Test couldn't run: {reason}");
+            Err(fault @ Fault::Wrong { wrong, cases, .. }) => {
+                #[allow(clippy::cast_precision_loss)]
+                let share = wrong as f64 / cases.max(1) as f64;
+                if share < closest {
+                    closest = share;
+                    why = fault;
+                }
+            }
+            Err(fault) => {
+                if !why.ran() {
+                    why = fault;
                 }
             }
         }

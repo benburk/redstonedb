@@ -4,13 +4,13 @@
 
 use std::collections::HashMap;
 
-use super::{lengths, ordered, paint, recognize::doesnt_hold, split};
+use super::{Fault, lengths, ordered, split, try_roles};
 use crate::{
     recognize::{
         colour,
         inspect::{self, Run},
     },
-    schem::{Blocks, Pos},
+    schem::Pos,
     simulate::{self, Gate, Test},
 };
 
@@ -35,24 +35,24 @@ pub fn operands_probe(
     data: &[u8],
     report: &inspect::Report,
     test: Test,
-) -> Result<OperandsProbed, String> {
+) -> Result<OperandsProbed, Fault> {
     // A NAND+XNOR gate has two outputs, its NAND and its XNOR, either way
     // round; any other one.
     let outs: Vec<&Run> = report.outputs.iter().collect();
     let wanted = if test == Test::NandXnor { 2 } else { 1 };
     if outs.len() != wanted {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Output: line lengths {}, need {wanted} line{}",
             lengths(&report.outputs),
             if wanted == 1 { "" } else { "s" }
-        ));
+        )));
     }
     let out = outs[0];
     if outs.iter().any(|run| run.bits.len() != out.bits.len()) {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Outputs: line lengths {}, need them as wide",
             lengths(&report.outputs)
-        ));
+        )));
     }
     let gate = Gate::of(test).is_some() || test == Test::NandXnor;
     // A carry out's carry in, a lone lever, is set aside from A and B.
@@ -83,13 +83,13 @@ pub fn operands_probe(
         }
     }
     if splits.is_empty() {
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Lines: inputs {}, output {}, need A and B of one width and \
              an output of {}",
             lengths(&report.inputs),
             out.bits.len(),
             if gate { "that width" } else { "one bit" }
-        ));
+        )));
     }
     if test == Test::GreaterThan {
         let swapped: Vec<_> = splits
@@ -98,7 +98,7 @@ pub fn operands_probe(
             .collect();
         splits.extend(swapped);
     }
-    let mut why = String::new();
+    let mut why = Fault::Unfit(String::new());
     for (a, b, carry) in splits {
         let mut roles: HashMap<Pos, &str> = HashMap::new();
         roles.extend(a.iter().map(|&p| (p, "lime")));
@@ -107,23 +107,15 @@ pub fn operands_probe(
         for (run, colour) in outs.iter().zip(colour::OUTPUT_COLOURS) {
             roles.extend(run.bits.iter().map(|&p| (p, colour)));
         }
-        let file = paint(data, &roles).map_err(|err| err.to_string())?;
-        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
-        match test.run(&coloured) {
-            simulate::Report::Ran(run) if run.wrong == 0 => {
+        match try_roles(data, &roles, test, false)? {
+            Ok((file, run)) => {
                 return Ok(OperandsProbed {
                     inputs: [a, b].concat(),
                     file,
-                    run: *run,
+                    run,
                 });
             }
-            simulate::Report::Ran(run) => {
-                why = doesnt_hold(&run, &file);
-            }
-            simulate::Report::Broken { reason }
-            | simulate::Report::Skipped { reason } => {
-                why = format!("Test couldn't run: {reason}");
-            }
+            Err(fault) => why = fault,
         }
     }
     Err(why)

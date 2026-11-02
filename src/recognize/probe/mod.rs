@@ -2,7 +2,7 @@
 //! by colour: each way its runs of levers and outputs could be an adder's
 //! A, B, carry in, sum, and carry out, with each bus either way round, is
 //! tried with the adder's test, and the one that adds is kept.
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use crate::{
     recognize::{
@@ -50,6 +50,91 @@ pub struct Layout {
 pub struct Probed {
     pub layout: Layout,
     pub run: simulate::Run,
+}
+
+/// Why a probe found a build isn't the kind it tried. What it says is one
+/// of the build's problems, word for word, as the site shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fault {
+    /// Its lines don't fit the kind's roles, or its file couldn't be read
+    /// or coloured, in these words.
+    Unfit(String),
+    /// The kind's test couldn't run on the roles tried, for this reason.
+    NotRun(String),
+    /// The kind's test ran on the roles coloured into `file`, getting
+    /// `wrong` of its `cases` wrong: as near as a build comes to holding.
+    Wrong {
+        wrong: u64,
+        cases: u64,
+        file: Vec<u8>,
+    },
+}
+
+impl Fault {
+    /// The fault of `run`, which got cases wrong on the roles coloured
+    /// into `file`.
+    fn wrong(run: &simulate::Run, file: &[u8]) -> Fault {
+        Fault::Wrong {
+            wrong: run.wrong,
+            cases: run.cases,
+            file: file.to_vec(),
+        }
+    }
+
+    /// Whether the kind's test ran, getting cases wrong.
+    pub fn ran(&self) -> bool {
+        matches!(self, Fault::Wrong { .. })
+    }
+
+    /// The file as the try that got cases wrong coloured it, so its test
+    /// shows which.
+    pub fn file(&self) -> Option<&[u8]> {
+        match self {
+            Fault::Wrong { file, .. } => Some(file),
+            Fault::Unfit(_) | Fault::NotRun(_) => None,
+        }
+    }
+}
+
+impl fmt::Display for Fault {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Fault::Unfit(why) => f.write_str(why),
+            Fault::NotRun(reason) => write!(f, "Test couldn't run: {reason}"),
+            Fault::Wrong { wrong, cases, .. } => {
+                write!(f, "Doesn't hold: {wrong} of {cases} cases wrong")
+            }
+        }
+    }
+}
+
+/// `roles`, a colour for each block, painted into `data` and run through
+/// `test`, after a few telling cases when `quick_first`, so a try far from
+/// holding is not run in full: the file and its run when every case comes
+/// out right, else why not. A file that can't be painted or read fails
+/// the outer result, ending the probe.
+fn try_roles(
+    data: &[u8],
+    roles: &HashMap<Pos, &str>,
+    test: Test,
+    quick_first: bool,
+) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
+    let unfit = |err: anyhow::Error| Fault::Unfit(err.to_string());
+    let file = paint(data, roles).map_err(unfit)?;
+    let coloured = Blocks::read(&file).map_err(unfit)?;
+    if quick_first {
+        match test.quick(&coloured) {
+            Ok(run) if run.wrong == 0 => {}
+            Ok(run) => return Ok(Err(Fault::wrong(&run, &file))),
+            Err(err) => return Ok(Err(Fault::NotRun(err.to_string()))),
+        }
+    }
+    Ok(match test.run(&coloured) {
+        simulate::Report::Ran(run) if run.wrong == 0 => Ok((file, *run)),
+        simulate::Report::Ran(run) => Err(Fault::wrong(&run, &file)),
+        simulate::Report::Broken { reason }
+        | simulate::Report::Skipped { reason } => Err(Fault::NotRun(reason)),
+    })
 }
 
 impl Layout {
@@ -253,7 +338,7 @@ fn output_fault(runs: &[Run], width: usize) -> String {
 /// bus with the carry in at one end, in line with it; four equal buses,
 /// each operand two of them with its bits alternating; or, for one bit,
 /// two or three lone levers.
-fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
+fn operands(runs: &[Run]) -> Result<Vec<Operands>, Fault> {
     let (buses, lones) = split(runs);
     let mut pairs: Vec<Operands> = Vec::new();
     let mut add = |x: &[Pos], y: &[Pos], carry: Option<Pos>| {
@@ -313,10 +398,10 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
             }
         }
         _ => {
-            return Err(strays(runs).map_or_else(
+            return Err(Fault::Unfit(strays(runs).map_or_else(
                 || format!("Input buses: line lengths {}", lengths(runs)),
                 |at| format!("Input bus: out of line at {at}"),
-            ));
+            )));
         }
     }
     Ok(pairs)
@@ -326,7 +411,7 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, String> {
 /// carry out: a bus and at most one lone output; a bus one longer, its last
 /// bit the carry out or the sum's top bit; two equal buses, the sum's bits
 /// alternating between them; or, for one bit, lone outputs.
-fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
+fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
     let (buses, lones) = split(runs);
     let mut found = Vec::new();
     match (buses.as_slice(), lones.as_slice()) {
@@ -358,7 +443,7 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
             found.push((vec![*q], Some(*p)));
         }
         _ => {
-            return Err(output_fault(runs, width));
+            return Err(Fault::Unfit(output_fault(runs, width)));
         }
     }
     Ok(found)
@@ -370,11 +455,11 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, String> {
 pub fn adder(
     blocks: &Blocks,
     report: &inspect::Report,
-) -> Result<Probed, String> {
+) -> Result<Probed, Fault> {
     let pairs = operands(&report.inputs)?;
     let width = pairs.first().map_or(0, |(a, _, _)| a.len());
     if Test::of("adder", i64::try_from(width).ok()).is_none() {
-        return Err(format!("Width {width}: tested range 1-32"));
+        return Err(Fault::Unfit(format!("Width {width}: tested range 1-32")));
     }
     let outs = results(&report.outputs, width)?;
     let mut best: Option<(u64, u64, Layout)> = None;
@@ -411,13 +496,17 @@ pub fn adder(
     }
     let Some((wrong, cases, layout)) = best else {
         reasons.dedup();
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Can't simulate: {}",
             reasons.first().map_or("no layout fits", String::as_str)
-        ));
+        )));
     };
+    // An adder's own words, which its fault is shown in among the others
+    // probing found as one that couldn't run.
     if wrong > 0 {
-        return Err(format!("Doesn't add: {wrong} of {cases} cases wrong"));
+        return Err(Fault::Unfit(format!(
+            "Doesn't add: {wrong} of {cases} cases wrong"
+        )));
     }
     // A and B the other way round may add too, read more plainly, with
     // fewer of its lines inverted.
@@ -443,19 +532,19 @@ pub fn adder(
     };
     let run = Test::Adder
         .check_with(blocks, layout.interface(blocks), false)
-        .map_err(|err| format!("Test couldn't run: {err}"))?;
+        .map_err(|err| Fault::NotRun(err.to_string()))?;
     if run.wrong > 0 {
         let bits: Vec<String> = run
             .wrong_bits
             .iter()
             .map(|(bit, n)| format!("{bit} ({n})"))
             .collect();
-        return Err(format!(
+        return Err(Fault::Unfit(format!(
             "Doesn't add: {} of {} cases wrong; wrong bits {}",
             run.wrong,
             run.cases,
             bits.join(", ")
-        ));
+        )));
     }
     Ok(Probed { layout, run })
 }
