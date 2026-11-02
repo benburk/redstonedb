@@ -10,7 +10,6 @@ A folder of `.schem` files on Schemati or a Discord channel holds the same build
 - [glossary.md](glossary.md): categories, designs, fields, and their abbreviations.
 - [naming.md](naming.md): how a build is named, and its download filename.
 - [RATIONALE.md](RATIONALE.md): why server-rendered HTML, SQLite, and Rust.
-- [deploy/README.md](deploy/README.md): the live server, deploying, and backups.
 
 ## Setup
 
@@ -96,7 +95,7 @@ just rsdb remove bb62
 - `categories` lists the standard categories with their measures, designs, flags, and aliases; `define-category`, `define-design`, `define-flag`, and `define-alias` add to them. `tags` and `define-tag` do the same for tags, which must exist before use.
 - `respell` asks Mojang how each stored Minecraft name is spelled.
 
-On the server, `rsdb` runs against the live database as the site's user; see [deploy/README.md](deploy/README.md).
+On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's user.
 
 ## How it works
 
