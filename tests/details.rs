@@ -1,33 +1,24 @@
 //! The rules a build's details are held to, the same for an upload, an
 //! edit, and `rsdb set`.
 
+mod common;
+
 use app::{
     details::{self, Build, Details, Ready},
-    import,
+    import::{self, Purpose},
     models::schematic::{Encoding, Orientation, StackDirection},
     schem::{Blocks, standardize},
 };
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
-
-/// Creates an in-memory `SQLite` database with migrations applied, which
-/// list the standard categories.
-async fn setup_test_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory database");
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-    pool
-}
+use sqlx::SqlitePool;
 
 /// A fixture's file, as an upload prepares it, standardized if asked.
 fn prepared(name: &str, standardize: bool) -> Vec<u8> {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    import::prepare(&raw, standardize, true, false, false)
+    let purpose = Purpose::InPlace {
+        standardize,
+        conventional: true,
+        keep_paste: false,
+    };
+    import::prepare_for(&common::fixture(name), purpose)
         .expect("fixture prepares")
         .data
 }
@@ -79,7 +70,7 @@ async fn check_file(
 /// build given any other listed one is asked for a name of its own.
 #[tokio::test]
 async fn only_a_blessed_category_goes_on_the_list() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     for category in ["Bussing", "ram", "binary_to_bcd"] {
         let refused = check(&db, given(category)).await.err().unwrap();
         assert!(refused.contains("go on the list so far"), "{refused}");
@@ -90,7 +81,7 @@ async fn only_a_blessed_category_goes_on_the_list() {
 
 #[tokio::test]
 async fn a_category_off_the_list_has_no_width_or_encoding() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let diode = check(&db, given("8-Bit Horizontal Diode")).await.unwrap();
     assert_eq!(diode.details.category, "8-bit_horizontal_diode");
     assert_eq!((diode.details.width, diode.details.encoding), (None, None));
@@ -98,7 +89,7 @@ async fn a_category_off_the_list_has_no_width_or_encoding() {
 
 #[tokio::test]
 async fn stacking_that_does_not_fit_is_refused() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     // Two copies this far apart make a stack too large to build.
     let apart = Details {
         stacking: vec!["west=100000".parse::<StackDirection>().unwrap()],
@@ -122,7 +113,7 @@ async fn stacking_that_does_not_fit_is_refused() {
 
 #[tokio::test]
 async fn only_an_admin_may_name_a_new_tag_with_the_details() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
         ..given("piston door")
@@ -144,7 +135,7 @@ async fn only_an_admin_may_name_a_new_tag_with_the_details() {
 
 #[tokio::test]
 async fn a_build_date_still_to_come_is_refused() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let dated = |date: &str| Details {
         built_on: Some(date.to_owned()),
         ..given("piston door")
@@ -161,7 +152,7 @@ async fn a_build_date_still_to_come_is_refused() {
 /// as an input.
 #[tokio::test]
 async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let typed = || Details {
         width: Some(8),
         latency: Some(5),
@@ -202,13 +193,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
         "Gives wrong outputs",
     );
     unverified(
-        check_file(
-            &db,
-            typed(),
-            &std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap(),
-            true,
-        )
-        .await,
+        check_file(&db, typed(), &common::fixture("hex-cca-8"), true).await,
         "Couldn't recognize inputs without levers",
     );
     let recognized = check(&db, given("adder")).await.unwrap();
@@ -220,7 +205,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
 /// so even one the test would find unverified stays verified.
 #[tokio::test]
 async fn a_build_that_passed_is_not_tested_again() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let data = prepared("cca-8-dust-out", false);
     let tested = |passes| Build {
         data: &data,
@@ -239,7 +224,7 @@ async fn a_build_that_passed_is_not_tested_again() {
 /// the simulation sets the flags once the build is stored.
 #[tokio::test]
 async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let typed = Details {
         width: Some(3),
         encoding: Some(Encoding::Hex),
@@ -267,7 +252,7 @@ async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     // Standardized, as an upload is before it is checked.
     let hex = prepared("hex-cca-8", true);
     let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
@@ -291,14 +276,17 @@ async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn adders_and_subtractors_are_each_their_own_category() {
-    let db = setup_test_db().await;
+    let db = common::database().await;
     let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
     // Coloured by probing, then standardized, as an upload is.
-    let raw = std::fs::read("tests/fixtures/sub-16-torchless.schem").unwrap();
+    let raw = common::fixture("sub-16-torchless");
     let coloured = app::recognize::probe::recognize(&raw).unwrap().file;
-    let subtractor = import::prepare(&coloured, true, true, false, false)
-        .unwrap()
-        .data;
+    let standardized = Purpose::InPlace {
+        standardize: true,
+        conventional: true,
+        keep_paste: false,
+    };
+    let subtractor = import::prepare_for(&coloured, standardized).unwrap().data;
     assert_eq!(
         why(check_file(&db, given("subtractor"), &subtractor, true).await),
         None

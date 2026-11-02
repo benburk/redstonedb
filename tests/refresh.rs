@@ -2,6 +2,8 @@
 //! the details its file and result decide, written over what was typed,
 //! and only when they change.
 
+mod common;
+
 use app::{
     details::{self, Build, Details},
     import,
@@ -16,33 +18,13 @@ use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 /// An in-memory database with migrations applied, on one connection, so
 /// `total_changes()` counts every write.
 async fn setup_test_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory database");
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-    pool
+    common::migrated(SqlitePoolOptions::new().max_connections(1)).await
 }
 
 /// Stores the fixture `name` as a conventional build with `details`, and
 /// returns its id.
 async fn store(db: &SqlitePool, name: &str, details: Details) -> String {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable");
-    let prepared = import::prepare(&raw, false, true, false, false)
-        .expect("fixture prepares");
-    let ready = details::check(db, details, Build::of(&prepared), false)
-        .await
-        .expect("the database answers")
-        .expect("the details keep the rules");
-    import::store(db, &prepared, &ready, None, None, None, None)
-        .await
-        .expect("the database answers")
-        .expect("the file is new")
+    common::store(db, name, details, None).await
 }
 
 /// How many rows the connection has written since it opened.
@@ -128,8 +110,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
 #[tokio::test]
 async fn an_adder_failing_its_test_goes_up_unverified() {
     let db = setup_test_db().await;
-    let raw = std::fs::read("tests/fixtures/cca-8-dust-out.schem").unwrap();
-    let prepared = import::prepare(&raw, false, true, false, false).unwrap();
+    let prepared = common::conventional("cca-8-dust-out");
     let as_adder = Details {
         category: "adder".to_owned(),
         ..Details::default()
@@ -253,7 +234,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
         .unwrap();
     let new = app::schem::encode(nbt).unwrap();
-    let prepared = import::prepare(&new, false, true, false, false).unwrap();
+    let prepared = import::prepare_for(&new, common::IN_PLACE).unwrap();
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,
         added_from: None,
@@ -402,8 +383,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         data == current,
         on(&data)
     );
-    let mut prepared =
-        import::prepare(&data, false, true, false, false).unwrap();
+    let mut prepared = import::prepare_for(&data, common::IN_PLACE).unwrap();
     prepared.data = data;
     prepared.sha256 = import::sha256(&prepared.data);
     let how = app::models::version::Replacing::NextVersion {
