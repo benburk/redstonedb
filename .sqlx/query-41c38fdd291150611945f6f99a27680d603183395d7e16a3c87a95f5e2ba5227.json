@@ -6,7 +6,7 @@
       {
         "name": "other!: String",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Null"
       },
       {
         "name": "permille!: u32",
@@ -18,7 +18,7 @@
       "Right": 4
     },
     "nullable": [
-      false,
+      null,
       false
     ]
   },
