@@ -212,14 +212,15 @@ pub async fn check(
     // Only problems the current version doesn't have count against it, so
     // a build from before a rule can still be fixed. They are the check by
     // function's, as an upload's: inputs are its levers and buttons, not
-    // colours.
+    // colours; its outputs are read in the site's colours, as both files
+    // are kept in them.
     if s.conventional {
         // Dust on top of an input is a fault only on a data input, which
         // probing a blessed build checks.
-        let current = inspect::inspect(&current);
+        let current = inspect::inspect_marked(&current, inspect::SITE);
         let had: Vec<&str> =
             current.faults().map(|problem| problem.rule).collect();
-        let found = inspect::inspect(&prepared.blocks);
+        let found = inspect::inspect_marked(&prepared.blocks, inspect::SITE);
         let broken: Vec<&str> = found
             .faults()
             .filter(|problem| !had.contains(&problem.rule))

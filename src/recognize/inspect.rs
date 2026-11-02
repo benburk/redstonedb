@@ -22,9 +22,11 @@
 //! - Every output, data or status, is a block with dust, a repeater, or a
 //!   comparator on top, which is what is read, but a repeater or comparator
 //!   powering a block in front of it, which carries the circuit on; and no
-//!   block like it touching it, even diagonally, of a kind used for nothing else: any
-//!   full block that carries power but a component, or stained glass of a
-//!   colour, as plain, white, and gray glass hold a build's dust up.
+//!   block of its kind touching it, even diagonally, a kind marking outputs
+//!   only where every block of it does: of an upload, any full block that
+//!   carries power but a component, or stained glass of a colour, as plain
+//!   and white glass hold a build's dust up; of the site's own files, the
+//!   colours it marks outputs with, see [`SITE`].
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across.
 
@@ -76,10 +78,60 @@ struct Input {
     hard: bool,
 }
 
+/// Which kinds of block mark a build's outputs, each only where every
+/// block of it is alone with something reading it on top.
+#[derive(Clone, Copy, Debug)]
+pub enum Marks<'a> {
+    /// Any kind that could, as [`could_mark`] says.
+    Any,
+    /// Only the kinds named, such as `yellow_concrete`.
+    Kinds(&'a [&'a str]),
+}
+
+impl Marks<'_> {
+    /// Whether a block of kind `name` may mark an output.
+    fn takes(&self, name: &str) -> bool {
+        match self {
+            Marks::Any => could_mark(name),
+            Marks::Kinds(kinds) => kinds.contains(&name),
+        }
+    }
+}
+
+/// Yellow concrete and yellow stained glass, the blocks a builder marks
+/// each output with, its status lines too.
+pub const YELLOW: Marks<'static> =
+    Marks::Kinds(&["yellow_concrete", "yellow_stained_glass"]);
+
+/// What an uploaded build's outputs are read as: any kind that could mark
+/// one, until builders mark them as [`YELLOW`] says.
+pub const UPLOAD: Marks<'static> = Marks::Any;
+
+/// The blocks the site marks outputs with in the files it keeps: each
+/// output colour and the status colour, see [`colour::is_output`], of
+/// concrete or stained glass. Its own files are read back with these.
+pub const SITE: Marks<'static> = Marks::Kinds(&[
+    "yellow_concrete",
+    "yellow_stained_glass",
+    "orange_concrete",
+    "orange_stained_glass",
+    "brown_concrete",
+    "brown_stained_glass",
+    "pink_concrete",
+    "pink_stained_glass",
+]);
+
+/// The check of an uploaded build, its outputs marked as [`UPLOAD`] says.
 pub fn inspect(blocks: &Blocks) -> Report {
+    inspect_marked(blocks, UPLOAD)
+}
+
+/// The check of a build whose outputs are marked as `marks` says, such as
+/// [`SITE`] for a file the site keeps.
+pub fn inspect_marked(blocks: &Blocks, marks: Marks) -> Report {
     let mut report = Report::default();
     let inputs = inputs(blocks, &mut report);
-    let outputs = outputs(blocks, &mut report);
+    let outputs = outputs(blocks, marks, &mut report);
     report.inputs = runs(
         &inputs
             .iter()
@@ -403,32 +455,15 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: blocks of a kind that can mark one, as [`marks`] says,
-/// each with dust, a repeater, or a comparator on top reading it out, as
-/// [`reads_out`] says, and no block of its own kind touching it, even diagonally, of a
-/// kind every block of which is so. An input's block, under its switch, is
+/// The outputs: blocks of the kinds `marks` takes, each with dust, a
+/// repeater, or a comparator on top reading it out, as [`reads_out`] says,
+/// and no block of its own kind touching it, even diagonally, of a kind
+/// every block of which is so. An input's block, under its switch, is
 /// never one.
-fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
-    let switched: HashSet<Pos> =
-        blocks.switches().iter().map(|s| s.block).collect();
-    // Each kind of block that can mark one but the inputs', with its blocks, and
-    // whether each could mark an output: alone, with dust, a repeater, or
-    // a comparator on.
-    let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
-    for (pos, state) in blocks.iter() {
-        let name = schem::short(state);
-        if !marks(name) || switched.contains(&pos) {
-            continue;
-        }
-        let read = reads_out(blocks, pos);
-        kinds
-            .entry(name)
-            .or_default()
-            .push((pos, read && lone(blocks, pos, name)));
-    }
+fn outputs(blocks: &Blocks, marks: Marks, report: &mut Report) -> Vec<Pos> {
     // A kind marks outputs only where every block of it could: one a build
     // is built of, such as lime glass, also stands where nothing reads it.
-    let found: Vec<Pos> = kinds
+    let found: Vec<Pos> = kinds(blocks, |name| marks.takes(name))
         .into_values()
         .filter(|members| members.iter().all(|&(_, could)| could))
         .flatten()
@@ -438,6 +473,46 @@ fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Pos> {
         problem(report, "no outputs", Vec::new(), "No outputs".to_owned());
     }
     found
+}
+
+/// The kinds of block that might mark a build's outputs where it marks
+/// none as [`YELLOW`] says, each with how many blocks it has: any kind
+/// that could, as [`could_mark`] says, every block of which is alone, with
+/// something reading it on top, as an output's is. The most blocks first. Which of them, if any, marks its outputs only its builder can
+/// say: a hex adder's digit inputs or a build's glass under dust may be
+/// lone too.
+pub fn candidates(blocks: &Blocks) -> Vec<(String, usize)> {
+    let mut found: Vec<(String, usize)> = kinds(blocks, could_mark)
+        .into_iter()
+        .filter(|(_, members)| members.iter().all(|&(_, could)| could))
+        .map(|(name, members)| (name.to_owned(), members.len()))
+        .collect();
+    found.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    found
+}
+
+/// Each kind of block `wanted` takes but the inputs', with its blocks, and
+/// whether each could mark an output: alone, with dust, a repeater, or a
+/// comparator on.
+fn kinds(
+    blocks: &Blocks,
+    wanted: impl Fn(&str) -> bool,
+) -> BTreeMap<&str, Vec<(Pos, bool)>> {
+    let switched: HashSet<Pos> =
+        blocks.switches().iter().map(|s| s.block).collect();
+    let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
+    for (pos, state) in blocks.iter() {
+        let name = schem::short(state);
+        if !wanted(name) || switched.contains(&pos) {
+            continue;
+        }
+        let read = reads_out(blocks, pos);
+        kinds
+            .entry(name)
+            .or_default()
+            .push((pos, read && lone(blocks, pos, name)));
+    }
+    kinds
 }
 
 /// Whether what stands on the block at `pos` reads it out of the build:
@@ -460,14 +535,13 @@ fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
     }
 }
 
-/// Whether a block of kind `name` can mark an output: any full block that
-/// carries power but a redstone component, such as a target or lamp, or
-/// stained glass of any colour but white. Plain glass and white glass are
-/// what a build holds dust up with, and the site stores its own plain
-/// transparent blocks as white glass, so a small build's lone white glass
-/// under dust would read as outputs. Whether it does is up to its kind's
-/// blocks: each alone, with something reading it on top.
-fn marks(name: &str) -> bool {
+/// Whether a block of kind `name` could mark an output where a build
+/// marks none with [`YELLOW`]: any full block that carries power but a
+/// redstone component, such as a target or lamp, or stained glass of any
+/// colour but white. Plain glass and white glass are what a build holds
+/// dust up with, and the site stores its own plain transparent blocks as
+/// white glass.
+fn could_mark(name: &str) -> bool {
     if let Some(colour) = name.strip_suffix("_stained_glass") {
         return colour != "white";
     }
@@ -554,11 +628,11 @@ fn steps() -> Vec<Pos> {
     steps
 }
 
-/// The check of the file in `data`, as `inspect` makes it; with `adder`,
-/// then probed as an adder.
-pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
+/// The check of the file in `data`, as `inspect_marked` makes it with
+/// `marks`; with `adder`, then probed as an adder.
+pub fn inspect_file(data: &[u8], marks: Marks, adder: bool) -> Result<Report> {
     let blocks = Blocks::read(data)?;
-    let mut report = inspect(&blocks);
+    let mut report = inspect_marked(&blocks, marks);
     if !report
         .errors
         .iter()
@@ -770,7 +844,7 @@ mod tests {
     fn a_block_under_a_repeater_powering_a_block_is_no_output() {
         let outputs = |front: &str| {
             let states: HashMap<Pos, String> = [
-                ([0, 0, 1], "blue_wool"),
+                ([0, 0, 1], "yellow_concrete"),
                 (
                     [0, 1, 1],
                     "repeater[delay=1,facing=south,locked=false,powered=false]",
@@ -789,26 +863,55 @@ mod tests {
         assert_eq!(outputs("black_wool"), 0, "a repeater powering a block");
     }
 
-    /// A lone block with dust on top is an output whatever its colour or
-    /// kind, but plain or white glass, which holds dust up, and a
-    /// component, such as a target.
+    /// How many outputs a lone block of kind `block` with dust on top is,
+    /// read as `marks` says.
+    fn lone_outputs(block: &str, marks: Marks) -> usize {
+        let states: HashMap<Pos, String> = [
+            ([0, 0, 0], block),
+            (
+                [0, 1, 0],
+                "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
+            ),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        inspect_marked(&Blocks::from_grid([1, 2, 1], &states), marks)
+            .outputs
+            .len()
+    }
+
+    /// Read as a builder marks them, only yellow concrete and yellow glass
+    /// are outputs: not glass of another colour under dust, as a staircase
+    /// is built of, nor a lamp, nor an input's colour, nor the colours the
+    /// site marks status lines and further buses with.
     #[test]
-    fn any_lone_block_but_plain_glass_or_a_component_marks_an_output() {
-        let outputs = |block: &str| {
-            let states: HashMap<Pos, String> = [
-                ([0, 0, 0], block),
-                (
-                    [0, 1, 0],
-                    "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
-                ),
-            ]
-            .into_iter()
-            .map(|(pos, state)| (pos, format!("minecraft:{state}")))
-            .collect();
-            inspect(&Blocks::from_grid([1, 2, 1], &states))
-                .outputs
-                .len()
-        };
+    fn only_lone_yellow_concrete_or_glass_marks_an_output() {
+        for block in ["yellow_concrete", "yellow_stained_glass"] {
+            assert_eq!(lone_outputs(block, YELLOW), 1, "{block}");
+        }
+        for block in [
+            "gray_stained_glass",
+            "light_gray_stained_glass",
+            "redstone_lamp",
+            "lime_concrete",
+            "light_blue_concrete",
+            "pink_concrete",
+            "orange_concrete",
+            "brown_stained_glass",
+            "yellow_wool",
+            "stone",
+        ] {
+            assert_eq!(lone_outputs(block, YELLOW), 0, "{block}");
+        }
+    }
+
+    /// Read with any lone block marking an output, as the kinds that might
+    /// mark a build's outputs are listed, a lone block with dust on top is
+    /// one whatever its colour or kind, but plain or white glass, which
+    /// holds dust up, and a component, such as a target.
+    #[test]
+    fn any_lone_block_but_plain_glass_or_a_component_might_mark_an_output() {
         for block in [
             "yellow_concrete",
             "red_wool",
@@ -821,11 +924,83 @@ mod tests {
             "gold_block",
             "stone",
         ] {
-            assert_eq!(outputs(block), 1, "{block}");
+            assert_eq!(lone_outputs(block, Marks::Any), 1, "{block}");
         }
         for block in ["glass", "white_stained_glass", "target", "redstone_lamp"]
         {
-            assert_eq!(outputs(block), 0, "{block}");
+            assert_eq!(lone_outputs(block, Marks::Any), 0, "{block}");
         }
+    }
+
+    /// The site's own files are read with every colour it marks an output
+    /// with, as [`colour::is_output`] reads them, and nothing else.
+    #[test]
+    fn the_sites_files_are_read_in_its_output_colours() {
+        let Marks::Kinds(kinds) = SITE else {
+            panic!("the site's marks are its colours");
+        };
+        for kind in kinds {
+            assert!(colour::is_output(kind), "{kind}");
+            assert_eq!(lone_outputs(kind, SITE), 1, "{kind}");
+        }
+        assert_eq!(kinds.len(), 2 * (colour::OUTPUT_COLOURS.len() + 1));
+        for block in ["light_gray_stained_glass", "lime_concrete", "stone"] {
+            assert_eq!(lone_outputs(block, SITE), 0, "{block}");
+        }
+    }
+
+    /// A hex adder's digit inputs, lime and light blue blocks each taking
+    /// a digit through the dust on it, are lone and read on top as an
+    /// output is, but aren't one; its sum is.
+    #[test]
+    fn a_hex_adders_digit_inputs_are_no_outputs() {
+        let data = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+        let blocks = Blocks::read(&data).unwrap();
+        let named = |report: &Report| -> BTreeMap<String, usize> {
+            let mut named = BTreeMap::new();
+            for bit in report.outputs.iter().flat_map(|run| &run.bits) {
+                *named.entry(short(&blocks, *bit).to_owned()).or_default() += 1;
+            }
+            named
+        };
+        let candidates: Vec<String> = candidates(&blocks)
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect();
+        assert!(candidates.contains(&"lime_concrete".to_owned()));
+        assert_eq!(
+            named(&inspect_marked(&blocks, YELLOW)),
+            BTreeMap::from([("yellow_concrete".to_owned(), 8)])
+        );
+    }
+
+    /// The owner's parity circuit as uploaded, its dust climbing light gray
+    /// glass, read with yellow outputs is found a parity circuit; read with
+    /// any lone block, its 34 glass blocks are outputs too, and it isn't.
+    /// Listed as kinds that might mark outputs, the glass is among them.
+    #[test]
+    fn a_parity_circuit_on_a_glass_staircase_is_found_by_its_yellow_output() {
+        let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
+        let blocks = Blocks::read(&raw).unwrap();
+        assert!(
+            candidates(&blocks)
+                .contains(&("light_gray_stained_glass".to_owned(), 34))
+        );
+        assert_eq!(inspect_marked(&blocks, YELLOW).outputs.len(), 1);
+        let found = |marks| {
+            crate::recognize::probe::recognize_watched(
+                &raw,
+                None,
+                marks,
+                &mut |_, _| {},
+            )
+            .unwrap()
+            .found
+        };
+        assert_eq!(
+            found(YELLOW).as_deref(),
+            Some("a parity circuit: all 256 cases right, xor of A's bits")
+        );
+        assert_eq!(found(Marks::Any), None);
     }
 }

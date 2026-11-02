@@ -79,19 +79,21 @@ pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
 
 /// As `recognize`, probing only as `meant`, one of [`KINDS`], when given.
 /// Probed as each and recognized as none, its fault is as `fault_of`
-/// chooses.
+/// chooses. Its outputs are an upload's, see [`inspect::UPLOAD`].
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
 ) -> anyhow::Result<Recognition> {
-    recognize_watched(data, meant, &mut |_, _| {})
+    recognize_watched(data, meant, inspect::UPLOAD, &mut |_, _| {})
 }
 
-/// As [`recognize_as`], telling `trying` each kind as it is probed, with
-/// how many of [`KINDS`] came before it.
+/// As [`recognize_as`], its outputs marked as `marks` says, telling
+/// `trying` each kind as it is probed, with how many of [`KINDS`] came
+/// before it.
 pub fn recognize_watched(
     data: &[u8],
     meant: Option<&str>,
+    marks: inspect::Marks,
     trying: &mut dyn FnMut(&'static str, usize),
 ) -> anyhow::Result<Recognition> {
     // A subtractor is probed as the adder it is, its B subtracted.
@@ -99,7 +101,7 @@ pub fn recognize_watched(
     let simulated = simulatable(data)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
-    let report = inspect::inspect(&blocks);
+    let report = inspect::inspect_marked(&blocks, marks);
     let mut problems: Vec<String> =
         report.faults().map(|p| p.message.clone()).collect();
     if problems.is_empty() {

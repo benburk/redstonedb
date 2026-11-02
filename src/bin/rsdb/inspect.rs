@@ -7,7 +7,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use app::models::{catalogue, schematic, version};
+use app::{
+    models::{catalogue, schematic, version},
+    recognize::inspect,
+};
 use clap::Args;
 use sqlx::SqlitePool;
 
@@ -29,10 +32,19 @@ pub(super) async fn inspect_command(
 ) -> Result<()> {
     let (file_or_id, category) =
         (args.file_or_id.as_deref(), args.category.as_deref());
-    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    // A file is read as an upload, a stored build as the site keeps it,
+    // in its colours when it follows the conventions.
+    let marks = |conventional: bool| {
+        if conventional {
+            inspect::SITE
+        } else {
+            inspect::UPLOAD
+        }
+    };
+    let mut files: Vec<(String, Vec<u8>, inspect::Marks)> = Vec::new();
     match file_or_id {
         Some(path) if fs::exists(path)? => {
-            files.push((path.to_owned(), fs::read(path)?));
+            files.push((path.to_owned(), fs::read(path)?, marks(false)));
         }
         Some(prefix) => {
             let id = resolve(db, prefix).await?;
@@ -40,7 +52,11 @@ pub(super) async fn inspect_command(
             let data = version::current_file(db, &id)
                 .await?
                 .context("schematic vanished")?;
-            files.push((format!("{}  {}", &id[..8], s.filename()), data));
+            files.push((
+                format!("{}  {}", &id[..8], s.filename()),
+                data,
+                marks(s.conventional),
+            ));
         }
         None => {
             let listed: Vec<String> = catalogue::categories(db)
@@ -57,7 +73,11 @@ pub(super) async fn inspect_command(
                 let data = version::current_file(db, &s.id)
                     .await?
                     .context("schematic vanished")?;
-                files.push((format!("{}  {}", &s.id[..8], s.filename()), data));
+                files.push((
+                    format!("{}  {}", &s.id[..8], s.filename()),
+                    data,
+                    marks(s.conventional),
+                ));
             }
         }
     }
@@ -65,10 +85,10 @@ pub(super) async fn inspect_command(
     let mut problems: BTreeMap<&str, usize> = BTreeMap::new();
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
-    for (name, data) in &files {
+    for (name, data, marks) in &files {
         let adder = category == Some("adder");
-        let report = app::recognize::inspect::inspect_file(data, adder)?;
-        let buses = |runs: &[app::recognize::inspect::Run]| {
+        let report = inspect::inspect_file(data, *marks, adder)?;
+        let buses = |runs: &[inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())
                 .collect::<Vec<_>>()
