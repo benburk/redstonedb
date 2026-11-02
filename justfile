@@ -49,10 +49,13 @@ build: css
 
 # A second line of comment would be all `just --list` shows, and this one is a
 # button's tooltip, so it is stated outright.
+# The default port is the first in 3000-3050, the band `tailscale serve` maps,
+# with nothing listening on loopback or every address. tailscaled listens on
+# the tailnet addresses for each mapped port, which is the proxy, not a server.
 [doc('Serve until interrupted, on a free port')]
 [group('podium')]
-serve port=`free-port`: css
-    PORT={{ port }} cargo run --bin redstonedb
+serve port=`ss -Hltn | awk '$4 ~ /^(127\.|0\.0\.0\.0:|\*:|\[::1?\]:)/ {sub(/.*:/, "", $4); used[$4]} END {for (p = 3000; p <= 3050; p++) if (!(p in used)) {print p; exit}}'`: css
+    cargo run --bin redstonedb -- {{ port }}
 
 # Test, unless the suite passed on exactly these files, then build the
 # committed HEAD on the server and restart the site
