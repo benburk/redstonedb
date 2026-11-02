@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Builds the committed HEAD on the server, backs up the live database,
 # installs the new binaries and service files, restarts the site, and checks
-# that it answers. The server's one-time setup is in deploy/README.md.
+# that it answers.
+#
+# A release with new migrations is worth trying first on a copy of the live
+# data: `just pull-db`, then `just serve`. To roll back, move each `.previous`
+# binary in /usr/local/lib/redstonedb back over its new one and restart the
+# service; if the bad release migrated the database, restore the copy taken
+# below, with the site stopped.
 set -euo pipefail
 
 host=${DEPLOY_HOST:?set DEPLOY_HOST in .env, as user@host}
