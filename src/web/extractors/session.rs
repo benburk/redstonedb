@@ -47,11 +47,10 @@ async fn signed_in(
     Ok(user)
 }
 
-/// On a development build, the account `DEV_USER` names, `embizone`
-/// unless set; set empty, nobody, to see the site signed out.
+/// On a development build, the account `DEV_USER` names; unset or empty,
+/// nobody, and the site is seen signed out.
 async fn dev_user(state: &AppState) -> Result<Option<User>, AppError> {
-    let name =
-        dotenvy::var("DEV_USER").unwrap_or_else(|_| "embizone".to_owned());
+    let name = dotenvy::var("DEV_USER").unwrap_or_default();
     if name.is_empty() {
         return Ok(None);
     }
