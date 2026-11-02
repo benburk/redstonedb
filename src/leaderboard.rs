@@ -59,8 +59,12 @@ impl FromStr for State {
     }
 }
 
-/// What a leaderboard's address asks for; `None` takes the default.
-#[derive(Debug, Default)]
+/// What a leaderboard's address asks for, such as
+/// `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`, each
+/// part optional; `None` takes the default. A measure goes under its own
+/// name, such as `throughput` for a serial category, `at_least` for a
+/// threshold, and `pulse` for a monostable.
+#[derive(Debug, Default, Clone)]
 pub struct Wanted {
     /// A value of each measure asked for, such as a width of 8.
     pub measures: Vec<(Measure, i64)>,
@@ -76,12 +80,81 @@ pub struct Wanted {
 }
 
 impl Wanted {
+    /// The query string `raw`, without its `?`. A value that names nothing,
+    /// such as an empty one, is as good as none.
+    pub fn parse(raw: &str) -> Self {
+        let mut given: Vec<(String, String)> =
+            form_urlencoded::parse(raw.as_bytes())
+                .into_owned()
+                .collect();
+        // The last of a repeated key counts.
+        given.reverse();
+        let value = |key: &str| {
+            given
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, value)| value.as_str())
+        };
+        Wanted {
+            measures: Measure::ALL
+                .iter()
+                .filter_map(|&m| Some((m, parsed(value(m.name()))?)))
+                .collect(),
+            logic: parsed(value("logic")),
+            orientation: parsed(value("orientation")),
+            design: value("design")
+                .filter(|d| !d.is_empty())
+                .map(str::to_owned),
+            ticks: parsed(value("ticks")),
+            tags: value("tags")
+                .into_iter()
+                .flat_map(|tags| tags.split(','))
+                .filter(|tag| !tag.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
+
+    /// Its address under `path`, the board's page, as [`Wanted::parse`]
+    /// reads it.
+    pub fn href(&self, path: &str) -> String {
+        let mut params = form_urlencoded::Serializer::new(String::new());
+        for (measure, n) in &self.measures {
+            params.append_pair(measure.name(), &n.to_string());
+        }
+        let ticks = self.ticks.map(|t| t.to_string());
+        let tags = (!self.tags.is_empty()).then(|| self.tags.join(","));
+        let named = [
+            ("logic", self.logic.map(State::name)),
+            ("orientation", self.orientation.map(Orientation::name)),
+            ("design", self.design.as_deref()),
+            ("ticks", ticks.as_deref()),
+            ("tags", tags.as_deref()),
+        ];
+        for (name, value) in named {
+            if let Some(value) = value {
+                params.append_pair(name, value);
+            }
+        }
+        let params = params.finish();
+        if params.is_empty() {
+            path.to_owned()
+        } else {
+            format!("{path}?{params}")
+        }
+    }
+
     fn measure(&self, measure: Measure) -> Option<i64> {
         self.measures
             .iter()
             .find(|(m, _)| *m == measure)
             .map(|(_, n)| *n)
     }
+}
+
+/// A value an address gives; one naming nothing is as good as none.
+fn parsed<T: FromStr>(value: Option<&str>) -> Option<T> {
+    value?.parse().ok()
 }
 
 /// One value a board can be narrowed to, with how many builds have it.
@@ -739,6 +812,20 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
 mod tests {
     use super::*;
     use crate::models::schematic::{Encoding, StackDirection, Widened};
+
+    /// A board's address reads back as it was written, with each measure
+    /// under its own name.
+    #[test]
+    fn a_board_address_reads_back_as_written() {
+        let href = "/leaderboards/adder?width=8&logic=stateless&orientation=horz&design=carry_cancel&ticks=3&tags=synced%2Ctorchless";
+        let raw = href.split_once('?').unwrap().1;
+        let wanted = Wanted::parse(raw);
+        assert_eq!(wanted.measures, [(Measure::Width, 8)]);
+        assert_eq!(wanted.tags, ["synced", "torchless"]);
+        assert_eq!(wanted.href("/leaderboards/adder"), href);
+        let wanted = Wanted::parse("at_least=3&design=&ticks=fast");
+        assert_eq!(wanted.href("/b"), "/b?at_least=3");
+    }
 
     fn build(
         id: &str,

@@ -4,12 +4,12 @@ use maud::{Markup, html};
 
 use crate::{
     leaderboard::{
-        self, Board, Choice, Placed, Rank, Record, SHOWN, Standing, State,
+        self, Board, Choice, Placed, Rank, Record, SHOWN, Standing, Wanted,
         in_sentence,
     },
     models::{
         catalogue::{Category, Measure},
-        schematic::{Orientation, Schematic},
+        schematic::Schematic,
         tag::Kind,
         user::User,
     },
@@ -197,18 +197,18 @@ pub(super) fn record_table(
 /// The address of the board a record is first on.
 fn record_href(record: &Record) -> String {
     let of = |kind: Kind| record.tags.iter().find(|tag| tag.kind == kind);
-    Address {
+    Wanted {
         measures: record.measures.clone(),
         logic: Some(record.logic),
         orientation: of(Kind::Orientation)
             .map(|_| record.holders[0].orientation),
-        design: of(Kind::Design).map(|tag| tag.name.as_str()),
+        design: of(Kind::Design).map(|tag| tag.name.clone()),
         ticks: record.ticks,
         tags: record
             .tags
             .iter()
             .filter(|tag| !matches!(tag.kind, Kind::Design | Kind::Orientation))
-            .map(|tag| tag.name.as_str())
+            .map(|tag| tag.name.clone())
             .collect(),
     }
     .href(&format!("/leaderboards/{}", record.category))
@@ -304,49 +304,6 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
     )
 }
 
-/// A board's choices as its address gives them; `None` leaves one out.
-#[derive(Clone, Default)]
-struct Address<'a> {
-    /// A value of each measure chosen, such as a width of 8.
-    measures: Vec<(Measure, i64)>,
-    logic: Option<State>,
-    orientation: Option<Orientation>,
-    design: Option<&'a str>,
-    ticks: Option<i64>,
-    tags: Vec<&'a str>,
-}
-
-impl Address<'_> {
-    /// The address under `path`. Each measure goes under its own name, such
-    /// as `width` or `throughput`.
-    fn href(&self, path: &str) -> String {
-        let mut params = form_urlencoded::Serializer::new(String::new());
-        for (measure, n) in &self.measures {
-            params.append_pair(measure.name(), &n.to_string());
-        }
-        let ticks = self.ticks.map(|t| t.to_string());
-        let tags = (!self.tags.is_empty()).then(|| self.tags.join(","));
-        let named = [
-            ("logic", self.logic.map(State::name)),
-            ("orientation", self.orientation.map(Orientation::name)),
-            ("design", self.design),
-            ("ticks", ticks.as_deref()),
-            ("tags", tags.as_deref()),
-        ];
-        for (name, value) in named {
-            if let Some(value) = value {
-                params.append_pair(name, value);
-            }
-        }
-        let params = params.finish();
-        if params.is_empty() {
-            path.to_owned()
-        } else {
-            format!("{path}?{params}")
-        }
-    }
-}
-
 /// The values chosen of the board's first `count` measures.
 fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
     board.splits[..count]
@@ -360,27 +317,27 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
 /// logic resets those after it, which the new choice may not have; the
 /// rest keep one another.
 fn choices(path: &str, board: &Board) -> Markup {
-    let measured = Address {
+    let measured = Wanted {
         measures: chosen_measures(board, board.splits.len()),
-        ..Address::default()
+        ..Wanted::default()
     };
-    let current = Address {
+    let current = Wanted {
         logic: board.logic,
         orientation: board.orientation,
-        design: board.design.as_deref().filter(|_| board.all_designs),
+        design: board.design.clone().filter(|_| board.all_designs),
         ticks: board.ticks,
-        tags: board.tags.iter().map(String::as_str).collect(),
+        tags: board.tags.clone(),
         ..measured.clone()
     };
     let toggled = |tag: &str| {
         let mut tags = current.tags.clone();
-        match tags.iter().position(|t| *t == tag) {
+        match tags.iter().position(|t| t == tag) {
             Some(i) => {
                 tags.remove(i);
             }
-            None => tags.push(tag),
+            None => tags.push(tag.to_owned()),
         }
-        Address {
+        Wanted {
             tags,
             ..current.clone()
         }
@@ -393,34 +350,34 @@ fn choices(path: &str, board: &Board) -> Markup {
                     let mut values = chosen_measures(board, i);
                     values.push((split.measure, c.value));
                     (split.chosen == Some(c.value),
-                        Address { measures: values, ..Address::default() }.href(path))
+                        Wanted { measures: values, ..Wanted::default() }.href(path))
                 }, None))
             }
             @if !board.logics.is_empty() {
                 (choice_row("State", &board.logics, |c| {
                     (board.logic == Some(c.value),
-                        Address { logic: Some(c.value), ..measured.clone() }.href(path))
+                        Wanted { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
             }
             @if board.orientations.len() > 1 || board.orientation.is_some() {
-                @let all = (board.orientation.is_none(), Address { orientation: None, ..current.clone() }.href(path));
+                @let all = (board.orientation.is_none(), Wanted { orientation: None, ..current.clone() }.href(path));
                 (choice_row("Orientation", &board.orientations, |c| {
                     (board.orientation == Some(c.value),
-                        Address { orientation: Some(c.value), ..current.clone() }.href(path))
+                        Wanted { orientation: Some(c.value), ..current.clone() }.href(path))
                 }, Some(all)))
             }
             @if !board.designs.is_empty() {
-                @let all = board.all_designs.then(|| (board.design.is_none(), Address { design: None, ..current.clone() }.href(path)));
+                @let all = board.all_designs.then(|| (board.design.is_none(), Wanted { design: None, ..current.clone() }.href(path)));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
-                        Address { design: Some(&c.value), ..current.clone() }.href(path))
+                        Wanted { design: Some(c.value.clone()), ..current.clone() }.href(path))
                 }, all))
             }
             @if board.latencies.len() > 1 || board.ticks.is_some() {
-                @let all = (board.ticks.is_none(), Address { ticks: None, ..current.clone() }.href(path));
+                @let all = (board.ticks.is_none(), Wanted { ticks: None, ..current.clone() }.href(path));
                 (choice_row("Ticks", &board.latencies, |c| {
                     (board.ticks == Some(c.value),
-                        Address { ticks: Some(c.value), ..current.clone() }.href(path))
+                        Wanted { ticks: Some(c.value), ..current.clone() }.href(path))
                 }, Some(all)))
             }
             @if !board.tag_choices.is_empty() {

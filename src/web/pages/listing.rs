@@ -21,15 +21,88 @@ use crate::{
     search::Term,
 };
 
-/// How the home page lays out its schematics.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// How the home page lays out its schematics: cards, or `view=list` in its
+/// address for a table.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum View {
+    #[default]
     Cards,
     List,
 }
 
+/// A field the home page can order builds by.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SortField {
+    AddedAt,
+    Volume,
+    Latency,
+    Downloads,
+}
+
+impl SortField {
+    const ALL: [SortField; 4] = [
+        SortField::AddedAt,
+        SortField::Volume,
+        SortField::Latency,
+        SortField::Downloads,
+    ];
+
+    /// As an address names it.
+    fn name(self) -> &'static str {
+        match self {
+            SortField::AddedAt => "added_at",
+            SortField::Volume => "volume",
+            SortField::Latency => "latency",
+            SortField::Downloads => "downloads",
+        }
+    }
+}
+
+/// The order the home page lists builds in: fields, each ascending or
+/// descending, the first deciding and each after it breaking the ties
+/// before. Its address writes it as `sort=-downloads,volume`, `-` for
+/// descending. With no fields, or on a tie, builds go newest first.
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct Sort(pub Vec<(SortField, bool)>);
+
+impl Sort {
+    /// `text` as an address gives it, leaving out any field it does not
+    /// know.
+    pub fn parse(text: &str) -> Self {
+        Sort(
+            text.split(',')
+                .map(str::trim)
+                .filter_map(|key| {
+                    let (name, descending) = key
+                        .strip_prefix('-')
+                        .map_or((key, false), |name| (name, true));
+                    let field = SortField::ALL
+                        .into_iter()
+                        .find(|field| field.name() == name)?;
+                    Some((field, descending))
+                })
+                .collect(),
+        )
+    }
+
+    /// As an address writes it, such as `-downloads,volume`.
+    pub fn name(&self) -> String {
+        self.0
+            .iter()
+            .map(|&(field, descending)| {
+                if descending {
+                    format!("-{}", field.name())
+                } else {
+                    field.name().to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
 /// The orders the home page offers, as `sort` values and their labels. Any
-/// other value in the address works too; see `schematics::order`.
+/// other order of the fields in [`Sort`] works in the address too.
 const SORTS: [(&str, &str); 4] = [
     ("", "Newest"),
     ("volume", "Smallest"),
@@ -43,16 +116,12 @@ pub struct Listing<'a> {
     pub shown: &'a [Schematic],
     /// How many schematics there are in all.
     pub total: usize,
-    pub view: View,
-    /// Such as `-downloads`; empty for newest first.
-    pub sort: &'a str,
-    pub query: &'a str,
+    /// What its address asked for.
+    pub query: &'a HomeQuery,
     pub terms: &'a [Term],
-    /// The chosen category, such as `adder`; empty for all.
-    pub category: &'a str,
-    /// Tag filters, each needing a match; commas within one give choices.
-    pub tags: &'a [String],
-    pub unverified: Unverified,
+    /// How many of the builds found are not verified as their category,
+    /// shown or not.
+    pub unverified: usize,
     pub facets: &'a [Facet],
     pub viewing: &'a Viewing,
 }
@@ -65,14 +134,6 @@ pub struct Viewing {
     pub palette: Option<String>,
     pub signed_in: bool,
     pub favorites: HashSet<String>,
-}
-
-/// The builds a listing found that are not verified as their category:
-/// whether they are shown, and how many there are.
-#[derive(Clone, Copy)]
-pub struct Unverified {
-    pub shown: bool,
-    pub count: usize,
 }
 
 /// One category in the home page's sidebar.
@@ -108,49 +169,89 @@ pub struct Index<'a> {
     pub viewing: &'a Viewing,
 }
 
-/// Where the home page's links lead: its layout, search, and category.
-#[derive(Clone, Copy)]
-struct Home<'a> {
-    view: View,
-    sort: &'a str,
-    query: &'a str,
-    category: &'a str,
-    tags: &'a [String],
+/// What the home page's address asks for, and where its links lead.
+/// Separate parameters narrow together; within one, commas mean any of
+/// them, as in `?category=adder,subtractor`. `tag` may repeat, each needing
+/// a match: `?tag=alpha&tag=torchless` is both, and `?tag=alpha,torchless`
+/// either.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct HomeQuery {
+    pub view: View,
+    pub sort: Sort,
+    /// A search such as `register vertical alpha -torchless`.
+    pub q: String,
+    /// The chosen category, such as `adder`; empty for all.
+    pub category: String,
+    /// Tag filters, each needing a match; commas within one give choices.
+    pub tags: Vec<String>,
     /// Whether builds not verified as their category are listed too.
-    unverified: bool,
+    pub unverified: bool,
 }
 
-impl Home<'_> {
-    fn href(self) -> String {
+impl HomeQuery {
+    /// The query string `raw`, without its `?`. Asking for the unverified
+    /// by their tag shows them.
+    pub fn parse(raw: &str) -> Self {
+        let mut query = HomeQuery::default();
+        for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
+            let value = value.trim().to_owned();
+            match key.as_ref() {
+                "view" => {
+                    query.view = if value == "list" {
+                        View::List
+                    } else {
+                        View::Cards
+                    };
+                }
+                "q" => query.q = value,
+                "category" => query.category = value,
+                "sort" => query.sort = Sort::parse(&value),
+                "tag"
+                    if [tag::FAILS_VERIFICATION, tag::NON_STANDARD]
+                        .contains(&tag::name(&value).as_str()) =>
+                {
+                    query.unverified = true;
+                    query.tags.push(value);
+                }
+                "tag" if !value.is_empty() => query.tags.push(value),
+                "unverified" => query.unverified = value == "show",
+                _ => {}
+            }
+        }
+        query
+    }
+
+    /// Whether it searches or chooses anything. With nothing to narrow it,
+    /// the home page shows its index, so every build has an address of its
+    /// own, `/builds`.
+    pub fn narrows(&self) -> bool {
+        !self.q.is_empty() || !self.category.is_empty() || !self.tags.is_empty()
+    }
+
+    /// Its address, such as `/?category=adder&q=8b`, as
+    /// [`HomeQuery::parse`] reads it.
+    pub fn href(&self) -> String {
         let mut params = form_urlencoded::Serializer::new(String::new());
         if self.view == View::List {
             params.append_pair("view", "list");
         }
-        if !self.sort.is_empty() {
-            params.append_pair("sort", self.sort);
+        let sort = self.sort.name();
+        if !sort.is_empty() {
+            params.append_pair("sort", &sort);
         }
         if !self.category.is_empty() {
-            params.append_pair("category", self.category);
+            params.append_pair("category", &self.category);
         }
-        for tag in self.tags {
+        for tag in &self.tags {
             params.append_pair("tag", tag);
         }
         if self.unverified {
             params.append_pair("unverified", "show");
         }
-        if !self.query.is_empty() {
-            params.append_pair("q", self.query);
+        if !self.q.is_empty() {
+            params.append_pair("q", &self.q);
         }
-        // With nothing to narrow it, the home page shows its index, so
-        // every build has an address of its own.
-        let path = if self.query.is_empty()
-            && self.category.is_empty()
-            && self.tags.is_empty()
-        {
-            "/builds"
-        } else {
-            "/"
-        };
+        let path = if self.narrows() { "/" } else { "/builds" };
         let params = params.finish();
         if params.is_empty() {
             path.to_owned()
@@ -160,29 +261,12 @@ impl Home<'_> {
     }
 }
 
-impl<'a> Listing<'a> {
-    /// The home page's address for this listing, such as
-    /// `/?category=adder&q=8b`.
-    pub fn href(&self) -> String {
-        self.home().href()
-    }
-
+impl Listing<'_> {
     /// Whether words are searched for, or tags outside a category, whose
     /// page shows its tags chosen among its filters.
     fn searching(&self) -> bool {
-        !self.query.is_empty()
-            || (!self.tags.is_empty() && self.category.is_empty())
-    }
-
-    fn home(&self) -> Home<'a> {
-        Home {
-            view: self.view,
-            sort: self.sort,
-            query: self.query,
-            category: self.category,
-            tags: self.tags,
-            unverified: self.unverified.shown,
-        }
+        !self.query.q.is_empty()
+            || (!self.query.tags.is_empty() && self.query.category.is_empty())
     }
 }
 
@@ -204,7 +288,7 @@ pub(super) fn home_page(
     // Every build is the sidebar's Recent builds, and the index its Home.
     let current_path = match listing {
         None => "/",
-        Some(listing) if listing.href().starts_with("/builds") => "/builds",
+        Some(listing) if !listing.query.narrows() => "/builds",
         Some(_) => "",
     };
     base(
@@ -224,11 +308,10 @@ pub(super) fn home_page(
 pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
     // Clearing the search on the list of every build keeps to it; anywhere
     // else it goes back to the index.
-    let href = listing.href();
-    let action = if href.starts_with("/builds") {
-        "/builds"
-    } else {
+    let action = if listing.query.narrows() {
         "/"
+    } else {
+        "/builds"
     };
     home_page(viewer, action, Some(listing), &home_results(listing))
 }
@@ -239,9 +322,14 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 /// their menus in the results. In the box's end, a button opens the dialog
 /// for finding the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
-    let (view, query, tags) = listing
-        .map_or((View::Cards, "", &[][..]), |l| (l.view, l.query, l.tags));
-    let unverified = listing.is_some_and(|l| l.unverified.shown);
+    let query = listing.map(|l| l.query).cloned().unwrap_or_default();
+    let HomeQuery {
+        view,
+        q: query,
+        tags,
+        unverified,
+        ..
+    } = query;
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
             fx-action=(action) fx-target="#listing" class="relative mb-3" {
@@ -291,11 +379,11 @@ fn search_help() -> Markup {
 /// The part of the home page a search redraws: the title, the terms
 /// searched for, and the builds found.
 pub fn home_results(listing: &Listing) -> Markup {
-    let here = listing.home();
+    let here = listing.query;
     let title = listing
         .facets
         .iter()
-        .find(|facet| facet.name == listing.category)
+        .find(|facet| facet.name == here.category)
         .map_or("Builds", |facet| facet.label.as_str());
     html! {
         div id="listing" { (listing_body(listing, here, title)) }
@@ -319,13 +407,9 @@ pub fn home_index(index: &Index) -> Markup {
                     // narrows, and never fewer than two.
                     ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(min(13rem,calc(50%_-_0.5rem)),1fr))] gap-4" {
                     @for tile in tiles {
-                        @let href = Home {
-                            view: View::Cards,
-                            sort: "",
-                            query: "",
-                            category: &tile.category,
-                            tags: &[],
-                            unverified: false,
+                        @let href = HomeQuery {
+                            category: tile.category.clone(),
+                            ..HomeQuery::default()
                         }.href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
                             img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
@@ -408,16 +492,11 @@ pub(super) fn category_menu(
 
 /// The row under the search, its category, order, and layout, then the
 /// page's title and count.
-fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
-    let Listing {
-        shown,
-        view,
-        category,
-        ..
-    } = *listing;
+fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
+    let (shown, view, category) = (listing.shown, here.view, &here.category);
     let layout = |to: View, label: &str, glyph: &str| {
         html! {
-            a href=(Home { view: to, ..here }.href()) aria-label=(label) title=(label)
+            a href=(HomeQuery { view: to, ..here.clone() }.href()) aria-label=(label) title=(label)
                 class={ (SWITCH) " flex items-center px-2" }
                 aria-current=[(view == to).then_some("page")] {
                 (icon(glyph, "size-4"))
@@ -432,7 +511,7 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
                 div class="min-w-0 flex-1 sm:flex-none" {
                     (category_menu(listing.facets, category, "All categories", Some("search-form")))
                 }
-                (sort_menu(here.sort))
+                (sort_menu(&here.sort.name()))
                 div class="ml-auto hidden shrink-0 sm:block" {
                     nav aria-label="Layout" class=(SWITCHES) {
                         (layout(View::Cards, "Cards", icons::GRID))
@@ -453,11 +532,11 @@ fn listing_header(listing: &Listing, here: Home, title: &str) -> Markup {
 /// Whether the builds not verified as their category are listed, as a
 /// link that turns them on or off, with how many there are; nothing when
 /// there are none.
-fn unverified_switch(unverified: Unverified, here: Home) -> Markup {
-    let Unverified { shown, count } = unverified;
+fn unverified_switch(count: usize, here: &HomeQuery) -> Markup {
+    let shown = here.unverified;
     html! {
         @if count > 0 {
-            a href=(Home { unverified: !shown, ..here }.href())
+            a href=(HomeQuery { unverified: !shown, ..here.clone() }.href())
                 aria-pressed=(shown)
                 class="flex min-h-9 items-center gap-2 self-end text-meta text-muted hover:text-ink hover:no-underline" {
                 span class={ "flex size-4 items-center justify-center rounded-[4px] border "
@@ -492,14 +571,14 @@ fn sort_menu(sort: &str) -> Markup {
 
 /// The home page's title, the terms and tags searched for, and the builds
 /// found.
-fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
+fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     let Listing {
         shown,
         total,
-        view,
         terms,
         ..
     } = *listing;
+    let view = here.view;
     html! {
             (listing_header(listing, here, title))
             @if !here.category.is_empty() {
@@ -510,7 +589,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                     // With no sidebar, the category searched in is one of
                     // the things to remove.
                     @if !here.category.is_empty() {
-                        a href=(Home { category: "", ..here }.href())
+                        a href=(HomeQuery { category: String::new(), ..here.clone() }.href())
                             aria-label={ "Search every category, not only " (title) }
                             class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
                             "in " (title)
@@ -521,7 +600,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                         ul class="contents" aria-label="Search terms" {
                             @for (i, term) in terms.iter().enumerate() {
                                 li {
-                                    a href=(Home { query: &without(terms, i), ..here }.href())
+                                    a href=(HomeQuery { q: without(terms, i), ..here.clone() }.href())
                                         aria-label={ "Remove " (term.display()) }
                                         class={ "badge gap-1.5 pr-2 hover:no-underline "
                                             (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
@@ -539,7 +618,7 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                                     .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
                                 @let shown = group.replace('_', " ").replace(',', " or ");
                                 li {
-                                    a href=(Home { tags: &rest, ..here }.href())
+                                    a href=(HomeQuery { tags: rest, ..here.clone() }.href())
                                         aria-label={ "Remove the tag filter " (shown) }
                                         class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
                                         "tag: " (shown)
@@ -551,8 +630,8 @@ fn listing_body(listing: &Listing, here: Home, title: &str) -> Markup {
                     }
                     // A category's chosen tags stay, each removed from its
                     // filters.
-                    @let kept: &[String] = if here.category.is_empty() { &[] } else { here.tags };
-                    a href=(Home { query: "", tags: kept, ..here }.href()) class="px-1.5 text-meta" { "Clear" }
+                    @let kept = if here.category.is_empty() { Vec::new() } else { here.tags.clone() };
+                    a href=(HomeQuery { q: String::new(), tags: kept, ..here.clone() }.href()) class="px-1.5 text-meta" { "Clear" }
                 }
             }
             @if total == 0 {
@@ -694,8 +773,8 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
 
 /// Under a category's title, its tags to narrow it by, each with how many
 /// of its builds carry it, and those chosen marked, each to remove.
-fn tag_filters(listing: &Listing, here: Home) -> Markup {
-    let filters = filters(listing.shown, here.tags);
+fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
+    let filters = filters(listing.shown, &here.tags);
     html! {
         @if !filters.is_empty() {
             ul aria-label="Filter by tag" class="mb-6 flex flex-wrap gap-1.5" {
@@ -705,7 +784,7 @@ fn tag_filters(listing: &Listing, here: Home) -> Markup {
                         @if let Some(i) = filter.chosen {
                             @let rest: Vec<String> = here.tags.iter().enumerate()
                                 .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
-                            a href=(Home { tags: &rest, ..here }.href())
+                            a href=(HomeQuery { tags: rest, ..here.clone() }.href())
                                 aria-label={ "Remove the tag filter " (label) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 pr-2 ring-2 ring-brand ring-offset-1 ring-offset-canvas hover:no-underline" } {
@@ -715,7 +794,7 @@ fn tag_filters(listing: &Listing, here: Home) -> Markup {
                         } @else {
                             @let more: Vec<String> = here.tags.iter().cloned()
                                 .chain([filter.tag.name.clone()]).collect();
-                            a href=(Home { tags: &more, ..here }.href())
+                            a href=(HomeQuery { tags: more, ..here.clone() }.href())
                                 aria-label={ "Only builds tagged " (label) ", " (filter.count) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 hover:no-underline hover:brightness-95" } {
@@ -931,6 +1010,24 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
 mod tests {
     use super::*;
     use crate::models::{catalogue::Flag, schematic::Orientation};
+
+    /// An address reads back as it was written, but for a sort field the
+    /// site does not know, which is left out.
+    #[test]
+    fn a_home_address_reads_back_as_written() {
+        for href in [
+            "/builds",
+            "/builds?view=list&sort=volume",
+            "/?category=adder",
+            "/?view=list&sort=-downloads%2Cvolume&category=adder&tag=alpha%2Ctorchless&tag=synced&unverified=show&q=8b+adder",
+        ] {
+            let raw = href.split_once('?').map_or("", |(_, raw)| raw);
+            assert_eq!(HomeQuery::parse(raw).href(), href);
+        }
+        let query = HomeQuery::parse("q=add&sort=bogus,-latency");
+        assert_eq!(query.href(), "/?sort=-latency&q=add");
+        assert!(!HomeQuery::parse("view=list").narrows());
+    }
 
     fn adder(design: &str, flags: &[&str], tags: &[&str]) -> Schematic {
         let mut s = crate::search::tests::schematic(
