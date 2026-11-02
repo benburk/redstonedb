@@ -495,12 +495,14 @@ for (const field of document.querySelectorAll("[data-date]")) {
 
 // A description's mentions: typing @ and the start of a name offers the
 // players the site credits whose names start with it, then those holding
-// it, in a menu at the text cursor. Arrow keys move through it, Enter or
-// Tab picks, and Escape closes it; picking writes the name in full.
+// it, in a menu at the text cursor, of the options the page holds for
+// them. Arrow keys move through it, Enter or Tab picks, and Escape closes
+// it; picking writes the name in full.
 for (const field of document.querySelectorAll("[data-mentions]")) {
   const text = field.querySelector("textarea");
   const menu = field.querySelector('[role="listbox"]');
-  const people = JSON.parse(field.dataset.mentions);
+  const options = [...menu.querySelectorAll('[role="option"]')];
+  const named = (option) => option.dataset.name.toLowerCase();
   let shown = [];
   let active = -1;
   let start = 0;
@@ -543,13 +545,14 @@ for (const field of document.querySelectorAll("[data-mentions]")) {
 
   const highlight = (index) => {
     active = index;
-    menu.querySelectorAll('[role="option"]').forEach((option, i) => {
-      option.setAttribute("aria-selected", String(i === index));
-      if (i === index) {
+    for (const option of options) {
+      const chosen = option === shown[index];
+      option.setAttribute("aria-selected", String(chosen));
+      if (chosen) {
         text.setAttribute("aria-activedescendant", option.id);
         option.scrollIntoView({ block: "nearest" });
       }
-    });
+    }
     if (index < 0) text.removeAttribute("aria-activedescendant");
   };
 
@@ -564,30 +567,16 @@ for (const field of document.querySelectorAll("[data-mentions]")) {
     const found = typing();
     if (!found) return close();
     const wanted = found.name.toLowerCase();
-    const starting = people.filter((name) => name.toLowerCase().startsWith(wanted));
-    const holding = people.filter(
-      (name) => !name.toLowerCase().startsWith(wanted) && name.toLowerCase().includes(wanted),
+    const starting = options.filter((option) => named(option).startsWith(wanted));
+    const holding = options.filter(
+      (option) => !named(option).startsWith(wanted) && named(option).includes(wanted),
     );
     shown = [...starting, ...holding].slice(0, 8);
     if (shown.length === 0) return close();
     start = found.at;
-    menu.replaceChildren(
-      ...shown.map((name, i) => {
-        const option = document.createElement("div");
-        option.id = `mention-option-${i}`;
-        option.setAttribute("role", "option");
-        option.setAttribute("aria-selected", "false");
-        option.className =
-          "flex cursor-pointer items-center gap-2 rounded-control px-2.5 py-1.5 hover:bg-selection aria-selected:bg-selection";
-        const head = document.createElement("img");
-        head.src = `/players/${name}/head.png`;
-        head.alt = "";
-        head.width = head.height = 16;
-        head.className = "size-4 rounded-[3px] bg-line [image-rendering:pixelated]";
-        option.append(head, name);
-        return option;
-      }),
-    );
+    // Those that fit, in the order they fit; the rest hidden.
+    for (const option of options) option.hidden = !shown.includes(option);
+    menu.append(...shown);
     const place = caret();
     menu.style.top = `${Math.min(place.top, text.offsetHeight) + 4}px`;
     menu.style.left = `${Math.min(place.left, Math.max(0, text.offsetWidth - 160))}px`;
@@ -597,7 +586,7 @@ for (const field of document.querySelectorAll("[data-mentions]")) {
   };
 
   const pick = (index) => {
-    const name = shown[index];
+    const name = shown[index]?.dataset.name;
     if (name === undefined) return;
     const end = text.selectionStart;
     const after = text.value.slice(end);
@@ -628,6 +617,6 @@ for (const field of document.querySelectorAll("[data-mentions]")) {
   menu.addEventListener("mousedown", (event) => {
     event.preventDefault();
     const option = event.target.closest('[role="option"]');
-    if (option) pick(Number(option.id.split("-").pop()));
+    if (option) pick(shown.indexOf(option));
   });
 }

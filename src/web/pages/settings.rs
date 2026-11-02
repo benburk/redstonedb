@@ -187,7 +187,9 @@ fn session_help() -> Markup {
     }
 }
 
-/// The viewer's block theme, by its blocks, and the dialog that changes it.
+/// The viewer's block theme, by its blocks, and a link to its editor:
+/// through fixi, the editor's dialog, which opens once it is in, and
+/// without it, the editor's page.
 fn block_theme_row(chosen: &Palette) -> Markup {
     let name = palette::name(chosen);
     row(
@@ -200,19 +202,47 @@ fn block_theme_row(chosen: &Palette) -> Markup {
                     }
                     span { (name) }
                 }
-                button type="button" commandfor="block-theme" command="show-modal"
+                a href="/settings/palette" fx-action="/settings/palette" fx-target="#block-theme"
                     aria-label="Edit block theme" title="Edit" class=(ICON_BUTTON) {
                     (icon(PENCIL, "size-4"))
                 }
             }
-            dialog id="block-theme" aria-labelledby="block-theme-title"
-                class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
-                div class="mb-4 flex items-center justify-between gap-4" {
-                    h2 id="block-theme-title" class="font-semibold" { "Block theme" }
-                    // Its choices save as they change; done shows them.
-                    a href="/settings" class="btn btn-quiet" { "Done" }
-                }
+            // Where the editor's dialog comes in.
+            div id="block-theme" hidden {}
+        },
+    )
+}
+
+/// The block theme's editor, as `chosen`, in a dialog that opens once it
+/// is in.
+pub fn block_theme(chosen: &Palette) -> Markup {
+    html! {
+        dialog id="block-theme" data-show aria-labelledby="block-theme-title"
+            class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+            div class="mb-4 flex items-center justify-between gap-4" {
+                h2 id="block-theme-title" class="font-semibold" { "Block theme" }
+                // Its choices save as they change; done shows them.
+                a href="/settings" class="btn btn-quiet" { "Done" }
+            }
+            (palette_form(chosen, "/settings", ""))
+        }
+    }
+}
+
+/// The block theme's editor as a page of its own, for a browser without
+/// scripts, which saves with its button and goes back to the settings;
+/// with them it saves as it changes, as the dialog does.
+pub fn block_theme_page(user: &User, chosen: &Palette) -> Markup {
+    base(
+        Some(user),
+        "Block theme",
+        "/settings/palette",
+        &html! {
+            div class="max-w-calm" {
+                h1 class={ (PAGE_TITLE) " mb-2" } { "Block theme" }
+                p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in." }
                 (palette_form(chosen, "/settings", ""))
+                button type="submit" form="palette-form" class="btn btn-primary mt-4" { "Save" }
             }
         },
     )
@@ -241,11 +271,13 @@ fn appearance_row() -> Markup {
 }
 
 /// The palette's form, as `chosen`: its fields, as [`palette_fields`]
-/// gives them, its presets saved as chosen. It saves itself as each
-/// changes; `save`, if not empty, names a button going on to `next`.
+/// gives them, its presets saved as chosen. Through fixi it saves itself
+/// as each changes, the answer the fields as saved; `save`, if not empty,
+/// names a button going on to `next`.
 pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
     html! {
-        form action="/settings/palette" method="post" data-autosave="Block theme saved"
+        form id="palette-form" action="/settings/palette" method="post"
+            fx-action="/settings/palette" fx-method="post" fx-trigger="change" fx-target="#palette-fields"
             class="flex max-w-form flex-col gap-4" {
             input type="hidden" name="next" value=(next);
             (palette_fields(chosen, Presets::Saved))

@@ -178,6 +178,21 @@ pub async fn set_palette(
     Ok(Redirect::to(&next).into_response())
 }
 
+/// The block theme's editor, as the viewer has it: through fixi, its
+/// dialog, and without it, its page.
+pub async fn palette_editor(
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+    Fixi(fixi): Fixi,
+) -> Result<Response, AppError> {
+    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
+    Ok(if fixi {
+        pages::block_theme(&chosen).into_response()
+    } else {
+        pages::block_theme_page(&user, &chosen).into_response()
+    })
+}
+
 /// The download's custom colours' editor, as its fields so far give it,
 /// or a preset or the site's own; when none is given, as it first comes
 /// in, the viewer's block theme, or the site's.

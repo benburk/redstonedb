@@ -13,6 +13,8 @@
 //   the element is on the page.
 // - An answer's `FX-Notice` header, percent-encoded, is said in the notice.
 // - An answer's `FX-Replace-Url` header becomes the page's address.
+// - An answer's `FX-Redirect` header loads that page instead, as when
+//   what was polled for is done.
 // - A `<dialog data-show>` in an answer opens as a modal once it is in.
 // - A dialog's form with `data-wait` keeps the dialog open while it sends,
 //   so it shows the work under way, and closes it once answered. One whose
@@ -44,6 +46,15 @@ const showNotice = (text) => {
 const LIVE = '[fx-trigger="redraw"]';
 
 const redraw = (panel) => panel?.dispatchEvent(new Event("redraw"));
+
+// Once the page is going elsewhere, nothing polls, so a later answer can't
+// start the going over again before the next page is in.
+let leaving = false;
+const leave = (url) => {
+  if (leaving) return;
+  leaving = true;
+  location.assign(url);
+};
 
 // A live panel takes only an answer that is itself, so a stray page or
 // error never lands in it, and keeps its scroll and open details.
@@ -140,7 +151,13 @@ document.addEventListener("fx:after", (event) => {
   const { response, text } = cfg;
   if (response.redirected) {
     event.preventDefault();
-    location.assign(response.url);
+    leave(response.url);
+    return;
+  }
+  const away = response.headers.get("FX-Redirect");
+  if (away) {
+    event.preventDefault();
+    leave(away);
     return;
   }
   // The address that shows what the answer brings, such as a search's
@@ -214,7 +231,7 @@ document.addEventListener(
     } else if (trigger === "poll") {
       const every = Number(element.dataset.every ?? 3000);
       const tick = () => {
-        if (!element.isConnected) return;
+        if (!element.isConnected || leaving) return;
         element.dispatchEvent(new Event("poll"));
         setTimeout(tick, every);
       };
@@ -280,22 +297,6 @@ document.addEventListener("change", (event) => {
     opener.querySelector("[data-picked-name]").textContent = label.dataset.name;
   }
   dialog.close();
-});
-
-// A form with `data-autosave` saves itself as any of its choices change,
-// saying its value once saved; its buttons still send it whole.
-document.addEventListener("change", async (event) => {
-  const form = event.target.closest("form[data-autosave]");
-  if (!form) return;
-  try {
-    const response = await fetch(form.action, {
-      method: "POST",
-      body: new URLSearchParams(new FormData(form)),
-    });
-    showNotice(response.ok ? form.dataset.autosave : "Could not save. Try again.");
-  } catch {
-    showNotice("Could not save. Try again.");
-  }
 });
 
 // A setting edited in place: its edit button swaps its value for its form,
@@ -377,23 +378,3 @@ window.addEventListener("pageshow", () => {
     steps.hidden = true;
   }
 });
-
-// An upload being analyzed asks how far it has got every quarter second,
-// and once it is done, or gone, loads its page again, which is then its
-// preview or the upload page.
-for (const progress of document.querySelectorAll("[data-progress]")) {
-  const ask = async () => {
-    try {
-      const response = await fetch(progress.dataset.progress);
-      if (response.headers.get("X-Analysis") === "done" || response.status === 404) {
-        location.replace(location.href);
-        return;
-      }
-      if (response.ok) progress.innerHTML = await response.text();
-    } catch {
-      // A dropped request is asked again.
-    }
-    setTimeout(ask, 250);
-  };
-  setTimeout(ask, 250);
-}

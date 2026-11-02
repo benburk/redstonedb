@@ -110,7 +110,8 @@ pub fn analyzing(user: &User, id: &str, step: &Step) -> Markup {
                     h1 class=(PAGE_TITLE) { "Upload a build" }
                     a href="/about/recognized" { "How builds are recognized" }
                 }
-                div data-progress={ "/upload/" (id) "/progress" } role="status" aria-live="polite" {
+                div fx-action={ "/upload/" (id) "/progress" } fx-trigger="poll" data-every="250"
+                    fx-swap="innerHTML" role="status" aria-live="polite" {
                     (analysis_steps(step.place(), Some(step)))
                 }
             }

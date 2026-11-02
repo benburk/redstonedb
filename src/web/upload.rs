@@ -12,6 +12,7 @@
 use axum::{
     body::Bytes,
     extract::{Multipart, Path, State},
+    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -262,9 +263,9 @@ pub async fn analyzed(
     show_preview(&state, &user, upload, &form, said).await
 }
 
-/// How far analysis `id` has got, for its page to redraw; once it is done,
-/// nothing, with `X-Analysis: done`, for the page to load again as the
-/// preview.
+/// How far analysis `id` has got, for its page to redraw as it polls;
+/// once it is done, or gone, an `FX-Redirect` to its page, which is then
+/// its preview or the upload page.
 pub async fn progress(
     Path(id): Path<String>,
     State(state): State<AppState>,
@@ -274,12 +275,12 @@ pub async fn progress(
         .parse()
         .ok()
         .and_then(|id| analysis::get(&state, id, &user));
-    let Some((step, done)) = found else {
-        return Err(AppError::NotFound);
+    let Some((step, None)) = found else {
+        let page = format!("/upload/{id}");
+        return Ok(
+            (StatusCode::NO_CONTENT, [("FX-Redirect", page)]).into_response()
+        );
     };
-    if done.is_some() {
-        return Ok(([("X-Analysis", "done")], "").into_response());
-    }
     Ok(pages::analysis_steps(step.place(), Some(&step)).into_response())
 }
 

@@ -170,15 +170,24 @@ pub(super) fn fields(
         (person_field("Contributors", "contributor", "Add someone who helped", &f.contributors, choices))
         (date_field(&f.built_on))
         // Typing @ offers the players the site credits, in a menu at the
-        // text cursor that form.js fills.
+        // text cursor, each an option here that form.js shows as it fits.
         label class="field" {
             span { "Description" }
-            div class="relative" data-mentions=(serde_json::to_string(&choices.people).unwrap_or_default()) {
+            div class="relative" data-mentions {
                 textarea name="description" rows="3" aria-describedby="description-help"
                     aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"
                     class="input py-2 leading-prose" { (f.description) }
                 div id="mention-menu" role="listbox" aria-label="Players" hidden
-                    class="absolute z-20 max-h-60 w-max min-w-40 max-w-[min(16rem,100%)] overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay" {}
+                    class="absolute z-20 max-h-60 w-max min-w-40 max-w-[min(16rem,100%)] overflow-y-auto rounded-control border border-line bg-raised p-1 shadow-overlay" {
+                    @for (i, name) in choices.people.iter().enumerate() {
+                        div id={ "mention-option-" (i) } role="option" aria-selected="false" data-name=(name) hidden
+                            class="flex cursor-pointer items-center gap-2 rounded-control px-2.5 py-1.5 hover:bg-selection aria-selected:bg-selection" {
+                            img src={ "/players/" (name) "/head.png" } alt="" width="16" height="16" loading="lazy"
+                                class="size-4 rounded-[3px] bg-line [image-rendering:pixelated]";
+                            (name)
+                        }
+                    }
+                }
             }
             span id="description-help" class="message" { "Write @name to link a player by their in-game name." }
         }
