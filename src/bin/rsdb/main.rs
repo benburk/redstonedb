@@ -1,0 +1,344 @@
+//! Command-line access to the schematic database named by `DATABASE_URL`.
+
+mod accounts;
+mod builds;
+mod categories;
+mod inspect;
+mod rebuild;
+mod simulate;
+mod versions;
+
+use std::path::PathBuf;
+
+use anyhow::{Context, Result, bail};
+use app::{
+    db::connect_to_database,
+    models::{catalogue, schematic, similarity, tag},
+};
+use clap::{Parser, Subcommand};
+use sqlx::SqlitePool;
+
+use accounts::{list_users, respell, set_role};
+use builds::{
+    Set, export, guide_images, list, remove, search_command, set, show,
+};
+use categories::{
+    NewCategory, define_category, define_flag, define_tag, print_categories,
+};
+use inspect::{Inspect, evaluate, inspect_command};
+use rebuild::{Rebuild, finish, rebuild};
+use simulate::simulate;
+use versions::{
+    Replace, Standardizing, colours, new_version, prune, replace, reread,
+};
+
+/// A database of Minecraft redstone schematics.
+#[derive(Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Check a .schem file, or a stored build by id, or with neither every
+    /// build on the list, by function: levers in, yellow outputs, what
+    /// the site would fix and what only the builder can
+    Inspect(Inspect),
+    /// Add the builds of a category from another copy of the database,
+    /// such as a pull of the live one, the colour-free way: each probed,
+    /// its roles coloured in, standardized, and stored under its own id with
+    /// its details, credits, and tags; what can't be is listed with why
+    Rebuild(Rebuild),
+    /// For a recognized build that passes its test, or with no id every
+    /// one: take out its unused blocks, as a new version, and keep what
+    /// each building block must be, for palettes
+    Finish { id: Option<String> },
+    /// Draw the How builds are recognized page's example builds into `dir`, one
+    /// WebP each, named for the example
+    GuideImages { dir: PathBuf },
+    /// Run builds' tests and timing again, as after a change to the
+    /// simulator: those `ids` name, such as `rsdb search --ids` lists, or
+    /// with `--all` every build with a test. Nothing reruns on its own
+    Simulate {
+        /// Builds' ids, or the starts of them
+        ids: Vec<String>,
+        /// Every build with a test
+        #[arg(long, conflicts_with = "ids")]
+        all: bool,
+    },
+    /// Work out every build of `category`, or one build, from its file
+    /// alone, and list where what is worked out differs from what is
+    /// stored
+    Evaluate {
+        /// A build's id, or the start of one
+        id: Option<String>,
+        #[arg(long, default_value = "adder")]
+        category: String,
+    },
+    /// Take out the blocks no part of a build's circuit uses, found by the
+    /// rules of redstone, from a stored build, or with no id every build
+    /// whose category the site tests, each as a new version, only where
+    /// the site's test passes and its timing comes out the same
+    Prune {
+        id: Option<String>,
+        /// List what would be taken out, changing nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Replace a stored build's file with a new version that fixes it, as
+    /// the site's New version page does: keeping 90% of its blocks or
+    /// changing at most 10, its inputs and outputs free to move
+    NewVersion {
+        id: String,
+        file: PathBuf,
+        /// What it fixes
+        #[arg(long)]
+        note: Option<String>,
+        #[command(flatten)]
+        standardizing: Standardizing,
+    },
+    /// Change fields of a schematic; omitted fields are kept
+    Set(Set),
+    /// Delete a schematic
+    Remove { id: String },
+    /// Read every stored file again: take out corner markers, fit its box,
+    /// turn status lines pink, paste from its south-east-bottom corner
+    /// unless it keeps its own, measure it, and read its facts, such as its
+    /// torches and the oldest release it works in
+    Reread,
+    /// Put a file in place of a stored build's, as a fix to the file, such
+    /// as recolouring its blocks: no version is added and nothing is
+    /// compared. Then read it as `reread` does
+    Replace(Replace),
+    /// Keep the colours a builder's own copy of a stored build gives it,
+    /// shown as its original colours: the copy must hold the same kind of
+    /// block in every place under some turn or mirror, any solid block for
+    /// a solid one, any see-through one for glass, and a furnace for a
+    /// barrel. Kept with the newest version it matches
+    Colours { id: String, file: PathBuf },
+    /// Respell every stored Minecraft name as its player spells it, asking
+    /// Mojang: credits, importers, and accounts, which also gain the UUID
+    Respell,
+    /// List the standard categories, with their measures, designs, flags,
+    /// and aliases
+    Categories,
+    /// Add a standard category to the list
+    DefineCategory(NewCategory),
+    /// Add a yes-or-no flag to a category's builds, such as a shift
+    /// register being bidirectional
+    DefineFlag {
+        category: String,
+        /// Lowercase words joined by underscores, such as `bidirectional`
+        name: String,
+        /// How people read it; the name's words by default
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Give a category, of the list or off it, another word to be searched
+    /// by, such as `connect4` for a four-in-a-row detector
+    DefineAlias { category: String, alias: String },
+    /// Add a design to a category: a way of working, as its every design
+    /// does the same job
+    DefineDesign {
+        category: String,
+        name: String,
+        /// The usual short name, such as CLA
+        #[arg(long)]
+        abbreviation: Option<String>,
+        /// How people read it, such as LFSR; the name's words by default
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// List accounts with their roles
+    Users,
+    /// Set an account's role: user, mod, or admin
+    Role {
+        /// The account's Discord username
+        username: String,
+        #[arg(value_parser = ["user", "mod", "admin"])]
+        role: String,
+    },
+    /// List schematics matching every term, such as
+    /// `register vertical alpha -torchless`
+    Search {
+        #[arg(required = true, allow_hyphen_values = true)]
+        terms: Vec<String>,
+        /// Only each build's id, one a line, to pass to `simulate`; give
+        /// it before the terms, which may start with a hyphen
+        #[arg(long)]
+        ids: bool,
+    },
+    /// List schematics by id prefix and filename
+    List {
+        #[arg(long)]
+        category: Option<String>,
+        /// Only schematics carrying this tag; repeatable
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    /// Show every field of a schematic
+    Show { id: String },
+    /// Write a schematic to a directory under its generated filename
+    Export {
+        id: String,
+        #[arg(long, default_value = ".")]
+        out: PathBuf,
+        /// Copies of a stackable build to join into one: a count, or one per
+        /// direction such as `west=7,north=3`
+        #[arg(long)]
+        copies: Option<String>,
+        /// Put glass at two opposite corners of the box `//rstack` stacks,
+        /// to select it in game by; with no copies
+        #[arg(long)]
+        markers: bool,
+    },
+    /// Attach tags to a schematic
+    Tag { id: String, tags: Vec<String> },
+    /// Detach tags from a schematic
+    Untag { id: String, tags: Vec<String> },
+    /// List known tags by kind
+    Tags,
+    /// Create a new tag, named in full words
+    DefineTag {
+        name: String,
+        #[arg(long)]
+        kind: tag::Kind,
+        /// Abbreviation that filenames write instead of the name
+        #[arg(long)]
+        token: Option<String>,
+    },
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let db = connect_to_database().await;
+    let result = run(&db, cli.command).await;
+    // Builds whose file or category the command changed are compared again.
+    similarity::refresh(&db).await?;
+    // Move the write-ahead log's pages into redstone.db, so the file alone
+    // holds every write when it is copied or backed up. Closing alone does
+    // this only when no other process, such as a running server, has the
+    // database open.
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&db)
+        .await?;
+    db.close().await;
+    result
+}
+
+async fn run(db: &SqlitePool, command: Command) -> Result<()> {
+    match command {
+        Command::Inspect(args) => inspect_command(db, &args).await,
+        Command::Rebuild(args) => rebuild(db, &args).await,
+        Command::Finish { id } => finish(db, id.as_deref()).await,
+        Command::GuideImages { dir } => guide_images(&dir).await,
+        Command::Simulate { ids, all } => simulate(db, &ids, all).await,
+        Command::Evaluate { id, category } => {
+            evaluate(db, id.as_deref(), &category).await
+        }
+        Command::Prune { id, dry_run } => {
+            prune(db, id.as_deref(), dry_run).await
+        }
+        Command::NewVersion {
+            id,
+            file,
+            note,
+            standardizing,
+        } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
+        Command::Set(args) => set(db, args).await,
+        Command::List { category, tags } => {
+            list(db, category.as_deref(), &tags).await
+        }
+        Command::Search { terms, ids } => search_command(db, &terms, ids).await,
+        Command::Reread => reread(db).await,
+        Command::Replace(args) => replace(db, &args).await,
+        Command::Colours { id, file } => colours(db, &id, &file).await,
+        Command::Respell => respell(db).await,
+        Command::Categories => print_categories(db).await,
+        Command::DefineCategory(args) => define_category(db, args).await,
+        Command::DefineAlias { category, alias } => {
+            Ok(catalogue::define_alias(db, &alias, &category).await?)
+        }
+        Command::DefineFlag {
+            category,
+            name,
+            label,
+        } => define_flag(db, category, name, label).await,
+        Command::DefineDesign {
+            category,
+            name,
+            abbreviation,
+            label,
+        } => Ok(catalogue::define_design(
+            db,
+            &catalogue::Design {
+                category,
+                name,
+                abbreviation,
+                label,
+            },
+        )
+        .await?),
+        Command::Users => list_users(db).await,
+        Command::Role { username, role } => {
+            set_role(db, &username, &role).await
+        }
+        Command::Remove { id } => remove(db, &id).await,
+        Command::Show { id } => show(db, &resolve(db, &id).await?).await,
+        Command::Export {
+            id,
+            out,
+            copies,
+            markers,
+        } => export(db, &id, &out, copies.as_deref(), markers).await,
+        Command::Tag { id, tags } => {
+            let id = resolve(db, &id).await?;
+            for name in &tags {
+                tag::attach(db, &id, &tag_id(db, name).await?).await?;
+            }
+            Ok(())
+        }
+        Command::Untag { id, tags } => {
+            let id = resolve(db, &id).await?;
+            for name in &tags {
+                tag::detach(db, &id, &tag_id(db, name).await?).await?;
+            }
+            Ok(())
+        }
+        Command::Tags => {
+            for tag in tag::all(db).await? {
+                let (kind, token) =
+                    (tag.kind.name(), tag.token.as_deref().unwrap_or(""));
+                println!("{kind:<12} {token:<8} {}", tag.label());
+            }
+            Ok(())
+        }
+        Command::DefineTag { name, kind, token } => {
+            define_tag(db, &name, kind, token.as_deref()).await
+        }
+    }
+}
+
+/// Resolves a unique prefix of a schematic id to the full id.
+async fn resolve(db: &SqlitePool, prefix: &str) -> Result<String> {
+    match schematic::ids_with_prefix(db, prefix).await?.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => bail!("no schematic with id {prefix}"),
+        _ => bail!("id prefix {prefix} is ambiguous"),
+    }
+}
+
+async fn tag_id<'e, E: sqlx::SqliteExecutor<'e>>(
+    db: E,
+    name: &str,
+) -> Result<String> {
+    tag::find(db, name).await?.with_context(|| {
+        format!("unknown tag {name}; see `rsdb tags` or `rsdb define-tag`")
+    })
+}
+
+async fn load(db: &SqlitePool, id: &str) -> Result<schematic::Schematic> {
+    schematic::get(db, id).await?.context("schematic vanished")
+}
