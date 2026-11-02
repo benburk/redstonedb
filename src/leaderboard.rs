@@ -585,28 +585,26 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
         let logic_named = bases
             .keys()
             .any(|(c, v, l)| c == category && v == values && l != logic);
-        records.extend(records_of(base).into_iter().map(
-            |(ticks, tags, rank, field, holders)| {
-                Record {
-                    category,
-                    measures: base[0]
-                        .measures
-                        .iter()
-                        .copied()
-                        .zip(values.iter().copied())
-                        .collect(),
-                    logic: *logic,
-                    logic_named,
-                    ticks,
-                    tags,
-                    rank,
-                    builders: tally(field.iter().flat_map(|s| credited(s)))
-                        .len(),
-                    field,
-                    holders,
-                }
-            },
-        ));
+        records.extend(records_of(base).into_iter().map(|found| {
+            Record {
+                category,
+                measures: base[0]
+                    .measures
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+                logic: *logic,
+                logic_named,
+                ticks: found.ticks,
+                tags: found.tags,
+                rank: found.rank,
+                builders: tally(found.field.iter().flat_map(|s| credited(s)))
+                    .len(),
+                field: found.field,
+                holders: found.holders,
+            }
+        }));
     }
     records.sort_by(|a, b| {
         (b.builders, b.field.len()).cmp(&(a.builders, a.field.len()))
@@ -614,15 +612,35 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
     records
 }
 
-/// What a record holds: its latency and tags, its rank, its field, and
-/// its holders.
-type Found<'a> = (
-    Option<i64>,
-    Vec<Tag>,
-    Rank,
-    Vec<&'a Schematic>,
-    Vec<&'a Schematic>,
-);
+/// A record as one category's builds at one value of each of its measures
+/// and one state find it, before it is named by them; see [`Record`].
+struct Found<'a> {
+    ticks: Option<i64>,
+    tags: Vec<Tag>,
+    rank: Rank,
+    field: Vec<&'a Schematic>,
+    holders: Vec<&'a Schematic>,
+}
+
+/// Adds to `boards` each set of at most [`MOST_TRAITS`] of `own`, the empty
+/// set among them, that includes `chosen` and otherwise draws only on
+/// `own[from..]`.
+fn boards_of(
+    own: &[&Trait],
+    from: usize,
+    chosen: &mut Vec<Trait>,
+    boards: &mut BTreeSet<BTreeSet<Trait>>,
+) {
+    boards.insert(chosen.iter().cloned().collect());
+    if chosen.len() == MOST_TRAITS {
+        return;
+    }
+    for i in from..own.len() {
+        chosen.push(own[i].clone());
+        boards_of(own, i + 1, chosen, boards);
+        chosen.pop();
+    }
+}
 
 /// The records of `base`, one category's builds of one value of each of
 /// its measures and one state; see [`records`].
@@ -641,16 +659,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
     let mut boards: BTreeSet<BTreeSet<Trait>> = BTreeSet::new();
     for own in &traits {
         let own: Vec<&Trait> = own.iter().collect();
-        for mask in 0u32..(1 << own.len()) {
-            if mask.count_ones() as usize <= MOST_TRAITS {
-                boards.insert(
-                    (0..own.len())
-                        .filter(|i| mask >> i & 1 == 1)
-                        .map(|i| own[i].clone())
-                        .collect(),
-                );
-            }
-        }
+        boards_of(&own, 0, &mut Vec::new(), &mut boards);
     }
     // The builds a board of `wanted` ranks `rank`, by their place in base.
     let field = |wanted: &BTreeSet<Trait>, rank: Rank| -> Vec<usize> {
@@ -714,13 +723,13 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
                 .filter(|tag| wanted.contains(&Trait::Tag(tag.name.clone())))
                 .cloned()
                 .collect();
-            found.push((
+            found.push(Found {
                 ticks,
-                named,
+                tags: named,
                 rank,
-                ranked.iter().map(|&i| base[i]).collect(),
-                first.iter().map(|&i| base[i]).collect(),
-            ));
+                field: ranked.iter().map(|&i| base[i]).collect(),
+                holders: first.iter().map(|&i| base[i]).collect(),
+            });
         }
     }
     found
@@ -982,6 +991,33 @@ mod tests {
             names,
             ["Smallest 8-bit adder", "Smallest 3-tick 8-bit adder"]
         );
+    }
+
+    /// A build with more traits than a bit mask holds still ranks: only its
+    /// sets of a few traits are boards.
+    #[test]
+    fn a_build_with_many_traits_still_ranks() {
+        let tags: Vec<Tag> = (0..40)
+            .map(|n| Tag {
+                name: format!("trait-{n}"),
+                token: None,
+                kind: Kind::Feature,
+            })
+            .collect();
+        let adders = [
+            Schematic {
+                tags: tags.clone(),
+                ..build("a", 8, "other", Some(3), 900)
+            },
+            Schematic {
+                tags,
+                ..build("b", 8, "other", Some(3), 700)
+            },
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(names, ["Smallest 8-bit adder"]);
     }
 
     #[test]
