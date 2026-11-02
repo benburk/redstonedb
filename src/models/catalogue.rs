@@ -201,6 +201,28 @@ pub struct Flag {
     pub label: String,
 }
 
+impl Flag {
+    /// The flag of a build with a carry in.
+    pub const CARRY_IN: &str = "carry_in";
+    /// The flag of a build with a carry out.
+    pub const CARRY_OUT: &str = "carry_out";
+    /// The flag of a build with a borrow in.
+    pub const BORROW_IN: &str = "borrow_in";
+    /// The flag of a build with a borrow out.
+    pub const BORROW_OUT: &str = "borrow_out";
+    /// The flags that only say which lines a build has, which its picture
+    /// shows plainly.
+    pub const LINES: [&str; 4] = [
+        Flag::CARRY_IN,
+        Flag::CARRY_OUT,
+        Flag::BORROW_IN,
+        Flag::BORROW_OUT,
+    ];
+    /// The flag of an adder or subtractor whose carry in reads inverted,
+    /// powered meaning 0, which says only how one line is read.
+    pub const INVERTED_CARRY_IN: &str = "inverted_carry_in";
+}
+
 /// What every category is named and searched by beyond its row: its
 /// measures and its aliases. A category off the list may have aliases too.
 pub(super) struct Extras {

@@ -13,7 +13,7 @@ use super::{
 use crate::{
     APP_NAME,
     models::{
-        catalogue::Section,
+        catalogue::{Flag, Section},
         schematic::{Encoding, Schematic},
         tag::{self, Tag},
         user::User,
@@ -685,10 +685,10 @@ fn badges(s: &Schematic, class: &str) -> Markup {
 fn on_card(s: &Schematic) -> Vec<Tag> {
     let name = format!(" {} ", s.name().to_lowercase());
     let tags = s.every_tag();
-    let pitched = tags.iter().any(|tag| tag.name.ends_with("_stackable"));
+    let pitched = tags.iter().any(|tag| tag::is_pitch_stackable(&tag.name));
     tags.into_iter()
         .filter(|tag| {
-            (!pitched || tag.name != "stackable")
+            (!pitched || tag.name != tag::STACKABLE)
                 && !matches!(
                     tag.kind,
                     tag::Kind::Design | tag::Kind::Orientation
@@ -700,10 +700,15 @@ fn on_card(s: &Schematic) -> Vec<Tag> {
         .collect()
 }
 
-/// Tags left off a card: flags its picture shows plainly, and synced,
-/// which most builds are.
-const SEEN: [&str; 5] =
-    ["synced", "carry_in", "carry_out", "borrow_in", "borrow_out"];
+/// Tags left off a card: synced, which most builds are, and the flags its
+/// picture shows plainly.
+const SEEN: [&str; 5] = [
+    tag::SYNCED,
+    Flag::CARRY_IN,
+    Flag::CARRY_OUT,
+    Flag::BORROW_IN,
+    Flag::BORROW_OUT,
+];
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
