@@ -168,8 +168,8 @@ pub enum Test {
 }
 
 /// The widest build tested, whose every value fits one number with room
-/// for a carry.
-const MAX_WIDTH: i64 = 32;
+/// for a carry; see `Bench::fits`.
+const MAX_WIDTH: usize = 32;
 
 /// What a stateless test drives, reads, and expects of a build, from its
 /// file and its interface, whose lines it names for their roles.
@@ -422,7 +422,10 @@ impl Test {
     /// The test a build of `category` and `width` gets: its category's,
     /// when it has one and the build is no wider than `MAX_WIDTH`.
     pub fn of(category: &str, width: Option<i64>) -> Option<Self> {
-        if !width.is_some_and(|w| (1..=MAX_WIDTH).contains(&w)) {
+        let tested = |w: i64| {
+            usize::try_from(w).is_ok_and(|w| (1..=MAX_WIDTH).contains(&w))
+        };
+        if !width.is_some_and(tested) {
             return None;
         }
         category::behaviour(category).test

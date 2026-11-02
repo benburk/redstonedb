@@ -5,7 +5,7 @@
 
 use std::{collections::HashSet, sync::atomic::AtomicBool};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use super::{
     Reading, Run, Signal, Timing, Wrong,
@@ -52,6 +52,37 @@ pub(super) struct Bench {
 }
 
 impl Bench {
+    /// Fails for a bench too wide to run on `interface`, which the cases'
+    /// numbers cannot hold: an input wider than `MAX_WIDTH`, whose sums
+    /// would overflow one number, or outputs of more bits together than one
+    /// number holds, as they are read as one. A test asked of a build by
+    /// its category is held to its width already, see `Test::of`, but a
+    /// guess at what a build is, and its copies stacked wider, are not.
+    pub fn fits(&self, interface: &Interface) -> Result<()> {
+        if let Some((&port, bits)) = self
+            .inputs
+            .iter()
+            .zip(self.widths(interface))
+            .find(|&(_, bits)| bits > super::MAX_WIDTH)
+        {
+            bail!(
+                "Too wide to simulate: {} has {bits} bits, and the simulator \
+                 takes at most {}.",
+                interface.inputs[port].name,
+                super::MAX_WIDTH
+            );
+        }
+        let bits: usize = self.output_widths(interface).iter().sum();
+        if bits > u64::BITS as usize {
+            bail!(
+                "Too wide to simulate: its outputs have {bits} bits, and the \
+                 simulator reads at most {}.",
+                u64::BITS
+            );
+        }
+        Ok(())
+    }
+
     /// A bench driving `inputs` and reading `outputs`, every bit of which
     /// the cases decide, with nothing held.
     pub fn new(inputs: Vec<usize>, outputs: Vec<usize>, pattern: &str) -> Self {
@@ -152,6 +183,7 @@ impl Spec {
         interface: &Interface,
         quick: bool,
     ) -> Result<Run> {
+        self.bench.fits(interface)?;
         let widths = self.bench.widths(interface);
         let (cases, exhaustive, patterns) = match self.cases {
             Cases::Only(values) => {
@@ -197,6 +229,7 @@ impl Spec {
         interface: &Interface,
         cancel: &AtomicBool,
     ) -> Result<Timing> {
+        self.bench.fits(interface)?;
         if self.bench.press.is_some() {
             let every = match self.cases {
                 Cases::Combinations(structured) => {

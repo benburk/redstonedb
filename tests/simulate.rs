@@ -1554,3 +1554,18 @@ fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
     assert_eq!(rca.input, 8);
     assert_eq!(rca.outputs, [("output".to_owned(), vec![14])]);
 }
+
+/// A hex adder of 16 digits, 64 bits a side, gives a sum and a carry out
+/// of 65 bits, more than the one number its outputs are read into holds,
+/// and takes sums wider than one can carry, so it is too wide to simulate:
+/// guessing it finds nothing, and its test is skipped, where its outputs
+/// once wrapped round, or panicked in a debug build.
+#[test]
+fn a_build_wider_than_the_simulator_takes_is_too_wide_to_simulate() {
+    let blocks = blocks("hex-adder-64");
+    assert!(simulate::guess(&blocks).is_none());
+    let Report::Skipped { reason } = Test::Adder.run(&blocks) else {
+        panic!("a 64-bit hex adder was simulated");
+    };
+    assert!(reason.starts_with("Too wide to simulate"), "{reason}");
+}
