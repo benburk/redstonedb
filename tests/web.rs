@@ -1,0 +1,180 @@
+//! Who may reach which page, asked of the site as a browser asks it: a
+//! visitor signed out is sent to log in, an account is refused another's
+//! build, and a private build is no build at all to anyone but its
+//! uploader and admins.
+
+mod common;
+
+use std::sync::Arc;
+
+use app::{
+    details::Details,
+    models::{
+        schematic::{self, Orientation},
+        session::{Session, now_micros},
+        user::User,
+    },
+    thumbnail::{Assets, Renderer},
+    web::{self, app_state::AppState},
+};
+use reqwest::{StatusCode, header};
+use sqlx::SqlitePool;
+use uuid::Uuid;
+
+/// The site, served on a free port of its own, and a client that leaves
+/// redirects for the test to see.
+struct Site {
+    base: String,
+    client: reqwest::Client,
+    db: SqlitePool,
+}
+
+impl Site {
+    async fn start() -> Self {
+        let db = common::database().await;
+        let http = reqwest::Client::new();
+        let state = AppState {
+            db: db.clone(),
+            discord: None,
+            renderer: Arc::new(Renderer::new(Assets::new(http.clone()))),
+            http,
+            thumbnails: Arc::default(),
+            analyses: Arc::default(),
+        };
+        let app = web::router(state.clone()).with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a free port");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        Site { base, client, db }
+    }
+
+    /// A session for `user`, as the cookie a browser would send.
+    async fn session(&self, user: &User) -> String {
+        let session = Session {
+            id: Uuid::new_v4(),
+            user_id: user.id,
+            expires_at: now_micros() + 3_600_000_000,
+        };
+        Session::insert(&self.db, &session).await.unwrap();
+        format!("session_id={}", session.id)
+    }
+
+    /// Sends `method` to `path`, as `cookie`'s account if one is given.
+    async fn ask(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        cookie: Option<&str>,
+    ) -> reqwest::Response {
+        let mut request =
+            self.client.request(method, format!("{}{path}", self.base));
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, cookie);
+        }
+        request.send().await.expect("the site answers")
+    }
+
+    async fn get(&self, path: &str, cookie: Option<&str>) -> reqwest::Response {
+        self.ask(reqwest::Method::GET, path, cookie).await
+    }
+
+    /// An adder uploaded by `by`.
+    async fn adder(&self, by: &User) -> String {
+        let given = Details {
+            category: "adder".to_owned(),
+            orientation: Orientation::Horizontal,
+            ..Details::default()
+        };
+        common::store(&self.db, "alpha-rca", given, Some(by)).await
+    }
+}
+
+/// Where a redirect sends the browser.
+fn location(response: &reqwest::Response) -> &str {
+    response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn a_visitor_signed_out_is_sent_to_log_in_to_upload_or_edit() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+    for path in [
+        "/upload".to_owned(),
+        "/settings".to_owned(),
+        format!("/schematics/{id}/edit"),
+        format!("/schematics/{id}/versions/new"),
+    ] {
+        let response = site.get(&path, None).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER, "{path}");
+        assert_eq!(location(&response), "/sessions/new", "{path}");
+    }
+}
+
+#[tokio::test]
+async fn only_a_builds_uploader_may_edit_it() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let other = common::sign_in(&site.db, "2", "alex").await;
+    let id = site.adder(&owner).await;
+    let path = format!("/schematics/{id}/edit");
+
+    let owners = site.session(&owner).await;
+    let response = site.get(&path, Some(&owners)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let others = site.session(&other).await;
+    let response = site.get(&path, Some(&others)).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = site
+        .ask(
+            reqwest::Method::POST,
+            &format!("/schematics/{id}/delete"),
+            Some(&others),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn a_private_build_is_not_found_by_anyone_else() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let other = common::sign_in(&site.db, "2", "alex").await;
+    let id = site.adder(&owner).await;
+    schematic::set_public(&site.db, &id, false).await.unwrap();
+
+    let others = site.session(&other).await;
+    for path in [
+        format!("/schematics/{id}"),
+        format!("/schematics/{id}/edit"),
+        format!("/schematics/{id}/download"),
+    ] {
+        let response = site.get(&path, Some(&others)).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+    for path in [
+        format!("/schematics/{id}"),
+        format!("/schematics/{id}/download"),
+    ] {
+        let response = site.get(&path, None).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+
+    let owners = site.session(&owner).await;
+    let response = site
+        .get(&format!("/schematics/{id}/edit"), Some(&owners))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
