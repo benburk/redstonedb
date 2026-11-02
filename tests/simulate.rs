@@ -169,6 +169,7 @@ fn an_adders_lone_lines_need_no_signs() {
 /// the slice's box, unchanged, so every copy would keep them, and it does
 /// not stack.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
         .expect("fixture is readable");
@@ -207,6 +208,7 @@ fn an_adder_stacks_by_its_box() {
 /// barrel in every copy, which then all add one, so the box leaving out
 /// the two north layers too is the one whose copies add right.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_adder_stacks_by_a_box_found_by_testing() {
     let raw = std::fs::read("tests/fixtures/vert-adder-8-barrel-north.schem")
         .unwrap();
@@ -229,6 +231,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
 /// Its outputs are read through the repeaters standing on them, which lead
 /// the product out of the build, since nothing powers the yellow blocks.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_combinational_multiplier_tries_every_product() {
     let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
@@ -258,6 +261,7 @@ fn a_combinational_multiplier_tries_every_product() {
 /// A sequential multiplier is tested by setting its operands, then
 /// pressing its calculate.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_sequential_multiplier_is_pressed_to_calculate() {
     let report = Test::Multiplier.run(&blocks("mult-8-calculate"));
     assert!(report.passed(), "{report:?}");
@@ -304,6 +308,7 @@ fn a_build_is_known_for_what_it_does() {
 /// every sum, and it is slower to run than one of levers. Each digit takes
 /// its every case, with a carry into it and without, and the patterns.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_hex_adder_is_driven_digit_by_digit() {
     let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
     let data = standardize::standardize(&raw).unwrap();
@@ -349,6 +354,7 @@ fn a_slice_without_a_carry_out_adds() {
 /// it in every copy, and the box found by testing leaves that layer to the
 /// first copy.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_copy_may_cover_the_copy_below() {
     let data = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
@@ -460,6 +466,7 @@ fn a_lever_saved_on_by_mistake_changes_nothing() {
 /// out, overflow, and lsb shift out. Every result and status comes out
 /// right, its carry out the adder's for add and subtract alike.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_alu_runs_each_operation_its_signs_name() {
     let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
     let blocks = import::prepare(&raw, true, true, false, true)
@@ -508,6 +515,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
 /// for an add that does not carry and off for one that does, as for a
 /// subtract that borrows, so every add and subtract is wrong there.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
         std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
@@ -1007,6 +1015,7 @@ fn a_double_density_subtractor_takes_b_from_a() {
 /// right. It never turns a build upside down, so these are each turned
 /// about the vertical and mirrored east for west.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     let fixtures = [
         ("alpha-rca", "adder"),
@@ -1303,6 +1312,7 @@ fn swapped(data: &[u8], from: &str, to: &str) -> Vec<u8> {
 /// A glass output is never powered, so it is read by the repeater on it,
 /// and the adder adds and is timed as it is on concrete.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_glass_output_is_read_from_the_repeater_on_it() {
     let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
@@ -1351,6 +1361,7 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
 /// A gate has no lines, so copies side by side each add a bit to A, B, and
 /// the output; this one's copies fit four blocks apart.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_xor_gate_stacks_west_into_wider_ones() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare(&raw, true, true, false, true).unwrap();

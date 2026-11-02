@@ -37,6 +37,7 @@ fn placed(blocks: &Blocks) -> Vec<(schem::Pos, String)> {
 }
 
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn a_recognized_build_is_kept_standardized() {
     let categories = categories().await;
     let upload = Upload::read(&fixture("cca-16-raw")).unwrap();
@@ -65,6 +66,7 @@ async fn a_recognized_build_is_kept_standardized() {
 }
 
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
     let categories = categories().await;
     let upload = Upload::read(&fixture("cca-16-raw")).unwrap();
@@ -111,6 +113,7 @@ async fn an_off_list_name_means_the_category_it_stands_in_for() {
 }
 
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn a_new_version_that_is_recognized_moves_a_build_up() {
     let categories = categories().await;
     let file = import::as_built(&fixture("cca-16-raw")).unwrap();
@@ -163,6 +166,7 @@ async fn an_off_list_name_reads_back_as_its_category() {
 /// a lever and simulates as concrete, and any lone block read from on top
 /// is an output, whatever its colour.
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
     let raw = fixture("cca-8-wool-lamps");
     let recognition = app::probe::recognize(&raw).expect("it can be probed");
@@ -186,6 +190,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
 /// built, and keeps the same file its analysis would, hash and all, so an
 /// evaluation the analysis starts is the one the build takes.
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn publishing_keeps_the_file_its_preview_evaluated() {
     let raw = fixture("cca-16-raw");
     let coloured = app::probe::recognize(&raw).unwrap().file;

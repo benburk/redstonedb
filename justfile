@@ -32,6 +32,12 @@ test:
     cargo test --workspace
     @./deploy/tested.sh mark
 
+# Run the test suite with the tests that measure whole builds, for changes to
+# the simulator, probing, or measuring
+test-full:
+    cargo test --workspace -- --include-ignored
+    @./deploy/tested.sh mark
+
 # Build static/app.css from styles/app.css
 css:
     tailwindcss --input styles/app.css --minify > static/app.css

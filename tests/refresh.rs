@@ -104,6 +104,7 @@ async fn a_build_without_a_test_keeps_no_result() {
 }
 
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
     let db = setup_test_db().await;
     let typed = Details {
@@ -213,6 +214,7 @@ async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
 }
 
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     let db = setup_test_db().await;
     let typed = Details {
@@ -271,6 +273,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
 /// simulation measured: its result on the same file stands, so nothing
 /// runs again to set them back.
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn editing_an_adders_details_keeps_what_was_measured() {
     let db = setup_test_db().await;
     let id = store(

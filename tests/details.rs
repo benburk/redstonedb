@@ -266,6 +266,7 @@ async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
 /// verified as a Hex Adder and not as an Adder; an adder driven by levers
 /// is verified as an Adder and not as a Hex Adder.
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
     let db = setup_test_db().await;
     // Standardized, as an upload is before it is checked.
@@ -289,6 +290,7 @@ async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
 /// An adder is verified as an Adder and not as a Subtractor, and a
 /// subtractor, its B subtracted, as a Subtractor and not as an Adder.
 #[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
 async fn adders_and_subtractors_are_each_their_own_category() {
     let db = setup_test_db().await;
     let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;

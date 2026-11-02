@@ -20,6 +20,7 @@ fn stored(name: &str) -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_ripple_adder_slice_is_read_whole_from_its_file() {
     let e = evaluate(&stored("rca-slice-capped")).unwrap();
     assert_eq!(e.category, Some("adder"));
@@ -41,6 +42,7 @@ fn a_build_failing_its_test_has_no_timing() {
 }
 
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_adders_design_comes_from_how_its_carries_are_made() {
     let design = |name| evaluate(&stored(name)).unwrap().design.unwrap();
     let ripple = design("alpha-rca");
@@ -114,6 +116,7 @@ fn a_carry_signature_shows_its_groups() {
 }
 
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     let file = std::fs::read("tests/fixtures/mult-8-calculate.schem").unwrap();
     let e = evaluate(&file).unwrap();
@@ -137,6 +140,7 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
 /// 4ff460f9 as first uploaded: its calculate a wooden button, held down 15
 /// ticks, as its reworked stone button with a pulse extender is.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_multiplier_calculated_on_a_wooden_button_holds() {
     let file = std::fs::read("tests/fixtures/mult-8-wooden.schem").unwrap();
     let e = evaluate(&file).unwrap();
@@ -146,6 +150,7 @@ fn a_multiplier_calculated_on_a_wooden_button_holds() {
 }
 
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
@@ -270,6 +275,7 @@ fn a_register_whose_write_disturbs_another_cell_fails() {
 /// levers were saved: with every lever saved off, they are found from what
 /// its lever settings give.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_alus_inverted_lines_are_found_with_its_levers_saved_off() {
     let data = uploaded("alu-8-ops-raw");
     let blocks = Blocks::read(&data).unwrap();
@@ -293,6 +299,7 @@ fn an_alus_inverted_lines_are_found_with_its_levers_saved_off() {
 /// plain; it never stacks, so its stacking is never searched; and its
 /// throughput is measured on a stream of operations.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_alu_is_read_whole_from_its_file() {
     let e = evaluate(&uploaded("alu-8-ops-raw")).unwrap();
     assert_eq!(e.category, Some("alu"));
@@ -317,6 +324,7 @@ fn an_alu_is_read_whole_from_its_file() {
 /// as any operation is, and are flags. This ALU signs two lines both `nadd
 /// nsub`, which cannot tell them apart, so trying its lines finds each.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
     let e = evaluate(
         &std::fs::read("tests/fixtures/alu-8-nadd-nsub.schem").unwrap(),
@@ -401,6 +409,7 @@ fn a_buffer_is_read_whole_from_its_file() {
 /// inverted says so. A subtractor, an adder whose B is subtracted, its
 /// carries borrows, is a category of its own.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn inverted_lines_are_flags_not_categories() {
     let subtractor = evaluate(&uploaded("dd-cca-sub-16")).unwrap();
     assert_eq!(subtractor.category, Some("subtractor"));
@@ -461,6 +470,7 @@ fn a_decoder_is_read_whole_from_its_file() {
 /// A NAND+XNOR gate gives both on outputs of their own, and stacks west
 /// into more bits as an XOR gate does.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_nand_xnor_gate_is_read_whole_from_its_file() {
     let e = evaluate(&stored("nand-xnor-1")).unwrap();
     assert_eq!(e.category, Some("nand_xnor_gate"));
@@ -475,6 +485,7 @@ fn a_nand_xnor_gate_is_read_whole_from_its_file() {
 /// amount on every value of A: this one shifts left, and a combination of
 /// its lines that shifts only some values is no shift of it.
 #[test]
+#[ignore = "measures whole builds: just test-full"]
 fn a_barrel_shifters_shifts_are_found_by_its_lines() {
     let e = evaluate(&stored("barrel-shifter-8")).unwrap();
     assert_eq!(e.category, Some("barrel_shifter"));
