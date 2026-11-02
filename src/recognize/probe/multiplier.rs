@@ -32,10 +32,10 @@ pub struct MultiplierProbed {
 /// The multiplier the file in `data` is, from `report`'s levers and
 /// outputs: its two input lines of one width its operands, A and B,
 /// whichever is which, as A × B is B × A, and a third line, if any, a fused
-/// multiply-add's addend, C, each line tried as it; a lone lever or
-/// button, if any, a sequential one's calculate; and its output lines, up to three, its product, tried in each
-/// order, lowest first, each coloured and run through the multiplier
-/// test, quick cases first. Or why none holds.
+/// multiply-add's addend, C, each line tried as it; a lone lever or button,
+/// if any, a sequential one's calculate; and its output lines, up to three,
+/// its product, tried in each order, lowest first, each coloured and run
+/// through the multiplier test, quick cases first. Or why none holds.
 pub fn multiplier(
     data: &[u8],
     report: &inspect::Report,

@@ -3,9 +3,9 @@
 //!
 //! Redpiler models dust, torches, repeaters, comparators, levers, buttons,
 //! and lamps, and the barrels, furnaces, and hoppers a comparator reads a
-//! signal strength from, but not pistons, observers, or
-//! the order in which the game updates blocks. A build using anything else
-//! is refused rather than simulated wrongly.
+//! signal strength from, but not pistons, observers, or the order in which
+//! the game updates blocks. A build using anything else is refused rather
+//! than simulated wrongly.
 //!
 //! Each [`Test`] is one category's. Most are stateless, and state only what
 //! sets them apart as a spec, which `bench` runs; an ALU's operations and a
@@ -753,6 +753,14 @@ pub struct Guess {
     pub inverted: usize,
 }
 
+impl Guess {
+    /// The share of its cases it got wrong, in thousandths, which ranks one
+    /// guess against another.
+    pub fn wrong_share(&self) -> u64 {
+        self.wrong * 1000 / self.cases.max(1)
+    }
+}
+
 /// What the build in `blocks` seems to be: of the tests its inputs and
 /// outputs fit, the one whose telling values come out right most often, if
 /// three in four do, reading the fewest control lines inverted on a tie.
@@ -808,9 +816,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         // Three in four right, so a build with a few wrong bits is still
         // known for what it is.
         .filter(|guess| (guess.cases - guess.wrong) * 4 >= guess.cases * 3)
-        .min_by_key(|guess| {
-            (guess.wrong * 1000 / guess.cases.max(1), guess.inverted)
-        })
+        .min_by_key(|guess| (guess.wrong_share(), guess.inverted))
 }
 
 #[cfg(test)]

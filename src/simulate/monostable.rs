@@ -1,10 +1,10 @@
 //! Testing a monostable: input A turning on, or for a falling-edge one
 //! turning off, gives a pulse of a set number of ticks on its output, and
-//! the other edge gives nothing; a dual-edge monostable pulses on both.
-//! Its output rests the same with A on as off: off, or on for an inverted
-//! one, whose pulse turns it off. Each bit of A drives its own output bit, as copies
-//! stacked side by side add bits: a bit of one output, or a pink status
-//! line of its own, the one nearest it.
+//! the other edge gives nothing; a dual-edge monostable pulses on both. Its
+//! output rests the same with A on as off: off, or on for an inverted one,
+//! whose pulse turns it off. Each bit of A drives its own output bit, as
+//! copies stacked side by side add bits: a bit of one output, or a pink
+//! status line of its own, the one nearest it.
 //!
 //! From rest, each bit turns on alone and then off, and then every bit
 //! together, while every output bit is watched tick by tick until nothing

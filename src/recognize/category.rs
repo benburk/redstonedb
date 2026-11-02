@@ -109,9 +109,9 @@ pub enum Lines {
     /// A comparison's: its one output, yellow or pink, is its result, which
     /// needs no sign and goes by this name, such as `A > B`.
     Result(&'static str),
-    /// An inverter's, multiplier's, or T flip-flop's: its lone control line needs no sign
-    /// and goes by this name, such as `invert` or `calculate`; it has no
-    /// status line.
+    /// An inverter's, multiplier's, or T flip-flop's: its lone control line
+    /// needs no sign and goes by this name, such as `invert` or
+    /// `calculate`; it has no status line.
     Control(&'static str),
     /// A buffer's: its data bus in and out as a register's, and its
     /// unsigned magenta lines its cells' writes, by a button, or by a lever
@@ -326,8 +326,6 @@ const CARRY_IN: &str = crate::recognize::colour::CARRY_IN[0];
 
 /// The name an unsigned carry out goes by; see `colour::CARRY_OUT`.
 const CARRY_OUT: &str = crate::recognize::colour::CARRY_OUT[0];
-
-impl Lines {}
 
 #[cfg(test)]
 mod tests {
