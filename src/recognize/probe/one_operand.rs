@@ -3,11 +3,9 @@
 //! line, if it has one, tried among its levers and the rest A, each way
 //! coloured and run through its test.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, split, try_roles};
+use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
-    recognize::{colour, inspect},
+    recognize::inspect,
     schem::Pos,
     simulate::{self, Test},
 };
@@ -86,11 +84,11 @@ pub fn one_operand(
         if a.is_empty() {
             continue;
         }
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(a.iter().map(|&p| (p, "lime")));
-        roles.extend(line.map(|p| (p, colour::CONTROL)));
-        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
-        roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
+        let mut roles = Roles::default();
+        roles.mark(Role::A, &a);
+        roles.mark(Role::Control, &line);
+        roles.mark(Role::Output(0), &out.bits);
+        roles.mark(Role::Status, &status);
         match try_roles(data, &roles, test, false)? {
             Ok((file, run)) => return Ok(OneInputProbed { a, file, run }),
             Err(fault) => why = fault,
@@ -104,7 +102,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        recognize::probe::recognize_as,
+        recognize::{colour, probe::recognize_as},
         schem::{self, Blocks, Pos},
     };
 
@@ -136,9 +134,13 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|&(_, state)| {
-                    ["lime", "light_blue", "magenta"]
-                        .iter()
-                        .any(|c| schem::short(state).starts_with(c))
+                    [
+                        colour::INPUT_COLOURS[0],
+                        colour::INPUT_COLOURS[1],
+                        colour::CONTROL,
+                    ]
+                    .iter()
+                    .any(|c| schem::short(state).starts_with(c))
                 })
                 .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
                 .collect();

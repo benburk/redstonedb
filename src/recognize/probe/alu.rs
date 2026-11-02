@@ -3,9 +3,7 @@
 //! and every other lever a control line, each way coloured and run through
 //! the ALU test.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, try_roles};
+use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
     recognize::inspect::{self, Run},
     schem::Pos,
@@ -71,12 +69,12 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, Fault> {
         .collect();
     let mut why = Fault::Unfit(String::new());
     for (a, b) in [(first, second), (second, first)] {
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(a.bits.iter().map(|&p| (p, "lime")));
-        roles.extend(b.bits.iter().map(|&p| (p, "light_blue")));
-        roles.extend(controls.iter().map(|&p| (p, "magenta")));
-        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
-        roles.extend(status.iter().map(|&p| (p, "pink")));
+        let mut roles = Roles::default();
+        roles.mark(Role::A, &a.bits);
+        roles.mark(Role::B, &b.bits);
+        roles.mark(Role::Control, &controls);
+        roles.mark(Role::Output(0), &out.bits);
+        roles.mark(Role::Status, &status);
         match try_roles(data, &roles, Test::Alu, true)? {
             Ok((file, run)) => {
                 return Ok(AluProbed {
