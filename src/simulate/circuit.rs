@@ -56,6 +56,9 @@ pub struct Circuit {
     /// Each output port's blocks, least significant first, in the order of
     /// `Interface::outputs`, and whether it shows a digit per block.
     outputs: Vec<(Vec<BlockPos>, bool)>,
+    /// Each wooden button held down, with the ticks left before it springs
+    /// back; the world holds it as a lever, which `advance` turns off.
+    held: Vec<(BlockPos, u32)>,
 }
 
 /// How an input port is driven: by a lever per bit, or by a barrel and
@@ -65,12 +68,14 @@ enum Drive {
     Strengths(Vec<Driver>),
 }
 
-/// A lever, or a stone button, which `set` leaves alone and `press`
-/// presses.
+/// A lever, or a button, which `set` leaves alone and `press` presses.
 struct Lever {
     pos: BlockPos,
     on: bool,
     button: bool,
+    /// A wooden button, held down longer than a stone one, which the
+    /// simulator does not model: the world holds a lever in its place.
+    wooden: bool,
     /// The strength it powers its block at when on: 15, as a lever does,
     /// unless `drive_at` sets it weaker.
     power: u8,
@@ -96,6 +101,10 @@ pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 /// How far the world reaches past the build on each side, west, east,
 /// north, and south, for the drivers of signal-strength inputs.
 const MARGIN: i32 = 2;
+
+/// The ticks a press holds a wooden button down: 30 game ticks, where a
+/// stone button's 20 are 10.
+const WOODEN_PRESS: u32 = 15;
 
 impl Circuit {
     /// Sets up `blocks`, whose interface is `interface`.
@@ -194,6 +203,7 @@ impl Circuit {
             compiler,
             inputs,
             outputs,
+            held: Vec::new(),
         })
     }
 
@@ -261,7 +271,8 @@ impl Circuit {
     }
 
     /// Presses the button on bit `bit` of input `port`, as a player does: it
-    /// powers its block until it springs back, ten ticks on.
+    /// powers its block until it springs back, ten ticks on, or fifteen for
+    /// a wooden one. Pressing it while it is down does nothing.
     pub fn press(&mut self, port: usize, bit: usize) {
         let Drive::Levers(levers) = &self.inputs[port] else {
             return;
@@ -270,7 +281,12 @@ impl Circuit {
             return;
         };
         let pos = button.pos;
-        if let Some(compiler) = &mut self.compiler {
+        if button.wooden {
+            if !self.held.iter().any(|&(held, _)| held == pos) {
+                self.held.push((pos, WOODEN_PRESS));
+                self.flip(pos, true);
+            }
+        } else if let Some(compiler) = &mut self.compiler {
             compiler.on_use_block(pos);
         } else {
             let block = self.world.get_block(pos);
@@ -278,6 +294,16 @@ impl Circuit {
         }
         // So `pressed` sees it down before the next tick.
         self.show();
+    }
+
+    /// Turns the lever at `pos` on or off, from off or on.
+    fn flip(&mut self, pos: BlockPos, on: bool) {
+        if let Some(compiler) = &mut self.compiler {
+            compiler.set_power(pos, if on { 15 } else { 0 });
+        } else {
+            let block = self.world.get_block(pos);
+            mchprs_redstone::on_use(block, &mut self.world, pos);
+        }
     }
 
     /// Whether the button on bit `bit` of input `port` is still down, as of
@@ -292,6 +318,7 @@ impl Circuit {
         matches!(
             self.world.get_block(button.pos),
             Block::StoneButton { powered: true, .. }
+                | Block::Lever { powered: true, .. }
         )
     }
 
@@ -335,20 +362,31 @@ impl Circuit {
         self.show();
     }
 
-    /// One tick, without showing it.
+    /// One tick, without showing it, after which each wooden button held
+    /// down its time springs back, as a stone one does within the tick.
     fn advance(&mut self) {
         match &mut self.compiler {
             Some(compiler) => compiler.tick(),
             None => tick_world(&mut self.world),
         }
+        for (_, left) in &mut self.held {
+            *left -= 1;
+        }
+        let (up, held) = self.held.iter().partition(|&&(_, left)| left == 0);
+        self.held = held;
+        for (pos, _) in up {
+            self.flip(pos, false);
+        }
     }
 
-    /// Whether anything is left to update.
+    /// Whether anything is left to update, a wooden button still down
+    /// among it.
     pub fn pending(&mut self) -> bool {
-        match &mut self.compiler {
-            Some(compiler) => compiler.has_pending_ticks(),
-            None => !self.world.to_be_ticked.is_empty(),
-        }
+        !self.held.is_empty()
+            || match &mut self.compiler {
+                Some(compiler) => compiler.has_pending_ticks(),
+                None => !self.world.to_be_ticked.is_empty(),
+            }
     }
 
     /// Writes Redpiler's state into the world, where `get` reads it; the
@@ -991,15 +1029,21 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
         .map(|bit| {
             let pos = bit.entry.map(|side| schem::step(bit.pos, side));
             let switch = pos.map(|pos| (pos, schem::id(blocks.get(pos))));
-            let (pos, button) = match switch {
-                Some((pos, "minecraft:lever")) => (pos, false),
-                Some((pos, "minecraft:stone_button")) => (pos, true),
+            let Some((pos, id)) = switch else {
+                bail!("A bit of input {} has no lever.", port.name);
+            };
+            let name = schem::short(id);
+            let (button, wooden) = match crate::works_from::like(name) {
+                "lever" => (false, false),
+                "stone_button" => (true, false),
+                "oak_button" => (true, true),
                 _ => bail!("A bit of input {} has no lever.", port.name),
             };
             Ok(Lever {
                 pos: at(pos),
                 on: false,
                 button,
+                wooden,
                 power: 15,
             })
         })
@@ -1009,8 +1053,15 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
 /// The MCHPRS block for a Sponge block state, such as
 /// `minecraft:lever[face=wall,facing=south,powered=false]`.
 fn block(state: &str) -> Result<Block> {
-    let id = schem::id(state);
     let name = schem::short(state);
+    // A button is held down as long as any of its kind is: a wooden one as
+    // a lever `Circuit` lets up, the simulator having none.
+    let id = match crate::works_from::like(name) {
+        "stone_button" => "minecraft:stone_button",
+        "oak_button" => "minecraft:lever",
+        _ => schem::id(state),
+    };
+    let name = schem::short(id);
     let known = name.ends_with("_concrete")
         || name.ends_with("_stained_glass")
         || name.ends_with("_sign")

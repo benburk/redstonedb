@@ -134,6 +134,17 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
     assert!(timed);
 }
 
+/// 4ff460f9 as first uploaded: its calculate a wooden button, held down 15
+/// ticks, as its reworked stone button with a pulse extender is.
+#[test]
+fn a_multiplier_calculated_on_a_wooden_button_holds() {
+    let file = std::fs::read("tests/fixtures/mult-8-wooden.schem").unwrap();
+    let e = evaluate(&file).unwrap();
+    assert_eq!(e.category, Some("multiplier"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!((e.latency, e.throughput), (Some(25), Some(32)));
+}
+
 #[test]
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.

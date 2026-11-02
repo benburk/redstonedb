@@ -6,7 +6,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 
 ## Inputs
 
-- An input is a lever on the side of a solid block, or a stone button for a pulse, such as a register's write. Never on the top or bottom.
+- An input is a lever on the side of a solid block, or a button for a pulse, such as a register's write: stone for 10 ticks, wooden for 15. Never on the top or bottom.
 - The block drives dust on any side but its lever's, on top and below too, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target may, and a redstone block may sit on top.
 - A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it.
 - A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so it may have a block behind its lever.
@@ -67,7 +67,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 ## Blocks
 
 - Furnaces, cauldrons, and cakes become barrels of the same strength. Hoppers are kept as a fixed strength unless the uploader swaps them too.
-- The simulator doesn't model pistons, observers, or wooden buttons; a build with one isn't recognized.
+- The simulator doesn't model pistons or observers; a build with one isn't recognized. It holds a wooden button as a lever it turns off 15 ticks after each press.
 
 ## Bounding box
 

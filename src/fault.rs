@@ -60,12 +60,6 @@ const CASES: &[Case] = &[
         rule: Some("outputs"),
     },
     Case {
-        when: &[Has("(need stone)")],
-        fix: "Use a stone button. Other buttons stay pressed longer than a \
-              test presses them.",
-        rule: Some("control-lines"),
-    },
-    Case {
         when: &[Has(": on top of block"), Has(": on bottom of block")],
         fix: "Put it on the side of its block.",
         rule: Some("data-inputs"),
@@ -279,7 +273,6 @@ mod tests {
             "Test couldn't run: Couldn't recognize input A without levers.",
             "Output bus: 7 outputs, need 8",
             "A: no line of 8 levers",
-            "Button at (1, 2, 3): oak button (need stone)",
             "Test couldn't run: Control lines: expected a button writing \
              each cell and a lever reading it, found 2 buttons, no levers.",
             "Control lines: expected only writes, as a buffer shows what it \

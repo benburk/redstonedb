@@ -257,7 +257,7 @@ fn named(id: &str) -> String {
 
 /// The block `id` acts as, such as `oak_button` for any wooden button: a
 /// button or pressure plate goes by what it does, not what it is made of.
-fn like(id: &str) -> &str {
+pub(crate) fn like(id: &str) -> &str {
     if id.ends_with("_button") {
         if matches!(id, "stone_button" | "polished_blackstone_button") {
             "stone_button"

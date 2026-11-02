@@ -213,21 +213,11 @@ fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
 }
 
 /// Whether the switch is placed as an input's: on a side of a solid
-/// block. A button not of stone becomes one.
+/// block.
 fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
     let at = place(lever);
-    // Buttons' pulses differ in length, which a build may rely on, so one
-    // is never swapped for another.
-    if switch.button && name != "stone_button" {
-        problem(
-            report,
-            "button not stone",
-            vec![lever],
-            format!("Button at {at}: {} (need stone)", words(&name)),
-        );
-    }
     if matches!(switch.side, Direction::Up | Direction::Down) {
         let where_ = if switch.side == Direction::Up {
             "top"

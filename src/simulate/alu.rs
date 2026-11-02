@@ -520,6 +520,9 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let found = selections(blocks, &interface, &alu)?;
+    if found.is_empty() {
+        broken!("No setting of its control lines gives an operation.");
+    }
     let mut runs = Vec::new();
     for selection in &found {
         runs.push(check_one(blocks, &interface, &alu, selection, quick)?);

@@ -326,7 +326,7 @@ impl World {
             let q = schem::step(p, d);
             let state = self.get(q);
             let on = match schem::short(state) {
-                "lever" | "stone_button" => {
+                name if name == "lever" || name.ends_with("_button") => {
                     match schem::property(state, "face") {
                         Some("floor") => Some(schem::step(q, Direction::Down)),
                         Some("ceiling") => Some(schem::step(q, Direction::Up)),
@@ -445,7 +445,8 @@ impl World {
                         .is_some_and(|f| schem::step(q, f.opposite()) == p)
             })
             || self.held(p).into_iter().any(|q| {
-                matches!(schem::short(self.get(q)), "lever" | "stone_button")
+                let name = schem::short(self.get(q));
+                name == "lever" || name.ends_with("_button")
             })
     }
 
