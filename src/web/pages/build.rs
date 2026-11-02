@@ -50,8 +50,8 @@ pub struct FileRead {
     pub stacking: Vec<crate::schem::stack::Review>,
 }
 
-/// What a build's page shows: the build, the builds like it, its file as read, its simulation, its versions, and
-/// whether the viewer has favourited it.
+/// What a build's page shows: the build, the builds like it, its file as read,
+/// its simulation, its versions, and whether the viewer has favourited it.
 pub struct BuildPage<'a> {
     pub s: &'a Schematic,
     pub similar: &'a [(Schematic, u32)],

@@ -261,9 +261,9 @@ impl User {
     }
 
     /// Sets or clears the account's Minecraft name. A different name needs
-    /// confirming again; the same one in other capitals keeps its
-    /// confirmation, and stored credits take the new spelling. The `Err` is a sentence for the person when the name
-    /// is taken by another account.
+    /// confirming again; the same one in other capitals keeps its confirmation,
+    /// and stored credits take the new spelling. The `Err` is a sentence for
+    /// the person when the name is taken by another account.
     pub async fn set_minecraft_name(
         db: &SqlitePool,
         id: Uuid,

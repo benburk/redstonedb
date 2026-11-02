@@ -224,13 +224,13 @@ impl Schematic {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
-    /// Its tags with its design, orientation, and flags among them, as its
-    /// page shows them and a list is narrowed by: `fails_verification` first,
-    /// then its design, its orientation, its flags in its category's
-    /// order, `stackable` when its copies stack, `synced` when its outputs
-    /// settle together or `unsynced` when they don't, and its other tags. One the site works out from a
-    /// conventional build is found, as its category's test or file sets
-    /// it; one a person gives is of kind other.
+    /// Its tags with its design, orientation, and flags among them, as its page
+    /// shows them and a list is narrowed by: `fails_verification` first, then
+    /// its design, its orientation, its flags in its category's order,
+    /// `stackable` when its copies stack, `synced` when its outputs settle
+    /// together or `unsynced` when they don't, and its other tags. One the site
+    /// works out from a conventional build is found, as its category's test or
+    /// file sets it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
         let behaviour = crate::recognize::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
@@ -626,8 +626,8 @@ mod tests {
         }
     }
 
-    /// Its design, orientation, and flags are among its tags, after
-    /// failing and before the rest, coloured as found when the site works them out, and as
+    /// Its design, orientation, and flags are among its tags, after failing and
+    /// before the rest, coloured as found when the site works them out, and as
     /// given for a build kept as built.
     #[test]
     fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
