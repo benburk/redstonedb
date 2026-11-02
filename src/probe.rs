@@ -602,6 +602,15 @@ pub fn recognize_watched(
         found: None,
         problems,
     };
+    // Inputs taking a hex digit per block through dust are a hex adder's,
+    // which probing doesn't read, whatever else the check finds.
+    if meant != Some("hex_adder")
+        && !crate::interface::dust_inputs(&blocks).is_empty()
+    {
+        return Ok(unrecognized(vec![
+            crate::details::WITHOUT_LEVERS.to_owned(),
+        ]));
+    }
     if !problems.is_empty() {
         return Ok(unrecognized(problems));
     }

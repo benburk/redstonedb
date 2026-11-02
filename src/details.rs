@@ -391,20 +391,20 @@ pub async fn unrecognized(
         let name = off_list_name(category, width);
         Ok(Some(Unrecognized { why, name }))
     };
-    if !build.conventional {
-        return off("Couldn't read its inputs and outputs".to_owned());
-    }
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
         return off("Couldn't read its file".to_owned());
     };
     // Inputs taking a strength, a hex digit per block, are a hex adder's,
-    // and no other's.
+    // and no other's, as a build kept as built says too.
     let hex = !crate::interface::dust_inputs(&blocks).is_empty();
-    if category.name == HEX_ADDER && !hex {
-        return off(NO_HEX_INPUTS.to_owned());
-    }
     if category.name != HEX_ADDER && hex {
         return off(WITHOUT_LEVERS.to_owned());
+    }
+    if !build.conventional {
+        return off("Couldn't read its inputs and outputs".to_owned());
+    }
+    if category.name == HEX_ADDER && !hex {
+        return off(NO_HEX_INPUTS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
         return off(match width {

@@ -202,3 +202,13 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
     };
     assert_eq!(file.sha256, ahead.sha256);
 }
+
+/// A hex adder's inputs take a hex digit per block through dust, which
+/// probing doesn't read, so it says so, rather than faulting its lone
+/// carry in as an input out of line.
+#[test]
+fn probing_a_hex_adder_says_its_inputs_take_no_levers() {
+    let recognition = app::probe::recognize(&fixture("hex-cca-8")).unwrap();
+    assert_eq!(recognition.found, None);
+    assert_eq!(recognition.problems, [details::WITHOUT_LEVERS]);
+}
