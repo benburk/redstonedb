@@ -559,7 +559,7 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
         }
     }
     if adder && !report.inputs.is_empty() && !report.outputs.is_empty() {
-        match crate::recognize::probe::adder(&blocks, &report) {
+        match crate::recognize::probe::adder(data, &blocks, &report) {
             Ok(probed) => report.notes.push(format!(
                 "It adds, as {}: all {} cases right, {}.",
                 probed.layout.describe(),

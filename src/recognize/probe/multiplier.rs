@@ -66,10 +66,9 @@ pub fn multiplier(
             lengths(&report.outputs)
         )));
     }
+    // Of the orders that ran, the closest, rather than one that couldn't
+    // run.
     let mut why = Fault::Unfit(String::new());
-    // Of the orders that ran, the share of cases the closest got wrong,
-    // which `why` tells, rather than one that couldn't run.
-    let mut closest = f64::INFINITY;
     let tries = operands.iter().flat_map(|&(a, b, c)| {
         orders(lines.len())
             .into_iter()
@@ -96,19 +95,7 @@ pub fn multiplier(
                     run,
                 });
             }
-            Err(fault @ Fault::Wrong { wrong, cases, .. }) => {
-                #[allow(clippy::cast_precision_loss)]
-                let share = wrong as f64 / cases.max(1) as f64;
-                if share < closest {
-                    closest = share;
-                    why = fault;
-                }
-            }
-            Err(fault) => {
-                if !why.ran() {
-                    why = fault;
-                }
-            }
+            Err(fault) => why = why.nearer(fault),
         }
     }
     Err(why)
