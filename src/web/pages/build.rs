@@ -874,7 +874,7 @@ fn actions_menu(s: &Schematic, viewer: Option<&User>, path: &str) -> Markup {
 fn delete_dialog(s: &Schematic) -> Markup {
     html! {
         dialog id="delete" aria-labelledby="delete-heading"
-            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            class="dialog w-full max-w-form" {
             form action={ "/schematics/" (s.id) "/delete" } method="post" class="flex flex-col gap-4" {
                 h2 id="delete-heading" class=(SECTION_TITLE) { "Delete " (s.name()) "?" }
                 p { "The build, its file, tags, and credits are removed for good." }
@@ -910,7 +910,7 @@ fn download_dialog(
     ];
     html! {
         dialog id="download" aria-labelledby="download-heading"
-            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            class="dialog w-full max-w-form" {
             form action={ (path) "/download" } method="get" class="flex flex-col gap-4" {
                 h2 id="download-heading" class=(SECTION_TITLE) { "Download" }
                 label class="field" {

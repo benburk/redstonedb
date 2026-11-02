@@ -206,7 +206,6 @@ fn file_actions(index: usize, name: &str) -> Markup {
     let path = format!("/schemati/files/{name}");
     let (stem, extension) = name.rsplit_once('.').unwrap_or((name, "schem"));
     let rename = format!("rename-{index}");
-    let dialog = "m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30";
     html! {
         div class="flex flex-wrap justify-end gap-2" {
             a href=(path) download=(name) class="btn btn-quiet" { "Download" }
@@ -222,7 +221,7 @@ fn file_actions(index: usize, name: &str) -> Markup {
                     class="btn btn-quiet" { "Delete" }
             }
         }
-        dialog id=(rename) aria-labelledby={ (rename) "-heading" } class=(dialog) {
+        dialog id=(rename) aria-labelledby={ (rename) "-heading" } class="dialog w-full max-w-form" {
             form action={ (path) "/rename" } method="post"
                 fx-action={ (path) "/rename" } fx-method="post" fx-target="#schemati-folder"
                 class="flex flex-col gap-4" {

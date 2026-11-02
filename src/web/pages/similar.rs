@@ -21,7 +21,7 @@ pub struct Found<'a> {
 pub fn similar_dialog(connection: Option<&Connection>) -> Markup {
     html! {
         dialog id="similar" data-show aria-labelledby="similar-heading"
-            class="m-auto w-full max-w-form rounded-overlay border border-line bg-raised p-5 text-ink shadow-overlay backdrop:bg-black/30" {
+            class="dialog w-full max-w-form" {
             form action="/similar" method="post" enctype="multipart/form-data" data-wait
                 fx-action="/similar" fx-method="post" fx-target="#listing"
                 class="group flex flex-col gap-4" {

@@ -208,7 +208,7 @@ fn block_theme_row(chosen: &Palette) -> Markup {
 pub fn block_theme(chosen: &Palette) -> Markup {
     html! {
         dialog id="block-theme" data-show aria-labelledby="block-theme-title"
-            class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+            class="dialog max-w-calm" {
             div class="mb-4 flex items-center justify-between gap-4" {
                 h2 id="block-theme-title" class="font-semibold" { "Block theme" }
                 // Its choices save as they change; done shows them.
@@ -295,7 +295,7 @@ pub enum Presets {
 pub fn custom_colours(start: &Palette, signed_in: bool) -> Markup {
     html! {
         dialog id="custom-colours" data-show aria-labelledby="custom-colours-title"
-            class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+            class="dialog max-w-calm" {
             div class="mb-2 flex items-center justify-between gap-4" {
                 h3 id="custom-colours-title" class="font-semibold" { "Custom colours" }
                 button type="button" commandfor="custom-colours" command="close" class="btn btn-quiet" { "Done" }
@@ -450,7 +450,7 @@ fn picker(
                 span id={ (dialog) "-chosen" } data-picked-name { (words(current)) }
             }
             dialog id=(dialog) data-picker aria-labelledby={ (dialog) "-title" }
-                class="m-auto max-w-calm rounded-overlay border border-line bg-raised p-5 text-ink shadow-lg backdrop:bg-black/40" {
+                class="dialog max-w-calm" {
                 div class="mb-3 flex items-center justify-between gap-4" {
                     h3 id={ (dialog) "-title" } class="font-semibold" { (label) }
                     button type="button" commandfor=(dialog) command="close" class="btn btn-quiet" { "Done" }
