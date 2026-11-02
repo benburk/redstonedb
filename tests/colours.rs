@@ -28,7 +28,15 @@ async fn setup_test_db() -> SqlitePool {
 fn prepared(name: &str) -> import::Prepared {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
-    import::prepare(&raw, false, true, false, false).expect("fixture prepares")
+    import::prepare_for(
+        &raw,
+        import::Purpose::InPlace {
+            standardize: false,
+            conventional: true,
+            keep_paste: false,
+        },
+    )
+    .expect("fixture prepares")
 }
 
 #[tokio::test]
