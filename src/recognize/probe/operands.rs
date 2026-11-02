@@ -203,7 +203,7 @@ mod tests {
             found
                 .found
                 .as_deref()
-                .is_some_and(|f| f.starts_with("an XOR/XNOR gate")),
+                .is_some_and(|f| f.starts_with("an XOR gate")),
             "{:?} {:?}",
             found.found,
             found.problems

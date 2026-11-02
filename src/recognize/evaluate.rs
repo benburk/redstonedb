@@ -244,20 +244,15 @@ impl Evaluation {
     }
 
     /// Takes the flags its `test`'s cases, `run`, and its `timing` show: a
-    /// gate's whether it gives its inverse, as an XNOR, a comparator's whether it reads its
-    /// operands signed, an ALU's its operations and plain lines, and a
-    /// monostable's pulse and whether it rests on or pulses as A turns off.
+    /// comparator's whether it reads its operands signed, an ALU's its
+    /// operations and plain lines, and a monostable's pulse and whether it
+    /// rests on or pulses as A turns off.
     fn flagged(
         &mut self,
         test: Test,
         run: &Run,
         timing: &Timing,
     ) -> Result<()> {
-        if let Some(gate) = simulate::Gate::of(test)
-            && run.pattern == gate.patterns()[1]
-        {
-            self.flags.push(gate.flag().to_owned());
-        }
         if test == Test::GreaterThan
             && run.pattern == simulate::SIGNED_GREATER_THAN
         {

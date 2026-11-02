@@ -139,7 +139,7 @@ async fn a_new_version_that_is_recognized_moves_a_build_up() {
 }
 
 /// Every category the site recognizes builds of names its off-list stand-in
-/// so it reads back, whatever its label holds, as XOR/XNOR Gate's slash.
+/// so it reads back, whatever its label holds, as NAND+XNOR Gate's plus.
 #[tokio::test]
 async fn an_off_list_name_reads_back_as_its_category() {
     let categories = categories().await;

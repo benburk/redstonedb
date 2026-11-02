@@ -1355,8 +1355,22 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
     let guess = simulate::guess(&prepared.blocks).unwrap();
     assert_eq!(
         (guess.category, guess.pattern.as_str(), guess.wrong),
-        ("xor_xnor_gate", "A xor B", 0)
+        ("xor_gate", "A xor B", 0)
     );
+}
+
+/// Each gate's test takes its own function alone: an XOR gate gets every
+/// case right as one and every case wrong as an XNOR gate, its inverse.
+#[test]
+fn an_xor_gate_is_no_xnor_gate() {
+    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let prepared = import::prepare(&raw, true, true, false, true).unwrap();
+    let wrong = |test: Test| match test.run(&prepared.blocks) {
+        Report::Ran(run) => (run.pattern, run.wrong, run.cases),
+        report => panic!("it did not run: {report:?}"),
+    };
+    assert_eq!(wrong(Test::Xor), ("A xor B".to_owned(), 0, 4));
+    assert_eq!(wrong(Test::Xnor), ("A xnor B".to_owned(), 4, 4));
 }
 
 /// A gate has no lines, so copies side by side each add a bit to A, B, and
@@ -1367,7 +1381,7 @@ fn an_xor_gate_stacks_west_into_wider_ones() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare(&raw, true, true, false, true).unwrap();
     let Some(Stacking::Wider { step, copies, .. }) =
-        Test::XorXnor.stacking(&prepared.data)
+        Test::Xor.stacking(&prepared.data)
     else {
         panic!("it does not stack");
     };

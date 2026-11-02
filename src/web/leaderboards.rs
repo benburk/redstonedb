@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
@@ -41,14 +41,31 @@ pub struct Chosen {
     category: Option<String>,
 }
 
+/// The gate categories that held a gate and its inverse together, each
+/// with the gate its leaderboard's address now leads to, as XOR/XNOR
+/// Gate's leads to XOR Gate's.
+const SPLIT: [(&str, &str); 3] = [
+    ("xor_xnor_gate", "xor_gate"),
+    ("and_nand_gate", "and_gate"),
+    ("or_nor_gate", "or_gate"),
+];
+
 /// A standard category's leaderboard, narrowed to one width and state, and
 /// any orientation, design, latency, and tags.
 pub async fn show(
     Path(category): Path<String>,
     Query(query): Query<BoardQuery>,
+    RawQuery(raw): RawQuery,
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
+    if let Some((_, gate)) = SPLIT.iter().find(|(old, _)| *old == category) {
+        let path = match raw {
+            Some(raw) => format!("/leaderboards/{gate}?{raw}"),
+            None => format!("/leaderboards/{gate}"),
+        };
+        return Ok(Redirect::permanent(&path).into_response());
+    }
     // Private builds compete with no one.
     let all = schematic::visible(&state.db, None).await?;
     let categories = catalogue::categories(&state.db).await?;

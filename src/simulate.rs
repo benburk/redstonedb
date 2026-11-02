@@ -141,12 +141,18 @@ pub enum Test {
     BinaryToHex,
     /// Whether at least some number of A's bits are on.
     Threshold,
-    /// A xor B, or every bit of it inverted, an XNOR gate's.
-    XorXnor,
-    /// A and B, or every bit of it inverted, a NAND gate's.
-    AndNand,
-    /// A or B, or every bit of it inverted, a NOR gate's.
-    OrNor,
+    /// A xor B.
+    Xor,
+    /// A xor B, every bit of it inverted.
+    Xnor,
+    /// A and B.
+    And,
+    /// A and B, every bit of it inverted.
+    Nand,
+    /// A or B.
+    Or,
+    /// A or B, every bit of it inverted.
+    Nor,
     /// A value held, counted up or down as its control lines pulse.
     Counter,
     /// A value held, shifted toward its high or low bit as its control
@@ -162,7 +168,7 @@ const MAX_WIDTH: i64 = 32;
 
 impl Test {
     /// Every test.
-    pub const ALL: [Test; 29] = [
+    pub const ALL: [Test; 32] = [
         Test::Adder,
         Test::Decoder,
         Test::NandXnor,
@@ -186,9 +192,12 @@ impl Test {
         Test::Popcount,
         Test::BinaryToHex,
         Test::Threshold,
-        Test::XorXnor,
-        Test::AndNand,
-        Test::OrNor,
+        Test::Xor,
+        Test::Xnor,
+        Test::And,
+        Test::Nand,
+        Test::Or,
+        Test::Nor,
         Test::Counter,
         Test::ShiftRegister,
         Test::TFlipFlop,
@@ -237,9 +246,12 @@ impl Test {
             Test::Monostable => "monostable",
             Test::DualEdgeMonostable => "dual_edge_monostable",
             Test::Inverter => "inverter",
-            Test::XorXnor => "xor_xnor_gate",
-            Test::AndNand => "and_nand_gate",
-            Test::OrNor => "or_nor_gate",
+            Test::Xor => "xor_gate",
+            Test::Xnor => "xnor_gate",
+            Test::And => "and_gate",
+            Test::Nand => "nand_gate",
+            Test::Or => "or_gate",
+            Test::Nor => "nor_gate",
             Test::Counter => "counter",
             Test::ShiftRegister => "shift_register",
             Test::TFlipFlop => "t_flip_flop",
@@ -387,7 +399,12 @@ impl Test {
                 interface::name_lines(self.name(), blocks, interface);
                 inverter::spec(interface)
             }
-            Test::XorXnor | Test::AndNand | Test::OrNor => {
+            Test::Xor
+            | Test::Xnor
+            | Test::And
+            | Test::Nand
+            | Test::Or
+            | Test::Nor => {
                 gate::spec(interface, Gate::of(self).expect("a gate's test"))
             }
             Test::Alu
@@ -422,9 +439,12 @@ impl Test {
             Test::Monostable => monostable::stacking(data, false),
             Test::DualEdgeMonostable => monostable::stacking(data, true),
             Test::Inverter => inverter::stacking(data),
-            Test::XorXnor | Test::AndNand | Test::OrNor => {
-                gate::stacking(data, Gate::of(self)?)
-            }
+            Test::Xor
+            | Test::Xnor
+            | Test::And
+            | Test::Nand
+            | Test::Or
+            | Test::Nor => gate::stacking(data, Gate::of(self)?),
             Test::NandXnor => gate::nand_xnor_stacking(data),
             Test::Decoder => decoder::stacking(data),
             Test::Incrementer | Test::Decrementer | Test::CarryOut => {
@@ -682,19 +702,22 @@ pub struct Wrong {
 /// The tests `guess` tries, the first winning a tie. One run tries every
 /// kind of incrementer, and the kind it gets most right names its
 /// category. An inverter comes before it, as a 1-bit incrementer without a
-/// carry out is A xor its line, as a 1-bit inverter is. An XOR or XNOR gate
-/// comes before an equality comparator, as a 1-bit one is A xnor B. A
+/// carry out is A xor its line, as a 1-bit inverter is. An XNOR gate comes
+/// before an equality comparator, as a 1-bit one is A xnor B. A
 /// popcount and a threshold come before the BCD converters, whose telling
 /// values a popcount's strength output can pass.
-const GUESSED: [Test; 27] = [
+const GUESSED: [Test; 30] = [
     Test::Adder,
     Test::Decoder,
     Test::NandXnor,
     Test::BarrelShifter,
     Test::Inverter,
-    Test::XorXnor,
-    Test::AndNand,
-    Test::OrNor,
+    Test::Xor,
+    Test::Xnor,
+    Test::And,
+    Test::Nand,
+    Test::Or,
+    Test::Nor,
     Test::Popcount,
     Test::BinaryToHex,
     Test::Threshold,

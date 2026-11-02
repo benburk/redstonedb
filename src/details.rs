@@ -362,7 +362,7 @@ pub struct Unrecognized {
 /// The category off the list a build not recognized as one of `category`
 /// goes up under, named for what it seems meant to be, such as `8-bit
 /// adder`: from the category's name rather than its label, which may hold
-/// characters no name may, as `XOR/XNOR Gate` does, so
+/// characters no name may, as `NAND+XNOR Gate` does, so
 /// `simulation::meant_by` reads it back.
 pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
     let words = category.name.replace('_', " ");

@@ -121,7 +121,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     h2 id="per-category" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Per-category rules" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
                         li { "Some builds have optional control lines and data inputs, like an adder's carry in or an incrementer's increment line." }
-                        li { "Gates take A and B and give one output as wide. A torch on the output makes the inverse, so XOR and XNOR share a category, with a flag." }
+                        li { "Gates take A and B and give one output as wide. Each gate is its own category: an XOR gate with a torch on its output is an XNOR gate." }
                         li { "Multipliers take A and B, and at most one calculate button. No reset. A third input can be an addend, for A × B + C." }
                         li { "Counters take A, one clock button, and one write enable lever." }
                         li { "Subtractors are adders that take B away: A − B, less a borrow in. They rank apart from adders." }

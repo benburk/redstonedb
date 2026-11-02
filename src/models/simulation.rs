@@ -28,7 +28,7 @@ use crate::{
     },
     schem::{Blocks, stack},
     simulate::{
-        self, Edge, Gate, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
+        self, Edge, Report, SIGNED_GREATER_THAN, Stacking, Test, Timing,
     },
 };
 
@@ -773,17 +773,6 @@ impl Derived {
             && category::behaviour(&s.category).test == Some(Test::Threshold)
         {
             self.at_least = simulate::at_least(&run.pattern);
-        }
-        // A gate's cases say whether it gives its inverse, as an XNOR.
-        if let Report::Ran(run) = report
-            && run.wrong == 0
-            && let Some(gate) =
-                category::behaviour(&s.category).test.and_then(Gate::of)
-        {
-            self.flags.retain(|flag| flag != gate.flag());
-            if run.pattern == gate.patterns()[1] {
-                self.flags.push(gate.flag().to_owned());
-            }
         }
         if let Some(pulse) = report.timing().and_then(|timing| timing.pulse) {
             self.pulse = Some(pulse.ticks.into());

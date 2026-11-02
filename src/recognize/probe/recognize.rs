@@ -180,10 +180,13 @@ pub fn recognize_watched(
 /// AND a product of one bit each, a 1-bit XNOR an equality, and a 1-bit
 /// NAND+XNOR an adder's inverted, which no wider build of those is; an
 /// adder before an incrementer, as a 1-bit adder is a 1-bit incrementer.
-pub const KINDS: [&str; 27] = [
-    "xor_xnor_gate",
-    "and_nand_gate",
-    "or_nor_gate",
+pub const KINDS: [&str; 30] = [
+    "xor_gate",
+    "xnor_gate",
+    "and_gate",
+    "nand_gate",
+    "or_gate",
+    "nor_gate",
     "nand_xnor_gate",
     "equality",
     "greater_than",
@@ -254,9 +257,12 @@ fn named(kind: &str) -> String {
     let name = match kind {
         "alu" => "ALU",
         "inc_dec" => "inc/dec",
-        "xor_xnor_gate" => "XOR/XNOR gate",
-        "and_nand_gate" => "AND/NAND gate",
-        "or_nor_gate" => "OR/NOR gate",
+        "xor_gate" => "XOR gate",
+        "xnor_gate" => "XNOR gate",
+        "and_gate" => "AND gate",
+        "nand_gate" => "NAND gate",
+        "or_gate" => "OR gate",
+        "nor_gate" => "NOR gate",
         "nand_xnor_gate" => "NAND+XNOR gate",
         "equality" => "equality comparator",
         "greater_than" => "greater-than comparator",
@@ -376,7 +382,8 @@ fn probed_as(
             let found = found(&probed.run);
             ([probed.a, probed.b, probed.c].concat(), probed.file, found)
         }),
-        "xor_xnor_gate" | "and_nand_gate" | "or_nor_gate" => {
+        "xor_gate" | "xnor_gate" | "and_gate" | "nand_gate" | "or_gate"
+        | "nor_gate" => {
             let gate = category::behaviour(kind)
                 .test
                 .and_then(Gate::of)

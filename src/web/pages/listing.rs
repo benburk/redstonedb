@@ -973,8 +973,9 @@ mod tests {
         };
         // How far apart its copies stack says it stacks.
         assert_eq!(names(&s), ["2-wide_stackable", "pistons"]);
-        let mut gate = adder("other", &["xnor"], &[]);
-        gate.category = "xor_xnor_gate".to_owned();
+        let mut gate = adder("other", &[], &[]);
+        gate.category = "xnor_gate".to_owned();
+        gate.category_label = Some("XNOR Gate".to_owned());
         assert!(gate.name().contains("XNOR"), "{}", gate.name());
         assert!(names(&gate).is_empty());
     }

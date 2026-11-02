@@ -155,7 +155,7 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
     let file = import::prepare(&raw, true, true, false, true).unwrap().data;
     let e = evaluate(&file).unwrap();
-    assert_eq!(e.category, Some("xor_xnor_gate"));
+    assert_eq!(e.category, Some("xor_gate"));
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(1));
     // A 1-bit gate's lone input can't show its orientation; its copies
@@ -170,7 +170,7 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     assert_eq!(e.orientation, Some(Orientation::Horizontal));
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
-    assert!(e.flags.is_empty(), "an XOR, not an XNOR: {:?}", e.flags);
+    assert!(e.flags.is_empty(), "{:?}", e.flags);
 }
 
 #[test]

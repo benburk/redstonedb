@@ -1,6 +1,7 @@
 //! Testing a two-input gate: two operand buses of one width, A and B,
 //! into one output as wide, each bit A xor B, A and B, or A or B, or that
-//! inverted, as a torch on the output makes it: an XNOR, NAND, or NOR.
+//! inverted, as a torch on the output makes it: an XNOR, NAND, or NOR,
+//! each a category of its own.
 //! It has no lines, so copies stacked side by side add bits.
 
 use anyhow::Result;
@@ -17,23 +18,28 @@ use crate::{
     schem::{Blocks, stack},
 };
 
-/// A family of two-input gates, its category's: one function and its
-/// inverse, which a torch on the output makes of it, the inverse taking
-/// the category's flag.
+/// A two-input gate, its category's: one function, or that function
+/// inverted, as a torch on the output makes it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Gate {
     Xor,
+    Xnor,
     And,
+    Nand,
     Or,
+    Nor,
 }
 
 impl Gate {
     /// The gate whose category's test `test` is, if any.
     pub fn of(test: Test) -> Option<Gate> {
         match test {
-            Test::XorXnor => Some(Gate::Xor),
-            Test::AndNand => Some(Gate::And),
-            Test::OrNor => Some(Gate::Or),
+            Test::Xor => Some(Gate::Xor),
+            Test::Xnor => Some(Gate::Xnor),
+            Test::And => Some(Gate::And),
+            Test::Nand => Some(Gate::Nand),
+            Test::Or => Some(Gate::Or),
+            Test::Nor => Some(Gate::Nor),
             _ => None,
         }
     }
@@ -41,47 +47,45 @@ impl Gate {
     /// Its category's test.
     pub fn test(self) -> Test {
         match self {
-            Gate::Xor => Test::XorXnor,
-            Gate::And => Test::AndNand,
-            Gate::Or => Test::OrNor,
+            Gate::Xor => Test::Xor,
+            Gate::Xnor => Test::Xnor,
+            Gate::And => Test::And,
+            Gate::Nand => Test::Nand,
+            Gate::Or => Test::Or,
+            Gate::Nor => Test::Nor,
         }
     }
 
-    /// Its cases' names, as its function and as its inverse.
-    pub fn patterns(self) -> [&'static str; 2] {
+    /// Its cases' name, such as `A xor B`.
+    pub fn pattern(self) -> &'static str {
         match self {
-            Gate::Xor => ["A xor B", XNOR],
-            Gate::And => ["A and B", "A nand B"],
-            Gate::Or => ["A or B", "A nor B"],
+            Gate::Xor => "A xor B",
+            Gate::Xnor => "A xnor B",
+            Gate::And => "A and B",
+            Gate::Nand => "A nand B",
+            Gate::Or => "A or B",
+            Gate::Nor => "A nor B",
         }
     }
 
-    /// The flag of a gate that gives its inverse, such as `xnor`.
-    pub fn flag(self) -> &'static str {
-        match self {
-            Gate::Xor => "xnor",
-            Gate::And => "nand",
-            Gate::Or => "nor",
-        }
-    }
-
-    /// Its function of `a` and `b`, bit by bit.
-    fn apply(self, a: u64, b: u64) -> u64 {
+    /// Its function of `a` and `b`, bit by bit, each `width` bits.
+    fn apply(self, a: u64, b: u64, width: usize) -> u64 {
+        let all = mask(width);
         match self {
             Gate::Xor => a ^ b,
+            Gate::Xnor => !(a ^ b) & all,
             Gate::And => a & b,
+            Gate::Nand => !(a & b) & all,
             Gate::Or => a | b,
+            Gate::Nor => !(a | b) & all,
         }
     }
 }
 
-/// An XNOR gate's cases, as they are named.
-pub const XNOR: &str = "A xnor B";
-
 /// A `gate`'s every case, or with too many, each byte's and the test
-/// patterns: its function, or every bit of it inverted, whichever the
-/// build gives. No line reads inverted, as an inverted input makes
-/// another gate of it: a NOR is an AND of A and B inverted.
+/// patterns: its function alone, so an XOR gate whose output is inverted
+/// is no XOR gate but an XNOR gate. No line reads inverted, as an inverted
+/// input makes another gate of it: a NOR is an AND of A and B inverted.
 pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
     let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
@@ -107,20 +111,17 @@ pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
              a gate's operands and output have the same number."
         );
     }
-    let [plain, inverse] = gate.patterns();
-    let mut bench = Bench::new(vec![a, b], vec![out], plain);
+    let pattern = gate.pattern();
+    let mut bench = Bench::new(vec![a, b], vec![out], pattern);
     bench.invertible = false;
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || {
             adder_cases(width, false, 8)
         })),
-        kinds: vec![
-            Kind::new(plain, move |case| gate.apply(case[0], case[1])),
-            Kind::new(inverse, move |case| {
-                !gate.apply(case[0], case[1]) & mask(width)
-            }),
-        ],
+        kinds: vec![Kind::new(pattern, move |case| {
+            gate.apply(case[0], case[1], width)
+        })],
         by_digit: false,
     })
 }
@@ -224,7 +225,7 @@ pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
         let bits = interface::read(blocks).inputs.first()?.bits.len();
         (run.wrong == 0 && bits == width * copies).then_some(run.cases)
     };
-    let [plain, inverse] = gate.patterns();
+    let pattern = gate.pattern();
     Some(stacking::into_bits(
         data,
         reach,
@@ -233,7 +234,7 @@ pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
         works,
         &format!(
             "No step west or up, as far as it reaches, makes copies whose \
-             bits together give {plain}, or {inverse}."
+             bits together give {pattern}."
         ),
     ))
 }

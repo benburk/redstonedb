@@ -52,7 +52,7 @@ pub enum Reads {
 /// standardized, and loses its unused blocks when uploaded, as a new
 /// version once the circuit is shown unchanged. Every other build keeps
 /// the blocks it came with.
-pub const BLESSED: [&str; 29] = [
+pub const BLESSED: [&str; 32] = [
     "adder",
     "hex_adder",
     "subtractor",
@@ -62,9 +62,12 @@ pub const BLESSED: [&str; 29] = [
     "multiplier",
     "counter",
     "shift_register",
-    "xor_xnor_gate",
-    "and_nand_gate",
-    "or_nor_gate",
+    "xor_gate",
+    "xnor_gate",
+    "and_gate",
+    "nand_gate",
+    "or_gate",
+    "nor_gate",
     "nand_xnor_gate",
     "equality",
     "greater_than",
@@ -265,9 +268,12 @@ pub fn behaviour(category: &str) -> Behaviour {
         "greater_than" => compares("A > B", Test::GreaterThan),
         "equality" => compares("A = B", Test::Equality),
         // Its copies add bits, each with its own A, B, and output.
-        "xor_xnor_gate" => evaluated(Test::XorXnor, Stacking::Inferred),
-        "and_nand_gate" => evaluated(Test::AndNand, Stacking::Inferred),
-        "or_nor_gate" => evaluated(Test::OrNor, Stacking::Inferred),
+        "xor_gate" => evaluated(Test::Xor, Stacking::Inferred),
+        "xnor_gate" => evaluated(Test::Xnor, Stacking::Inferred),
+        "and_gate" => evaluated(Test::And, Stacking::Inferred),
+        "nand_gate" => evaluated(Test::Nand, Stacking::Inferred),
+        "or_gate" => evaluated(Test::Or, Stacking::Inferred),
+        "nor_gate" => evaluated(Test::Nor, Stacking::Inferred),
         "nand_xnor_gate" => evaluated(Test::NandXnor, Stacking::Inferred),
         // Its copies are more decoders, each with its own input and outputs.
         "decoder" => Behaviour {
