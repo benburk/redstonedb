@@ -56,8 +56,8 @@ use layout::base;
 pub use layout::{forbidden, not_found};
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 pub use listing::{
-    Facet, Index, Listing, Tile, Unverified, View, Viewing, card_star, home,
-    home_index, home_results, schematics,
+    Facet, HomeQuery, Index, Listing, Sort, SortField, Tile, Viewing,
+    card_star, home, home_index, home_results, schematics,
 };
 pub use player::{PlayerPage, player};
 pub use schemati::{Connection, schemati, schemati_folder, schemati_sent};
