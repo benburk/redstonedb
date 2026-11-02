@@ -1,0 +1,161 @@
+//! Probing for a build of one operand, A: an inverter, an absolute value,
+//! an incrementer, a monostable, a converter, and the like, its control
+//! line, if it has one, tried among its levers and the rest A, each way
+//! coloured and run through its test.
+
+use std::collections::HashMap;
+
+use super::{lengths, paint, recognize::doesnt_hold, split};
+use crate::{
+    recognize::{colour, inspect},
+    schem::{Blocks, Pos},
+    simulate::{self, Test},
+};
+
+/// Whether a build of one operand, A, has a control line: an inverter's,
+/// its invert, always; an incrementer's, its increment, perhaps; an
+/// absolute value's or a monostable's, never.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Line {
+    Always,
+    Maybe,
+    Never,
+}
+
+/// A build of one operand, A, as probing found it: A, the file with its
+/// lines coloured as its test reads them, and that test's run.
+pub struct OneInputProbed {
+    pub a: Vec<Pos>,
+    pub file: Vec<u8>,
+    pub run: simulate::Run,
+}
+
+/// The build of one operand, run through `test`, the file in `data` is,
+/// from `report`'s levers and outputs: its widest output its result and
+/// each lone one a status line, such as a carry out; of its levers, its
+/// control line, if `line` gives it one, each tried, lone ones first, and
+/// the rest A; each way coloured and run through the test. Or why it
+/// isn't one.
+pub fn one_operand(
+    data: &[u8],
+    report: &inspect::Report,
+    test: Test,
+    line: Line,
+) -> Result<OneInputProbed, String> {
+    let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
+    else {
+        return Err("Outputs: none".to_owned());
+    };
+    let status: Vec<Pos> = report
+        .outputs
+        .iter()
+        .filter(|run| run.bits != out.bits)
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    if report
+        .outputs
+        .iter()
+        .any(|run| run.bits != out.bits && run.bits.len() > 1)
+    {
+        return Err(format!(
+            "Outputs: line lengths {}, need one line and lone status lines",
+            lengths(&report.outputs)
+        ));
+    }
+    let mut levers: Vec<Pos> = report
+        .inputs
+        .iter()
+        .flat_map(|run| run.bits.clone())
+        .collect();
+    let (_, lones) = split(&report.inputs);
+    levers.sort_by_key(|lever| !lones.contains(lever));
+    let tried: Vec<Option<Pos>> = match line {
+        Line::Always => levers.iter().copied().map(Some).collect(),
+        Line::Maybe => std::iter::once(None)
+            .chain(levers.iter().copied().map(Some))
+            .collect(),
+        Line::Never => vec![None],
+    };
+    let mut why = "Inputs: none".to_owned();
+    for line in tried {
+        let a: Vec<Pos> = levers
+            .iter()
+            .copied()
+            .filter(|&p| Some(p) != line)
+            .collect();
+        if a.is_empty() {
+            continue;
+        }
+        let mut roles: HashMap<Pos, &str> = HashMap::new();
+        roles.extend(a.iter().map(|&p| (p, "lime")));
+        roles.extend(line.map(|p| (p, colour::CONTROL)));
+        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
+        let file = paint(data, &roles).map_err(|err| err.to_string())?;
+        let coloured = Blocks::read(&file).map_err(|err| err.to_string())?;
+        match test.run(&coloured) {
+            simulate::Report::Ran(run) if run.wrong == 0 => {
+                return Ok(OneInputProbed { a, file, run: *run });
+            }
+            simulate::Report::Ran(run) => {
+                why = doesnt_hold(&run, &file);
+            }
+            simulate::Report::Broken { reason }
+            | simulate::Report::Skipped { reason } => {
+                why = format!("Test couldn't run: {reason}");
+            }
+        }
+    }
+    Err(why)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::{
+        recognize::probe::recognize_as,
+        schem::{self, Blocks, Pos},
+    };
+
+    /// Each build of one or two operands is found as what it is from its
+    /// levers and outputs alone: an equality comparator, a carry out, an
+    /// inverter, an absolute value, an incrementer, a barrel shifter, a
+    /// buffer, a monostable, a threshold, a popcount, its count one
+    /// output's strength, and a binary-to-hex converter.
+    #[test]
+    fn comparisons_and_one_operand_builds_are_found() {
+        for (name, kind) in [
+            ("eq-8", "equality"),
+            ("cout-8", "carry_out"),
+            ("inverter-1", "inverter"),
+            ("abs-8", "absolute_value"),
+            ("inc-8", "incrementer"),
+            ("barrel-shifter-8", "barrel_shifter"),
+            ("buffer-2-button", "buffer"),
+            ("monostable-3-inverted", "monostable"),
+            ("threshold-3-raw", "threshold"),
+            ("popcount-8-strength", "popcount"),
+            ("bin-hex-4", "binary_to_hex"),
+        ] {
+            let raw =
+                std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+            let standard =
+                crate::schem::standardize::standardize(&raw).unwrap();
+            let changes: BTreeMap<Pos, String> = Blocks::read(&standard)
+                .unwrap()
+                .iter()
+                .filter(|&(_, state)| {
+                    ["lime", "light_blue", "magenta"]
+                        .iter()
+                        .any(|c| schem::short(state).starts_with(c))
+                })
+                .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
+                .collect();
+            let data =
+                crate::schem::standardize::edit(&standard, &changes).unwrap();
+            let found = recognize_as(&data, Some(kind)).unwrap();
+            assert!(found.found.is_some(), "{name}: {:?}", found.problems);
+        }
+    }
+}
