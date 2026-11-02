@@ -1,6 +1,6 @@
 //! The blocks the site colours a build's interface with, once probing
 //! finds each line's role, and how it reads them back: inputs on cool
-//! concrete, outputs on warm concrete or glass. See `conventions.md`.
+//! concrete, outputs on warm concrete or glass. See `docs/conventions.md`.
 
 use crate::schem;
 
