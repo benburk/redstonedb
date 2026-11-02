@@ -3,9 +3,9 @@
 //! written by `Derived::save` in the module above.
 
 use crate::{
-    import,
+    category, import,
     models::schematic::{Measured, Schematic, StackDirection, Widened},
-    recognize::{category, evaluate::Evaluation, interface},
+    recognize::{evaluate::Evaluation, interface},
     schem::Blocks,
     simulate::{Edge, Report, Stacking, Test},
 };

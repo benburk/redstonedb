@@ -27,6 +27,7 @@ use super::{
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
 use crate::{
+    category,
     recognize::{colour, interface},
     schem::Blocks,
 };
@@ -40,20 +41,17 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn noun(self) -> &'static str {
+    /// The category it tests for.
+    fn category(self) -> category::Kind {
         match self {
-            Kind::Counter => "counter",
-            Kind::ShiftRegister => "shift register",
-            Kind::TFlipFlop => "T flip-flop",
+            Kind::Counter => category::Kind::Counter,
+            Kind::ShiftRegister => category::Kind::ShiftRegister,
+            Kind::TFlipFlop => category::Kind::TFlipFlop,
         }
     }
 
-    fn category(self) -> &'static str {
-        match self {
-            Kind::Counter => "counter",
-            Kind::ShiftRegister => "shift_register",
-            Kind::TFlipFlop => "t_flip_flop",
-        }
+    fn noun(self) -> &'static str {
+        self.category().facts().noun
     }
 }
 

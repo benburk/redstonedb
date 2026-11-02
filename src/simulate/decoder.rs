@@ -78,7 +78,7 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         .chain((1..=reach(1)).map(|up| Step::new(0, up, 0)))
         .collect();
     steps.sort_by_key(|step| step.west + step.up);
-    let buses = stack::Buses::of(Test::Decoder.name(), Orientation::Horizontal);
+    let buses = stack::Buses::of(Test::Decoder.kind(), Orientation::Horizontal);
     let works = |step: Step, copies: usize| {
         let (stacked, _) =
             stack::stack(data, &[(step.direction(), copies)], buses).ok()?;

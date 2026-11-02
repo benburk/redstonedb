@@ -6,7 +6,7 @@ use maud::{Markup, html};
 
 use crate::{
     models::user::{SchematiLink, User},
-    web::analysis::{KINDS, Step},
+    web::analysis::{self, Step},
 };
 
 use super::{
@@ -156,11 +156,11 @@ pub fn analysis_steps(place: usize, step: Option<&Step>) -> Markup {
                         span class={ "leading-6 " (if i > place { "text-muted" } else { "" }) } { (label) }
                         @if i == place && let Some(Step::Testing { label, tried }) = step {
                             span class="text-meta text-muted" {
-                                "Trying " (label) " · " ((tried + 1)) " of " (KINDS)
+                                "Trying " (label) " · " ((tried + 1)) " of " (analysis::kinds())
                             }
                             span class="block h-1 w-full max-w-xs overflow-hidden rounded-full bg-line" {
                                 span class="block h-full rounded-full bg-brand transition-[width] duration-200 ease-calm motion-reduce:transition-none"
-                                    style={ "width: " (((tried + 1) * 100 / KINDS)) "%" } {}
+                                    style={ "width: " (((tried + 1) * 100 / analysis::kinds())) "%" } {}
                             }
                         }
                     }

@@ -202,12 +202,18 @@ impl Schematic {
         self.tags.iter().any(|t| t.kind == tag::Kind::NonStandard)
     }
 
+    /// Its category, when that is a standard one; `None` for one off the
+    /// list.
+    pub fn kind(&self) -> Option<crate::category::Kind> {
+        crate::category::Kind::named(&self.category)
+    }
+
     /// Whether `evaluate` works out its every measured detail: a
     /// conventional build of a category it does so for, recognized as one.
     pub fn evaluated(&self) -> bool {
         self.conventional
             && self.unverified.is_none()
-            && crate::recognize::category::behaviour(&self.category).evaluated
+            && crate::category::behaviour(&self.category).evaluated
     }
 
     fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
@@ -222,7 +228,7 @@ impl Schematic {
     /// works out from a conventional build is found, as its category's test or
     /// file sets it; one a person gives is of kind other.
     pub fn every_tag(&self) -> Vec<Tag> {
-        let behaviour = crate::recognize::category::behaviour(&self.category);
+        let behaviour = crate::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
             if self.conventional && self.unverified.is_none() && by_site {
                 kind
@@ -241,8 +247,7 @@ impl Schematic {
             kind: found(
                 tag::Kind::Orientation,
                 behaviour.evaluated
-                    || behaviour.reads
-                        != crate::recognize::category::Reads::Nothing,
+                    || behaviour.reads != crate::category::Reads::Nothing,
             ),
         };
         // An inverted carry in says only how one line is read, as the
@@ -264,8 +269,7 @@ impl Schematic {
             token: None,
             kind: found(
                 tag::Kind::Feature,
-                behaviour.stacking
-                    == crate::recognize::category::Stacking::Inferred,
+                behaviour.stacking == crate::category::Stacking::Inferred,
             ),
         });
         // How far apart copies stack, where that is a few blocks, the
@@ -282,8 +286,7 @@ impl Schematic {
                 token: None,
                 kind: found(
                     tag::Kind::Feature,
-                    behaviour.stacking
-                        == crate::recognize::category::Stacking::Inferred,
+                    behaviour.stacking == crate::category::Stacking::Inferred,
                 ),
             })
         });
@@ -325,7 +328,7 @@ impl Schematic {
     fn what(&self) -> String {
         // A subtractor is an adder whose B is inverted, called by what it
         // does.
-        let subtracts = self.category == "adder"
+        let subtracts = self.kind() == Some(crate::category::Kind::Adder)
             && self.flags.iter().any(|flag| flag.name == "subtract");
         if subtracts {
             return "Subtractor".to_owned();
@@ -350,7 +353,9 @@ impl Schematic {
     /// A multiplier's operands and product, as `8x8=16`; `None` for any
     /// other build, or one of unknown width.
     fn product_shape(&self) -> Option<String> {
-        let width = self.width.filter(|_| self.category == "multiplier")?;
+        let width = self.width.filter(|_| {
+            self.kind() == Some(crate::category::Kind::Multiplier)
+        })?;
         let flagged = |name: &str| self.flags.iter().any(|f| f.name == name);
         let product = if flagged("upper_product") {
             2 * width
@@ -375,14 +380,14 @@ impl Schematic {
     /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
         self.measures()
-            .chain(self.kind())
+            .chain(self.ending())
             .collect::<Vec<_>>()
             .join(" ")
     }
 
     /// The design and what the build is, as a name ends, such as `Carry
     /// Lookahead Adder`.
-    fn kind(&self) -> impl Iterator<Item = String> {
+    fn ending(&self) -> impl Iterator<Item = String> {
         self.design_label().into_iter().chain([self.what()])
     }
 
@@ -392,7 +397,7 @@ impl Schematic {
         self.measures()
             .chain(self.tags_in(tag::Kind::Restriction).map(Tag::label))
             .chain(self.tags_in(tag::Kind::Other).map(Tag::label))
-            .chain(self.kind())
+            .chain(self.ending())
             .collect::<Vec<_>>()
             .join(" ")
     }

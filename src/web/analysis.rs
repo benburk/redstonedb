@@ -12,6 +12,7 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
+    category::Kind,
     import::{self, Upload},
     models::{simulation, user::User},
     recognize::{
@@ -77,15 +78,8 @@ pub struct Analyzed {
 }
 
 /// Starts analyzing `file` for `user`, naming each category it is probed as by
-/// its label in `labels`, pairs of name and label, and returns the analysis's
-/// id.
-pub fn start(
-    state: &AppState,
-    user: &User,
-    file: Vec<u8>,
-    labels: Vec<(String, String)>,
-) -> Uuid {
-    let labels: HashMap<String, String> = labels.into_iter().collect();
+/// its label, and returns the analysis's id.
+pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
     let id = Uuid::new_v4();
     {
         let mut all = state.analyses.lock().unwrap();
@@ -116,11 +110,8 @@ pub fn start(
                 analysis.step = step;
             }
         };
-        let mut trying = |kind: &str, tried| {
-            let label = labels
-                .get(kind)
-                .cloned()
-                .unwrap_or_else(|| kind.replace('_', " "));
+        let mut trying = |kind: Kind, tried| {
+            let label = kind.label().to_owned();
             set(Step::Testing { label, tried });
         };
         // A file in blocks the simulator doesn't model, such as wool, is
@@ -183,4 +174,6 @@ pub fn get(
 }
 
 /// How many categories probing tries at most.
-pub const KINDS: usize = probe::KINDS.len();
+pub fn kinds() -> usize {
+    Kind::probed().len()
+}

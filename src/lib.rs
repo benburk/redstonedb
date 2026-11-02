@@ -4,6 +4,7 @@
 /// lowercase and never displayed.
 pub const APP_NAME: &str = "RedstoneDB";
 
+pub mod category;
 pub mod db;
 pub mod details;
 pub mod external;

@@ -236,7 +236,11 @@ pub fn levers_at_zero(
 ) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let mut lines = interface::read(&blocks);
-    interface::name_lines(category, &blocks, &mut lines);
+    interface::name_lines(
+        crate::category::Kind::named(category),
+        &blocks,
+        &mut lines,
+    );
     let on: BTreeSet<Pos> = lines
         .inputs
         .iter()

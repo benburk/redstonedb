@@ -275,7 +275,7 @@ async fn shaped(
         (data, s)
     } else {
         let stacked = stack::plan(&s.stacking, &copies).and_then(|plan| {
-            let buses = stack::Buses::of(&s.category, s.orientation);
+            let buses = stack::Buses::of(s.kind(), s.orientation);
             let (data, size) = stack::stack(&data, &plan, buses)?;
             Ok((data, s.stacked(&plan, size)))
         });

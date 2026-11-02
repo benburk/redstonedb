@@ -30,8 +30,8 @@ pub use multiplier::{MultiplierProbed, multiplier};
 pub use one_operand::{Line, OneInputProbed, one_operand};
 pub use operands::{OperandsProbed, operands_probe};
 pub use recognize::{
-    Found, KINDS, Recognition, probe_as, recognize, recognize_as,
-    recognize_watched, simulatable,
+    Found, Recognition, probe_as, recognize, recognize_as, recognize_watched,
+    simulatable,
 };
 pub use register::{RegisterProbed, register};
 pub use sequential::{SequentialProbed, sequential};
@@ -515,7 +515,12 @@ pub fn adder(
 ) -> Result<Probed, Fault> {
     let pairs = operands(&report.inputs)?;
     let width = pairs.first().map_or(0, |(a, _, _)| a.len());
-    if Test::of("adder", i64::try_from(width).ok()).is_none() {
+    if Test::of(
+        crate::category::Kind::Adder.name(),
+        i64::try_from(width).ok(),
+    )
+    .is_none()
+    {
         return Err(Fault::Unfit(format!("Width {width}: tested range 1-32")));
     }
     let outs = results(&report.outputs, width)?;

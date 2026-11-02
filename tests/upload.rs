@@ -137,7 +137,7 @@ async fn an_off_list_name_reads_back_as_its_category() {
     let categories = categories().await;
     let evaluated = categories
         .iter()
-        .filter(|c| app::recognize::category::behaviour(&c.name).evaluated);
+        .filter(|c| app::category::behaviour(&c.name).evaluated);
     for category in evaluated {
         for width in [Some(8), None] {
             let name = details::off_list_name(category, width);

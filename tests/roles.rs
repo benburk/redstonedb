@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use app::{
+    category::Kind,
     recognize::roles::{self, Need, Role},
     schem::{self, Blocks, Pos, stack, standardize},
     simulate::{Report, Test},
@@ -126,7 +127,7 @@ fn the_dust_joining_a_register_files_bus_stays() {
     };
     assert_eq!(unused(stack::Buses::own()), 0);
     assert_eq!(
-        unused(stack::Buses::of("register", Orientation::Vertical)),
+        unused(stack::Buses::of(Kind::Register, Orientation::Vertical)),
         0
     );
 }

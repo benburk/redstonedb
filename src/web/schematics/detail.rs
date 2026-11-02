@@ -196,7 +196,7 @@ pub async fn detail(
                     stack::review(
                         &data,
                         direction,
-                        stack::Buses::of(&s.category, s.orientation),
+                        stack::Buses::of(s.kind(), s.orientation),
                     )
                     .ok()
                 })
@@ -258,7 +258,7 @@ async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
     let Some(meant) = crate::models::simulation::stands_in(s)
-        .filter(|meant| crate::recognize::category::BLESSED.contains(meant))
+        .filter(|meant| crate::category::blessed(meant))
         .filter(|meant| *meant != "hex_adder")
         .map(str::to_owned)
     else {

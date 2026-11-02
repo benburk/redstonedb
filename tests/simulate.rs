@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
+    category::Kind,
     import,
     models::schematic::{Encoding, Orientation},
     recognize::interface,
@@ -728,7 +729,7 @@ fn a_register_whose_reads_are_not_gated_fails() {
 fn a_buffer_shows_what_it_holds_without_a_read() {
     let (_, blocks) = register("buffer-2-button");
     let mut read = interface::read(&blocks);
-    interface::name_lines("buffer", &blocks, &mut read);
+    interface::name_lines(Kind::Buffer, &blocks, &mut read);
     let names: Vec<&str> =
         read.inputs.iter().map(|port| port.name.as_str()).collect();
     assert_eq!(names, ["data in", "write"]);

@@ -2,7 +2,6 @@
 //! how it behaves when probed, which category it belongs to, why it isn't
 //! verified, and the colours it is shown in.
 
-pub mod category;
 pub mod colour;
 pub mod colouring;
 pub mod evaluate;

@@ -35,7 +35,10 @@ use anyhow::Result;
 
 use self::check::check_on;
 use super::{Run, bench::mask};
-use crate::schem::{Blocks, Pos};
+use crate::{
+    category,
+    schem::{Blocks, Pos},
+};
 
 mod check;
 mod throughput;
@@ -73,10 +76,11 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn name(self) -> &'static str {
+    /// The category it tests for.
+    fn category(self) -> category::Kind {
         match self {
-            Kind::Register => "register",
-            Kind::Buffer => "buffer",
+            Kind::Register => category::Kind::Register,
+            Kind::Buffer => category::Kind::Buffer,
         }
     }
 }

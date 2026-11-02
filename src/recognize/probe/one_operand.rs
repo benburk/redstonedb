@@ -13,7 +13,7 @@ use crate::{
 /// Whether a build of one operand, A, has a control line: an inverter's,
 /// its invert, always; an incrementer's, its increment, perhaps; an
 /// absolute value's or a monostable's, never.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Line {
     Always,
     Maybe,
