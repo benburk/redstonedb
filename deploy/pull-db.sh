@@ -5,7 +5,7 @@
 # file swapped out from under it.
 set -euo pipefail
 
-host=${DEPLOY_HOST:-root@157.180.85.191}
+host=${DEPLOY_HOST:?set DEPLOY_HOST in .env, as user@host}
 stamp=$(date +%Y%m%d-%H%M%S)
 # In the site's backup directory, made by the site's user: a root-owned
 # -wal or -shm beside the live database would lock the site out of it.

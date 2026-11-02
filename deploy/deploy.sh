@@ -4,7 +4,7 @@
 # that it answers. The server's one-time setup is in deploy/README.md.
 set -euo pipefail
 
-host=${DEPLOY_HOST:-root@157.180.85.191}
+host=${DEPLOY_HOST:?set DEPLOY_HOST in .env, as user@host}
 src=/root/build/redstonedb
 lib=/usr/local/lib/redstonedb
 
