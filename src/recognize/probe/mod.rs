@@ -6,6 +6,7 @@ use std::{collections::HashMap, fmt};
 
 use crate::{
     recognize::{
+        colour,
         inspect::{self, Run},
         interface::{Bit, Interface, Port},
     },
@@ -108,14 +109,70 @@ impl fmt::Display for Fault {
     }
 }
 
-/// `roles`, a colour for each block, painted into `data` and run through
+/// A role probing tries a block in, which painting marks by its colour,
+/// as the site's tests read a build's roles from colours.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Role {
+    A,
+    B,
+    /// A fused multiply-add's addend.
+    C,
+    /// A control line, such as a carry in.
+    Control,
+    /// An output bus, by its place among them, the lowest bits first; at
+    /// most as many as `colour::OUTPUT_COLOURS`.
+    Output(usize),
+    /// A status line, such as a carry out.
+    Status,
+}
+
+impl Role {
+    /// The colour that marks it.
+    fn colour(self) -> &'static str {
+        match self {
+            Role::A => colour::INPUT_COLOURS[0],
+            Role::B => colour::INPUT_COLOURS[1],
+            Role::C => colour::INPUT_COLOURS[2],
+            Role::Control => colour::CONTROL,
+            Role::Output(n) => colour::OUTPUT_COLOURS[n],
+            Role::Status => colour::STATUS,
+        }
+    }
+}
+
+/// The role each block plays in one try, a later mark taking a block from
+/// an earlier one.
+#[derive(Default)]
+struct Roles(HashMap<Pos, Role>);
+
+impl Roles {
+    /// Gives each of `blocks` `role`.
+    fn mark<'p>(
+        &mut self,
+        role: Role,
+        blocks: impl IntoIterator<Item = &'p Pos>,
+    ) {
+        self.0.extend(blocks.into_iter().map(|&pos| (pos, role)));
+    }
+
+    /// Gives each line of `lines` an output's role, the first the lowest
+    /// bits; lines past the output colours get none.
+    fn outputs<'p>(&mut self, lines: impl IntoIterator<Item = &'p [Pos]>) {
+        let places = 0..colour::OUTPUT_COLOURS.len();
+        for (bits, n) in lines.into_iter().zip(places) {
+            self.mark(Role::Output(n), bits);
+        }
+    }
+}
+
+/// `roles` painted into `data` and run through
 /// `test`, after a few telling cases when `quick_first`, so a try far from
 /// holding is not run in full: the file and its run when every case comes
 /// out right, else why not. A file that can't be painted or read fails
 /// the outer result, ending the probe.
 fn try_roles(
     data: &[u8],
-    roles: &HashMap<Pos, &str>,
+    roles: &Roles,
     test: Test,
     quick_first: bool,
 ) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
@@ -549,43 +606,37 @@ pub fn adder(
     Ok(Probed { layout, run })
 }
 
-/// The colours the site marks roles with, as its colour reader takes them.
-const MARKS: [&str; 9] = [
-    "lime",
-    "light_blue",
-    "cyan",
-    "blue",
-    "magenta",
-    "yellow",
-    "orange",
-    "brown",
-    "pink",
-];
-
 /// The file in `data` with `layout`'s roles marked in colour, as the rest
 /// of the site reads them: A lime, B light blue, carry in magenta, the sum
 /// yellow, and carry out pink. Every other block of one of those colours
 /// turns white, so none is taken for an input or output. A block keeps its
 /// kind, stained glass staying glass, as dust treats it differently.
 pub fn colour(data: &[u8], layout: &Layout) -> anyhow::Result<Vec<u8>> {
-    let mut roles: HashMap<Pos, &str> = HashMap::new();
-    roles.extend(layout.a.iter().map(|&p| (p, "lime")));
-    roles.extend(layout.b.iter().map(|&p| (p, "light_blue")));
-    roles.extend(layout.carry_in.map(|p| (p, "magenta")));
-    roles.extend(layout.sum.iter().map(|&p| (p, "yellow")));
-    roles.extend(layout.carry_out.map(|p| (p, "pink")));
+    let mut roles = Roles::default();
+    roles.mark(Role::A, &layout.a);
+    roles.mark(Role::B, &layout.b);
+    roles.mark(Role::Control, &layout.carry_in);
+    roles.mark(Role::Output(0), &layout.sum);
+    roles.mark(Role::Status, &layout.carry_out);
     paint(data, &roles)
 }
 
-/// The file in `data` with each block of `roles` in its colour, and every
-/// other block of a colour that marks a role turned white.
-fn paint(data: &[u8], roles: &HashMap<Pos, &str>) -> anyhow::Result<Vec<u8>> {
+/// The file in `data` with each block of `roles` in its role's colour, and
+/// every other block of a colour that marks a role, any of the site's
+/// input, control, output, or status colours, turned white.
+fn paint(data: &[u8], roles: &Roles) -> anyhow::Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
+    let marks: Vec<&str> = colour::INPUT_COLOURS
+        .into_iter()
+        .chain([colour::CONTROL])
+        .chain(colour::OUTPUT_COLOURS)
+        .chain([colour::STATUS])
+        .collect();
     let recoloured = |pos: Pos, name: &str| -> Option<String> {
         let glass = name.ends_with("_stained_glass");
-        let colour = match roles.get(&pos) {
-            Some(colour) => *colour,
-            None if MARKS.iter().any(|c| {
+        let colour = match roles.0.get(&pos) {
+            Some(role) => role.colour(),
+            None if marks.iter().any(|c| {
                 ["_concrete", "_wool", "_terracotta", "_stained_glass"]
                     .iter()
                     .any(|kind| name == format!("{c}{kind}"))
@@ -624,9 +675,13 @@ mod tests {
         let changes: BTreeMap<Pos, String> = blocks
             .iter()
             .filter(|&(_, state)| {
-                ["lime", "light_blue", "magenta"]
-                    .iter()
-                    .any(|c| schem::short(state).starts_with(c))
+                [
+                    colour::INPUT_COLOURS[0],
+                    colour::INPUT_COLOURS[1],
+                    colour::CONTROL,
+                ]
+                .iter()
+                .any(|c| schem::short(state).starts_with(c))
             })
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();

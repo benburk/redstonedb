@@ -3,9 +3,7 @@
 //! lines, tried in every order, each way coloured and run through the
 //! multiplier test, the closest that ran kept when none holds.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, split, try_roles};
+use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
     recognize::{
         colour,
@@ -80,14 +78,12 @@ pub fn multiplier(
     for (a, b, c, order) in tries {
         let product: Vec<Vec<Pos>> =
             order.iter().map(|&i| lines[i].bits.clone()).collect();
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(a.bits.iter().map(|&p| (p, "lime")));
-        roles.extend(b.bits.iter().map(|&p| (p, "light_blue")));
-        roles.extend(c.iter().flat_map(|c| &c.bits).map(|&p| (p, "cyan")));
-        roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
-        for (bits, colour) in product.iter().zip(colour::OUTPUT_COLOURS) {
-            roles.extend(bits.iter().map(|&p| (p, colour)));
-        }
+        let mut roles = Roles::default();
+        roles.mark(Role::A, &a.bits);
+        roles.mark(Role::B, &b.bits);
+        roles.mark(Role::C, c.iter().flat_map(|c| &c.bits));
+        roles.mark(Role::Control, &controls);
+        roles.outputs(product.iter().map(Vec::as_slice));
         match try_roles(data, &roles, Test::Multiplier, true)? {
             Ok((file, run)) => {
                 return Ok(MultiplierProbed {

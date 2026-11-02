@@ -3,9 +3,7 @@
 //! control, each way of choosing the bus in coloured and run through the
 //! register test.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, try_roles};
+use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
     recognize::inspect::{self, Run},
     schem::{Blocks, Pos},
@@ -81,10 +79,10 @@ pub fn register(
             why = Fault::Unfit("Controls: no write button".to_owned());
             continue;
         }
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(bus.bits.iter().map(|&p| (p, "lime")));
-        roles.extend(controls.iter().map(|&p| (p, "magenta")));
-        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        let mut roles = Roles::default();
+        roles.mark(Role::A, &bus.bits);
+        roles.mark(Role::Control, &controls);
+        roles.mark(Role::Output(0), &out.bits);
         match try_roles(data, &roles, test, true)? {
             Ok((file, run)) => {
                 return Ok(RegisterProbed {

@@ -2,14 +2,9 @@
 //! lines split into A and B however they run, and its output line as wide
 //! as each, or one bit, each way coloured and run through its test.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, ordered, split, try_roles};
+use super::{Fault, Role, Roles, lengths, ordered, split, try_roles};
 use crate::{
-    recognize::{
-        colour,
-        inspect::{self, Run},
-    },
+    recognize::inspect::{self, Run},
     schem::Pos,
     simulate::{self, Gate, Test},
 };
@@ -100,13 +95,11 @@ pub fn operands_probe(
     }
     let mut why = Fault::Unfit(String::new());
     for (a, b, carry) in splits {
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(a.iter().map(|&p| (p, "lime")));
-        roles.extend(b.iter().map(|&p| (p, "light_blue")));
-        roles.extend(carry.map(|p| (p, colour::CONTROL)));
-        for (run, colour) in outs.iter().zip(colour::OUTPUT_COLOURS) {
-            roles.extend(run.bits.iter().map(|&p| (p, colour)));
-        }
+        let mut roles = Roles::default();
+        roles.mark(Role::A, &a);
+        roles.mark(Role::B, &b);
+        roles.mark(Role::Control, &carry);
+        roles.outputs(outs.iter().map(|run| run.bits.as_slice()));
         match try_roles(data, &roles, test, false)? {
             Ok((file, run)) => {
                 return Ok(OperandsProbed {
