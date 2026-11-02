@@ -7,8 +7,10 @@ use tracing::{Span, warn};
 use uuid::Uuid;
 
 use crate::{
-    models::{session::Session, user::User},
-    util::current_time_micros,
+    models::{
+        session::{Session, now_micros},
+        user::User,
+    },
     web::{app_state::AppState, error::AppError},
 };
 
@@ -135,7 +137,7 @@ async fn is_session_expired(
     session_id: Uuid,
     db: &sqlx::SqlitePool,
 ) -> bool {
-    let current_time = current_time_micros();
+    let current_time = now_micros();
     if session.expires_at <= current_time {
         if let Err(err) = Session::delete_by_id(db, session_id).await {
             warn!("Failed to delete expired session: {err}");

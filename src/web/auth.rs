@@ -11,9 +11,7 @@ use axum_extra::extract::{
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::{
-    models::user::User, util::current_time_micros, web::app_state::AppState,
-};
+use crate::{models::user::User, web::app_state::AppState};
 
 use super::{pages, session::create_session};
 
@@ -105,7 +103,7 @@ pub async fn callback(
     .await
     .unwrap_or(None);
     let to = if welcome.is_some() { "/welcome" } else { "/" };
-    match create_session(&state.db, user.id, current_time_micros()).await {
+    match create_session(&state.db, user.id).await {
         Ok(cookie) => (jar.add(cookie), Redirect::to(to)).into_response(),
         Err(err) => {
             warn!("Could not start a session: {err}");

@@ -1,10 +1,9 @@
 //! Integration tests for accounts and sessions.
 
 use app::models::{
-    session::Session,
+    session::{Session, now_micros},
     user::{DiscordProfile, Role, SchematiLink, User},
 };
-use app::util::current_time_micros;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use uuid::Uuid;
 
@@ -42,7 +41,7 @@ fn create_test_session(user_id: Uuid) -> Session {
     Session {
         id: Uuid::new_v4(),
         user_id,
-        expires_at: current_time_micros() + 604_800_000_000, // a week
+        expires_at: now_micros() + 604_800_000_000, // a week
     }
 }
 
@@ -139,7 +138,7 @@ async fn expired_sessions_are_cleared_out() {
     let db = setup_test_db().await;
     let user = sign_in(&db, "1", "expireuser").await;
 
-    let now = current_time_micros();
+    let now = now_micros();
     let expired = Session {
         id: Uuid::new_v4(),
         user_id: user.id,
