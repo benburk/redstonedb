@@ -19,6 +19,58 @@ use crate::{
     simulate::{AdderVariant, Report, Test},
 };
 
+/// The kinds of build that go on the list, as a sentence names them, each
+/// with the blessed categories it covers; see `category::BLESSED`, which a
+/// test holds this to.
+const LISTED_KINDS: [(&str, &[&str]); 24] = [
+    ("adders", &["adder"]),
+    ("hex adders", &["hex_adder"]),
+    ("subtractors", &["subtractor"]),
+    ("ALUs", &["alu"]),
+    ("multipliers", &["multiplier"]),
+    ("incrementers", &["incrementer", "inc_dec"]),
+    ("decrementers", &["decrementer"]),
+    ("comparators", &["equality", "greater_than"]),
+    ("carry outs", &["carry_out"]),
+    ("absolute values", &["absolute_value"]),
+    ("popcounts", &["popcount"]),
+    ("thresholds", &["threshold"]),
+    ("parity circuits", &["parity"]),
+    ("binary-to-hex converters", &["binary_to_hex"]),
+    (
+        "gates",
+        &[
+            "xor_gate",
+            "xnor_gate",
+            "and_gate",
+            "nand_gate",
+            "or_gate",
+            "nor_gate",
+            "nand_xnor_gate",
+        ],
+    ),
+    ("inverters", &["inverter"]),
+    ("decoders", &["decoder"]),
+    ("barrel shifters", &["barrel_shifter"]),
+    ("monostables", &["monostable", "dual_edge_monostable"]),
+    ("registers", &["register"]),
+    ("buffers", &["buffer"]),
+    ("counters", &["counter"]),
+    ("shift registers", &["shift_register"]),
+    ("T flip-flops", &["t_flip_flop"]),
+];
+
+/// The kinds of build that go on the list, which are the kinds the site
+/// recognizes and simulates, as a list in a sentence: `adders, hex adders,
+/// …, and T flip-flops`.
+pub fn listed_kinds() -> String {
+    let (last, rest) = LISTED_KINDS
+        .split_last()
+        .expect("some kinds go on the list");
+    let rest: Vec<&str> = rest.iter().map(|(kind, _)| *kind).collect();
+    format!("{}, and {}", rest.join(", "), last.0)
+}
+
 /// A build's details, typed. As given they may break a rule, such as naming
 /// the category by its label, giving a capacity to a category not ranked
 /// by one, or crediting a name no player has; [`check`] holds them to every
@@ -224,8 +276,9 @@ async fn ready(
             .ok()
             .flatten();
         return Err(format!(
-            "Only adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, parity circuits, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops go on the list so far: \
-             give it a category of its own, such as {}.",
+            "Only {} go on the list so far: give it a category of its own, \
+             such as {}.",
+            listed_kinds(),
             off_list_name(&category, width).replace('_', " ")
         )
         .into());
@@ -567,6 +620,22 @@ fn is_date(d: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every blessed category is one kind on the list, and every kind's
+    /// categories are blessed.
+    #[test]
+    fn the_listed_kinds_cover_the_blessed_categories() {
+        let mut covered: Vec<&str> = LISTED_KINDS
+            .iter()
+            .flat_map(|(_, categories)| categories.iter().copied())
+            .collect();
+        let mut blessed = category::BLESSED.to_vec();
+        covered.sort_unstable();
+        blessed.sort_unstable();
+        assert_eq!(covered, blessed);
+        assert!(listed_kinds().starts_with("adders, hex adders, "));
+        assert!(listed_kinds().ends_with(", and T flip-flops"));
+    }
 
     #[test]
     fn a_date_is_a_real_day_as_yyyy_mm_dd() {
