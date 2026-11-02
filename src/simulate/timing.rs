@@ -873,10 +873,11 @@ impl Rig<'_> {
     }
 }
 
-/// Makes each change at its tick, given as (tick, input port, value), and
-/// runs until nothing is left to update, recording how each output bit
-/// changed, less the ticks the components standing on its blocks take to
-/// carry it out. A change from all off gives its `case`, its number and
+/// Makes each change at its tick, given as (tick, input port, value), as
+/// the input's own blocks take it, so set as many ticks sooner as its
+/// drivers take, and runs until nothing is left to update, recording how
+/// each output bit changed, less the ticks the components standing on its
+/// blocks take to carry it out. A change from all off gives its `case`, its number and
 /// input values, to keep as an example of a glitch. Returns the last tick
 /// any output changed on, if one did.
 fn transition(
@@ -885,7 +886,11 @@ fn transition(
     case: Option<(u64, &[u64])>,
     stats: &mut Stats,
 ) -> Result<Option<i32>> {
-    let mut changes = changes.to_vec();
+    let lead = circuit.lead();
+    let mut changes: Vec<(i32, usize, u64)> = changes
+        .iter()
+        .map(|&(tick, port, value)| (tick - lead[port], port, value))
+        .collect();
     changes.sort_unstable_by_key(|&(tick, ..)| tick);
     let start = changes.first().map_or(0, |&(tick, ..)| tick);
     let mut shown: Vec<u64> =

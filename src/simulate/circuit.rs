@@ -437,6 +437,19 @@ impl Circuit {
             .collect()
     }
 
+    /// For each input, the ticks its drivers take to change it once it is
+    /// set: a signal-strength input's comparators, one, so its dust takes
+    /// its value a tick on; a lever's, none.
+    pub fn lead(&self) -> Vec<i32> {
+        self.inputs
+            .iter()
+            .map(|drive| match drive {
+                Drive::Levers(_) => 0,
+                Drive::Strengths(_) => 1,
+            })
+            .collect()
+    }
+
     /// For each output, the ticks the repeaters or comparators standing on
     /// its every block take to carry it out of the build, the least of
     /// them, which its value shows that much later than it arrives.
