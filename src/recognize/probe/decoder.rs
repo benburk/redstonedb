@@ -1,9 +1,7 @@
 //! Probing for a decoder: its one input line A and its one output line, a
 //! bit for each of A's values, coloured and run through the decoder test.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, try_roles};
+use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
     recognize::inspect,
     schem::Pos,
@@ -45,9 +43,9 @@ pub fn decoder(
             1_usize << a.bits.len().min(16)
         )));
     }
-    let mut roles: HashMap<Pos, &str> = HashMap::new();
-    roles.extend(a.bits.iter().map(|&p| (p, "lime")));
-    roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+    let mut roles = Roles::default();
+    roles.mark(Role::A, &a.bits);
+    roles.mark(Role::Output(0), &out.bits);
     let (file, run) = try_roles(data, &roles, Test::Decoder, false)??;
     Ok(DecoderProbed {
         a: a.bits.clone(),

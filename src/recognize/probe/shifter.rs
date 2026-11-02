@@ -2,14 +2,8 @@
 //! line as wide its A, and every other lever a line of the shift, coloured
 //! and run through its test.
 
-use std::collections::HashMap;
-
-use super::{Fault, OneInputProbed, lengths, try_roles};
-use crate::{
-    recognize::{colour, inspect},
-    schem::Pos,
-    simulate::Test,
-};
+use super::{Fault, OneInputProbed, Role, Roles, lengths, try_roles};
+use crate::{recognize::inspect, simulate::Test};
 
 /// The barrel shifter the file in `data` is, from `report`'s levers and
 /// outputs: its one output line, A shifted, an input line as wide its A,
@@ -29,16 +23,13 @@ pub fn shifter(
     let width = out.bits.len();
     let mut why = Fault::Unfit(format!("A: no line of {width} levers"));
     for a in report.inputs.iter().filter(|run| run.bits.len() == width) {
-        let mut roles: HashMap<Pos, &str> = HashMap::new();
-        roles.extend(
-            report
-                .inputs
-                .iter()
-                .flat_map(|run| run.bits.clone())
-                .map(|p| (p, colour::CONTROL)),
+        let mut roles = Roles::default();
+        roles.mark(
+            Role::Control,
+            report.inputs.iter().flat_map(|run| &run.bits),
         );
-        roles.extend(a.bits.iter().map(|&p| (p, "lime")));
-        roles.extend(out.bits.iter().map(|&p| (p, "yellow")));
+        roles.mark(Role::A, &a.bits);
+        roles.mark(Role::Output(0), &out.bits);
         match try_roles(data, &roles, Test::BarrelShifter, false)? {
             Ok((file, run)) => {
                 return Ok(OneInputProbed {

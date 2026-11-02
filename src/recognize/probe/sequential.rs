@@ -3,11 +3,9 @@
 //! lever or button a control line of its own, coloured and run through
 //! its test, which finds what each line does.
 
-use std::collections::HashMap;
-
-use super::{Fault, lengths, try_roles};
+use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
-    recognize::{colour, inspect},
+    recognize::inspect,
     schem::Pos,
     simulate::{self, Test},
 };
@@ -65,11 +63,11 @@ pub fn sequential(
         .filter(|run| run.bits != a)
         .flat_map(|run| run.bits.clone())
         .collect();
-    let mut roles: HashMap<Pos, &str> = HashMap::new();
-    roles.extend(a.iter().map(|&p| (p, "lime")));
-    roles.extend(controls.iter().map(|&p| (p, colour::CONTROL)));
-    roles.extend(held.bits.iter().map(|&p| (p, "yellow")));
-    roles.extend(status.iter().map(|&p| (p, colour::STATUS)));
+    let mut roles = Roles::default();
+    roles.mark(Role::A, &a);
+    roles.mark(Role::Control, &controls);
+    roles.mark(Role::Output(0), &held.bits);
+    roles.mark(Role::Status, &status);
     let (file, run) = try_roles(data, &roles, test, false)??;
     Ok(SequentialProbed { data: a, file, run })
 }
