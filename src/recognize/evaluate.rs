@@ -138,7 +138,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
                 Logic::Stateless
             }
         });
-        if matches!(category, Some("adder" | "hex_adder" | "subtractor")) {
+        if test == Test::Adder {
             let variant = run.adder_variant();
             found.design = adder_design(&found.prepared.blocks, variant)?;
             run.design.clone_from(&found.design);

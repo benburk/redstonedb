@@ -673,6 +673,19 @@ impl Run {
         }
     }
 
+    /// The category of a build the adder's test ran as this: a subtractor
+    /// when it subtracts B, else a hex adder when its inputs take `hex`
+    /// digits, else an adder.
+    pub fn adder_category(&self, hex: bool) -> &'static str {
+        if self.adder_variant().subtract {
+            "subtractor"
+        } else if hex {
+            "hex_adder"
+        } else {
+            "adder"
+        }
+    }
+
     /// Whether a greater-than comparator's cases read its operands signed.
     pub fn signed(&self) -> bool {
         match self.reading {
@@ -893,11 +906,8 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
                     Some(Reading::Incrementer { counts }) => counts.category(),
                     _ => "incrementer",
                 }
-            } else if test == Test::Adder && run.adder_variant().subtract {
-                // An adder whose B is subtracted is a subtractor.
-                "subtractor"
-            } else if test == Test::Adder && hex {
-                "hex_adder"
+            } else if test == Test::Adder {
+                run.adder_category(hex)
             } else {
                 test.name()
             };
