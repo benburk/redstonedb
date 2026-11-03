@@ -25,6 +25,7 @@ use crate::{
     recognize::{
         colour,
         interface::{Interface, Port},
+        repeater_outputs,
     },
     schem::{self, Blocks, Direction, Pos},
 };
@@ -119,7 +120,8 @@ impl Circuit {
             .iter()
             .map(|port| {
                 if port.signal_strength {
-                    drivers(&mut world, port, &mut taken).map(Drive::Strengths)
+                    drivers(blocks, &mut world, port, &mut taken)
+                        .map(Drive::Strengths)
                 } else {
                     levers(blocks, port).map(Drive::Levers)
                 }
@@ -599,12 +601,16 @@ fn container(strength: u8) -> BlockEntity {
     }
 }
 
-/// A driver for each digit of signal-strength input `port`: a comparator
-/// beside its dust, pointing into it, and a barrel behind, where both are
-/// air and nothing runs into the comparator's sides, which would change
-/// what it puts out. The side the dust is open to comes first. `taken`
-/// holds the places drivers have already used.
+/// A driver for each digit of signal-strength input `port`: a barrel
+/// behind the build's own comparator for it, the one with nothing behind
+/// it that the rule proposed for inputs reads, see
+/// [`repeater_outputs::driving`]; or with none, a comparator beside its
+/// dust, pointing into it, and a barrel behind, where both are air and
+/// nothing runs into the comparator's sides, which would change what it
+/// puts out, the side the dust is open to first. `taken` holds the places
+/// drivers have already used.
 fn drivers(
+    blocks: &Blocks,
     world: &mut TestWorld,
     port: &Port,
     taken: &mut HashSet<Pos>,
@@ -625,6 +631,22 @@ fn drivers(
     port.bits
         .iter()
         .map(|bit| {
+            if let Some(input) = repeater_outputs::driving(blocks, bit.pos)
+                && !taken.contains(&input.behind())
+            {
+                let barrel = input.behind();
+                taken.insert(barrel);
+                world.set_block(
+                    at(barrel),
+                    block("minecraft:barrel[facing=up,open=false]")?,
+                );
+                world.set_block_entity(at(barrel), container(0));
+                return Ok(Driver {
+                    comparator: at(input.at),
+                    barrel: at(barrel),
+                    value: 0,
+                });
+            }
             let dust = schem::step(bit.pos, Direction::Up);
             let mut sides: Vec<Direction> = bit.entry.into_iter().collect();
             sides.extend(

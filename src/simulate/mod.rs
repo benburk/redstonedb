@@ -444,17 +444,13 @@ impl Test {
 
     /// Runs the test's cases on `blocks` and checks each result.
     pub fn run(self, blocks: &Blocks) -> Report {
-        match self.check(blocks, false) {
-            Ok(run) => Report::Ran(Box::new(run)),
-            Err(err) => match err.downcast_ref::<Broken>() {
-                Some(Broken(reason)) => Report::Broken {
-                    reason: reason.clone(),
-                },
-                None => Report::Skipped {
-                    reason: err.to_string(),
-                },
-            },
-        }
+        Report::of(self.check(blocks, false))
+    }
+
+    /// Runs the test's cases on `blocks` through `interface`, as
+    /// [`Test::check_with`] does, as a report.
+    pub fn run_with(self, blocks: &Blocks, interface: Interface) -> Report {
+        Report::of(self.check_with(blocks, interface, false))
     }
 
     /// A few telling cases of the test run on `blocks`, as its colours mark
@@ -623,6 +619,21 @@ pub enum Report {
 }
 
 impl Report {
+    /// A run's report: its cases, or why it broke or was skipped.
+    fn of(run: Result<Run>) -> Self {
+        match run {
+            Ok(run) => Report::Ran(Box::new(run)),
+            Err(err) => match err.downcast_ref::<Broken>() {
+                Some(Broken(reason)) => Report::Broken {
+                    reason: reason.clone(),
+                },
+                None => Report::Skipped {
+                    reason: err.to_string(),
+                },
+            },
+        }
+    }
+
     pub fn passed(&self) -> bool {
         matches!(self, Report::Ran(run) if run.wrong == 0)
     }

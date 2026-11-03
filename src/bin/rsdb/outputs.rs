@@ -147,6 +147,7 @@ pub(super) async fn outputs_command(
             .collect();
         println!("  {}: {}", run_words(run), bits.join("; "));
     }
+    print_strength_inputs(&blocks);
     let found = repeater_outputs::find(&blocks);
     let by_at: BTreeMap<Pos, Output> =
         found.iter().map(|&o| (o.at, o)).collect();
@@ -166,6 +167,19 @@ pub(super) async fn outputs_command(
         return Ok(());
     }
     let meant = kind_of(args.category.as_deref(), source.stored.as_ref());
+    if !repeater_outputs::strength_inputs(&blocks).is_empty() {
+        // Probing reads no hex digits, so the roles are the shapes'.
+        let test = meant.and_then(Kind::test);
+        let Some(test) = test else {
+            println!("tested with these lines: no test for its category");
+            return Ok(());
+        };
+        let simulated = Blocks::read(&probe::simulatable(&source.data)?)?;
+        let lines = repeater_outputs::interface(&simulated);
+        println!("tested with these lines: {}", lines_words(&lines));
+        println!("  {}", verdict(&test.run_with(&simulated, lines)));
+        return Ok(());
+    }
     match repeater_outputs::probe(&source.data, meant)? {
         Ok(probed) => {
             println!("probed with these outputs: {}", probed.found.2);
@@ -187,6 +201,87 @@ pub(super) async fn outputs_command(
         }
     }
     Ok(())
+}
+
+/// Prints the signal-strength inputs the proposed rule finds in `blocks`,
+/// comparators with air behind, in buses, and those today's rule reads by
+/// their colour, input blocks with dust on top and no lever; and each
+/// comparator of the first that drives none of the second, by the dust
+/// it points into on one, which a build ported from today's rule keeps.
+pub(super) fn print_strength_inputs(blocks: &Blocks) {
+    let found = repeater_outputs::strength_inputs(blocks);
+    let today = interface::dust_inputs(blocks);
+    println!(
+        "signal-strength inputs by the proposed rule: {}; by today's \
+         colours: {}",
+        found.len(),
+        today.len()
+    );
+    let by_at: BTreeMap<Pos, repeater_outputs::StrengthInput> =
+        found.iter().map(|&i| (i.at, i)).collect();
+    for run in repeater_outputs::strength_lines(&found) {
+        let bits: Vec<String> = run
+            .bits
+            .iter()
+            .map(|at| {
+                let input = by_at[at];
+                format!(
+                    "{} facing {} into {} {}",
+                    place(input.at),
+                    input.facing,
+                    schem::short(blocks.get(input.front())).replace('_', " "),
+                    place(input.front())
+                )
+            })
+            .collect();
+        println!("  {}: {}", run_words(&run), bits.join("; "));
+    }
+    let driving: BTreeSet<Pos> = today
+        .keys()
+        .filter_map(|&pad| repeater_outputs::driving(blocks, pad))
+        .map(|input| input.at)
+        .collect();
+    let others: Vec<String> = found
+        .iter()
+        .filter(|input| !driving.contains(&input.at))
+        .map(|input| place(input.at))
+        .collect();
+    if !today.is_empty() || !others.is_empty() {
+        println!(
+            "  driving today's inputs: {}; not: {}{}",
+            driving.len(),
+            others.len(),
+            if others.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", others.join(", "))
+            }
+        );
+    }
+}
+
+/// Each line of `lines` in words, such as `inputs A 16 digits, carry in;
+/// outputs output 8 comparators`.
+fn lines_words(lines: &Interface) -> String {
+    let each = |ports: &[interface::Port]| {
+        ports
+            .iter()
+            .map(|port| {
+                let unit = if port.signal_strength {
+                    "digits"
+                } else {
+                    "bits"
+                };
+                format!("{} {} {unit}", port.name, port.bits.len())
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "inputs {}; outputs {}",
+        each(&lines.inputs),
+        each(&lines.outputs)
+    )
 }
 
 /// Prints the outputs today's rule finds in `blocks`, read in the site's
@@ -274,23 +369,23 @@ const EXHAUSTIVE_BITS: usize = 16;
 const SAMPLES: usize = 4096;
 
 /// Runs `blocks` through `interface` case by case, every combination of
-/// its inputs, or a fixed sample of them when there are many. A build
-/// with a button or a signal-strength input isn't run so.
+/// its inputs, a signal-strength input's four bits a digit, or a fixed
+/// sample of them when there are many. A build with a button isn't run
+/// so.
 pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
     if interface.inputs.is_empty() || interface.outputs.is_empty() {
         bail!("no inputs or no outputs to run");
-    }
-    if interface.inputs.iter().any(|port| port.signal_strength) {
-        bail!("a signal-strength input");
     }
     let mut circuit = Circuit::new(blocks, interface)?;
     let widths: Vec<usize> = interface
         .inputs
         .iter()
-        .map(|port| port.bits.len())
+        .map(|port| port.bits.len() * if port.signal_strength { 4 } else { 1 })
         .collect();
-    for (port, &width) in widths.iter().enumerate() {
-        if (0..width).any(|bit| circuit.is_button(port, bit)) {
+    for (port, input) in interface.inputs.iter().enumerate() {
+        if !input.signal_strength
+            && (0..input.bits.len()).any(|bit| circuit.is_button(port, bit))
+        {
             bail!("a button, so it holds state");
         }
     }

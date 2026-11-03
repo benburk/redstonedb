@@ -64,6 +64,18 @@ pub struct Bit {
     pub inverted: bool,
 }
 
+impl Bit {
+    /// A bit at `pos` with nothing more known of it, as an output's.
+    pub fn at(pos: Pos) -> Self {
+        Bit {
+            pos,
+            entry: None,
+            hard: false,
+            inverted: false,
+        }
+    }
+}
+
 /// Names a build's unsigned ports for what its `category` takes them to
 /// be, as `category::Lines` gives them, so a page shows what the simulator
 /// reads: an adder's lone magenta and pink lines are its carry in and
@@ -590,19 +602,13 @@ fn rows(signed: &[Pos], unsigned: &HashSet<Pos>) -> HashMap<Pos, Vec<Pos>> {
     rows
 }
 
-/// A port with its bits ordered from the one nearest the south-east-bottom
+/// A bus's `members` ordered from the one nearest the south-east-bottom
 /// corner of the bounding box along the way the bus runs, unless an `lsb`
 /// sign on its far end or an `msb` sign on its near one turns it round.
-fn port(
-    blocks: &Blocks,
-    name: String,
-    mut members: Vec<Pos>,
-    lines: &[String],
-    feeds: Option<&HashMap<Pos, Feed>>,
-) -> Port {
+pub fn lsb_first(blocks: &Blocks, members: &mut [Pos]) {
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];
-    let axis = longest_axis(&members);
+    let axis = longest_axis(members);
     if let Some(&lsb) = members.iter().min_by_key(|&&pos| distance(pos, corner))
     {
         members.sort_by_key(|&pos| along(pos, lsb, axis));
@@ -614,6 +620,17 @@ fn port(
     {
         members.sort_by_key(|&pos| along(pos, far, axis));
     }
+}
+
+/// A port with its bits ordered as [`lsb_first`] orders them.
+fn port(
+    blocks: &Blocks,
+    name: String,
+    mut members: Vec<Pos>,
+    lines: &[String],
+    feeds: Option<&HashMap<Pos, Feed>>,
+) -> Port {
+    lsb_first(blocks, &mut members);
     let inverted_line = lines.iter().any(|l| l.trim() == "inverted");
     let words = sign_words(lines);
     let feed = |pos: Pos| feeds.and_then(|feeds| feeds.get(&pos));

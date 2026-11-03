@@ -5,11 +5,15 @@
 //! to 15. Colour plays no part, so any block may hold one up. Outputs side
 //! by side, evenly spaced and facing the same way, are a bus; one alone is
 //! a line. Inputs are as the check by function finds them, levers and
-//! buttons on any block.
+//! buttons on any block, and, for a hex digit, a comparator with nothing
+//! behind it, the cell its `facing` points at air, giving out into the
+//! build, which a tester drives by putting a barrel there; these too are
+//! read by where they stand, not their colours.
 //!
 //! Nothing that recognizes an upload reads outputs so yet: `rsdb outputs`,
 //! `convert`, and `stack-check` measure what the rule would find, `convert`
-//! porting a build to it by [`tap`], as the owner ports one by hand.
+//! porting a build to it by [`tap`] and [`feed`], as the owner ports one by
+//! hand.
 
 use std::collections::BTreeMap;
 
@@ -20,6 +24,7 @@ use crate::{
     recognize::{
         colour,
         inspect::{self, Problem, Report, Run},
+        interface::{self, Bit, Interface, Port},
         probe::{self, Fault, Found, Layout},
     },
     schem::{self, Blocks, Direction, Pos},
@@ -97,13 +102,114 @@ pub fn find(blocks: &Blocks) -> Vec<Output> {
         .collect()
 }
 
-/// `outputs` grouped into buses, each a line of outputs evenly spaced and
-/// facing the same way, the longest first, then the lone lines; each run
-/// is of the outputs' own places.
+/// `outputs` grouped into buses, each a line of outputs of one kind,
+/// repeaters or comparators, evenly spaced and facing the same way, or two
+/// such lines interleaved, facing the same way or opposite ways, the
+/// longest first, then the lone lines; each run is of the outputs' own
+/// places.
 pub fn lines(outputs: &[Output]) -> Vec<Run> {
-    let bits: Vec<(Pos, Direction)> =
-        outputs.iter().map(|o| (o.at, o.facing)).collect();
-    inspect::runs(&bits)
+    let bits: Vec<(Pos, (Direction, bool))> = outputs
+        .iter()
+        .map(|o| (o.at, (o.facing, o.comparator)))
+        .collect();
+    // Two columns may give out on opposite faces, as a tall build's do.
+    interleaved(inspect::runs(&bits), &bits, |a, b| {
+        a.1 == b.1 && (a.0 == b.0 || a.0 == b.0.opposite())
+    })
+}
+
+/// `runs` of `bits`, each with its kind, with each two that interleave
+/// made one bus: as many bits each, two or more, the same step, kinds
+/// that `alike` takes as one, the step even along one axis, and each bit
+/// of one halfway between two of the other along it, as a bus whose bits
+/// alternate between two columns, a layer apart where each column's are
+/// two. Of the runs one could interleave with, the nearest; the longest
+/// first again.
+fn interleaved<K: Copy>(
+    runs: Vec<Run>,
+    bits: &[(Pos, K)],
+    alike: impl Fn(K, K) -> bool,
+) -> Vec<Run> {
+    let kind: BTreeMap<Pos, K> = bits.iter().copied().collect();
+    // The axis two runs interleave along and which comes first, if they do.
+    let interleave = |a: &Run, b: &Run| -> Option<(usize, bool)> {
+        if a.bits.len() != b.bits.len()
+            || a.bits.len() < 2
+            || a.step != b.step
+            || !alike(kind[&a.bits[0]], kind[&b.bits[0]])
+        {
+            return None;
+        }
+        let axis = (0..3).find(|&axis| {
+            a.step[axis] != 0
+                && a.step[axis] % 2 == 0
+                && (0..3).all(|o| o == axis || a.step[o] == 0)
+        })?;
+        let half = a.step[axis] / 2;
+        let offset = |from: &Run, to: &Run, by: i32| {
+            from.bits
+                .iter()
+                .zip(&to.bits)
+                .all(|(f, t)| t[axis] == f[axis] + by)
+        };
+        if offset(a, b, half) {
+            Some((axis, true))
+        } else if offset(b, a, half) {
+            Some((axis, false))
+        } else {
+            None
+        }
+    };
+    let apart = |a: &Run, b: &Run| {
+        (0..3)
+            .map(|axis| (a.bits[0][axis] - b.bits[0][axis]).abs())
+            .sum::<i32>()
+    };
+    let mut pairs: Vec<(i32, usize, usize)> = Vec::new();
+    for i in 0..runs.len() {
+        for j in i + 1..runs.len() {
+            if interleave(&runs[i], &runs[j]).is_some() {
+                pairs.push((apart(&runs[i], &runs[j]), i, j));
+            }
+        }
+    }
+    pairs.sort_unstable();
+    let mut used = vec![false; runs.len()];
+    let mut found = Vec::new();
+    for (_, i, j) in pairs {
+        if used[i] || used[j] {
+            continue;
+        }
+        used[i] = true;
+        used[j] = true;
+        let Some((axis, a_first)) = interleave(&runs[i], &runs[j]) else {
+            continue;
+        };
+        let (first, second) = if a_first {
+            (&runs[i], &runs[j])
+        } else {
+            (&runs[j], &runs[i])
+        };
+        let mut step = [0; 3];
+        step[axis] = first.step[axis] / 2;
+        found.push(Run {
+            bits: first
+                .bits
+                .iter()
+                .zip(&second.bits)
+                .flat_map(|(&f, &s)| [f, s])
+                .collect(),
+            step,
+        });
+    }
+    found.extend(
+        runs.into_iter()
+            .zip(used)
+            .filter(|(_, used)| !used)
+            .map(|(run, _)| run),
+    );
+    found.sort_by_key(|run| std::cmp::Reverse(run.bits.len()));
+    found
 }
 
 /// The output colour of the block under `output`, such as `yellow`, the
@@ -153,6 +259,189 @@ pub fn report(blocks: &Blocks) -> Report {
         })
         .collect();
     report
+}
+
+/// A comparator with nothing behind it, the cell its `facing` points at
+/// air, giving out into the build: a signal-strength input, a hex digit
+/// from 0 to 15, as strong as what a tester puts behind it, a barrel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrengthInput {
+    /// Where the comparator stands.
+    pub at: Pos,
+    /// Its block state's `facing`: the side it reads from, where the
+    /// tester's barrel goes.
+    pub facing: Direction,
+}
+
+impl StrengthInput {
+    /// The cell it reads from, which is air.
+    pub fn behind(self) -> Pos {
+        schem::step(self.at, self.facing)
+    }
+
+    /// The cell it gives out into, the build's.
+    pub fn front(self) -> Pos {
+        schem::step(self.at, self.facing.opposite())
+    }
+}
+
+/// The comparator at `at` as a signal-strength input, when it is one: air
+/// behind it, beyond the file's box too, and something in front of it.
+pub fn strength_input(blocks: &Blocks, at: Pos) -> Option<StrengthInput> {
+    let state = blocks.get(at);
+    if schem::short(state) != "comparator" {
+        return None;
+    }
+    let input = StrengthInput {
+        at,
+        facing: Direction::facing(state)?,
+    };
+    (is_air(blocks.get(input.behind())) && !is_air(blocks.get(input.front())))
+        .then_some(input)
+}
+
+/// Every signal-strength input in `blocks`, in the file's order.
+pub fn strength_inputs(blocks: &Blocks) -> Vec<StrengthInput> {
+    blocks
+        .iter()
+        .filter_map(|(at, _)| strength_input(blocks, at))
+        .collect()
+}
+
+/// `inputs` grouped into buses as [`lines`] groups outputs, each run of
+/// the comparators' own places.
+pub fn strength_lines(inputs: &[StrengthInput]) -> Vec<Run> {
+    let bits: Vec<(Pos, Direction)> =
+        inputs.iter().map(|i| (i.at, i.facing)).collect();
+    interleaved(inspect::runs(&bits), &bits, |a, b| a == b)
+}
+
+/// The signal-strength input driving the digit read at `bit`: the
+/// comparator at `bit` itself, as this rule reads one, or one beside the
+/// dust on `bit` pointing into it, as a port of a build whose digit
+/// inputs today's rule reads by their colour keeps that block.
+pub fn driving(blocks: &Blocks, bit: Pos) -> Option<StrengthInput> {
+    if let Some(input) = strength_input(blocks, bit) {
+        return Some(input);
+    }
+    let dust = schem::step(bit, Direction::Up);
+    if schem::short(blocks.get(dust)) != "redstone_wire" {
+        return None;
+    }
+    Direction::SIDES.into_iter().find_map(|side| {
+        strength_input(blocks, schem::step(dust, side))
+            .filter(|input| input.front() == dust)
+    })
+}
+
+/// A build's lines as this rule reads them, named for the roles their
+/// shapes give them so a test reads them as it reads a build's colours:
+/// its signal-strength buses A, B, and on, the longest first, then its
+/// buses of levers; a lone lever its control line, such as a carry in;
+/// each bus of outputs an output, a comparator's read as a strength in a
+/// build without signal-strength inputs, whose outputs each show a digit;
+/// and a lone output beside a bus, or a lone repeater beside a comparator
+/// of a build with signal-strength inputs, its status line, such as a
+/// carry out.
+pub fn interface(blocks: &Blocks) -> Interface {
+    let switches: BTreeMap<Pos, schem::Switch> = blocks
+        .switches()
+        .into_iter()
+        .map(|switch| (switch.block, switch))
+        .collect();
+    let report = report(blocks);
+    let mut letters = (b'A'..=b'Z').map(|l| char::from(l).to_string());
+    let mut operand = |colour: &str, bits: Vec<Bit>, strength: bool| Port {
+        name: letters.next().unwrap_or_default(),
+        block: format!("{colour} concrete"),
+        labelled: false,
+        bits,
+        strength: 1,
+        words: Vec::new(),
+        signal_strength: strength,
+    };
+    let operand_colours = ["lime", "light blue", "cyan", "blue"];
+    let mut colours = operand_colours.iter().cycle();
+    let mut inputs = Vec::new();
+    let strength = strength_inputs(blocks);
+    for run in strength_lines(&strength) {
+        let mut bits = run.bits;
+        interface::lsb_first(blocks, &mut bits);
+        let bits = bits.into_iter().map(Bit::at).collect();
+        inputs.push(operand(colours.next().unwrap_or(&"lime"), bits, true));
+    }
+    let mut control = Vec::new();
+    for run in &report.inputs {
+        let mut members = run.bits.clone();
+        interface::lsb_first(blocks, &mut members);
+        let bits: Vec<Bit> = members
+            .iter()
+            .filter_map(|pos| {
+                let switch = switches.get(pos)?;
+                Some(Bit {
+                    pos: *pos,
+                    entry: Some(switch.side),
+                    hard: Direction::ALL.iter().any(|&side| {
+                        schem::short(blocks.get(schem::step(*pos, side)))
+                            == "redstone_wire"
+                    }),
+                    inverted: switch.on,
+                })
+            })
+            .collect();
+        if bits.len() == 1 {
+            control.push(Port {
+                name: "control line".to_owned(),
+                block: format!("{} concrete", colour::CONTROL),
+                labelled: false,
+                bits,
+                strength: 1,
+                words: Vec::new(),
+                signal_strength: false,
+            });
+        } else {
+            inputs.push(operand(
+                colours.next().unwrap_or(&"lime"),
+                bits,
+                false,
+            ));
+        }
+    }
+    inputs.extend(control);
+    let digits = !strength.is_empty();
+    let found = find(blocks);
+    let by_block: BTreeMap<Pos, Output> =
+        found.iter().map(|&o| (o.block(), o)).collect();
+    let runs: Vec<Run> = report.outputs;
+    let buses = runs.iter().filter(|run| run.bits.len() > 1).count();
+    let comparators = found.iter().any(|o| o.comparator);
+    let mut outputs = Vec::new();
+    for (i, run) in runs.iter().enumerate() {
+        let mut members = run.bits.clone();
+        interface::lsb_first(blocks, &mut members);
+        let comparator = members
+            .iter()
+            .all(|pos| by_block.get(pos).is_some_and(|o| o.comparator));
+        let status = members.len() == 1
+            && (buses > 0 || digits && comparators && !comparator);
+        let (name, marked) = if status {
+            ("status line".to_owned(), colour::STATUS)
+        } else if i == 0 {
+            ("output".to_owned(), "yellow")
+        } else {
+            (format!("output {}", i + 1), "yellow")
+        };
+        outputs.push(Port {
+            name,
+            block: format!("{marked} concrete"),
+            labelled: false,
+            bits: members.into_iter().map(Bit::at).collect(),
+            strength: 1,
+            words: Vec::new(),
+            signal_strength: comparator && !digits && !status,
+        });
+    }
+    Interface { inputs, outputs }
 }
 
 /// What probing makes of a build whose outputs this rule reads.
@@ -514,28 +803,234 @@ pub fn tap(
     (changes, done)
 }
 
+/// A signal-strength input, as today's rule reads it by its colour, an
+/// input block with dust on top, fed so this rule reads it: a comparator
+/// beside the dust, pointing into it, with air behind it, where a tester
+/// puts a barrel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fed {
+    /// A comparator with air behind it drives its dust already.
+    Already { pad: Pos },
+    /// Fed from `side`, the comparator at `comparator`, on the block under
+    /// it, or on a support put there, white concrete, or white stained
+    /// glass with `glass` as a torch or dust is under it.
+    Fed {
+        pad: Pos,
+        side: Direction,
+        comparator: Pos,
+        support: Option<Pos>,
+        glass: bool,
+    },
+    /// It can't be fed, for `why`.
+    Not { pad: Pos, why: String },
+}
+
+impl Fed {
+    /// The input block it was read by.
+    pub fn pad(&self) -> Pos {
+        match self {
+            Fed::Already { pad }
+            | Fed::Fed { pad, .. }
+            | Fed::Not { pad, .. } => *pad,
+        }
+    }
+}
+
+/// Whether `state` would run into a comparator's side beside it, changing
+/// what it gives out: dust, a repeater, a comparator, or a torch.
+fn runs_into_side(state: &str) -> bool {
+    matches!(
+        schem::short(state),
+        "redstone_wire"
+            | "repeater"
+            | "comparator"
+            | "redstone_torch"
+            | "redstone_wall_torch"
+    )
+}
+
+/// The input on `pad` fed from `side`, its changes added to `changes`, or
+/// why it can't be: the comparator's cell and the one behind it air,
+/// nothing beside the comparator that would run into its side, and under
+/// it a whole block, or air, where a support goes. `kept` holds the cells
+/// behind inputs fed already, kept air for their barrels; this one's is
+/// added.
+fn feed_from(
+    blocks: &Blocks,
+    pad: Pos,
+    side: Direction,
+    (changes, kept): (&mut BTreeMap<Pos, String>, &mut Vec<Pos>),
+) -> Result<Fed, String> {
+    // What a cell holds, as changed; one kept air behind an input fed
+    // already holds that input's barrel.
+    let state = |cell: Pos| {
+        if kept.contains(&cell) {
+            return "minecraft:barrel".to_owned();
+        }
+        changes
+            .get(&cell)
+            .map_or_else(|| blocks.get(cell), String::as_str)
+            .to_owned()
+    };
+    let dust = schem::step(pad, Direction::Up);
+    let comparator = schem::step(dust, side);
+    let behind = schem::step(comparator, side);
+    let under = schem::step(comparator, Direction::Down);
+    for (cell, what) in [(comparator, "comparator"), (behind, "air behind it")]
+    {
+        let held = state(cell);
+        if !is_air(&held) {
+            return Err(format!(
+                "{side}: {} at {}, where the {what} goes",
+                schem::short(&held).replace('_', " "),
+                inspect::place(cell)
+            ));
+        }
+    }
+    let across = if side.north_south() {
+        [Direction::East, Direction::West]
+    } else {
+        [Direction::North, Direction::South]
+    };
+    for way in across {
+        let beside = schem::step(comparator, way);
+        let held = state(beside);
+        if runs_into_side(&held) {
+            return Err(format!(
+                "{side}: {} at {}, which runs into the comparator's side",
+                schem::short(&held).replace('_', " "),
+                inspect::place(beside)
+            ));
+        }
+    }
+    let below = state(under);
+    let (support, glass) = if is_air(&below) {
+        // A torch powers the block over it, and a solid block over dust
+        // cuts the dust's climb, as glass does neither.
+        let glass = matches!(
+            schem::short(&state(schem::step(under, Direction::Down))),
+            "redstone_torch" | "redstone_wall_torch" | "redstone_wire"
+        );
+        (Some(under), glass)
+    } else if schem::block::whole(&below)
+        && !schem::block::is_component(schem::short(&below))
+    {
+        (None, false)
+    } else {
+        return Err(format!(
+            "{side}: {} at {}, which can't hold the comparator up",
+            schem::short(&below).replace('_', " "),
+            inspect::place(under)
+        ));
+    };
+    if let Some(under) = support {
+        let held = if glass {
+            "minecraft:white_stained_glass"
+        } else {
+            "minecraft:white_concrete"
+        };
+        changes.insert(under, held.to_owned());
+    }
+    changes.insert(
+        comparator,
+        format!(
+            "minecraft:comparator[facing={side},mode=compare,powered=false]"
+        ),
+    );
+    kept.push(behind);
+    Ok(Fed::Fed {
+        pad,
+        side,
+        comparator,
+        support,
+        glass,
+    })
+}
+
+/// Each signal-strength input of `pads`, today's, input blocks with dust
+/// on top, each with the side its dust is open to, fed as the owner feeds
+/// one by hand: beside its dust a comparator pointing into it with air
+/// behind, where a tester puts a barrel, on the block under it or on a
+/// support put there, white concrete, or white stained glass over a torch
+/// or dust, as a tap's support is; from the side the dust is open to, else
+/// the first side, north, south, west, east, it can be. Everything else is
+/// kept. Its changes added to `changes`, which hold the cells taken
+/// already, with what came of each input.
+pub fn feed(
+    blocks: &Blocks,
+    pads: &[(Pos, Option<Direction>)],
+    changes: &mut BTreeMap<Pos, String>,
+) -> Vec<Fed> {
+    let mut kept = Vec::new();
+    pads.iter()
+        .map(|&(pad, entry)| {
+            if driving(blocks, pad).is_some() {
+                return Fed::Already { pad };
+            }
+            let mut sides: Vec<Direction> = entry.into_iter().collect();
+            sides.extend(OUTWARD.into_iter().filter(|&s| Some(s) != entry));
+            let mut blocked = Vec::new();
+            for side in sides {
+                match feed_from(blocks, pad, side, (changes, &mut kept)) {
+                    Ok(fed) => return fed,
+                    Err(why) => blocked.push(why),
+                }
+            }
+            Fed::Not {
+                pad,
+                why: format!("every side is blocked: {}", blocked.join("; ")),
+            }
+        })
+        .collect()
+}
+
+/// A port made by [`tapped`]: its file, unless an output or input couldn't
+/// be ported; how far every old position moved as the box grew; and what
+/// came of each output and input.
+pub struct Ported {
+    pub file: Option<Vec<u8>>,
+    pub moved: Pos,
+    pub tapped: Vec<Tapped>,
+    pub fed: Vec<Fed>,
+}
+
 /// The file in `data` with each output of `outputs`, today's, tapped as
-/// [`tap`] taps them, `along` the ways copies stack, its box grown to hold the taps, then as `//update`
-/// leaves it, [`crate::schem::rstack::settle`]: dust shaped as the game shapes it, then
-/// every component at rest, each lever as it was. The file, how far every
-/// old position moved, and what came of each output; no file unless every
-/// output was tapped or already one.
+/// [`tap`] taps them, `along` the ways copies stack, and each
+/// signal-strength input of `pads`, today's, fed as [`feed`] feeds them,
+/// its box grown to hold the taps, then as `//update` leaves it,
+/// [`crate::schem::rstack::settle`]: dust shaped as the game shapes it,
+/// then every component at rest, each lever as it was. No file unless
+/// every output was tapped or already one and every input fed or already.
 pub fn tapped(
     data: &[u8],
-    outputs: &[Run],
+    (outputs, pads): (&[Run], &[(Pos, Option<Direction>)]),
     comparator: impl Fn(Pos) -> bool,
     along: &[Direction],
-) -> Result<(Option<Vec<u8>>, Pos, Vec<Tapped>)> {
+) -> Result<Ported> {
     let blocks = Blocks::read(data)?;
-    let (changes, done) = tap(&blocks, outputs, comparator, along);
-    if changes.is_empty()
-        || done.iter().any(|t| matches!(t, Tapped::Not { .. }))
+    let (mut changes, tapped) = tap(&blocks, outputs, comparator, along);
+    let fed = feed(&blocks, pads, &mut changes);
+    let ported = tapped.iter().any(|t| matches!(t, Tapped::Tapped { .. }))
+        || fed.iter().any(|f| matches!(f, Fed::Fed { .. }));
+    if !ported
+        || tapped.iter().any(|t| matches!(t, Tapped::Not { .. }))
+        || fed.iter().any(|f| matches!(f, Fed::Not { .. }))
     {
-        return Ok((None, [0; 3], done));
+        return Ok(Ported {
+            file: None,
+            moved: [0; 3],
+            tapped,
+            fed,
+        });
     }
     let (file, moved) = crate::schem::standardize::edit_grown(data, &changes)?;
     let file = crate::schem::rstack::settle(&file)?;
-    Ok((Some(file), moved, done))
+    Ok(Ported {
+        file: Some(file),
+        moved,
+        tapped,
+        fed,
+    })
 }
 
 #[cfg(test)]
@@ -891,8 +1386,12 @@ mod tests {
         let data = std::fs::read("tests/fixtures/inc-8.schem").unwrap();
         let blocks = Blocks::read(&data).unwrap();
         let today = inspect::inspect_marked(&blocks, inspect::SITE);
-        let (file, moved, done) =
-            tapped(&data, &today.outputs, |_| false, &[]).unwrap();
+        let Ported {
+            file,
+            moved,
+            tapped: done,
+            ..
+        } = tapped(&data, (&today.outputs, &[]), |_| false, &[]).unwrap();
         let file = file.expect("every output tapped");
         assert_eq!(
             crate::schem::rstack::settle(&file).unwrap(),
@@ -922,5 +1421,199 @@ mod tests {
             );
             assert!(found.contains(&schem::add(*support, moved)));
         }
+    }
+
+    /// Lime concrete with dust on it, open to the south, a digit input as
+    /// today's rule reads it by its colour, in a box 3 by 3 by 3.
+    fn pad(extra: &[(Pos, &str)]) -> Blocks {
+        let wire = "redstone_wire[east=none,north=side,power=0,south=side,\
+                    west=none]";
+        let mut states: HashMap<Pos, String> = [
+            ([1, 0, 1], "lime_concrete"),
+            ([1, 1, 1], wire),
+            ([1, 0, 0], "stone"),
+            ([1, 1, 0], wire),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        for &(pos, state) in extra {
+            states.insert(pos, format!("minecraft:{state}"));
+        }
+        Blocks::from_grid([3, 3, 3], &states)
+    }
+
+    const COMPARATOR: &str = "comparator[facing=south,mode=compare,\
+                              powered=false]";
+
+    /// A comparator with air behind it giving out into dust is a
+    /// signal-strength input, and drives the digit on the block under the
+    /// dust; with a block behind it, it reads that, and is none, and one
+    /// giving out into air is an output.
+    #[test]
+    fn a_comparator_with_air_behind_is_a_strength_input() {
+        let blocks = pad(&[([1, 1, 2], COMPARATOR)]);
+        let found = strength_inputs(&blocks);
+        assert_eq!(
+            found,
+            [StrengthInput {
+                at: [1, 1, 2],
+                facing: Direction::South,
+            }]
+        );
+        assert_eq!(found[0].front(), [1, 1, 1]);
+        assert_eq!(driving(&blocks, [1, 0, 1]), Some(found[0]));
+        assert!(find(&blocks).is_empty());
+        let behind = Blocks::from_grid(
+            [3, 3, 4],
+            &[
+                ([1, 1, 1], "minecraft:redstone_wire".to_owned()),
+                ([1, 1, 2], format!("minecraft:{COMPARATOR}")),
+                ([1, 1, 3], "minecraft:barrel".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        assert!(strength_inputs(&behind).is_empty());
+        let alone = Blocks::from_grid(
+            [1, 1, 1],
+            &[([0, 0, 0], format!("minecraft:{COMPARATOR}"))]
+                .into_iter()
+                .collect(),
+        );
+        assert!(strength_inputs(&alone).is_empty());
+        assert_eq!(find(&alone).len(), 1);
+    }
+
+    /// Two lines evenly spaced two apart, each a layer above the other's,
+    /// are one bus whose bits alternate between them, as a tall hex
+    /// adder's digits do.
+    #[test]
+    fn two_interleaved_lines_are_one_bus() {
+        let at = |x, y| StrengthInput {
+            at: [x, y, 0],
+            facing: Direction::North,
+        };
+        let inputs = [at(5, 3), at(5, 5), at(5, 7), at(6, 4), at(6, 6)];
+        let runs = strength_lines(&inputs);
+        assert_eq!(runs.len(), 2);
+        let inputs =
+            [at(5, 3), at(5, 5), at(5, 7), at(6, 4), at(6, 6), at(6, 8)];
+        let runs = strength_lines(&inputs);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0].bits,
+            [
+                [5, 3, 0],
+                [6, 4, 0],
+                [5, 5, 0],
+                [6, 6, 0],
+                [5, 7, 0],
+                [6, 8, 0]
+            ]
+        );
+    }
+
+    /// A digit input is fed from the side its dust is open to: a
+    /// comparator pointing into the dust, on a support, with air behind it,
+    /// which this rule reads as the input driving it.
+    #[test]
+    fn a_digit_input_is_fed_from_its_open_side() {
+        let blocks = pad(&[]);
+        let mut changes = BTreeMap::new();
+        let fed = feed(
+            &blocks,
+            &[([1, 0, 1], Some(Direction::South))],
+            &mut changes,
+        );
+        assert_eq!(
+            fed,
+            [Fed::Fed {
+                pad: [1, 0, 1],
+                side: Direction::South,
+                comparator: [1, 1, 2],
+                support: Some([1, 0, 2]),
+                glass: false,
+            }]
+        );
+        let states: HashMap<Pos, String> = blocks
+            .iter()
+            .filter(|(_, state)| !is_air(state))
+            .map(|(pos, state)| (pos, state.to_owned()))
+            .chain(changes)
+            .collect();
+        let after = Blocks::from_grid([3, 3, 4], &states);
+        assert_eq!(
+            driving(&after, [1, 0, 1]).map(|input| input.at),
+            Some([1, 1, 2])
+        );
+        // Fed already, it is left as it is.
+        let mut again = BTreeMap::new();
+        let fed =
+            feed(&after, &[([1, 0, 1], Some(Direction::South))], &mut again);
+        assert_eq!(fed, [Fed::Already { pad: [1, 0, 1] }]);
+        assert!(again.is_empty());
+    }
+
+    /// A digit whose every side is taken can't be fed: dust running into
+    /// the comparator's side would change what it gives out.
+    #[test]
+    fn a_digit_input_with_dust_beside_its_comparator_is_not_fed_so() {
+        let wire = "redstone_wire";
+        let blocks = pad(&[
+            ([0, 1, 2], wire),
+            ([2, 1, 0], wire),
+            ([0, 1, 1], "stone"),
+            ([2, 1, 1], "stone"),
+        ]);
+        let mut changes = BTreeMap::new();
+        let fed = feed(
+            &blocks,
+            &[([1, 0, 1], Some(Direction::South))],
+            &mut changes,
+        );
+        let [Fed::Not { why, .. }] = fed.as_slice() else {
+            panic!("fed: {fed:?}");
+        };
+        assert!(why.contains("runs into the comparator's side"), "{why}");
+    }
+
+    /// The owner's 8-digit carry-cancel hex adder, its digit inputs read
+    /// by their colour, fed and its outputs tapped: the proposed rule reads
+    /// the port with no colour, its comparators A and B, and it adds as the
+    /// original does.
+    #[test]
+    #[ignore = "simulates a whole build"]
+    fn a_hex_adder_fed_and_tapped_adds_by_the_proposed_rule() {
+        let data = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+        let data = probe::simulatable(&data).unwrap();
+        let blocks = Blocks::read(&data).unwrap();
+        let today = inspect::inspect_marked(&blocks, inspect::SITE);
+        let pads: Vec<(Pos, Option<Direction>)> =
+            interface::dust_inputs(&blocks).into_iter().collect();
+        assert_eq!(pads.len(), 16);
+        let sum: Vec<Pos> = interface::read(&blocks)
+            .outputs
+            .iter()
+            .filter(|port| port.bits.len() > 1)
+            .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
+            .collect();
+        let ported = tapped(
+            &data,
+            (&today.outputs, &pads),
+            |pos| sum.contains(&pos),
+            &[],
+        )
+        .unwrap();
+        assert!(ported.fed.iter().all(|f| matches!(f, Fed::Fed { .. })));
+        let after = Blocks::read(&ported.file.expect("ported")).unwrap();
+        assert_eq!(strength_inputs(&after).len(), 16);
+        let lines = interface(&after);
+        let report = Kind::HexAdder.test().unwrap().run_with(&after, lines);
+        let crate::simulate::Report::Ran(run) = report else {
+            panic!("not run: {report:?}");
+        };
+        assert_eq!(run.wrong, 0);
+        assert_eq!(run.inputs[0].bits, 32);
     }
 }

@@ -108,15 +108,19 @@ enum Command {
     },
     /// List a file's or stored build's inputs and its outputs by the rule
     /// proposed for them, a repeater or comparator powering nothing, in
-    /// buses by how they line up, beside today's outputs, and probe it
-    /// with them. Reads the database only
+    /// buses by how they line up, beside today's outputs, and its
+    /// signal-strength inputs, comparators with air behind, beside today's,
+    /// and probe it with them, or test one with signal-strength inputs
+    /// through the lines their shapes give. Reads the database only
     Outputs(Outputs),
     /// Port a build's outputs, as today's rule reads them, to the proposed
     /// rule as the owner does by hand: each output block whitened, its dust
     /// left, and beside it, out of the build, a repeater on a support
-    /// reading the dust and giving out into air; then check the port tests,
-    /// computes, and stacks as the original does. With --all, every stored
-    /// build, writing the ports that pass. Reads the database only
+    /// reading the dust and giving out into air; and its signal-strength
+    /// inputs, as today's rule reads them, each fed by a comparator beside
+    /// its dust with air behind; then check the port tests, computes, and
+    /// stacks as the original does. With --all, every stored build,
+    /// writing the ports that pass. Reads the database only
     Convert(Convert),
     /// Stack copies of a build as the site's stacking test does, the first
     /// whole and the rest its box, each way asked, settle them, read them

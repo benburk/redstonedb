@@ -1,8 +1,10 @@
 //! Porting builds to the rule proposed for outputs, see
 //! [`repeater_outputs`], as the owner ports them by hand: each output today's
-//! rule reads tapped, [`repeater_outputs::tap`], and the port checked
-//! against the original by its category's test, its truth table, and, for a
-//! build that stacks, the stacks it makes. One build at a time, or every
+//! rule reads tapped, [`repeater_outputs::tap`], each signal-strength input
+//! it reads by its colour fed, [`repeater_outputs::feed`], and the port
+//! checked against the original by its category's test, also through the
+//! lines the proposed rule reads for a build with signal-strength inputs,
+//! its truth table, and, for a build that stacks, the stacks it makes. One build at a time, or every
 //! stored build, each in a process of its own, writing the ports that pass.
 //! Nothing here writes to the database.
 
@@ -24,7 +26,7 @@ use app::{
         colour, inspect,
         interface::{self, Interface},
         probe,
-        repeater_outputs::{self, Tapped},
+        repeater_outputs::{self, Fed, Tapped},
     },
     schem::{self, Blocks, Direction, Pos, standardize},
     simulate::{self, Test},
@@ -169,7 +171,8 @@ pub(super) async fn convert_command(
 }
 
 /// The build in `data` ported to the proposed rule by tapping its outputs,
-/// read as an upload's with `upload`, else in the site's colours, then
+/// read as an upload's with `upload`, else in the site's colours, and
+/// feeding its signal-strength inputs, read by their colour, then
 /// checked against the original: by its category's test, as `category`
 /// gives it, and `stored`'s width; case by case through one interface;
 /// read back by the proposed rule; and, when `stored` stacks, stacked
@@ -218,16 +221,16 @@ fn convert(
     let before = test.map(|test| test.run(&blocks));
     let digits = digit_outputs(&lines, before.as_ref());
     let along = stacking_sides(stored);
-    let tapped = repeater_outputs::tapped(
+    let ported = repeater_outputs::tapped(
         data,
-        &today.outputs,
+        (&today.outputs, &digit_pads(&blocks)),
         |pos| digits.contains(&pos),
         &along,
     );
     // Settling, as `//update` does, can fail where the simulator can't
     // run the build, as a piston's or a clock's.
-    let (file, moved, done) = match tapped {
-        Ok(tapped) => tapped,
+    let ported = match ported {
+        Ok(ported) => ported,
         Err(err) => {
             writeln!(said, "  not settled: {err}")?;
             let mut outcome =
@@ -240,8 +243,12 @@ fn convert(
             });
         }
     };
-    let outcome = tell_tapped(&blocks, &done, &mut said)?;
-    let Some(file) = file else {
+    let outcome = joined(
+        tell_tapped(&blocks, &ported.tapped, &mut said)?,
+        tell_fed(&blocks, &ported.fed, &mut said)?,
+    );
+    let (moved, done) = (ported.moved, &ported.tapped);
+    let Some(file) = ported.file else {
         return Ok(Conversion {
             file: None,
             said,
@@ -249,13 +256,10 @@ fn convert(
         });
     };
     if moved != [0; 3] {
-        writeln!(
-            said,
-            "  the box grew, every old position moved by {}",
-            place(moved)
-        )?;
+        let moved = place(moved);
+        writeln!(said, "  the box grew, every old position moved by {moved}")?;
     }
-    let port = Port::new(file, moved, &done)?;
+    let port = Port::new(file, moved, done, &ported.fed)?;
     let original = Original {
         data,
         blocks: &blocks,
@@ -265,7 +269,7 @@ fn convert(
         test,
         before: before.as_ref(),
     };
-    let mut outcome = check(&original, &port, &done, &mut said)?;
+    let mut outcome = check(&original, &port, done, &mut said)?;
     if outcome.class == Class::Ported
         && let Some(stored) = stored
     {
@@ -279,6 +283,16 @@ fn convert(
         said,
         outcome,
     })
+}
+
+/// The signal-strength inputs today's rule reads in `blocks` by their
+/// colour, input blocks with dust on top, each with the side its dust is
+/// open to, in order.
+fn digit_pads(blocks: &Blocks) -> Vec<(Pos, Option<Direction>)> {
+    let mut pads: Vec<(Pos, Option<Direction>)> =
+        interface::dust_inputs(blocks).into_iter().collect();
+    pads.sort_unstable_by_key(|&(pad, _)| pad);
+    pads
 }
 
 /// The original build a port is checked against.
@@ -312,6 +326,9 @@ fn check(
     if let Some(missed) = read_back(port, said)? {
         differ.push(("a tap isn't read back", vec![missed]));
     }
+    if let Some(missed) = read_back_inputs(port, said) {
+        differ.push(("a fed input isn't read back", vec![missed]));
+    }
     let mut checks = 0;
     if let (Some(test), Some(before)) = (original.test, original.before) {
         // The category's test, its outputs read at the taps.
@@ -328,6 +345,23 @@ fn check(
                     format!("test after: {now}"),
                 ],
             ));
+        }
+        // A build with signal-strength inputs, which probing doesn't read,
+        // tested too through the lines the proposed rule reads, colours
+        // playing no part.
+        if !port.fed.is_empty() {
+            let lines = repeater_outputs::interface(&port.after);
+            let ruled = verdict(&test.run_with(&port.after, lines));
+            writeln!(said, "  test by the proposed rule: {ruled}")?;
+            if was != ruled {
+                differ.push((
+                    "the test by the proposed rule differs",
+                    vec![
+                        format!("test before: {was}"),
+                        format!("test by the proposed rule: {ruled}"),
+                    ],
+                ));
+            }
         }
     } else if let Some(category) = original.category {
         writeln!(said, "  no test for {category} of {:?}", original.width)?;
@@ -347,9 +381,11 @@ fn check(
     let moved_lines = moved_interface(&lines, &port.now_at, port.moved);
     let mut no_table = None;
     let mut min_ss = Vec::new();
+    let on_off = on_off_outputs(&moved_lines, &port.after);
     match compare_tables(
         (original.blocks, &lines),
         (&port.after, &moved_lines),
+        &on_off,
         said,
         &mut min_ss,
     )? {
@@ -392,10 +428,19 @@ struct Port {
     now_at: HashMap<Pos, Pos>,
     /// Its blocks, made simulatable.
     after: Blocks,
+    /// Where each signal-strength input's comparator stands now, by the
+    /// input block it was read by, moved with the box: those fed and those
+    /// fed already.
+    fed: Vec<(Pos, Pos)>,
 }
 
 impl Port {
-    fn new(file: Vec<u8>, moved: Pos, done: &[Tapped]) -> Result<Self> {
+    fn new(
+        file: Vec<u8>,
+        moved: Pos,
+        done: &[Tapped],
+        fed: &[Fed],
+    ) -> Result<Self> {
         let now_at = done
             .iter()
             .map(|t| match t {
@@ -406,11 +451,26 @@ impl Port {
             })
             .collect();
         let after = Blocks::read(&probe::simulatable(&file)?)?;
+        let fed = fed
+            .iter()
+            .filter_map(|fed| match fed {
+                Fed::Fed {
+                    pad, comparator, ..
+                } => Some((*pad, schem::add(*comparator, moved))),
+                Fed::Already { pad } => {
+                    let pad = schem::add(*pad, moved);
+                    repeater_outputs::driving(&after, pad)
+                        .map(|input| (pad, input.at))
+                }
+                Fed::Not { .. } => None,
+            })
+            .collect();
         Ok(Port {
             file,
             moved,
             now_at,
             after,
+            fed,
         })
     }
 }
@@ -438,6 +498,141 @@ fn read_back(port: &Port, said: &mut String) -> Result<Option<String>> {
     )?;
     Ok((!missed.is_empty())
         .then(|| format!("not read back: {}", missed.join(", "))))
+}
+
+/// Writes to `said` how many of the port's fed inputs the proposed rule
+/// reads back as signal-strength inputs; those it misses, in words, if
+/// any.
+fn read_back_inputs(port: &Port, said: &mut String) -> Option<String> {
+    if port.fed.is_empty() {
+        return None;
+    }
+    let found: HashSet<Pos> = repeater_outputs::strength_inputs(&port.after)
+        .iter()
+        .map(|input| input.at)
+        .collect();
+    let missed: Vec<String> = port
+        .fed
+        .iter()
+        .filter(|(_, at)| !found.contains(at))
+        .map(|(pad, at)| format!("{} (comparator {})", place(*pad), place(*at)))
+        .collect();
+    writeln!(
+        said,
+        "  inputs read back by the proposed rule: {} of {} found, {} \
+         comparators with air behind in all",
+        port.fed.len() - missed.len(),
+        port.fed.len(),
+        found.len()
+    )
+    .ok()?;
+    (!missed.is_empty())
+        .then(|| format!("not read back: {}", missed.join(", ")))
+}
+
+/// What came of a port's outputs, `outputs`, and of its inputs, `inputs`,
+/// as one: to review when either is, with both reasons; ported when either
+/// is; else already.
+fn joined(outputs: Outcome, inputs: Outcome) -> Outcome {
+    match (outputs.class, inputs.class) {
+        (Class::Review, Class::Review) => {
+            let mut outcome = Outcome::new(
+                Class::Review,
+                format!("{}; {}", outputs.reason, inputs.reason),
+            );
+            outcome.details = [outputs.details, inputs.details].concat();
+            outcome
+        }
+        (Class::Review, _) => outputs,
+        (_, Class::Review) => inputs,
+        (Class::Ported, _) | (_, Class::Ported) => {
+            Outcome::new(Class::Ported, "")
+        }
+        _ => outputs,
+    }
+}
+
+/// Writes to `said` what came of each signal-strength input; what came of
+/// them: ported, each fed or fed already, already, when none needed
+/// feeding, or to review, naming each that couldn't be.
+fn tell_fed(
+    blocks: &Blocks,
+    fed: &[Fed],
+    said: &mut String,
+) -> Result<Outcome> {
+    if fed.is_empty() {
+        return Ok(Outcome::new(Class::Already, "no signal-strength inputs"));
+    }
+    let mut not = Vec::new();
+    let mut sides: BTreeMap<&str, usize> = BTreeMap::new();
+    for each in fed {
+        match each {
+            Fed::Already { pad } => {
+                writeln!(said, "  already: input on {}", place(*pad))?;
+            }
+            Fed::Fed {
+                pad,
+                side,
+                comparator,
+                support,
+                glass,
+            } => {
+                *sides.entry(side.name()).or_default() += 1;
+                let held = match (support, glass) {
+                    (None, _) => {
+                        let under = schem::step(*comparator, Direction::Down);
+                        schem::short(blocks.get(under)).replace('_', " ")
+                    }
+                    (Some(_), false) => "white concrete put there".to_owned(),
+                    (Some(at), true) => format!(
+                        "white stained glass put there over {}",
+                        schem::short(
+                            blocks.get(schem::step(*at, Direction::Down))
+                        )
+                        .replace('_', " ")
+                    ),
+                };
+                writeln!(
+                    said,
+                    "  fed: input on {} ({}) {side}: comparator at {} on {held}",
+                    place(*pad),
+                    schem::short(blocks.get(*pad)).replace('_', " "),
+                    place(*comparator)
+                )?;
+            }
+            Fed::Not { pad, why } => {
+                writeln!(said, "  not fed: input on {}: {why}", place(*pad))?;
+                not.push(format!("input on {}: {why}", place(*pad)));
+            }
+        }
+    }
+    let count: usize = sides.values().sum();
+    let ways: Vec<String> = sides
+        .iter()
+        .map(|(side, n)| format!("{n} {side}"))
+        .collect();
+    writeln!(
+        said,
+        "  {} signal-strength inputs: {count} fed{}, {} already, {} not",
+        fed.len(),
+        if ways.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", ways.join(", "))
+        },
+        fed.len() - count - not.len(),
+        not.len()
+    )?;
+    Ok(if !not.is_empty() {
+        let mut outcome =
+            Outcome::new(Class::Review, "not fed: every side blocked");
+        outcome.details = not;
+        outcome
+    } else if count == 0 {
+        Outcome::new(Class::Already, "every input already one")
+    } else {
+        Outcome::new(Class::Ported, "")
+    })
 }
 
 /// The level sides a tap would reach from one copy of `stored` into the
@@ -677,6 +872,27 @@ fn moved_interface(
     moved
 }
 
+/// Which outputs of `lines`, a port's, `after` its blocks, a truth table
+/// compares as on or off: those read a digit a block, as every output of
+/// a build with a signal-strength input is but a status line, whose taps
+/// are repeaters, which give out 15 for any strength on, as an output of
+/// bits does.
+fn on_off_outputs(lines: &Interface, after: &Blocks) -> Vec<bool> {
+    let digits = lines.inputs.iter().any(|port| port.signal_strength);
+    lines
+        .outputs
+        .iter()
+        .map(|port| {
+            digits
+                && !port.block.starts_with(colour::STATUS)
+                && port.bits.iter().all(|bit| {
+                    let top = schem::step(bit.pos, Direction::Up);
+                    schem::short(after.get(top)) == "repeater"
+                })
+        })
+        .collect()
+}
+
 /// How two truth tables compared.
 enum Compared {
     Same,
@@ -693,6 +909,7 @@ enum Compared {
 fn compare_tables(
     (blocks, lines): (&Blocks, &Interface),
     (after, after_lines): (&Blocks, &Interface),
+    on_off: &[bool],
     said: &mut String,
     min_ss: &mut Vec<String>,
 ) -> Result<Compared> {
@@ -704,8 +921,25 @@ fn compare_tables(
             return Ok(Compared::Not(err.to_string()));
         }
     };
+    // Each output's values, a digit read as on or off where `on_off` says.
+    let read = |values: &[simulate::Value]| -> Vec<simulate::Value> {
+        values
+            .iter()
+            .zip(on_off.iter().chain(std::iter::repeat(&false)))
+            .map(|(&value, &on_off)| {
+                if on_off {
+                    (0..32).fold(0, |read, digit| {
+                        let on = value >> (4 * digit) & 15 != 0;
+                        read | simulate::Value::from(on) << digit
+                    })
+                } else {
+                    value
+                }
+            })
+            .collect()
+    };
     let differ: Vec<usize> = (0..before.cases.len())
-        .filter(|&i| before.cases[i].1 != now.cases[i].1)
+        .filter(|&i| read(&before.cases[i].1) != read(&now.cases[i].1))
         .collect();
     let compared = match differ.first() {
         None => {
