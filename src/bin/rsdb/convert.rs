@@ -13,8 +13,9 @@
 //! build with signal-strength inputs, its truth table, and, for a build
 //! that stacks, the stacks it makes, and measured; a promoted port that
 //! fails a check, or measures larger than tapping makes it, is tapped
-//! instead. One build at a time, or every stored build, each in a process
-//! of its own, writing the ports that pass. The original, and the port with its taps
+//! instead. One build at a time, or every stored build but those left
+//! unported, such as one the owner dropped, each in a process of its own,
+//! writing the ports that pass. The original, and the port with its taps
 //! coloured as its outputs were, are read and tested by the old rule,
 //! [`legacy::reading`]; this is the one place the site still reads it.
 //! Nothing here writes to the database.
@@ -83,6 +84,11 @@ pub(super) struct Convert {
     /// are still ported, to compare, but listed apart and not written
     #[arg(long, requires = "all")]
     hand_ported: Option<PathBuf>,
+    /// With `--all`, builds left unported, by their id or its start, such
+    /// as one the owner dropped; any port in the hand ports' `dropped`
+    /// folder is left so too
+    #[arg(long, value_delimiter = ',', requires = "all")]
+    skip: Vec<String>,
     /// Where to write the port with its roles kept in the site's colours,
     /// as the site colours a build it recognizes: each tap's support as its
     /// output block was, and each fed comparator's support as its input
@@ -1727,7 +1733,8 @@ struct Ported {
     against_hand: Option<String>,
 }
 
-/// Ports every stored build, `args.jobs` at a time, each in a process of
+/// Ports every stored build but those `args.skip` names or the hand ports'
+/// `dropped` folder holds, `args.jobs` at a time, each in a process of
 /// its own held to `PORT_MEMORY_KIB` and `PORT_TIME`; writes each port that
 /// passed every check to `args.out_dir`, unless the owner ported it by
 /// hand; then prints every build not fully ported, grouped by reason, the
@@ -1741,6 +1748,10 @@ async fn convert_all(db: &SqlitePool, args: &Convert) -> Result<()> {
         Some(dir) => hand_ports(dir)?,
         None => HashMap::new(),
     };
+    let skip = left_unported(&args.skip, args.hand_ported.as_deref())?;
+    let (skipped, builds): (Vec<_>, Vec<_>) = builds
+        .into_iter()
+        .partition(|s| skip.iter().any(|id| s.id.starts_with(id.as_str())));
     let scratch = std::env::temp_dir()
         .join(format!("rsdb-convert-all-{}", std::process::id()));
     fs::create_dir_all(&scratch)?;
@@ -1787,6 +1798,11 @@ async fn convert_all(db: &SqlitePool, args: &Convert) -> Result<()> {
         .expect("results");
     results.sort_by(|a, b| (&a.category, &a.id).cmp(&(&b.category, &b.id)));
     print_review(&results);
+    println!();
+    println!("== LEFT UNPORTED ({}), as asked", skipped.len());
+    for s in &skipped {
+        println!("  {} {}  {}", &s.id[..8], s.category, s.filename());
+    }
     Ok(())
 }
 
@@ -1806,6 +1822,24 @@ fn hand_ports(dir: &Path) -> Result<HashMap<String, String>> {
         }
     }
     Ok(found)
+}
+
+/// The builds `--all` leaves unported, by their id or its start: those
+/// `skip` names, and each the owner dropped, as a port of it in the
+/// `dropped` folder of `hand_ported` says.
+fn left_unported(
+    skip: &[String],
+    hand_ported: Option<&Path>,
+) -> Result<Vec<String>> {
+    let mut left = skip.to_vec();
+    if let Some(dropped) = hand_ported.map(|dir| dir.join("dropped"))
+        && dropped.is_dir()
+    {
+        left.extend(hand_ports(&dropped)?.into_keys());
+    }
+    left.sort_unstable();
+    left.dedup();
+    Ok(left)
 }
 
 /// Ports the stored build `id` in a process of its own, held to
@@ -2288,6 +2322,21 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(found.len(), 2);
         assert_eq!(found["54926989"], "NEEDS-FIX_adder_54926989.schem");
+    }
+
+    /// A build the owner dropped, its port in the hand ports' `dropped`
+    /// folder, is left unported, as is one named to skip.
+    #[test]
+    fn a_dropped_build_is_left_unported() {
+        let dir = std::env::temp_dir()
+            .join(format!("rsdb-dropped-{}", std::process::id()));
+        fs::create_dir_all(dir.join("dropped")).unwrap();
+        fs::write(dir.join("adder_3cb61be7.schem"), b"").unwrap();
+        fs::write(dir.join("dropped/adder_066515d8.schem"), b"").unwrap();
+        let left = left_unported(&["9c1c".to_owned()], Some(&dir)).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(left, ["066515d8", "9c1c"]);
+        assert!(left_unported(&[], None).unwrap().is_empty());
     }
 
     /// A one-bit XOR gate with `extra` put out west of it, on stone.
