@@ -149,13 +149,14 @@ macro_rules! guide_image {
 
 /// The How builds are recognized pictures, one for each of
 /// [`crate::recognize::guide::examples`].
-const GUIDE: [Asset; 10] = [
+const GUIDE: [Asset; 11] = [
     guide_image!("input"),
     guide_image!("input-dust-below"),
     guide_image!("repeater"),
     guide_image!("data-dust-on-top"),
+    guide_image!("strength-input"),
     guide_image!("output"),
-    guide_image!("outputs-touching"),
+    guide_image!("output-powering"),
     guide_image!("bus-straight"),
     guide_image!("bus-diagonal"),
     guide_image!("bus-alternating"),

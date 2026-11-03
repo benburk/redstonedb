@@ -42,7 +42,6 @@ impl Example {
 }
 
 const WHITE: &str = "white_concrete";
-const YELLOW: &str = "yellow_concrete";
 const LEVER: &str = "lever[face=wall,facing=south,powered=true]";
 const DUST_NS: &str =
     "redstone_wire[east=none,north=side,power=15,south=side,west=none]";
@@ -51,41 +50,42 @@ const DUST_EW: &str =
 const TORCH_EAST: &str = "redstone_wall_torch[facing=east,lit=false]";
 const REPEATER_IN: &str =
     "repeater[delay=1,facing=south,locked=false,powered=true]";
+/// A repeater reading from the west, giving out east.
+const REPEATER_OUT: &str =
+    "repeater[delay=1,facing=west,locked=false,powered=true]";
+/// A comparator reading from the south, giving out north.
+const COMPARATOR_IN: &str =
+    "comparator[facing=south,mode=compare,powered=false]";
 
 /// An input at `x`, `y`: its block, its lever on the south side, and the
 /// dust it drives to the north, on a block of its own.
 fn input(x: i32, y: i32) -> Vec<(Pos, &'static str)> {
-    coloured_input(x, y, WHITE)
-}
-
-/// An input as `input` makes it, its block `block`, with dust on top.
-fn dust_on_top(block: &'static str) -> Vec<(Pos, &'static str)> {
-    [coloured_input(1, 1, block), vec![([1, 2, 1], DUST_EW)]].concat()
-}
-
-/// An input as `input` makes it, its block `block`.
-fn coloured_input(
-    x: i32,
-    y: i32,
-    block: &'static str,
-) -> Vec<(Pos, &'static str)> {
     vec![
-        ([x, y, 1], block),
+        ([x, y, 1], WHITE),
         ([x, y, 2], LEVER),
         ([x, y - 1, 0], WHITE),
         ([x, y, 0], DUST_NS),
     ]
 }
 
-/// An output: dust coming from the west along white blocks onto a block
-/// of `colour` at `x`.
-fn output(x: i32, z: i32, colour: &'static str) -> Vec<(Pos, &'static str)> {
-    vec![
-        ([x - 1, 0, z], WHITE),
-        ([x - 1, 1, z], DUST_EW),
-        ([x, 0, z], colour),
-        ([x, 1, z], DUST_EW),
-    ]
+/// An input as `input` makes it, with dust on top of its block.
+fn dust_on_top() -> Vec<(Pos, &'static str)> {
+    [input(1, 1), vec![([1, 2, 1], DUST_EW)]].concat()
+}
+
+/// An output: dust coming from the west along white blocks into a
+/// repeater on a block at `x`, giving out east into `front`.
+fn output(x: i32, front: &'static str) -> Vec<(Pos, &'static str)> {
+    let mut blocks = vec![
+        ([x - 1, 0, 0], WHITE),
+        ([x - 1, 1, 0], DUST_EW),
+        ([x, 0, 0], WHITE),
+        ([x, 1, 0], REPEATER_OUT),
+    ];
+    if front != "air" {
+        blocks.push(([x + 1, 1, 0], front));
+    }
+    blocks
 }
 
 /// Every example, in the order the page shows them.
@@ -130,21 +130,33 @@ pub fn examples() -> Vec<Example> {
             caption: "Dust on top of an input's block.",
             kept: true,
             breaks: None,
-            blocks: dust_on_top("lime_concrete"),
+            blocks: dust_on_top(),
+        },
+        Example {
+            name: "strength-input",
+            caption: "A comparator with air behind it, giving out into the build: an input taking a strength from 0 to 15, a hex digit.",
+            kept: true,
+            breaks: None,
+            blocks: vec![
+                ([1, 0, 0], WHITE),
+                ([1, 1, 0], DUST_NS),
+                ([1, 0, 1], WHITE),
+                ([1, 1, 1], COMPARATOR_IN),
+            ],
         },
         Example {
             name: "output",
-            caption: "Dust on a block that no block like it touches.",
+            caption: "A repeater giving out into air, on a block of any kind.",
             kept: true,
             breaks: None,
-            blocks: output(1, 0, YELLOW),
+            blocks: output(1, "air"),
         },
         Example {
-            name: "outputs-touching",
-            caption: "Two outputs of one block touching.",
+            name: "output-powering",
+            caption: "A repeater powering a block, which carries the circuit on.",
             kept: false,
             breaks: Some("no outputs"),
-            blocks: [output(1, 0, YELLOW), output(1, 1, YELLOW)].concat(),
+            blocks: output(1, WHITE),
         },
         Example {
             name: "bus-straight",

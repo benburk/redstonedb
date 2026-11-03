@@ -126,17 +126,20 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 (rule(
                     "outputs",
                     "Outputs",
-                    "need to be lone blocks, with dust, a repeater, or a comparator on top to read. \
-                     Any block works, wool, concrete, stone, whatever, as long as no other block like it touches it. Glass only counts stained, any colour but white. \
-                     A block under a repeater or comparator that powers another block isn't one: that's just wiring.",
-                    &["output", "outputs-touching"],
+                    "are repeaters or comparators that power nothing: the block in front of each is air. \
+                     They can stand on any block, of any colour. A repeater gives a bit; a comparator gives a bit, \
+                     or a strength from 0 to 15 where the category reads one, like a popcount's count. \
+                     A repeater or comparator that powers a block or dust isn't one: that's just wiring.",
+                    &["output", "output-powering"],
                 ))
                 (rule(
                     "data-inputs",
                     "Inputs",
                     "need a lever on the side of a solid block, a lamp too. Dust on top of the block or underneath it is fine. \
-                     There has to be room for a repeater where the lever is, so a bus could drive it instead.",
-                    &["input", "repeater", "data-dust-on-top", "input-dust-below"],
+                     There has to be room for a repeater where the lever is, so a bus could drive it instead. \
+                     An input taking a strength from 0 to 15, a hex digit, is a comparator with air behind it, \
+                     giving out into the build: RedstoneDB drives it with a barrel there.",
+                    &["input", "repeater", "data-dust-on-top", "input-dust-below", "strength-input"],
                 ))
                 (rule(
                     "control-lines",
@@ -173,7 +176,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Counters take A, one clock button, and one write enable lever." }
                         li { "Subtractors are adders that take B away: A − B, less a borrow in. They rank apart from adders." }
                         li { "T flip-flops take one input, a button or a lever, and give one output, which each press toggles." }
-                        li { "Hex adders take A and B a hex digit per block, a signal strength through dust on top, in place of levers. Every other category takes levers." }
+                        li { "Hex adders take A and B a hex digit each, a comparator with air behind it, in place of levers. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
                         li { "Parity circuits give one output, on when an odd number of inputs are on, or an even number, which is flagged Even." }
