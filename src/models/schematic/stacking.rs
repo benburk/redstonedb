@@ -17,7 +17,7 @@ pub struct StackDirection {
     /// for the one the box rule finds. See `stack`.
     pub faces: Option<Faces>,
     /// For copies the simulation found add bits, their pitch, a class or
-    /// the build's own width; see [`PITCHES`]. `None` for copies that add words on a shared bus, and
+    /// an adder's own width; see [`PITCHES`]. `None` for copies that add words on a shared bus, and
     /// for a stack its builder gave.
     pub pitch: Option<i64>,
 }
@@ -27,12 +27,12 @@ pub struct StackDirection {
 /// a 1-bit gate stacking every 2 blocks and an 8-bit adder stacking every
 /// 16 are both of pitch 2. A build of a tighter pitch counts in each
 /// looser class too, as copies packed closer serve wherever looser ones
-/// would. The only other spacing tested is the build's own width, end to
+/// would. The only other spacing tested is an adder's own width, end to
 /// end, where no class works.
 pub const PITCHES: [i64; 3] = [1, 2, 4];
 
 /// The pitch classes a build of `pitch` counts in: its own and each looser
-/// one, as pitch 1 is also 2 and 4; a pitch of no class, a build's own
+/// one, as pitch 1 is also 2 and 4; a pitch of no class, an adder's own
 /// width, only its own.
 pub fn classes(pitch: i64) -> impl Iterator<Item = i64> {
     let own = (!PITCHES.contains(&pitch)).then_some(pitch);

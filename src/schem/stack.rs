@@ -688,6 +688,15 @@ fn first_copy(blocks: &Blocks, step: Pos, faces: Option<Faces>) -> FirstCopy {
     }
 }
 
+/// The box the box rule finds for copies of `blocks` stacked
+/// `direction`, its least and greatest corner; see [`FirstCopy`].
+pub fn rule_box(
+    blocks: &Blocks,
+    direction: StackDirection,
+) -> Result<[Pos; 2]> {
+    Ok(first_copy(blocks, step_of(direction)?, None).sized)
+}
+
 /// How many of `blocks`' levers and buttons are among `all`.
 fn switches_in(blocks: &Blocks, all: &HashSet<Pos>) -> usize {
     blocks

@@ -1591,26 +1591,28 @@ fn cells_with_air_between_stack_untested() {
 }
 
 /// A 1-bit ripple adder, the port of adder 54926989, its core 6 wide and
-/// its carry out a repeater giving out west: no pitch class works, its
-/// copies 1, 2, and 4 west overlapping it, so its copies are tried end to
-/// end, from its core's width to its whole file's, 9; 6 west, the next
-/// copy's dust covers its carry out's repeater, but 7 west, the block its
-/// carry in's lever is on included, they chain, pitch
-/// 7, 7-wide stackable and of no other class. Copies 10 west, air between
-/// them, are no stack: a chain's copies must touch.
+/// its carry out dust on concrete at its west end, beside its outputs'
+/// repeater: no pitch class works, its copies 1, 2, and 4 west
+/// overlapping it, so its copies are tried end to end, from the narrowest
+/// the box rule's box cuts its core to, 5, its east layer repeating the
+/// copy before's west one, to its whole file's width, 9; 5 west, the box
+/// rule's box, they chain, pitch 5, 5-wide stackable and of no other
+/// class. Copies 10 west, air between them, are no stack: a chain's copies
+/// must touch.
 #[test]
 fn an_adder_stacks_end_to_end_at_its_own_width() {
-    let raw = std::fs::read("tests/fixtures/rca-1-7-wide.schem").unwrap();
+    let raw = std::fs::read("tests/fixtures/rca-1-5-wide.schem").unwrap();
     let data = import::with_roles(&raw, "adder").unwrap();
     let stacking = Test::Adder.stacking(&data).expect("it is tried");
     let Stacking::Stacks { step, .. } = &stacking else {
         panic!("it does not stack: {stacking:?}");
     };
-    assert_eq!(step.describe(), "7 west");
+    assert_eq!(step.describe(), "5 west");
+    assert_eq!(step.faces, None, "not the box rule's box: {step:?}");
     let directions = stacking.directions();
-    assert_eq!(directions[0].pitch, Some(7), "{directions:?}");
-    let classes: Vec<i64> = app::models::schematic::classes(7).collect();
-    assert_eq!(classes, [7]);
+    assert_eq!(directions[0].pitch, Some(5), "{directions:?}");
+    let classes: Vec<i64> = app::models::schematic::classes(5).collect();
+    assert_eq!(classes, [5]);
     let apart = Test::Adder.stacks_at(&data, Step::new(10, 0), 3);
     assert!(
         matches!(&apart, Some(Err(reason)) if reason.contains("air")),

@@ -26,12 +26,15 @@
 //!   buffer's, they must work together on them, and the most copies that
 //!   do is kept, as a shared line that runs too far fails.
 //!
-//! Where no pitch class works a way, copies are tried end to end too, at
-//! each step from the build's core width that way, as
-//! `interface::measured` finds it, to its whole width, where the outputs
-//! and inputs sticking out of one copy meet the next's, when that is a
-//! whole pitch: an adder whose copies work only 7 apart is 7-wide
-//! stackable, a class of its own, which counts in no other.
+//! Where no pitch class works a way, an adder's copies, a subtractor's,
+//! or a hex adder's, the builds the adder test tests, are tried end to end
+//! too, at each step that is a whole pitch from the narrowest the box
+//! rule's box cuts its core to, as `interface::measured` finds it, its
+//! layers past that repeating the copy before's, to its whole width, where
+//! the outputs and inputs sticking out of one copy meet the next's: an
+//! adder whose copies work only 5 apart is 5-wide stackable, a class of
+//! its own, which counts in no other. No other kind's copies are tried
+//! but at the classes, as a stack of them at another pitch is of no use.
 //!
 //! Cells narrower than a step, copies of a gate or a monostable with air
 //! between them, cannot meet, so each works alone, and they are taken to
@@ -234,8 +237,8 @@ impl Step {
     }
 
     /// Its pitch for copies each adding `bits`: the blocks a bit, a class,
-    /// 1, 2, or 4, or the build's own width end to end, as the search
-    /// tries no other; `None` for a step that is no whole number of blocks
+    /// 1, 2, or 4, or, for an adder, its own width end to end, as the
+    /// search tries no other; `None` for a step that is no whole number of blocks
     /// a bit, or goes both ways.
     pub fn pitch(self, bits: usize) -> Option<i64> {
         let bits = i64::try_from(bits).ok()?;
@@ -455,14 +458,24 @@ impl<'a> Stacker<'a> {
             && stack::apart(self.data, step.direction()).unwrap_or(false)
     }
 
-    /// The pitches copies are tried at `way`: each class, then end to end,
-    /// each step from the build's core width that way, as
+    /// Whether its copies are tried end to end where no class works, as
+    /// the adder test's builds' are.
+    fn end_to_end(&self) -> bool {
+        self.kind.facts().behaviour.test == Some(Test::Adder)
+    }
+
+    /// The pitches copies are tried at `way`: each class, then, for the
+    /// adder test's builds, end to end, each step from the narrowest the
+    /// box rule's box at any step cuts the build's core to that way, as
     /// `interface::measured` finds it, to its whole width, outputs and
     /// inputs sticking out of it meeting the next copy's, where that is a
     /// whole pitch and no class, tried only once no class works.
     fn pitches(&self, way: Way) -> Vec<i64> {
         let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
         let mut pitches = PITCHES.to_vec();
+        if !self.end_to_end() {
+            return pitches;
+        }
         let Ok(blocks) = Blocks::read(self.data) else {
             return pitches;
         };
@@ -470,7 +483,20 @@ impl<'a> Stacker<'a> {
         let axis = usize::from(way == Way::Up);
         let core = i64::from(high[axis] - low[axis] + 1);
         let whole = i64::from(blocks.size[axis]);
-        for width in core..=whole {
+        // The core less what of it the box rule leaves to the first copy,
+        // as its layers past the step repeat the copy before's.
+        let narrowest = (1..=whole)
+            .filter_map(|n| {
+                stack::rule_box(&blocks, way.step(n).direction()).ok()
+            })
+            .map(|[least, most]| {
+                i64::from(
+                    most[axis].min(high[axis]) - least[axis].max(low[axis]) + 1,
+                )
+            })
+            .fold(core, i64::min)
+            .max(1);
+        for width in narrowest..=whole {
             let pitch = width / bits.max(1);
             if bits > 0
                 && width % bits == 0
@@ -901,5 +927,28 @@ mod tests {
         let chain = stacker(Kind::Adder).at(four, 9);
         assert!(chain.is_err_and(|why| why.contains("air")));
         assert_eq!(tested.get(), 0);
+    }
+
+    /// Only the adder test's builds' copies are tried end to end, from the
+    /// narrowest the box rule's box cuts the core to: the 1-bit ripple
+    /// adder's core is 6 wide, but copies 5 west repeat its east layer
+    /// over the copy before's west one, so it is tried 5 to 9 west, its
+    /// whole width, after the classes; a gate the same shape only at the
+    /// classes.
+    #[test]
+    fn only_adders_are_tried_end_to_end() {
+        let raw = std::fs::read("tests/fixtures/rca-1-5-wide.schem").unwrap();
+        let data = import::with_roles(&raw, "adder").unwrap();
+        let works = |_: Step, _: usize, _| Err("untried".to_owned());
+        let pitches = |kind| {
+            Stacker::new(&data, kind, (1, vec![Way::West]), works, "none")
+                .pitches(Way::West)
+        };
+        for kind in [Kind::Adder, Kind::Subtractor, Kind::HexAdder] {
+            assert_eq!(pitches(kind), [1, 2, 4, 5, 6, 7, 8, 9], "{kind:?}");
+        }
+        for kind in [Kind::XorGate, Kind::Incrementer, Kind::Monostable] {
+            assert_eq!(pitches(kind), PITCHES, "{kind:?}");
+        }
     }
 }
