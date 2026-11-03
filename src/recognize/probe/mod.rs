@@ -499,11 +499,10 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, Fault> {
 }
 
 /// Every way the output runs could be an adder's sum of `width` bits and a
-/// carry out: a bus and at most one lone output, its carry out or no line
-/// of the adder's, as a comparator ending a chain may give out into air;
-/// a bus one longer, its last bit the carry out or the sum's top bit; two
-/// equal buses, the sum's bits alternating between them; or, for one bit,
-/// lone outputs.
+/// carry out: a bus and at most one lone output, its carry out; a bus one
+/// longer, its last bit the carry out or the sum's top bit; two equal
+/// buses, the sum's bits alternating between them; or, for one bit, lone
+/// outputs. Every output is one of them, as an output computes something.
 fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
     let (buses, lones) = split(runs);
     let mut found = Vec::new();
@@ -511,11 +510,6 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
         ([sum], _) if lones.len() <= 1 && sum.bits.len() == width => {
             for bits in both(&sum.bits) {
                 found.push((bits, lones.first().copied()));
-            }
-            if !lones.is_empty() {
-                for bits in both(&sum.bits) {
-                    found.push((bits, None));
-                }
             }
         }
         ([sum], []) if sum.bits.len() == width + 1 => {
