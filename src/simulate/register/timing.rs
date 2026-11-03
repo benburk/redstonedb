@@ -99,7 +99,8 @@ pub fn time(
             }
         }
     }
-    let write_ticks = write_latency(&mut circuit, &register, closing)?;
+    let write_ticks =
+        write_latency(&mut circuit, &register, &carried, closing)?;
     let data_ticks = data_latency(&mut circuit, &register, &carried, closing)?;
     let synced = stats
         .iter()
@@ -345,7 +346,7 @@ fn from_data(
         &found,
         values,
     )?;
-    timing.write = Some(write_latency(circuit, register, false)?);
+    timing.write = Some(write_latency(circuit, register, carried, false)?);
     Ok(Some(timing))
 }
 
@@ -728,11 +729,13 @@ fn closing_data_latency(
 
 /// The most ticks from opening a cell's write, pressing its button or
 /// turning its lever on, its read held on, until its bus shows the value
-/// written and keeps it; or for cells `closing`, from the write closing,
-/// their data set while it was open.
+/// written and keeps it, less the ticks `carried` its repeaters take to
+/// carry it out, as every other latency is; or for cells `closing`, from
+/// the write closing, their data set while it was open.
 fn write_latency(
     circuit: &mut Circuit,
     register: &Register,
+    carried: &[i32],
     closing: bool,
 ) -> Result<i32> {
     let all = mask(register.width);
@@ -754,7 +757,7 @@ fn write_latency(
             let changes = watch(circuit, register)?;
             let last =
                 changes[bus].iter().flatten().max().copied().unwrap_or(0);
-            slowest = slowest.max(last);
+            slowest = slowest.max(last - carried[register.buses[bus]]);
             read(circuit, register, &[])?;
         }
     }
