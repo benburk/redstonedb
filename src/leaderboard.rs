@@ -520,8 +520,9 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
 /// The tags of a build a board may narrow to: those the site finds, such
 /// as its design, orientation, `synced`, or `torchless`, but for the
 /// flags that only say which lines it has, as a carry in, which never
-/// narrow a record's board, and `interleaved_inputs`, which boards do not
-/// yet split by.
+/// narrow a record's board, and `interleaved_inputs` and how far apart a
+/// register's copies add words, as `3-wide_word_stackable`, which boards
+/// do not yet split by.
 pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
     s.every_tag()
         .into_iter()
@@ -530,6 +531,7 @@ pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
                 && !tag.is_unverified()
                 && !Flag::LINES.contains(&tag.name.as_str())
                 && tag.name != crate::models::tag::INTERLEAVED_INPUTS
+                && !crate::models::tag::is_word_stackable(&tag.name)
         })
         .collect()
 }
@@ -845,6 +847,37 @@ mod tests {
         };
         assert!(named(adder.every_tag()));
         assert!(!named(ranked_tags(&adder)));
+    }
+
+    /// A register whose copies add words on its shared bus carries how
+    /// far apart they do, as `3-wide_word_stackable`, but no board narrows
+    /// to it yet.
+    #[test]
+    fn word_stacking_splits_no_board_yet() {
+        let mut register = build("r", 8, None, Some(3), 10);
+        register.category = "register".to_owned();
+        register.orientation = Orientation::Vertical;
+        register.stacking = vec![StackDirection {
+            west: 3,
+            up: 0,
+            max_copies: Some(5),
+            faces: None,
+            pitch: None,
+        }];
+        let named = |tags: Vec<Tag>| {
+            tags.iter().any(|tag| {
+                tag.name == "3-wide_word_stackable" && tag.is_found()
+            })
+        };
+        assert!(named(register.every_tag()));
+        assert!(!named(ranked_tags(&register)));
+        // A stacking its builder gave says nothing of words.
+        register.conventional = false;
+        assert!(
+            !register.every_tag().iter().any(|tag| {
+                crate::models::tag::is_word_stackable(&tag.name)
+            })
+        );
     }
 
     fn build(

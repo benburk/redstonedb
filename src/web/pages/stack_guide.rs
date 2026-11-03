@@ -64,9 +64,10 @@ fn class(s: &Schematic, direction: StackDirection) -> Option<String> {
         .unwrap_or_default();
     let Some(pitch) = direction.pitch else {
         return (!direction.adds_bits(s.orientation)).then(|| {
+            let shape = direction.pitch_shape().unwrap_or("wide");
             format!(
                 "Copies {step} {way} apart add words on its shared data bus, \
-                 at any spacing{limit}."
+                 at any spacing: {step}-{shape} word stackable{limit}."
             )
         });
     };

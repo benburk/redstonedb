@@ -228,6 +228,36 @@ impl Schematic {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
 
+    /// Its tags saying how far apart its copies add words on its shared
+    /// data bus, as `3-wide_word_stackable` west or
+    /// `4-high_word_stackable` up, each of `kind`, where the simulation
+    /// found it: copies across its bits, with no pitch, as a stacking its
+    /// builder gave has none either.
+    fn word_tags(&self, kind: tag::Kind) -> Vec<Tag> {
+        let decided = self.conventional
+            && crate::category::behaviour(&self.category).stacking
+                == crate::category::Stacking::Inferred;
+        self.stacking
+            .iter()
+            .filter(|way| {
+                decided
+                    && way.pitch.is_none()
+                    && !way.adds_bits(self.orientation)
+            })
+            .filter_map(|way| {
+                let shape = way.pitch_shape()?;
+                Some(Tag {
+                    name: tag::word_stackable(&format!(
+                        "{}-{shape}",
+                        way.west + way.up
+                    )),
+                    token: None,
+                    kind,
+                })
+            })
+            .collect()
+    }
+
     /// Its tags with its design, orientation, and flags among them, as its page
     /// shows them and a list is narrowed by: `fails_verification` first, then
     /// its design, its orientation, its flags in its category's order,
@@ -331,6 +361,7 @@ impl Schematic {
             .chain(flags)
             .chain(stackable)
             .chain(pitches)
+            .chain(self.word_tags(found(tag::Kind::Feature, true)))
             .chain(interleaved)
             .chain(synced)
             .chain(rest.into_iter().cloned())

@@ -66,6 +66,21 @@ pub fn is_pitch_stackable(name: &str) -> bool {
         .is_some_and(|pitch| pitch.ends_with('_'))
 }
 
+/// The tag a register carries whose copies across its bits add words on
+/// its shared data bus `step` apart, such as `3-wide`, the step west, or
+/// `4-high`, up: `3-wide_word_stackable`. It is not stored.
+pub fn word_stackable(step: &str) -> String {
+    format!("{step}_word_{STACKABLE}")
+}
+
+/// Whether the tag `name` says how far apart copies add words; see
+/// [`word_stackable`].
+pub fn is_word_stackable(name: &str) -> bool {
+    name.strip_suffix(STACKABLE)
+        .and_then(|step| step.strip_suffix("_word_"))
+        .is_some_and(|step| !step.is_empty())
+}
+
 /// The tag a horizontal build carries whose operands' bits alternate
 /// along one row, rather than lie split, one operand above the other; see
 /// `Kept::interleaved`. It is not stored.
