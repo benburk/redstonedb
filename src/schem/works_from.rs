@@ -4,9 +4,18 @@
 //! for white stained glass. Where a component rests on a transparent block
 //! does count, as one could not always: the oldest transparent block it
 //! could rest on sets the release. Every build on the site works in the
-//! latest release, so there is no newest one to find.
+//! latest release, so there is no newest one to find. Nor does its
+//! interface count, the outputs, repeaters and comparators facing air, and
+//! the signal-strength inputs, comparators with air behind, which are the
+//! test's way in and out of the build rather than the build: a build of
+//! dust and torches given out by repeaters works in Alpha as dust does.
 
-use crate::schem::{self, Blocks, Direction, Pos, block};
+use std::collections::HashSet;
+
+use crate::{
+    recognize::repeater_outputs,
+    schem::{self, Blocks, Direction, Pos, block},
+};
 
 /// A release that added redstone components or mechanics a build may use.
 pub struct Release {
@@ -159,8 +168,17 @@ fn place(name: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// The oldest release `blocks` works in.
+/// The oldest release `blocks` works in, its interface left out.
 pub fn of(blocks: &Blocks) -> WorksFrom {
+    let interface: HashSet<Pos> = repeater_outputs::find(blocks)
+        .into_iter()
+        .map(|output| output.at)
+        .chain(
+            repeater_outputs::strength_inputs(blocks)
+                .into_iter()
+                .map(|input| input.at),
+        )
+        .collect();
     let mut found = WorksFrom {
         release: RELEASES[0].name,
         because: None,
@@ -174,6 +192,9 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
         }
     };
     for (pos, state) in blocks.iter() {
+        if interface.contains(&pos) {
+            continue;
+        }
         let id = like(schem::id(state).trim_start_matches("minecraft:"));
         if let Some(release) =
             RELEASES.iter().find(|release| release.blocks.contains(&id))
@@ -414,6 +435,31 @@ mod tests {
             "1.14"
         );
         assert_eq!(on("white_concrete", &[([0, 0, 1], wall)]).release, "Alpha");
+    }
+
+    #[test]
+    fn its_interface_sets_no_release() {
+        // A repeater facing air is an output, and a comparator with air
+        // behind it a signal-strength input: the test's, not the build's.
+        let repeater = "repeater[delay=1,facing=east,locked=false,\
+                        powered=false]";
+        assert_eq!(
+            on("white_concrete", &[([0, 1, 0], repeater)]).release,
+            "Alpha"
+        );
+        let wall = "white_concrete";
+        let inside = on(
+            "white_concrete",
+            &[([0, 1, 0], repeater), ([-1, 1, 0], wall)],
+        );
+        assert_eq!(inside.release, "Beta 1.3");
+        assert_eq!(inside.because.as_deref(), Some("repeater"));
+        let comparator = "comparator[facing=east,mode=compare,powered=false]";
+        let input = on(
+            "white_concrete",
+            &[([0, 1, 0], comparator), ([-1, 1, 0], wall)],
+        );
+        assert_eq!(input.release, "Alpha");
     }
 
     #[test]
