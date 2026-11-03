@@ -3,10 +3,10 @@
 //! see [`repeater_outputs`], as the owner ports them by hand: each output
 //! the old rule reads tapped, [`repeater_outputs::tap`], each
 //! signal-strength input it reads by its colour fed,
-//! [`repeater_outputs::feed`], each comparator
-//! with air behind taken out of a build that takes no signal-strength
-//! inputs, as it drives nothing yet the proposed rule would read it as one,
-//! and the port checked against the original by its category's test, also
+//! [`repeater_outputs::feed`], each sign naming an output moved under its
+//! front, [`repeater_outputs::sign`], each comparator with air behind
+//! taken out of a build that takes no signal-strength inputs, as it drives
+//! nothing yet the proposed rule would read it as one, and the port checked against the original by its category's test, also
 //! through the lines the proposed rule reads for a build with
 //! signal-strength inputs, its truth table, and, for a build that stacks,
 //! the stacks it makes. One build at a time, or every stored build, each in
@@ -34,7 +34,7 @@ use app::{
         colour, inspect,
         interface::{self, Interface},
         legacy, probe,
-        repeater_outputs::{self, Fed, StrengthInput, Tapped},
+        repeater_outputs::{self, Fed, Signed, StrengthInput, Tapped},
     },
     schem::{self, Blocks, Direction, Pos, standardize},
     simulate::{self, Test},
@@ -80,9 +80,9 @@ pub(super) struct Convert {
     hand_ported: Option<PathBuf>,
     /// Where to write the port with its roles kept in the site's colours,
     /// as the site colours a build it recognizes: each tap's support as its
-    /// output block was, a sign naming the block moved onto the support,
-    /// and each fed comparator's support as its input block was, which
-    /// turns white; for a test fixture standing for a file the site keeps
+    /// output block was, and each fed comparator's support as its input
+    /// block was, which turns white; for a test fixture standing for a file
+    /// the site keeps
     #[arg(long, conflicts_with = "all")]
     coloured_out: Option<PathBuf>,
     /// Sides no tap goes toward, as the file's copies stack that way, for
@@ -225,13 +225,13 @@ fn convert(
 }
 
 /// The build in `data` ported to the proposed rule by tapping its outputs,
-/// read as an upload's with `upload`, else in the site's colours, and
-/// feeding its signal-strength inputs, read by their colour, and taking
-/// out each comparator with air behind where its category takes none, see
-/// [`dead_comparators`], then checked against the original: by its category's test, as `category`
-/// gives it, and `stored`'s width; case by case through one interface;
-/// read back by the proposed rule; and, when `stored` stacks, stacked
-/// each way it does.
+/// read as an upload's with `upload`, else in the site's colours, feeding
+/// its signal-strength inputs, read by their colour, moving each output's
+/// sign under its front, and taking out each comparator with air behind
+/// where its category takes none, see [`dead_comparators`], then checked
+/// against the original: by its category's test, as `category` gives it,
+/// and `stored`'s width; case by case through one interface; read back by
+/// the proposed rule; and, when `stored` stacks, stacked each way it does.
 fn port_legacy(
     data: &[u8],
     (upload, avoid): (bool, &[Direction]),
@@ -244,7 +244,7 @@ fn port_legacy(
     let marks = if upload { legacy::UPLOAD } else { legacy::SITE };
     let today = legacy::inspect(&blocks, marks);
     if today.outputs.is_empty() {
-        return no_outputs(&blocks, said);
+        return no_outputs(data, &blocks, said);
     }
     let lines = interface::read(&blocks);
     let width = match (category, stored.and_then(|s| s.width)) {
@@ -274,30 +274,22 @@ fn port_legacy(
         |pos| digits.contains(&pos),
         &along,
     );
-    // Settling, as `//update` does, can fail where the simulator can't
-    // run the build, as a piston's or a clock's.
     let ported = match ported {
         Ok(ported) => ported,
-        Err(err) => {
-            writeln!(said, "  not settled: {err}")?;
-            let mut outcome =
-                Outcome::new(Class::Review, "the port doesn't settle");
-            outcome.details.push(format!("settling: {err}"));
-            return Ok(Conversion {
-                file: None,
-                coloured: None,
-                said,
-                outcome,
-            });
-        }
+        Err(err) => return not_settled(&err, said),
     };
-    let dead_outcome = tell_dead(&blocks, &dead, &mut said)?;
+    // What a port's checks don't see: a sign left off its output's front,
+    // or a comparator kept that changes the build.
+    let kept = joined(
+        tell_signed(&blocks, &ported.signed, &mut said)?,
+        tell_dead(&blocks, &dead, &mut said)?,
+    );
     let outcome = joined(
         joined(
             tell_tapped(&blocks, &ported.tapped, &mut said)?,
             tell_fed(&blocks, &ported.fed, &mut said)?,
         ),
-        dead_outcome.clone(),
+        kept.clone(),
     );
     let removed: Vec<String> = dead
         .removed
@@ -320,9 +312,9 @@ fn port_legacy(
     let port = Port::new(file, moved, done, &ported.fed)?;
     let coloured = keep_roles(&port.file, &blocks, done, &ported.fed, moved)?;
     let mut outcome = check(&original, &port, done, &mut said)?;
-    if dead_outcome.class == Class::Review {
+    if kept.class == Class::Review {
         let min_ss = std::mem::take(&mut outcome.min_ss);
-        outcome = joined(outcome, dead_outcome);
+        outcome = joined(outcome, kept);
         outcome.min_ss = min_ss;
     }
     outcome.removed = removed;
@@ -342,25 +334,116 @@ fn port_legacy(
     })
 }
 
-/// What came of a build in `blocks` with no outputs by today's rule, so
-/// nothing to port, after what `said` says so far.
-fn no_outputs(blocks: &Blocks, mut said: String) -> Result<Conversion> {
+/// What came of a build whose port doesn't settle, for `err`, after what
+/// `said` says so far: settling, as `//update` does, can fail where the
+/// simulator can't run the build, as a piston's or a clock's.
+fn not_settled(err: &anyhow::Error, mut said: String) -> Result<Conversion> {
+    writeln!(said, "  not settled: {err}")?;
+    let mut outcome = Outcome::new(Class::Review, "the port doesn't settle");
+    outcome.details.push(format!("settling: {err}"));
+    Ok(Conversion {
+        file: None,
+        coloured: None,
+        said,
+        outcome,
+    })
+}
+
+/// What came of a build in `data`, of `blocks`, with no outputs by
+/// today's rule, after what `said` says so far: nothing to tap, but each
+/// sign naming an output by the proposed rule moved under its front, as
+/// [`repeater_outputs::signed`] moves them, that file its port.
+fn no_outputs(
+    data: &[u8],
+    blocks: &Blocks,
+    mut said: String,
+) -> Result<Conversion> {
     let found = repeater_outputs::find(blocks);
     writeln!(
         said,
         "  no outputs by today's rule; {} by the proposed rule",
         found.len()
     )?;
-    let outcome = if found.is_empty() {
-        Outcome::new(Class::Untestable, "no outputs by either rule")
-    } else {
-        Outcome::new(Class::Already, "outputs by the proposed rule only")
-    };
+    if found.is_empty() {
+        let outcome =
+            Outcome::new(Class::Untestable, "no outputs by either rule");
+        return Ok(Conversion {
+            file: None,
+            coloured: None,
+            said,
+            outcome,
+        });
+    }
+    let (file, signed) = repeater_outputs::signed(data)?;
+    let outcome = joined(
+        Outcome::new(Class::Already, "outputs by the proposed rule only"),
+        tell_signed(blocks, &signed, &mut said)?,
+    );
     Ok(Conversion {
-        file: None,
-        coloured: None,
+        coloured: file.clone(),
+        file,
         said,
         outcome,
+    })
+}
+
+/// Writes to `said` what came of each sign naming an output; what came of
+/// them: ported, when one moved under its output's front and none was
+/// left, already, when none needed moving, or to review, naming each left
+/// where it was.
+fn tell_signed(
+    blocks: &Blocks,
+    signed: &[Signed],
+    said: &mut String,
+) -> Result<Outcome> {
+    let text = |sign: &Pos| {
+        blocks
+            .signs
+            .get(sign)
+            .map(|lines| {
+                lines
+                    .iter()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            })
+            .unwrap_or_default()
+    };
+    let mut not = Vec::new();
+    for each in signed {
+        match each {
+            Signed::Moved { block, sign, to } => writeln!(
+                said,
+                "  sign moved: \"{}\" on {} from {} to {}, under its front",
+                text(sign),
+                place(*block),
+                place(*sign),
+                place(*to)
+            )?,
+            Signed::Not { block, sign, why } => {
+                let line = format!(
+                    "sign \"{}\" on {} at {}: {why}",
+                    text(sign),
+                    place(*block),
+                    place(*sign)
+                );
+                writeln!(said, "  not moved: {line}")?;
+                not.push(line);
+            }
+        }
+    }
+    Ok(if !not.is_empty() {
+        let mut outcome = Outcome::new(
+            Class::Review,
+            "a sign can't go under its output's front",
+        );
+        outcome.details = not;
+        outcome
+    } else if signed.is_empty() {
+        Outcome::new(Class::Already, "no signs to move")
+    } else {
+        Outcome::new(Class::Ported, "")
     })
 }
 
@@ -1086,8 +1169,8 @@ fn not_reason(why: &str) -> &'static str {
 /// `moved`, with the roles the old rule read in `original`'s colours kept
 /// in the site's colours, as probing colours a build it recognizes: each
 /// tap of `done` with its support coloured as its output block was, of
-/// concrete or stained glass as the support is, and each sign naming the
-/// output block moved onto the support's outer face; each input of `fed`
+/// concrete or stained glass as the support is, its sign moved under its
+/// front already, see [`repeater_outputs::sign`]; each input of `fed`
 /// with its comparator's support coloured as its input block was, and that
 /// block, which only holds dust now, whitened.
 fn keep_roles(
@@ -1099,7 +1182,6 @@ fn keep_roles(
 ) -> Result<Vec<u8>> {
     let port = Blocks::read(file)?;
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
-    let mut signs: HashMap<Pos, Pos> = HashMap::new();
     let material = |at: Pos| {
         if schem::short(port.get(at)).ends_with("glass") {
             "stained_glass"
@@ -1108,13 +1190,7 @@ fn keep_roles(
         }
     };
     for tapped in done {
-        let Tapped::Tapped {
-            block,
-            side,
-            support,
-            ..
-        } = tapped
-        else {
+        let Tapped::Tapped { block, support, .. } = tapped else {
             continue;
         };
         let Some(colour) =
@@ -1122,40 +1198,11 @@ fn keep_roles(
         else {
             continue;
         };
-        let (block, support) =
-            (schem::add(*block, moved), schem::add(*support, moved));
+        let support = schem::add(*support, moved);
         changes.insert(
             support,
             format!("minecraft:{colour}_{}", material(support)),
         );
-        let naming: Vec<Pos> = port
-            .signs
-            .keys()
-            .copied()
-            .filter(|&pos| port.sign_block(pos) == Some(block))
-            .collect();
-        let faces: Vec<(Direction, Pos)> = std::iter::once(*side)
-            .chain(
-                Direction::SIDES
-                    .into_iter()
-                    .filter(|&d| d != *side && d != side.opposite()),
-            )
-            .map(|d| (d, schem::step(support, d)))
-            .filter(|&(_, at)| {
-                port.get(at) == schem::AIR && !changes.contains_key(&at)
-            })
-            .collect();
-        for (sign, (facing, at)) in naming.into_iter().zip(faces) {
-            changes.insert(sign, schem::AIR.to_owned());
-            changes.insert(
-                at,
-                format!(
-                    "minecraft:oak_wall_sign[facing={facing},\
-                     waterlogged=false]"
-                ),
-            );
-            signs.insert(sign, at);
-        }
     }
     for input in fed {
         let pad = schem::add(input.pad(), moved);
@@ -1187,7 +1234,7 @@ fn keep_roles(
         );
         changes.insert(pad, format!("minecraft:white_{}", material(pad)));
     }
-    Ok(standardize::edit_grown_moving(file, &changes, &signs)?.0)
+    Ok(standardize::edit_grown(file, &changes)?.0)
 }
 
 /// The port in `file` as the category's test reads it, its outputs at the

@@ -7,10 +7,11 @@
 //!
 //! What each line is for, its role, is read from the colours the site
 //! gives a build once probing finds them, see [`crate::recognize::probe`]:
-//! each colour one bus, named by a sign on any of its blocks, except
-//! magenta control lines and pink status lines, each one line named by its
-//! own sign, or a row of them named by one sign on any of the row, as a
-//! memory's read lines are. In a file the site has coloured, an output or
+//! each colour one bus, named by a sign on any of its blocks, an output's
+//! on the face under its front, see [`line_signs`], except magenta control
+//! lines and pink status lines, each one line named by its own sign, or a
+//! row of them named by one sign on any of the row, as a memory's read
+//! lines are. In a file the site has coloured, an output or
 //! signal-strength input on a block of no role colour plays no role, as
 //! one a stacked copy hands on to the next. A file it hasn't coloured has
 //! its outputs and signal-strength inputs read by their shapes, as
@@ -497,7 +498,7 @@ pub(crate) fn read_from(
     feeds: &HashMap<Pos, Feed>,
     outputs: Vec<Pos>,
 ) -> Interface {
-    let signs = blocks.sign_texts();
+    let signs = line_signs(blocks);
     // In a fixed order, so bits as near the corner as each other, and
     // lines, always come out the same way.
     let mut inputs: Vec<Pos> = feeds.keys().copied().collect();
@@ -508,6 +509,23 @@ pub(crate) fn read_from(
     };
     follow_marks(blocks, &mut interface);
     interface
+}
+
+/// The signs naming a build's lines, each by the block it names: any sign
+/// on an input block, and an output's sign under its front, see
+/// [`repeater_outputs::signs`], as any other sign on an output's block
+/// names nothing. Inside [`crate::recognize::legacy::reading`], every sign
+/// by the block it is on, as the old rule read them.
+pub fn line_signs(blocks: &Blocks) -> HashMap<Pos, &[String]> {
+    let mut signs = blocks.sign_texts();
+    if crate::recognize::legacy::old() {
+        return signs;
+    }
+    for output in repeater_outputs::find(blocks) {
+        signs.remove(&output.block());
+    }
+    signs.extend(repeater_outputs::signs(blocks));
+    signs
 }
 
 /// The way a bus's bits run, from its least significant: the axis it runs
@@ -812,7 +830,7 @@ fn sign_words(lines: &[String]) -> Vec<String> {
 /// `lsb` or `msb` when a sign on the block at `pos` marks it as its bus's
 /// least or most significant bit.
 pub fn order_mark(blocks: &Blocks, pos: Pos) -> Option<&'static str> {
-    let lines = blocks.sign_texts().get(&pos).copied()?;
+    let lines = line_signs(blocks).get(&pos).copied()?;
     lines
         .iter()
         .find_map(|line| match line.trim().to_lowercase().as_str() {

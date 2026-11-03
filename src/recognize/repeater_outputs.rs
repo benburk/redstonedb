@@ -16,7 +16,7 @@
 //! [`crate::recognize::legacy`], to this one by [`tap`] and [`feed`], as
 //! the owner ports one by hand.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 
@@ -66,6 +66,12 @@ impl Output {
         schem::step(self.at, Direction::Down)
     }
 
+    /// Where a sign naming it goes: a wall sign on the outward face of the
+    /// block holding it up, under its front, which stays air.
+    pub fn sign_place(self) -> Pos {
+        schem::step(self.block(), self.points())
+    }
+
     /// `repeater` or `comparator`.
     pub fn kind(self) -> &'static str {
         if self.comparator {
@@ -99,6 +105,22 @@ pub fn find(blocks: &Blocks) -> Vec<Output> {
                 facing,
             };
             is_air(blocks.get(output.front())).then_some(output)
+        })
+        .collect()
+}
+
+/// The sign naming each output of `blocks`, by the block holding the
+/// output up: a wall sign on that block's outward face, under the
+/// output's front, see [`Output::sign_place`]. A sign anywhere else on the
+/// block names nothing.
+pub fn signs(blocks: &Blocks) -> HashMap<Pos, &[String]> {
+    find(blocks)
+        .into_iter()
+        .filter_map(|output| {
+            let place = output.sign_place();
+            let lines = blocks.signs.get(&place)?;
+            (blocks.sign_block(place) == Some(output.block()))
+                .then_some((output.block(), lines.as_slice()))
         })
         .collect()
 }
@@ -555,29 +577,51 @@ fn clear_to_edge(blocks: &Blocks, block: Pos, side: Direction) -> bool {
     true
 }
 
+/// The signs on `block`, which name the output on it, in order.
+fn own_signs(blocks: &Blocks, block: Pos) -> Vec<Pos> {
+    let mut signs: Vec<Pos> = blocks
+        .signs
+        .keys()
+        .copied()
+        .filter(|&sign| blocks.sign_block(sign) == Some(block))
+        .collect();
+    signs.sort_unstable();
+    signs
+}
+
 /// The cells a tap toward `side` from `block` takes: the support, the
-/// repeater on it, and the air it gives out into. Why the tap can't be
-/// made, when one isn't air, or is a cell another tap took.
+/// repeater on it, and the air it gives out into, and where a sign on the
+/// block goes, under that, see [`Output::sign_place`]. Each must be air,
+/// or a sign on the block, which moves, and not a cell another tap took,
+/// as `taken` holds them; why the tap can't be made when one isn't.
 fn tap_cells(
     blocks: &Blocks,
     block: Pos,
     side: Direction,
     taken: &BTreeMap<Pos, String>,
 ) -> Result<(Pos, Pos), String> {
+    let own = own_signs(blocks, block);
     let support = schem::step(block, side);
     let top = schem::step(support, Direction::Up);
     let front = schem::step(top, side);
-    for (cell, what) in
-        [(support, "support"), (top, "repeater"), (front, "front")]
-    {
+    let mut cells =
+        vec![(support, "support"), (top, "repeater"), (front, "front")];
+    if !own.is_empty() {
+        cells.push((schem::step(support, side), "sign"));
+    }
+    for (cell, what) in cells {
         let state = taken
             .get(&cell)
             .map_or_else(|| blocks.get(cell), String::as_str);
-        if !is_air(state) {
-            let reason = if what == "front" {
-                "it would give out into"
-            } else {
-                "its place holds"
+        // Air another tap's sign is to go in is taken.
+        let free = (is_air(state)
+            && taken.get(&cell).is_none_or(|t| t != schem::AIR))
+            || (own.contains(&cell) && !taken.contains_key(&cell));
+        if !free {
+            let reason = match what {
+                "front" => "it would give out into",
+                "sign" => "its sign would go in",
+                _ => "its place holds",
             };
             return Err(format!(
                 "{side}: {} at {}, which the {what} {reason}",
@@ -587,6 +631,25 @@ fn tap_cells(
         }
     }
     Ok((support, top))
+}
+
+/// Marks the cells a tap's support and repeater take as `held`, and the
+/// place its sign goes, if the output has one, as air another tap's cells
+/// can't take.
+fn take(
+    taken: &mut BTreeMap<Pos, String>,
+    blocks: &Blocks,
+    (block, side): (Pos, Direction),
+    (support, top): (Pos, Pos),
+    held: &str,
+) {
+    taken.insert(support, held.to_owned());
+    taken.insert(top, held.to_owned());
+    if !own_signs(blocks, block).is_empty() {
+        taken
+            .entry(schem::step(support, side))
+            .or_insert_with(|| schem::AIR.to_owned());
+    }
 }
 
 /// What reads the output block, standing on it, that a tap can read from:
@@ -626,9 +689,9 @@ fn run_side(
         .filter(|&(_, &side)| {
             let mut taken = taken.clone();
             bits.iter().all(|&block| {
-                tap_cells(blocks, block, side, &taken).is_ok_and(|(s, t)| {
-                    taken.insert(s, "minecraft:stone".to_owned());
-                    taken.insert(t, "minecraft:stone".to_owned());
+                tap_cells(blocks, block, side, &taken).is_ok_and(|cells| {
+                    let stone = "minecraft:stone";
+                    take(&mut taken, blocks, (block, side), cells, stone);
                     true
                 })
             })
@@ -705,7 +768,7 @@ fn tap_one(
     } else {
         "minecraft:white_concrete"
     };
-    changes.insert(support, held.to_owned());
+    take(changes, blocks, (block, side), (support, top), held);
     changes.insert(top, now.clone());
     Tapped::Tapped {
         block,
@@ -721,16 +784,18 @@ fn tap_one(
 /// hand: each output block whitened, the dust on it left, and one block out
 /// of the build beside it a support, white concrete, or white stained glass
 /// over a torch, which powers the block above it, or over dust, whose climb
-/// a solid block would cut, with a repeater on top,
-/// or a comparator where `comparator` says the output is read as a
-/// strength, reading the dust and giving out into air. A run's bits are
-/// tapped the same way, so a bus stays a bus: among the sides every bit
-/// can be tapped on, one not `along` the way copies of the build stack,
-/// whose taps would reach into the next copy, then the side whose cells
-/// out to the box's edge are air for most of its bits, the face it sits
-/// on, then the front, north, before others alike; failing one, each bit
-/// its own. A cell beyond the box is air, which the box grows to hold. The
-/// changes, some maybe beyond the box, with what came of each output.
+/// a solid block would cut, with a repeater on top, or a comparator where
+/// `comparator` says the output is read as a strength, reading the dust
+/// and giving out into air, and the place under that air kept for the
+/// output's sign where it has one, which may stand where the support goes,
+/// see [`sign`]. A run's bits are tapped the same way, so a bus stays a
+/// bus: among the sides every bit can be tapped on, one not `along` the way
+/// copies of the build stack, whose taps would reach into the next copy,
+/// then the side whose cells out to the box's edge are air for most of its
+/// bits, the face it sits on, then the front, north, before others alike;
+/// failing one, each bit its own. A cell beyond the box is air, which the
+/// box grows to hold. The changes, some maybe beyond the box, with what
+/// came of each output.
 pub fn tap(
     blocks: &Blocks,
     outputs: &[Run],
@@ -763,6 +828,8 @@ pub fn tap(
             ));
         }
     }
+    // The places kept for signs, which [`sign`] puts them in.
+    changes.retain(|_, state| state != schem::AIR);
     (changes, done)
 }
 
@@ -947,25 +1014,130 @@ pub fn feed(
         .collect()
 }
 
+/// A sign naming an output, moved where the site reads it, under the
+/// output's front, see [`Output::sign_place`], or left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Signed {
+    /// The sign at `sign`, on `block`, the block the output was read by,
+    /// moved to `to`.
+    Moved { block: Pos, sign: Pos, to: Pos },
+    /// The sign at `sign`, on `block`, left where it is, for `why`.
+    Not { block: Pos, sign: Pos, why: String },
+}
+
+/// The wall sign of the wood of sign `state` facing `facing`, such as
+/// `minecraft:birch_wall_sign[facing=south,waterlogged=false]` for a
+/// standing birch sign.
+fn wall_sign(state: &str, facing: Direction) -> String {
+    let id = schem::id(state);
+    let wood = ["_wall_hanging_sign", "_hanging_sign", "_wall_sign", "_sign"]
+        .into_iter()
+        .find_map(|end| id.strip_suffix(end))
+        .unwrap_or("minecraft:oak");
+    format!("{wood}_wall_sign[facing={facing},waterlogged=false]")
+}
+
+/// Each sign naming an output of `named`, each the block an output was
+/// read by with the output read there now, moved under the output's
+/// front, on the face of the block holding it up, as the site reads it:
+/// the sign on that block, unless one is there already. Its changes are
+/// added to `changes`, which hold the cells taken already, and each sign's
+/// move to `moves`. A sign stays where it is when its place holds
+/// something, or another sign of the output's goes there, as one fits.
+pub fn sign<S: std::hash::BuildHasher>(
+    blocks: &Blocks,
+    named: &[(Pos, Output)],
+    changes: &mut BTreeMap<Pos, String>,
+    moves: &mut HashMap<Pos, Pos, S>,
+) -> Vec<Signed> {
+    let mut signed = Vec::new();
+    for &(block, output) in named {
+        let place = output.sign_place();
+        let mut signs: Vec<Pos> = blocks
+            .signs
+            .keys()
+            .copied()
+            .filter(|&sign| {
+                sign != place && blocks.sign_block(sign) == Some(block)
+            })
+            .collect();
+        signs.sort_unstable();
+        let mut held = blocks.signs.contains_key(&place)
+            && blocks.sign_block(place) == Some(output.block());
+        for sign in signs {
+            let state = changes
+                .get(&place)
+                .map_or_else(|| blocks.get(place), String::as_str);
+            let why = if held {
+                Some("another sign of it is under its front".to_owned())
+            } else if !is_air(state) {
+                Some(format!(
+                    "{} at {}, under its front",
+                    schem::short(state).replace('_', " "),
+                    inspect::place(place)
+                ))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                signed.push(Signed::Not { block, sign, why });
+                continue;
+            }
+            // A tap's support may stand where the sign was.
+            changes.entry(sign).or_insert_with(|| schem::AIR.to_owned());
+            changes.insert(place, wall_sign(blocks.get(sign), output.points()));
+            moves.insert(sign, place);
+            held = true;
+            signed.push(Signed::Moved {
+                block,
+                sign,
+                to: place,
+            });
+        }
+    }
+    signed
+}
+
+/// The file in `data` with the sign naming each output, by the rule for
+/// outputs, moved under its front, as [`sign`] moves them, its box grown
+/// to hold any beyond it; `None` when none moved. What came of each sign
+/// that names one.
+pub fn signed(data: &[u8]) -> Result<(Option<Vec<u8>>, Vec<Signed>)> {
+    let blocks = Blocks::read(data)?;
+    let named: Vec<(Pos, Output)> =
+        find(&blocks).into_iter().map(|o| (o.block(), o)).collect();
+    let (mut changes, mut moves) = (BTreeMap::new(), HashMap::new());
+    let signed = sign(&blocks, &named, &mut changes, &mut moves);
+    if moves.is_empty() {
+        return Ok((None, signed));
+    }
+    let (file, _) =
+        crate::schem::standardize::edit_grown_moving(data, &changes, &moves)?;
+    Ok((Some(file), signed))
+}
+
 /// A port made by [`tapped`]: its file, unless an output or input couldn't
 /// be ported; how far every old position moved as the box grew; and what
-/// came of each output and input.
+/// came of each output, input, and sign naming an output.
 pub struct Ported {
     pub file: Option<Vec<u8>>,
     pub moved: Pos,
     pub tapped: Vec<Tapped>,
     pub fed: Vec<Fed>,
+    pub signed: Vec<Signed>,
 }
 
-/// The file in `data` with each output of `outputs`, the old rule's, tapped as
-/// [`tap`] taps them, `along` the ways copies stack, and each
-/// signal-strength input of `pads`, the old rule's, fed as [`feed`] feeds them,
-/// its box grown to hold the taps, then as `//update` leaves it,
-/// [`crate::schem::rstack::settle`]: dust shaped as the game shapes it,
+/// The file in `data` with each output of `outputs`, the old rule's,
+/// tapped as [`tap`] taps them, `along` the ways copies stack, each
+/// signal-strength input of `pads`, the old rule's, fed as [`feed`] feeds
+/// them, and each sign naming an output moved under its front, as [`sign`]
+/// moves them, its box grown to hold the taps, then as `//update` leaves
+/// it, [`crate::schem::rstack::settle`]: dust shaped as the game shapes it,
 /// then every component at rest, each lever as it was; a file with a block
 /// the simulator doesn't model, as an upload's slab, only its dust shaped,
-/// as it can't be run to rest. No file unless
-/// every output was tapped or already one and every input fed or already.
+/// as it can't be run to rest. No file unless every output was tapped or
+/// already one and every input fed or already, and one of them, or a sign,
+/// changed.
 pub fn tapped(
     data: &[u8],
     (outputs, pads): (&[Run], &[(Pos, Option<Direction>)]),
@@ -973,10 +1145,37 @@ pub fn tapped(
     along: &[Direction],
 ) -> Result<Ported> {
     let blocks = Blocks::read(data)?;
-    let (mut changes, tapped) = tap(&blocks, outputs, comparator, along);
+    let (mut changes, tapped) = tap(&blocks, outputs, &comparator, along);
     let fed = feed(&blocks, pads, &mut changes);
+    let found = find(&blocks);
+    let named: Vec<(Pos, Output)> = tapped
+        .iter()
+        .filter_map(|t| match *t {
+            Tapped::Already { block } => found
+                .iter()
+                .find(|o| o.block() == block)
+                .map(|&o| (block, o)),
+            Tapped::Tapped {
+                block,
+                side,
+                support,
+                ..
+            } => Some((
+                block,
+                Output {
+                    at: schem::step(support, Direction::Up),
+                    comparator: comparator(block),
+                    facing: side.opposite(),
+                },
+            )),
+            Tapped::Not { .. } => None,
+        })
+        .collect();
+    let mut signs_to = HashMap::new();
+    let signed = sign(&blocks, &named, &mut changes, &mut signs_to);
     let ported = tapped.iter().any(|t| matches!(t, Tapped::Tapped { .. }))
-        || fed.iter().any(|f| matches!(f, Fed::Fed { .. }));
+        || fed.iter().any(|f| matches!(f, Fed::Fed { .. }))
+        || !signs_to.is_empty();
     if !ported
         || tapped.iter().any(|t| matches!(t, Tapped::Not { .. }))
         || fed.iter().any(|f| matches!(f, Fed::Not { .. }))
@@ -986,9 +1185,12 @@ pub fn tapped(
             moved: [0; 3],
             tapped,
             fed,
+            signed,
         });
     }
-    let (file, moved) = crate::schem::standardize::edit_grown(data, &changes)?;
+    let (file, moved) = crate::schem::standardize::edit_grown_moving(
+        data, &changes, &signs_to,
+    )?;
     // A file with a block the simulator doesn't model, as an upload's slab,
     // can't come to rest, so only its dust is shaped.
     let file = if modelled(&file)? {
@@ -1001,6 +1203,7 @@ pub fn tapped(
         moved,
         tapped,
         fed,
+        signed,
     })
 }
 
@@ -1082,6 +1285,77 @@ mod tests {
             assert_eq!(find(&line("west", front)), [], "{front}");
         }
         assert_eq!(find(&line("east", "air")), []);
+    }
+
+    /// A repeater on stone giving out east with a wall sign at `sign`
+    /// facing `facing`, saying `carry out`.
+    fn signed_output(sign: Pos, facing: &str) -> Blocks {
+        let states: HashMap<Pos, String> = [
+            ([1, 0, 1], "stone".to_owned()),
+            (
+                [1, 1, 1],
+                "repeater[delay=1,facing=west,locked=false,powered=false]"
+                    .to_owned(),
+            ),
+            (
+                sign,
+                format!("oak_wall_sign[facing={facing},waterlogged=false]"),
+            ),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        let mut blocks = Blocks::from_grid([3, 2, 3], &states);
+        let text = ["carry out", "", "", ""].map(str::to_owned).to_vec();
+        blocks.signs.insert(sign, text);
+        blocks
+    }
+
+    /// An output's sign is the one on the face of the block holding it up
+    /// under its front, where `sign` moves one from another face, which
+    /// names nothing.
+    #[test]
+    fn an_outputs_sign_goes_under_its_front() {
+        let under = signed_output([2, 0, 1], "east");
+        let named = signs(&under);
+        assert_eq!(
+            named.get(&[1, 0, 1]).and_then(|lines| lines.first()),
+            Some(&"carry out".to_owned())
+        );
+        let beside = signed_output([1, 0, 2], "south");
+        assert!(signs(&beside).is_empty());
+        let output = find(&beside)[0];
+        assert_eq!(output.sign_place(), [2, 0, 1]);
+        let (mut changes, mut moves) = (BTreeMap::new(), HashMap::new());
+        let signed = sign(
+            &beside,
+            &[(output.block(), output)],
+            &mut changes,
+            &mut moves,
+        );
+        assert_eq!(
+            signed,
+            [Signed::Moved {
+                block: [1, 0, 1],
+                sign: [1, 0, 2],
+                to: [2, 0, 1],
+            }]
+        );
+        assert_eq!(
+            changes[&[2, 0, 1]],
+            "minecraft:oak_wall_sign[facing=east,waterlogged=false]"
+        );
+        assert_eq!(moves[&[1, 0, 2]], [2, 0, 1]);
+        // Something under the front keeps the sign where it is.
+        changes.clear();
+        changes.insert([2, 0, 1], "minecraft:stone".to_owned());
+        let signed = sign(
+            &beside,
+            &[(output.block(), output)],
+            &mut changes,
+            &mut HashMap::new(),
+        );
+        assert!(matches!(signed[..], [Signed::Not { .. }]));
     }
 
     /// A comparator facing air is an output too, whatever block holds it

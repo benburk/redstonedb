@@ -129,7 +129,9 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "are repeaters or comparators that power nothing: the block in front of each is air. \
                      They can stand on any block, of any colour. A repeater gives a bit; a comparator gives a bit, \
                      or a strength from 0 to 15 where the category reads one, like a popcount's count. \
-                     A repeater or comparator that powers a block or dust isn't one: that's just wiring.",
+                     A repeater or comparator that powers a block or dust isn't one: that's just wiring. \
+                     A sign naming one, like carry out, goes under the air it gives out into, on the block \
+                     holding it up.",
                     &["output", "output-powering"],
                 ))
                 (rule(

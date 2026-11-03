@@ -50,7 +50,7 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let old_markers = loose_glass(&blocks, false);
     let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
     let status = status_lines(&blocks);
-    let notes = notes(&blocks, &inputs, &status);
+    let notes = notes(&blocks, &inputs);
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| {
@@ -111,24 +111,29 @@ pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
     with_levers(data, &(&on - &data_levers))
 }
 
-/// The signs on a block that is neither an input, one of `inputs`, nor an
-/// output's, or one of the `status` lines, so label nothing.
-fn notes(
-    blocks: &Blocks,
-    inputs: &HashSet<Pos>,
-    status: &HashSet<Pos>,
-) -> HashSet<Pos> {
-    let outputs = output_blocks(blocks);
+/// The signs that label nothing: each but those on an input, one of
+/// `inputs`, and each output's own, on the face of its block under its
+/// front, see [`repeater_outputs::signs`], as one on another face of an
+/// output's block is a note too.
+fn notes(blocks: &Blocks, inputs: &HashSet<Pos>) -> HashSet<Pos> {
+    let named: HashSet<Pos> = repeater_outputs::find(blocks)
+        .into_iter()
+        .filter(|output| {
+            let place = output.sign_place();
+            blocks.signs.contains_key(&place)
+                && blocks.sign_block(place) == Some(output.block())
+        })
+        .map(repeater_outputs::Output::sign_place)
+        .collect();
     blocks
         .signs
         .keys()
         .copied()
         .filter(|&sign| {
-            blocks.sign_block(sign).is_none_or(|on| {
-                !inputs.contains(&on)
-                    && !status.contains(&on)
-                    && !outputs.contains(&on)
-            })
+            !named.contains(&sign)
+                && blocks
+                    .sign_block(sign)
+                    .is_none_or(|on| !inputs.contains(&on))
         })
         .collect()
 }
@@ -171,8 +176,7 @@ pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
 fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
     let inputs = interface::feeds(blocks);
     let outputs = output_blocks(blocks);
-    blocks
-        .sign_texts()
+    interface::line_signs(blocks)
         .into_iter()
         .filter(|(pos, lines)| {
             outputs.contains(pos)
