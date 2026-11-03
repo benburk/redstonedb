@@ -589,6 +589,9 @@ fn stray_operands(runs: &[Run]) -> Vec<Operands> {
 fn spread_results(runs: &[Run], width: usize) -> Vec<Results> {
     let mut bits: Vec<Pos> =
         runs.iter().flat_map(|run| run.bits.clone()).collect();
+    if bits.is_empty() || (bits.len() != width && bits.len() != width + 1) {
+        return Vec::new();
+    }
     let extent = |axis: usize| {
         let (lo, hi) = bits.iter().fold((i32::MAX, i32::MIN), |(lo, hi), b| {
             (lo.min(b[axis]), hi.max(b[axis]))
@@ -812,6 +815,7 @@ mod tests {
         assert_eq!(found[0].1, None);
         assert_eq!(spread_results(&runs, 5)[0].1, Some([4, 13, 0]));
         assert!(spread_results(&runs, 4).is_empty());
+        assert!(spread_results(&[], 0).is_empty());
     }
 
     /// Two runs as wide as each other and two bits left over beside them

@@ -503,10 +503,33 @@ pub fn roles(blocks: &Blocks) -> std::borrow::Cow<'_, Roles> {
 /// [`repeater_outputs::interface`] reads them: its signal-strength buses
 /// and buses of levers its operands, the longest first, each lone lever or
 /// button a control line, each bus of outputs an output, and a lone output
-/// beside a bus a status line. A file probing hasn't read, as an upload
-/// before it is, or a build kept as built that no probe reads, is read so.
+/// beside a bus a status line; but a row of levers or buttons two or more
+/// of which signs name is control lines, as a memory's reads and
+/// writes are, its operands numbered on without it. A file probing hasn't
+/// read, as an upload before it is, or a build kept as built that no probe
+/// reads, is read so.
 pub fn shaped_roles(blocks: &Blocks) -> Roles {
-    roles_of(&repeater_outputs::interface(blocks))
+    let mut shaped = repeater_outputs::interface(blocks);
+    let signs = line_signs(blocks);
+    let mut operands = 0..=u8::MAX;
+    for port in &mut shaped.inputs {
+        if !matches!(port.role, Some(Role::Operand(_))) {
+            continue;
+        }
+        let signed = port
+            .bits
+            .iter()
+            .filter(|bit| {
+                signs.get(&bit.pos).and_then(|l| sign_name(l)).is_some()
+            })
+            .count();
+        port.role = if signed > 1 && !port.signal_strength {
+            Some(Role::Control)
+        } else {
+            operands.next().map(Role::Operand)
+        };
+    }
+    roles_of(&shaped)
 }
 
 /// Every input block, with what feeds it, as [`read`] takes them.
