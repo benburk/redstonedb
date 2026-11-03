@@ -1,19 +1,23 @@
 //! Porting builds saved under the old rule, which read inputs and outputs
 //! by their colours, see [`legacy`], to the rule the site reads them by,
 //! see [`repeater_outputs`], as the owner ports them by hand: each output
-//! the old rule reads tapped, [`repeater_outputs::tap`], each
-//! signal-strength input it reads by its colour fed,
-//! [`repeater_outputs::feed`], each sign naming an output moved under its
-//! front, [`repeater_outputs::sign`], each comparator with air behind
-//! taken out of a build that takes no signal-strength inputs, as it drives
-//! nothing yet the proposed rule would read it as one, and the port checked against the original by its category's test, also
-//! through the lines the proposed rule reads for a build with
-//! signal-strength inputs, its truth table, and, for a build that stacks,
-//! the stacks it makes. One build at a time, or every stored build, each in
-//! a process of its own, writing the ports that pass. The original, and
-//! the port with its taps coloured as its outputs were, are read and
-//! tested by the old rule, [`legacy::reading`]; this is the one place the
-//! site still reads it. Nothing here writes to the database.
+//! the old rule reads with its driver promoted where it can be,
+//! [`repeater_outputs::promotable`], keeping the build its size, else
+//! tapped, [`repeater_outputs::tap`], each signal-strength input it reads
+//! by its colour fed, [`repeater_outputs::feed`], each sign naming an
+//! output moved under its front, [`repeater_outputs::sign`], each
+//! comparator with air behind taken out of a build that takes no
+//! signal-strength inputs, as it drives nothing yet the proposed rule would
+//! read it as one, and the port checked against the original by its
+//! category's test, also through the lines the proposed rule reads for a
+//! build with signal-strength inputs, its truth table, and, for a build
+//! that stacks, the stacks it makes, and measured; a promoted port that
+//! fails a check, or measures larger than tapping makes it, is tapped
+//! instead. One build at a time, or every stored build, each in a process
+//! of its own, writing the ports that pass. The original, and the port with its taps
+//! coloured as its outputs were, are read and tested by the old rule,
+//! [`legacy::reading`]; this is the one place the site still reads it.
+//! Nothing here writes to the database.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -29,12 +33,13 @@ use std::{
 use anyhow::{Context, Result};
 use app::{
     category::Kind,
+    import,
     models::{schematic, simulation},
     recognize::{
         colour, inspect,
         interface::{self, Interface},
         legacy, probe,
-        repeater_outputs::{self, Fed, Signed, StrengthInput, Tapped},
+        repeater_outputs::{self, Fed, Output, Signed, StrengthInput, Tapped},
     },
     schem::{self, Blocks, Direction, Pos, standardize},
     simulate::{self, Test},
@@ -126,6 +131,21 @@ struct Outcome {
     /// signal-strength inputs, such as `(4, 17, 11) into redstone wire`.
     #[serde(default)]
     removed: Vec<String>,
+    /// How many outputs had their driver promoted, and how many were
+    /// tapped.
+    #[serde(default)]
+    promoted: usize,
+    #[serde(default)]
+    tapped: usize,
+    /// Why the port promoting drivers failed a check, when it did and the
+    /// outputs were tapped instead.
+    #[serde(default)]
+    fell_back: Option<String>,
+    /// The port's size as the site measures it, and the stored build's.
+    #[serde(default)]
+    measured: Option<[i64; 3]>,
+    #[serde(default)]
+    stored_size: Option<[i64; 3]>,
 }
 
 #[derive(
@@ -151,6 +171,11 @@ impl Outcome {
             min_ss: Vec::new(),
             stacked: None,
             removed: Vec::new(),
+            promoted: 0,
+            tapped: 0,
+            fell_back: None,
+            measured: None,
+            stored_size: None,
         }
     }
 }
@@ -224,7 +249,59 @@ fn convert(
     legacy::reading(|| port_legacy(data, (upload, avoid), category, stored))
 }
 
-/// The build in `data` ported to the proposed rule by tapping its outputs,
+/// The build in `data`, saved under the old rule, ported to the proposed
+/// rule as [`port_with`] ports it, first promoting the driver of each
+/// output it can, see [`repeater_outputs::promotable`], which keeps the
+/// build its size. Where that port fails a check, or runs none, the build
+/// is ported again tapping every output instead, as promoting takes blocks
+/// out, which only the checks say changes nothing, and that port is kept,
+/// saying why; so too where the promoted port measures larger than
+/// `stored` and the tapped one passes every check and measures smaller.
+fn port_legacy(
+    data: &[u8],
+    (upload, avoid): (bool, &[Direction]),
+    category: Option<&str>,
+    stored: Option<&schematic::Schematic>,
+) -> Result<Conversion> {
+    let promoted = port_with(data, (upload, avoid, true), category, stored)?;
+    // A port that doesn't settle says nothing of what it promoted.
+    let unsettled = promoted.file.is_none()
+        && promoted.outcome.reason == "the port doesn't settle";
+    let volume = |size: Option<[i64; 3]>| size.map(|[x, y, z]| x * y * z);
+    let measured = volume(promoted.outcome.measured);
+    let grew = measured > volume(promoted.outcome.stored_size)
+        && promoted.outcome.stored_size.is_some();
+    let passed = promoted.outcome.class == Class::Ported;
+    if (passed && !grew) || (promoted.outcome.promoted == 0 && !unsettled) {
+        return Ok(promoted);
+    }
+    let mut tapped = port_with(data, (upload, avoid, false), category, stored)?;
+    // A promoted port that passes is kept unless tapping makes it smaller.
+    let better = !passed
+        || (tapped.outcome.class == Class::Ported
+            && volume(tapped.outcome.measured) < measured);
+    if !better {
+        return Ok(promoted);
+    }
+    let why = if passed {
+        let [x, y, z] = promoted.outcome.measured.unwrap_or_default();
+        format!("it measures {x} by {y} by {z}, larger than tapped")
+    } else if promoted.outcome.reason.is_empty() {
+        format!("{:?}", promoted.outcome.class).to_lowercase()
+    } else {
+        promoted.outcome.reason.clone()
+    };
+    let mut said = format!("  promoting drivers: {why}; tapped instead\n");
+    for line in promoted.outcome.details.iter().take(3) {
+        writeln!(said, "    {line}")?;
+    }
+    tapped.said = said + &tapped.said;
+    tapped.outcome.fell_back = Some(why);
+    Ok(tapped)
+}
+
+/// The build in `data` ported to the proposed rule by promoting its
+/// outputs' drivers, with `promote`, where it can, and tapping the rest,
 /// read as an upload's with `upload`, else in the site's colours, feeding
 /// its signal-strength inputs, read by their colour, moving each output's
 /// sign under its front, and taking out each comparator with air behind
@@ -232,9 +309,9 @@ fn convert(
 /// against the original: by its category's test, as `category` gives it,
 /// and `stored`'s width; case by case through one interface; read back by
 /// the proposed rule; and, when `stored` stacks, stacked each way it does.
-fn port_legacy(
+fn port_with(
     data: &[u8],
-    (upload, avoid): (bool, &[Direction]),
+    (upload, avoid, promote): (bool, &[Direction], bool),
     category: Option<&str>,
     stored: Option<&schematic::Schematic>,
 ) -> Result<Conversion> {
@@ -272,7 +349,7 @@ fn port_legacy(
         &dead.cleared(data)?,
         (&today.outputs, &pads),
         |pos| digits.contains(&pos),
-        &along,
+        (&along, promote),
     );
     let ported = match ported {
         Ok(ported) => ported,
@@ -298,11 +375,13 @@ fn port_legacy(
         .collect();
     let (moved, done) = (ported.moved, &ported.tapped);
     let Some(file) = ported.file else {
+        let mut outcome = Outcome { removed, ..outcome };
+        count(&mut outcome, &ported.tapped);
         return Ok(Conversion {
             file: None,
             coloured: None,
             said,
-            outcome: Outcome { removed, ..outcome },
+            outcome,
         });
     };
     if moved != [0; 3] {
@@ -318,6 +397,8 @@ fn port_legacy(
         outcome.min_ss = min_ss;
     }
     outcome.removed = removed;
+    count(&mut outcome, done);
+    measure(&port.file, stored, &mut said, &mut outcome)?;
     if outcome.class == Class::Ported
         && let Some(stored) = stored
     {
@@ -332,6 +413,46 @@ fn port_legacy(
         said,
         outcome,
     })
+}
+
+/// Writes to `said` the size the site measures the port in `file` by, and
+/// `stored`'s, which `outcome` keeps.
+fn measure(
+    file: &[u8],
+    stored: Option<&schematic::Schematic>,
+    said: &mut String,
+    outcome: &mut Outcome,
+) -> Result<()> {
+    let size = import::measure(&Blocks::read(file)?, true)?;
+    let measured = [size.x, size.y, size.z].map(i64::from);
+    let stored_size = stored.map(|s| [s.size.0, s.size.1, s.size.2]);
+    let words = |[x, y, z]: [i64; 3]| format!("{x} by {y} by {z}");
+    writeln!(
+        said,
+        "  measures {}{}",
+        words(measured),
+        match stored_size {
+            Some(size) if size == measured => ", as stored".to_owned(),
+            Some(size) => format!(", stored {}", words(size)),
+            None => String::new(),
+        }
+    )?;
+    outcome.measured = Some(measured);
+    outcome.stored_size = stored_size;
+    Ok(())
+}
+
+/// `outcome` with how many of `done`'s outputs had their driver promoted
+/// and how many were tapped.
+fn count(outcome: &mut Outcome, done: &[Tapped]) {
+    outcome.promoted = done
+        .iter()
+        .filter(|t| matches!(t, Tapped::Promoted { .. }))
+        .count();
+    outcome.tapped = done
+        .iter()
+        .filter(|t| matches!(t, Tapped::Tapped { .. }))
+        .count();
 }
 
 /// What came of a build whose port doesn't settle, for `err`, after what
@@ -796,7 +917,8 @@ struct Port {
     /// How far every old position moved, as the box grew.
     moved: Pos,
     /// Where each output is read now, by the block it was read by: the
-    /// block under its tap, else where it was, both moved with the box.
+    /// block under its tap or its promoted driver, else where it was, each
+    /// moved with the box.
     now_at: HashMap<Pos, Pos>,
     /// Its blocks, made simulatable.
     after: Blocks,
@@ -815,11 +937,9 @@ impl Port {
     ) -> Result<Self> {
         let now_at = done
             .iter()
-            .map(|t| match t {
-                Tapped::Tapped { block, support, .. } => {
-                    (*block, schem::add(*support, moved))
-                }
-                other => (other.block(), schem::add(other.block(), moved)),
+            .map(|t| {
+                let at = t.output(false).map_or(t.block(), Output::block);
+                (t.block(), schem::add(at, moved))
             })
             .collect();
         let after = Blocks::read(&probe::simulatable(&file)?)?;
@@ -1060,7 +1180,7 @@ fn digit_outputs(
 }
 
 /// Writes to `said` what came of each output; what came of the build so
-/// far: ported, every output tapped or one already, already, when none
+/// far: ported, every output promoted, tapped, or one already, already, when none
 /// needed a tap, or to review, naming each that couldn't be.
 fn tell_tapped(
     blocks: &Blocks,
@@ -1069,6 +1189,7 @@ fn tell_tapped(
 ) -> Result<Outcome> {
     let mut not = Vec::new();
     let mut sides: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut promoted = 0;
     for tapped in done {
         match tapped {
             Tapped::Already { block } => {
@@ -1106,6 +1227,14 @@ fn tell_tapped(
                     }
                 )?;
             }
+            Tapped::Promoted { .. } => {
+                promoted += 1;
+                writeln!(
+                    said,
+                    "  promoted: {}",
+                    promoted_words(blocks, tapped)
+                )?;
+            }
             Tapped::Not { block, why } => {
                 writeln!(
                     said,
@@ -1123,14 +1252,15 @@ fn tell_tapped(
         .collect();
     writeln!(
         said,
-        "  {} outputs: {tapped} tapped{}, {} already, {} not",
+        "  {} outputs: {promoted} promoted, {tapped} tapped{}, {} already, {} \
+         not",
         done.len(),
         if ways.is_empty() {
             String::new()
         } else {
             format!(" ({})", ways.join(", "))
         },
-        done.len() - tapped - not.len(),
+        done.len() - promoted - tapped - not.len(),
         not.len()
     )?;
     if !not.is_empty() {
@@ -1145,11 +1275,35 @@ fn tell_tapped(
             .collect();
         return Ok(outcome);
     }
-    Ok(if tapped == 0 {
+    Ok(if tapped + promoted == 0 {
         Outcome::new(Class::Already, "every output already one")
     } else {
         Outcome::new(Class::Ported, "")
     })
+}
+
+/// What came of an output whose driver was promoted, `tapped`, of the
+/// original's `blocks`, in words.
+fn promoted_words(blocks: &Blocks, tapped: &Tapped) -> String {
+    let Tapped::Promoted {
+        block,
+        driver,
+        torch,
+    } = tapped
+    else {
+        return String::new();
+    };
+    let moved = torch.map_or_else(String::new, |(from, to)| {
+        format!("its torch at {} moved to {}, and ", place(from), place(to))
+    });
+    format!(
+        "output on {} ({}): {moved}its {} at {} gives out {} into air",
+        place(*block),
+        schem::short(blocks.get(*block)).replace('_', " "),
+        driver.kind(),
+        place(driver.at),
+        driver.points()
+    )
 }
 
 /// A short reason, to group by, for an output not tapped for `why`.
@@ -1168,7 +1322,8 @@ fn not_reason(why: &str) -> &'static str {
 /// The port in `file`, which moved every position of `original` by
 /// `moved`, with the roles the old rule read in `original`'s colours kept
 /// in the site's colours, as probing colours a build it recognizes: each
-/// tap of `done` with its support coloured as its output block was, of
+/// tap or promoted driver of `done` with its support coloured as its
+/// output block was, of
 /// concrete or stained glass as the support is, its sign moved under its
 /// front already, see [`repeater_outputs::sign`]; each input of `fed`
 /// with its comparator's support coloured as its input block was, and that
@@ -1190,15 +1345,15 @@ fn keep_roles(
         }
     };
     for tapped in done {
-        let Tapped::Tapped { block, support, .. } = tapped else {
+        let Some(output) = tapped.output(false) else {
             continue;
         };
         let Some(colour) =
-            colour::output_colour(schem::short(original.get(*block)))
+            colour::output_colour(schem::short(original.get(tapped.block())))
         else {
             continue;
         };
-        let support = schem::add(*support, moved);
+        let support = schem::add(output.block(), moved);
         changes.insert(
             support,
             format!("minecraft:{colour}_{}", material(support)),
@@ -1238,7 +1393,7 @@ fn keep_roles(
 }
 
 /// The port in `file` as the category's test reads it, its outputs at the
-/// taps: each support coloured as its output block was, of concrete or
+/// taps and promoted drivers: each support coloured as its output block was, of concrete or
 /// stained glass as the support is, and each sign naming an output block
 /// read as naming its support. A test reads outputs by colour, so this is
 /// how it reads the taps until the site reads them by the proposed rule.
@@ -1248,27 +1403,27 @@ fn test_copy(
     done: &[Tapped],
     moved: Pos,
 ) -> Result<Blocks> {
+    let port = Blocks::read(file)?;
     let mut changes = BTreeMap::new();
     let mut signs = Vec::new();
     for tapped in done {
-        let Tapped::Tapped {
-            block,
-            support,
-            glass,
-            ..
-        } = tapped
-        else {
+        let Some(output) = tapped.output(false) else {
             continue;
         };
+        let block = tapped.block();
         let Some(colour) =
-            colour::output_colour(schem::short(original.get(*block)))
+            colour::output_colour(schem::short(original.get(block)))
         else {
             continue;
         };
-        let material = if *glass { "stained_glass" } else { "concrete" };
-        let support = schem::add(*support, moved);
+        let support = schem::add(output.block(), moved);
+        let material = if schem::short(port.get(support)).ends_with("glass") {
+            "stained_glass"
+        } else {
+            "concrete"
+        };
         changes.insert(support, format!("minecraft:{colour}_{material}"));
-        signs.push((schem::add(*block, moved), support));
+        signs.push((schem::add(block, moved), support));
     }
     let coloured = standardize::edit(file, &changes)?;
     let mut blocks = Blocks::read(&probe::simulatable(&coloured)?)?;
@@ -1764,13 +1919,56 @@ fn finish_port(
     ported
 }
 
-/// How the port `made` compares with the owner's `by_hand`, block by
-/// block, in a line.
+/// How the port `made` compares with the owner's `by_hand`, in a line:
+/// by the size the site measures and where in it each output stands, then
+/// block by block.
 fn against(made: &[u8], by_hand: &[u8]) -> String {
     let (Ok(made), Ok(by_hand)) = (Blocks::read(made), Blocks::read(by_hand))
     else {
         return "a file unread".to_owned();
     };
+    // Each output's place in the measured box, and the box's size.
+    let measured = |blocks: &Blocks| {
+        let (low, high) = interface::measured(blocks);
+        let mut outputs: Vec<Pos> = repeater_outputs::find(blocks)
+            .iter()
+            .map(|o| [0, 1, 2].map(|i| o.at[i] - low[i]))
+            .collect();
+        outputs.sort_unstable();
+        ([0, 1, 2].map(|i| high[i] - low[i] + 1), outputs)
+    };
+    let ((size, outputs), (hand_size, hand_outputs)) =
+        (measured(&made), measured(&by_hand));
+    let sizes = if size == hand_size {
+        format!("measures {} as the hand port does", place(size))
+    } else {
+        format!(
+            "measures {} against the hand port's {}",
+            place(size),
+            place(hand_size)
+        )
+    };
+    let placed = if outputs == hand_outputs {
+        "its outputs where the hand port's are".to_owned()
+    } else {
+        let only = |a: &[Pos], b: &[Pos]| {
+            a.iter()
+                .filter(|at| !b.contains(at))
+                .map(|&at| place(at))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        format!(
+            "outputs differ, its own at {}, the hand port's at {}",
+            only(&outputs, &hand_outputs),
+            only(&hand_outputs, &outputs)
+        )
+    };
+    format!("{sizes}, {placed}; {}", blocks_against(&made, &by_hand))
+}
+
+/// How the blocks of `made` compare with the owner's `by_hand`, in words.
+fn blocks_against(made: &Blocks, by_hand: &Blocks) -> String {
     if made.size != by_hand.size {
         return format!(
             "box {} against the hand port's {}",
@@ -1822,6 +2020,7 @@ fn print_review(results: &[Ported]) {
         hand.len()
     );
     println!("  ported cleanly: {}", count(Class::Ported));
+    print_counts(&auto, &hand);
     println!("  already new-style: {}", count(Class::Already));
     for (class, label) in [
         (Class::Review, "needs review"),
@@ -1898,6 +2097,29 @@ fn print_review(results: &[Ported]) {
     print_measures(results);
 }
 
+/// Prints how many outputs of the builds `auto` ported and of those
+/// `hand` ported by hand had their driver promoted, how many were tapped,
+/// and in how many builds promoting fell back to tapping.
+fn print_counts(auto: &[&Ported], hand: &[&Ported]) {
+    for (which, ported) in [("", auto), (", of those ported by hand", hand)] {
+        let outputs = |of: fn(&Outcome) -> usize| {
+            let builds = ported.iter().filter(|p| of(&p.outcome) > 0).count();
+            (ported.iter().map(|p| of(&p.outcome)).sum::<usize>(), builds)
+        };
+        let (promoted, promoting) = outputs(|o| o.promoted);
+        let (tapped, tapping) = outputs(|o| o.tapped);
+        println!(
+            "    outputs promoted{which}: {promoted} in {promoting} builds; \
+             tapped: {tapped} in {tapping} builds; promoting fell back to \
+             tapping in {} builds",
+            ported
+                .iter()
+                .filter(|p| p.outcome.fell_back.is_some())
+                .count()
+        );
+    }
+}
+
 /// Prints how each build that stacks stacked, original and port, the
 /// comparators with air behind taken out of each, and each port's weakest
 /// strengths arriving at its taps, the weakest first.
@@ -1937,6 +2159,7 @@ fn print_measures(results: &[Ported]) {
             p.outcome.removed.join("; ")
         );
     }
+    print_sizes(results);
     println!();
     println!("== SUPPORTS OF WHITE STAINED GLASS, over a torch or dust");
     for p in results {
@@ -1972,6 +2195,62 @@ fn print_measures(results: &[Ported]) {
             &p.id[..8],
             p.category,
             p.outcome.min_ss.join("; ")
+        );
+    }
+}
+
+/// Prints each port that measures other than its stored build, and each
+/// build whose promoted port fell back to tapping, and why.
+fn print_sizes(results: &[Ported]) {
+    let sized: Vec<&Ported> = results
+        .iter()
+        .filter(|p| {
+            p.outcome.measured.is_some() && p.outcome.stored_size.is_some()
+        })
+        .collect();
+    let grown: Vec<&&Ported> = sized
+        .iter()
+        .filter(|p| p.outcome.measured != p.outcome.stored_size)
+        .collect();
+    println!();
+    println!(
+        "== PORTS MEASURING OTHER THAN STORED ({} of {} measured)",
+        grown.len(),
+        sized.len()
+    );
+    for p in grown {
+        let size = |s: Option<[i64; 3]>| {
+            s.map_or_else(String::new, |[x, y, z]| format!("{x} by {y} by {z}"))
+        };
+        println!(
+            "{} {}: measures {}, stored {}{}; {} promoted, {} tapped{}",
+            &p.id[..8],
+            p.category,
+            size(p.outcome.measured),
+            size(p.outcome.stored_size),
+            if p.hand.is_some() {
+                " (ported by hand)"
+            } else {
+                ""
+            },
+            p.outcome.promoted,
+            p.outcome.tapped,
+            p.outcome
+                .fell_back
+                .as_ref()
+                .map_or_else(String::new, |why| {
+                    format!(", promoting failed: {why}")
+                })
+        );
+    }
+    println!();
+    println!("== PROMOTING FELL BACK TO TAPPING");
+    for p in results.iter().filter(|p| p.outcome.fell_back.is_some()) {
+        println!(
+            "{} {}: {}",
+            &p.id[..8],
+            p.category,
+            p.outcome.fell_back.as_deref().unwrap_or("")
         );
     }
 }

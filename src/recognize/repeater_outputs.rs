@@ -13,8 +13,9 @@
 //! [`crate::recognize::inspect`] checks a build by this rule, and
 //! [`interface`] reads its lines' roles by their shapes. `rsdb convert`
 //! ports a build saved under the old rule, see
-//! [`crate::recognize::legacy`], to this one by [`tap`] and [`feed`], as
-//! the owner ports one by hand.
+//! [`crate::recognize::legacy`], to this one by [`tap`], promoting each
+//! output's driver, [`promotable`], or tapping it, and [`feed`], as the
+//! owner ports one by hand.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -531,6 +532,16 @@ pub enum Tapped {
         clear: bool,
         now: String,
     },
+    /// Its driver promoted, as [`promotable`] finds it: the output block
+    /// and the dust on it taken out, so the repeater or comparator
+    /// `driver`, which pointed into one of them, gives out into air; or,
+    /// where a torch drove it, the torch moved, `torch` saying from where
+    /// to where, and `driver` put in front of it.
+    Promoted {
+        block: Pos,
+        driver: Output,
+        torch: Option<(Pos, Pos)>,
+    },
     /// It can't be tapped, for `why`.
     Not { block: Pos, why: String },
 }
@@ -541,7 +552,23 @@ impl Tapped {
         match self {
             Tapped::Already { block }
             | Tapped::Tapped { block, .. }
+            | Tapped::Promoted { block, .. }
             | Tapped::Not { block, .. } => *block,
+        }
+    }
+
+    /// The output it was made into, where the rule for outputs reads it:
+    /// a tap's repeater or comparator, `comparator` saying which, or a
+    /// promoted driver; `None` for one already an output or not tapped.
+    pub fn output(&self, comparator: bool) -> Option<Output> {
+        match *self {
+            Tapped::Tapped { side, support, .. } => Some(Output {
+                at: schem::step(support, Direction::Up),
+                comparator,
+                facing: side.opposite(),
+            }),
+            Tapped::Promoted { driver, .. } => Some(driver),
+            Tapped::Already { .. } | Tapped::Not { .. } => None,
         }
     }
 }
@@ -671,6 +698,418 @@ fn tappable(blocks: &Blocks, top: Pos) -> Result<(), String> {
     }
 }
 
+/// Whether `state`, beside a block, dust, or torch, takes no power from
+/// it: air, a sign, or a block that is no redstone component, as a block
+/// powers no block beside it.
+fn unmoved(state: &str) -> bool {
+    let name = schem::short(state);
+    is_air(state) || name.ends_with("sign") || !schem::block::is_component(name)
+}
+
+/// A block in `blocks` at `at` in words, with `what` of it, such as
+/// `stone at (1, 2, 3), beside its dust`.
+fn held(blocks: &Blocks, at: Pos, what: &str) -> String {
+    format!(
+        "{} at {}, {what}",
+        schem::short(blocks.get(at)).replace('_', " "),
+        inspect::place(at)
+    )
+}
+
+/// An output, as the old rule read it, with its driver promoted, as
+/// [`promotable`] finds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Promotion {
+    /// The repeater or comparator read as the output now.
+    pub driver: Output,
+    /// Where the torch that drove it stood and where it stands now, on
+    /// another face of its block, when a torch drove it.
+    pub torch: Option<(Pos, Pos)>,
+    /// Every cell it changes: the output block and its dust taken out,
+    /// and for a torch, the torch moved, the repeater or comparator put in
+    /// front of it, and a support under that where there was none.
+    pub changes: Vec<(Pos, String)>,
+}
+
+/// Why the output block at `block`, with its dust at `top`, can't be taken
+/// out, if anything but its dust, its driver at `driver`, and the cells in
+/// `going`, taken out with it, might take power from either: anything
+/// beside the block that might, or beside the dust, anything the dust
+/// joins, climbs, points into, or runs down into.
+fn alone(
+    blocks: &Blocks,
+    (block, top): (Pos, Pos),
+    driver: Pos,
+    going: &[Pos],
+) -> Result<(), String> {
+    let beside_block = Direction::ALL
+        .into_iter()
+        .map(|side| schem::step(block, side))
+        .filter(|&at| at != top && at != driver && !going.contains(&at));
+    for at in beside_block {
+        if !unmoved(blocks.get(at)) {
+            return Err(held(
+                blocks,
+                at,
+                "beside it, might take power from it",
+            ));
+        }
+    }
+    let dust = blocks.get(top);
+    for side in OUTWARD {
+        let at = schem::step(top, side);
+        if at == driver || going.contains(&at) {
+            continue;
+        }
+        let state = blocks.get(at);
+        let joins = schem::property(dust, side.name());
+        if joins == Some("up") {
+            return Err(held(blocks, at, "which its dust climbs"));
+        }
+        if !unmoved(state) || (joins == Some("side") && !is_air(state)) {
+            return Err(held(
+                blocks,
+                at,
+                "beside its dust, might take power from it",
+            ));
+        }
+        let below = schem::step(at, Direction::Down);
+        if !schem::block::conductor(state)
+            && schem::short(blocks.get(below)) == "redstone_wire"
+            && !going.contains(&below)
+        {
+            return Err(held(
+                blocks,
+                below,
+                "which its dust might run down into",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Why a torch at `torch` might power anything beside it but the cells in
+/// `except`, if it might: anything beside it that takes power, or a block
+/// over it, which it powers, with anything beside that block that does.
+fn powers_only(
+    blocks: &Blocks,
+    torch: Pos,
+    except: &[Pos],
+) -> Result<(), String> {
+    for side in Direction::ALL {
+        let at = schem::step(torch, side);
+        if except.contains(&at) {
+            continue;
+        }
+        if !unmoved(blocks.get(at)) {
+            return Err(held(blocks, at, "beside its torch"));
+        }
+    }
+    let over = schem::step(torch, Direction::Up);
+    if schem::block::conductor(blocks.get(over)) {
+        for side in Direction::ALL {
+            let at = schem::step(over, side);
+            if at != torch && !unmoved(blocks.get(at)) {
+                return Err(held(
+                    blocks,
+                    at,
+                    "beside the block its torch powers",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The output on `block`, as the old rule read it, with dust on top, as
+/// its driver promoted reads it, the output block and its dust taken out,
+/// the build no bigger, as the owner ports one by hand. Its driver, the
+/// one thing that powers either, is a repeater or comparator pointing into
+/// the block or into its dust, which then gives out into air, its side
+/// inputs as they are; or a wall torch beside the dust, facing it, which
+/// moves to another face of the block it is on, with a repeater in front
+/// of it, or a comparator where `comparator` says the output is read as a
+/// strength, giving out the way the torch faced into air, held up by the
+/// block under it or white concrete put there, or white stained glass
+/// over a torch or dust, as a tap's support is; the first face, north,
+/// south, west, east, where the torch and repeater fit inside the build's
+/// box, as outside it they would make the build bigger. Or why it
+/// can't be: no such driver, or two; anything but the dust beside the
+/// block that might take power from it, or beside the dust, but its
+/// driver, that the dust joins, points into, or might power, see
+/// [`alone`]; a torch, where it stood or where it would go, that powers
+/// anything else, see [`powers_only`]; a repeater driving an output read
+/// as a strength; a driver not held up by a solid block or glass, which
+/// the old rule's test colours as the output block was; or a sign on the
+/// block whose place, under the driver's front, holds something. `going`
+/// holds the other cells taken out with it, as the other output blocks of
+/// its run and their dust, which take no power from it then.
+pub fn promotable(
+    blocks: &Blocks,
+    block: Pos,
+    going: &[Pos],
+    comparator: bool,
+) -> Result<Promotion, String> {
+    let top = schem::step(block, Direction::Up);
+    if schem::short(blocks.get(top)) != "redstone_wire" {
+        return Err("no dust on it".to_owned());
+    }
+    let own = own_signs(blocks, block);
+    // A sign on the block goes under the driver's front, which must be
+    // free for it.
+    let sign_free = |driver: Output| {
+        let place = driver.sign_place();
+        if own.is_empty()
+            || place == block
+            || place == top
+            || own.contains(&place)
+            || is_air(blocks.get(place))
+        {
+            Ok(())
+        } else {
+            Err(held(blocks, place, "where its sign would go"))
+        }
+    };
+    let cleared =
+        vec![(block, schem::AIR.to_owned()), (top, schem::AIR.to_owned())];
+    match drivers(blocks, block, top) {
+        Driver::Component(driver) => {
+            alone(blocks, (block, top), driver.at, going)?;
+            if comparator && !driver.comparator {
+                return Err(
+                    "its repeater would read a strength as 15 for any on"
+                        .to_owned(),
+                );
+            }
+            if !holds_up(blocks.get(driver.block())) {
+                return Err(held(
+                    blocks,
+                    driver.block(),
+                    "holding its driver up, neither a solid block nor glass",
+                ));
+            }
+            sign_free(driver)?;
+            Ok(Promotion {
+                driver,
+                torch: None,
+                changes: cleared,
+            })
+        }
+        Driver::Torch(torch) => {
+            alone(blocks, (block, top), torch, going)?;
+            let state = blocks.get(torch);
+            let out = Direction::facing(state).expect("a wall torch faces");
+            let on = schem::step(torch, out.opposite());
+            powers_only(blocks, torch, &[on, top])?;
+            let mut blocked = Vec::new();
+            for face in OUTWARD {
+                if face.north_south() == out.north_south() {
+                    continue;
+                }
+                let moved = torch_moved(blocks, torch, face, going, comparator)
+                    .and_then(|mut promotion| {
+                        sign_free(promotion.driver)?;
+                        promotion.changes.splice(0..0, cleared.clone());
+                        Ok(promotion)
+                    });
+                match moved {
+                    Ok(promotion) => return Ok(promotion),
+                    Err(why) => blocked.push(format!("{face}: {why}")),
+                }
+            }
+            Err(format!(
+                "its torch has no face to move to: {}",
+                blocked.join("; ")
+            ))
+        }
+        Driver::None => {
+            Err("no repeater, comparator, or wall torch drives it alone"
+                .to_owned())
+        }
+        Driver::Many => Err("more than one thing drives it".to_owned()),
+    }
+}
+
+/// What drives an output block and its dust, as [`drivers`] finds it.
+enum Driver {
+    /// A repeater or comparator pointing into one of them.
+    Component(Output),
+    /// A wall torch beside the dust, facing it.
+    Torch(Pos),
+    None,
+    /// More than one of these.
+    Many,
+}
+
+/// What drives the output block at `block`, with its dust at `top`.
+fn drivers(blocks: &Blocks, block: Pos, top: Pos) -> Driver {
+    let mut drivers = Vec::new();
+    for into in [block, top] {
+        for side in OUTWARD {
+            let at = schem::step(into, side);
+            let state = blocks.get(at);
+            let comparator = match schem::short(state) {
+                "repeater" => false,
+                "comparator" => true,
+                _ => continue,
+            };
+            let Some(facing) = Direction::facing(state) else {
+                continue;
+            };
+            let driver = Output {
+                at,
+                comparator,
+                facing,
+            };
+            if driver.front() == into {
+                drivers.push(driver);
+            }
+        }
+    }
+    let torches: Vec<Pos> = OUTWARD
+        .into_iter()
+        .map(|side| schem::step(top, side))
+        .filter(|&at| {
+            let state = blocks.get(at);
+            schem::short(state) == "redstone_wall_torch"
+                && Direction::facing(state)
+                    .is_some_and(|f| schem::step(at, f) == top)
+        })
+        .collect();
+    match (drivers.as_slice(), torches.as_slice()) {
+        ([driver], []) => Driver::Component(*driver),
+        ([], [torch]) => Driver::Torch(*torch),
+        ([], []) => Driver::None,
+        _ => Driver::Many,
+    }
+}
+
+/// Whether the block in `state` can hold up an output the old rule's
+/// test reads by colouring it: a solid block or glass, not a component.
+fn holds_up(state: &str) -> bool {
+    let name = schem::short(state);
+    !schem::block::is_component(name)
+        && (schem::block::solid(state) || name.ends_with("glass"))
+}
+
+/// The wall torch at `torch`, facing an output's dust, moved to the face
+/// `face` of the block it is on, with a repeater, or a comparator with
+/// `comparator`, in front of it giving out the way the torch faced into
+/// air, on the block under it or a support put there; or why not: a cell
+/// it takes outside the box or not air, or in `going`, the block under the
+/// repeater one that can't hold it up, something beside the repeater that
+/// would run into its side, or the torch powering anything else there.
+fn torch_moved(
+    blocks: &Blocks,
+    torch: Pos,
+    face: Direction,
+    going: &[Pos],
+    comparator: bool,
+) -> Result<Promotion, String> {
+    let state = blocks.get(torch);
+    let out = Direction::facing(state).expect("a wall torch faces");
+    let on = schem::step(torch, out.opposite());
+    let moved = schem::step(on, face);
+    let at = schem::step(torch, face);
+    let under = schem::step(at, Direction::Down);
+    // A torch moved out of the box would make the build bigger.
+    if ![moved, at, under].iter().all(|&c| inside(blocks, c)) {
+        return Err("out of the box".to_owned());
+    }
+    let driver = Output {
+        at,
+        comparator,
+        facing: out.opposite(),
+    };
+    for (cell, what) in [
+        (moved, "where its torch would go"),
+        (at, "where its repeater would go"),
+        (driver.front(), "where its repeater would give out"),
+    ] {
+        if !is_air(blocks.get(cell)) || going.contains(&cell) {
+            return Err(held(blocks, cell, what));
+        }
+    }
+    let below = blocks.get(under);
+    let support = if is_air(below) {
+        // As a tap's support is, glass over a torch or dust.
+        let glass = matches!(
+            schem::short(blocks.get(schem::step(under, Direction::Down))),
+            "redstone_torch" | "redstone_wall_torch" | "redstone_wire"
+        );
+        Some(if glass {
+            "minecraft:white_stained_glass"
+        } else {
+            "minecraft:white_concrete"
+        })
+    } else if holds_up(below) {
+        None
+    } else {
+        return Err(held(blocks, under, "where its repeater would stand"));
+    };
+    let side = schem::step(at, face);
+    if !unmoved(blocks.get(side)) {
+        return Err(held(blocks, side, "beside its repeater"));
+    }
+    powers_only(blocks, moved, &[on, at])?;
+    let now = if comparator {
+        format!(
+            "minecraft:comparator[facing={},mode=compare,powered=false]",
+            driver.facing
+        )
+    } else {
+        format!(
+            "minecraft:repeater[delay=1,facing={},locked=false,powered=false]",
+            driver.facing
+        )
+    };
+    let mut changes = vec![
+        (torch, schem::AIR.to_owned()),
+        (moved, schem::with_property(state, "facing", face.name())),
+        (at, now),
+    ];
+    changes.extend(support.map(|support| (under, support.to_owned())));
+    Ok(Promotion {
+        driver,
+        torch: Some((torch, moved)),
+        changes,
+    })
+}
+
+/// The run of `bits` promoted, as [`promotable`] finds each, when every
+/// bit's driver is, each the same kind, facing the same way, and standing
+/// where it stands from its block, so a bus stays a bus, `comparator`
+/// saying which bits are read as strengths: each with its bit; else
+/// `None`.
+fn promote_run(
+    blocks: &Blocks,
+    bits: &[Pos],
+    comparator: impl Fn(Pos) -> bool,
+) -> Option<Vec<(Pos, Promotion)>> {
+    let going: Vec<Pos> = bits
+        .iter()
+        .flat_map(|&block| [block, schem::step(block, Direction::Up)])
+        .collect();
+    let promoted: Vec<(Pos, Promotion)> = bits
+        .iter()
+        .map(|&block| {
+            promotable(blocks, block, &going, comparator(block))
+                .ok()
+                .map(|p| (block, p))
+        })
+        .collect::<Option<_>>()?;
+    let (first, promotion) = promoted.first()?;
+    let driver = promotion.driver;
+    let offset = |block: Pos, at: Pos| [0, 1, 2].map(|i| at[i] - block[i]);
+    let like = |(block, other): &(Pos, Promotion)| {
+        other.driver.facing == driver.facing
+            && other.driver.comparator == driver.comparator
+            && other.torch.is_some() == promotion.torch.is_some()
+            && offset(*block, other.driver.at) == offset(*first, driver.at)
+    };
+    promoted.iter().all(like).then_some(promoted)
+}
+
 /// The side a run's `bits` are all tapped on, so a bus stays a bus: of
 /// the sides every bit can be tapped on, as `taken` leaves them, one not
 /// `along` the way copies of the build stack, whose taps would reach into
@@ -780,8 +1219,13 @@ fn tap_one(
     }
 }
 
-/// Each run of `outputs`, the old rule's, tapped as the owner taps them by
-/// hand: each output block whitened, the dust on it left, and one block out
+/// Each run of `outputs`, the old rule's, ported as the owner ports them
+/// by hand. With `promote`, a run whose every bit is driven by a
+/// repeater or comparator that the block and its dust alone take power
+/// from, as [`promotable`] finds them, has its drivers promoted: each
+/// output block and its dust taken out, so its driver gives out into air,
+/// the output in its place, and the build no bigger. Any other run is
+/// tapped: each output block whitened, the dust on it left, and one block out
 /// of the build beside it a support, white concrete, or white stained glass
 /// over a torch, which powers the block above it, or over dust, whose climb
 /// a solid block would cut, with a repeater on top, or a comparator where
@@ -800,9 +1244,12 @@ pub fn tap(
     blocks: &Blocks,
     outputs: &[Run],
     comparator: impl Fn(Pos) -> bool,
-    along: &[Direction],
+    (along, promote): (&[Direction], bool),
 ) -> (BTreeMap<Pos, String>, Vec<Tapped>) {
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
+    // What promoting takes out, kept apart from the places kept air for
+    // signs, which are dropped at the end.
+    let mut cleared: BTreeMap<Pos, String> = BTreeMap::new();
     let mut done = Vec::new();
     let found: Vec<Pos> = find(blocks).iter().map(|o| o.block()).collect();
     for run in outputs {
@@ -817,6 +1264,43 @@ pub fn tap(
                 bits.push(block);
             }
         }
+        // A run promoted puts nothing where a tap already went.
+        let promoted = promote
+            .then(|| promote_run(blocks, &bits, &comparator))
+            .flatten()
+            .filter(|run| {
+                run.iter().all(|(_, promotion)| {
+                    promotion
+                        .changes
+                        .iter()
+                        .all(|(at, _)| !changes.contains_key(at))
+                })
+            });
+        if let Some(run) = promoted {
+            for (block, promotion) in run {
+                let driver = promotion.driver;
+                for (at, state) in promotion.changes {
+                    // Air is kept so, no tap taking it.
+                    changes.insert(at, state.clone());
+                    cleared.insert(at, state);
+                }
+                // Its front, and the place its sign goes, are kept air.
+                changes
+                    .entry(driver.front())
+                    .or_insert_with(|| schem::AIR.to_owned());
+                if !own_signs(blocks, block).is_empty() {
+                    changes
+                        .entry(driver.sign_place())
+                        .or_insert_with(|| schem::AIR.to_owned());
+                }
+                done.push(Tapped::Promoted {
+                    block,
+                    driver,
+                    torch: promotion.torch,
+                });
+            }
+            continue;
+        }
         let shared = run_side(blocks, &bits, &changes, along);
         for block in bits {
             done.push(tap_one(
@@ -830,6 +1314,7 @@ pub fn tap(
     }
     // The places kept for signs, which [`sign`] puts them in.
     changes.retain(|_, state| state != schem::AIR);
+    changes.extend(cleared);
     (changes, done)
 }
 
@@ -1128,7 +1613,8 @@ pub struct Ported {
 }
 
 /// The file in `data` with each output of `outputs`, the old rule's,
-/// tapped as [`tap`] taps them, `along` the ways copies stack, each
+/// tapped, or with `promote` its driver promoted, as [`tap`] ports them,
+/// `along` the ways copies stack, each
 /// signal-strength input of `pads`, the old rule's, fed as [`feed`] feeds
 /// them, and each sign naming an output moved under its front, as [`sign`]
 /// moves them, its box grown to hold the taps, then as `//update` leaves
@@ -1142,10 +1628,11 @@ pub fn tapped(
     data: &[u8],
     (outputs, pads): (&[Run], &[(Pos, Option<Direction>)]),
     comparator: impl Fn(Pos) -> bool,
-    along: &[Direction],
+    (along, promote): (&[Direction], bool),
 ) -> Result<Ported> {
     let blocks = Blocks::read(data)?;
-    let (mut changes, tapped) = tap(&blocks, outputs, &comparator, along);
+    let (mut changes, tapped) =
+        tap(&blocks, outputs, &comparator, (along, promote));
     let fed = feed(&blocks, pads, &mut changes);
     let found = find(&blocks);
     let named: Vec<(Pos, Output)> = tapped
@@ -1155,25 +1642,14 @@ pub fn tapped(
                 .iter()
                 .find(|o| o.block() == block)
                 .map(|&o| (block, o)),
-            Tapped::Tapped {
-                block,
-                side,
-                support,
-                ..
-            } => Some((
-                block,
-                Output {
-                    at: schem::step(support, Direction::Up),
-                    comparator: comparator(block),
-                    facing: side.opposite(),
-                },
-            )),
-            Tapped::Not { .. } => None,
+            ref t => t.output(comparator(t.block())).map(|o| (t.block(), o)),
         })
         .collect();
     let mut signs_to = HashMap::new();
     let signed = sign(&blocks, &named, &mut changes, &mut signs_to);
-    let ported = tapped.iter().any(|t| matches!(t, Tapped::Tapped { .. }))
+    let ported = tapped
+        .iter()
+        .any(|t| matches!(t, Tapped::Tapped { .. } | Tapped::Promoted { .. }))
         || fed.iter().any(|f| matches!(f, Fed::Fed { .. }))
         || !signs_to.is_empty();
     if !ported
@@ -1468,7 +1944,8 @@ mod tests {
             bits: vec![[2, 1, 2]],
             step: [0, 0, 0],
         };
-        let (changes, mut done) = tap(blocks, &[run], |_| false, along);
+        let (changes, mut done) =
+            tap(blocks, &[run], |_| false, (along, false));
         assert_eq!(done.len(), 1);
         (changes, done.remove(0))
     }
@@ -1594,7 +2071,7 @@ mod tests {
             bits: vec![[0, 1, 2]],
             step: [0, 0, 0],
         };
-        let (changes, done) = tap(&blocks, &[run], |_| false, &[]);
+        let (changes, done) = tap(&blocks, &[run], |_| false, (&[], false));
         assert!(matches!(
             done[0],
             Tapped::Tapped {
@@ -1606,6 +2083,246 @@ mod tests {
         assert!(changes.contains_key(&[-1, 2, 2]));
     }
 
+    /// An output block, yellow concrete with dust on it, whose dust a
+    /// comparator south of it, on stone, points into, reading dust behind
+    /// it, with `extra` added, in a box 5 by 4 by 5.
+    fn driven(extra: &[(Pos, &str)]) -> Blocks {
+        let line = "redstone_wire[east=none,north=side,power=0,south=side,\
+                    west=none]";
+        let mut states: HashMap<Pos, String> = [
+            ([2, 1, 2], "yellow_concrete"),
+            ([2, 2, 2], line),
+            ([2, 1, 3], "stone"),
+            (
+                [2, 2, 3],
+                "comparator[facing=south,mode=compare,powered=false]",
+            ),
+            ([2, 1, 4], "stone"),
+            ([2, 2, 4], line),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        for &(pos, state) in extra {
+            if state == "air" {
+                states.remove(&pos);
+            } else {
+                states.insert(pos, format!("minecraft:{state}"));
+            }
+        }
+        Blocks::from_grid([5, 4, 5], &states)
+    }
+
+    /// The output of `blocks` at (2, 1, 2) ported with promoting.
+    fn promote_one(blocks: &Blocks) -> (BTreeMap<Pos, String>, Tapped) {
+        let run = Run {
+            bits: vec![[2, 1, 2]],
+            step: [0, 0, 0],
+        };
+        let (changes, mut done) = tap(blocks, &[run], |_| false, (&[], true));
+        assert_eq!(done.len(), 1);
+        (changes, done.remove(0))
+    }
+
+    /// A comparator pointing into an output's dust, the one thing either
+    /// powers, is promoted: the block and its dust taken out, so it gives
+    /// out into air, an output where the output was, and the build no
+    /// bigger; nothing else changes. A repeater pointing into the block
+    /// itself is promoted so too.
+    #[test]
+    fn a_driver_pointing_into_an_output_gives_out_into_air() {
+        let (changes, done) = promote_one(&driven(&[]));
+        let driver = Output {
+            at: [2, 2, 3],
+            comparator: true,
+            facing: Direction::South,
+        };
+        assert_eq!(
+            done,
+            Tapped::Promoted {
+                block: [2, 1, 2],
+                driver,
+                torch: None,
+            }
+        );
+        assert_eq!(
+            changes,
+            BTreeMap::from([
+                ([2, 1, 2], schem::AIR.to_owned()),
+                ([2, 2, 2], schem::AIR.to_owned()),
+            ])
+        );
+        let grid: HashMap<Pos, String> = driven(&[])
+            .iter()
+            .filter(|&(pos, _)| !changes.contains_key(&pos))
+            .map(|(pos, state)| (pos, state.to_owned()))
+            .collect();
+        let after = Blocks::from_grid([5, 4, 5], &grid);
+        assert_eq!(find(&after), [driver]);
+
+        // A repeater at the block's level, on stone, pointing into it.
+        let blocks = driven(&[
+            ([2, 2, 3], "air"),
+            (
+                [2, 1, 3],
+                "repeater[delay=1,facing=south,locked=false,powered=false]",
+            ),
+            ([2, 0, 3], "stone"),
+        ]);
+        let (_, done) = promote_one(&blocks);
+        assert!(
+            matches!(done, Tapped::Promoted { driver, .. } if driver.at == [2, 1, 3] && !driver.comparator),
+            "{done:?}"
+        );
+    }
+
+    /// A driver isn't promoted where taking out the block or its dust
+    /// would take power from anything else: a repeater reading the block,
+    /// dust the output's dust runs into, or a torch on the block; nor
+    /// where two things drive it, or none does. The output is tapped
+    /// instead.
+    #[test]
+    fn a_driver_is_not_promoted_where_its_output_powers_more() {
+        let reader = "repeater[delay=1,facing=east,locked=false,powered=false]";
+        let joined = "redstone_wire[east=side,north=none,power=0,south=none,\
+                      west=side]";
+        for (extra, why) in [
+            (vec![([1, 1, 2], reader)], "repeater at (1, 1, 2)"),
+            (vec![([3, 2, 2], joined)], "redstone wire at (3, 2, 2)"),
+            (
+                vec![([2, 1, 1], "redstone_wall_torch[facing=north,lit=true]")],
+                "redstone wall torch at (2, 1, 1)",
+            ),
+            (
+                vec![
+                    (
+                        [1, 2, 2],
+                        "repeater[delay=1,facing=west,locked=false,\
+                         powered=false]",
+                    ),
+                    ([1, 1, 2], "stone"),
+                ],
+                "more than one",
+            ),
+            (vec![([2, 2, 3], "stone")], "drives it alone"),
+        ] {
+            let blocks = driven(&extra);
+            let Err(err) = promotable(&blocks, [2, 1, 2], &[], false) else {
+                panic!("promoted with {extra:?}");
+            };
+            assert!(err.contains(why), "{err}");
+            let (_, done) = promote_one(&blocks);
+            assert!(matches!(done, Tapped::Tapped { .. }), "{done:?}");
+        }
+        // An output read as a strength isn't read off a repeater.
+        let blocks = driven(&[(
+            [2, 2, 3],
+            "repeater[delay=1,facing=south,locked=false,powered=false]",
+        )]);
+        assert!(promotable(&blocks, [2, 1, 2], &[], true).is_err());
+        assert!(promotable(&blocks, [2, 1, 2], &[], false).is_ok());
+    }
+
+    /// A sign on a promoted output's block goes under its driver's front,
+    /// on the face of the block holding the driver up, as every output's
+    /// does; where that place holds something, the driver isn't promoted.
+    #[test]
+    fn a_promoted_outputs_sign_goes_under_its_drivers_front() {
+        let on = [2, 1, 1];
+        let mut blocks =
+            driven(&[(on, "oak_wall_sign[facing=north,waterlogged=false]")]);
+        blocks
+            .signs
+            .insert(on, ["sum", "", "", ""].map(str::to_owned).to_vec());
+        let (mut changes, done) = promote_one(&blocks);
+        let driver = done.output(true).expect("promoted");
+        // Under the comparator's front is where the block was.
+        assert_eq!(driver.sign_place(), [2, 1, 2]);
+        let mut moves = HashMap::new();
+        let signed =
+            sign(&blocks, &[(done.block(), driver)], &mut changes, &mut moves);
+        assert_eq!(
+            signed,
+            [Signed::Moved {
+                block: [2, 1, 2],
+                sign: on,
+                to: [2, 1, 2],
+            }]
+        );
+        assert_eq!(
+            changes[&[2, 1, 2]],
+            "minecraft:oak_wall_sign[facing=north,waterlogged=false]"
+        );
+        assert_eq!(changes[&on], schem::AIR);
+        assert_eq!(changes[&[2, 2, 2]], schem::AIR);
+
+        // A comparator at the block's level, its sign's place under its
+        // front taken by stone.
+        let mut blocks = driven(&[
+            ([2, 2, 3], "air"),
+            (
+                [2, 1, 3],
+                "comparator[facing=south,mode=compare,powered=false]",
+            ),
+            ([2, 0, 3], "stone"),
+            ([2, 0, 2], "stone"),
+            (on, "oak_wall_sign[facing=north,waterlogged=false]"),
+        ]);
+        blocks
+            .signs
+            .insert(on, ["sum", "", "", ""].map(str::to_owned).to_vec());
+        let err = promotable(&blocks, [2, 1, 2], &[], false).unwrap_err();
+        assert!(err.contains("where its sign would go"), "{err}");
+    }
+
+    /// A wall torch beside an output's dust, facing it, moves to another
+    /// face of the block it is on, inside the box, with a repeater in
+    /// front of it giving out the way the torch faced into air, on white
+    /// concrete put under it, as the owner ported an adder's carry out.
+    #[test]
+    fn a_torch_driving_an_output_moves_with_a_repeater_before_it() {
+        let wire = "redstone_wire[east=side,north=none,power=0,south=none,\
+                    west=side]";
+        let states: HashMap<Pos, String> = [
+            ([3, 1, 2], "yellow_concrete"),
+            ([3, 2, 2], wire),
+            ([1, 2, 2], "stone"),
+            ([2, 2, 2], "redstone_wall_torch[facing=east,lit=true]"),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        let blocks = Blocks::from_grid([5, 4, 5], &states);
+        let promotion = promotable(&blocks, [3, 1, 2], &[], false).unwrap();
+        assert_eq!(
+            promotion.driver,
+            Output {
+                at: [2, 2, 1],
+                comparator: false,
+                facing: Direction::West,
+            }
+        );
+        assert_eq!(promotion.torch, Some(([2, 2, 2], [1, 2, 1])));
+        let changes: BTreeMap<Pos, String> =
+            promotion.changes.into_iter().collect();
+        assert_eq!(
+            changes[&[1, 2, 1]],
+            "minecraft:redstone_wall_torch[facing=north,lit=true]"
+        );
+        assert_eq!(changes[&[2, 1, 1]], "minecraft:white_concrete");
+        for gone in [[3, 1, 2], [3, 2, 2], [2, 2, 2]] {
+            assert_eq!(changes[&gone], schem::AIR);
+        }
+        // In a box one block deep, it has nowhere to go but out of it.
+        let narrow: HashMap<Pos, String> = states
+            .iter()
+            .map(|(&[x, y, _], state)| ([x, y, 0], state.clone()))
+            .collect();
+        let narrow = Blocks::from_grid([5, 4, 1], &narrow);
+        let err = promotable(&narrow, [3, 1, 0], &[], false).unwrap_err();
+        assert!(err.contains("out of the box"), "{err}");
+    }
+
     /// An output read as a strength takes a comparator, and one read by a
     /// repeater that powers something can't be tapped, a tap reading dust
     /// only.
@@ -1615,8 +2332,12 @@ mod tests {
             bits: vec![[2, 1, 2]],
             step: [0, 0, 0],
         };
-        let (changes, _) =
-            tap(&tap_fixture(&[]), std::slice::from_ref(&run), |_| true, &[]);
+        let (changes, _) = tap(
+            &tap_fixture(&[]),
+            std::slice::from_ref(&run),
+            |_| true,
+            (&[], false),
+        );
         assert!(
             changes[&[2, 2, 1]]
                 .starts_with("minecraft:comparator[facing=south")
@@ -1628,7 +2349,7 @@ mod tests {
             ),
             ([2, 2, 1], "stone"),
         ]);
-        let (changes, done) = tap(&blocks, &[run], |_| false, &[]);
+        let (changes, done) = tap(&blocks, &[run], |_| false, (&[], false));
         assert!(changes.is_empty());
         assert!(
             matches!(&done[0], Tapped::Not { why, .. } if why.contains("reads only dust"))
@@ -1649,7 +2370,8 @@ mod tests {
             moved,
             tapped: done,
             ..
-        } = tapped(&data, (&today.outputs, &[]), |_| false, &[]).unwrap();
+        } = tapped(&data, (&today.outputs, &[]), |_| false, (&[], false))
+            .unwrap();
         let file = file.expect("every output tapped");
         assert_eq!(
             crate::schem::rstack::settle(&file).unwrap(),
@@ -1860,7 +2582,7 @@ mod tests {
             &data,
             (&today.outputs, &pads),
             |pos| sum.contains(&pos),
-            &[],
+            (&[], false),
         )
         .unwrap();
         assert!(ported.fed.iter().all(|f| matches!(f, Fed::Fed { .. })));
