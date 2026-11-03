@@ -7,6 +7,7 @@ mod inspect;
 mod outputs;
 mod rebuild;
 mod simulate;
+mod stack_check;
 mod versions;
 
 use std::{path::PathBuf, str::FromStr as _};
@@ -25,12 +26,10 @@ use builds::{
 };
 use categories::{define_tag, print_categories};
 use inspect::{Inspect, evaluate, inspect_command};
-use outputs::{
-    Convert, Outputs, StackCheck, convert_command, outputs_command,
-    stack_check_command,
-};
+use outputs::{Convert, Outputs, convert_command, outputs_command};
 use rebuild::{Rebuild, finish, needs, rebuild};
 use simulate::simulate;
+use stack_check::{StackCheck, stack_check_command};
 use versions::{
     Replace, Standardizing, colours, new_version, prune, replace, reread,
 };
@@ -115,9 +114,10 @@ enum Command {
     /// and check the result computes what the original does. Reads the
     /// database only
     Convert(Convert),
-    /// Stack copies of a build as `//rstack` does, each way asked, settle
-    /// them, read them by the proposed rule, and test them as a wider build
-    /// of its kind. Reads the database only
+    /// Stack copies of a build as the site's stacking test does, the first
+    /// whole and the rest its box, each way asked, settle them, read them
+    /// by the proposed rule, and test them as the site tests its kind's
+    /// copies. Reads the database only
     StackCheck(StackCheck),
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),

@@ -78,12 +78,9 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         .chain((1..=reach(1)).map(|up| Step::new(0, up, 0)))
         .collect();
     steps.sort_by_key(|step| step.west + step.up);
-    let buses = stack::Buses::of(Test::Decoder.kind(), Orientation::Horizontal);
+    let buses = buses();
     let works = |step: Step, copies: usize| {
-        let (stacked, _) =
-            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
-        let stacked = Blocks::read(&stacked).ok()?;
-        apart(&stacked, &interface, (step, copies))
+        copies_apart(data, &interface, step, copies, buses)
     };
     // The shortest step each way, west and up, at which copies work.
     let ways: Vec<Apart> = [true, false]
@@ -125,6 +122,47 @@ pub fn stacking(data: &[u8]) -> Option<Stacking> {
         });
     }
     Some(Stacking::Separate { ways })
+}
+
+/// How a decoder's copies share their buses: they don't, each keeping its
+/// own input and outputs.
+fn buses() -> stack::Buses {
+    stack::Buses::of(Test::Decoder.kind(), Orientation::Horizontal)
+}
+
+/// The cases `copies` of the decoder in `data`, whose interface is
+/// `single`, run when stacked `step` and each decodes its own bits.
+fn copies_apart(
+    data: &[u8],
+    single: &Interface,
+    step: Step,
+    copies: usize,
+    buses: stack::Buses,
+) -> Option<u64> {
+    let (stacked, _) =
+        stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
+    let stacked = Blocks::read(&stacked).ok()?;
+    apart(&stacked, single, (step, copies))
+}
+
+/// Whether `copies` of the decoder in `data` stacked `step` each decode
+/// their own bits, as [`stacking`] tries each step: the box rule's box
+/// first, then boxes leaving out more of the first copy, the step with
+/// the box that works and the cases run, or why none does. `None` when it
+/// is no decoder.
+pub fn stacks_at(
+    data: &[u8],
+    step: Step,
+    copies: usize,
+) -> Option<Result<(Step, u64), String>> {
+    let blocks = Blocks::read(data).ok()?;
+    let interface = interface::read(&blocks);
+    spec(&interface).ok()?;
+    step.find(data, true, buses(), |step| {
+        copies_apart(data, &interface, step, copies, buses()).ok_or_else(|| {
+            format!("{copies} copies don't each decode their own bits of A")
+        })
+    })
 }
 
 /// Whether `copies` of the decoder whose interface is `single`, stacked

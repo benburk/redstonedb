@@ -530,6 +530,31 @@ impl Test {
         }
     }
 
+    /// Whether `copies` of the build in `data`, whose own cases came out
+    /// right, stacked `step` make a wider one of its kind, as its own
+    /// `stacking` tests each step, the box rule's box first, then boxes
+    /// leaving out more of the first copy: the step with the box that
+    /// works and the cases run, or why not. An adder's copies chain their
+    /// carries; a decoder's each decode their own bits; a register's or
+    /// buffer's store and read as more cells or bits. `None` for a test
+    /// that tries no step it is given.
+    pub fn stacks_at(
+        self,
+        data: &[u8],
+        step: Step,
+        copies: usize,
+    ) -> Option<Result<(Step, u64), String>> {
+        match (self, self.way()) {
+            (Test::Adder, _) => stacking::adder_at(data, step, copies),
+            (Test::Decoder, _) => decoder::stacks_at(data, step, copies),
+            (_, Way::Register(kind)) => {
+                register::stacks_at(data, kind, step, copies)
+                    .map(|found| found.map(|(step, cases, _)| (step, cases)))
+            }
+            _ => None,
+        }
+    }
+
     /// How often the build in `blocks`, its file `data`, timed as
     /// `timing`, takes a new case, as `throughput::throughput` streams
     /// them, through its lines named as its test names them, as its timing

@@ -512,6 +512,23 @@ impl Circuit {
         }
     }
 
+    /// The power at `pos`, as of the last `settle`: a solid block's, from
+    /// what powers it, dust's level, and 15 for any other component on,
+    /// as [`Circuit::on`] says.
+    pub fn power(&self, pos: Pos) -> u8 {
+        let block = self.world.get_block(at(pos));
+        match block {
+            Block::RedstoneWire(wire) => wire.power,
+            _ if block.is_solid() => mchprs_redstone::get_redstone_power(
+                block,
+                &self.world,
+                at(pos),
+                BlockFace::Top,
+            ),
+            _ => 15 * u8::from(self.on(pos)),
+        }
+    }
+
     /// For each input, the ticks its drivers take to change it once it is
     /// set: a signal-strength input's comparators, one, so its dust takes
     /// its value a tick on; a lever's, none.

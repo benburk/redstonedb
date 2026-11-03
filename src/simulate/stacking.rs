@@ -243,6 +243,33 @@ pub fn check(data: &[u8]) -> Option<Stacking> {
     })
 }
 
+/// Whether `copies` of the adder in `data`, a file whose own cases came out
+/// right, stacked `step` make one adder, as [`check`] tests each step: the
+/// box rule's box first, then boxes leaving out more of the first copy.
+/// The step with the box that works and the cases run, or the box rule's
+/// reason; `None` when it is no adder with a carry in, or the stack would
+/// be wider than the simulator tests.
+pub fn adder_at(
+    data: &[u8],
+    step: Step,
+    copies: usize,
+) -> Option<Result<(Step, u64), String>> {
+    let blocks = Blocks::read(data).ok()?;
+    let mut interface = interface::read(&blocks);
+    let ports = adder_ports(&mut interface, &ADD).ok()?;
+    ports.carry_in?;
+    let width = input_bits(&interface.inputs[ports.a]);
+    if width * copies > MAX_WIDTH {
+        return None;
+    }
+    let variant = Test::Adder
+        .check(&blocks, true)
+        .map_or_else(|_| adder::Variant::default(), |run| run.adder_variant());
+    step.find(data, true, stack::Buses::own(), |step| {
+        stacked(data, step, copies, width, variant)
+    })
+}
+
 /// The shortest step whose copies of 1-bit adder `data` add right, of
 /// `first`, if given, which wins a tie, and the steps up, west, or north as
 /// far as the build reaches. The shortest that works packs the bits

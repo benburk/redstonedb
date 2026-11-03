@@ -40,30 +40,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
     let (low, high) = interface::measured(&blocks);
     let reach = i64::from(high[0] - low[0] + 1);
     let works = |step: Step, copies: usize, bits: bool, quick: bool| {
-        // Copies along a register's bits share its control lines; across
-        // them, its data buses.
-        let orientation = if bits {
-            Orientation::Horizontal
-        } else {
-            Orientation::Vertical
-        };
-        let buses = stack::Buses::of(kind.category(), orientation);
-        let (stacked, _) =
-            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
-        let blocks = Blocks::read(&stacked).ok()?;
-        let (run, shape) = check_on(&blocks, kind, quick).ok()?;
-        let made = if bits {
-            Shape {
-                width: single.width * copies,
-                ..single
-            }
-        } else {
-            Shape {
-                cells: single.cells * copies,
-                ..single
-            }
-        };
-        (run.wrong == 0 && shape == made).then_some(run.cases)
+        copies_work(data, kind, &single, (step, copies), bits, quick)
     };
     let found = (1..=reach)
         .map(|west| Step::new(west, 0, 0))
@@ -135,6 +112,83 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
             most,
         }
     })
+}
+
+/// How a register's copies share their lines: along its bits, its control
+/// lines; across them, its data buses.
+fn buses_of(kind: Kind, bits: bool) -> stack::Buses {
+    let orientation = if bits {
+        Orientation::Horizontal
+    } else {
+        Orientation::Vertical
+    };
+    stack::Buses::of(kind.category(), orientation)
+}
+
+/// The cases `copies` of the register in `data`, one copy shaped `single`,
+/// run when stacked `step` and every cell stores and reads right, as more
+/// bits with `bits`, else as more cells; quickly with `quick`.
+fn copies_work(
+    data: &[u8],
+    kind: Kind,
+    single: &Shape,
+    (step, copies): (Step, usize),
+    bits: bool,
+    quick: bool,
+) -> Option<u64> {
+    let buses = buses_of(kind, bits);
+    let (stacked, _) =
+        stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
+    let blocks = Blocks::read(&stacked).ok()?;
+    let (run, shape) = check_on(&blocks, kind, quick).ok()?;
+    let made = if bits {
+        Shape {
+            width: single.width * copies,
+            ..*single
+        }
+    } else {
+        Shape {
+            cells: single.cells * copies,
+            ..*single
+        }
+    };
+    (run.wrong == 0 && shape == made).then_some(run.cases)
+}
+
+/// Whether `copies` of the register in `data` stacked `step` store and
+/// read right, as more cells or, for a buffer only, more bits, as
+/// [`stacking`] tries each step: the box rule's box first, then boxes
+/// leaving out more of the first copy. The step with its box, the cases
+/// run, and whether copies add bits; or why none works. `None` when it is
+/// not of its `kind`.
+pub fn stacks_at(
+    data: &[u8],
+    kind: Kind,
+    step: Step,
+    copies: usize,
+) -> Option<Result<(Step, u64, bool), String>> {
+    let blocks = Blocks::read(data).ok()?;
+    let (_, single) = check_on(&blocks, kind, true).ok()?;
+    let mut why = String::new();
+    for bits in [false, true]
+        .into_iter()
+        .filter(|&bits| bits || kind == Kind::Register)
+    {
+        let found = step.find(data, bits, buses_of(kind, bits), |step| {
+            copies_work(data, kind, &single, (step, copies), bits, false)
+                .ok_or(())
+        });
+        match found {
+            Some(Ok((step, cases))) => return Some(Ok((step, cases, bits))),
+            _ => {
+                why = format!(
+                    "{copies} copies don't store and read right as more {}",
+                    if bits { "bits" } else { "cells" }
+                );
+            }
+        }
+    }
+    Some(Err(why))
 }
 
 /// The fewest steps a register's throughput is found on, and the many it

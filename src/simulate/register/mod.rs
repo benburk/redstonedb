@@ -44,7 +44,7 @@ mod check;
 mod throughput;
 mod timing;
 
-pub use throughput::{stacking, throughput};
+pub use throughput::{stacking, stacks_at, throughput};
 pub use timing::time;
 
 /// One magenta line, by its port and bit, where its block is, and whether
