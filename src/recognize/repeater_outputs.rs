@@ -24,12 +24,12 @@ use anyhow::Result;
 use crate::{
     category::Kind,
     recognize::{
-        colour,
         inspect::{self, Run},
         interface::{self, Bit, Interface, Port},
+        legacy,
         probe::{self, Fault, Found, Layout},
     },
-    schem::{self, Blocks, Direction, Pos},
+    schem::{self, Blocks, Direction, Pos, lines::Role},
 };
 
 /// A repeater or comparator powering nothing.
@@ -240,7 +240,7 @@ fn interleaved<K: Copy>(
 /// role the site coloured it in, or the old rule read it by; `None` for any
 /// other block.
 pub fn colour_under(blocks: &Blocks, output: Output) -> Option<&str> {
-    colour::output_colour(schem::short(blocks.get(output.block())))
+    legacy::output_colour(schem::short(blocks.get(output.block())))
 }
 
 /// A comparator with nothing behind it, the cell its `facing` points at
@@ -321,15 +321,15 @@ pub fn driving(blocks: &Blocks, bit: Pos) -> Option<StrengthInput> {
 }
 
 /// A build's lines as this rule reads them, named for the roles their
-/// shapes give them so a test reads them as it reads the roles the site
-/// colours in: its signal-strength buses A, B, and on, the longest first,
-/// then its buses of levers; a lone lever its control line, such as a
-/// carry in; each bus of outputs an output, a comparator's read as a
-/// strength in a build without signal-strength inputs, whose outputs each
-/// show a digit; and a lone output beside a bus, or a lone repeater beside
-/// a comparator of a build with signal-strength inputs, its status line,
-/// such as a carry out. Each line is read by the blocks under its
-/// comparators and repeaters, as [`inspect::inspect`] finds them.
+/// shapes give them, as a test reads the roles probing finds: its
+/// signal-strength buses A, B, and on, the longest first, then its buses
+/// of levers; a lone lever its control line, such as a carry in; each bus
+/// of outputs an output, a comparator's read as a strength in a build
+/// without signal-strength inputs, whose outputs each show a digit; and a
+/// lone output beside a bus, or a lone repeater beside a comparator of a
+/// build with signal-strength inputs, its status line, such as a carry
+/// out. Each line is read by the blocks under its comparators and
+/// repeaters, as [`inspect::inspect`] finds them.
 pub fn interface(blocks: &Blocks) -> Interface {
     let switches: BTreeMap<Pos, schem::Switch> = blocks
         .switches()
@@ -338,23 +338,22 @@ pub fn interface(blocks: &Blocks) -> Interface {
         .collect();
     let report = inspect::inspect(blocks);
     let mut letters = (b'A'..=b'Z').map(|l| char::from(l).to_string());
-    let mut operand = |colour: &str, bits: Vec<Bit>, strength: bool| Port {
+    let mut operands = 0..=u8::MAX;
+    let mut operand = |bits: Vec<Bit>, strength: bool| Port {
         name: letters.next().unwrap_or_default(),
-        block: format!("{colour} concrete"),
+        role: operands.next().map(Role::Operand),
         labelled: false,
         bits,
         strength: 1,
         words: Vec::new(),
         signal_strength: strength,
     };
-    let operand_colours = ["lime", "light blue", "cyan", "blue"];
-    let mut colours = operand_colours.iter().cycle();
     let mut inputs = Vec::new();
     for run in &report.digits {
         let mut bits = run.bits.clone();
         interface::lsb_first(blocks, &mut bits);
         let bits = bits.into_iter().map(Bit::at).collect();
-        inputs.push(operand(colours.next().unwrap_or(&"lime"), bits, true));
+        inputs.push(operand(bits, true));
     }
     let mut control = Vec::new();
     for run in &report.inputs {
@@ -378,7 +377,7 @@ pub fn interface(blocks: &Blocks) -> Interface {
         if bits.len() == 1 {
             control.push(Port {
                 name: "control line".to_owned(),
-                block: format!("{} concrete", colour::CONTROL),
+                role: Some(Role::Control),
                 labelled: false,
                 bits,
                 strength: 1,
@@ -386,11 +385,7 @@ pub fn interface(blocks: &Blocks) -> Interface {
                 signal_strength: false,
             });
         } else {
-            inputs.push(operand(
-                colours.next().unwrap_or(&"lime"),
-                bits,
-                false,
-            ));
+            inputs.push(operand(bits, false));
         }
     }
     inputs.extend(control);
@@ -402,6 +397,7 @@ pub fn interface(blocks: &Blocks) -> Interface {
     let buses = runs.iter().filter(|run| run.bits.len() > 1).count();
     let comparators = found.iter().any(|o| o.comparator);
     let mut outputs = Vec::new();
+    let mut places = 0..=u8::MAX;
     for (i, run) in runs.iter().enumerate() {
         let mut members = run.bits.clone();
         interface::lsb_first(blocks, &mut members);
@@ -410,16 +406,16 @@ pub fn interface(blocks: &Blocks) -> Interface {
             .all(|pos| by_block.get(pos).is_some_and(|o| o.comparator));
         let status = members.len() == 1
             && (buses > 0 || digits && comparators && !comparator);
-        let (name, marked) = if status {
-            ("status line".to_owned(), colour::STATUS)
+        let (name, role) = if status {
+            ("status line".to_owned(), Some(Role::Status))
         } else if i == 0 {
-            ("output".to_owned(), "yellow")
+            ("output".to_owned(), places.next().map(Role::Output))
         } else {
-            (format!("output {}", i + 1), "yellow")
+            (format!("output {}", i + 1), places.next().map(Role::Output))
         };
         outputs.push(Port {
             name,
-            block: format!("{marked} concrete"),
+            role,
             labelled: false,
             bits: members.into_iter().map(Bit::at).collect(),
             strength: 1,
@@ -468,7 +464,7 @@ pub fn probe(
                         probed.run.cases,
                         probed.run.pattern
                     );
-                    let file = probe::colour(&simulated, &layout)?;
+                    let file = probe::with_layout(&simulated, &layout)?;
                     let data_inputs = [layout.a.clone(), layout.b.clone()];
                     return Ok(Ok(Probed {
                         kind,

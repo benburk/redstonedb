@@ -5,28 +5,32 @@
 //! block under a comparator with air behind it; an output is the block
 //! under a repeater or comparator facing air.
 //!
-//! What each line is for, its role, is read from the colours the site
-//! gives a build once probing finds them, see [`crate::recognize::probe`]:
-//! each colour one bus, named by a sign on any of its blocks, an output's
-//! on the face under its front, see [`line_signs`], except magenta control
-//! lines and pink status lines, each one line named by its own sign, or a
-//! row of them named by one sign on any of the row, as a memory's read
-//! lines are. In a file the site has coloured, an output or
-//! signal-strength input on a block of no role colour plays no role, as
-//! one a stacked copy hands on to the next. A file it hasn't coloured has
-//! its outputs and signal-strength inputs read by their shapes, as
-//! [`repeater_outputs::interface`] reads them, and its levers by the
-//! blocks they are on. Each bus's least significant bit, and a row's first
-//! line, is the one nearest the south-east-bottom corner of the bounding
-//! box, unless an `lsb` or `msb` sign says otherwise; such a sign on one
-//! bus orders every unmarked bus running alongside it too.
+//! What each line is for, its role, is no block's colour: it is the role
+//! probing found for each block, which the site keeps with each version of
+//! a build's file, see [`crate::schem::lines`], or for a file carrying
+//! none, the role its shape gives it, as [`repeater_outputs::interface`]
+//! reads it. Each role is one bus, named by a sign on any of its blocks,
+//! an output's on the face under its front, see [`line_signs`], except
+//! control lines and status lines, each one line named by its own sign, or
+//! a row of them named by one sign on any of the row, as a memory's read
+//! lines are. An output or signal-strength input with no role plays none,
+//! as one a stacked copy hands on to the next; a lever or button with
+//! none is a bus of its own. Each bus's least significant bit, and a
+//! row's first line, is the one nearest the south-east-bottom corner of
+//! the bounding box, unless an `lsb` or `msb` sign says otherwise; such a
+//! sign on one bus orders every unmarked bus running alongside it too.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     category::{Behaviour, Kind, Lines},
-    recognize::{colour, repeater_outputs},
-    schem::{self, Blocks, Direction, Pos, Switch},
+    recognize::repeater_outputs,
+    schem::{
+        self, Blocks, Direction, Pos, Switch,
+        lines::{Role, Roles},
+    },
 };
 
 #[derive(Default)]
@@ -39,8 +43,9 @@ pub struct Interface {
 #[derive(Clone)]
 pub struct Port {
     pub name: String,
-    /// The block marking each bit, such as `lime concrete`.
-    pub block: String,
+    /// What it is for, such as A or a control line; `None` for a lever or
+    /// button no role was found for.
+    pub role: Option<Role>,
     /// Whether it is a line named on its own, a control line such as `carry
     /// in` or a status line such as `carry out`, or a row of them named by
     /// one sign, such as a memory's read lines, rather than a bus.
@@ -59,6 +64,23 @@ pub struct Port {
     /// a lever. For an output, its test reads each block's strength as a
     /// value from 0 to 15, as a popcount's one output shows its count.
     pub signal_strength: bool,
+}
+
+impl Port {
+    /// Whether it is a control line, an input named on its own.
+    pub fn control(&self) -> bool {
+        self.role == Some(Role::Control)
+    }
+
+    /// Whether it is a status line, an output named on its own.
+    pub fn status(&self) -> bool {
+        self.role == Some(Role::Status)
+    }
+
+    /// Whether it is operand A.
+    pub fn a(&self) -> bool {
+        self.role == Some(Role::Operand(0))
+    }
 }
 
 #[derive(Clone)]
@@ -89,10 +111,10 @@ impl Bit {
 
 /// Names a build's unsigned ports for what its `category` takes them to
 /// be, as `category::Lines` gives them, so a page shows what the simulator
-/// reads: an adder's lone magenta and pink lines are its carry in and
+/// reads: an adder's lone control and status lines are its carry in and
 /// carry out; a register's data bus in and out are its data in and data
-/// out, and each of its magenta lines a write, driven by a button, or a
-/// read, by a lever, and a buffer's the same but every magenta line a
+/// out, and each of its control lines a write, driven by a button, or a
+/// read, by a lever, and a buffer's the same but every control line a
 /// write; a comparison's one output is its result, such as `A > B`; and an
 /// inverter's lone control line is its invert. A sign's name always
 /// stands.
@@ -101,9 +123,8 @@ pub fn name_lines(
     blocks: &Blocks,
     interface: &mut Interface,
 ) {
-    let lone = |ports: &mut Vec<Port>, colour: &str, name: &str| {
-        let mut lines =
-            ports.iter_mut().filter(|p| p.block.starts_with(colour));
+    let lone = |ports: &mut Vec<Port>, role: Role, name: &str| {
+        let mut lines = ports.iter_mut().filter(|p| p.role == Some(role));
         if let (Some(line), None) = (lines.next(), lines.next())
             && !line.labelled
             && line.bits.len() == 1
@@ -132,12 +153,12 @@ pub fn name_lines(
             return;
         }
         Lines::Control(name) => {
-            return lone(&mut interface.inputs, colour::CONTROL, name);
+            return lone(&mut interface.inputs, Role::Control, name);
         }
         Lines::Signed => return,
     };
-    lone(&mut interface.inputs, colour::CONTROL, control);
-    lone(&mut interface.outputs, colour::STATUS, status);
+    lone(&mut interface.inputs, Role::Control, control);
+    lone(&mut interface.outputs, Role::Status, status);
     if lone_output
         && let [out] = interface.outputs.as_mut_slice()
         && !out.labelled
@@ -148,12 +169,12 @@ pub fn name_lines(
 }
 
 /// `name_lines` for a register: its data bus in and out by their roles,
-/// and its unsigned magenta lines split into writes, each driven by a
+/// and its unsigned control lines split into writes, each driven by a
 /// button, and reads, by a lever, numbered in order when there are more.
 /// A `buffer`'s are all writes when none has a button, as it has no
 /// reads.
 fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
-    let control = |port: &Port| port.block.starts_with(colour::CONTROL);
+    let control = Port::control;
     let data: Vec<&mut Port> = interface
         .inputs
         .iter_mut()
@@ -212,14 +233,14 @@ fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
     interface.inputs = split;
 }
 
-/// `name_lines` for a counter: each bit of its magenta lines, signed or
+/// `name_lines` for a counter: each bit of its control lines, signed or
 /// not, a line of its own, its clock when a button drives it and its write
 /// enable when a lever does, numbered in order when there are more.
 fn name_counter(blocks: &Blocks, interface: &mut Interface) {
     let mut split = Vec::new();
     let mut controls = Vec::new();
     for port in std::mem::take(&mut interface.inputs) {
-        if port.block.starts_with(colour::CONTROL) {
+        if port.control() {
             controls.push(port);
         } else {
             split.push(port);
@@ -353,6 +374,70 @@ fn output_cells(blocks: &Blocks) -> HashSet<Pos> {
         .collect()
 }
 
+/// A line as the site keeps it with a version of a build's file, in the
+/// database, as [`Kept`] writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptLine {
+    /// What it is for; `None` for a lever or button no role was found for.
+    pub role: Option<Role>,
+    pub name: String,
+    /// Whether a sign names it, as a line named on its own, or a row of
+    /// them named by one sign.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub signed: bool,
+    /// The block of each bit, least significant first.
+    pub bits: Vec<Pos>,
+}
+
+/// A build's lines as the site keeps them with each version of its file:
+/// each input and output line with its role, its name, and its bits in
+/// order, as [`read`] reads them from the roles the file carries. Reading
+/// the file with [`Kept::roles`] gives the same lines again.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kept {
+    pub inputs: Vec<KeptLine>,
+    pub outputs: Vec<KeptLine>,
+}
+
+impl Kept {
+    /// `interface`'s lines as they are kept.
+    pub fn of(interface: &Interface) -> Kept {
+        let lines = |ports: &[Port]| {
+            ports
+                .iter()
+                .map(|port| KeptLine {
+                    role: port.role,
+                    name: port.name.clone(),
+                    signed: port.labelled,
+                    bits: port.bits.iter().map(|bit| bit.pos).collect(),
+                })
+                .collect()
+        };
+        Kept {
+            inputs: lines(&interface.inputs),
+            outputs: lines(&interface.outputs),
+        }
+    }
+
+    /// The lines of the build in `blocks`, as its file carries their roles;
+    /// `None` for a file carrying none.
+    pub fn read(blocks: &Blocks) -> Option<Kept> {
+        blocks.roles.as_ref()?;
+        Some(Kept::of(&read(blocks)))
+    }
+
+    /// The role of each bit's block, as a file carries them.
+    pub fn roles(&self) -> Roles {
+        let mut roles = Roles::default();
+        for line in self.inputs.iter().chain(&self.outputs) {
+            if let Some(role) = line.role {
+                roles.mark(role, &line.bits);
+            }
+        }
+        roles
+    }
+}
+
 /// How an input block takes its signal.
 pub enum Feed {
     /// A lever, or for a control line a button, on the block.
@@ -363,80 +448,65 @@ pub enum Feed {
 }
 
 /// What [`read`] takes from a file: every input block with what feeds it,
-/// and the output blocks, as the rule for inputs and outputs finds them;
-/// in a file the site has coloured, see [`coloured`], only the
-/// signal-strength inputs and outputs on blocks of a role colour.
+/// and the output blocks, as the rule for inputs and outputs finds them,
+/// only the signal-strength inputs and outputs with a role.
 struct Found {
     feeds: HashMap<Pos, Feed>,
     outputs: Vec<Pos>,
-    coloured: bool,
 }
 
-/// Whether the site has coloured in the roles of a build with
-/// signal-strength inputs `digits` and outputs `outputs`, each by the
-/// block under it: any of those blocks is of a role colour, as probing
-/// colours them.
-fn coloured(
-    blocks: &Blocks,
-    digits: &[repeater_outputs::StrengthInput],
-    outputs: &[repeater_outputs::Output],
-) -> bool {
-    let name = |pos: Pos| schem::short(blocks.get(pos));
-    digits.iter().any(|input| {
-        colour::input_mark(name(schem::step(input.at, Direction::Down)))
-            .is_some()
-    }) || outputs
-        .iter()
-        .any(|output| colour::is_output(name(output.block())))
-}
-
-fn found(blocks: &Blocks) -> Found {
+fn found(blocks: &Blocks, roles: &Roles) -> Found {
     let held = |at: Pos| at[1] > 0;
-    let digits: Vec<repeater_outputs::StrengthInput> =
+    let mut feeds: HashMap<Pos, Feed> =
         repeater_outputs::strength_inputs(blocks)
             .into_iter()
             .filter(|input| held(input.at))
+            .map(|input| (schem::step(input.at, Direction::Down), input))
+            .filter(|&(block, _)| roles.get(block).is_some_and(Role::input))
+            .map(|(block, input)| {
+                (
+                    block,
+                    Feed::Strength {
+                        entry: Some(input.facing),
+                    },
+                )
+            })
             .collect();
-    let found: Vec<repeater_outputs::Output> = repeater_outputs::find(blocks)
-        .into_iter()
-        .filter(|output| held(output.at))
-        .collect();
-    let coloured = coloured(blocks, &digits, &found);
-    let name = |pos: Pos| schem::short(blocks.get(pos));
-    let mut feeds: HashMap<Pos, Feed> = digits
-        .iter()
-        .map(|input| (schem::step(input.at, Direction::Down), input))
-        .filter(|&(block, _)| {
-            !coloured || colour::input_mark(name(block)).is_some()
-        })
-        .map(|(block, input)| {
-            (
-                block,
-                Feed::Strength {
-                    entry: Some(input.facing),
-                },
-            )
-        })
-        .collect();
     feeds.extend(
         blocks
             .switches()
             .into_iter()
             .map(|switch| (switch.block, Feed::Switch(switch))),
     );
-    let outputs = found
-        .iter()
-        .map(|output| output.block())
+    let outputs = repeater_outputs::find(blocks)
+        .into_iter()
+        .filter(|output| held(output.at))
+        .map(repeater_outputs::Output::block)
         .filter(|&block| {
             !feeds.contains_key(&block)
-                && (!coloured || colour::is_output(name(block)))
+                && roles.get(block).is_some_and(|role| !role.input())
         })
         .collect();
-    Found {
-        feeds,
-        outputs,
-        coloured,
+    Found { feeds, outputs }
+}
+
+/// The roles `blocks` carries, or for a file carrying none, those its
+/// shapes give it; see [`shaped_roles`].
+pub fn roles(blocks: &Blocks) -> std::borrow::Cow<'_, Roles> {
+    match &blocks.roles {
+        Some(roles) => std::borrow::Cow::Borrowed(roles),
+        None => std::borrow::Cow::Owned(shaped_roles(blocks)),
     }
+}
+
+/// The roles a build's shapes give its lines, colour playing no part, as
+/// [`repeater_outputs::interface`] reads them: its signal-strength buses
+/// and buses of levers its operands, the longest first, each lone lever or
+/// button a control line, each bus of outputs an output, and a lone output
+/// beside a bus a status line. A file probing hasn't read, as an upload
+/// before it is, or a build kept as built that no probe reads, is read so.
+pub fn shaped_roles(blocks: &Blocks) -> Roles {
+    roles_of(&repeater_outputs::interface(blocks))
 }
 
 /// Every input block, with what feeds it, as [`read`] takes them.
@@ -444,7 +514,7 @@ pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
     if crate::recognize::legacy::old() {
         return crate::recognize::legacy::feeds(blocks);
     }
-    found(blocks).feeds
+    found(blocks, &roles(blocks)).feeds
 }
 
 /// Whether a build takes a signal strength, a hex digit per block, on an
@@ -454,59 +524,32 @@ pub fn takes_digits(blocks: &Blocks) -> bool {
 }
 
 /// A build's lines: its inputs and outputs, by the rule for them, each
-/// grouped into ports by the role the site coloured it in, or in a file
-/// it hasn't coloured, its signal-strength inputs and outputs by their
-/// shapes. Inside [`crate::recognize::legacy::reading`], by the old rule,
-/// as only `rsdb convert` reads a build saved under it.
+/// grouped into ports by its role, as the file carries them or, carrying
+/// none, as its shapes give them; see [`roles`]. Inside
+/// [`crate::recognize::legacy::reading`], by the old rule, as only `rsdb
+/// convert` reads a build saved under it.
 pub fn read(blocks: &Blocks) -> Interface {
     if crate::recognize::legacy::old() {
         return crate::recognize::legacy::read(blocks);
     }
-    let Found {
-        feeds,
-        outputs,
-        coloured,
-    } = found(blocks);
-    if coloured {
-        return read_from(blocks, &feeds, outputs);
-    }
-    let levers: HashMap<Pos, Feed> = feeds
-        .into_iter()
-        .filter(|(_, feed)| matches!(feed, Feed::Switch(_)))
-        .collect();
-    let mut interface = read_from(blocks, &levers, Vec::new());
-    let shaped = repeater_outputs::interface(blocks);
-    let digits: Vec<Port> = shaped
-        .inputs
-        .into_iter()
-        .filter(|port| port.signal_strength)
-        .collect();
-    if !digits.is_empty() {
-        // The digits' buses are A, B, and on, so a lever bus named by
-        // the next letter follows them.
-        let mut letters = ('A'..='Z').skip(digits.len());
-        for port in &mut interface.inputs {
-            let lettered = !port.labelled
-                && port.name.len() == 1
-                && port.name.chars().all(|c| c.is_ascii_uppercase());
-            if lettered {
-                port.name =
-                    letters.next().map(String::from).unwrap_or_default();
-            }
-        }
-        interface.inputs.splice(0..0, digits);
-    }
-    interface.outputs = shaped.outputs;
-    interface
+    read_with(blocks, &roles(blocks))
+}
+
+/// A build's lines, grouped into ports by `roles`, whatever roles its file
+/// carries.
+pub fn read_with(blocks: &Blocks, roles: &Roles) -> Interface {
+    let Found { feeds, outputs } = found(blocks, roles);
+    read_from(blocks, &feeds, outputs, roles)
 }
 
 /// The lines of the input blocks `feeds` and output blocks `outputs`, each
-/// grouped by its colour as [`ports`] groups them, the buses running
-/// alongside a marked one ordered as it is.
+/// grouped by its role in `roles` as [`ports`] groups them, the buses
+/// running alongside a marked one ordered as it is.
 pub(crate) fn read_from(
     blocks: &Blocks,
     feeds: &HashMap<Pos, Feed>,
     outputs: Vec<Pos>,
+    roles: &Roles,
 ) -> Interface {
     let signs = line_signs(blocks);
     // In a fixed order, so bits as near the corner as each other, and
@@ -514,11 +557,23 @@ pub(crate) fn read_from(
     let mut inputs: Vec<Pos> = feeds.keys().copied().collect();
     inputs.sort_unstable();
     let mut interface = Interface {
-        inputs: ports(blocks, inputs, &signs, Some(feeds)),
-        outputs: ports(blocks, outputs, &signs, None),
+        inputs: ports(blocks, roles, inputs, &signs, Some(feeds)),
+        outputs: ports(blocks, roles, outputs, &signs, None),
     };
     follow_marks(blocks, &mut interface);
     interface
+}
+
+/// The roles of `interface`'s lines, each bit's block by its port's role,
+/// as a file carries them: those [`read`] groups into the same ports.
+pub fn roles_of(interface: &Interface) -> Roles {
+    let mut roles = Roles::default();
+    for port in interface.inputs.iter().chain(&interface.outputs) {
+        if let Some(role) = port.role {
+            roles.mark(role, port.bits.iter().map(|bit| &bit.pos));
+        }
+    }
+    roles
 }
 
 /// The signs naming a build's lines, each by the block it names: any sign
@@ -582,57 +637,52 @@ fn follow_marks(blocks: &Blocks, interface: &mut Interface) {
     }
 }
 
-/// Groups `members` into ports, `feeds` being given for inputs. Each
-/// control or status line with a name sign is a line of its own. Every
-/// other colour is one bus, named by a sign on any of its blocks, or else
-/// by the next letter for an input, A for lime, or by its place among the
-/// output colours.
+/// Groups `members` into ports by their `roles`, `feeds` being given for
+/// inputs. Each control or status line with a name sign is a line of its
+/// own. Every other role is one bus, named by a sign on any of its blocks,
+/// or else by the next letter for an input, A for the first operand, or by
+/// its place among the outputs; levers and buttons with no role are one
+/// bus too, lettered after the operands.
 fn ports(
     blocks: &Blocks,
+    roles: &Roles,
     members: impl IntoIterator<Item = Pos>,
     signs: &HashMap<Pos, &[String]>,
     feeds: Option<&HashMap<Pos, Feed>>,
 ) -> Vec<Port> {
-    let (order, line): (&[&str], _) = if feeds.is_some() {
-        (&colour::INPUT_COLOURS, colour::CONTROL)
+    let line = if feeds.is_some() {
+        Role::Control
     } else {
-        (&colour::OUTPUT_COLOURS, colour::STATUS)
+        Role::Status
     };
     let members: Vec<Pos> = members.into_iter().collect();
-    let rows = line_rows(blocks, &members, signs, line);
+    let rows = line_rows(roles, &members, signs, line);
     let in_row: HashSet<Pos> = rows.values().flatten().copied().collect();
     let mut named = Vec::new();
-    let mut buses: BTreeMap<&str, Vec<Pos>> = BTreeMap::new();
+    // Operands and outputs in their order, then the lines, then what has
+    // no role.
+    let mut buses: BTreeMap<(bool, Option<Role>), Vec<Pos>> = BTreeMap::new();
     for pos in members.into_iter().filter(|pos| !in_row.contains(pos)) {
         let lines = signs.get(&pos).copied().unwrap_or_default();
-        let colour = colour(blocks.get(pos));
-        match sign_name(lines).filter(|_| colour == line) {
+        let role = roles.get(pos);
+        match sign_name(lines).filter(|_| role == Some(line)) {
             Some(name) => {
                 // The line, and any row it names.
                 let mut row = vec![pos];
                 row.extend(rows.get(&pos).into_iter().flatten());
-                let mut port = port(blocks, name, row, lines, feeds);
+                let mut port = port(blocks, name, role, row, lines, feeds);
                 port.labelled = true;
                 named.push(port);
             }
-            None => buses.entry(colour).or_default().push(pos),
+            None => buses.entry((role.is_none(), role)).or_default().push(pos),
         }
     }
-    let rank = |colour: &str| {
-        order
-            .iter()
-            .position(|c| *c == colour)
-            .unwrap_or(usize::MAX)
-    };
-    let mut colours: Vec<&str> = buses.keys().copied().collect();
-    colours.sort_by_key(|colour| (rank(colour), *colour));
     let mut letters = 'A'..='Z';
-    let output_count = colours.iter().filter(|c| **c != line).count();
-    let mut result: Vec<Port> = colours
+    let output_count = buses.keys().filter(|(_, r)| *r != Some(line)).count();
+    let mut result: Vec<Port> = std::mem::take(&mut buses)
         .into_iter()
         .enumerate()
-        .map(|(i, colour)| {
-            let members = buses.remove(colour).unwrap_or_default();
+        .map(|(i, ((_, role), members))| {
             // A sign on any bit can carry the bus's strength.
             let lines: Vec<String> = members
                 .iter()
@@ -642,7 +692,7 @@ fn ports(
             let given = members
                 .iter()
                 .find_map(|pos| signs.get(pos).and_then(|l| sign_name(l)));
-            let name = if colour == line {
+            let name = if role == Some(line) {
                 let what = if feeds.is_some() { "control" } else { "status" };
                 format!("unnamed {what}")
             } else if let Some(given) = given {
@@ -654,26 +704,26 @@ fn ports(
             } else {
                 format!("output {}", i + 1)
             };
-            port(blocks, name, members, &lines, feeds)
+            port(blocks, name, role, members, &lines, feeds)
         })
         .collect();
     result.extend(named);
     result
 }
 
-/// The rows that signs name among the `line` colour's `members`: for each
-/// signed block, the unsigned blocks of that colour that continue it.
+/// The rows that signs name among the `members` of role `line`: for each
+/// signed block, the unsigned blocks of that role that continue it.
 fn line_rows(
-    blocks: &Blocks,
+    roles: &Roles,
     members: &[Pos],
     signs: &HashMap<Pos, &[String]>,
-    line: &str,
+    line: Role,
 ) -> HashMap<Pos, Vec<Pos>> {
     let named = |pos: &Pos| signs.get(pos).and_then(|l| sign_name(l)).is_some();
     let of_line: Vec<Pos> = members
         .iter()
         .copied()
-        .filter(|&pos| colour(blocks.get(pos)) == line)
+        .filter(|&pos| roles.get(pos) == Some(line))
         .collect();
     let signed: Vec<Pos> = of_line.iter().copied().filter(named).collect();
     let unsigned: HashSet<Pos> =
@@ -747,6 +797,7 @@ pub fn lsb_first(blocks: &Blocks, members: &mut [Pos]) {
 fn port(
     blocks: &Blocks,
     name: String,
+    role: Option<Role>,
     mut members: Vec<Pos>,
     lines: &[String],
     feeds: Option<&HashMap<Pos, Feed>>,
@@ -784,27 +835,13 @@ fn port(
         .collect();
     Port {
         name,
-        block: members
-            .first()
-            .map(|&pos| block_label(blocks.get(pos)))
-            .unwrap_or_default(),
+        role,
         labelled: false,
         bits,
         strength: lines.iter().find_map(|l| strength(l)).unwrap_or(1),
         words,
         signal_strength,
     }
-}
-
-/// The colour an input or output block marks, such as `yellow` for yellow
-/// stained glass or `lime` for lime stained glass under a comparator. Any
-/// other block is its own kind.
-fn colour(state: &str) -> &str {
-    let block = schem::short(state);
-    colour::output_colour(block)
-        .or_else(|| colour::input_mark(block))
-        .or_else(|| block.strip_suffix("_concrete"))
-        .unwrap_or(block)
 }
 
 /// The port a sign names: its first line with a name on it, so a name
@@ -875,14 +912,6 @@ fn longest_axis(members: &[Pos]) -> usize {
 /// along the axis count up from the nearer.
 fn along(pos: Pos, from: Pos, axis: usize) -> (i32, i32) {
     ((pos[axis] - from[axis]).abs(), distance(pos, from))
-}
-
-/// A block state as words, such as `lime concrete`.
-fn block_label(state: &str) -> String {
-    let id = schem::id(state);
-    id.strip_prefix("minecraft:")
-        .unwrap_or(id)
-        .replace('_', " ")
 }
 
 #[cfg(test)]

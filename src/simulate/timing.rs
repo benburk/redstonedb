@@ -1,7 +1,7 @@
 //! When a combinational build's outputs settle, and whether they settle
 //! cleanly.
 //!
-//! Input A, the lime one, changes at tick 0, and every other time is told
+//! Input A changes at tick 0, and every other time is told
 //! from it. Each other input's timing is the latest tick at which it may
 //! change without delaying any output: an output it reaches in fewer ticks
 //! than A does lets it arrive that much later, and one it reaches in more
@@ -42,10 +42,7 @@ use super::{
     circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
     value,
 };
-use crate::{
-    recognize::{colour, interface::Interface},
-    schem::Blocks,
-};
+use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
 /// input A changing.
@@ -711,7 +708,7 @@ fn output_timings(
         .zip(carried)
         .map(|((port, stats), &carried)| OutputTiming {
             name: port.name.clone(),
-            status: port.block.starts_with(colour::STATUS),
+            status: port.status(),
             latency: stats.latency().unwrap_or(0),
             first_change: stats.first_change().unwrap_or(0),
             carried,

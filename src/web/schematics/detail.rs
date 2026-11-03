@@ -47,25 +47,19 @@ pub async fn thumbnail(
     let data = version::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // A recognized build is drawn in the viewer's palette, if they chose
-    // one, and kept apart from others' pictures of it.
-    let palette = match &viewer {
+    // A build is drawn in the viewer's palette, if they chose one, and kept
+    // apart from others' pictures of it, else in the site's: its roles in
+    // their colours and, for a recognized build, its building blocks the
+    // palette's.
+    let chosen = match &viewer {
         Some(user) => palette::of(&state.db, user.id).await?,
         None => None,
     };
-    let painted = match &palette {
-        Some(palette) => palette::needs(&state.db, &id)
-            .await?
-            .map(|needs| (palette, needs)),
-        None => None,
-    };
-    let (data, key) = match &painted {
-        Some((palette, needs)) => (
-            palette::apply(&data, needs, palette)?,
-            format!("{}-{}", import::sha256(&data), palette.key()),
-        ),
-        None => (data.clone(), import::sha256(&data)),
-    };
+    let painted = chosen.is_some();
+    let palette = chosen.unwrap_or_default();
+    let needs = palette::needs(&state.db, &id).await?;
+    let key = format!("{}-{}", import::sha256(&data), palette.key());
+    let data = palette::apply(&data, needs.as_ref(), &palette)?;
     let sha256 = key;
     let cached = state.thumbnails.lock().unwrap().get(&sha256);
     // From memory, else as drawn before and kept beside the database, else
@@ -101,7 +95,7 @@ pub async fn thumbnail(
         webp
     };
     // The address names the palette, but who may see it is the viewer's.
-    let cache = if painted.is_some() {
+    let cache = if painted {
         "private, max-age=31536000, immutable"
     } else {
         "public, max-age=31536000, immutable"
@@ -223,7 +217,9 @@ pub async fn detail(
             Some(user) => palette::of(db, user.id).await?.is_some(),
             None => false,
         };
-    let original = version::colours(db, &id).await?.is_some();
+    // Its stored blocks, its builder's, differ from the site's colours
+    // once a theme colours its roles.
+    let original = true;
     let colours = pages::ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,

@@ -52,8 +52,8 @@ enum Command {
     Inspect(Inspect),
     /// Add the builds of a category from another copy of the database,
     /// such as a pull of the live one, the colour-free way: each probed,
-    /// its roles coloured in, standardized, and stored under its own id with
-    /// its details, credits, and tags; what can't be is listed with why
+    /// its roles kept with it, standardized, and stored under its own id
+    /// with its details, credits, and tags; what can't be is listed with why
     Rebuild(Rebuild),
     /// For a recognized build that passes its test, or with no id every
     /// one: take out its unused blocks, as a new version, and keep what
@@ -134,9 +134,9 @@ enum Command {
     /// Delete a schematic
     Remove { id: String },
     /// Read every stored file again: take out corner markers, fit its box,
-    /// turn status lines pink, paste from its south-east-bottom corner
-    /// unless it keeps its own, measure it, and read its facts, such as its
-    /// torches and the oldest release it works in
+    /// paste from its south-east-bottom corner unless it keeps its own,
+    /// measure it, and read its facts, such as its torches and the oldest
+    /// release it works in
     Reread,
     /// Put a file in place of a stored build's, as a fix to the file, such
     /// as recolouring its blocks: no version is added and nothing is

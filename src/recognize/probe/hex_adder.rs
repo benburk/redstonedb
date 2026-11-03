@@ -6,7 +6,7 @@
 
 use super::{Fault, Role, Roles, try_roles};
 use crate::{
-    recognize::{colour, inspect, repeater_outputs},
+    recognize::{inspect, repeater_outputs},
     schem::{Blocks, Pos},
     simulate::{self, Test},
 };
@@ -37,7 +37,8 @@ pub fn hex_adder(
     }
     let lines = repeater_outputs::interface(blocks);
     let mut roles = Roles::default();
-    let mut operands = [Role::A, Role::B, Role::C].into_iter();
+    let mut operands =
+        [Role::Operand(0), Role::Operand(1), Role::Operand(2)].into_iter();
     for port in &lines.inputs {
         let role = if port.name == "control line" {
             Role::Control
@@ -51,7 +52,8 @@ pub fn hex_adder(
         };
         roles.mark(role, port.bits.iter().map(|bit| &bit.pos));
     }
-    let mut places = 0..colour::OUTPUT_COLOURS.len();
+    // At most three output buses, the sum's lowest bits first.
+    let mut places = 0..3;
     for port in &lines.outputs {
         let role = if port.name == "status line" {
             Role::Status

@@ -197,9 +197,7 @@ pub async fn refresh(
     again: bool,
 ) -> Result<Option<Report>> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
-    let data = version::current_file(db, id)
-        .await?
-        .context("schematic vanished")?;
+    let data = current_file(db, &s).await?;
     if !again {
         adopt(db, id, (&data, &s.sha256), (&s.stacking, buses(&s))).await?;
     }
@@ -258,6 +256,28 @@ pub async fn refresh(
     }
     tx.commit().await?;
     Ok(report)
+}
+
+/// Build `s`'s current file, carrying its roles: those kept with its
+/// version, or, for a version whose roles are not yet found, as a stored
+/// build's before the site kept them, those [`import::with_roles`] finds
+/// by probing it as its category, then kept with the version, so every
+/// reading of its lines takes them and none reads its colours.
+pub async fn current_file(db: &SqlitePool, s: &Schematic) -> Result<Vec<u8>> {
+    let data = version::current_file(db, &s.id)
+        .await?
+        .context("schematic vanished")?;
+    if Blocks::read(&data)?.roles.is_some() {
+        return Ok(data);
+    }
+    let category = s.category.clone();
+    let found = tokio::task::spawn_blocking(move || {
+        import::with_roles(&data, &category)
+    })
+    .await??;
+    version::set_current_roles(db, &s.id, &found).await?;
+    tracing::info!(id = s.id, "found the roles of its current version");
+    Ok(found)
 }
 
 /// Build `s`'s file `data` with each input at logical 0, once `report`, a
@@ -514,9 +534,7 @@ pub async fn refresh_timing(
         && (again || run.timing.is_none())
     {
         let test = Test::of(&s.category, s.width).context("no test")?;
-        let data = version::current_file(db, id)
-            .await?
-            .context("schematic vanished")?;
+        let data = current_file(db, &s).await?;
         let cancel = Arc::new(AtomicBool::new(false));
         let key = roles::circuit_key(&data, &s.stacking, buses(&s)).ok();
         run.timing = Some(time(test, data, cancel).await?);
@@ -547,9 +565,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     if !current(db, &s).await?.is_some_and(|report| report.passed()) {
         return Ok(());
     }
-    let data = version::current_file(db, id)
-        .await?
-        .context("schematic vanished")?;
+    let data = current_file(db, &s).await?;
     // When taking them out would change its circuit, which the proof by
     // compiling it shows, the blocks found unused are not, so it keeps
     // them.
@@ -591,9 +607,7 @@ pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
     if !current(db, &s).await?.is_some_and(|report| report.passed()) {
         return Ok(());
     }
-    let data = version::current_file(db, id)
-        .await?
-        .context("schematic vanished")?;
+    let data = current_file(db, &s).await?;
     let mut needs: std::collections::BTreeMap<&str, Vec<[i32; 3]>> =
         std::collections::BTreeMap::new();
     for (pos, role) in roles::roles(&data, &s.stacking, buses(&s))? {

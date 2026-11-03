@@ -3,6 +3,7 @@
 //! the sum or difference and an optional carry or borrow out above it, or
 //! the carry alone.
 
+use crate::schem::lines::Role;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -185,7 +186,7 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
 /// output need no signs, as an adder's do.
 pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     let carry_in =
-        adder_line(&mut interface.inputs, colour::CONTROL, &ADD, true)?;
+        adder_line(&mut interface.inputs, Role::Control, &ADD, true)?;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
@@ -333,18 +334,17 @@ pub(super) struct AdderPorts {
     pub carry_out: Option<usize>,
 }
 
-/// An adder's or subtractor's ports, as `op` says. Its one magenta control
-/// line, if any, is its carry or borrow in and its one pink status line its
+/// An adder's or subtractor's ports, as `op` says. Its one control
+/// line, if any, is its carry or borrow in and its one status line its
 /// carry or borrow out, signed or not; a sign on either must say so. An
 /// unsigned one is named for its role here.
 pub(super) fn adder_ports(
     interface: &mut Interface,
     op: &Arithmetic,
 ) -> Result<AdderPorts> {
-    let carry_in =
-        adder_line(&mut interface.inputs, colour::CONTROL, op, true)?;
+    let carry_in = adder_line(&mut interface.inputs, Role::Control, op, true)?;
     let carry_out =
-        adder_line(&mut interface.outputs, colour::STATUS, op, false)?;
+        adder_line(&mut interface.outputs, Role::Status, op, false)?;
     let built = op.a;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
@@ -404,13 +404,13 @@ pub(super) fn adder_ports(
     })
 }
 
-/// The one line of `colour` among `ports`, if there is one, `op`'s line in
+/// The one line of `role` among `ports`, if there is one, `op`'s line in
 /// when `into` holds, else its line out: unsigned, when it takes its role's
 /// first name, or signed with one of its names. More than one, or a sign
 /// naming something else, is broken.
 fn adder_line(
     ports: &mut [Port],
-    colour: &str,
+    line_role: Role,
     op: &Arithmetic,
     into: bool,
 ) -> Result<Option<usize>> {
@@ -421,7 +421,7 @@ fn adder_line(
     };
     let role = format!("{} {what} line is its {}", possessive(op.a), names[0]);
     let lines: Vec<usize> = (0..ports.len())
-        .filter(|&i| ports[i].block.starts_with(colour))
+        .filter(|&i| ports[i].role == Some(line_role))
         .collect();
     let count: usize = lines.iter().map(|&i| ports[i].bits.len()).sum();
     if count > 1 {
@@ -549,11 +549,11 @@ mod tests {
         assert!(tried.contains(&[0x0F00, 0x0001, 0]));
     }
 
-    /// A port of `bits` bits named `name`, of `block`.
-    fn port(name: &str, block: &str, labelled: bool, bits: usize) -> Port {
+    /// A port of `bits` bits named `name`, of `role`.
+    fn port(name: &str, role: Role, labelled: bool, bits: usize) -> Port {
         Port {
             name: name.to_owned(),
-            block: block.to_owned(),
+            role: Some(role),
             labelled,
             bits: (0..bits)
                 .map(|_| interface::Bit {
@@ -570,15 +570,14 @@ mod tests {
     }
 
     fn adder(a: usize, b: usize, output: usize, carry_out: bool) -> Interface {
-        let mut outputs =
-            vec![port("output", "yellow concrete", false, output)];
+        let mut outputs = vec![port("output", Role::Output(0), false, output)];
         if carry_out {
-            outputs.push(port("carry out", "pink concrete", true, 1));
+            outputs.push(port("carry out", Role::Status, true, 1));
         }
         Interface {
             inputs: vec![
-                port("A", "lime concrete", false, a),
-                port("B", "light blue concrete", false, b),
+                port("A", Role::Operand(0), false, a),
+                port("B", Role::Operand(1), false, b),
             ],
             outputs,
         }
@@ -615,30 +614,30 @@ mod tests {
             interface
         };
         let unsigned = carries(
-            port("unnamed control", "magenta concrete", false, 1),
-            port("unnamed status", "pink concrete", false, 1),
+            port("unnamed control", Role::Control, false, 1),
+            port("unnamed status", Role::Status, false, 1),
         );
         assert_eq!(
             ports(unsigned).unwrap(),
             (Some("carry in".to_owned()), Some("carry out".to_owned()))
         );
         let signed = carries(
-            port("cin", "magenta concrete", true, 1),
-            port("cout", "pink concrete", true, 1),
+            port("cin", Role::Control, true, 1),
+            port("cout", Role::Status, true, 1),
         );
         assert_eq!(
             ports(signed).unwrap(),
             (Some("cin".to_owned()), Some("cout".to_owned()))
         );
         let subtract = carries(
-            port("subtract", "magenta concrete", true, 1),
-            port("cout", "pink concrete", true, 1),
+            port("subtract", Role::Control, true, 1),
+            port("cout", Role::Status, true, 1),
         );
         assert!(ports(subtract).is_err());
         // A subtractor's are its borrows, signed so or not.
         let mut borrows = carries(
-            port("unnamed control", "magenta concrete", false, 1),
-            port("bout", "pink concrete", true, 1),
+            port("unnamed control", Role::Control, false, 1),
+            port("bout", Role::Status, true, 1),
         );
         let found = adder_ports(&mut borrows, &ADD).unwrap();
         assert_eq!(
@@ -649,8 +648,8 @@ mod tests {
             ("carry in", "bout")
         );
         let two = carries(
-            port("unnamed control", "magenta concrete", false, 2),
-            port("cout", "pink concrete", true, 1),
+            port("unnamed control", Role::Control, false, 2),
+            port("cout", Role::Status, true, 1),
         );
         assert!(ports(two).is_err());
     }

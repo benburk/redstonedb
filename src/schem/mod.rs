@@ -5,6 +5,7 @@
 
 pub mod block;
 pub mod dust;
+pub mod lines;
 pub mod orient;
 pub mod rstack;
 pub mod stack;

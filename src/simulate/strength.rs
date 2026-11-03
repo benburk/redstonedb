@@ -14,10 +14,7 @@ use super::{
     bench::{Bench, Case, paired},
     circuit::{Circuit, output_bits},
 };
-use crate::{
-    recognize::{colour, interface::Interface},
-    schem::Blocks,
-};
+use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// What weak inputs do to a build.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -54,20 +51,14 @@ pub(super) fn measure(
         .inputs
         .iter()
         .copied()
-        .filter(|&port| {
-            !interface.inputs[port].block.starts_with(colour::CONTROL)
-        })
+        .filter(|&port| !interface.inputs[port].control())
         .collect();
     let digits = interface.inputs.iter().any(|port| port.signal_strength);
     if data.is_empty() || digits || bench.press.is_some() {
         return Ok(None);
     }
     let outputs: Vec<usize> = (0..bench.outputs.len())
-        .filter(|&o| {
-            !interface.outputs[bench.outputs[o]]
-                .block
-                .starts_with(colour::STATUS)
-        })
+        .filter(|&o| !interface.outputs[bench.outputs[o]].status())
         .collect();
     let mut circuit = Circuit::new(blocks, interface)?;
     let mut look = |power: u8, cases: &[Case]| -> Result<Look> {

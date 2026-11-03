@@ -10,12 +10,22 @@ use app::{
     simulate::{Report, Stacking},
 };
 
+/// The fixture file at `path`, carrying the roles its colours mark, as the
+/// fixtures are saved in the site's old colours; see
+/// `legacy::colour_roles`.
+fn read_fixture(path: &str) -> std::io::Result<Vec<u8>> {
+    let raw = std::fs::read(path)?;
+    Ok(app::recognize::legacy::with_colour_roles(&raw)
+        .expect("fixture carries its roles"))
+}
+
 /// A fixture as the site stores it.
 fn stored(name: &str) -> Vec<u8> {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
-    standardize::pink_status(&tidied).expect("fixture recolours")
+    app::recognize::legacy::with_colour_roles(&tidied)
+        .expect("fixture carries its roles")
 }
 
 #[test]
@@ -117,7 +127,7 @@ fn a_carry_signature_shows_its_groups() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
-    let file = std::fs::read("tests/fixtures/mult-8-calculate.schem").unwrap();
+    let file = read_fixture("tests/fixtures/mult-8-calculate.schem").unwrap();
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("multiplier"));
     assert!(e.passes(), "{:?}", e.report);
@@ -141,7 +151,7 @@ fn a_sequential_multiplier_is_pressed_to_calculate_and_never_stacks() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_multiplier_calculated_on_a_wooden_button_holds() {
-    let file = std::fs::read("tests/fixtures/mult-8-wooden.schem").unwrap();
+    let file = read_fixture("tests/fixtures/mult-8-wooden.schem").unwrap();
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("multiplier"));
     assert!(e.passes(), "{:?}", e.report);
@@ -152,7 +162,7 @@ fn a_multiplier_calculated_on_a_wooden_button_holds() {
 #[ignore = "measures whole builds: just test-full"]
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.
-    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
     let file = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -198,7 +208,7 @@ fn an_incrementer_with_no_carry_out_does_not_stack() {
 /// A fixture prepared as an upload is, whitened and turned the standard
 /// way.
 fn uploaded(name: &str) -> Vec<u8> {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem")).unwrap();
     import::prepare_for(&raw, import::Purpose::Standard { keep_paste: false })
         .unwrap()
         .data
@@ -333,7 +343,7 @@ fn a_register_is_read_whole_from_its_file() {
 #[test]
 fn a_register_whose_write_disturbs_another_cell_fails() {
     let e = evaluate(
-        &std::fs::read("tests/fixtures/register-8-write-disturbs.schem")
+        &read_fixture("tests/fixtures/register-8-write-disturbs.schem")
             .unwrap(),
     )
     .unwrap();
@@ -397,7 +407,7 @@ fn an_alu_is_read_whole_from_its_file() {
 #[ignore = "measures whole builds: just test-full"]
 fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
     let e = evaluate(
-        &std::fs::read("tests/fixtures/alu-8-nadd-nsub.schem").unwrap(),
+        &read_fixture("tests/fixtures/alu-8-nadd-nsub.schem").unwrap(),
     )
     .unwrap();
     assert_eq!(e.category, Some("alu"));
@@ -491,7 +501,7 @@ fn inverted_lines_are_flags_not_categories() {
     );
     assert!(subtractor.design.is_some());
 
-    let raw = std::fs::read("tests/fixtures/vert-3t-cca.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/vert-3t-cca.schem").unwrap();
     let file = import::prepare_for(
         &raw,
         import::Purpose::InPlace {

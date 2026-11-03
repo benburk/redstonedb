@@ -1,12 +1,16 @@
-//! A viewer's palette: the blocks a recognized build is shown and
-//! downloaded in. The stored file keeps the site's own, white concrete for
-//! solid blocks, white stained glass for transparent ones, and its roles'
-//! colours; a palette swaps those for the viewer's choices, each block of a
-//! build that may be either kind becoming the kind the viewer prefers.
+//! A viewer's palette: the blocks a build is shown and downloaded in. The
+//! stored file keeps its builder's blocks, and its roles are kept beside it,
+//! see [`crate::schem::lines`]; a palette, the site's own unless the viewer
+//! chose one, gives a recognized build's building blocks its blocks by
+//! what each must be, white concrete for solid blocks and white stained
+//! glass for transparent ones in the site's, each block that may be either
+//! kind becoming the kind the palette prefers, and marks each block with a
+//! role in the role's colour, as the roles kept with it say. Only its
+//! builder's colours, the stored file's, mark no role.
 //!
 //! Any full block may be the solid one, and any glass the transparent one:
-//! an output's mark is a kind of block used for nothing else, so a build of
-//! coloured wool or glass is still read right if it comes back.
+//! what a block is for is never read from its colour, so a build of
+//! coloured wool or glass reads the same whatever its blocks.
 
 use std::collections::BTreeMap;
 
@@ -15,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::schem::{self, Blocks, Pos, standardize};
+use crate::schem::{self, Blocks, Pos, lines::Role, standardize};
 
 /// Minecraft's dyes, in its own order.
 pub const DYES: [&str; 16] = [
@@ -328,7 +332,7 @@ pub struct Palette {
 }
 
 impl Default for Palette {
-    /// The site's own: what stored files hold.
+    /// The site's own.
     fn default() -> Self {
         Palette {
             prefer_solid: true,
@@ -447,36 +451,38 @@ impl Palette {
 /// `either`.
 pub type Needs = BTreeMap<String, Vec<Pos>>;
 
-/// The file in `data`, a recognized build's whose blocks need `needs`, in
-/// `palette`: its plain building blocks the palette's, by what each must
-/// be, and its roles' colours the palette's, each block keeping its kind.
-pub fn apply(data: &[u8], needs: &Needs, palette: &Palette) -> Result<Vec<u8>> {
-    colour(&blocks_in(data, needs, palette)?, palette)
+/// The file in `data`, a build's whose building blocks need `needs`, if it
+/// is a recognized build's, in `palette`: its building blocks the
+/// palette's, by what each must be, and its roles in the palette's
+/// colours, each block keeping its kind; then without the roles it
+/// carries, as a file is downloaded or drawn.
+pub fn apply(
+    data: &[u8],
+    needs: Option<&Needs>,
+    palette: &Palette,
+) -> Result<Vec<u8>> {
+    let data = match needs {
+        Some(needs) => blocks_in(data, needs, palette)?,
+        None => data.to_vec(),
+    };
+    crate::schem::lines::without(&colour(&data, palette)?)
 }
 
-/// The file in `data` with its plain building blocks `palette`'s, by what
-/// `needs` says each must be. Its positions are its own, so a stacked copy
-/// takes it before stacking.
+/// The file in `data` with its building blocks `palette`'s, by what
+/// `needs` says each must be, whatever its builder made them. Its
+/// positions are its own, so a stacked copy takes it before stacking.
 pub fn blocks_in(
     data: &[u8],
     needs: &Needs,
     palette: &Palette,
 ) -> Result<Vec<u8>> {
-    let site = Palette::default();
-    if palette.prefer_solid == site.prefer_solid
-        && palette.solid == site.solid
-        && palette.transparent == site.transparent
-        && palette.hard.is_none()
-        && palette.soft.is_none()
-    {
-        return Ok(data.to_vec());
-    }
     let blocks = Blocks::read(data)?;
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
+    // A building block, solid or see-through, as `needs` reads them.
     let plain = |pos: Pos| {
         matches!(
-            schem::short(blocks.get(pos)),
-            "white_concrete" | "white_stained_glass"
+            standardize::block_kind(schem::short(blocks.get(pos))),
+            Some("Solid" | "Transparent")
         )
     };
     for (need, positions) in needs {
@@ -508,30 +514,45 @@ pub fn blocks_in(
     standardize::edit(data, &changes)
 }
 
-/// The file in `data` with its roles' colours `palette`'s, each block
-/// keeping its kind. By block alone, so it takes a stacked file too, after
-/// stacking, which finds buses by their colours.
+/// The file in `data` with each block that has a role, as the roles it
+/// carries say, in `palette`'s colour for the role, each keeping its kind,
+/// glass staying glass: A's, B's, a control line's, the first output bus's,
+/// and a status line's marks, and any other operand's or output bus's the
+/// site's colour for it. Every other block stays as it is. It takes a
+/// stacked file too, whose copies carry their roles.
 pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
-    if palette.colours == Palette::default().colours {
-        return Ok(data.to_vec());
-    }
     let blocks = Blocks::read(data)?;
+    let Some(roles) = &blocks.roles else {
+        return Ok(data.to_vec());
+    };
     let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
-    for (pos, state) in blocks.iter() {
+    for (&pos, &role) in &roles.0 {
+        let state = blocks.get(pos);
         let name = schem::short(state);
-        for (key, _, site) in ROLES {
-            let mark = palette.mark(key);
-            // A role's glass stays glass, as `role_glass` colours it.
-            let to = if name == format!("{site}_concrete") {
-                mark.unwrap_or_else(|| palette.solid.clone())
-            } else if name == format!("{site}_stained_glass") {
-                role_glass(site, mark.as_deref(), &palette.transparent)
-            } else {
-                continue;
-            };
-            if to != name {
-                changes.insert(pos, format!("minecraft:{to}"));
-            }
+        if state == schem::AIR || crate::schem::block::is_component(name) {
+            continue;
+        }
+        let site = crate::recognize::colour::shown(role);
+        let key = match role {
+            Role::Operand(0) => Some("a"),
+            Role::Operand(1) => Some("b"),
+            Role::Control => Some("control"),
+            Role::Output(0) => Some("output"),
+            Role::Status => Some("status"),
+            Role::Operand(_) | Role::Output(_) => None,
+        };
+        let mark = match key {
+            Some(key) => palette.mark(key),
+            None => Some(format!("{site}_concrete")),
+        };
+        // A role's glass stays glass, as `role_glass` colours it.
+        let to = if crate::schem::block::see_through(name) {
+            role_glass(site, mark.as_deref(), &palette.transparent)
+        } else {
+            mark.unwrap_or_else(|| palette.solid.clone())
+        };
+        if to != name {
+            changes.insert(pos, format!("minecraft:{to}"));
         }
     }
     standardize::edit(data, &changes)

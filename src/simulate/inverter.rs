@@ -12,7 +12,7 @@ use super::{
     converters::byte_cases,
     stacking,
 };
-use crate::recognize::{colour, interface::Interface};
+use crate::recognize::interface::Interface;
 
 /// An inverter's every case, or with too many, each byte's and the test
 /// patterns, each with its line off and on: A, or every bit of it
@@ -54,7 +54,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
 /// Input A and the control line, by their place in `interface`.
 fn ports(interface: &Interface) -> Result<(usize, usize)> {
     let lines: Vec<usize> = (0..interface.inputs.len())
-        .filter(|&i| interface.inputs[i].block.starts_with(colour::CONTROL))
+        .filter(|&i| interface.inputs[i].control())
         .collect();
     let &[line] = lines.as_slice() else {
         broken!(

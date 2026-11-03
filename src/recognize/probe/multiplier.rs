@@ -5,10 +5,7 @@
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
-    recognize::{
-        colour,
-        inspect::{self, Run},
-    },
+    recognize::inspect::{self, Run},
     schem::Pos,
     simulate::{self, Test},
 };
@@ -60,7 +57,7 @@ pub fn multiplier(
         )));
     }
     let lines: Vec<&Run> = report.outputs.iter().collect();
-    if lines.is_empty() || lines.len() > colour::OUTPUT_COLOURS.len() {
+    if lines.is_empty() || lines.len() > 3 {
         return Err(Fault::Unfit(format!(
             "Product: line lengths {}, need one to three lines",
             lengths(&report.outputs)
@@ -78,9 +75,9 @@ pub fn multiplier(
         let product: Vec<Vec<Pos>> =
             order.iter().map(|&i| lines[i].bits.clone()).collect();
         let mut roles = Roles::default();
-        roles.mark(Role::A, &a.bits);
-        roles.mark(Role::B, &b.bits);
-        roles.mark(Role::C, c.iter().flat_map(|c| &c.bits));
+        roles.mark(Role::Operand(0), &a.bits);
+        roles.mark(Role::Operand(1), &b.bits);
+        roles.mark(Role::Operand(2), c.iter().flat_map(|c| &c.bits));
         roles.mark(Role::Control, &controls);
         roles.outputs(product.iter().map(Vec::as_slice));
         match try_roles(data, &roles, Test::Multiplier, true)? {

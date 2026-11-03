@@ -8,7 +8,7 @@ use super::{
     Broken,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::recognize::{colour, interface::Interface};
+use crate::recognize::interface::Interface;
 
 /// A multiplier's every product, A × B, plus C when there is one, checked
 /// on as many low bits as its outputs hold together, the first holding the
@@ -16,8 +16,7 @@ use crate::recognize::{colour, interface::Interface};
 /// line, its calculate, pressed once the operands are set, whatever its
 /// sign says; one with more, such as a reset, isn't tested.
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
-    let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
+    let control = |i: &usize| interface.inputs[*i].control();
     let lines: Vec<usize> =
         (0..interface.inputs.len()).filter(control).collect();
     let calculate = match lines.as_slice() {
@@ -37,7 +36,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         .filter(|i| !control(i))
         .collect();
     let outputs: Vec<usize> = (0..interface.outputs.len())
-        .filter(|&i| !interface.outputs[i].block.starts_with(colour::STATUS))
+        .filter(|&i| !interface.outputs[i].status())
         .collect();
     let widths: Vec<usize> = inputs
         .iter()

@@ -3,7 +3,7 @@
 //! the other edge gives nothing; a dual-edge monostable pulses on both. Its
 //! output rests the same with A on as off: off, or on for an inverted one,
 //! whose pulse turns it off. Each bit of A drives its own output bit, as
-//! copies stacked side by side add bits: a bit of one output, or a pink
+//! copies stacked side by side add bits: a bit of one output, or a
 //! status line of its own, the one nearest it.
 //!
 //! From rest, each bit turns on alone and then off, and then every bit
@@ -37,10 +37,7 @@ use super::{
 use crate::{
     category::Kind,
     models::schematic::Orientation,
-    recognize::{
-        colour,
-        interface::{self, Interface},
-    },
+    recognize::interface::{self, Interface},
     schem::{Blocks, stack},
 };
 
@@ -76,7 +73,7 @@ struct Cases {
     input: String,
     /// Its output's name, or `output` for status lines of their own.
     output: String,
-    /// Whether its output is pink status lines rather than yellow.
+    /// Whether its output is status lines rather than an output bus.
     status: bool,
     width: usize,
     /// Whether its output rests on, so its pulse turns it off.
@@ -282,8 +279,8 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
             interface.inputs.len()
         );
     };
-    if input.block.starts_with(colour::CONTROL) {
-        broken!("A monostable's input is A, not a magenta control line.");
+    if input.control() {
+        broken!("A monostable's input is A, not a control line.");
     }
     if input.signal_strength {
         bail!(
@@ -336,7 +333,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
         cases.push(changes(&mut circuit, on, false)?);
     }
     let (output, status) = match interface.outputs.as_slice() {
-        [port] => (port.name.clone(), port.block.starts_with(colour::STATUS)),
+        [port] => (port.name.clone(), port.status()),
         _ => ("output".to_owned(), true),
     };
     Ok(Cases {

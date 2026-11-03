@@ -98,7 +98,7 @@ fn evaluated_note() -> Markup {
 
 /// The inputs for a build's details, shared by editing and uploading.
 /// `derived` is the width and orientation the file gives a category that
-/// reads them from the file, such as an adder's from its lime inputs,
+/// reads them from the file, such as an adder's from its input A,
 /// shown in place of the typed ones once such a category is chosen.
 pub(super) fn fields(
     f: &Form,
@@ -110,7 +110,7 @@ pub(super) fn fields(
         @if let Some(width) = derived.width {
             div class="field" data-derived-width hidden {
                 span { "Width in bits" }
-                p class="tabular-nums" { (width) span class="text-muted" { ", counted from the lime inputs" } }
+                p class="tabular-nums" { (width) span class="text-muted" { ", counted from input A" } }
             }
         }
         // Only an unverified build's width is typed; form.js shows it.
@@ -124,7 +124,7 @@ pub(super) fn fields(
                 span { "Orientation" }
                 p {
                     (orientation.label())
-                    span class="text-muted" { ", from the way the lime inputs run" }
+                    span class="text-muted" { ", from the way input A runs" }
                 }
             }
         }

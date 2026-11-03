@@ -44,7 +44,7 @@ pub fn decoder(
         )));
     }
     let mut roles = Roles::default();
-    roles.mark(Role::A, &a.bits);
+    roles.mark(Role::Operand(0), &a.bits);
     roles.mark(Role::Output(0), &out.bits);
     let (file, run) = try_roles(data, &roles, Test::Decoder, false)??;
     Ok(DecoderProbed {

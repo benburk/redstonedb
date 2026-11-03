@@ -29,6 +29,7 @@
 //! look ahead some other way, as two-bit groups skipping a carry do: carry
 //! lookahead.
 
+use crate::schem::lines::Role;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     ops::RangeInclusive,
@@ -226,18 +227,18 @@ struct Adder {
 
 impl Adder {
     fn of(interface: &Interface, variant: Variant) -> Option<Self> {
-        let find = |ports: &[Port], colour: &str| {
-            ports.iter().position(|p| p.block.starts_with(colour))
+        let find = |ports: &[Port], role: Role| {
+            ports.iter().position(|p| p.role == Some(role))
         };
-        let a = find(&interface.inputs, "lime")?;
-        let b = find(&interface.inputs, "light blue")?;
+        let a = find(&interface.inputs, Role::Operand(0))?;
+        let b = find(&interface.inputs, Role::Operand(1))?;
         let width = interface.inputs[a].bits.len();
         if interface.inputs.iter().any(|p| p.signal_strength)
             || interface.inputs[b].bits.len() != width
         {
             return None;
         }
-        let carry_in = find(&interface.inputs, "magenta");
+        let carry_in = find(&interface.inputs, Role::Control);
         let vars = 2 * width + usize::from(carry_in.is_some());
         if vars > 64 {
             return None;
@@ -254,7 +255,7 @@ impl Adder {
             a,
             b,
             carry_in,
-            carry_out: find(&interface.outputs, "pink"),
+            carry_out: find(&interface.outputs, Role::Status),
             width,
             cases,
             b_inverted: variant.subtract,

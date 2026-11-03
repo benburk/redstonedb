@@ -7,7 +7,7 @@ use app::{
     import,
     models::schematic::{Orientation, StackDirection},
     recognize::interface,
-    schem::{self, Blocks, Direction, stack, standardize},
+    schem::{self, Blocks, Direction, lines::Role, stack, standardize},
     simulate,
 };
 
@@ -20,7 +20,8 @@ fn raw(name: &str) -> Vec<u8> {
 /// lines pink, since the fixtures predate that.
 fn slice(name: &str) -> Vec<u8> {
     let tidied = standardize::tidy(&raw(name)).expect("fixture tidies");
-    standardize::pink_status(&tidied).expect("fixture recolours")
+    app::recognize::legacy::with_colour_roles(&tidied)
+        .expect("fixture carries its roles")
 }
 
 fn blocks(name: &str) -> Blocks {
@@ -261,17 +262,24 @@ fn a_wrong_step_shows_where_copies_disagree() {
 }
 
 #[test]
-fn standardizing_whitens_the_build() {
-    let data = standardize::standardize(&raw("threshold-3-raw")).unwrap();
+fn standardizing_keeps_the_builders_blocks() {
+    let raw = raw("threshold-3-raw");
+    let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    assert_eq!(glass(&blocks), 0);
-    assert!(blocks.iter().all(|(_, state)| !state.contains("quartz")));
+    let quartz = |blocks: &Blocks| {
+        blocks
+            .iter()
+            .filter(|(_, state)| state.contains("quartz"))
+            .count()
+    };
+    assert!(quartz(&blocks) > 0);
+    assert_eq!(quartz(&blocks), quartz(&Blocks::read(&raw).unwrap()));
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8)]);
     assert_eq!(names(&outputs), [("output", 1)]);
-    // Its output is read by the repeater tapping it, on concrete coloured
-    // as the stained glass it tapped was.
-    assert_eq!(outputs[0].block, "yellow concrete");
+    // Its output is read by the repeater tapping it, its role an output's
+    // by its shape, as no probe has read it.
+    assert_eq!(outputs[0].role, Some(Role::Output(0)));
 }
 
 #[test]
@@ -337,14 +345,24 @@ fn rebuilt(
     app::schem::encode(nbt).unwrap()
 }
 
+/// The multiplier fixture standardized, carrying the roles its colours
+/// mark.
 fn multiplier() -> Vec<u8> {
-    standardize::standardize(&raw("mult-8-buttons")).unwrap()
+    let standard = standardize::standardize(&raw("mult-8-buttons")).unwrap();
+    app::recognize::legacy::with_colour_roles(&standard).unwrap()
+}
+
+/// The file `data` with the blocks of `at` given `role`.
+fn given(data: &[u8], at: &[app::schem::Pos], role: Role) -> Vec<u8> {
+    let mut roles = Blocks::read(data).unwrap().roles.unwrap_or_default();
+    roles.mark(role, at);
+    app::schem::lines::with(data, Some(&roles)).unwrap()
 }
 
 #[test]
-fn a_colour_with_a_sign_is_one_named_operand() {
-    // The reset line's block becomes cyan: a third operand, named by its
-    // sign, beside A and B.
+fn a_role_with_a_sign_is_one_named_operand() {
+    // The reset line's block becomes a third operand, named by its sign,
+    // beside A and B.
     let data = multiplier();
     let reset = interface::read(&Blocks::read(&data).unwrap())
         .inputs
@@ -353,41 +371,47 @@ fn a_colour_with_a_sign_is_one_named_operand() {
         .unwrap()
         .bits[0]
         .pos;
-    let data = rebuilt(&data, |pos, _| {
-        (pos == reset).then(|| "minecraft:cyan_concrete".to_owned())
-    });
+    let data = given(&data, &[reset], Role::Operand(2));
     let inputs = interface::read(&Blocks::read(&data).unwrap()).inputs;
     let mut found = names(&inputs);
     found.sort_unstable();
     assert_eq!(found, [("A", 8), ("B", 8), ("calculate", 1), ("reset", 1)]);
     let reset = inputs.iter().find(|port| port.name == "reset").unwrap();
     assert!(!reset.labelled, "a bus, though a sign names it");
-    assert_eq!(reset.block, "cyan concrete");
+    assert_eq!(reset.role, Some(Role::Operand(2)));
 }
 
 #[test]
-fn standardizing_keeps_a_levered_colour_as_concrete() {
-    // Light blue becomes cyan terracotta; with levers on it, it stays an
-    // input, as cyan concrete, and takes the letter after A.
+fn standardizing_keeps_the_builders_colours() {
+    // Light blue becomes cyan terracotta, which stays cyan terracotta, its
+    // levers an input still.
     let data = rebuilt(&raw("mult-8-buttons"), |_, state| {
         (state == "minecraft:light_blue_concrete")
             .then(|| "minecraft:cyan_terracotta".to_owned())
     });
     let standardized = standardize::standardize(&data).unwrap();
     let blocks = Blocks::read(&standardized).unwrap();
-    let inputs = interface::read(&blocks).inputs;
-    let b = inputs.iter().find(|port| port.name == "B").unwrap();
-    assert_eq!((b.block.as_str(), b.bits.len()), ("cyan concrete", 8));
-    assert!(
+    let terracotta = |blocks: &Blocks| {
         blocks
             .iter()
-            .all(|(_, state)| !state.contains("terracotta"))
+            .filter(|(_, state)| *state == "minecraft:cyan_terracotta")
+            .count()
+    };
+    let before = terracotta(&Blocks::read(&data).unwrap());
+    assert!(before >= 8);
+    assert_eq!(terracotta(&blocks), before);
+    let inputs = interface::read(&blocks).inputs;
+    assert!(
+        inputs
+            .iter()
+            .any(|port| port.bits.len() == 8 && !port.labelled)
     );
 }
 
 #[test]
-fn each_output_colour_is_a_bus_in_order() {
-    // The output's upper four bits become orange: two buses, yellow first.
+fn each_output_role_is_a_bus_in_order() {
+    // The output's upper four bits become a second output bus: two buses,
+    // the first first.
     let data = multiplier();
     let output = interface::read(&Blocks::read(&data).unwrap())
         .outputs
@@ -395,31 +419,27 @@ fn each_output_colour_is_a_bus_in_order() {
         .find(|port| port.name == "output")
         .unwrap();
     let upper: Vec<_> = output.bits[4..].iter().map(|bit| bit.pos).collect();
-    let data = rebuilt(&data, |pos, _| {
-        upper
-            .contains(&pos)
-            .then(|| "minecraft:orange_concrete".to_owned())
-    });
+    let data = given(&data, &upper, Role::Output(1));
     let outputs = interface::read(&Blocks::read(&data).unwrap()).outputs;
-    let read: Vec<(&str, usize, &str)> = outputs
+    let read: Vec<(&str, usize, Option<Role>)> = outputs
         .iter()
-        .map(|p| (p.name.as_str(), p.bits.len(), p.block.as_str()))
+        .map(|p| (p.name.as_str(), p.bits.len(), p.role))
         .collect();
     assert_eq!(
         read,
         [
-            ("output 1", 4, "yellow concrete"),
-            ("output 2", 4, "orange concrete"),
+            ("output 1", 4, Some(Role::Output(0))),
+            ("output 2", 4, Some(Role::Output(1))),
         ]
     );
 }
 
 #[test]
-fn a_status_line_is_pink() {
+fn a_status_line_is_its_own_line() {
     let outputs = interface::read(&blocks("alpha-cla")).outputs;
     let carry = outputs.iter().find(|p| p.name == "carry out").unwrap();
     assert!(carry.labelled);
-    assert_eq!(carry.block, "pink concrete");
+    assert_eq!(carry.role, Some(Role::Status));
 }
 
 #[test]
@@ -428,12 +448,13 @@ fn a_comparator_with_air_behind_is_a_signal_strength_input() {
     // south, on lime concrete, feeding dust into comparators. No lever
     // could give its value.
     let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
+    let data = app::recognize::legacy::with_colour_roles(&data).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
     assert_eq!(names(&interface.inputs), [("A", 1)]);
     let a = &interface.inputs[0];
     assert!(a.signal_strength);
-    assert_eq!(a.block, "lime concrete");
+    assert_eq!(a.role, Some(Role::Operand(0)));
     assert_eq!(a.bits[0].entry, Some(Direction::South));
     assert!(!a.bits[0].hard);
     assert_eq!(names(&interface.outputs), [("output", 4)]);
@@ -659,9 +680,9 @@ fn an_output_sticking_out_is_not_measured() {
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
 }
 
-/// Standardizing whitens gray blocks as any other building block.
+/// Standardizing keeps gray blocks as every other building block.
 #[test]
-fn standardizing_whitens_gray() {
+fn standardizing_keeps_gray() {
     let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
         .expect("fixture is readable");
     let grays = |data: &[u8]| {
@@ -672,7 +693,10 @@ fn standardizing_whitens_gray() {
             .count()
     };
     assert!(grays(&data) > 0, "the fixture has gray");
-    assert_eq!(grays(&standardize::standardize(&data).unwrap()), 0);
+    assert_eq!(
+        grays(&standardize::standardize(&data).unwrap()),
+        grays(&data)
+    );
 }
 
 /// Tidying faces every barrel up and every hopper down, where their facing
@@ -934,7 +958,7 @@ fn input_levers(data: &[u8]) -> (Vec<bool>, Vec<bool>) {
     let blocks = Blocks::read(data).unwrap();
     let mut levers = (Vec::new(), Vec::new());
     for port in interface::read(&blocks).inputs {
-        let control = port.block.starts_with("magenta");
+        let control = port.control();
         for bit in &port.bits {
             let state = blocks.get(schem::step(bit.pos, bit.entry.unwrap()));
             if schem::short(state) != "lever" {

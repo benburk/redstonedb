@@ -1,34 +1,27 @@
-//! Shaping a build's file: fitting its box tightly and bringing a
-//! downloaded build into the building conventions' palette.
-//!
-//! Standardizing needs the build's roles already coloured in, as probing
-//! colours them, since everything else turns white; its inputs and outputs
-//! themselves are its levers, buttons, and comparators with air behind,
-//! and its repeaters and comparators facing air, whatever their colour:
+//! Shaping a build's file: fitting its box tightly and taking out what is
+//! no part of it, its blocks as its builder made them. What each line is
+//! for goes with the file, see [`crate::schem::lines`], and a theme colours
+//! it when the build is shown or downloaded; see
+//! [`crate::recognize::palette`]. Its inputs and outputs themselves are its
+//! levers, buttons, and comparators with air behind, and its repeaters and
+//! comparators facing air, whatever their colour:
 //!
 //! - Old corner markers are taken out: any group of plain glass that
 //!   touches nothing but air, wherever it sits.
 //! - A furnace, cauldron, or cake becomes a barrel giving a comparator the
 //!   same signal strength.
-//! - Slabs, stairs, and every kind of glass become white stained glass;
-//!   every other solid block becomes white concrete. Redstone components
-//!   and blocks of an output colour are kept, and so is an input block: a
-//!   coloured block with a lever on it, or under a signal-strength input's
-//!   comparator, which becomes that colour's concrete.
-//! - A status line, an output's block whose sign names a status output
-//!   such as `carry out`, turns pink, as older builds marked them on
-//!   yellow.
-//! - A sign of any wood becomes an oak one, and a sign on a block that is
-//!   neither an input nor an output, such as a note of the build's date,
-//!   is taken out, as signs carry only labels. Redstone passes a sign by as
-//!   it does air. A sign's commas are taken out, as its words are separated
-//!   by spaces and lines alone.
+//! - A sign on a block that is neither an input nor an output, such as a
+//!   note of the build's date, is taken out, as signs carry only labels.
+//!   Redstone passes a sign by as it does air. A sign's commas are taken
+//!   out, as its words are separated by spaces and lines alone.
 //! - The box is fitted tightly around what is left.
 //! - Each data input's lever is switched off, every other component coming
 //!   to rest with it, as a data input never reads inverted, so its lever
 //!   off is its 0. A control line's levers stay as they were, for its test
 //!   to find which read inverted; see `levers_at_zero`. A build that cannot
 //!   be settled, as one with a clock, keeps its levers as they were.
+//!
+//! Every other block keeps its kind and colour.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -39,8 +32,6 @@ use crate::{
     schem::{self, AIR, Blocks, Direction, Pos, block},
 };
 
-const WHITE: &str = "minecraft:white_concrete";
-const WHITE_GLASS: &str = "minecraft:white_stained_glass";
 const GLASS: &str = "minecraft:glass";
 
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
@@ -49,21 +40,13 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let old_markers = loose_glass(&blocks, false);
     let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
-    let status = status_lines(&blocks);
     let notes = notes(&blocks, &inputs);
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| {
             *state != AIR && !old_markers.contains(pos) && !notes.contains(pos)
         })
-        .map(|(pos, state)| {
-            let state = if status.contains(&pos) {
-                pink(state)
-            } else {
-                restyle(state, inputs.contains(&pos))
-            };
-            (pos, state)
-        })
+        .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
     let restyled = rebox(data, &grid, [0, 0, 0], blocks.size)?;
     let standardized = tidy(&restyled)?;
@@ -83,8 +66,8 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     Ok(data_levers_off(&standardized).unwrap_or(standardized))
 }
 
-/// The file with the lever of each data input, any input but a magenta
-/// control line, switched off, every other lever as it was, and every
+/// The file with the lever of each data input, any input but a control
+/// line, switched off, every other lever as it was, and every
 /// component at rest with them, as `with_levers` settles them. A file with
 /// no data input's lever on comes back as it was.
 pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
@@ -92,7 +75,7 @@ pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
     let data_levers: BTreeSet<Pos> = interface::read(&blocks)
         .inputs
         .iter()
-        .filter(|port| !port.block.starts_with(colour::CONTROL))
+        .filter(|port| !port.control())
         .flat_map(|port| &port.bits)
         .filter_map(|bit| Some(schem::step(bit.pos, bit.entry?)))
         .filter(|&pos| schem::short(blocks.get(pos)) == "lever")
@@ -136,67 +119,6 @@ fn notes(blocks: &Blocks, inputs: &HashSet<Pos>) -> HashSet<Pos> {
                     .is_none_or(|on| !inputs.contains(&on))
         })
         .collect()
-}
-
-/// The blocks under the build's outputs, its repeaters and comparators
-/// facing air.
-fn output_blocks(blocks: &Blocks) -> HashSet<Pos> {
-    repeater_outputs::find(blocks)
-        .into_iter()
-        .map(repeater_outputs::Output::block)
-        .collect()
-}
-
-/// The file with each status line pink: an output's block with no lever
-/// whose sign names a status output, such as `carry out`, as older builds
-/// marked them on yellow. A file with none comes back as it was.
-pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let status = status_lines(&blocks);
-    if status.is_empty() {
-        return Ok(data.to_vec());
-    }
-    let grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| {
-            let state = if status.contains(&pos) {
-                pink(state)
-            } else {
-                state.to_owned()
-            };
-            (pos, state)
-        })
-        .collect();
-    rebox(data, &grid, [0, 0, 0], blocks.size)
-}
-
-/// The blocks that are status lines but not yet pink: outputs' blocks, not
-/// inputs, with a sign naming a status output.
-fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
-    let inputs = interface::feeds(blocks);
-    let outputs = output_blocks(blocks);
-    interface::line_signs(blocks)
-        .into_iter()
-        .filter(|(pos, lines)| {
-            outputs.contains(pos)
-                && !inputs.contains_key(pos)
-                && interface::sign_name(lines)
-                    .is_some_and(|name| colour::is_status_name(&name))
-                && !blocks.get(*pos).starts_with("minecraft:pink_")
-        })
-        .map(|(pos, _)| pos)
-        .collect()
-}
-
-/// A status line's block: pink stained glass where it was glass, else pink
-/// concrete.
-fn pink(state: &str) -> String {
-    if schem::id(state).ends_with("glass") {
-        "minecraft:pink_stained_glass".to_owned()
-    } else {
-        "minecraft:pink_concrete".to_owned()
-    }
 }
 
 /// The file with any corner markers taken out, its box fitted tightly
@@ -557,6 +479,7 @@ fn rebox_with<S: std::hash::BuildHasher>(
         .map(|(&pos, state)| (shift(pos), state.clone()))
         .collect();
     let mut nbt = schem::decode(data)?;
+    nbt.move_roles(|pos| Some(shift(pos)));
     // A block entity whose block was taken out goes with it, and a sign's
     // lines are written plain.
     let entities = nbt
@@ -645,39 +568,6 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
         }
     }
     loose
-}
-
-/// The block a standardized build uses in place of `state`. A coloured
-/// block with a lever on it or a signal-strength input's comparator, an
-/// `input`, becomes that colour's concrete, or stays stained glass; without
-/// one, its colour means nothing and it turns white.
-fn restyle(state: &str, input: bool) -> String {
-    let id = schem::id(state);
-    let name = id.strip_prefix("minecraft:").unwrap_or(id);
-    if input && let Some(colour) = colour::input_colour(name) {
-        format!("minecraft:{colour}_concrete")
-    } else if input
-        && name.ends_with("_stained_glass")
-        && colour::input_mark(name).is_some()
-    {
-        // Glass under a signal-strength input's comparator stays glass,
-        // as a block there may be cutting no dust.
-        state.to_owned()
-    } else if colour::keeps(name) {
-        state.to_owned()
-    } else if name.ends_with("_sign") && !name.contains("hanging") {
-        let wall = if name.ends_with("_wall_sign") {
-            "wall_"
-        } else {
-            ""
-        };
-        let properties = &state[id.len()..];
-        format!("minecraft:oak_{wall}sign{properties}")
-    } else if block::see_through(name) {
-        WHITE_GLASS.to_owned()
-    } else {
-        WHITE.to_owned()
-    }
 }
 
 /// What the block id `name`, without its namespace, counts as among a

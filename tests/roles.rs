@@ -9,12 +9,22 @@ use app::{
     simulate::{Report, Test},
 };
 
+/// The fixture file at `path`, carrying the roles its colours mark, as the
+/// fixtures are saved in the site's old colours; see
+/// `legacy::colour_roles`.
+fn read_fixture(path: &str) -> std::io::Result<Vec<u8>> {
+    let raw = std::fs::read(path)?;
+    Ok(app::recognize::legacy::with_colour_roles(&raw)
+        .expect("fixture carries its roles"))
+}
+
 /// A fixture as the site stores it.
 fn stored(name: &str) -> Vec<u8> {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
-    standardize::pink_status(&tidied).expect("fixture recolours")
+    app::recognize::legacy::with_colour_roles(&tidied)
+        .expect("fixture carries its roles")
 }
 
 /// `data` three blocks taller, with a block and dust on it standing on
@@ -109,9 +119,8 @@ fn taking_out_a_torchs_block_changes_the_circuit() {
 #[test]
 fn the_dust_joining_a_register_files_bus_stays() {
     use app::models::schematic::{Orientation, StackDirection};
-    let data =
-        std::fs::read("tests/fixtures/register-8-shared-bus-stack.schem")
-            .unwrap();
+    let data = read_fixture("tests/fixtures/register-8-shared-bus-stack.schem")
+        .unwrap();
     let way = StackDirection {
         west: 4,
         up: 0,

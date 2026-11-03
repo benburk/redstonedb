@@ -11,10 +11,7 @@ use super::{
     bench::{mask, patterns},
     circuit::output_bits,
 };
-use crate::recognize::{
-    colour,
-    interface::{Interface, Port},
-};
+use crate::recognize::interface::{Interface, Port};
 
 /// A binary-to-BCD converter's every value of A, or with too many, each
 /// byte's, the test patterns, and each power of ten and the number before
@@ -209,7 +206,7 @@ pub(super) fn one_input_bench(
     interface: &Interface,
     what: &str,
 ) -> Result<Bench> {
-    let control = |port: &&Port| port.block.starts_with(colour::CONTROL);
+    let control = |port: &&Port| port.control();
     if let Some(line) = interface.inputs.iter().find(control) {
         bail!(
             "It has a control line, {}, so it is stateful; only a stateless \
@@ -224,7 +221,7 @@ pub(super) fn one_input_bench(
         );
     }
     let outputs: Vec<usize> = (0..interface.outputs.len())
-        .filter(|&i| !interface.outputs[i].block.starts_with(colour::STATUS))
+        .filter(|&i| !interface.outputs[i].status())
         .collect();
     if outputs.is_empty() {
         broken!("A {what} has an output, but this has none.");

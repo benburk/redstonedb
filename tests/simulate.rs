@@ -14,13 +14,23 @@ use app::{
     },
 };
 
+/// The fixture file at `path`, carrying the roles its colours mark, as the
+/// fixtures are saved in the site's old colours; see
+/// `legacy::colour_roles`.
+fn read_fixture(path: &str) -> std::io::Result<Vec<u8>> {
+    let raw = std::fs::read(path)?;
+    Ok(app::recognize::legacy::with_colour_roles(&raw)
+        .expect("fixture carries its roles"))
+}
+
 /// A fixture as the site stores it: markers out, box fitted, and status
 /// lines pink, since the fixtures predate that.
 fn blocks(name: &str) -> Blocks {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
-    let stored = standardize::pink_status(&tidied).expect("fixture recolours");
+    let stored = app::recognize::legacy::with_colour_roles(&tidied)
+        .expect("fixture carries its roles");
     Blocks::read(&stored).expect("fixture parses")
 }
 
@@ -51,7 +61,7 @@ fn a_ripple_carry_adder_gets_every_sum_right() {
 #[test]
 fn an_output_with_nothing_on_its_block_fails() {
     let data =
-        std::fs::read("tests/fixtures/old/alpha-rca-slice.schem").unwrap();
+        read_fixture("tests/fixtures/old/alpha-rca-slice.schem").unwrap();
     let old = Blocks::read(&data).unwrap();
     let report = app::recognize::legacy::reading(|| Test::Adder.run(&old));
     let Report::Broken { reason } = report else {
@@ -105,10 +115,12 @@ fn a_build_with_a_hopper_gets_every_sum_right() {
 /// swapped adder breaks. That is why hoppers stay unless asked.
 #[test]
 fn a_hopper_swaps_for_a_barrel_of_the_same_strength() {
-    let raw = std::fs::read("tests/fixtures/diag-3t-cca.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/diag-3t-cca.schem").unwrap();
     // As the site stores it, with its carry out pink.
-    let stored =
-        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let stored = app::recognize::legacy::with_colour_roles(
+        &standardize::tidy(&raw).unwrap(),
+    )
+    .unwrap();
     let before = Blocks::read(&stored).unwrap();
     let swapped = standardize::barrels(&stored, &["hopper"]).unwrap();
     let after = Blocks::read(&swapped).unwrap();
@@ -160,9 +172,9 @@ fn unsigned(data: &[u8]) -> Vec<u8> {
 /// they need no signs.
 #[test]
 fn an_adders_lone_lines_need_no_signs() {
-    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
-    let stored = standardize::pink_status(&tidied).unwrap();
+    let stored = app::recognize::legacy::with_colour_roles(&tidied).unwrap();
     let blocks = Blocks::read(&unsigned(&stored)).unwrap();
     assert!(blocks.signs.is_empty());
     let run = adder_run(&blocks).unwrap();
@@ -178,7 +190,7 @@ fn an_adders_lone_lines_need_no_signs() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
-    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
+    let data = read_fixture("tests/fixtures/vert-adder-8-stacks.schem")
         .expect("fixture is readable");
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
     assert!(matches!(
@@ -193,14 +205,13 @@ fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
 /// a 9-bit adder, every sum right.
 #[test]
 fn an_adder_stacks_by_its_box() {
-    let raw =
-        std::fs::read("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let report = app::recognize::inspect::inspect(&blocks);
     let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
-        app::recognize::probe::colour(&data, &probed.layout).unwrap();
+        app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
     let standard = import::prepare_for(
         &coloured,
         import::Purpose::Standard { keep_paste: false },
@@ -222,14 +233,14 @@ fn an_adder_stacks_by_its_box() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_adder_stacks_by_a_box_found_by_testing() {
-    let raw = std::fs::read("tests/fixtures/vert-adder-8-barrel-north.schem")
-        .unwrap();
+    let raw =
+        read_fixture("tests/fixtures/vert-adder-8-barrel-north.schem").unwrap();
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let report = app::recognize::inspect::inspect(&blocks);
     let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
-        app::recognize::probe::colour(&data, &probed.layout).unwrap();
+        app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
     let standard = import::prepare_for(
         &coloured,
         import::Purpose::Standard { keep_paste: false },
@@ -250,7 +261,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_combinational_multiplier_tries_every_product() {
-    let raw = std::fs::read("tests/fixtures/mult-8-diag-signed.schem")
+    let raw = read_fixture("tests/fixtures/mult-8-diag-signed.schem")
         .expect("fixture is readable");
     let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
@@ -288,9 +299,11 @@ fn a_sequential_multiplier_is_pressed_to_calculate() {
 /// the sums across the seam find before the full test.
 #[test]
 fn an_adder_whose_carry_stops_at_its_edge_does_not_stack() {
-    let raw = std::fs::read("tests/fixtures/alpha-rca.schem").unwrap();
-    let data =
-        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let raw = read_fixture("tests/fixtures/alpha-rca.schem").unwrap();
+    let data = app::recognize::legacy::with_colour_roles(
+        &standardize::tidy(&raw).unwrap(),
+    )
+    .unwrap();
     let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&data) else {
         panic!("it stacks");
     };
@@ -327,7 +340,7 @@ fn a_build_is_known_for_what_it_does() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_hex_adder_is_driven_digit_by_digit() {
-    let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/hex-cca-8.schem").unwrap();
     let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
@@ -356,7 +369,7 @@ fn a_hex_adder_is_driven_digit_by_digit() {
 /// out is optional, as a wider adder's is, so it adds.
 #[test]
 fn a_slice_without_a_carry_out_adds() {
-    let data = std::fs::read("tests/fixtures/rca-slice-2-high.schem").unwrap();
+    let data = read_fixture("tests/fixtures/rca-slice-2-high.schem").unwrap();
     let report = Test::Adder.run(&Blocks::read(&data).unwrap());
     let Report::Ran(run) = report else {
         panic!("it did not run: {report:?}");
@@ -373,7 +386,7 @@ fn a_slice_without_a_carry_out_adds() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_copy_may_cover_the_copy_below() {
-    let data = std::fs::read("tests/fixtures/rca-slice-capped.schem").unwrap();
+    let data = read_fixture("tests/fixtures/rca-slice-capped.schem").unwrap();
     assert!(Test::Adder.run(&Blocks::read(&data).unwrap()).passed());
     let Some(Stacking::Stacks { step, .. }) = Test::Adder.stacking(&data)
     else {
@@ -485,7 +498,7 @@ fn a_lever_saved_on_by_mistake_changes_nothing() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_alu_runs_each_operation_its_signs_name() {
-    let raw = std::fs::read("tests/fixtures/alu-8-ops-raw.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/alu-8-ops-raw.schem").unwrap();
     let blocks = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -538,7 +551,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
 #[ignore = "measures whole builds: just test-full"]
 fn an_alus_inverted_carry_out_is_wrong() {
     let raw =
-        std::fs::read("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
+        read_fixture("tests/fixtures/alu-8-ops-inverted-carry.schem").unwrap();
     let blocks = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -574,7 +587,7 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
 /// A register fixture as an upload standardizes it, as its file and its
 /// blocks.
 fn register(name: &str) -> (Vec<u8>, Blocks) {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem")).unwrap();
     let data = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -656,7 +669,7 @@ fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
 #[test]
 fn a_register_cell_with_its_driver_inside_its_box_stacks_without_it() {
     let data =
-        std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
+        read_fixture("tests/fixtures/register-1-gray-driver.schem").unwrap();
     let Some(Stacking::Wider { step, most, .. }) =
         Test::Register.stacking(&data)
     else {
@@ -672,7 +685,7 @@ fn a_register_cell_with_its_driver_inside_its_box_stacks_without_it() {
 #[test]
 fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
     let data =
-        std::fs::read("tests/fixtures/register-1-gray-driver.schem").unwrap();
+        read_fixture("tests/fixtures/register-1-gray-driver.schem").unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
@@ -690,7 +703,7 @@ fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
 /// from then, as the lever's is from turning off, not from the press.
 #[test]
 fn a_register_cell_written_by_a_button_is_timed_from_its_release() {
-    let data = std::fs::read("tests/fixtures/register-1-button.schem").unwrap();
+    let data = read_fixture("tests/fixtures/register-1-button.schem").unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
@@ -942,7 +955,7 @@ fn a_register_with_wide_cells_stacks_at_its_width() {
 /// every one of its 256 cases, the most negative giving itself.
 #[test]
 fn an_absolute_value_gives_each_inputs_magnitude() {
-    let raw = std::fs::read("tests/fixtures/abs-8.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/abs-8.schem").unwrap();
     let data = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -962,7 +975,7 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
 /// every one of its 256 cases, timed by its one output.
 #[test]
 fn a_parity_circuit_gives_whether_an_odd_number_of_bits_are_on() {
-    let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/parity-8.schem").unwrap();
     let data = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -986,7 +999,7 @@ fn a_parity_circuit_gives_whether_an_odd_number_of_bits_are_on() {
 /// other output.
 #[test]
 fn a_carry_out_gives_the_carry_of_every_sum() {
-    let raw = std::fs::read("tests/fixtures/cout-8.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/cout-8.schem").unwrap();
     let data = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1014,7 +1027,7 @@ fn a_carry_out_gives_the_carry_of_every_sum() {
 fn one_lsb_sign_orders_the_buses_alongside() {
     // As an upload standardizes it, its blocks then all ones the
     // simulator models.
-    let raw = std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/adder-8-lsb-top.schem").unwrap();
     let blocks = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1045,7 +1058,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
 /// every difference comes out right, and the guess finds a subtractor.
 #[test]
 fn a_double_density_subtractor_takes_b_from_a() {
-    let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/dd-cca-sub-16.schem").unwrap();
     let blocks = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1099,7 +1112,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     };
     for (name, category) in fixtures {
         let raw =
-            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+            read_fixture(&format!("tests/fixtures/{name}.schem")).unwrap();
         let standard = upload(&raw);
         assert!(
             standard.turn.is_none(),
@@ -1120,10 +1133,10 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
         }
     }
     // A hex adder's dust may be entered from any side, so nothing turns it.
-    let raw = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/hex-cca-8.schem").unwrap();
     assert!(upload(&raw).turn.is_none());
     // Mirrored, its bits would count from the top of the wrong column.
-    let raw = std::fs::read("tests/fixtures/dd-cca-sub-16.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/dd-cca-sub-16.schem").unwrap();
     let mirrored = orient::Turn {
         mirrored: true,
         quarters: 0,
@@ -1137,7 +1150,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
 
 /// A comparison fixture as an upload standardizes it.
 fn comparison(name: &str) -> Blocks {
-    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    let raw = read_fixture(&format!("tests/fixtures/{name}.schem")).unwrap();
     import::prepare_for(&raw, import::Purpose::Standard { keep_paste: false })
         .unwrap()
         .blocks
@@ -1386,9 +1399,9 @@ fn swapped(data: &[u8], from: &str, to: &str) -> Vec<u8> {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn a_glass_output_is_read_from_the_repeater_on_it() {
-    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
-    let stored = standardize::pink_status(&tidied).unwrap();
+    let stored = app::recognize::legacy::with_colour_roles(&tidied).unwrap();
     let glazed = swapped(
         &stored,
         "minecraft:yellow_concrete",
@@ -1416,7 +1429,7 @@ fn a_glass_output_is_read_from_the_repeater_on_it() {
 /// wider one and has both lines.
 #[test]
 fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
-    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1438,7 +1451,7 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
 /// case right as one and every case wrong as an XNOR gate, its inverse.
 #[test]
 fn an_xor_gate_is_no_xnor_gate() {
-    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1458,7 +1471,7 @@ fn an_xor_gate_is_no_xnor_gate() {
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_xor_gate_stacks_west_into_wider_ones() {
-    let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare_for(
         &raw,
         import::Purpose::Standard { keep_paste: false },
@@ -1482,7 +1495,7 @@ fn an_xor_gate_stacks_west_into_wider_ones() {
 fn memory_is_found_in_loops_but_not_in_combinational_logic() {
     let adder = simulate::compiled(&blocks("alpha-rca")).unwrap();
     assert!(adder.memory().is_empty());
-    let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
+    let raw = read_fixture("tests/fixtures/mult-8-buttons.schem").unwrap();
     let file = standardize::standardize(&raw).unwrap();
     let multiplier = simulate::compiled(&Blocks::read(&file).unwrap()).unwrap();
     assert!(!multiplier.memory().is_empty());
@@ -1513,9 +1526,11 @@ fn a_loop_that_loses_all_it_could_carry_holds_nothing() {
 /// flicking it again changes nothing.
 #[test]
 fn a_build_is_stored_with_its_inputs_at_logical_0() {
-    let raw = std::fs::read("tests/fixtures/cca-8-repeated-out.schem").unwrap();
-    let saved =
-        standardize::pink_status(&standardize::tidy(&raw).unwrap()).unwrap();
+    let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
+    let saved = app::recognize::legacy::with_colour_roles(
+        &standardize::tidy(&raw).unwrap(),
+    )
+    .unwrap();
     let blocks = Blocks::read(&saved).unwrap();
     let lever = blocks
         .iter()

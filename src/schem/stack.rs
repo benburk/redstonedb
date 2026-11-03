@@ -14,20 +14,20 @@
 //!    the later copy's block stands, though air never replaces anything
 //!    and dust that meets joins. A build may rely on that, as a carry out
 //!    capping one copy is covered by the next.
-//! 3. Only colours change: every copy's labelled outputs and status lines
-//!    but the last copy's turn white, signed or not, their signs off, since
-//!    the next copy takes them over, unless each copy keeps its own, as a
-//!    monostable's lone output is its own bit's; a later copy's input
-//!    block whose lever stayed with the first copy turns white; and so do a
-//!    later copy's data blocks on a shared bus, read only at the first
-//!    copy's end.
+//! 3. Only roles change, every block staying as placed: every copy's
+//!    labelled outputs and status lines but the last copy's lose theirs,
+//!    signed or not, their signs off, since the next copy takes them over,
+//!    unless each copy keeps its own, as a monostable's lone output is its
+//!    own bit's; a later copy's input block whose lever stayed with the
+//!    first copy loses its role; and so do a later copy's data blocks on a
+//!    shared bus, read only at the first copy's end.
 //!
 //! Where two copies hold different blocks, `review` says so, and finds the
 //! shortest step at which they do not. Several directions stack one after
 //! another.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     hash::BuildHasher,
 };
 
@@ -36,8 +36,11 @@ use anyhow::{Result, ensure};
 use crate::{
     category::{self, Behaviour, Kind},
     models::schematic::{Faces, Orientation, StackDirection},
-    recognize::{colour, interface, repeater_outputs},
-    schem::{self, AIR, Blocks, Direction, Pos},
+    recognize::{interface, repeater_outputs},
+    schem::{
+        self, AIR, Blocks, Direction, Pos,
+        lines::{Role, Roles},
+    },
 };
 
 /// The most copies along one direction.
@@ -45,7 +48,6 @@ const MAX_COPIES: usize = 64;
 /// The most blocks in a stacked schematic.
 const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
-const WHITE: &str = "minecraft:white_concrete";
 const GLASS: &str = "minecraft:glass";
 
 /// What a build's copies do with its data buses, from its category and the
@@ -187,20 +189,7 @@ fn along(
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
     let left_out = first_copy(&blocks, step, direction.faces).all;
-    // A later copy's input whose switch or comparator stays with the first
-    // copy is a plain block.
-    let orphaned: HashSet<Pos> = blocks
-        .switches()
-        .into_iter()
-        .filter(|switch| left_out.contains(&switch.pos))
-        .map(|switch| switch.block)
-        .chain(
-            repeater_outputs::strength_inputs(&blocks)
-                .into_iter()
-                .filter(|input| left_out.contains(&input.at))
-                .map(|input| schem::step(input.at, Direction::Down)),
-        )
-        .collect();
+    let orphaned = orphaned(&blocks, &left_out);
     let outputs = if buses.own_outputs {
         Outputs {
             blocks: HashSet::new(),
@@ -211,8 +200,9 @@ fn along(
     };
 
     // As in game: the first copy whole, then each later copy's box over
-    // the copies before, where its block stands.
+    // the copies before, where its block stands, with its role.
     let mut grid: HashMap<Pos, String> = HashMap::new();
+    let mut roles = BTreeMap::new();
     for i in 0..=last {
         let final_copy = i == last;
         for (pos, state) in blocks.iter() {
@@ -222,16 +212,23 @@ fn along(
             {
                 continue;
             }
-            let name = schem::short(state);
+            let role = blocks.roles.as_ref().and_then(|roles| roles.get(pos));
             let plain = (!final_copy && outputs.blocks.contains(&pos))
                 || (i > 0 && orphaned.contains(&pos))
-                || (shared && i > 0 && bus(name));
-            let state = if plain { WHITE } else { state };
-            place(&mut grid, schem::add(pos, shift(i)), state);
+                || (shared && i > 0 && role.is_some_and(bus));
+            let to = schem::add(pos, shift(i));
+            place(&mut grid, to, state);
+            match role.filter(|_| !plain) {
+                Some(role) => roles.insert(to, role),
+                None => roles.remove(&to),
+            };
         }
     }
 
     let mut nbt = schem::decode(data)?;
+    if blocks.roles.is_some() {
+        nbt.set_roles(Some(&Roles(roles)));
+    }
     let entities = nbt.take_entities();
     // Where copies overlap, a later copy's entity stands, as its block
     // does, and one whose block a later copy covered goes with it.
@@ -262,6 +259,24 @@ fn along(
     let low = [-(last * west), 0, -(last * north)];
     nbt.write_blocks(low, size, &grid, stacked_entities)?;
     schem::encode(nbt)
+}
+
+/// The input blocks whose switch or comparator only the first copy keeps,
+/// one of `left_out`, which in a later copy are plain blocks, with no
+/// role.
+fn orphaned(blocks: &Blocks, left_out: &HashSet<Pos>) -> HashSet<Pos> {
+    blocks
+        .switches()
+        .into_iter()
+        .filter(|switch| left_out.contains(&switch.pos))
+        .map(|switch| switch.block)
+        .chain(
+            repeater_outputs::strength_inputs(blocks)
+                .into_iter()
+                .filter(|input| left_out.contains(&input.at))
+                .map(|input| schem::step(input.at, Direction::Down)),
+        )
+        .collect()
 }
 
 /// The step a copy stacked `direction` sits from the one before, in the
@@ -360,25 +375,18 @@ fn agreeing(blocks: &Blocks, direction: StackDirection) -> Option<i64> {
 
 /// The spots where a later copy, a `step` along, puts a block over a
 /// different one of the copy before, each without the parts only the first
-/// copy keeps and with labelled outputs white, as stacking leaves them:
-/// another block, or a container giving another signal strength. Dust
-/// that meets joins, so it is no disagreement.
+/// copy keeps, as stacking leaves them: another block, or a container
+/// giving another signal strength. Dust that meets joins, so it is no
+/// disagreement.
 fn disagreements(
     blocks: &Blocks,
     step: Pos,
     first_copy: &FirstCopy,
 ) -> Vec<Disagreement> {
-    let outputs = labelled_outputs(blocks);
     let within = |pos: Pos| {
         (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
     };
-    let stacked = |pos: Pos| {
-        if outputs.blocks.contains(&pos) {
-            WHITE
-        } else {
-            blocks.get(pos)
-        }
-    };
+    let stacked = |pos: Pos| blocks.get(pos);
     let strength = |pos: Pos, state: &str| {
         let items = blocks.containers.get(&pos).map_or(&[][..], Vec::as_slice);
         schem::slots(state).map(|slots| schem::container_strength(items, slots))
@@ -436,15 +444,15 @@ fn shape(
     along_bits: bool,
     stacking: Buses,
 ) -> Result<Option<String>> {
-    let control = format!("{} concrete", colour::CONTROL);
     let buses = |interface: &interface::Interface| -> Vec<(String, usize)> {
         let inputs = interface
             .inputs
             .iter()
-            .filter(|port| !port.labelled && port.block != control);
-        let outputs = interface.outputs.iter().filter(|port| {
-            !port.labelled && !port.block.starts_with(colour::STATUS)
-        });
+            .filter(|port| !port.labelled && !port.control());
+        let outputs = interface
+            .outputs
+            .iter()
+            .filter(|port| !port.labelled && !port.status());
         inputs
             .chain(outputs)
             .map(|port| (port.name.clone(), port.bits.len()))
@@ -454,7 +462,7 @@ fn shape(
         interface
             .inputs
             .iter()
-            .filter(|port| port.block == control)
+            .filter(|port| port.control())
             .map(|port| port.bits.len())
             .sum()
     };
@@ -712,15 +720,18 @@ pub fn find_box<T, E>(
     };
     // The faces, as an axis and its far end, holding a control line's
     // switch in their outer layer.
-    let control = format!("{}_concrete", colour::CONTROL);
+    let control = |pos: Pos| {
+        blocks.roles.as_ref().and_then(|roles| roles.get(pos))
+            == Some(Role::Control)
+    };
     let faces: Vec<(usize, bool)> = (0..3)
         .flat_map(|axis| [(axis, false), (axis, true)])
         .filter(|&(axis, far)| {
             let edge = if far { blocks.size[axis] - 1 } else { 0 };
-            blocks.switches().iter().any(|switch| {
-                switch.pos[axis] == edge
-                    && schem::short(blocks.get(switch.block)) == control
-            })
+            blocks
+                .switches()
+                .iter()
+                .any(|switch| switch.pos[axis] == edge && control(switch.block))
         })
         .collect();
     let mut queue = std::collections::BinaryHeap::new();
@@ -779,20 +790,20 @@ pub fn find_box<T, E>(
 /// control lines its inputs: every bit but those of a labelled port, a
 /// status line, or a control line, which are counted apart.
 fn data_bits(blocks: &Blocks) -> (usize, usize) {
-    let control = format!("{} concrete", colour::CONTROL);
     let interface = interface::read(blocks);
     let inputs = interface
         .inputs
         .iter()
-        .filter(|port| !port.labelled && port.block != control);
-    let outputs = interface.outputs.iter().filter(|port| {
-        !port.labelled && !port.block.starts_with(colour::STATUS)
-    });
+        .filter(|port| !port.labelled && !port.control());
+    let outputs = interface
+        .outputs
+        .iter()
+        .filter(|port| !port.labelled && !port.status());
     let bits = inputs.chain(outputs).map(|port| port.bits.len()).sum();
     let lines = interface
         .inputs
         .iter()
-        .filter(|port| port.block == control)
+        .filter(|port| port.control())
         .map(|port| port.bits.len())
         .sum();
     (bits, lines)
@@ -833,11 +844,11 @@ fn interface_blocks(blocks: &Blocks) -> HashSet<Pos> {
     found
 }
 
-/// Whether a block id without its namespace marks a bit of a bus: an
-/// operand's input colour, other than a control line, or an output.
-fn bus(name: &str) -> bool {
-    (colour::is_input(name) && name != format!("{}_concrete", colour::CONTROL))
-        || colour::is_output(name)
+/// Whether a block of `role` carries a bus's data, which copies sharing
+/// their buses take from the first copy alone: any input but a control
+/// line, or any output.
+fn bus(role: Role) -> bool {
+    role != Role::Control
 }
 
 struct Outputs {
@@ -852,7 +863,7 @@ fn labelled_outputs(blocks: &Blocks) -> Outputs {
     let outputs: HashSet<Pos> = interface
         .outputs
         .iter()
-        .filter(|port| port.labelled || port.block.starts_with(colour::STATUS))
+        .filter(|port| port.labelled || port.status())
         .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
         .collect();
     let signs = blocks
@@ -890,9 +901,25 @@ fn place(grid: &mut HashMap<Pos, String>, pos: Pos, state: &str) {
 
 /// Whether `state` would replace a different block at `existing`: anything
 /// but air or the same block, though in another state of power, which the
-/// game works out again.
+/// game works out again, or a building block of the same kind, solid or
+/// see-through, whatever its colour, as a copy's input block may be
+/// coloured where the copy before has a plain one.
 fn replaces(existing: &str, state: &str) -> bool {
-    existing != AIR && schem::as_placed(existing) != schem::as_placed(state)
+    let kind = |state: &str| {
+        let name = schem::short(state);
+        if state == AIR
+            || schem::block::is_component(name)
+            || name.ends_with("sign")
+            || schem::slots(state).is_some()
+        {
+            schem::as_placed(state)
+        } else if schem::block::see_through(name) {
+            "see-through".to_owned()
+        } else {
+            "solid".to_owned()
+        }
+    };
+    existing != AIR && kind(existing) != kind(state)
 }
 
 /// Dust joined every way either `a` or `b` joins, `up` over `side` over
@@ -943,8 +970,10 @@ mod tests {
         let lit = "minecraft:redstone_wall_torch[facing=north,lit=true]";
         let unlit = "minecraft:redstone_wall_torch[facing=north,lit=false]";
         assert!(!replaces(lit, unlit));
-        assert!(!replaces(AIR, WHITE));
-        assert!(replaces(WHITE, unlit));
+        let white = "minecraft:white_concrete";
+        assert!(!replaces(AIR, white));
+        assert!(replaces(white, unlit));
+        assert!(!replaces(white, "minecraft:lime_wool"));
         assert!(replaces(
             "minecraft:repeater[delay=1,facing=west]",
             "minecraft:repeater[delay=1,facing=east]"

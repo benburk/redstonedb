@@ -2,26 +2,26 @@
 //! and probed as each blessed category in turn until one holds, each
 //! category's probe named by its kind, the signs naming only a role it
 //! found taken out; and, when none holds, the fault to show and the file
-//! as the closest try coloured it.
+//! carrying the closest try's roles.
 
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, adder, alu, colour, decoder, hex_adder, multiplier, one_operand,
+    Fault, Roles, adder_from, alu, decoder, hex_adder, multiplier, one_operand,
     operands_probe, register, sequential, shifter,
 };
 use crate::{
     category::{Kind, Probe, Probing},
     recognize::inspect,
-    schem::{self, Blocks, Pos},
+    schem::{self, Blocks, Pos, lines},
     simulate::{self, Test},
 };
 
-/// What the check by function makes of an uploaded file: the file with its
-/// roles coloured in, when it is recognized as a category; when not, as
-/// the try that came closest coloured it, when that try ran and got cases
-/// wrong, so its test shows which; else as it came; what was found; and
-/// what only its builder can put right.
+/// What the check by function makes of an uploaded file: the file carrying
+/// its roles, see [`crate::schem::lines`], when it is recognized as a
+/// category; when not, the closest try's, when that try ran and got cases
+/// wrong, so its test shows which; else none; what was found; and what
+/// only its builder can put right. Its blocks keep their colours.
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
@@ -35,8 +35,7 @@ pub struct Recognition {
 /// treats as a plain block in its place: a slab, stairs, or glowstone as
 /// white stained glass, which redstone sees through as it does them, and a
 /// furnace, cauldron, or cake as a barrel giving the same strength. Every
-/// colour stays, so no input or output is lost, as standardizing would
-/// whiten an output it does not know.
+/// colour stays.
 pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let data = crate::schem::standardize::barrels(data, &[])?;
     let blocks = Blocks::read(&data)?;
@@ -87,7 +86,8 @@ pub fn recognize_watched(
             Probing::Not => None,
         }
     });
-    let simulated = simulatable(data)?;
+    // An upload's roles are what probing finds, never what it came with.
+    let simulated = simulatable(&lines::without(data)?)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
     let report = inspect::inspect(&blocks);
@@ -134,7 +134,7 @@ pub fn recognize_watched(
             continue;
         }
         trying(kind, i);
-        match probe_by(kind, how, test, data, &blocks, &report)? {
+        match probe_by(kind, how, test, data, &blocks, &report, false)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
@@ -144,7 +144,7 @@ pub fn recognize_watched(
     // Meant as a kind never probed, nothing was, so there is no fault.
     let fault = fault_of(&blocks, &report, meant.flatten(), &faults);
     problems.push(fault.map_or_else(String::new, ToString::to_string));
-    // The file as the try whose fault is shown coloured it, when it ran.
+    // The file with the roles of the try whose fault is shown, when it ran.
     let closest = fault.and_then(Fault::file).unwrap_or(data);
     Ok(Recognition {
         file: closest.to_vec(),
@@ -152,13 +152,13 @@ pub fn recognize_watched(
     })
 }
 
-/// What a probe found: the build's data inputs, its file coloured by the
+/// What a probe found: the build's data inputs, its file carrying the
 /// roles found, and what it is, in words.
 pub type Found = (Vec<Pos>, Vec<u8>, String);
 
 /// The file in `data`, with `blocks` and `report`, probed as `kind`, or as
 /// the kind it is probed as, such as an adder for a subtractor: its data
-/// inputs, the file coloured by the roles found, and what it was found to
+/// inputs, the file carrying the roles found, and what it was found to
 /// be, such as `an adder: all 131072 cases right, A + B + carry in`; or why
 /// it isn't one.
 pub fn probe_as(
@@ -176,10 +176,42 @@ pub fn probe_as(
     else {
         return Ok(Err(Fault::Unfit(format!("{} isn't probed", kind.a()))));
     };
-    probe_by(kind, how, test, data, blocks, report)
+    probe_by(kind, how, test, data, blocks, report, false)
 }
 
-/// As [`probe_as`], `kind` probed `how` its row says, by its `test`.
+/// The roles of the lines of the build in `data`, kept as built and meant
+/// as a `kind`, as probing as that kind finds them: its inputs and outputs
+/// read whatever faults the conventions find in them, and its lines laid
+/// out loosely, as [`super::adder_loosely`] lays an adder's, as only its
+/// test says which is which; of a try that got cases wrong, the closest.
+/// `None` when no try's test ran, as for a kind never probed.
+pub fn kept_roles(data: &[u8], kind: Kind) -> anyhow::Result<Option<Roles>> {
+    let kind = match kind.facts().probe {
+        Probing::As(other) => other,
+        Probing::Tried { .. } => kind,
+        Probing::Not => return Ok(None),
+    };
+    let probed = Kind::probed();
+    let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)
+    else {
+        return Ok(None);
+    };
+    let simulated = simulatable(&lines::without(data)?)?;
+    let blocks = Blocks::read(&simulated)?;
+    let report = inspect::inspect(&blocks);
+    let file =
+        match probe_by(kind, how, test, &simulated, &blocks, &report, true)? {
+            Ok((_, file, _)) => file,
+            Err(fault) => match fault.file() {
+                Some(file) => file.to_vec(),
+                None => return Ok(None),
+            },
+        };
+    lines::of(&file)
+}
+
+/// As [`probe_as`], `kind` probed `how` its row says, by its `test`, its
+/// lines laid out loosely with `loose`; see [`kept_roles`].
 fn probe_by(
     kind: Kind,
     how: Probe,
@@ -187,6 +219,7 @@ fn probe_by(
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
+    loose: bool,
 ) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
         // An adder is one or a subtractor, and a hex adder adds or
@@ -203,7 +236,7 @@ fn probe_by(
             run.pattern
         )
     };
-    let probed = probed_as(how, test, data, blocks, report, found)?;
+    let probed = probed_as(how, test, data, blocks, report, found, loose)?;
     Ok(match probed {
         Ok((inputs, file, found)) => {
             Ok((inputs, unlabelled(kind, &file)?, found))
@@ -238,7 +271,9 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     crate::schem::standardize::edit(data, &changes)
 }
 
-/// As `probe_as`, the file as probing coloured it, its signs as they were.
+/// As `probe_as`, the file carrying the roles probing found, its signs as
+/// they were; laid out loosely with `loose`, as [`kept_roles`] reads a
+/// build kept as built.
 fn probed_as(
     how: Probe,
     test: Test,
@@ -246,12 +281,13 @@ fn probed_as(
     blocks: &Blocks,
     report: &inspect::Report,
     found: impl Fn(&simulate::Run) -> String,
+    loose: bool,
 ) -> anyhow::Result<Result<Found, Fault>> {
     Ok(match how {
-        Probe::Adder => match adder(data, blocks, report) {
+        Probe::Adder => match adder_from(data, blocks, report, loose) {
             Ok(probed) => Ok((
                 [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
-                colour(data, &probed.layout)?,
+                super::with_layout(data, &probed.layout)?,
                 found(&probed.run),
             )),
             Err(why) => Err(why),
@@ -282,10 +318,12 @@ fn probed_as(
             let found = found(&probed.run);
             ([probed.a, probed.b, probed.c].concat(), probed.file, found)
         }),
-        Probe::Operands => operands_probe(data, report, test).map(|probed| {
-            let found = found(&probed.run);
-            (probed.inputs, probed.file, found)
-        }),
+        Probe::Operands => {
+            operands_probe(data, report, test, loose).map(|probed| {
+                let found = found(&probed.run);
+                (probed.inputs, probed.file, found)
+            })
+        }
         Probe::OneOperand(line) => {
             one_operand(data, report, test, line).map(|probed| {
                 let found = found(&probed.run);

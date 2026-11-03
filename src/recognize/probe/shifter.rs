@@ -28,7 +28,7 @@ pub fn shifter(
             Role::Control,
             report.inputs.iter().flat_map(|run| &run.bits),
         );
-        roles.mark(Role::A, &a.bits);
+        roles.mark(Role::Operand(0), &a.bits);
         roles.mark(Role::Output(0), &out.bits);
         match try_roles(data, &roles, Test::BarrelShifter, false)? {
             Ok((file, run)) => {

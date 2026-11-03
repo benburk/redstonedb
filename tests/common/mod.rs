@@ -30,10 +30,14 @@ pub async fn migrated(options: SqlitePoolOptions) -> SqlitePool {
     pool
 }
 
-/// The file of the fixture `name`, under `tests/fixtures`.
+/// The file of the fixture `name`, under `tests/fixtures`, carrying the
+/// roles its colours mark, as the fixtures are saved in the site's old
+/// colours; see `legacy::colour_roles`.
 pub fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(format!("tests/fixtures/{name}.schem"))
-        .expect("fixture is readable")
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem"))
+        .expect("fixture is readable");
+    app::recognize::legacy::with_colour_roles(&raw)
+        .expect("fixture carries its roles")
 }
 
 /// A conventional build's file kept where it lies: neither standardized

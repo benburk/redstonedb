@@ -1,5 +1,5 @@
 //! Testing a barrel shifter: A, the bits of an amount to shift it by, and
-//! lines choosing how. A magenta line signed with a number, as `1`, `2`, or
+//! lines choosing how. A control line signed with a number, as `1`, `2`, or
 //! `4`, is a bit of the amount, worth that number; the rest choose the
 //! shift, so each combination of them is tried on a few telling cases at
 //! every amount, and the shift it gives three cases in four, as A shifted
@@ -22,10 +22,7 @@ use super::{
     rng::Rng,
     timing,
 };
-use crate::{
-    recognize::{colour, interface::Interface},
-    schem::Blocks,
-};
+use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// A shift a barrel shifter may give, of A by the amount `n`, of `width`
 /// bits. On a tie, the one first in `Shift::ALL` is taken.
@@ -158,8 +155,7 @@ impl Shifter {
 /// signed with what each is worth; its other lines, choosing the shift;
 /// and its one output, as wide as A.
 fn ports(interface: &Interface) -> Result<Shifter> {
-    let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
+    let control = |i: &usize| interface.inputs[*i].control();
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {

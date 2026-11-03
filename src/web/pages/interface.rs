@@ -1,4 +1,4 @@
-//! A build's inputs and outputs as its file marks them, shown on its page
+//! A build's inputs and outputs as its roles mark them, shown on its page
 //! and on the details page.
 
 use maud::{Markup, html};
@@ -11,6 +11,7 @@ use crate::{
         colour,
         interface::{Bit, Interface, Port},
     },
+    schem::lines::Role,
     simulate::{InputTiming, OutputTiming, Strength, Timing},
 };
 
@@ -22,8 +23,8 @@ use super::{
 
 /// The lines a flag says are read inverted.
 pub(super) enum Inverts {
-    /// The input of this colour.
-    Input(&'static str),
+    /// The inputs of this role.
+    Input(Role),
     /// Every output.
     Outputs,
 }
@@ -37,7 +38,7 @@ pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
         (
             Kind::Adder | Kind::HexAdder | Kind::Subtractor,
             Flag::INVERTED_CARRY_IN,
-        ) => Inverts::Input(colour::CONTROL),
+        ) => Inverts::Input(Role::Control),
         (
             Kind::Register | Kind::Monostable | Kind::DualEdgeMonostable,
             "inverted",
@@ -53,10 +54,9 @@ fn inverted_by<'f>(
     port: &Port,
     input: bool,
 ) -> Option<&'f str> {
-    let coloured = |colour: &str| port.block.starts_with(colour);
     flags.iter().map(String::as_str).find(|flag| {
         match inverts(category, flag) {
-            Some(Inverts::Input(colour)) => input && coloured(colour),
+            Some(Inverts::Input(role)) => input && port.role == Some(role),
             Some(Inverts::Outputs) => !input,
             None => false,
         }
@@ -156,7 +156,7 @@ pub(super) fn interface_section(
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, true))) }
                                 @if let Some(strength) = strength {
-                                    @if entry.ports[0].block.starts_with(colour::CONTROL) {
+                                    @if entry.ports[0].control() {
                                         td class={ (TABLE_CELL) " text-muted" } { "—" }
                                     } @else {
                                         td class=(TABLE_CELL) { (strength.input) }
@@ -323,17 +323,14 @@ fn output_bits_strength<'a>(
         .map(|(_, bits)| bits.as_slice())
 }
 
-/// A line's name beside a swatch of its marking colour, with what else it
+/// A line's name beside a swatch of the colour the site shows its role in,
+/// see [`colour::shown`], with what else it
 /// takes, such as a strength or being inverted, beneath. With `opens`, the
 /// name is a button showing or hiding the rows those ids name.
 fn line_cell(entry: &PortEntry, input: bool, opens: Option<&str>) -> Markup {
     let port = entry.ports[0];
-    let dye = port
-        .block
-        .strip_suffix(" concrete")
-        .unwrap_or(&port.block)
-        .replace(' ', "_");
-    let [r, g, b, _] = blockrender::dye_color(&dye);
+    let dye = port.role.map_or("white", colour::shown);
+    let [r, g, b, _] = blockrender::dye_color(dye);
     let notes = notes(entry, input);
     html! {
         th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
@@ -489,7 +486,7 @@ fn ranges(numbers: &[u32]) -> String {
 
 /// Ports, by the word and colour numbered lines share; one apiece for any
 /// other port.
-type PortGroup<'p> = (Option<(String, String)>, Vec<&'p Port>);
+type PortGroup<'p> = (Option<(String, Option<Role>)>, Vec<&'p Port>);
 
 /// `ports` as entries, in order of first appearance, numbered lines
 /// gathered under their shared word.
@@ -501,7 +498,7 @@ fn port_entries(ports: &[Port]) -> Vec<PortEntry<'_>> {
     };
     let mut entries: Vec<PortGroup> = Vec::new();
     for port in ports {
-        let key = numbered(port).map(|(word, _)| (word, port.block.clone()));
+        let key = numbered(port).map(|(word, _)| (word, port.role));
         match entries.iter_mut().find(|(k, _)| key.is_some() && *k == key) {
             Some((_, group)) => group.push(port),
             None => entries.push((key, vec![port])),

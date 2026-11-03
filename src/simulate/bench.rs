@@ -12,10 +12,7 @@ use super::{
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
-use crate::{
-    recognize::{colour, interface::Interface},
-    schem::Blocks,
-};
+use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// Up to this many input bits, every combination is tried; beyond it, every
 /// case of each byte and every pairing of the test patterns.
@@ -441,7 +438,7 @@ type Flip = Option<(usize, Value)>;
 type Inversion = u64;
 
 /// Each way a bench's lines may read inverted, the fewest inverted first:
-/// each of its control lines, a magenta input such as a carry in or a
+/// each of its control lines, an input such as a carry in or a
 /// clock, inverted or not. Its data inputs and its outputs always read as
 /// they are, an inverted output being a wrong answer.
 fn inversions(bench: &Bench, interface: &Interface) -> Vec<Inversion> {
@@ -451,7 +448,7 @@ fn inversions(bench: &Bench, interface: &Interface) -> Vec<Inversion> {
     let lines: Vec<u64> = (0..bench.inputs.len())
         .filter(|&i| {
             let port = &interface.inputs[bench.inputs[i]];
-            port.block.starts_with(colour::CONTROL) && !port.signal_strength
+            port.control() && !port.signal_strength
         })
         .map(|i| 1 << i)
         .collect();
@@ -779,13 +776,16 @@ pub(super) fn judge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recognize::interface::{Bit, Port};
+    use crate::{
+        recognize::interface::{Bit, Port},
+        schem::lines::Role,
+    };
 
-    /// A port of `bits` bits named `name`, of `block`.
-    fn port(name: &str, block: &str, bits: usize) -> Port {
+    /// A port of `bits` bits named `name`, of `role`.
+    fn port(name: &str, role: Role, bits: usize) -> Port {
         Port {
             name: name.to_owned(),
-            block: block.to_owned(),
+            role: Some(role),
             labelled: false,
             bits: (0..bits)
                 .map(|_| Bit {
@@ -828,10 +828,10 @@ mod tests {
     fn a_control_line_may_read_inverted() {
         let run = judged(
             vec![
-                port("A", "lime concrete", 4),
-                port("increment", "magenta concrete", 1),
+                port("A", Role::Operand(0), 4),
+                port("increment", Role::Control, 1),
             ],
-            vec![port("output", "yellow concrete", 4)],
+            vec![port("output", Role::Output(0), 4)],
             &[Kind::new("A + increment", |case| case[0] + case[1])],
             |case| (case[0] + (case[1] ^ 1)) & 0xF,
         );
@@ -844,8 +844,8 @@ mod tests {
     #[test]
     fn a_data_input_never_reads_inverted() {
         let run = judged(
-            vec![port("A", "lime concrete", 4)],
-            vec![port("output", "yellow concrete", 4)],
+            vec![port("A", Role::Operand(0), 4)],
+            vec![port("output", Role::Output(0), 4)],
             &[Kind::new("A + 1", |case| case[0] + 1)],
             |case| ((!case[0] & 0xF) + 1) & 0xF,
         );
@@ -860,10 +860,10 @@ mod tests {
     fn an_output_never_reads_inverted() {
         let run = judged(
             vec![
-                port("A", "lime concrete", 2),
-                port("B", "light blue concrete", 2),
+                port("A", Role::Operand(0), 2),
+                port("B", Role::Operand(1), 2),
             ],
-            vec![port("A = B", "pink concrete", 1)],
+            vec![port("A = B", Role::Status, 1)],
             &[Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
             |case| Value::from(case[0] != case[1]),
         );
@@ -876,8 +876,8 @@ mod tests {
     fn a_decoders_selected_bit_is_off() {
         let interface = || {
             (
-                vec![port("A", "lime concrete", 2)],
-                vec![port("output", "yellow concrete", 4)],
+                vec![port("A", Role::Operand(0), 2)],
+                vec![port("output", Role::Output(0), 4)],
             )
         };
         let (inputs, outputs) = interface();
@@ -900,8 +900,8 @@ mod tests {
     fn a_parity_circuit_is_odd_or_even() {
         let interface = || {
             (
-                vec![port("A", "lime concrete", 4)],
-                vec![port("output", "yellow concrete", 1)],
+                vec![port("A", Role::Operand(0), 4)],
+                vec![port("output", Role::Output(0), 1)],
             )
         };
         let (inputs, outputs) = interface();

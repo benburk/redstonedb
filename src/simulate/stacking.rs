@@ -28,10 +28,7 @@ use super::{
 };
 use crate::{
     models::schematic::{Faces, Orientation, StackDirection},
-    recognize::{
-        colour,
-        interface::{self, Interface},
-    },
+    recognize::interface::{self, Interface},
     schem::{Blocks, Pos, stack},
 };
 
@@ -425,11 +422,10 @@ fn stacked(
             })?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
-    let control = format!("{} concrete", colour::CONTROL);
     let carries_in = interface
         .inputs
         .iter()
-        .filter(|port| port.block == control)
+        .filter(|port| port.control())
         .count();
     if carries_in > 1 {
         return Err("The carry does not pass between copies: each keeps its \

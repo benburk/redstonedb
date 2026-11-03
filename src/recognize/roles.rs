@@ -26,7 +26,7 @@ use anyhow::Result;
 
 use crate::{
     models::schematic::StackDirection,
-    recognize::{colour, interface},
+    recognize::interface,
     schem::{self, Blocks, Direction, Pos, stack},
     simulate::{Compiled, Link, compiled},
 };
@@ -152,12 +152,10 @@ pub fn roles(
     let mut found = BTreeMap::new();
     for (p, state) in file.iter() {
         let output = outputs.contains(&p);
-        let building = schem::short(state).ends_with("_concrete")
-            || schem::short(state).ends_with("glass");
-        if !building
-            || inputs.contains(&p)
-            || (output && !colour::is_output(schem::short(state)))
-        {
+        // Any building block, whatever its builder made it.
+        let kind = crate::schem::standardize::block_kind(schem::short(state));
+        let building = matches!(kind, Some("Solid" | "Transparent"));
+        if !building || inputs.contains(&p) {
             continue;
         }
         let mut uses = Vec::new();
@@ -170,7 +168,7 @@ pub fn roles(
         }
         uses.sort_unstable();
         uses.dedup();
-        let glass = schem::short(state).ends_with("glass");
+        let glass = kind == Some("Transparent");
         let need = match (holds, uses.is_empty(), glass) {
             // Air passes power and steps as glass does.
             (false, _, true) | (false, true, false) => Need::Unused,

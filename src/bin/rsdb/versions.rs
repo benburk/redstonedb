@@ -32,10 +32,10 @@ pub(super) struct Replace {
 
 #[derive(Args)]
 pub(super) struct Standardizing {
-    /// Whiten every block but redstone components, inputs, and outputs,
-    /// and turn slabs and glass into white stained glass, before linting;
-    /// adding also turns the build so A's levers face south, and mirrors it
-    /// when that reads right as what it seems to be
+    /// Probe it for its roles and take out what is no part of it, its
+    /// blocks keeping their colours, before linting; adding also turns the
+    /// build so A's levers face south, and mirrors it when that reads right
+    /// as what it seems to be
     #[arg(long)]
     standardize: bool,
 }

@@ -7,10 +7,7 @@ use anyhow::{Result, bail};
 
 use super::{Cell, Kind, Line, Read, Register, STRIDE, Shape};
 use crate::{
-    recognize::{
-        colour,
-        interface::{self, Interface},
-    },
+    recognize::interface::{self, Interface},
     schem::Blocks,
     simulate::{
         Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,
@@ -317,14 +314,13 @@ pub(super) fn ports(
     kind: Kind,
 ) -> Result<(Circuit, Register)> {
     let what = kind.category().facts().noun;
-    let control = format!("{} concrete", colour::CONTROL);
     let operands: Vec<usize> = (0..interface.inputs.len())
-        .filter(|&i| interface.inputs[i].block != control)
+        .filter(|&i| !interface.inputs[i].control())
         .collect();
     let &[data] = operands.as_slice() else {
         broken!(
             "A {what} takes one data bus, but this has {} inputs besides its \
-             magenta lines.",
+             control lines.",
             operands.len()
         );
     };
@@ -350,7 +346,7 @@ pub(super) fn ports(
         }
     }
     let controls: Vec<usize> = (0..interface.inputs.len())
-        .filter(|&i| interface.inputs[i].block == control)
+        .filter(|&i| interface.inputs[i].control())
         .collect();
     let mut circuit = Circuit::new(blocks, interface)?;
     circuit.settle()?;

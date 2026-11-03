@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic_version SET data = ?,\n                    needs = iif(sha256 = ?, needs, NULL), sha256 = ?,\n                    roles = coalesce(?, iif(sha256 = ?, roles, NULL))\n                 WHERE schematic_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "d1592d48a8b870bb60ae4428aafdaffcd7713bd40cfc62d0bfb1fb4af16d57ce"
+}

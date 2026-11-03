@@ -259,6 +259,8 @@ pub(super) async fn export(
     } else {
         data
     };
+    // As it is stored, in its builder's colours, without its roles.
+    let data = app::schem::lines::without(&data)?;
     let path = out.join(s.filename());
     fs::File::create_new(&path)
         .with_context(|| format!("cannot create {}", path.display()))?

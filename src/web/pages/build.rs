@@ -948,11 +948,6 @@ fn download_dialog(
                             }
                         }
                     }
-                    @if colours.original && !s.stacking.is_empty() {
-                        span class="message text-meta text-muted" {
-                            "Original colours come on one copy; copies stacked come in Default."
-                        }
-                    }
                 }
                 }
                 // Where custom colours' editor comes in.

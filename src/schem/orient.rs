@@ -124,11 +124,10 @@ fn wrong(blocks: &Blocks) -> Option<u64> {
 /// none, as its dust may be entered from any side.
 fn entered(blocks: &Blocks) -> Option<Direction> {
     let found = interface::read(blocks);
-    let a = found.inputs.iter().find(|port| {
-        !port.labelled
-            && port.block.starts_with("lime")
-            && !port.signal_strength
-    });
+    let a = found
+        .inputs
+        .iter()
+        .find(|port| !port.labelled && port.a() && !port.signal_strength);
     let ports: Vec<_> = match a {
         Some(a) => vec![a],
         None => found
@@ -193,6 +192,7 @@ pub fn turned(data: &[u8], turn: Turn) -> Result<Vec<u8>> {
             Some(schem::with_pos(entity, place(schem::entity_pos(entity)?)))
         })
         .collect();
+    nbt.move_roles(|pos| Some(place(pos)));
     nbt.write_blocks([0, 0, 0], size, &grid, entities)?;
     schem::encode(nbt)
 }

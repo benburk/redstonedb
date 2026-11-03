@@ -23,7 +23,6 @@ use mchprs_world::{World, testing::TestWorld};
 use super::{Broken, Value};
 use crate::{
     recognize::{
-        colour,
         interface::{Interface, Port},
         repeater_outputs,
     },
@@ -572,7 +571,7 @@ impl Circuit {
 /// Whether an output of a build with a signal-strength input shows a digit
 /// per block: any but a status line, such as a carry out.
 fn shows_digits(port: &Port) -> bool {
-    !port.block.starts_with(colour::STATUS)
+    !port.status()
 }
 
 /// How many bits input `port` carries: four for each block of a
@@ -1165,15 +1164,23 @@ fn block(state: &str) -> Result<Block> {
         );
     // Any other full block that carries power, such as wool, terracotta,
     // or stone, does as concrete does.
+    // And a slab, stairs, or glowstone, which redstone sees through, as
+    // glass does.
     let id = if !known
         && !crate::schem::block::is_component(name)
         && crate::schem::block::solid(state)
     {
         "minecraft:white_concrete"
+    } else if !known && crate::schem::block::like_glass(name) {
+        "minecraft:white_stained_glass"
     } else {
         id
     };
-    let known = known || id == "minecraft:white_concrete";
+    let known = known
+        || matches!(
+            id,
+            "minecraft:white_concrete" | "minecraft:white_stained_glass"
+        );
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         bail!("Couldn't simulate its {}.", name.replace('_', " "));
     };

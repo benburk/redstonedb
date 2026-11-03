@@ -70,8 +70,8 @@ pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, Fault> {
     let mut why = Fault::Unfit(String::new());
     for (a, b) in [(first, second), (second, first)] {
         let mut roles = Roles::default();
-        roles.mark(Role::A, &a.bits);
-        roles.mark(Role::B, &b.bits);
+        roles.mark(Role::Operand(0), &a.bits);
+        roles.mark(Role::Operand(1), &b.bits);
         roles.mark(Role::Control, &controls);
         roles.mark(Role::Output(0), &out.bits);
         roles.mark(Role::Status, &status);

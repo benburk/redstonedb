@@ -13,11 +13,15 @@ use std::{
 
 use crate::{
     recognize::{
-        colour,
+        colour::{self, CONTROL, INPUT_COLOURS, OUTPUT_COLOURS, STATUS},
         inspect::{self, Problem, Report},
         interface::{self, Feed, Interface},
+        repeater_outputs,
     },
-    schem::{self, Blocks, Direction, Pos, block},
+    schem::{
+        self, Blocks, Direction, Pos, block,
+        lines::{Role, Roles},
+    },
 };
 
 thread_local! {
@@ -68,7 +72,7 @@ impl Marks<'_> {
 pub const UPLOAD: Marks<'static> = Marks::Any;
 
 /// The blocks the site marked outputs with in the files it kept: each
-/// output colour and the status colour, see [`colour::is_output`], of
+/// output colour and the status colour, see [`is_output`], of
 /// concrete or stained glass.
 pub const SITE: Marks<'static> = Marks::Kinds(&[
     "yellow_concrete",
@@ -192,7 +196,7 @@ pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<Direction>> {
     blocks
         .iter()
         .filter(|&(pos, state)| {
-            colour::is_input(schem::short(state))
+            is_input(schem::short(state))
                 && !switched.contains(&pos)
                 && schem::short(blocks.get(schem::step(pos, Direction::Up)))
                     == "redstone_wire"
@@ -228,11 +232,145 @@ pub fn read(blocks: &Blocks) -> Interface {
     let outputs: Vec<Pos> = blocks
         .iter()
         .filter(|(pos, state)| {
-            !feeds.contains_key(pos) && colour::is_output(schem::short(state))
+            !feeds.contains_key(pos) && is_output(schem::short(state))
         })
         .map(|(pos, _)| pos)
         .collect();
-    interface::read_from(blocks, &feeds, outputs)
+    let roles = marked(blocks, feeds.keys().chain(&outputs).copied());
+    interface::read_from(blocks, &feeds, outputs, &roles)
+}
+
+/// The roles the colours of the blocks at `positions` marked, as the site
+/// coloured them before it kept roles apart from a build's blocks: lime,
+/// light blue, cyan, and blue its operands, magenta a control line,
+/// yellow, orange, and brown its output buses, and pink a status line.
+/// A block of any other colour marks none.
+fn marked(blocks: &Blocks, positions: impl IntoIterator<Item = Pos>) -> Roles {
+    let mut roles = Roles::default();
+    for pos in positions {
+        if let Some(role) = mark(blocks.get(pos)) {
+            roles.mark(role, [&pos]);
+        }
+    }
+    roles
+}
+
+/// The role the colour of `state` marked; see [`marked`].
+fn mark(state: &str) -> Option<Role> {
+    let name = schem::short(state);
+    let colour = name
+        .strip_suffix("_concrete")
+        .or_else(|| name.strip_suffix("_stained_glass"))?;
+    let place = |colours: &[&str]| {
+        colours
+            .iter()
+            .position(|c| *c == colour)
+            .and_then(|n| u8::try_from(n).ok())
+    };
+    if colour == CONTROL {
+        Some(Role::Control)
+    } else if colour == STATUS {
+        Some(Role::Status)
+    } else if let Some(n) = place(&INPUT_COLOURS) {
+        Some(Role::Operand(n))
+    } else {
+        place(&OUTPUT_COLOURS).map(Role::Output)
+    }
+}
+
+/// The roles a file in the site's old colours marks on the blocks the rule
+/// for inputs and outputs finds, as a stored build's file was coloured
+/// before the site kept its roles apart, and as the test fixtures are:
+/// each lever's or button's block and each block under a signal-strength
+/// input's comparator by its input colour, and each block under an output
+/// by its output colour. `None` for a file the site never coloured, none
+/// of its signal-strength inputs or outputs on a block of a role colour.
+/// How `rsdb convert` carries an old build's roles to its port.
+pub fn colour_roles(blocks: &Blocks) -> Option<Roles> {
+    let held = |at: Pos| at[1] > 0;
+    let digits: Vec<Pos> = repeater_outputs::strength_inputs(blocks)
+        .into_iter()
+        .filter(|input| held(input.at))
+        .map(|input| schem::step(input.at, Direction::Down))
+        .collect();
+    let outputs: Vec<Pos> = repeater_outputs::find(blocks)
+        .into_iter()
+        .filter(|output| held(output.at))
+        .map(repeater_outputs::Output::block)
+        .collect();
+    let input = |pos: &Pos| mark(blocks.get(*pos)).is_some_and(Role::input);
+    let output = |pos: &Pos| mark(blocks.get(*pos)).is_some_and(|r| !r.input());
+    if !digits.iter().any(input) && !outputs.iter().any(output) {
+        return None;
+    }
+    let levered: HashSet<Pos> = blocks
+        .switches()
+        .iter()
+        .map(|switch| switch.block)
+        .collect();
+    let inputs = digits.into_iter().filter(input).chain(levered.clone());
+    let mut roles = marked(blocks, inputs);
+    roles.0.retain(|_, role| role.input());
+    let outputs = outputs
+        .into_iter()
+        .filter(|pos| output(pos) && !levered.contains(pos));
+    roles.0.extend(marked(blocks, outputs).0);
+    // A status line older builds marked on an output bus's colour, its sign
+    // naming a status output, as the site turned them pink.
+    for (pos, lines) in interface::line_signs(blocks) {
+        if roles.get(pos).is_some_and(|role| !role.input())
+            && interface::sign_name(lines)
+                .is_some_and(|name| colour::is_status_name(&name))
+        {
+            roles.mark(Role::Status, [&pos]);
+        }
+    }
+    Some(roles)
+}
+
+/// The file in `data` carrying the roles its colours mark, as
+/// [`colour_roles`] reads them, in place of any it carried; as it was for
+/// a file the site never coloured.
+pub fn with_colour_roles(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    match colour_roles(&blocks) {
+        Some(roles) => schem::lines::with(data, Some(&roles)),
+        None => Ok(data.to_vec()),
+    }
+}
+
+/// Whether a block id without its namespace, such as `lime_concrete`, is
+/// an input colour of concrete, which marked an input's role once a lever
+/// was on it.
+pub fn is_input(block: &str) -> bool {
+    block.strip_suffix("_concrete").is_some_and(|colour| {
+        colour == CONTROL || INPUT_COLOURS.contains(&colour)
+    })
+}
+
+/// The input colour a block marked an input's role with, such as `lime`
+/// for lime stained glass: concrete, or stained glass for a
+/// signal-strength input's comparator standing on glass.
+pub fn input_mark(block: &str) -> Option<&str> {
+    block
+        .strip_suffix("_concrete")
+        .or_else(|| block.strip_suffix("_stained_glass"))
+        .filter(|colour| *colour == CONTROL || INPUT_COLOURS.contains(colour))
+}
+
+/// Whether a block id without its namespace marked an output: yellow,
+/// orange, brown, or pink concrete or stained glass.
+pub fn is_output(block: &str) -> bool {
+    output_colour(block).is_some()
+}
+
+/// The colour of an output block, such as `yellow` for yellow stained
+/// glass; `None` for any other block.
+pub fn output_colour(block: &str) -> Option<&str> {
+    block
+        .strip_suffix("_concrete")
+        .or_else(|| block.strip_suffix("_stained_glass"))
+        .filter(|colour| *colour == STATUS || OUTPUT_COLOURS.contains(colour))
 }
 
 /// Every input block the old rule read, with what feeds it: a lever or
@@ -282,7 +420,7 @@ mod tests {
             panic!("the site's marks are its colours");
         };
         for kind in kinds {
-            assert!(colour::is_output(kind), "{kind}");
+            assert!(is_output(kind), "{kind}");
             assert_eq!(lone_outputs(kind, SITE), 1, "{kind}");
         }
         for block in ["light_gray_stained_glass", "lime_concrete", "stone"] {

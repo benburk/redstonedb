@@ -4,7 +4,7 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use crate::import::Prepared;
+use crate::{import::Prepared, recognize::interface::Kept};
 
 /// One version, without its file.
 pub struct Version {
@@ -98,17 +98,80 @@ pub async fn colours(
         .and_then(|row| serde_json::from_str(row.colours.as_deref()?).ok()))
 }
 
-/// Build `id`'s current file: its highest version's.
+/// Build `id`'s current file, its highest version's, carrying the roles
+/// kept with it, as every reading of its lines takes them; see
+/// [`crate::schem::lines`]. A version whose roles are not yet found
+/// carries none, and `simulation::refresh` finds them.
 pub async fn current_file<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
-    sqlx::query_scalar!(
-        r#"SELECT data as "data!" FROM current_file WHERE schematic_id = ?"#,
+    let row = sqlx::query!(
+        r#"SELECT data as "data!", roles FROM current_file
+         WHERE schematic_id = ?"#,
         id
     )
     .fetch_optional(db)
-    .await
+    .await?;
+    row.map(|row| carrying(row.data, row.roles.as_deref()))
+        .transpose()
+}
+
+/// The file `data` carrying the roles kept with it, `roles`, as JSON
+/// [`Kept`] writes; as it is with none.
+pub fn carrying(
+    data: Vec<u8>,
+    roles: Option<&str>,
+) -> Result<Vec<u8>, sqlx::Error> {
+    let Some(json) = roles else {
+        return Ok(data);
+    };
+    let decode = |err: anyhow::Error| sqlx::Error::Decode(err.into());
+    let kept: Kept = serde_json::from_str(json)
+        .map_err(|err| decode(anyhow::anyhow!("its roles: {err}")))?;
+    crate::schem::lines::with(&data, Some(&kept.roles())).map_err(decode)
+}
+
+/// The roles of `file`'s lines as its version keeps them, JSON of
+/// [`Kept`], when it carries any.
+fn roles_json(file: &Prepared) -> Option<String> {
+    let kept = Kept::read(&file.blocks)?;
+    Some(serde_json::to_string(&kept).expect("lines are JSON"))
+}
+
+/// The file as its version keeps it, without the roles it carries.
+fn stored(file: &Prepared) -> Result<Vec<u8>, sqlx::Error> {
+    file.stored()
+        .map_err(|err| sqlx::Error::Encode(err.into_boxed_dyn_error()))
+}
+
+/// Keeps the roles the file `data`, build `id`'s current one, carries as
+/// those of its version, as `simulation::refresh` does for one whose
+/// roles were not yet found.
+pub async fn set_current_roles<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    data: &[u8],
+) -> Result<(), sqlx::Error> {
+    let blocks = crate::schem::Blocks::read(data)
+        .map_err(|err| sqlx::Error::Decode(err.into()))?;
+    let Some(kept) = Kept::read(&blocks) else {
+        return Ok(());
+    };
+    let json = serde_json::to_string(&kept).expect("lines are JSON");
+    sqlx::query!(
+        "UPDATE schematic_version SET roles = ?
+         WHERE schematic_id = ? AND version = (
+             SELECT max(version) FROM schematic_version AS newest
+             WHERE newest.schematic_id = ?
+         )",
+        json,
+        id,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// The build and version whose file has the hash `sha256`, if any is
@@ -134,15 +197,18 @@ pub(super) async fn first(
     added_by: Option<Uuid>,
     added_from: Option<&str>,
 ) -> Result<(), sqlx::Error> {
+    let (data, roles) = (stored(file)?, roles_json(file));
     sqlx::query!(
         "INSERT INTO schematic_version
-            (schematic_id, version, data, sha256, added_by, added_from)
-         VALUES (?, 1, ?, ?, ?, ?)",
+            (schematic_id, version, data, sha256, added_by, added_from,
+            roles)
+         VALUES (?, 1, ?, ?, ?, ?, ?)",
         id,
-        file.data,
+        data,
         file.sha256,
         added_by,
-        added_from
+        added_from,
+        roles
     )
     .execute(&mut *tx)
     .await?;
@@ -174,6 +240,7 @@ pub async fn replace(
     file: &Prepared,
     how: Replacing<'_>,
 ) -> Result<i64, sqlx::Error> {
+    let (data, roles) = (stored(file)?, roles_json(file));
     let mut tx = db.begin().await?;
     let current = sqlx::query_scalar!(
         r#"SELECT coalesce(max(version), 0) as "version!: i64"
@@ -192,15 +259,16 @@ pub async fn replace(
             sqlx::query!(
                 "INSERT INTO schematic_version
                     (schematic_id, version, data, sha256, added_by,
-                    added_from, note)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    added_from, note, roles)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 id,
                 version,
-                file.data,
+                data,
                 file.sha256,
                 added_by,
                 added_from,
-                note
+                note,
+                roles
             )
             .execute(&mut *tx)
             .await?;
@@ -211,10 +279,13 @@ pub async fn replace(
         Replacing::InPlace => {
             sqlx::query!(
                 "UPDATE schematic_version SET data = ?,
-                    needs = iif(sha256 = ?, needs, NULL), sha256 = ?
+                    needs = iif(sha256 = ?, needs, NULL), sha256 = ?,
+                    roles = coalesce(?, iif(sha256 = ?, roles, NULL))
                  WHERE schematic_id = ? AND version = ?",
-                file.data,
+                data,
                 file.sha256,
+                file.sha256,
+                roles,
                 file.sha256,
                 id,
                 current

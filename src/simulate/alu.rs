@@ -184,8 +184,7 @@ struct Alu {
 /// control line is named so, the other control lines, its outputs, and its
 /// status lines whose meaning is plain.
 fn ports(interface: &Interface) -> Result<Alu> {
-    let control =
-        |i: &usize| interface.inputs[*i].block.starts_with(colour::CONTROL);
+    let control = |i: &usize| interface.inputs[*i].control();
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a, b] = operands.as_slice() else {
@@ -219,8 +218,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
             "An ALU has control lines choosing its operation, but this has none."
         );
     }
-    let status =
-        |i: &usize| interface.outputs[*i].block.starts_with(colour::STATUS);
+    let status = |i: &usize| interface.outputs[*i].status();
     let (statuses, data): (Vec<usize>, Vec<usize>) =
         (0..interface.outputs.len()).partition(status);
     let data_bits: usize = data

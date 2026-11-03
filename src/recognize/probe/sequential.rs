@@ -64,7 +64,7 @@ pub fn sequential(
         .flat_map(|run| run.bits.clone())
         .collect();
     let mut roles = Roles::default();
-    roles.mark(Role::A, &a);
+    roles.mark(Role::Operand(0), &a);
     roles.mark(Role::Control, &controls);
     roles.mark(Role::Output(0), &held.bits);
     roles.mark(Role::Status, &status);

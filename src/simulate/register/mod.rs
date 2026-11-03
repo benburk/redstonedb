@@ -1,11 +1,11 @@
 //! Testing a register: one or more cells of a CPU's register file. A cell
-//! takes the data bus, lime input A, when its write button is pressed, and
-//! puts what it holds on an output bus, yellow, while its read lever is
-//! on, and nothing otherwise, since every cell shares the bus. A dual-read
-//! cell has two read levers, each with its own output bus.
+//! takes the data bus, input A, when its write button is pressed, and
+//! puts what it holds on an output bus while its read lever is on, and
+//! nothing otherwise, since every cell shares the bus. A dual-read cell has
+//! two read levers, each with its own output bus.
 //!
-//! Every control line is magenta: one with a button is a write, and one
-//! with a lever a read. Which read belongs to which write is found by
+//! Of its control lines, one with a button is a write, and one with a
+//! lever a read. Which read belongs to which write is found by
 //! writing each cell alone and seeing which reads show it; when that is
 //! unclear, as when reads are not gated, they pair in order, and the cases
 //! show what is wrong.
@@ -23,7 +23,7 @@
 //! register, sharing the control lines; see `stacking`.
 //!
 //! A buffer is a register without reads: each cell shows what it holds on
-//! its own output bus all the time. Its magenta lines are writes, by a
+//! its own output bus all the time. Its control lines are writes, by a
 //! button, or by a lever when none has a button, and which bus is whose is
 //! found by writing each cell alone. Each value is written into every
 //! cell, then the data bus changes, and each bus must still show its
@@ -47,7 +47,7 @@ mod timing;
 pub use throughput::{stacking, stacks_at, throughput};
 pub use timing::time;
 
-/// One magenta line, by its port and bit, where its block is, and whether
+/// One control line, by its port and bit, where its block is, and whether
 /// a button drives it rather than a lever.
 #[derive(Clone, Copy, Debug)]
 struct Line {

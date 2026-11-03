@@ -19,10 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     category::{self, Kind},
-    recognize::{
-        colour,
-        interface::{self, Interface},
-    },
+    recognize::interface::{self, Interface},
     schem::{Blocks, Pos},
 };
 
@@ -1014,7 +1011,7 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
     let names_ops = interface::read(blocks)
         .inputs
         .iter()
-        .filter(|port| port.block.starts_with(colour::CONTROL))
+        .filter(|port| port.control())
         .flat_map(|port| port.words.iter())
         .any(|word| alu::Op::named(word).is_some());
     // Inputs taking a hex digit per block, a signal strength, are a hex

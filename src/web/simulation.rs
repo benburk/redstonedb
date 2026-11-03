@@ -25,7 +25,6 @@ use crate::{
         schematic,
         simulation::{self, Status},
         user::User,
-        version,
     },
     simulate::{Report, Test},
     web::{app_state::AppState, error::AppError},
@@ -246,9 +245,7 @@ async fn stored_file(
     if !user.is_some_and(|user| user.may_edit(&s)) {
         return Err(AppError::Forbidden);
     }
-    let data = version::current_file(&state.db, id)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let data = simulation::current_file(&state.db, &s).await?;
     Ok((s, data))
 }
 

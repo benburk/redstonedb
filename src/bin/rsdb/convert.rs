@@ -37,7 +37,7 @@ use app::{
     import,
     models::{schematic, simulation},
     recognize::{
-        colour, inspect,
+        inspect,
         interface::{self, Interface},
         legacy, probe,
         repeater_outputs::{self, Fed, Output, Signed, StrengthInput, Tapped},
@@ -1355,7 +1355,7 @@ fn keep_roles(
             continue;
         };
         let Some(colour) =
-            colour::output_colour(schem::short(original.get(tapped.block())))
+            legacy::output_colour(schem::short(original.get(tapped.block())))
         else {
             continue;
         };
@@ -1385,7 +1385,7 @@ fn keep_roles(
             Fed::Not { .. } => continue,
         };
         let Some(colour) =
-            colour::input_mark(schem::short(original.get(input.pad())))
+            legacy::input_mark(schem::short(original.get(input.pad())))
         else {
             continue;
         };
@@ -1418,7 +1418,7 @@ fn test_copy(
         };
         let block = tapped.block();
         let Some(colour) =
-            colour::output_colour(schem::short(original.get(block)))
+            legacy::output_colour(schem::short(original.get(block)))
         else {
             continue;
         };
@@ -1489,7 +1489,7 @@ fn on_off_outputs(lines: &Interface, after: &Blocks) -> Vec<bool> {
         .iter()
         .map(|port| {
             digits
-                && !port.block.starts_with(colour::STATUS)
+                && !port.status()
                 && port.bits.iter().all(|bit| {
                     let top = schem::step(bit.pos, Direction::Up);
                     schem::short(after.get(top)) == "repeater"

@@ -213,11 +213,17 @@ fn probing_a_hex_adder_finds_its_digits() {
     let lines = app::recognize::interface::read(
         &app::schem::Blocks::read(&recognition.file).unwrap(),
     );
-    let digits: Vec<(&str, usize)> = lines
+    let digits: Vec<_> = lines
         .inputs
         .iter()
         .filter(|port| port.signal_strength)
-        .map(|port| (port.block.as_str(), port.bits.len()))
+        .map(|port| (port.role, port.bits.len()))
         .collect();
-    assert_eq!(digits, [("lime concrete", 8), ("light blue concrete", 8)]);
+    assert_eq!(
+        digits,
+        [
+            (Some(app::schem::lines::Role::Operand(0)), 8),
+            (Some(app::schem::lines::Role::Operand(1)), 8),
+        ]
+    );
 }

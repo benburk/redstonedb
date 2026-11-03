@@ -303,7 +303,54 @@ impl Nbt {
         fields.insert("Palette".to_owned(), Value::Compound(palette));
         fields.insert("BlockEntities".to_owned(), Value::List(entities));
         self.shift_paste(low);
+        // A role goes with its block, which the caller has put in the new
+        // box with its roles.
+        if let Some(roles) = self.roles() {
+            let kept =
+                roles.moved(|pos| grid.contains_key(&pos).then_some(pos));
+            self.set_roles(Some(&kept));
+        }
         Ok(())
+    }
+
+    /// Moves the roles the file carries by `to`, as its blocks move, those
+    /// it sends nowhere left out.
+    pub fn move_roles(&mut self, to: impl Fn(Pos) -> Option<Pos>) {
+        if let Some(roles) = self.roles() {
+            self.set_roles(Some(&roles.moved(to)));
+        }
+    }
+
+    /// The roles the file carries while it is worked on, if any; see
+    /// [`super::lines`].
+    pub fn roles(&self) -> Option<super::lines::Roles> {
+        let Some(Value::Compound(metadata)) = self.body.get("Metadata") else {
+            return None;
+        };
+        let Some(Value::String(json)) = metadata.get(super::lines::KEY) else {
+            return None;
+        };
+        serde_json::from_str(json).ok()
+    }
+
+    /// Makes the file carry `roles`, or none with `None`.
+    pub fn set_roles(&mut self, roles: Option<&super::lines::Roles>) {
+        let json = roles.map(|roles| {
+            serde_json::to_string(roles).expect("positions and roles are JSON")
+        });
+        match json {
+            Some(json) => {
+                self.metadata()
+                    .insert(super::lines::KEY.to_owned(), Value::String(json));
+            }
+            None => {
+                if let Some(Value::Compound(metadata)) =
+                    self.body.get_mut("Metadata")
+                {
+                    metadata.remove(super::lines::KEY);
+                }
+            }
+        }
     }
 
     /// The `Metadata` compound, made if missing.

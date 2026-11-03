@@ -80,7 +80,7 @@ pub fn register(
             continue;
         }
         let mut roles = Roles::default();
-        roles.mark(Role::A, &bus.bits);
+        roles.mark(Role::Operand(0), &bus.bits);
         roles.mark(Role::Control, &controls);
         roles.mark(Role::Output(0), &out.bits);
         match try_roles(data, &roles, test, true)? {

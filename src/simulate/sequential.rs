@@ -26,11 +26,7 @@ use super::{
     circuit::{Circuit, MAX_TICKS},
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
-use crate::{
-    category,
-    recognize::{colour, interface},
-    schem::Blocks,
-};
+use crate::{category, recognize::interface, schem::Blocks};
 
 /// Which kind of build a test takes it for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -168,7 +164,7 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
                 kind.noun()
             );
         }
-        if port.block.starts_with(colour::CONTROL) {
+        if port.control() {
             if port.bits.len() != 1 {
                 broken!(
                     "Control line {} has {} bits; each is one.",
@@ -189,7 +185,7 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
         .outputs
         .iter()
         .enumerate()
-        .filter(|(_, port)| !port.block.starts_with(colour::STATUS))
+        .filter(|(_, port)| !port.status())
         .max_by_key(|(_, port)| port.bits.len())
     else {
         broken!("A {} shows the value it holds on an output.", kind.noun());

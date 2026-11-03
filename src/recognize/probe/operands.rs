@@ -2,7 +2,9 @@
 //! lines split into A and B however they run, and its output line as wide
 //! as each, or one bit, each way coloured and run through its test.
 
-use super::{Fault, Role, Roles, lengths, ordered, split, try_roles};
+use super::{
+    Fault, Role, Roles, lengths, ordered, split, stray_operands, try_roles,
+};
 use crate::{
     recognize::inspect::{self, Run},
     schem::Pos,
@@ -25,11 +27,15 @@ pub struct OperandsProbed {
 /// each way coloured and run through the test. A carry out's lone lever
 /// left over, if any, is its carry in. A greater-than comparator's
 /// operands are tried both ways round; any other's give the same either
-/// way. Or why it isn't one.
+/// way. With `loose`, for a build kept as built, A and B may each take one
+/// of the bits left over beside two runs as wide as each other, as
+/// [`super::adder_loosely`] reads them, where no other split fits. Or why
+/// it isn't one.
 pub fn operands_probe(
     data: &[u8],
     report: &inspect::Report,
     test: Test,
+    loose: bool,
 ) -> Result<OperandsProbed, Fault> {
     // A NAND+XNOR gate has two outputs, its NAND and its XNOR, either way
     // round; any other one.
@@ -77,6 +83,16 @@ pub fn operands_probe(
             );
         }
     }
+    if loose && splits.is_empty() {
+        let width = levers / 2;
+        if out.bits.len() == if gate { width } else { 1 } {
+            splits.extend(
+                stray_splits(&report.inputs, levers)
+                    .into_iter()
+                    .map(|(a, b)| (a, b, None)),
+            );
+        }
+    }
     if splits.is_empty() {
         return Err(Fault::Unfit(format!(
             "Lines: inputs {}, output {}, need A and B of one width and \
@@ -96,8 +112,8 @@ pub fn operands_probe(
     let mut why = Fault::Unfit(String::new());
     for (a, b, carry) in splits {
         let mut roles = Roles::default();
-        roles.mark(Role::A, &a);
-        roles.mark(Role::B, &b);
+        roles.mark(Role::Operand(0), &a);
+        roles.mark(Role::Operand(1), &b);
         roles.mark(Role::Control, &carry);
         roles.outputs(outs.iter().map(|run| run.bits.as_slice()));
         match try_roles(data, &roles, test, false)? {
@@ -112,6 +128,27 @@ pub fn operands_probe(
         }
     }
     Err(why)
+}
+
+/// Each way the input `runs` could be two operands of `levers` bits in all,
+/// each a run with one of the bits left over, as [`stray_operands`] finds
+/// them, once whichever is which.
+fn stray_splits(runs: &[Run], levers: usize) -> Vec<(Vec<Pos>, Vec<Pos>)> {
+    let mut splits: Vec<(Vec<Pos>, Vec<Pos>)> = stray_operands(runs)
+        .into_iter()
+        .filter(|(a, _, carry)| carry.is_none() && a.len() * 2 == levers)
+        .map(|(mut a, mut b, _)| {
+            a.sort_unstable();
+            b.sort_unstable();
+            if b < a {
+                std::mem::swap(&mut a, &mut b);
+            }
+            (a, b)
+        })
+        .collect();
+    splits.sort();
+    splits.dedup();
+    splits
 }
 
 /// Each way the input `runs` could be two operands, A and B, `width` bits each,

@@ -13,7 +13,8 @@ use app::{
 fn stored(name: &str) -> Vec<u8> {
     let tidied =
         standardize::tidy(&common::fixture(name)).expect("fixture tidies");
-    standardize::pink_status(&tidied).expect("fixture recolours")
+    app::recognize::legacy::with_colour_roles(&tidied)
+        .expect("fixture carries its roles")
 }
 
 /// `data` with the block at `pos` replaced by `state`.

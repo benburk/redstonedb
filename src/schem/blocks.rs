@@ -12,8 +12,20 @@ use super::{
     AIR, Pos,
     direction::{Direction, step},
     entity::{comparator, container, sign},
+    lines::{KEY, Roles},
     nbt::{Size, body, dimension, varints},
 };
+
+/// The roles the schematic's fields `body` carry, if any.
+fn roles(body: &HashMap<String, Value>) -> Option<Roles> {
+    let Some(Value::Compound(metadata)) = body.get("Metadata") else {
+        return None;
+    };
+    let Some(Value::String(json)) = metadata.get(KEY) else {
+        return None;
+    };
+    serde_json::from_str(json).ok()
+}
 
 /// A schematic's blocks and sign text, by position.
 pub struct Blocks {
@@ -29,6 +41,10 @@ pub struct Blocks {
     /// such as `minecraft:redstone`, and count. A comparator reads how full
     /// it is.
     pub containers: HashMap<Pos, Vec<(String, u32)>>,
+    /// The roles the file carries, which probing found or the database
+    /// keeps with its version; `None` for a file carrying none, whose
+    /// roles are read from its shapes. See [`super::lines`].
+    pub roles: Option<Roles>,
 }
 
 impl Blocks {
@@ -82,6 +98,7 @@ impl Blocks {
             signs: entities.iter().filter_map(sign).collect(),
             comparators: entities.iter().filter_map(comparator).collect(),
             containers: entities.iter().filter_map(container).collect(),
+            roles: roles(&body),
         })
     }
 
@@ -108,6 +125,7 @@ impl Blocks {
             signs: HashMap::new(),
             comparators: HashMap::new(),
             containers: HashMap::new(),
+            roles: None,
         }
     }
 

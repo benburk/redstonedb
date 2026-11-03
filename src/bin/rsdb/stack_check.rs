@@ -5,6 +5,7 @@
 //! of its kind's copies, at the step asked. Nothing here writes to the
 //! database.
 
+use app::schem::lines::Role;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
@@ -426,25 +427,25 @@ fn print_verdict(
     );
 }
 
-/// The adder layout the colours of the file in `data` mark: A lime, B light
-/// blue, a carry in magenta, the sum yellow, a carry out pink, each bus
-/// least significant bit first as the site reads it.
+/// The adder layout the roles the file in `data` carries mark: A, B, a
+/// carry in its control line, the sum its output, and a carry out its
+/// status line, each bus least significant bit first as the site reads it.
 fn coloured_layout(data: &[u8]) -> Result<Layout> {
     let lines = interface::read(&Blocks::read(data)?);
-    let bits = |ports: &[interface::Port], colour: &str| -> Vec<Pos> {
+    let bits = |ports: &[interface::Port], role: Role| -> Vec<Pos> {
         ports
             .iter()
-            .filter(|port| port.block.starts_with(colour))
+            .filter(|port| port.role == Some(role))
             .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
             .collect()
     };
     let one = |bits: Vec<Pos>| bits.first().copied();
     Ok(Layout {
-        a: bits(&lines.inputs, "lime"),
-        b: bits(&lines.inputs, "light blue"),
-        carry_in: one(bits(&lines.inputs, "magenta")),
-        sum: bits(&lines.outputs, "yellow"),
-        carry_out: one(bits(&lines.outputs, "pink")),
+        a: bits(&lines.inputs, Role::Operand(0)),
+        b: bits(&lines.inputs, Role::Operand(1)),
+        carry_in: one(bits(&lines.inputs, Role::Control)),
+        sum: bits(&lines.outputs, Role::Output(0)),
+        carry_out: one(bits(&lines.outputs, Role::Status)),
     })
 }
 

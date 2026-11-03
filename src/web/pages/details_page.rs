@@ -413,7 +413,7 @@ fn recognition_check(
     html! {
         @if let Some(found) = recognized {
             (check("recognized", State::Pass, &html! {
-                "Recognized as " (found) ". Its inputs and outputs are coloured in for it."
+                "Recognized as " (found) ". What each of its lines is for is kept with it, and shown in the site's colours or your theme."
                 @if !lines.is_empty() { p class="mt-1 text-meta text-muted" { (lines) } }
             }, false))
         } @else {

@@ -28,14 +28,17 @@ use crate::{
 
 /// A file made ready to store.
 pub struct Prepared {
+    /// The file as it is worked on, carrying its roles, if any; see
+    /// [`Prepared::stored`] for the file as it is kept.
     pub data: Vec<u8>,
     pub blocks: Blocks,
     /// Whether the build follows the conventions, so is measured without
-    /// its interface layers and has its status lines turned pink.
+    /// its interface layers.
     pub conventional: bool,
     /// Whether the file keeps where its uploader's `//paste` put it.
     pub keeps_paste: bool,
     pub size: Size,
+    /// The hash of the file as it is kept, without its roles.
     pub sha256: String,
     /// What is read from it, such as its torches.
     pub facts: FileFacts,
@@ -90,12 +93,12 @@ impl Purpose {
 /// The one way a file becomes the file the site keeps, whether uploaded,
 /// added, or read again: swaps cauldrons and cakes for barrels giving the
 /// same signal strength; standardizes it if `purpose` says to, and in any
-/// case takes out corner markers and fits its box tightly; turns a
-/// conventional build's status lines pink, as older builds marked them on
-/// yellow; turns it to lie the standard way for `Purpose::Standard`; and sets
-/// it to paste from one block south of its south-east-bottom corner unless it
-/// keeps where its uploader's `//paste` put it. Then measures it, reads its
-/// facts, and hashes it.
+/// case takes out corner markers and fits its box tightly; turns it to lie
+/// the standard way for `Purpose::Standard`; and sets it to paste from one
+/// block south of its south-east-bottom corner unless it keeps where its
+/// uploader's `//paste` put it. Then measures it, reads its facts, and
+/// hashes it as it is kept, without the roles it carries. Its blocks keep
+/// their colours throughout.
 pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     let (standardize, conventional, keep_paste, orient) = match purpose {
         Purpose::Standard { keep_paste } => (true, true, keep_paste, true),
@@ -112,11 +115,6 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     } else {
         standardize::tidy(&data)?
     };
-    let data = if conventional {
-        standardize::pink_status(&data)?
-    } else {
-        data
-    };
     // Dust as the game shapes it among its neighbours, as `//update` leaves
     // it, whatever way it was saved.
     let data = crate::schem::dust::update(&data)?;
@@ -132,7 +130,7 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     };
     let blocks = Blocks::read(&data)?;
     let size = measure(&blocks, conventional)?;
-    let sha256 = sha256(&data);
+    let sha256 = sha256(&schem::lines::without(&data)?);
     Ok(Prepared {
         facts: FileFacts::of(&blocks),
         data,
@@ -144,6 +142,20 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
         swapped,
         turn,
     })
+}
+
+impl Prepared {
+    /// The file as it is kept: without the roles it carries, which are
+    /// kept beside it; see [`Prepared::roles`].
+    pub fn stored(&self) -> Result<Vec<u8>> {
+        schem::lines::without(&self.data)
+    }
+
+    /// The roles its file carries, as they are kept with its version, if
+    /// any.
+    pub fn roles(&self) -> Option<&schem::lines::Roles> {
+        self.blocks.roles.as_ref()
+    }
 }
 
 /// `file` as its builder made it, as an upload the site does not recognize
@@ -288,7 +300,7 @@ pub fn sign_flags(interface: &Interface) -> Vec<String> {
         interface
             .inputs
             .iter()
-            .filter(|port| port.block.starts_with(colour::CONTROL))
+            .filter(|port| port.control())
             .flat_map(|port| port.words.iter())
             .filter_map(|word| crate::simulate::alu_op(word))
             .filter(|op| !matches!(*op, "add" | "sub"))
@@ -327,7 +339,7 @@ fn read_from_output(interface: &Interface) -> Derived {
     let held = interface
         .outputs
         .iter()
-        .filter(|port| !port.block.starts_with(colour::STATUS))
+        .filter(|port| !port.status())
         .max_by_key(|port| port.bits.len());
     match held {
         Some(port) => Derived {
@@ -341,12 +353,12 @@ fn read_from_output(interface: &Interface) -> Derived {
 
 /// What a category that reads its builds' files, such as adder, reads
 /// from one with `interface`: its width, orientation, and encoding from
-/// its A, the unsigned lime input; nothing without one.
+/// its A, the unsigned first operand; nothing without one.
 pub fn read_from_file(interface: &Interface) -> Derived {
     let a = interface
         .inputs
         .iter()
-        .find(|port| !port.labelled && port.block.starts_with("lime"));
+        .find(|port| !port.labelled && port.a());
     match a {
         Some(a) => Derived {
             width: i64::try_from(
@@ -377,13 +389,13 @@ fn multiplier_flags(interface: &Interface) -> Vec<String> {
     let operands: Vec<usize> = interface
         .inputs
         .iter()
-        .filter(|port| !port.block.starts_with(colour::CONTROL))
+        .filter(|port| !port.control())
         .map(|port| port.bits.len())
         .collect();
     let product: usize = interface
         .outputs
         .iter()
-        .filter(|port| !port.block.starts_with(colour::STATUS))
+        .filter(|port| !port.status())
         .map(|port| port.bits.len())
         .sum();
     let mut flags = Vec::new();
@@ -398,8 +410,7 @@ fn multiplier_flags(interface: &Interface) -> Vec<String> {
 
 /// The flags a category takes from its builds' files rather than their
 /// details, as `category::Behaviour::flags_from_file` says: one for a
-/// magenta control line and one for a pink status line, named as its lone
-/// lines are, such as an adder's `carry_in` and `carry_out` or a
+/// control line and one for a status line, named as its lone lines are, such as an adder's `carry_in` and `carry_out` or a
 /// subtractor's `borrow_in` and `borrow_out`; a multiplier's from its
 /// operands and product. `None` for other categories.
 pub fn derived_flags(
@@ -419,12 +430,9 @@ pub fn derived_flags(
     else {
         return None;
     };
-    let has = |ports: &[Port], colour: &str| {
-        ports.iter().any(|port| port.block.starts_with(colour))
-    };
     let flags = [
-        (has(&interface.inputs, colour::CONTROL), control),
-        (has(&interface.outputs, colour::STATUS), status),
+        (interface.inputs.iter().any(Port::control), control),
+        (interface.outputs.iter().any(Port::status), status),
     ];
     Some(
         flags
@@ -583,6 +591,31 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
     )
 }
 
+/// The file in `data`, a build's of `category`, carrying the roles of its
+/// lines, when it carries none: the roles probing as its category finds,
+/// for a category the site recognizes builds of or one an off-list name
+/// stands in for, as an 8-bit adder's for an adder, its lines read loosely
+/// as a build kept as built may need, see [`probe::kept_roles`]; else, or
+/// when no probe's test runs, those its shapes give it, see
+/// [`interface::shaped_roles`]. Never its colours. A file carrying roles
+/// comes back as it is.
+pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    if blocks.roles.is_some() {
+        return Ok(data.to_vec());
+    }
+    let meant = std::iter::once(category)
+        .chain(crate::models::simulation::meant_by(category))
+        .find(|c| category::blessed(c))
+        .and_then(Kind::named);
+    let probed = match meant {
+        Some(kind) => crate::recognize::probe::kept_roles(data, kind)?,
+        None => None,
+    };
+    let roles = probed.unwrap_or_else(|| interface::shaped_roles(&blocks));
+    schem::lines::with(data, Some(&roles))
+}
+
 /// The file in `data` with its inputs and outputs coloured by probing,
 /// as an upload's are, for a build meant as one of a blessed category,
 /// see `category::Facts::listed_as`: its inputs are its levers and buttons,
@@ -645,7 +678,7 @@ mod tests {
     fn line(name: &str) -> Port {
         Port {
             name: name.to_owned(),
-            block: "pink concrete".to_owned(),
+            role: Some(crate::schem::lines::Role::Status),
             labelled: true,
             bits: Vec::new(),
             strength: 1,

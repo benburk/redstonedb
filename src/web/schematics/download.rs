@@ -54,9 +54,10 @@ pub(in crate::web) struct Download {
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Colours {
-    /// The site's own, as stored.
+    /// The site's own: its roles in the site's colours and, for a
+    /// recognized build, its building blocks white.
     Default,
-    /// The colours its builder gave it, where they are kept.
+    /// The colours its builder gave it, as stored.
     Original,
     /// The viewer's theme.
     Theme,
@@ -176,8 +177,8 @@ pub async fn download(
 }
 
 /// Build `id`'s file as `asked`, with its name, counted as a download if
-/// `counted`, in `palette` if it is a recognized build's; a 404 if
-/// `viewer` may not see it.
+/// `counted`, in `palette` unless another is asked for, without the roles
+/// it carries; a 404 if `viewer` may not see it.
 pub(in crate::web) async fn export(
     db: &SqlitePool,
     id: &str,
@@ -192,36 +193,36 @@ pub(in crate::web) async fn export(
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // Its builder's colours go on a single copy as it is: a stack finds
-    // its buses by the site's colours.
-    let plain = asked.part.is_none() && asked.copies().is_empty();
-    let original = match asked.colours {
-        Some(Colours::Original) if plain => version::colours(db, id).await?,
-        _ => None,
-    };
-    if let Some(colours) = &original {
-        let data = crate::recognize::colouring::apply(&data, colours)?;
-        return shaped(db, id, s, data, asked, counted).await;
+    // In its builder's colours, as stored, with any kept from before the
+    // site kept them, which go on its blocks before any stacking.
+    if asked.colours == Some(Colours::Original) {
+        let data = match version::colours(db, id).await? {
+            Some(colours) => {
+                crate::recognize::colouring::apply(&data, &colours)?
+            }
+            None => data,
+        };
+        let (filename, data) = shaped(db, id, s, data, asked, counted).await?;
+        return Ok((filename, crate::schem::lines::without(&data)?));
     }
-    let palette = palette.filter(|_| {
-        matches!(asked.colours, None | Some(Colours::Theme | Colours::Custom))
-    });
-    // Its blocks before any stacking, by position; its colours after, as
-    // stacking finds buses by them.
-    let palette = match palette {
-        Some(palette) => palette::needs(db, id).await?.map(|n| (palette, n)),
-        None => None,
-    };
-    let data = match &palette {
-        Some((palette, needs)) => palette::blocks_in(&data, needs, palette)?,
+    // The site's own palette, unless the viewer's theme or a custom one is
+    // asked for.
+    let palette = match asked.colours {
+        Some(Colours::Default) => None,
+        None | Some(Colours::Theme | Colours::Custom) => palette.cloned(),
+        Some(Colours::Original) => unreachable!("downloaded above"),
+    }
+    .unwrap_or_default();
+    // Its building blocks before any stacking, by position; its roles'
+    // colours after, as stacked copies carry their roles.
+    let needs = palette::needs(db, id).await?;
+    let data = match &needs {
+        Some(needs) => palette::blocks_in(&data, needs, &palette)?,
         None => data,
     };
     let (filename, data) = shaped(db, id, s, data, asked, counted).await?;
-    let data = match &palette {
-        Some((palette, _)) => palette::colour(&data, palette)?,
-        None => data,
-    };
-    Ok((filename, data))
+    let data = palette::colour(&data, &palette)?;
+    Ok((filename, crate::schem::lines::without(&data)?))
 }
 
 /// Build `s`'s file `data` as `asked`: a part, copies stacked, or as it is,

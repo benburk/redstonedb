@@ -85,7 +85,7 @@ pub fn one_operand(
             continue;
         }
         let mut roles = Roles::default();
-        roles.mark(Role::A, &a);
+        roles.mark(Role::Operand(0), &a);
         roles.mark(Role::Control, &line);
         roles.mark(Role::Output(0), &out.bits);
         roles.mark(Role::Status, &status);
@@ -141,7 +141,7 @@ mod tests {
                         colour::CONTROL,
                     ]
                     .iter()
-                    .any(|c| schem::short(state).starts_with(c))
+                    .any(|c| schem::short(state) == format!("{c}_concrete"))
                 })
                 .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
                 .collect();

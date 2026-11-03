@@ -120,7 +120,8 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "Each type of build has an input and output contract. RedstoneDB finds a build's inputs and "
                     "outputs, then searches through the ways they could fit each type's truth table, trying "
                     "lines in different roles and orders until one fits. You don't need any particular "
-                    "colours or signs: once RedstoneDB knows what each line does, it colours them for you."
+                    "colours or signs: once RedstoneDB knows what each line does, it keeps that with the build "
+                    "and shows each line in its colour, whatever blocks you built with."
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
