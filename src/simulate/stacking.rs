@@ -1,7 +1,8 @@
 //! Whether copies of a build stack into a wider one of its kind, as
 //! stacking would join them. Copies go west or up, never north, east, or
 //! down, and only where they touch or overlap: copies with air between
-//! them are separate builds side by side; see `stack::touches`.
+//! them are separate builds side by side, but for a build 1 block wide
+//! the way it stacks, which counts as 2 wide; see `stack::touches`.
 //!
 //! Copies that add bits are tried only at the pitch classes, `PITCHES`:
 //! copies 1, 2, or 4 blocks a bit apart, along the way the build's bits
@@ -24,6 +25,12 @@
 //! - Where copies share lines, as an inverter's control or a register's or
 //!   buffer's, they must work together on them, and the most copies that
 //!   do is kept, as a shared line that runs too far fails.
+//!
+//! A build 1 block wide the way its copies go counts as 2 wide, so its
+//! copies 2 apart, a block of air between each, stack, as no other copies
+//! with air between do. Cells so apart cannot meet, so each works alone,
+//! and they are taken to stack untested; copies that chain or share lines
+//! must still reach across the air, so theirs are tested as any others.
 //!
 //! A stack tested is long enough that one copy sits between two others
 //! and that it is longer than dust carries a signal, 15 blocks, plus a
@@ -151,8 +158,9 @@ impl Stacking {
     }
 }
 
-/// One way copies stack: every `step`, `copies` of them, in `cases` cases.
-/// `most` is as for `Stacking::Registers`.
+/// One way copies stack: every `step`, `copies` of them, in `cases` cases,
+/// none for cells 1 wide taken to stack untested, as [`Stacker::at`] has
+/// them. `most` is as for `Stacking::Registers`.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Apart {
     pub step: Step,
@@ -406,17 +414,28 @@ impl<'a> Stacker<'a> {
 
     /// Whether `copies` stacked `step` work, the box rule's box first,
     /// then boxes leaving out more of the first copy: the step with the
-    /// box that works and the cases run, or why not. Copies that leave air
-    /// between them never stack.
+    /// box that works and the cases run, or why not. Copies apart, as
+    /// `stack::touches` has them, never stack. Cells of a build 1 block
+    /// wide the way they go, 2 apart, a block of air between each, are
+    /// taken to work untested, no cases run, as nothing joins them for one
+    /// to reach the next; copies that chain or share lines must still
+    /// meet across the air, so theirs are tested.
     pub fn at(&self, step: Step, copies: usize) -> Result<(Step, u64), String> {
-        let touching = stack::touches(self.data, step.direction())
-            .map_err(|err| err.to_string())?;
+        let read = |err: anyhow::Error| err.to_string();
+        let touching =
+            stack::touches(self.data, step.direction()).map_err(read)?;
         if !touching {
             return Err(format!(
                 "Copies {} apart leave air between them, so they are \
                  separate builds side by side rather than a stack.",
                 step.describe()
             ));
+        }
+        if self.group() == Group::Cells
+            && stack::one_wide_apart(self.data, step.direction())
+                .map_err(read)?
+        {
+            return Ok((step, 0));
         }
         let buses = self.buses(Way::of(step).unwrap_or(Way::West));
         step.find(self.data, true, buses, |step| {
@@ -786,5 +805,49 @@ mod tests {
         // A 1-bit adder every 8, or every 7: no class.
         assert_eq!(Step::new(8, 0).pitch(1), None);
         assert_eq!(Step::new(7, 0).pitch(1), None);
+    }
+
+    /// The 1-wide inverted monostable, as an upload standardizes it.
+    fn one_wide() -> Vec<u8> {
+        let raw = std::fs::read("tests/fixtures/monostable-3-inverted.schem")
+            .unwrap();
+        let raw = crate::recognize::legacy::with_colour_roles(&raw).unwrap();
+        import::prepare_for(
+            &raw,
+            import::Purpose::Standard { keep_paste: false },
+        )
+        .unwrap()
+        .data
+    }
+
+    /// Copies of a build 1 wide, 2 apart, a block of air between each,
+    /// are tested as its group asks: as cells, they cannot meet, so they
+    /// are taken to stack with no stack built or run; chained, as an
+    /// adder's, or sharing lines, as an inverter's, they must reach across
+    /// the air, so they are tested as any copies are.
+    #[test]
+    fn only_cells_1_wide_and_2_apart_stack_untested() {
+        let data = one_wide();
+        let tested = std::cell::Cell::new(0);
+        let stacker = |kind| {
+            let works = |_: Step, _: usize, _| {
+                tested.set(tested.get() + 1);
+                Err("tested".to_owned())
+            };
+            Stacker::new(&data, kind, (1, vec![Way::West]), works, "none")
+        };
+        let two = Step::new(2, 0);
+        let found = stacker(Kind::Monostable).at(two, 9);
+        assert_eq!(found.map(|(step, cases)| (step.west, cases)), Ok((2, 0)));
+        assert_eq!(tested.get(), 0);
+        for kind in [Kind::Adder, Kind::Inverter] {
+            let found = stacker(kind).at(two, 9);
+            assert_eq!(found, Err("tested".to_owned()), "{kind:?}");
+        }
+        assert!(tested.get() > 0);
+        // Copies 1 apart touch, so cells are tested as ever.
+        tested.set(0);
+        let one = stacker(Kind::Monostable).at(Step::new(1, 0), 9);
+        assert!(one.is_err() && tested.get() > 0, "{one:?}");
     }
 }

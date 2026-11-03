@@ -168,6 +168,16 @@ pub(super) fn print_report(name: &str, report: &Report) {
     }
 }
 
+/// The cases copies stacked ran, all right; none for cells 1 wide, 2
+/// apart, taken to stack untested.
+fn right(cases: u64) -> String {
+    if cases == 0 {
+        "taken to work untested, 1 wide with air between".to_owned()
+    } else {
+        format!("all {cases} cases right")
+    }
+}
+
 /// What stacking copies of a simulated build found, whose copies share
 /// any `controls` lines, each way with its pitch class where it has one.
 fn print_stacking(stacking: &Stacking, controls: bool) {
@@ -190,9 +200,10 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             bits,
             cases,
         } => println!(
-            "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right",
+            "        stacks: {copies} copies {} apart make {bits} bits{}, {}",
             step.describe(),
-            pitch(*step, bits / copies)
+            pitch(*step, bits / copies),
+            right(*cases)
         ),
         Stacking::Registers {
             step,
@@ -201,8 +212,9 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             cases,
             most,
         } => println!(
-            "        stacks: {copies} copies {} apart make {registers} registers, all {cases} cases right{}",
+            "        stacks: {copies} copies {} apart make {registers} registers, {}{}",
             step.describe(),
+            right(*cases),
             limit(*most)
         ),
         Stacking::Wider {
@@ -217,27 +229,27 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             let each = bits / copies;
             for way in also {
                 println!(
-                    "        stacks: {} copies {} apart make {} bits too{}, all {} cases right{}",
+                    "        stacks: {} copies {} apart make {} bits too{}, {}{}",
                     way.copies,
                     way.step.describe(),
                     each * way.copies,
                     pitch(way.step, each),
-                    way.cases,
+                    right(way.cases),
                     limit(way.most)
                 );
             }
             if let Some(words) = words {
                 println!(
-                    "        stacks: {} copies {} apart make {} words, all {} cases right{}",
+                    "        stacks: {} copies {} apart make {} words, {}{}",
                     words.copies,
                     words.step.describe(),
                     words.copies,
-                    words.cases,
+                    right(words.cases),
                     limit(words.most)
                 );
             }
             println!(
-                "        stacks: {copies} copies {} apart make {bits} bits{}{}, all {cases} cases right{}",
+                "        stacks: {copies} copies {} apart make {bits} bits{}{}, {}{}",
                 step.describe(),
                 pitch(*step, each),
                 if controls {
@@ -245,16 +257,17 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
                 } else {
                     ""
                 },
+                right(*cases),
                 limit(*most)
             );
         }
         Stacking::Separate { ways } => {
             for way in ways {
                 println!(
-                    "        stacks: {} copies {} apart each work on their own, all {} cases right{}",
+                    "        stacks: {} copies {} apart each work on their own, {}{}",
                     way.copies,
                     way.step.describe(),
-                    way.cases,
+                    right(way.cases),
                     limit(way.most)
                 );
             }

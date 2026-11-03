@@ -220,8 +220,8 @@ fn copies_work(
 /// words, then as more bits, a buffer only as more bits, the box rule's
 /// box first, then boxes leaving out more of the first copy. The step
 /// with its box, the cases run, and whether copies add bits; or why none
-/// works. Copies that leave air between them never stack. `None` when it
-/// is not of its `kind`.
+/// works. Copies apart, as `stack::touches` has them, never stack.
+/// `None` when it is not of its `kind`.
 pub fn stacks_at(
     data: &[u8],
     kind: Kind,

@@ -1267,9 +1267,10 @@ fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
 /// A 1-wide monostable whose output rests on: A's lever turns one torch
 /// off at once and, three torches later, another on, the output on while
 /// either is, so it goes off for 3 ticks from tick 1 as A turns on, and
-/// stays on as A turns off. Copies 4 up each pulse alone, any number of
-/// them, pitch 4; copies 1 west interfere, and copies 2 west, a block of
-/// air between them, are no stack.
+/// stays on as A turns off. Copies 1 west interfere, but 2 west, a block
+/// of air between them, cannot meet, so they stack untested, pitch 2, as
+/// a build 1 wide counts as 2 wide; copies 3 west leave more air than
+/// that and are no stack.
 #[test]
 fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     // Standardized as a register is, its quartz whitened and its lever
@@ -1294,9 +1295,9 @@ fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     else {
         panic!("the monostable does not stack: {stacking:?}");
     };
-    assert_eq!(step.describe(), "4 up");
-    assert_eq!((copies, most), (5, None));
-    let apart = Test::Monostable.stacks_at(&data, Step::new(2, 0), 9);
+    assert_eq!(step.describe(), "2 west");
+    assert_eq!((copies, most), (9, None));
+    let apart = Test::Monostable.stacks_at(&data, Step::new(3, 0), 9);
     assert!(
         matches!(&apart, Some(Err(reason)) if reason.contains("air")),
         "{apart:?}"
@@ -1552,7 +1553,8 @@ fn an_xor_gate_stacks_up_into_wider_ones() {
 /// Copies must touch or overlap to stack: a 1-bit XOR gate 2 wide stacks
 /// 2 west, pitch 2, each copy a gate of its own beside the next, but
 /// copies 4 west have a gap of air between them and so are no stack,
-/// though, of pitch 2, it counts as 4-wide stackable without them.
+/// though, of pitch 2, it counts as 4-wide stackable without them. Only a
+/// build 1 wide may leave air, as the next test has it.
 #[test]
 fn a_2_wide_gate_stacks_at_2_but_not_at_4() {
     let raw = std::fs::read("tests/fixtures/xor-1-2-wide.schem").unwrap();
@@ -1568,6 +1570,26 @@ fn a_2_wide_gate_stacks_at_2_but_not_at_4() {
         "{apart:?}"
     );
     assert!(app::models::schematic::classes(2).any(|class| class == 4));
+}
+
+/// The one exception to touching: a build 1 block wide along the way it
+/// stacks counts as 2 wide, so the 1-wide monostable's copies 2 west, a
+/// block of air between each, stack, pitch 2, taken to work with no
+/// cases run, as cells so apart cannot meet; copies 4 west, 3 blocks of
+/// air between, are still apart.
+#[test]
+fn a_1_wide_build_stacks_2_apart_with_air_between() {
+    let (data, _) = register("monostable-3-inverted");
+    let at = |west| Test::Monostable.stacks_at(&data, Step::new(west, 0), 9);
+    let Some(Ok((step, cases))) = at(2) else {
+        panic!("it does not stack 2 west: {:?}", at(2));
+    };
+    assert_eq!((step.pitch(1), cases), (Some(2), 0));
+    let apart = at(4);
+    assert!(
+        matches!(&apart, Some(Err(reason)) if reason.contains("air")),
+        "{apart:?}"
+    );
 }
 
 /// The 2-wide gate's own stacking: copies tested enough to reach past what

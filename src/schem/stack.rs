@@ -290,12 +290,35 @@ fn step_of(direction: StackDirection) -> Result<Pos> {
 /// overlap: the box later copies repeat reaches at least a step along
 /// each way it steps, so no layer of air lies between one copy and the
 /// next. Copies apart, however near, are separate builds side by side,
-/// not a stack.
+/// not a stack, but for one exception: a build 1 block wide along the
+/// way it steps counts as 2 wide, so its copies 2 apart, a block of air
+/// between them, stack. No wider build's copies may leave air between.
 pub fn touches(data: &[u8], direction: StackDirection) -> Result<bool> {
     let blocks = Blocks::read(data)?;
     let step = step_of(direction)?;
     let [low, high] = first_copy(&blocks, step, direction.faces).sized;
-    Ok((0..3).all(|axis| high[axis] - low[axis] + 1 >= step[axis].abs()))
+    Ok((0..3).all(|axis| {
+        let reach = if blocks.size[axis] == 1 {
+            2
+        } else {
+            high[axis] - low[axis] + 1
+        };
+        reach >= step[axis].abs()
+    }))
+}
+
+/// Whether copies of the build in `data` stacked `direction` are 2 apart
+/// along a way the build is 1 block wide, so a block of air lies between
+/// each and the next, and nothing between them to join them: as `touches`
+/// has it, such a build counts as 2 wide.
+pub fn one_wide_apart(data: &[u8], direction: StackDirection) -> Result<bool> {
+    let blocks = Blocks::read(data)?;
+    let step = step_of(direction)?;
+    let stepped: Vec<usize> = (0..3).filter(|&axis| step[axis] != 0).collect();
+    Ok(!stepped.is_empty()
+        && stepped
+            .iter()
+            .all(|&axis| step[axis].abs() == 2 && blocks.size[axis] == 1))
 }
 
 /// What stacking a build one way looks like, for its builder to check:

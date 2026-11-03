@@ -551,8 +551,8 @@ impl Test {
     /// right, stacked `step` make a wider one of its kind, as its own
     /// `stacking` tests each step, the box rule's box first, then boxes
     /// leaving out more of the first copy: the step with the box that
-    /// works and the cases run, or why not. Copies that leave air between
-    /// them never stack. A register's copies are tried as more words on
+    /// works and the cases run, or why not. Copies apart, as
+    /// `stack::touches` has them, never stack. A register's copies are tried as more words on
     /// its shared bus, then as more bits. `None` for a test whose copies
     /// are never stacked.
     pub fn stacks_at(
