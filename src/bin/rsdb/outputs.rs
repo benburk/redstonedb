@@ -1,28 +1,26 @@
 //! Measuring the rule proposed for outputs, a repeater or comparator
 //! powering nothing, see [`repeater_outputs`], before the site reads
-//! builds by it: what it finds in a build beside what today's rule finds,
-//! and a build reworked to it by rule; `stack_check` stacks copies of one.
+//! builds by it: what it finds in a build beside what today's rule finds;
+//! `convert` ports a build to it, and `stack_check` stacks copies of one.
 //! Nothing here writes to the database.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    fmt::Write as _,
+    collections::{BTreeMap, BTreeSet},
     fs,
-    path::PathBuf,
 };
 
 use anyhow::{Context, Result, bail};
 use app::{
     category::Kind,
-    models::{schematic, simulation, version},
+    models::{schematic, version},
     recognize::{
         inspect::{self, Run},
         interface::{self, Interface},
         probe,
-        repeater_outputs::{self, Output, Reworked},
+        repeater_outputs::{self, Output},
     },
-    schem::{self, Blocks, Direction, Pos, standardize},
-    simulate::{self, Circuit, Test},
+    schem::{self, Blocks, Direction, Pos},
+    simulate::{self, Circuit},
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -40,22 +38,6 @@ pub(super) struct Outputs {
     /// List the outputs only, probing nothing
     #[arg(long)]
     no_probe: bool,
-}
-
-#[derive(Args)]
-pub(super) struct Convert {
-    /// A .schem file, or a stored build's id or the start of one
-    file_or_id: String,
-    /// Where to write the reworked build; nothing is written without it
-    #[arg(short, long)]
-    out: Option<PathBuf>,
-    /// The build's category, for its test; a stored build's own by default
-    #[arg(long)]
-    category: Option<String>,
-    /// Read today's outputs as an upload's, any lone block read on top,
-    /// rather than in the site's output colours
-    #[arg(long)]
-    upload: bool,
 }
 
 /// A build to measure: its name, its file, and its row when stored.
@@ -276,14 +258,14 @@ fn probed_interface(
 /// Each case's inputs and outputs, and for each output bit the weakest
 /// strength while on: arriving at the repeater or comparator on its block,
 /// and shown by what stands on it, as the site measures today.
-struct Table {
-    cases: Vec<(u64, Vec<u64>)>,
+pub(super) struct Table {
+    pub(super) cases: Vec<(u64, Vec<u64>)>,
     /// Each case's strength arriving at each output bit's repeater or
     /// comparator, the outputs' bits one after another.
-    arrivals: Vec<Vec<u8>>,
-    arriving: Vec<Vec<u8>>,
-    shown: Vec<Vec<u8>>,
-    exhaustive: bool,
+    pub(super) arrivals: Vec<Vec<u8>>,
+    pub(super) arriving: Vec<Vec<u8>>,
+    pub(super) shown: Vec<Vec<u8>>,
+    pub(super) exhaustive: bool,
 }
 
 /// The most input bits every combination of which is run; more are
@@ -294,7 +276,7 @@ const SAMPLES: usize = 4096;
 /// Runs `blocks` through `interface` case by case, every combination of
 /// its inputs, or a fixed sample of them when there are many. A build
 /// with a button or a signal-strength input isn't run so.
-fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
+pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
     if interface.inputs.is_empty() || interface.outputs.is_empty() {
         bail!("no inputs or no outputs to run");
     }
@@ -411,7 +393,7 @@ fn print_min_ss(interface: &Interface, table: &Table) {
 }
 
 /// What a test run says, in a line.
-fn verdict(report: &simulate::Report) -> String {
+pub(super) fn verdict(report: &simulate::Report) -> String {
     match report {
         simulate::Report::Ran(run) if run.wrong == 0 => {
             format!("passes, all {} cases right, {}", run.cases, run.pattern)
@@ -420,288 +402,4 @@ fn verdict(report: &simulate::Report) -> String {
         simulate::Report::Broken { reason } => format!("broken: {reason}"),
         simulate::Report::Skipped { reason } => format!("skipped: {reason}"),
     }
-}
-
-/// Reworks a build's outputs, as today's rule reads them, to the proposed
-/// rule, says what came of each, and checks the reworked build computes
-/// what the original does.
-pub(super) async fn convert_command(
-    db: &SqlitePool,
-    args: &Convert,
-) -> Result<()> {
-    let source = source(db, &args.file_or_id).await?;
-    println!("{}", source.name);
-    let conversion = convert(
-        &source.data,
-        args.upload,
-        args.category
-            .as_deref()
-            .or(source.stored.as_ref().map(|s| s.category.as_str())),
-        source.stored.as_ref().and_then(|s| s.width),
-    )?;
-    print!("{}", conversion.said);
-    if let (Some(out), Some(file)) = (&args.out, &conversion.file) {
-        fs::write(out, file)?;
-        println!("wrote {}", out.display());
-    }
-    Ok(())
-}
-
-/// What `convert` made of a build: its reworked file, when every output
-/// was reworked or already one, and what it found, in lines.
-struct Conversion {
-    file: Option<Vec<u8>>,
-    said: String,
-}
-
-/// The build in `data` reworked to the proposed rule, its outputs read as
-/// an upload's with `upload`, else in the site's colours, then checked
-/// against the original: by its category's test, as `category` and
-/// `width` give it, and case by case through one interface.
-fn convert(
-    data: &[u8],
-    upload: bool,
-    category: Option<&str>,
-    width: Option<i64>,
-) -> Result<Conversion> {
-    let mut said = String::new();
-    let simulated = probe::simulatable(data)?;
-    let blocks = Blocks::read(&simulated)?;
-    let marks = if upload {
-        inspect::UPLOAD
-    } else {
-        inspect::SITE
-    };
-    let today = inspect::inspect_marked(&blocks, marks);
-    let outputs: Vec<Pos> =
-        today.outputs.iter().flat_map(|r| r.bits.clone()).collect();
-    if outputs.is_empty() {
-        writeln!(said, "  no outputs by today's rule")?;
-        return Ok(Conversion { file: None, said });
-    }
-    let lines = interface::read(&blocks);
-    let width = match (category, width) {
-        (Some(category), None) => {
-            simulation::derived_width(category, true, data)?
-        }
-        _ => width,
-    };
-    let test = category.and_then(|category| Test::of(category, width));
-    let before = test.map(|test| test.run(&blocks));
-    let digits = digit_outputs(&lines, before.as_ref());
-    let (changes, done) = repeater_outputs::rework(&blocks, &outputs, |pos| {
-        digits.contains(&pos)
-    });
-    let failed = tell_reworked(&done, &mut said)?;
-    if failed > 0 {
-        return Ok(Conversion { file: None, said });
-    }
-    // The original file, colours and all, with the changes, so it stays
-    // as the builder made it.
-    let file = standardize::edit(data, &changes)?;
-    let after = Blocks::read(&probe::simulatable(&file)?)?;
-    tell_read_back(&after, &outputs, &mut said)?;
-    match (test, &before) {
-        (Some(test), Some(before)) => {
-            writeln!(said, "  test before: {}", verdict(before))?;
-            writeln!(said, "  test after:  {}", verdict(&test.run(&after)))?;
-        }
-        _ => {
-            if let Some(category) = category {
-                writeln!(said, "  no test for {category} of {width:?}")?;
-            }
-        }
-    }
-    // One interface for both, from the colours, or else from probing.
-    let mut lines = lines;
-    if (lines.inputs.is_empty() || lines.outputs.is_empty())
-        && let Ok(found) = probe::recognize_as(data, category)
-        && found.found.is_some()
-    {
-        lines = interface::read(&Blocks::read(&found.file)?);
-    }
-    compare_tables(&blocks, &after, &lines, &mut said)?;
-    Ok(Conversion {
-        file: Some(file),
-        said,
-    })
-}
-
-/// The output blocks of `lines` that a test, as `before` ran it, reads as
-/// strengths, four bits a block, as a hex adder's sum or a popcount's one
-/// block: these take a comparator.
-fn digit_outputs(
-    lines: &Interface,
-    before: Option<&simulate::Report>,
-) -> HashSet<Pos> {
-    match before {
-        Some(simulate::Report::Ran(run)) => lines
-            .outputs
-            .iter()
-            .filter(|port| {
-                run.outputs.iter().any(|signal| {
-                    signal.name == port.name
-                        && signal.bits == 4 * port.bits.len()
-                })
-            })
-            .flat_map(|port| port.bits.iter().map(|bit| bit.pos))
-            .collect(),
-        _ => HashSet::new(),
-    }
-}
-
-/// Writes to `said` what came of each output, with a count of each;
-/// how many couldn't be reworked.
-fn tell_reworked(done: &[Reworked], said: &mut String) -> Result<usize> {
-    let mut failed = 0;
-    for reworked in done {
-        match reworked {
-            Reworked::Already { block } => {
-                writeln!(said, "  already: output on {}", place(*block))?;
-            }
-            Reworked::Converted {
-                block,
-                now,
-                cleared,
-            } => {
-                let kind = schem::short(now);
-                let facing = Direction::facing(now).map_or("?", |f| f.name());
-                write!(
-                    said,
-                    "  converted: output on {}: dust to {kind} facing \
-                     {facing}",
-                    place(*block)
-                )?;
-                if let Some((at, was)) = cleared {
-                    write!(
-                        said,
-                        ", {} taken out of its front at {}",
-                        schem::short(was).replace('_', " "),
-                        place(*at)
-                    )?;
-                }
-                writeln!(said)?;
-            }
-            Reworked::Not { block, at, why } => {
-                failed += 1;
-                writeln!(
-                    said,
-                    "  not converted: output on {}: {why}, at {}",
-                    place(*block),
-                    place(*at)
-                )?;
-            }
-        }
-    }
-    let converted = done
-        .iter()
-        .filter(|r| matches!(r, Reworked::Converted { .. }))
-        .count();
-    writeln!(
-        said,
-        "  {} outputs: {converted} converted, {} already, {failed} not",
-        done.len(),
-        done.len() - converted - failed
-    )?;
-    Ok(failed)
-}
-
-/// Writes to `said` how many of `outputs`, today's, the proposed rule
-/// finds in the reworked build `after`, and how many more it finds.
-fn tell_read_back(
-    after: &Blocks,
-    outputs: &[Pos],
-    said: &mut String,
-) -> Result<()> {
-    let found: HashSet<Pos> = repeater_outputs::find(after)
-        .iter()
-        .map(|o| o.block())
-        .collect();
-    let missed: Vec<String> = outputs
-        .iter()
-        .filter(|pos| !found.contains(*pos))
-        .map(|&pos| place(pos))
-        .collect();
-    let extra = found.len() + missed.len() - outputs.len();
-    writeln!(
-        said,
-        "  read back by the proposed rule: {} of {} outputs found{}{}",
-        outputs.len() - missed.len(),
-        outputs.len(),
-        if missed.is_empty() {
-            String::new()
-        } else {
-            format!(", missing {}", missed.join(", "))
-        },
-        if extra > 0 {
-            format!(", {extra} more repeaters or comparators facing air")
-        } else {
-            String::new()
-        }
-    )?;
-    Ok(())
-}
-
-/// Writes to `said` how the truth tables of `blocks` and `after` compare,
-/// run through `lines`, and each output's weakest strength in each.
-fn compare_tables(
-    blocks: &Blocks,
-    after: &Blocks,
-    lines: &Interface,
-    said: &mut String,
-) -> Result<()> {
-    match (table(blocks, lines), table(after, lines)) {
-        (Ok(before), Ok(now)) => {
-            let first = before
-                .cases
-                .iter()
-                .zip(&now.cases)
-                .position(|(b, n)| b.1 != n.1);
-            let differ = first.map(|i| (&before.cases[i], &now.cases[i]));
-            match differ {
-                None => writeln!(
-                    said,
-                    "  truth table: same in all {} cases{}",
-                    now.cases.len(),
-                    if now.exhaustive { "" } else { " sampled" }
-                )?,
-                Some((b, n)) => {
-                    let wrong = before
-                        .cases
-                        .iter()
-                        .zip(&now.cases)
-                        .filter(|(b, n)| b.1 != n.1)
-                        .count();
-                    writeln!(
-                        said,
-                        "  truth table: differs in {wrong} of {} cases, first \
-                         inputs {:#b}: {:?} before, {:?} after",
-                        now.cases.len(),
-                        b.0,
-                        b.1,
-                        n.1
-                    )?;
-                    // A repeater reads the dust feeding it, a block before
-                    // where the output's dust fell to 0 from a weak signal.
-                    let arrived = first.map(|i| &now.arrivals[i]);
-                    writeln!(
-                        said,
-                        "    strengths arriving after, in that case: {:?}",
-                        arrived.cloned().unwrap_or_default()
-                    )?;
-                }
-            }
-            for (port, out) in lines.outputs.iter().enumerate() {
-                writeln!(
-                    said,
-                    "  min SS of {}: dust before {:?}; arriving after {:?}",
-                    out.name, before.shown[port], now.arriving[port]
-                )?;
-            }
-        }
-        (Err(err), _) | (_, Err(err)) => {
-            writeln!(said, "  truth table not compared: {err}")?;
-        }
-    }
-    Ok(())
 }

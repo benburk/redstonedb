@@ -3,6 +3,7 @@
 mod accounts;
 mod builds;
 mod categories;
+mod convert;
 mod inspect;
 mod outputs;
 mod rebuild;
@@ -25,8 +26,9 @@ use builds::{
     Set, export, guide_images, list, remove, search_command, set, show,
 };
 use categories::{define_tag, print_categories};
+use convert::{Convert, convert_command};
 use inspect::{Inspect, evaluate, inspect_command};
-use outputs::{Convert, Outputs, convert_command, outputs_command};
+use outputs::{Outputs, outputs_command};
 use rebuild::{Rebuild, finish, needs, rebuild};
 use simulate::simulate;
 use stack_check::{StackCheck, stack_check_command};
@@ -109,10 +111,12 @@ enum Command {
     /// buses by how they line up, beside today's outputs, and probe it
     /// with them. Reads the database only
     Outputs(Outputs),
-    /// Rework a build's outputs, as today's rule reads them, to the
-    /// proposed rule, the dust on each a repeater giving out into air,
-    /// and check the result computes what the original does. Reads the
-    /// database only
+    /// Port a build's outputs, as today's rule reads them, to the proposed
+    /// rule as the owner does by hand: each output block whitened, its dust
+    /// left, and beside it, out of the build, a repeater on a support
+    /// reading the dust and giving out into air; then check the port tests,
+    /// computes, and stacks as the original does. With --all, every stored
+    /// build, writing the ports that pass. Reads the database only
     Convert(Convert),
     /// Stack copies of a build as the site's stacking test does, the first
     /// whole and the rest its box, each way asked, settle them, read them

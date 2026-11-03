@@ -8,7 +8,8 @@
 //! buttons on any block.
 //!
 //! Nothing that recognizes an upload reads outputs so yet: `rsdb outputs`,
-//! `convert`, and `stack-check` measure what the rule would find.
+//! `convert`, and `stack-check` measure what the rule would find, `convert`
+//! porting a build to it by [`tap`], as the owner ports one by hand.
 
 use std::collections::BTreeMap;
 
@@ -21,7 +22,7 @@ use crate::{
         inspect::{self, Problem, Report, Run},
         probe::{self, Fault, Found, Layout},
     },
-    schem::{self, Blocks, Direction, Pos, dust::Side},
+    schem::{self, Blocks, Direction, Pos},
 };
 
 /// A repeater or comparator powering nothing.
@@ -226,327 +227,315 @@ fn probed_as(kind: Kind) -> Kind {
     }
 }
 
-/// An output, as today's rule reads it, made one this rule reads, or why
-/// it can't be made one by rule.
+/// The sides a tap is tried on, the build's front, north, first.
+const OUTWARD: [Direction; 4] = [
+    Direction::North,
+    Direction::South,
+    Direction::West,
+    Direction::East,
+];
+
+/// An output, as today's rule reads it, tapped so this rule reads it: the
+/// block it was read by whitened, what stands on it left, and beside it,
+/// one block out of the build, a support with a repeater or comparator on
+/// top reading what stands on the output block and giving out into air.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Reworked {
-    /// A repeater or comparator powering nothing stands on it already.
+pub enum Tapped {
+    /// A repeater or comparator powering nothing stands on it already, and
+    /// it is left as it is.
     Already { block: Pos },
-    /// The dust on `block` is now `now`, fed from the one side the dust
-    /// was, giving out into air; `cleared` is a block taken out of its
-    /// front, which touched nothing else.
-    Converted {
+    /// Tapped toward `side`: the support at `support`, white concrete, or
+    /// white stained glass with `glass` as a torch is under it, and on it
+    /// the repeater or comparator `now`. `clear` when every cell from the
+    /// output block to the box's edge that way was air, the face the output
+    /// sits on.
+    Tapped {
         block: Pos,
+        side: Direction,
+        support: Pos,
+        glass: bool,
+        clear: bool,
         now: String,
-        cleared: Option<(Pos, String)>,
     },
-    /// It can't be made one by rule, for `why`, at `at`.
-    Not { block: Pos, at: Pos, why: String },
+    /// It can't be tapped, for `why`.
+    Not { block: Pos, why: String },
 }
 
-/// The blocks a dust's driver may be beside it, which a repeater or
-/// comparator in its place reads from too: dust, a torch, a redstone
-/// block, a lever, a target, or any block a solid one, which carries the
-/// power that drove the dust.
-fn feeds_a_diode(blocks: &Blocks, from: Pos, to: Pos) -> Result<(), String> {
-    let state = blocks.get(from);
-    let name = schem::short(state);
-    match name {
-        "redstone_wire"
-        | "redstone_torch"
-        | "redstone_wall_torch"
-        | "redstone_block"
-        | "lever"
-        | "target" => Ok(()),
-        "repeater" | "comparator" => {
-            let into = Direction::facing(state).is_some_and(|facing| {
-                schem::step(from, facing.opposite()) == to
-            });
-            if into {
-                Ok(())
-            } else {
-                Err(format!("a {name} beside it, not pointing into it"))
-            }
+impl Tapped {
+    /// The output block it was made of.
+    pub fn block(&self) -> Pos {
+        match self {
+            Tapped::Already { block }
+            | Tapped::Tapped { block, .. }
+            | Tapped::Not { block, .. } => *block,
         }
-        _ if name.ends_with("_button") => Ok(()),
-        _ if crate::schem::block::solid(state) => Ok(()),
-        _ if is_air(state)
-            && schem::short(blocks.get(schem::step(from, Direction::Down)))
-                == "redstone_wire" =>
+    }
+}
+
+/// The default of an output block's kind: white stained glass for stained
+/// glass, else white concrete.
+fn whitened(state: &str) -> &'static str {
+    if schem::short(state).ends_with("_stained_glass") {
+        "minecraft:white_stained_glass"
+    } else {
+        "minecraft:white_concrete"
+    }
+}
+
+/// Whether a block in a cell would be inside the box of `blocks`.
+fn inside(blocks: &Blocks, pos: Pos) -> bool {
+    (0..3).all(|axis| (0..blocks.size[axis]).contains(&pos[axis]))
+}
+
+/// Whether every cell from `block` out to the box's edge toward `side`, at
+/// its level and the one above, is air: the face of the build the output
+/// sits on.
+fn clear_to_edge(blocks: &Blocks, block: Pos, side: Direction) -> bool {
+    let mut at = schem::step(block, side);
+    while inside(blocks, at) {
+        if !is_air(blocks.get(at))
+            || !is_air(blocks.get(schem::step(at, Direction::Up)))
         {
-            Err("dust a block lower feeds it, which a repeater can't read"
-                .to_owned())
+            return false;
         }
-        _ => Err(format!("fed from {}", name.replace('_', " "))),
+        at = schem::step(at, side);
     }
+    true
 }
 
-/// Whether the block at `pos` is a solid block something powers strongly,
-/// so dust beside it takes its power: a repeater or comparator pointing
-/// into it, a torch under it, or a lever or button on it.
-fn strongly_powered(blocks: &Blocks, pos: Pos) -> bool {
-    if !crate::schem::block::solid(blocks.get(pos)) {
-        return false;
-    }
-    let switched = blocks.switches().iter().any(|s| s.block == pos);
-    switched
-        || Direction::ALL.iter().any(|&side| {
-            let next = schem::step(pos, side);
-            let state = blocks.get(next);
-            match schem::short(state) {
-                "repeater" | "comparator" => Direction::facing(state)
-                    .is_some_and(|f| schem::step(next, f.opposite()) == pos),
-                "redstone_torch" | "redstone_wall_torch" => {
-                    side == Direction::Down
-                }
-                _ => false,
-            }
-        })
-}
-
-/// Whether a block of `state` may be taken out of an output's front: a
-/// plain block, not a component, with nothing around it but air, the
-/// output, and the block holding it up.
-fn clearable(blocks: &Blocks, front: Pos, keep: &[Pos]) -> bool {
-    let state = blocks.get(front);
-    let name = schem::short(state);
-    !crate::schem::block::is_component(name)
-        && !blocks.signs.contains_key(&front)
-        && Direction::ALL.iter().all(|&side| {
-            let next = schem::step(front, side);
-            keep.contains(&next) || is_air(blocks.get(next))
-        })
-}
-
-/// What reads the block at `block` that dust on it powered and a repeater
-/// on it won't: a repeater or comparator reading it, a torch on it, or a
-/// lamp, piston, or the like beside it. `None` when nothing does.
-fn reads_block(blocks: &Blocks, block: Pos) -> Option<(Pos, String)> {
-    Direction::ALL.iter().find_map(|&side| {
-        let next = schem::step(block, side);
-        let state = blocks.get(next);
-        let name = schem::short(state);
-        let reads = match name {
-            "repeater" | "comparator" => Direction::facing(state)
-                .is_some_and(|facing| schem::step(next, facing) == block),
-            "redstone_torch" | "redstone_wall_torch" => {
-                schem::torch_block(next, state) == Some(block)
-            }
-            "redstone_lamp" | "piston" | "sticky_piston" | "dropper"
-            | "dispenser" | "note_block" => true,
-            _ => false,
-        };
-        reads.then(|| (next, name.replace('_', " ")))
-    })
-}
-
-/// Each output in `outputs`, a block today's rule reads by what stands on
-/// it, made one this rule reads where that can be done by rule: dust on it
-/// joined one side only, to what drives it, becomes a repeater, or with
-/// `comparator` a comparator, reading from that side, so it gives out the
-/// other way, into air, or into a plain block touching nothing else, which
-/// is taken out. Nothing may point into its sides, which would lock a
-/// repeater or feed a comparator, and nothing may read the block under it,
-/// which the dust powered. The changes to make, with what each output
-/// came to.
-pub fn rework(
+/// The cells a tap toward `side` from `block` takes: the support, the
+/// repeater on it, and the air it gives out into. Why the tap can't be
+/// made, when one isn't air, or is a cell another tap took.
+fn tap_cells(
     blocks: &Blocks,
-    outputs: &[Pos],
+    block: Pos,
+    side: Direction,
+    taken: &BTreeMap<Pos, String>,
+) -> Result<(Pos, Pos), String> {
+    let support = schem::step(block, side);
+    let top = schem::step(support, Direction::Up);
+    let front = schem::step(top, side);
+    for (cell, what) in
+        [(support, "support"), (top, "repeater"), (front, "front")]
+    {
+        let state = taken
+            .get(&cell)
+            .map_or_else(|| blocks.get(cell), String::as_str);
+        if !is_air(state) {
+            let reason = if what == "front" {
+                "it would give out into"
+            } else {
+                "its place holds"
+            };
+            return Err(format!(
+                "{side}: {} at {}, which the {what} {reason}",
+                schem::short(state).replace('_', " "),
+                inspect::place(cell)
+            ));
+        }
+    }
+    Ok((support, top))
+}
+
+/// What reads the output block, standing on it, that a tap can read from:
+/// dust, or else why not.
+fn tappable(blocks: &Blocks, top: Pos) -> Result<(), String> {
+    match schem::short(blocks.get(top)) {
+        "redstone_wire" => Ok(()),
+        name @ ("repeater" | "comparator") => {
+            let state = blocks.get(top);
+            let front = Direction::facing(state)
+                .map_or(top, |f| schem::step(top, f.opposite()));
+            Err(format!(
+                "its {name} gives out into {} at {}, and a tap reads only dust",
+                schem::short(blocks.get(front)).replace('_', " "),
+                inspect::place(front)
+            ))
+        }
+        other => Err(format!("{} on it, not dust", other.replace('_', " "))),
+    }
+}
+
+/// The side a run's `bits` are all tapped on, so a bus stays a bus: of
+/// the sides every bit can be tapped on, as `taken` leaves them, one not
+/// `along` the way copies of the build stack, whose taps would reach into
+/// the next copy, then the one whose cells out to the box's edge are air
+/// for the most bits, then the first in `OUTWARD`. `None` when no side
+/// serves every bit.
+fn run_side(
+    blocks: &Blocks,
+    bits: &[Pos],
+    taken: &BTreeMap<Pos, String>,
+    along: &[Direction],
+) -> Option<Direction> {
+    OUTWARD
+        .iter()
+        .enumerate()
+        .filter(|&(_, &side)| {
+            let mut taken = taken.clone();
+            bits.iter().all(|&block| {
+                tap_cells(blocks, block, side, &taken).is_ok_and(|(s, t)| {
+                    taken.insert(s, "minecraft:stone".to_owned());
+                    taken.insert(t, "minecraft:stone".to_owned());
+                    true
+                })
+            })
+        })
+        .max_by_key(|&(first, &side)| {
+            let clear = bits
+                .iter()
+                .filter(|&&block| clear_to_edge(blocks, block, side))
+                .count();
+            (!along.contains(&side), clear, std::cmp::Reverse(first))
+        })
+        .map(|(_, &side)| side)
+}
+
+/// The output on `block` tapped toward `shared`, its run's side, or with
+/// none the first side it can be tapped on, those not `along` the way
+/// copies stack first, then those clear to the box's edge, its changes
+/// added to `changes`; or why it can't be.
+fn tap_one(
+    blocks: &Blocks,
+    block: Pos,
+    (shared, along): (Option<Direction>, &[Direction]),
     comparator: impl Fn(Pos) -> bool,
-) -> (BTreeMap<Pos, String>, Vec<Reworked>) {
-    let mut changes = BTreeMap::new();
+    changes: &mut BTreeMap<Pos, String>,
+) -> Tapped {
+    let sides = shared.map_or_else(
+        || {
+            let mut sides = OUTWARD.to_vec();
+            sides.sort_by_key(|&side| {
+                (along.contains(&side), !clear_to_edge(blocks, block, side))
+            });
+            sides
+        },
+        |side| vec![side],
+    );
+    let mut blocked = Vec::new();
+    let mut tapped = None;
+    for side in sides {
+        match tap_cells(blocks, block, side, changes) {
+            Ok(cells) => {
+                tapped = Some((side, cells));
+                break;
+            }
+            Err(why) => blocked.push(why),
+        }
+    }
+    let Some((side, (support, top))) = tapped else {
+        return Tapped::Not {
+            block,
+            why: format!("every side is blocked: {}", blocked.join("; ")),
+        };
+    };
+    // A torch powers the block over it, and a solid block over dust cuts
+    // the dust's climb to dust beside it, as glass does neither.
+    let under = schem::short(blocks.get(schem::step(support, Direction::Down)));
+    let glass = matches!(
+        under,
+        "redstone_torch" | "redstone_wall_torch" | "redstone_wire"
+    );
+    let reads = side.opposite();
+    let now = if comparator(block) {
+        format!(
+            "minecraft:comparator[facing={reads},mode=compare,powered=false]"
+        )
+    } else {
+        format!(
+            "minecraft:repeater[delay=1,facing={reads},locked=false,\
+             powered=false]"
+        )
+    };
+    changes.insert(block, whitened(blocks.get(block)).to_owned());
+    let held = if glass {
+        "minecraft:white_stained_glass"
+    } else {
+        "minecraft:white_concrete"
+    };
+    changes.insert(support, held.to_owned());
+    changes.insert(top, now.clone());
+    Tapped::Tapped {
+        block,
+        side,
+        support,
+        glass,
+        clear: clear_to_edge(blocks, block, side),
+        now,
+    }
+}
+
+/// Each run of `outputs`, today's rule's, tapped as the owner taps them by
+/// hand: each output block whitened, the dust on it left, and one block out
+/// of the build beside it a support, white concrete, or white stained glass
+/// over a torch, which powers the block above it, or over dust, whose climb
+/// a solid block would cut, with a repeater on top,
+/// or a comparator where `comparator` says the output is read as a
+/// strength, reading the dust and giving out into air. A run's bits are
+/// tapped the same way, so a bus stays a bus: among the sides every bit
+/// can be tapped on, one not `along` the way copies of the build stack,
+/// whose taps would reach into the next copy, then the side whose cells
+/// out to the box's edge are air for most of its bits, the face it sits
+/// on, then the front, north, before others alike; failing one, each bit
+/// its own. A cell beyond the box is air, which the box grows to hold. The
+/// changes, some maybe beyond the box, with what came of each output.
+pub fn tap(
+    blocks: &Blocks,
+    outputs: &[Run],
+    comparator: impl Fn(Pos) -> bool,
+    along: &[Direction],
+) -> (BTreeMap<Pos, String>, Vec<Tapped>) {
+    let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
     let mut done = Vec::new();
     let found: Vec<Pos> = find(blocks).iter().map(|o| o.block()).collect();
-    for &block in outputs {
-        let top = schem::step(block, Direction::Up);
-        let state = blocks.get(top);
-        let not = |at: Pos, why: String| Reworked::Not { block, at, why };
-        let reworked = match schem::short(state) {
-            "repeater" | "comparator" if found.contains(&block) => {
-                Reworked::Already { block }
+    for run in outputs {
+        let mut bits = Vec::new();
+        for &block in &run.bits {
+            let top = schem::step(block, Direction::Up);
+            if found.contains(&block) {
+                done.push(Tapped::Already { block });
+            } else if let Err(why) = tappable(blocks, top) {
+                done.push(Tapped::Not { block, why });
+            } else {
+                bits.push(block);
             }
-            "repeater" | "comparator" => {
-                let front = Direction::facing(state)
-                    .map(|f| schem::step(top, f.opposite()));
-                let front = front.unwrap_or(top);
-                not(
-                    front,
-                    format!(
-                        "its {} powers {} in front",
-                        schem::short(state),
-                        schem::short(blocks.get(front)).replace('_', " ")
-                    ),
-                )
-            }
-            "redstone_wire" => {
-                match dust_output(blocks, block, top, state, &comparator) {
-                    Ok((now, cleared)) => {
-                        changes.insert(top, now.clone());
-                        if let Some((front, _)) = &cleared {
-                            changes.insert(*front, schem::AIR.to_owned());
-                        }
-                        Reworked::Converted {
-                            block,
-                            now,
-                            cleared,
-                        }
-                    }
-                    Err((at, why)) => not(at, why),
-                }
-            }
-            other => {
-                not(top, format!("{} on it, not dust", other.replace('_', " ")))
-            }
-        };
-        done.push(reworked);
+        }
+        let shared = run_side(blocks, &bits, &changes, along);
+        for block in bits {
+            done.push(tap_one(
+                blocks,
+                block,
+                (shared, along),
+                &comparator,
+                &mut changes,
+            ));
+        }
     }
     (changes, done)
 }
 
-/// Where and why an output can't be reworked by rule.
-type Miss = (Pos, String);
-
-/// The one side the dust at `top` is driven from, or where and why there
-/// isn't one.
-fn feed_side(blocks: &Blocks, top: Pos) -> Result<Direction, Miss> {
-    // What drives the dust: each side it joins, and each block beside it
-    // that something powers strongly, which dust takes power from without
-    // joining it.
-    let joins = crate::schem::dust::joins(blocks, top);
-    let mut feeds: Vec<(Direction, Side)> = Direction::SIDES
-        .into_iter()
-        .zip(joins)
-        .filter(|&(side, join)| {
-            join != Side::None
-                || strongly_powered(blocks, schem::step(top, side))
-        })
-        .collect();
-    feeds.sort_by_key(|(side, _)| side.name());
-    let feed = match feeds.as_slice() {
-        [] => {
-            return Err((top, "nothing beside its dust drives it".to_owned()));
-        }
-        [(side, Side::Up)] => {
-            return Err((
-                schem::step(schem::step(top, *side), Direction::Up),
-                "its dust climbs to dust above, which a repeater can't read"
-                    .to_owned(),
-            ));
-        }
-        [(side, _)] => *side,
-        more => {
-            let sides: Vec<String> = more
-                .iter()
-                .map(|&(side, join)| {
-                    let next = schem::step(top, side);
-                    let what = if join == Side::None {
-                        "a block powered strongly"
-                    } else if join == Side::Up {
-                        "dust above"
-                    } else if !crate::schem::block::is_component(schem::short(
-                        blocks.get(next),
-                    )) {
-                        "dust below"
-                    } else {
-                        schem::short(blocks.get(next))
-                    };
-                    format!("{side} to {}", what.replace('_', " "))
-                })
-                .collect();
-            return Err((
-                top,
-                format!(
-                    "its dust is driven or joined {} ways, {}",
-                    more.len(),
-                    sides.join(", ")
-                ),
-            ));
-        }
-    };
-    Ok(feed)
-}
-
-/// The repeater or comparator to put in place of the dust at `top`, in
-/// `state`, on output block `block`, and any block taken out of its
-/// front; or where and why there is none.
-fn dust_output(
-    blocks: &Blocks,
-    block: Pos,
-    top: Pos,
-    state: &str,
+/// The file in `data` with each output of `outputs`, today's, tapped as
+/// [`tap`] taps them, `along` the ways copies stack, its box grown to hold the taps, then as `//update`
+/// leaves it, [`crate::schem::rstack::settle`]: dust shaped as the game shapes it, then
+/// every component at rest, each lever as it was. The file, how far every
+/// old position moved, and what came of each output; no file unless every
+/// output was tapped or already one.
+pub fn tapped(
+    data: &[u8],
+    outputs: &[Run],
     comparator: impl Fn(Pos) -> bool,
-) -> Result<(String, Option<(Pos, String)>), Miss> {
-    let feed = feed_side(blocks, top)?;
-    // A block above or below it powered strongly drives the dust too, as
-    // a torch under the output block does, which a repeater wouldn't take.
-    let over = schem::step(top, Direction::Up);
-    if schem::short(blocks.get(over)) == "redstone_wall_torch" {
-        return Err((over, "a torch over its dust drives it too".to_owned()));
+    along: &[Direction],
+) -> Result<(Option<Vec<u8>>, Pos, Vec<Tapped>)> {
+    let blocks = Blocks::read(data)?;
+    let (changes, done) = tap(&blocks, outputs, comparator, along);
+    if changes.is_empty()
+        || done.iter().any(|t| matches!(t, Tapped::Not { .. }))
+    {
+        return Ok((None, [0; 3], done));
     }
-    for side in [Direction::Up, Direction::Down] {
-        let next = schem::step(top, side);
-        if strongly_powered(blocks, next) {
-            return Err((
-                next,
-                format!(
-                    "the {} {} its dust is powered strongly, driving it too",
-                    schem::short(blocks.get(next)).replace('_', " "),
-                    if side == Direction::Up {
-                        "over"
-                    } else {
-                        "under"
-                    }
-                ),
-            ));
-        }
-    }
-    let from = schem::step(top, feed);
-    feeds_a_diode(blocks, from, top).map_err(|why| (from, why))?;
-    // What points into the new component's sides would lock a repeater or
-    // feed a comparator's side.
-    for side in [feed.turned(), feed.turned().opposite()] {
-        let next = schem::step(top, side);
-        let state = blocks.get(next);
-        if matches!(schem::short(state), "repeater" | "comparator")
-            && Direction::facing(state)
-                .is_some_and(|f| schem::step(next, f.opposite()) == top)
-        {
-            return Err((
-                next,
-                format!("a {} points into its side", schem::short(state)),
-            ));
-        }
-    }
-    if let Some((at, what)) = reads_block(blocks, block) {
-        return Err((at, format!("{what} reads the block under it")));
-    }
-    let front = schem::step(top, feed.opposite());
-    let cleared = if is_air(blocks.get(front)) {
-        None
-    } else if clearable(blocks, front, &[top]) {
-        Some((front, blocks.get(front).to_owned()))
-    } else {
-        return Err((
-            front,
-            format!(
-                "{} in front, touching more",
-                schem::short(blocks.get(front)).replace('_', " ")
-            ),
-        ));
-    };
-    let powered = schem::property(state, "power").is_some_and(|p| p != "0");
-    let now = if comparator(block) {
-        format!(
-            "minecraft:comparator[facing={feed},mode=compare,\
-             powered={powered}]"
-        )
-    } else {
-        format!(
-            "minecraft:repeater[delay=1,facing={feed},locked=false,\
-             powered={powered}]"
-        )
-    };
-    Ok((now, cleared))
+    let (file, moved) = crate::schem::standardize::edit_grown(data, &changes)?;
+    let file = crate::schem::rstack::settle(&file)?;
+    Ok((Some(file), moved, done))
 }
 
 #[cfg(test)]
@@ -658,54 +647,6 @@ mod tests {
         assert_eq!(runs[1].bits, [[6, 1, 0]]);
     }
 
-    /// Dust on an output block joined to the dust driving it, one side
-    /// only, becomes a repeater reading from that side and giving out into
-    /// air, whatever shape its state draws; dust that joins more dust
-    /// beyond it carries the signal on, and is left, with why.
-    #[test]
-    fn dust_fed_from_one_side_becomes_a_repeater() {
-        let wire = |east: &str, west: &str| {
-            format!(
-                "minecraft:redstone_wire[east={east},north=none,power=0,\
-                 south=none,west={west}]"
-            )
-        };
-        let grid = |end: &str, on: bool| -> Blocks {
-            let mut states: HashMap<Pos, String> = [
-                ([0, 1, 0], format!("minecraft:{LEVER}")),
-                ([1, 1, 0], "minecraft:white_concrete".to_owned()),
-                ([2, 0, 0], "minecraft:stone".to_owned()),
-                ([2, 1, 0], wire("side", "side")),
-                ([3, 0, 0], "minecraft:yellow_concrete".to_owned()),
-                ([3, 1, 0], end.to_owned()),
-            ]
-            .into_iter()
-            .collect();
-            if on {
-                states.insert([4, 0, 0], "minecraft:stone".to_owned());
-                states.insert([4, 1, 0], wire("none", "side"));
-            }
-            Blocks::from_grid([5, 2, 1], &states)
-        };
-        // A line drawn through it joins only the dust west of it.
-        let (changes, done) =
-            rework(&grid(&wire("side", "side"), false), &[[3, 0, 0]], |_| {
-                false
-            });
-        assert_eq!(
-            changes[&[3, 1, 0]],
-            "minecraft:repeater[delay=1,facing=west,locked=false,\
-             powered=false]"
-        );
-        assert!(matches!(done[0], Reworked::Converted { cleared: None, .. }));
-        let (changes, done) =
-            rework(&grid(&wire("side", "side"), true), &[[3, 0, 0]], |_| false);
-        assert!(changes.is_empty());
-        assert!(
-            matches!(&done[0], Reworked::Not { why, .. } if why.contains("joined 2 ways"))
-        );
-    }
-
     /// The owner's hand-made one-bit adders: the first two read their sum
     /// through dust on yellow concrete, so only the carry out's repeater is
     /// an output by this rule; the third gives both out through repeaters.
@@ -735,5 +676,251 @@ mod tests {
         let layout = probed.layout.unwrap();
         assert_eq!(layout.sum.len(), 8);
         assert!(layout.carry_out.is_some());
+    }
+
+    /// An output block, yellow concrete at (2, 1, 2), with dust on it fed
+    /// from the south by dust on stone, in a box 5 by 4 by 5, with `extra`
+    /// blocks put in or, as air, taken out.
+    fn tap_fixture(extra: &[(Pos, &str)]) -> Blocks {
+        let wire = "redstone_wire[east=none,north=side,power=0,south=side,\
+                    west=none]";
+        let mut states: HashMap<Pos, String> = [
+            ([2, 1, 2], "yellow_concrete"),
+            ([2, 2, 2], wire),
+            ([2, 1, 3], "stone"),
+            ([2, 2, 3], wire),
+            ([2, 1, 4], "stone"),
+            ([2, 2, 4], wire),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        for &(pos, state) in extra {
+            if state == "air" {
+                states.remove(&pos);
+            } else {
+                states.insert(pos, format!("minecraft:{state}"));
+            }
+        }
+        Blocks::from_grid([5, 4, 5], &states)
+    }
+
+    /// The one output of `tap_fixture` tapped, with `along` the sides
+    /// copies stack toward.
+    fn tap_one_output(
+        blocks: &Blocks,
+        along: &[Direction],
+    ) -> (BTreeMap<Pos, String>, Tapped) {
+        let run = Run {
+            bits: vec![[2, 1, 2]],
+            step: [0, 0, 0],
+        };
+        let (changes, mut done) = tap(blocks, &[run], |_| false, along);
+        assert_eq!(done.len(), 1);
+        (changes, done.remove(0))
+    }
+
+    /// With every side open, the tap goes north, the front: the output
+    /// block whitened, a support of white concrete north of it, and on
+    /// that a repeater facing south, reading the dust on the output block
+    /// and giving out north into air.
+    #[test]
+    fn a_tap_goes_north_by_default() {
+        let (changes, tapped) = tap_one_output(&tap_fixture(&[]), &[]);
+        assert_eq!(
+            tapped,
+            Tapped::Tapped {
+                block: [2, 1, 2],
+                side: Direction::North,
+                support: [2, 1, 1],
+                glass: false,
+                clear: true,
+                now: "minecraft:repeater[delay=1,facing=south,locked=false,\
+                      powered=false]"
+                    .to_owned(),
+            }
+        );
+        assert_eq!(changes[&[2, 1, 2]], "minecraft:white_concrete");
+        assert_eq!(changes[&[2, 1, 1]], "minecraft:white_concrete");
+        assert_eq!(changes.len(), 3);
+        // Nothing else changes: the dust on the output block stays.
+        assert!(!changes.contains_key(&[2, 2, 2]));
+    }
+
+    /// A block further north, out to the box's edge, makes north no face
+    /// the output sits on though a tap fits there, so the tap goes to a
+    /// side clear to the edge, west before east.
+    #[test]
+    fn a_tap_goes_toward_the_face_the_output_sits_on() {
+        let blocks = tap_fixture(&[([2, 1, 0], "stone")]);
+        let (_, tapped) = tap_one_output(&blocks, &[]);
+        assert!(matches!(
+            tapped,
+            Tapped::Tapped {
+                side: Direction::West,
+                clear: true,
+                ..
+            }
+        ));
+    }
+
+    /// A side copies stack toward is tried last, as a tap there would
+    /// reach into the next copy.
+    #[test]
+    fn a_tap_avoids_the_way_copies_stack() {
+        let along = [Direction::North, Direction::South];
+        let (_, tapped) = tap_one_output(&tap_fixture(&[]), &along);
+        assert!(matches!(
+            tapped,
+            Tapped::Tapped {
+                side: Direction::West,
+                ..
+            }
+        ));
+    }
+
+    /// A torch under the support would power it, and dust under it would
+    /// have its climb cut, so the support is white stained glass; a
+    /// stained glass output block is whitened as stained glass.
+    #[test]
+    fn a_support_over_a_torch_or_dust_is_glass() {
+        for under in [
+            "redstone_torch[lit=true]",
+            "redstone_wall_torch[facing=north,lit=true]",
+            "redstone_wire[east=none,north=none,power=0,south=none,\
+             west=none]",
+        ] {
+            let blocks = tap_fixture(&[([2, 0, 1], under)]);
+            let (changes, tapped) = tap_one_output(&blocks, &[]);
+            assert!(
+                matches!(tapped, Tapped::Tapped { glass: true, .. }),
+                "{under}"
+            );
+            assert_eq!(changes[&[2, 1, 1]], "minecraft:white_stained_glass");
+        }
+        let blocks = tap_fixture(&[([2, 1, 2], "yellow_stained_glass")]);
+        let (changes, tapped) = tap_one_output(&blocks, &[]);
+        assert!(matches!(tapped, Tapped::Tapped { glass: false, .. }));
+        assert_eq!(changes[&[2, 1, 2]], "minecraft:white_stained_glass");
+        assert_eq!(changes[&[2, 1, 1]], "minecraft:white_concrete");
+    }
+
+    /// Where the support, the repeater, or the air it gives out into is
+    /// taken on every side, the output isn't tapped, and why names each
+    /// side's block; a cell beyond the box is air.
+    #[test]
+    fn an_output_blocked_on_every_side_is_not_tapped() {
+        let blocks = tap_fixture(&[
+            ([2, 2, 1], "stone"),
+            ([1, 1, 2], "stone"),
+            ([4, 2, 2], "stone"),
+        ]);
+        let (changes, tapped) = tap_one_output(&blocks, &[]);
+        assert!(changes.is_empty());
+        let Tapped::Not { why, .. } = tapped else {
+            panic!("tapped: {tapped:?}");
+        };
+        assert!(why.starts_with("every side is blocked"), "{why}");
+        for at in ["(2, 2, 1)", "(1, 1, 2)", "(4, 2, 2)", "(2, 1, 3)"] {
+            assert!(why.contains(at), "{at} in {why}");
+        }
+        // At the west edge, closed north, south, and east, where its
+        // repeater would give out into the dust of the other output, the
+        // tap goes beyond the box.
+        let blocks = tap_fixture(&[
+            ([0, 2, 1], "stone"),
+            ([0, 1, 3], "stone"),
+            ([0, 1, 2], "yellow_concrete"),
+            (
+                [0, 2, 2],
+                "redstone_wire[east=side,north=none,power=0,\
+                          south=none,west=none]",
+            ),
+        ]);
+        let run = Run {
+            bits: vec![[0, 1, 2]],
+            step: [0, 0, 0],
+        };
+        let (changes, done) = tap(&blocks, &[run], |_| false, &[]);
+        assert!(matches!(
+            done[0],
+            Tapped::Tapped {
+                side: Direction::West,
+                support: [-1, 1, 2],
+                ..
+            }
+        ));
+        assert!(changes.contains_key(&[-1, 2, 2]));
+    }
+
+    /// An output read as a strength takes a comparator, and one read by a
+    /// repeater that powers something can't be tapped, a tap reading dust
+    /// only.
+    #[test]
+    fn a_strength_takes_a_comparator_and_a_repeater_reader_is_left() {
+        let run = Run {
+            bits: vec![[2, 1, 2]],
+            step: [0, 0, 0],
+        };
+        let (changes, _) =
+            tap(&tap_fixture(&[]), std::slice::from_ref(&run), |_| true, &[]);
+        assert!(
+            changes[&[2, 2, 1]]
+                .starts_with("minecraft:comparator[facing=south")
+        );
+        let blocks = tap_fixture(&[
+            (
+                [2, 2, 2],
+                "repeater[delay=1,facing=south,locked=false,powered=false]",
+            ),
+            ([2, 2, 1], "stone"),
+        ]);
+        let (changes, done) = tap(&blocks, &[run], |_| false, &[]);
+        assert!(changes.is_empty());
+        assert!(
+            matches!(&done[0], Tapped::Not { why, .. } if why.contains("reads only dust"))
+        );
+    }
+
+    /// A tapped file is settled as `//update` leaves it: the box grown to
+    /// hold the taps, the dust on each output block shaped to join its
+    /// repeater, so settling it again changes nothing, and the proposed
+    /// rule finds every tap an output.
+    #[test]
+    fn a_tapped_file_is_settled() {
+        let data = std::fs::read("tests/fixtures/inc-8.schem").unwrap();
+        let blocks = Blocks::read(&data).unwrap();
+        let today = inspect::inspect_marked(&blocks, inspect::SITE);
+        let (file, moved, done) =
+            tapped(&data, &today.outputs, |_| false, &[]).unwrap();
+        let file = file.expect("every output tapped");
+        assert_eq!(
+            crate::schem::rstack::settle(&file).unwrap(),
+            file,
+            "settled already"
+        );
+        let after = Blocks::read(&file).unwrap();
+        let found: Vec<Pos> = find(&after).iter().map(|o| o.block()).collect();
+        assert!(!done.is_empty());
+        for tapped in &done {
+            let Tapped::Tapped {
+                block,
+                side,
+                support,
+                ..
+            } = tapped
+            else {
+                panic!("not tapped: {tapped:?}");
+            };
+            let top = schem::step(schem::add(*block, moved), Direction::Up);
+            let dust = after.get(top);
+            assert_eq!(schem::short(dust), "redstone_wire");
+            assert_eq!(schem::property(dust, side.name()), Some("side"));
+            assert_eq!(
+                schem::short(after.get(schem::add(*block, moved))),
+                "white_concrete"
+            );
+            assert!(found.contains(&schem::add(*support, moved)));
+        }
     }
 }

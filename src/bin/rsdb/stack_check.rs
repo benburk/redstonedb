@@ -187,7 +187,9 @@ pub(super) async fn stack_check_command(
 }
 
 /// Each way a stored build stacks, by name, with its spacing.
-fn stored_ways(like: Option<&Schematic>) -> Vec<(&'static str, i64)> {
+pub(super) fn stored_ways(
+    like: Option<&Schematic>,
+) -> Vec<(&'static str, i64)> {
     like.iter()
         .flat_map(|s| &s.stacking)
         .flat_map(|d| {
