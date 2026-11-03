@@ -238,14 +238,20 @@ pub fn throughput(
         .collect();
     let levered =
         Blocks::read(&crate::schem::standardize::edit(data, &levers)?)?;
-    let latency: Vec<i32> = timing
-        .outputs
-        .iter()
-        .map(|o| (o.latency + o.carried).max(0))
-        .collect();
+    // Each bus's latency as it arrives at the repeaters or comparators
+    // carrying it out, as its timing gives it, each bit read as many ticks
+    // later as its own takes to give it out.
+    let latency: Vec<i32> =
+        timing.outputs.iter().map(|o| o.latency.max(0)).collect();
     if latency.len() != register.buses.len() {
         return Ok(None);
     }
+    let carried = Circuit::new(&levered, &interface::read(&levered))?.carried();
+    let carried: Vec<Vec<(i32, Value)>> = register
+        .buses
+        .iter()
+        .map(|&port| carried.groups(port, register.width))
+        .collect();
     // A write's data must pass into its cell, and a read come out, so the
     // slowest of those bounds the periods tried.
     let slowest = latency
@@ -272,6 +278,7 @@ pub fn throughput(
                 let stream = Stream {
                     register: &register,
                     latency: &latency,
+                    carried: &carried,
                     period,
                     offset,
                     open,
@@ -362,6 +369,9 @@ fn drive(
 struct Stream<'a> {
     register: &'a Register,
     latency: &'a [i32],
+    /// Each bus's bits by the ticks their repeaters or comparators take to
+    /// give them out.
+    carried: &'a [Vec<(i32, Value)>],
     period: i32,
     offset: i32,
     open: i32,
@@ -408,9 +418,11 @@ impl Stream<'_> {
         }
         // As late as a read may come, a period on.
         let late = self.period;
+        let carried = self.carried.iter().flatten().map(|&(ticks, _)| ticks);
         let end = self.period * i32::try_from(steps.len())?
             + late
-            + self.latency.iter().copied().max().unwrap_or(0);
+            + self.latency.iter().copied().max().unwrap_or(0)
+            + carried.max().unwrap_or(0);
         let mut shown: Vec<Vec<Value>> = Vec::new();
         for tick in 0..=end {
             let at = tick.div_euclid(self.period);
@@ -435,10 +447,14 @@ impl Stream<'_> {
         Ok((0..late)
             .filter(|&delay| {
                 reads.iter().all(|&(at, bus, shows)| {
-                    usize::try_from(at + delay)
-                        .ok()
-                        .and_then(|t| shown.get(t))
-                        .is_some_and(|buses| buses[bus] == shows)
+                    self.carried[bus].iter().all(|&(carried, bits)| {
+                        usize::try_from(at + delay + carried)
+                            .ok()
+                            .and_then(|t| shown.get(t))
+                            .is_some_and(|buses| {
+                                (buses[bus] ^ shows) & bits == 0
+                            })
+                    })
                 })
             })
             .collect())

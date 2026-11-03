@@ -19,7 +19,7 @@ use crate::{
     simulate::{
         Value,
         bench::mask,
-        circuit::{Circuit, MAX_TICKS, output_bits},
+        circuit::{Carried, Circuit, MAX_TICKS, output_bits},
         timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
     },
 };
@@ -92,8 +92,8 @@ pub fn time(
                     }
                 }
                 let changes = watch(&mut circuit, &register)?;
-                let last =
-                    stats[bus].add(&changes[bus], carried[register.buses[bus]]);
+                let last = stats[bus]
+                    .add(&carried.arrived(register.buses[bus], &changes[bus]));
                 settled.push((last, value));
                 read(&mut circuit, &register, &[])?;
             }
@@ -120,7 +120,7 @@ pub fn time(
             .into_iter()
             .zip(&register.buses)
             .map(|(bus, &port)| {
-                bus.timing(&interface.outputs[port].name, carried[port])
+                bus.timing(&interface.outputs[port].name, carried.port(port))
             })
             .collect(),
         synced,
@@ -244,7 +244,7 @@ fn timed(
 fn timed_all(
     circuit: &mut Circuit,
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
     write_at: i32,
     read_at: Option<i32>,
 ) -> Result<Option<i32>> {
@@ -261,8 +261,7 @@ fn timed_all(
                 return Ok(None);
             }
             let port = register.buses[read_line.bus];
-            let last = changes.iter().flatten().max().copied().unwrap_or(0);
-            latest = latest.max(last - carried[port]);
+            latest = latest.max(last(&carried.arrived(port, &changes)));
         }
     }
     Ok(Some(latest))
@@ -274,7 +273,7 @@ fn timed_all(
 fn offsets(
     circuit: &mut Circuit,
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
 ) -> Result<Option<Offsets>> {
     let mut stores: Vec<(i32, i32)> = Vec::new();
     for write_at in -REACH..=REACH {
@@ -329,7 +328,7 @@ fn from_data(
     circuit: &mut Circuit,
     (blocks, interface): (&Blocks, &Interface),
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
     values: (&[Value], bool),
 ) -> Result<Option<Timing>> {
     let Some(found) = offsets(circuit, register, carried)? else {
@@ -359,7 +358,7 @@ fn aligned(
     circuit: &mut Circuit,
     (interface, named): (&Interface, &Interface),
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
     found: &Offsets,
     (values, exhaustive): (&[Value], bool),
 ) -> Result<Timing> {
@@ -385,8 +384,9 @@ fn aligned(
                 found.write,
                 found.read,
             )?;
-            let last = stats[read_line.bus]
-                .add(&changes, carried[register.buses[read_line.bus]]);
+            let port = register.buses[read_line.bus];
+            let last =
+                stats[read_line.bus].add(&carried.arrived(port, &changes));
             settled.push((last, value));
         }
     }
@@ -434,7 +434,7 @@ fn aligned(
             .into_iter()
             .zip(&register.buses)
             .map(|(bus, &port)| {
-                bus.timing(&named.outputs[port].name, carried[port])
+                bus.timing(&named.outputs[port].name, carried.port(port))
             })
             .collect(),
         synced,
@@ -614,7 +614,7 @@ fn takes_data_closing(
 fn data_latency(
     circuit: &mut Circuit,
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
     closing: bool,
 ) -> Result<Option<i32>> {
     if closing {
@@ -646,20 +646,31 @@ fn data_latency(
             if !open {
                 return Ok(None);
             }
-            // The data changes while the write is still open.
+            // The data changes while the write is still open, and passes
+            // once its bus shows it as it arrives, its every bit by then.
             circuit.set(register.data, next);
-            let mut ticks = 0;
-            let mut passed = false;
-            while !passed && circuit.step() {
-                ticks += 1;
-                passed = shows(circuit, next);
+            let before = buses(circuit, register)[read_line.bus];
+            let mut steps = Vec::new();
+            let mut tick = 0;
+            while circuit.step() {
+                tick += 1;
+                if tick > MAX_TICKS.cast_signed() {
+                    bail!(
+                        "It was still changing {MAX_TICKS} ticks after its \
+                         data."
+                    );
+                }
+                steps.push((tick, buses(circuit, register)[read_line.bus]));
             }
-            if !passed {
+            let want = read_line.shows(next, register.width);
+            let passed = carried
+                .arrived_steps(port, before, &steps)
+                .into_iter()
+                .find(|&(_, shown)| shown == want);
+            let Some((ticks, _)) = passed else {
                 return Ok(None);
-            }
-            let ticks = ticks - carried[port];
+            };
             slowest = Some(slowest.map_or(ticks, |s: i32| s.max(ticks)));
-            circuit.settle()?;
             read(circuit, register, &[])?;
         }
     }
@@ -673,7 +684,7 @@ fn data_latency(
 fn closing_data_latency(
     circuit: &mut Circuit,
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
 ) -> Result<Option<i32>> {
     let all = mask(register.width);
     let mut slowest = None;
@@ -713,13 +724,7 @@ fn closing_data_latency(
             {
                 return Ok(None);
             }
-            let last = changes[read_line.bus]
-                .iter()
-                .flatten()
-                .max()
-                .copied()
-                .unwrap_or(0);
-            let ticks = last - carried[port];
+            let ticks = last(&carried.arrived(port, &changes[read_line.bus]));
             slowest = Some(slowest.map_or(ticks, |s: i32| s.max(ticks)));
             read(circuit, register, &[])?;
         }
@@ -735,7 +740,7 @@ fn closing_data_latency(
 fn write_latency(
     circuit: &mut Circuit,
     register: &Register,
-    carried: &[i32],
+    carried: &Carried,
     closing: bool,
 ) -> Result<i32> {
     let all = mask(register.width);
@@ -755,13 +760,18 @@ fn write_latency(
                 close_write(circuit, register, cell.write, line);
             }
             let changes = watch(circuit, register)?;
-            let last =
-                changes[bus].iter().flatten().max().copied().unwrap_or(0);
-            slowest = slowest.max(last - carried[register.buses[bus]]);
+            let port = register.buses[bus];
+            slowest = slowest.max(last(&carried.arrived(port, &changes[bus])));
             read(circuit, register, &[])?;
         }
     }
     Ok(slowest)
+}
+
+/// The last tick any bit of `changes`, each bit's ticks, changed on; 0 for
+/// none.
+fn last(changes: &[Vec<i32>]) -> i32 {
+    changes.iter().flatten().max().copied().unwrap_or(0)
 }
 
 /// One bus's changes over the reads timed.
@@ -793,9 +803,9 @@ impl BusStats {
         }
     }
 
-    /// Adds one read's changes, each bit's ticks, less `carried`; the tick
+    /// Adds one read's changes, each bit's ticks, as they arrived; the tick
     /// the bus settled by.
-    fn add(&mut self, changes: &[Vec<i32>], carried: i32) -> i32 {
+    fn add(&mut self, changes: &[Vec<i32>]) -> i32 {
         let mut last = 0;
         let mut once: Vec<i32> = Vec::new();
         let mut glitched = false;
@@ -804,7 +814,6 @@ impl BusStats {
             else {
                 continue;
             };
-            let (first, end) = (first - carried, end - carried);
             bit.first_change = bit.first_change.min(first);
             bit.latency = bit.latency.max(end);
             if ticks.len() > 1 {

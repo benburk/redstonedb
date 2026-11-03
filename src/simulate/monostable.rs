@@ -78,9 +78,9 @@ struct Cases {
     width: usize,
     /// Whether its output rests on, so its pulse turns it off.
     inverted: bool,
-    /// The ticks a repeater or comparator on its output takes to carry it
-    /// out of the build.
-    carried: i32,
+    /// The ticks the repeater or comparator on each of its output bits
+    /// takes to carry it out of the build, which its timing leaves out.
+    carried: Vec<i32>,
     tried: Vec<Case>,
     /// Whether its output rests differently with A on than off, as a build
     /// that passes A along rather than pulsing does.
@@ -292,12 +292,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
     let width = input.bits.len();
     let outputs = output_bits(&interface)?;
     let mut circuit = Circuit::new(blocks, &interface)?;
-    let carried_by = circuit.carried();
-    let carried = outputs
-        .iter()
-        .map(|&(port, _)| carried_by[port])
-        .min()
-        .unwrap_or(0);
+    let carried = carried(&circuit, &outputs);
     circuit.set(0, 0);
     circuit.settle()?;
     let rest = read(&circuit, &outputs);
@@ -346,6 +341,17 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
         tried: cases,
         follows,
     })
+}
+
+/// The ticks the repeater or comparator on each of `outputs`, a
+/// monostable's output bits as [`output_bits`] gives them, takes to carry
+/// it out of the build in `circuit`.
+fn carried(circuit: &Circuit, outputs: &[(usize, usize)]) -> Vec<i32> {
+    let carried = circuit.carried();
+    outputs
+        .iter()
+        .map(|&(port, bit)| carried.bit(port, bit))
+        .collect()
 }
 
 /// Each bit of A's output bit, by its port and its place there: the bits
@@ -450,11 +456,10 @@ pub fn time(
         .iter()
         .filter(|case| edge.triggers(case.on))
         .collect();
-    let carried = found.carried;
+    let carried = &found.carried;
     let starts = |case: &Case| -> Vec<i32> {
         bits(case.flipped, found.width)
-            .filter_map(|bit| case.pulse(bit))
-            .map(|(start, _)| start - carried)
+            .filter_map(|bit| Some(case.pulse(bit)?.0 - carried[bit]))
             .collect()
     };
     let staggered = triggered
@@ -484,12 +489,12 @@ pub fn time(
         BitTiming {
             first_change: pulses
                 .iter()
-                .map(|&(start, _)| start - carried)
+                .map(|&(start, _)| start - carried[bit])
                 .max()
                 .unwrap_or(0),
             latency: pulses
                 .iter()
-                .map(|&(start, ticks)| start + ticks - carried)
+                .map(|&(start, ticks)| start + ticks - carried[bit])
                 .max()
                 .unwrap_or(0),
             glitches: 0,
@@ -507,7 +512,7 @@ pub fn time(
             status: found.status,
             latency: bits.iter().map(|bit| bit.latency).max().unwrap_or(0),
             first_change: slowest,
-            carried,
+            carried: carried.iter().copied().max().unwrap_or(0),
             glitches: 0,
             staggered,
             glitch: None,
@@ -557,11 +562,14 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     let outputs = output_bits(&interface)?;
     let width = interface.inputs[0].bits.len();
     let all = mask(width);
-    // Each bit's latest start, from A changing, where the site reads it.
+    // Each bit's latest start, from A changing, as its repeater or
+    // comparator gives it out, where the stream reads it.
+    let carried = carried(&Circuit::new(blocks, &interface)?, &outputs);
     let latest: Vec<i32> = output
         .bits
         .iter()
-        .map(|bit| bit.first_change + output.carried)
+        .zip(&carried)
+        .map(|(bit, carried)| bit.first_change + carried)
         .collect();
     let rest = if pulse.inverted { all } else { 0 };
     let dual = pulse.edge == Edge::Both;

@@ -3,7 +3,8 @@
 //! `k` ticks through a fixed stream, each input at its own tick from A's,
 //! as the site's timing gives them, and each output is read for each case
 //! at its own latency from A, as the site times it, or just before the next
-//! case comes in, whichever is later. A build that only takes a new input
+//! case comes in, whichever is later, as it arrives at the repeater or
+//! comparator carrying it out, as every timing reads it. A build that only takes a new input
 //! once the last has settled has a throughput near its latency; a pipelined
 //! one, or one whose paths all take about as long, takes them faster. A
 //! sequential build's button, as its calculate, is pressed in the stream at
@@ -16,7 +17,7 @@ use anyhow::Result;
 use super::{
     Value,
     bench::mask,
-    circuit::{Circuit, input_bits},
+    circuit::{Circuit, input_bits, output_bits},
     rng::Rng,
     timing::Timing,
 };
@@ -73,14 +74,10 @@ pub fn throughput(
     shortest(blocks, (&cases, &long), &offset, &latency, 2 * slowest)
 }
 
-/// Each output's tick from A's, past the repeaters or comparators that
-/// carry it out, where the site reads it.
+/// Each output's tick from A's, as it arrives at the repeaters or
+/// comparators that carry it out, which the stream reads it by.
 fn read_at(timing: &Timing) -> Vec<i32> {
-    timing
-        .outputs
-        .iter()
-        .map(|o| o.latency + o.carried)
-        .collect()
+    timing.outputs.iter().map(|o| o.latency).collect()
 }
 
 /// How often the build in `blocks`, timed as `timing`, takes a new case
@@ -125,8 +122,10 @@ pub(super) fn controlled(
 /// The shortest period, up to `most`, at which the `short` stream of cases
 /// and then the `long` one each come out as they settle in `blocks`: each
 /// input set, or its button pressed, at its `offset` from A's, and each
-/// output read at its `latency`. Found on the short stream, then checked
-/// on the long one, a period kept only once every case of that comes out
+/// output read at its `latency`, as it arrives at the repeaters or
+/// comparators carrying it out, each bit read as many ticks later as its
+/// own takes to give it out. Found on the short stream, then checked on
+/// the long one, a period kept only once every case of that comes out
 /// right too.
 pub(super) fn shortest(
     blocks: &Blocks,
@@ -139,6 +138,13 @@ pub(super) fn shortest(
     let mut circuit = Circuit::new(blocks, &interface)?;
     let button: Vec<bool> = (0..interface.inputs.len())
         .map(|p| circuit.is_button(p, 0))
+        .collect();
+    let carried = circuit.carried();
+    let carried: Vec<Vec<(i32, Value)>> = interface
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(o, port)| carried.groups(o, output_bits(&interface, port)))
         .collect();
     // What each case settles to: its levers set, then its buttons, as a
     // sequential build's calculate, pressed in the order of their ticks,
@@ -155,6 +161,7 @@ pub(super) fn shortest(
         expected: &expected,
         offset,
         latency,
+        carried: &carried,
         button: &button,
     };
     let long_expected =
@@ -212,6 +219,9 @@ struct Stream<'a> {
     expected: &'a [Vec<Value>],
     offset: &'a [i32],
     latency: &'a [i32],
+    /// Each output's bits by the ticks their repeaters or comparators take
+    /// to give them out, as [`super::circuit::Carried::groups`] gives them.
+    carried: &'a [Vec<(i32, Value)>],
     button: &'a [bool],
 }
 
@@ -234,14 +244,20 @@ impl Stream<'_> {
         // `start + i * period`.
         let start = -soonest.unwrap_or(0).min(0);
         let mut sets: Vec<(i32, usize, Value)> = Vec::new();
-        let mut reads: Vec<(i32, usize, usize)> = Vec::new();
+        let mut reads: Vec<(i32, usize, usize, Value)> = Vec::new();
         for ((i, case), n) in cases.iter().enumerate().zip(0..) {
             let a = start + n * period;
             for (port, &value) in case.iter().enumerate() {
                 sets.push((a + offset[port] - lead[port], port, value));
             }
+            // Each output as it arrives, as late as its latency or as just
+            // before the next case comes in, each bit seen as many ticks
+            // on as its repeater or comparator takes to give it out.
             for (o, &l) in latency.iter().enumerate() {
-                reads.push((a + l.max(period + earliest), o, i));
+                let arrives = a + l.max(period + earliest);
+                for &(carried, bits) in &self.carried[o] {
+                    reads.push((arrives + carried, o, i, bits));
+                }
             }
         }
         sets.sort_unstable();
@@ -252,11 +268,11 @@ impl Stream<'_> {
         for t in 0..=end {
             // Read before setting, so an output read as the next case goes
             // in still shows its own.
-            while let Some(&(at, o, i)) = reads.get(next_read)
+            while let Some(&(at, o, i, bits)) = reads.get(next_read)
                 && at == t
             {
                 next_read += 1;
-                right &= circuit.get(o) == expected[i][o];
+                right &= (circuit.get(o) ^ expected[i][o]) & bits == 0;
             }
             if !right {
                 break;

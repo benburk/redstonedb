@@ -543,10 +543,13 @@ impl Circuit {
             .collect()
     }
 
-    /// For each output, the ticks the repeaters or comparators standing on
-    /// its every block take to carry it out of the build, the least of
-    /// them, which its value shows that much later than it arrives.
-    pub fn carried(&self) -> Vec<i32> {
+    /// For each output, the ticks the repeater or comparator standing on
+    /// each bit's block takes to carry it out of the build, which the bit
+    /// shows that much later than it arrives: a repeater its delay, from 1
+    /// to 4, and a comparator 1, whether its bit is read as on or off or as
+    /// a strength; dust, which an output saved under the old rule is read
+    /// through, none.
+    pub fn carried(&self) -> Carried {
         let delay = |pos: BlockPos| match self
             .world
             .get_block(pos.offset(BlockFace::Top))
@@ -555,16 +558,108 @@ impl Circuit {
             Block::Comparator(_) => 1,
             _ => 0,
         };
-        self.outputs
+        Carried(
+            self.outputs
+                .iter()
+                .map(|(blocks, digits)| {
+                    let each = if *digits { 4 } else { 1 };
+                    blocks
+                        .iter()
+                        .flat_map(|&pos| std::iter::repeat_n(delay(pos), each))
+                        .collect()
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The ticks each output bit's repeater or comparator takes to carry it out
+/// of the build, per output, per bit of its value, as [`Circuit::carried`]
+/// finds them. Every timing leaves them out: an output is timed as its
+/// signal arrives at its repeater or comparator, which is the build's own
+/// work, and not as that gives it out, so a tick a tester's repeater would
+/// take counts for nothing. Moving each change back by its own bit's delay
+/// is exact, a locked repeater or a comparator's side included: each
+/// changes what it gives out only its delay after what arrives at its
+/// back or sides does.
+#[derive(Debug, Clone, Default)]
+pub struct Carried(Vec<Vec<i32>>);
+
+impl Carried {
+    /// The ticks bit `bit` of output `port`'s value is carried; none for a
+    /// bit past its width.
+    pub fn bit(&self, port: usize, bit: usize) -> i32 {
+        self.0
+            .get(port)
+            .and_then(|bits| bits.get(bit))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// The most ticks any bit of output `port` is carried, as its timing
+    /// reports it.
+    pub fn port(&self, port: usize) -> i32 {
+        self.0
+            .get(port)
+            .and_then(|bits| bits.iter().copied().max())
+            .unwrap_or(0)
+    }
+
+    /// The ticks of `changes`, each bit of output `port`'s, the ticks it
+    /// changed on, each moved back by what carries its own bit out.
+    pub fn arrived(&self, port: usize, changes: &[Vec<i32>]) -> Vec<Vec<i32>> {
+        changes
             .iter()
-            .map(|(blocks, digits)| {
-                if *digits {
-                    0
-                } else {
-                    blocks.iter().map(|&pos| delay(pos)).min().unwrap_or(0)
-                }
+            .enumerate()
+            .map(|(bit, ticks)| {
+                let carried = self.bit(port, bit);
+                ticks.iter().map(|tick| tick - carried).collect()
             })
             .collect()
+    }
+
+    /// Output `port`'s value `before` and each tick it then changed on with
+    /// its value from then, `steps`, as they arrived: each bit's change
+    /// moved back by its own bit's carry, the value at each tick made of
+    /// every bit as it had arrived by then.
+    pub fn arrived_steps(
+        &self,
+        port: usize,
+        before: Value,
+        steps: &[(i32, Value)],
+    ) -> Vec<(i32, Value)> {
+        let mut flips: BTreeMap<i32, Value> = BTreeMap::new();
+        let mut last = before;
+        for &(tick, value) in steps {
+            let flipped = value ^ last;
+            for bit in
+                (0..Value::BITS as usize).filter(|b| flipped >> b & 1 == 1)
+            {
+                *flips.entry(tick - self.bit(port, bit)).or_default() ^=
+                    1 << bit;
+            }
+            last = value;
+        }
+        let mut value = before;
+        flips
+            .into_iter()
+            .filter(|&(_, flipped)| flipped != 0)
+            .map(|(tick, flipped)| {
+                value ^= flipped;
+                (tick, value)
+            })
+            .collect()
+    }
+
+    /// Output `port`'s bits grouped by what carries them out, each group's
+    /// ticks and a mask of its bits, of the `bits` its value has: where to
+    /// read each bit to see it as it arrived some tick before.
+    pub fn groups(&self, port: usize, bits: usize) -> Vec<(i32, Value)> {
+        let mut groups: BTreeMap<i32, Value> = BTreeMap::new();
+        for bit in 0..bits {
+            *groups.entry(self.bit(port, bit)).or_default() |= 1 << bit;
+        }
+        groups.into_iter().collect()
     }
 }
 

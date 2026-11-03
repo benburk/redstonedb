@@ -7,12 +7,12 @@
 //! than A does lets it arrive that much later, and one it reaches in more
 //! makes it arrive earlier, at a negative tick. Each output's latency is
 //! the last tick it settles by, and the build is synced when every output
-//! changes only once, with all its bits on the same tick. An output whose
-//! every block has a repeater or comparator standing on it, carrying it
-//! out of the build, is timed from when it reaches them, leaving out their
-//! delay. An output whose bit changes more than once glitches: it pulses
-//! when it should stay put, or flips back and forth on its way to a new
-//! value.
+//! changes only once, with all its bits on the same tick. Each output bit
+//! is timed as its signal arrives at the repeater or comparator carrying it
+//! out of the build, leaving out that one's own delay, as every timing
+//! does, [`Carried`]. An output whose bit changes more than once glitches:
+//! it pulses when it should stay put, or flips back and forth on its way to
+//! a new value.
 //!
 //! Two kinds of change are measured, each from a settled state:
 //!
@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     Broken, Value,
     bench::{self, EXHAUSTIVE_BITS},
-    circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
+    circuit::{Carried, Circuit, MAX_TICKS, input_bits, output_bits},
     value,
 };
 use crate::{recognize::interface::Interface, schem::Blocks};
@@ -231,7 +231,8 @@ pub struct OutputTiming {
     /// The first tick it changed on.
     pub first_change: i32,
     /// The ticks the repeaters or comparators standing on its blocks take
-    /// to carry it out of the build, left out of its ticks.
+    /// to carry it out of the build, left out of its ticks: the most of
+    /// them, where its bits' differ.
     pub carried: i32,
     /// How many changes it glitched in: a bit of it changed more than once.
     pub glitches: u64,
@@ -501,7 +502,7 @@ fn press_at(
     bench: &bench::Bench,
     (cases, expected): (&[bench::Case], &[Value]),
     offset: i32,
-) -> Result<Option<(Runs, Vec<i32>)>> {
+) -> Result<Option<(Runs, Carried)>> {
     let Some(calculate) = bench.press else {
         bail!("Nothing is pressed.");
     };
@@ -543,7 +544,7 @@ fn press_at(
                 let now = circuit.get(port);
                 for (bit, ticks) in flips[o].iter_mut().enumerate() {
                     if (now ^ *last) >> bit & 1 == 1 {
-                        ticks.push(tick - carried[port]);
+                        ticks.push(tick - carried.bit(port, bit));
                     }
                 }
                 *last = now;
@@ -579,7 +580,7 @@ fn pressed_timing(
     cases: &[bench::Case],
     runs: &[Vec<Vec<Vec<i32>>>],
     offset: i32,
-    carried: &[i32],
+    carried: &Carried,
 ) -> Timing {
     let last = |ticks: &[i32]| ticks.last().copied().unwrap_or(0);
     let outputs: Vec<OutputTiming> = bench
@@ -588,7 +589,7 @@ fn pressed_timing(
         .enumerate()
         .map(|(o, &port)| {
             let name = interface.outputs[port].name.clone();
-            pressed_output(name, runs, o, carried[port])
+            pressed_output(name, runs, o, carried.port(port))
         })
         .collect();
     // Each case's settling, the last tick any output changed.
@@ -699,19 +700,19 @@ fn pressed_output(
 fn output_timings(
     interface: &Interface,
     together: &Stats,
-    carried: &[i32],
+    carried: &Carried,
 ) -> Vec<OutputTiming> {
     interface
         .outputs
         .iter()
         .zip(&together.outputs)
-        .zip(carried)
-        .map(|((port, stats), &carried)| OutputTiming {
+        .enumerate()
+        .map(|(o, (port, stats))| OutputTiming {
             name: port.name.clone(),
             status: port.status(),
             latency: stats.latency().unwrap_or(0),
             first_change: stats.first_change().unwrap_or(0),
-            carried,
+            carried: carried.port(o),
             glitches: stats.glitches,
             staggered: stats.staggered,
             glitch: stats.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
@@ -953,12 +954,12 @@ fn transition(
         for (output, bits) in seen.iter_mut().enumerate() {
             let now = circuit.get(output);
             let flipped = now ^ shown[output];
-            let tick = tick - carried[output];
             if flipped != 0 {
                 steps[output].push((tick, now));
             }
             for (bit, (count, first, last)) in bits.iter_mut().enumerate() {
                 if flipped >> bit & 1 == 1 {
+                    let tick = tick - carried.bit(output, bit);
                     if *count == 0 {
                         *first = tick;
                     }
@@ -1001,7 +1002,7 @@ fn transition(
                 let glitch = Glitch {
                     case: values.to_vec(),
                     before: before[o],
-                    steps: steps[o].clone(),
+                    steps: carried.arrived_steps(o, before[o], &steps[o]),
                 };
                 output.glitch = Some((number, glitch));
             }

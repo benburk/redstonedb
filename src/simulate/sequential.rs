@@ -793,7 +793,7 @@ pub fn time(
         .map(|&(way, _)| way);
     let width = lines.width;
     let mut machine = fresh()?;
-    let carried = machine.circuit.carried()[lines.state];
+    let carried = machine.circuit.carried();
     let mut clocked = Clocked::new(width);
     for step in 0..(mask(width) + 1).min(MOST_COUNTS) {
         if cancel.load(Ordering::Relaxed) {
@@ -806,14 +806,10 @@ pub fn time(
         {
             machine.apply(load, telling(width, step))?;
         }
-        let ticks: Vec<Vec<i32>> = machine
-            .watch(way)?
-            .into_iter()
-            .map(|bit| bit.into_iter().map(|tick| tick - carried).collect())
-            .collect();
+        let ticks = carried.arrived(lines.state, &machine.watch(way)?);
         clocked.add(&ticks);
     }
-    Ok(clocked.timing(&lines, way, carried))
+    Ok(clocked.timing(&lines, way, carried.port(lines.state)))
 }
 
 /// The changes of the value held, each pulse's, as they are timed.
