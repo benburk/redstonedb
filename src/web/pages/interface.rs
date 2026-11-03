@@ -103,7 +103,8 @@ impl Inversions<'_> {
 /// by its bits, and a row of numbered lines, such as a memory's `read 0`
 /// to `read 15`, as one. With its `timing`, each input says when it
 /// switches for the build to stay synced and each output when it changes
-/// and settles, in ticks from the first input, t = 0. When any line reads
+/// and settles, in ticks from t = 0, as the inputs the outputs wait
+/// longest on switch. When any line reads
 /// inverted, each says whether it does.
 pub(super) fn interface_section(
     analysis: &Analysis,
@@ -121,11 +122,10 @@ pub(super) fn interface_section(
             .any(|e| inverted(e, false) != Inverted::No);
     let timed_in = |entry: &PortEntry| {
         let timing = timing?;
-        let i = timing
+        timing
             .inputs
             .iter()
-            .position(|input| input.name == entry.ports[0].name)?;
-        Some((i, &timing.inputs[i]))
+            .find(|input| input.name == entry.ports[0].name)
     };
     let timed_out = |entry: &PortEntry| {
         timing?
@@ -166,7 +166,7 @@ pub(super) fn interface_section(
                                 @if timing.is_some() {
                                     td class=(TABLE_CELL) {
                                         @match timed_in(&entry) {
-                                            Some((i, input)) => (switch_by(i, input)),
+                                            Some(input) => (switch_by(input)),
                                             None => span class="text-muted" { "—" },
                                         }
                                     }
@@ -223,8 +223,8 @@ const INPUT_SS_NOTE: &str = "Weakest signal strength the data inputs work at, al
 const OUTPUT_SS_NOTE: &str = "Weakest signal strength a bit shows while on, the data inputs at their weakest";
 const POWER_NOTE: &str = "Hard: dust touches the input block, so a repeater, comparator, \
     or torch must drive it. Soft: dust may drive it.";
-const DELAY_NOTE: &str =
-    "Tick to switch it, from the first input, for the outputs to stay synced";
+const DELAY_NOTE: &str = "Tick to switch it, from t = 0, when the inputs the \
+    outputs wait longest on switch, for the outputs to stay synced";
 const FIRST_CHANGE_NOTE: &str = "Ticks from t = 0 until a bit first changes";
 const SETTLES_NOTE: &str =
     "Ticks from t = 0 until every bit holds its final value";
@@ -411,13 +411,13 @@ fn power(entry: &PortEntry) -> &'static str {
     }
 }
 
-/// When an input, the `i`th timed, switches so its change lands with the
-/// first's: the first at t = 0, another at its offset from it.
-fn switch_by(i: usize, input: &InputTiming) -> String {
-    match (i, input.tick) {
-        (0, _) => "t = 0".to_owned(),
-        (_, Some(tick)) => ticks(tick),
-        (_, None) => "no effect".to_owned(),
+/// When an input switches so its change lands with the slowest's: those
+/// an output waits longest on at t = 0, another at its offset from them.
+fn switch_by(input: &InputTiming) -> String {
+    match input.tick {
+        Some(0) => "t = 0".to_owned(),
+        Some(tick) => ticks(tick),
+        None => "no effect".to_owned(),
     }
 }
 

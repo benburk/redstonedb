@@ -1,16 +1,16 @@
-//! A stateless build's throughput: the fewest ticks between one input and
-//! the next at which every result still comes out right. Cases go in every
-//! `k` ticks through a fixed stream, each input at its own tick from A's,
-//! as the site's timing gives them, and each output is read for each case
-//! at its own latency from A, as the site times it, or just before the next
-//! case comes in, whichever is later, as it arrives at the repeater or
-//! comparator carrying it out, as every timing reads it. A build that only takes a new input
-//! once the last has settled has a throughput near its latency; a pipelined
-//! one, or one whose paths all take about as long, takes them faster. A
-//! sequential build's button, as its calculate, is pressed in the stream at
-//! its own tick, so its throughput is how often a new calculation can
-//! start. The simulator does not model torch burnout, so `evaluate` holds a
-//! build with torches to three ticks or more, and one without to two.
+//! A stateless build's throughput: the fewest ticks between one input and the
+//! next at which every result still comes out right. Cases go in every `k`
+//! ticks through a fixed stream, each input at its own tick from t = 0, as the
+//! site's timing gives them, and each output is read for each case at its own
+//! latency from t = 0, as the site times it, or just before the next case comes
+//! in, whichever is later, as it arrives at the repeater or comparator carrying
+//! it out, as every timing reads it. A build that only takes a new input once
+//! the last has settled has a throughput near its latency; a pipelined one, or
+//! one whose paths all take about as long, takes them faster. A sequential
+//! build's button, as its calculate, is pressed in the stream at its own tick,
+//! so its throughput is how often a new calculation can start. The simulator
+//! does not model torch burnout, so `evaluate` holds a build with torches to
+//! three ticks or more, and one without to two.
 
 use anyhow::Result;
 
@@ -41,7 +41,7 @@ pub fn throughput(
 ) -> Result<Option<i32>> {
     let widths: Vec<usize> = interface.inputs.iter().map(input_bits).collect();
     let cases = stream(&widths, CASES);
-    // Each input's tick from A's, as the timing found it.
+    // Each input's tick from t = 0, as the timing found it.
     let offset: Vec<i32> = interface
         .inputs
         .iter()
@@ -74,7 +74,7 @@ pub fn throughput(
     shortest(blocks, (&cases, &long), &offset, &latency, 2 * slowest)
 }
 
-/// Each output's tick from A's, as it arrives at the repeaters or
+/// Each output's tick from t = 0, as it arrives at the repeaters or
 /// comparators that carry it out, which the stream reads it by.
 fn read_at(timing: &Timing) -> Vec<i32> {
     timing.outputs.iter().map(|o| o.latency).collect()
@@ -121,7 +121,7 @@ pub(super) fn controlled(
 
 /// The shortest period, up to `most`, at which the `short` stream of cases
 /// and then the `long` one each come out as they settle in `blocks`: each
-/// input set, or its button pressed, at its `offset` from A's, and each
+/// input set, or its button pressed, at its `offset` from t = 0, and each
 /// output read at its `latency`, as it arrives at the repeaters or
 /// comparators carrying it out, each bit read as many ticks later as its
 /// own takes to give it out. Found on the short stream, then checked on
@@ -210,7 +210,7 @@ fn settled_cases(
     Ok(expected)
 }
 
-/// A stream of cases, each input set or pressed at its tick from A's, and
+/// A stream of cases, each input set or pressed at its tick from t = 0, and
 /// each output read at its latency: what `throughput` tries at each period.
 struct Stream<'a> {
     blocks: &'a Blocks,

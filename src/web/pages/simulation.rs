@@ -215,9 +215,9 @@ fn found_stack(report: &Report) -> Option<String> {
 }
 
 /// When a passing build's inputs may change and its outputs settle, from
-/// input A's change; and, for an output that does not change cleanly, when
+/// t = 0, as its slowest inputs change; and, for an output that does not change cleanly, when
 /// each of its bits does.
-/// What the timing's ticks count from: input A changing, or for a
+/// What the timing's ticks count from: the inputs changing, or for a
 /// register, a read lever turning on, with when a write shows, or for a
 /// buffer, a write.
 fn timing_intro(timing: &Timing) -> Markup {
@@ -305,7 +305,7 @@ pub fn timing_section(timing: &Timing) -> Markup {
 }
 
 /// The first change from all off in which `name` glitched: its value at
-/// each tick from A's change until it settles, the ticks it is wrong
+/// each tick from t = 0 until it settles, the ticks it is wrong
 /// marked, and what it should hold.
 fn glitch_example(
     name: &str,
@@ -401,8 +401,8 @@ fn bit_timing(output: &OutputTiming) -> Markup {
     }
 }
 
-/// An output's tick counted from A's change, such as `3`; one before A's,
-/// though no build has shown one, as `−2`.
+/// An output's tick counted from t = 0, such as `3`; one before it, though
+/// no build has shown one, as `−2`.
 fn tick(tick: i32) -> String {
     match tick {
         t if t < 0 => format!("−{}", t.unsigned_abs()),

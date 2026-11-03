@@ -256,8 +256,8 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
     }
 }
 
-/// When a build's inputs may change and its outputs settle, from A's
-/// change, and each bit's timing for an output that is not synced.
+/// When a build's inputs may change and its outputs settle, from t = 0, as
+/// the slowest inputs change, and each bit's timing for an output that is not synced.
 fn print_timing(timing: &Timing) {
     let tick = |tick: i32| match tick {
         0 => "0".to_owned(),

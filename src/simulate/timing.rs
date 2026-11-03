@@ -1,12 +1,15 @@
 //! When a combinational build's outputs settle, and whether they settle
 //! cleanly.
 //!
-//! Input A changes at tick 0, and every other time is told
-//! from it. Each other input's timing is the latest tick at which it may
-//! change without delaying any output: an output it reaches in fewer ticks
-//! than A does lets it arrive that much later, and one it reaches in more
-//! makes it arrive earlier, at a negative tick. Each output's latency is
-//! the last tick it settles by, and the build is synced when every output
+//! Every time is told from t = 0, as the inputs every output waits longest
+//! on change, so no input is taken as the one others are timed against and
+//! a build times the same whichever operand is named A. Each input's timing
+//! is the latest tick at which it may change without delaying any output:
+//! an output it reaches in fewer ticks than the input it waits longest on
+//! lets it arrive that much later, and an input that is the slowest for
+//! some output changes at t = 0. Each output's latency is the last tick it
+//! settles by, from its slowest inputs changing, as from every input
+//! changing at once, and the build is synced when every output
 //! changes only once, with all its bits on the same tick. Each output bit
 //! is timed as its signal arrives at the repeater or comparator carrying it
 //! out of the build, leaving out that one's own delay, as every timing
@@ -45,7 +48,7 @@ use super::{
 use crate::{recognize::interface::Interface, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
-/// input A changing.
+/// t = 0, as the slowest inputs change.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Timing {
     /// Each input, A first.
@@ -147,7 +150,7 @@ impl Edge {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Start {
-    /// Input A changing.
+    /// The inputs changing, the slowest at t = 0.
     #[default]
     Input,
     /// A register's read lever turning on.
@@ -193,7 +196,7 @@ impl Timing {
         self.read()
     }
 
-    /// The slowest data output's ticks, from input A changing or, for a
+    /// The slowest data output's ticks, from the inputs changing or, for a
     /// register, from a read lever turning on, or for a buffer, from a
     /// write.
     pub fn read(&self) -> Option<i32> {
@@ -211,8 +214,10 @@ impl Timing {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InputTiming {
     pub name: String,
-    /// The latest tick it may change, from A's; 0 for A. `None` for an
-    /// input no output follows.
+    /// The latest tick it may change, from t = 0, which every output's
+    /// slowest input changes at; for a control line pressed after its
+    /// operands, from theirs, maybe before them. `None` for an input no
+    /// output follows.
     pub tick: Option<i32>,
     /// For a pulse, as a write button gives, the earliest tick it may
     /// come, before which it ends too soon; `None` for a line that may
@@ -255,7 +260,8 @@ pub struct Glitch {
     /// The output's value before the change.
     #[serde(with = "value")]
     pub before: Value,
-    /// Each tick the output changed on, from A's, and its value from then.
+    /// Each tick the output changed on, from t = 0, and its value from
+    /// then.
     #[serde(with = "value::many::ticked")]
     pub steps: Vec<(i32, Value)>,
 }
@@ -320,20 +326,9 @@ pub(super) fn measure(
             rig.alone(circuit, input, part, parts)
         })?);
     }
-    let latency =
-        |stats: &Stats, output: usize| stats.outputs[output].latency();
-    let ticks: Vec<Option<i32>> = alone
-        .iter()
-        .map(|stats| {
-            (0..outputs.len())
-                .filter_map(|o| {
-                    Some(latency(&alone[0], o)? - latency(stats, o)?)
-                })
-                .min()
-        })
-        .collect();
+    let ticks = delays(&alone, outputs.len());
 
-    // Every input together, each at its timing, times from A's.
+    // Every input together, each at its timing, times from t = 0.
     let offsets: Vec<i32> = ticks.iter().map(|t| t.unwrap_or(0)).collect();
     let mut together = rig.parallel(|circuit, part, parts| {
         rig.together(circuit, &offsets, part, parts)
@@ -381,6 +376,28 @@ pub(super) fn measure(
         data: None,
         pulse: None,
     })
+}
+
+/// Each input's timing from what it did `alone`: the most ticks it may
+/// change after t = 0 without any output it reaches settling later than
+/// that output's slowest input, changing at t = 0, settles it. Every
+/// output waits longest on some input, which changes at t = 0, so the
+/// timing is the same whichever input is named A; an input no output
+/// follows has none.
+fn delays(alone: &[Stats], outputs: usize) -> Vec<Option<i32>> {
+    let latency =
+        |stats: &Stats, output: usize| stats.outputs[output].latency();
+    let slowest: Vec<Option<i32>> = (0..outputs)
+        .map(|o| alone.iter().filter_map(|stats| latency(stats, o)).max())
+        .collect();
+    alone
+        .iter()
+        .map(|stats| {
+            (0..outputs)
+                .filter_map(|o| Some(slowest[o]? - latency(stats, o)?))
+                .min()
+        })
+        .collect()
 }
 
 /// The slowest of `timings`, one for each way a build's lines can be set,

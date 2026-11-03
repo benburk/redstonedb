@@ -413,6 +413,61 @@ fn an_output_is_timed_where_it_reaches_its_repeaters() {
     assert_eq!(timing.latency(), Some(3));
 }
 
+/// An adder times the same whichever operand is named A: its latency, and
+/// the tick each line may switch by, are from t = 0, as the inputs each
+/// output waits longest on switch, not from A's switching. The port of an
+/// 8-bit carry-cancel adder adds through its x = 0 bus a tick slower than
+/// through its x = 3 one, so it read 6 ticks named one way and 5 the
+/// other; an 8-bit adder whose carry in is a tick slower than both its
+/// operands read a tick fast, from A.
+#[test]
+fn an_adders_timing_does_not_depend_on_which_operand_is_a() {
+    use app::schem::lines::Role;
+    for (name, latency) in [("cca-8-b-slower", 6), ("xor-pair-adder-8", 5)] {
+        // Its roles as probing finds them.
+        let probed = || {
+            let raw =
+                std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+            Blocks::read(&import::with_roles(&raw, "adder").unwrap()).unwrap()
+        };
+        let (named, mut swapped) = (probed(), probed());
+        let roles = swapped.roles.as_mut().expect("its roles");
+        for role in roles.0.values_mut() {
+            *role = match *role {
+                Role::Operand(0) => Role::Operand(1),
+                Role::Operand(1) => Role::Operand(0),
+                other => other,
+            };
+        }
+        // Its latency and each line's tick, an operand by where its first
+        // bit is rather than its name.
+        let timed = |blocks: &Blocks| {
+            let timing =
+                Test::Adder.time(blocks, &AtomicBool::new(false)).unwrap();
+            let interface = interface::read(blocks);
+            let mut ticks: Vec<(String, Option<i32>)> = timing
+                .inputs
+                .iter()
+                .map(|input| {
+                    let at = interface
+                        .inputs
+                        .iter()
+                        .find(|port| port.name == input.name)
+                        .map_or(input.name.clone(), |port| {
+                            format!("{:?}", port.bits[0].pos)
+                        });
+                    (at, input.tick)
+                })
+                .collect();
+            ticks.sort();
+            (timing.latency(), ticks)
+        };
+        let found = timed(&named);
+        assert_eq!(found.0, Some(latency), "{name}");
+        assert_eq!(timed(&swapped), found, "{name}");
+    }
+}
+
 /// Its sum leaves by dust on each yellow block. For 2 + 2 + 1, its carry in
 /// reading inverted, the carry reaches bit 2 at strength 1, which powers
 /// the block beside it but leaves the dust on top dark, so the bit is off,
