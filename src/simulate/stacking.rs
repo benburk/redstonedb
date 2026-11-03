@@ -1,18 +1,35 @@
-//! Whether copies of an adder stack into a wider adder, as stacking would
-//! join them: the step from one copy to the next comes from how its bits
-//! are spaced. Enough copies are stacked and tested that one sits between
-//! two others, taking a carry and passing one on, and that the stack is
-//! longer than dust carries a signal, 15 blocks, plus a copy, so a path
-//! that runs through copies without a repeater or torch to renew it fails.
-//! An adder whose copies add right then is taken to stack any number of
-//! times.
+//! Whether copies of a build stack into a wider one of its kind, as
+//! stacking would join them. Copies go west or up, never north, east, or
+//! down, and only where they touch or overlap: copies with air between
+//! them are separate builds side by side; see `stack::touches`.
 //!
-//! The checks run cheapest first and stop at the first that fails: a carry
-//! in to take the carry from the copy before, the spacing of the bits, then
-//! whether the copies, stacked as `//rstack` stacks them, fit together and
-//! read as one adder, then whether the stack settles, then a few sums whose
-//! carry crosses from one copy to the next, and only then the stack's full
-//! test.
+//! Copies that add bits are tried only at the pitch classes, `PITCHES`:
+//! copies 1, 2, or 4 blocks a bit apart, along the way the build's bits
+//! run, west for a horizontal build and up for a vertical one, and both
+//! ways for a 1-bit build, whose one bit runs neither. The tightest pitch
+//! whose copies work is the build's class, and it counts in each looser
+//! class too, so no looser one is tried.
+//!
+//! How copies must work depends on the category's group, as its
+//! `category::Copies` says:
+//!
+//! - Where data crosses bits, as an adder's carry does, copies must chain
+//!   into one wider build: a stack is a wider adder, incrementer, or carry
+//!   out, tested as one, the cheapest checks first, as `stacked` runs an
+//!   adder's.
+//! - Where each copy is a cell of its own, as a gate's or a monostable's,
+//!   each copy must still compute or pulse alone, its neighbours not
+//!   interfering, which a stack's full test of the wider gate or
+//!   monostable shows, each bit's case alone and all together.
+//! - Where copies share lines, as an inverter's control or a register's or
+//!   buffer's, they must work together on them, and the most copies that
+//!   do is kept, as a shared line that runs too far fails.
+//!
+//! A stack tested is long enough that one copy sits between two others
+//! and that it is longer than dust carries a signal, 15 blocks, plus a
+//! copy, so a path through copies without a repeater or torch to renew it
+//! fails; copies sharing lines are added until one more fails. Copies that
+//! work then are taken to stack any number of times.
 //!
 //! Each step is tried with each box its copies may repeat, the box rule's
 //! first, then boxes leaving more to the first copy; see `stack::find_box`.
@@ -22,37 +39,43 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     MAX_STACKED, Report, Test, Value,
-    adder::{self, ADD, AdderPorts, adder_ports},
+    adder::{self, ADD, adder_ports},
     bench::{Case, mask, sweep},
     circuit::{Circuit, input_bits},
 };
 use crate::{
-    models::schematic::{Faces, Orientation, StackDirection},
+    category::{Group, Kind},
+    import,
+    models::schematic::{Faces, Orientation, PITCHES, StackDirection},
     recognize::interface::{self, Interface},
-    schem::{Blocks, Pos, stack},
+    schem::{Blocks, stack},
 };
 
 /// The farthest dust carries a signal, which a stack tested must reach
 /// past.
 const DUST_REACH: i64 = 15;
 
-/// What stacking copies of an adder or a register found.
+/// The most copies stacked of a build whose copies share lines; one whose
+/// copies work with this many is taken to stack any number of times.
+pub(super) const MOST_COPIES: usize = 16;
+
+/// What stacking copies of a build found.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Stacking {
-    /// Copies every `step` make an adder of `bits` bits whose every case
-    /// came out right.
+    /// Copies every `step` chain into one build of `bits` bits, as an
+    /// adder's carries do, whose every case came out right.
     Stacks {
         step: Step,
         copies: usize,
         bits: usize,
         cases: u64,
     },
-    /// Copies of a register every `step` make a register file whose every
-    /// cell stores and reads right: `copies` of them, `registers` cells in
-    /// all, in `cases` cases. `most` is how many copies work when one more
-    /// does not, as a shared bus that runs too far fails; `None` when
-    /// every number tried worked.
+    /// Copies of a register every `step`, words on its shared data bus,
+    /// make a register file whose every cell stores and reads right:
+    /// `copies` of them, `registers` cells in all, in `cases` cases.
+    /// `most` is how many copies work when one more does not, as a shared
+    /// bus that runs too far fails; `None` when every number tried worked.
     Registers {
         step: Step,
         copies: usize,
@@ -60,33 +83,76 @@ pub enum Stacking {
         cases: u64,
         most: Option<usize>,
     },
-    /// Copies of a register or buffer every `step` make a wider one, of
-    /// `bits` bits, whose every cell stores and reads right, sharing its
-    /// control lines: `copies` of them, in `cases` cases. `most` is as for
-    /// `Registers`.
+    /// Copies every `step` make a wider build of `bits` bits whose every
+    /// case came out right: `copies` of them, in `cases` cases, each a
+    /// cell of its own, as a gate's, or sharing lines, as an inverter's
+    /// control or a register's. `most` is as for `Registers`, kept only
+    /// for copies that share lines.
     Wider {
         step: Step,
         copies: usize,
         bits: usize,
         cases: u64,
         most: Option<usize>,
-        /// The other ways copies make a wider one, as a 1-bit gate's may
+        /// The other way copies make a wider one, as a 1-bit gate's may
         /// both west and up.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         also: Vec<Apart>,
+        /// For a register, how its copies stack as words on its shared
+        /// data bus too, if they do.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        words: Option<Apart>,
     },
-    /// Copies side by side each do their own work, as more decoders, each
-    /// with its own input and outputs, each way they stack.
+    /// Copies side by side each doing their own work, as decoders' were
+    /// once found to; decoders no longer stack, but a report kept from
+    /// before may say so.
     Separate { ways: Vec<Apart> },
     /// They make no working build of its kind, as an adder whose carries do
-    /// not chain or a register with no step west that works, with the step
-    /// tried when there was one.
+    /// not chain or a register with no step that works, with the step
+    /// tried last when there was one.
     Not { step: Option<Step>, reason: String },
 }
 
-/// One way copies stack side by side, each doing its own work: every
-/// `step`, `copies` of them, in `cases` cases. `most` is as for
-/// `Stacking::Registers`.
+impl Stacking {
+    /// The ways it stacks, as a build's stacking is kept: each with its
+    /// step, its box, the most copies that work, and, for copies that add
+    /// bits, their pitch class; none when it does not stack.
+    pub fn directions(&self) -> Vec<StackDirection> {
+        let per_copy = |bits: usize, copies: usize| bits / copies.max(1);
+        match self {
+            Stacking::Stacks {
+                step, copies, bits, ..
+            } => vec![StackDirection {
+                pitch: step.pitch(per_copy(*bits, *copies)),
+                ..step.direction()
+            }],
+            Stacking::Registers { step, most, .. } => {
+                vec![Apart::of(*step, *most).direction(None)]
+            }
+            Stacking::Wider {
+                step,
+                copies,
+                bits,
+                most,
+                also,
+                words,
+                ..
+            } => {
+                let bits = Some(per_copy(*bits, *copies));
+                [Apart::of(*step, *most)]
+                    .iter()
+                    .chain(also)
+                    .map(|apart| apart.direction(bits))
+                    .chain(words.iter().map(|words| words.direction(None)))
+                    .collect()
+            }
+            Stacking::Separate { .. } | Stacking::Not { .. } => Vec::new(),
+        }
+    }
+}
+
+/// One way copies stack: every `step`, `copies` of them, in `cases` cases.
+/// `most` is as for `Stacking::Registers`.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Apart {
     pub step: Step,
@@ -96,10 +162,24 @@ pub struct Apart {
 }
 
 impl Apart {
-    /// The direction it stacks, with the most copies that work.
-    pub fn direction(self) -> StackDirection {
+    /// Copies every `step`, `most` of them at most, as a direction is
+    /// kept.
+    fn of(step: Step, most: Option<usize>) -> Self {
+        Apart {
+            step,
+            copies: 0,
+            cases: 0,
+            most,
+        }
+    }
+
+    /// The direction it stacks, with the most copies that work, and the
+    /// pitch class of copies each adding `bits`, or none for copies that
+    /// add words.
+    pub fn direction(self, bits: Option<usize>) -> StackDirection {
         StackDirection {
             max_copies: self.most.and_then(|n| i64::try_from(n).ok()),
+            pitch: bits.and_then(|bits| self.step.pitch(bits)),
             ..self.step.direction()
         }
     }
@@ -111,7 +191,6 @@ impl Apart {
 pub struct Step {
     pub west: i64,
     pub up: i64,
-    pub north: i64,
     /// `None` for the box the box rule finds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub faces: Option<Faces>,
@@ -122,20 +201,29 @@ impl Step {
         StackDirection {
             west: self.west,
             up: self.up,
-            north: self.north,
             max_copies: None,
             faces: self.faces,
+            pitch: None,
         }
     }
 
-    /// A step `west`, `up`, and `north` with the box rule's box.
-    pub fn new(west: i64, up: i64, north: i64) -> Self {
+    /// A step `west` and `up` with the box rule's box.
+    pub fn new(west: i64, up: i64) -> Self {
         Step {
             west,
             up,
-            north,
             faces: None,
         }
+    }
+
+    /// Its pitch class for copies each adding `bits`: the blocks a bit, 1,
+    /// 2, or 4; `None` for any other spacing.
+    pub fn pitch(self, bits: usize) -> Option<i64> {
+        let bits = i64::try_from(bits).ok()?;
+        let length = self.west + self.up;
+        PITCHES
+            .into_iter()
+            .find(|&pitch| bits > 0 && pitch * bits == length)
     }
 
     /// The step with the box its copies of the build in `data` repeat,
@@ -173,7 +261,7 @@ impl Step {
 
     /// Such as `16 up` or `2 west and 2 up`.
     pub fn describe(self) -> String {
-        [(self.west, "west"), (self.up, "up"), (self.north, "north")]
+        [(self.west, "west"), (self.up, "up")]
             .into_iter()
             .filter(|&(n, _)| n > 0)
             .map(|(n, way)| format!("{n} {way}"))
@@ -182,228 +270,305 @@ impl Step {
     }
 }
 
-/// Stacks copies of the adder in `data`, a file whose own cases came out
-/// right, and tests them; `None` when two copies would be wider than the
-/// simulator tests.
-pub fn check(data: &[u8]) -> Option<Stacking> {
-    let not = |step, reason: String| Stacking::Not { step, reason };
-    let blocks = match Blocks::read(data) {
-        Ok(blocks) => blocks,
-        Err(err) => return Some(not(None, err.to_string())),
-    };
-    let mut interface = interface::read(&blocks);
-    let ports = match adder_ports(&mut interface, &ADD) {
-        Ok(ports) => ports,
-        Err(err) => return Some(not(None, err.to_string())),
-    };
-    if ports.carry_in.is_none() {
-        let reason = "It has no carry in, so a copy cannot take the carry \
-                      from the one before.";
-        return Some(not(None, reason.to_owned()));
+/// A way copies go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Way {
+    West,
+    Up,
+}
+
+impl Way {
+    /// A step of `n` blocks this way.
+    pub fn step(self, n: i64) -> Step {
+        match self {
+            Way::West => Step::new(n, 0),
+            Way::Up => Step::new(0, n),
+        }
     }
+
+    /// The way the bits of a build run whose copies this way add bits.
+    pub fn orientation(self) -> Orientation {
+        match self {
+            Way::West => Orientation::Horizontal,
+            Way::Up => Orientation::Vertical,
+        }
+    }
+
+    /// The other way.
+    #[must_use]
+    pub fn across(self) -> Way {
+        match self {
+            Way::West => Way::Up,
+            Way::Up => Way::West,
+        }
+    }
+
+    /// The way `step` goes; `None` for a step both ways or neither.
+    pub fn of(step: Step) -> Option<Way> {
+        match (step.west > 0, step.up > 0) {
+            (true, false) => Some(Way::West),
+            (false, true) => Some(Way::Up),
+            _ => None,
+        }
+    }
+}
+
+/// The ways copies of a build add bits, its bits running as `port`, its
+/// widest operand, runs: west for a horizontal build, up for a vertical
+/// one, and both, west first, for a 1-bit build, whose one bit runs
+/// neither way; none for a diagonal build.
+pub fn bit_ways(interface: &Interface) -> Vec<Way> {
+    match import::guess(interface).1 {
+        None => vec![Way::West, Way::Up],
+        Some(Orientation::Horizontal) => vec![Way::West],
+        Some(Orientation::Vertical) => vec![Way::Up],
+        Some(Orientation::Diagonal) => Vec::new(),
+    }
+}
+
+/// The cases copies stacked a step ran, every one right, or why not.
+type Works<'a> = dyn Fn(Step, usize, stack::Buses) -> Result<u64, String> + 'a;
+
+/// A build's copies stacked and tested as its category's group asks; see
+/// the module's notes. [`Stacker::search`] tries each pitch class each
+/// way, and [`Stacker::at`] one step.
+pub struct Stacker<'a> {
+    data: &'a [u8],
+    /// Its category, which says what its copies do with its buses and
+    /// lines, and how they must work together.
+    kind: Kind,
+    /// The bits each copy adds.
+    bits: usize,
+    /// The ways its copies may add bits.
+    ways: Vec<Way>,
+    /// The cases `copies` stacked `step`, their buses as given, ran, every
+    /// one right, or why not.
+    works: Box<Works<'a>>,
+    /// Why no step works, when none does.
+    not: String,
+}
+
+impl<'a> Stacker<'a> {
+    /// Copies of the build in `data`, of `kind`, each adding `bits` bits,
+    /// the ways `ways`, tested by `works`; `not` says why none stack.
+    pub(super) fn new(
+        data: &'a [u8],
+        kind: Kind,
+        (bits, ways): (usize, Vec<Way>),
+        works: impl Fn(Step, usize, stack::Buses) -> Result<u64, String> + 'a,
+        not: &str,
+    ) -> Self {
+        Stacker {
+            data,
+            kind,
+            bits,
+            ways,
+            works: Box::new(works),
+            not: not.to_owned(),
+        }
+    }
+
+    /// The group its copies are in.
+    fn group(&self) -> Group {
+        self.kind.facts().behaviour.group
+    }
+
+    /// Whether its copies share lines, so they are added until one more
+    /// fails, rather than as many as reach past what dust carries.
+    fn shared(&self) -> bool {
+        self.group() == Group::SharedLines
+    }
+
+    /// What copies stacked `way` do with the build's buses and lines.
+    fn buses(&self, way: Way) -> stack::Buses {
+        stack::Buses::of(self.kind, way.orientation())
+    }
+
+    /// The bits each copy adds.
+    pub fn bits(&self) -> usize {
+        self.bits
+    }
+
+    /// How many copies to test stacked `step`, reaching past what dust
+    /// carries; two for copies that share lines, which [`Stacker::search`]
+    /// adds to. `None` when two would be wider than the simulator tests.
+    fn copies(&self, step: Step) -> Option<usize> {
+        if self.shared() {
+            (2 * self.bits <= MAX_STACKED).then_some(2)
+        } else {
+            copies(step, self.bits)
+        }
+    }
+
+    /// Whether `copies` stacked `step` work, the box rule's box first,
+    /// then boxes leaving out more of the first copy: the step with the
+    /// box that works and the cases run, or why not. Copies that leave air
+    /// between them never stack.
+    pub fn at(&self, step: Step, copies: usize) -> Result<(Step, u64), String> {
+        let touching = stack::touches(self.data, step.direction())
+            .map_err(|err| err.to_string())?;
+        if !touching {
+            return Err(format!(
+                "Copies {} apart leave air between them, so they are \
+                 separate builds side by side rather than a stack.",
+                step.describe()
+            ));
+        }
+        let buses = self.buses(Way::of(step).unwrap_or(Way::West));
+        step.find(self.data, true, buses, |step| {
+            (self.works)(step, copies, buses)
+        })
+        .unwrap_or_else(|| Err("Its file could not be read.".to_owned()))
+    }
+
+    /// Each way its copies add bits, at the tightest pitch class that
+    /// works, with the most copies that do where they share lines, the
+    /// tightest first and west on a tie; or the last step tried whose
+    /// copies touch and why it failed, or, where none touch, why not.
+    pub fn search(&self) -> Result<Vec<Apart>, (Option<Step>, String)> {
+        let mut found: Vec<(i64, Apart)> = Vec::new();
+        let mut last = (None, self.not.clone());
+        let mut tested = false;
+        let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
+        for &way in &self.ways {
+            for pitch in PITCHES {
+                let step = way.step(pitch * bits);
+                let Some(copies) = self.copies(step) else {
+                    continue;
+                };
+                let touching = stack::touches(self.data, step.direction())
+                    .unwrap_or(false);
+                if tested && !touching {
+                    continue;
+                }
+                tested |= touching;
+                match self.at(step, copies) {
+                    Ok((step, cases)) => {
+                        let apart = Apart {
+                            step,
+                            copies,
+                            cases,
+                            most: None,
+                        };
+                        found.push((pitch, self.most(apart)));
+                        break;
+                    }
+                    Err(reason) => last = (Some(step), reason),
+                }
+            }
+        }
+        found.sort_by_key(|&(pitch, _)| pitch);
+        if found.is_empty() {
+            return Err(last);
+        }
+        Ok(found.into_iter().map(|(_, apart)| apart).collect())
+    }
+
+    /// `apart` with as many copies as work, for copies that share lines,
+    /// up to [`MOST_COPIES`] and as wide as the simulator tests; `most`
+    /// the copies that work when one more does not.
+    fn most(&self, mut apart: Apart) -> Apart {
+        if !self.shared() {
+            return apart;
+        }
+        let fitting = MAX_STACKED / self.bits.max(1);
+        while apart.copies < MOST_COPIES.min(fitting) {
+            let Ok((_, cases)) = self.at(apart.step, apart.copies + 1) else {
+                apart.most = Some(apart.copies);
+                break;
+            };
+            apart.copies += 1;
+            apart.cases = cases;
+        }
+        apart
+    }
+
+    /// What stacking its copies finds: a chain of them, or a wider build,
+    /// each way they work; or why none do.
+    pub fn stacking(&self) -> Stacking {
+        match self.search() {
+            Err((step, reason)) => Stacking::Not { step, reason },
+            Ok(ways) if self.group() == Group::CrossesBits => {
+                let first = ways[0];
+                Stacking::Stacks {
+                    step: first.step,
+                    copies: first.copies,
+                    bits: first.copies * self.bits,
+                    cases: first.cases,
+                }
+            }
+            Ok(mut ways) => {
+                let first = ways.remove(0);
+                Stacking::Wider {
+                    step: first.step,
+                    copies: first.copies,
+                    bits: first.copies * self.bits,
+                    cases: first.cases,
+                    most: first.most,
+                    also: ways,
+                    words: None,
+                }
+            }
+        }
+    }
+}
+
+/// The cases a stack of `copies` of the build in `data`, stacked `step`
+/// with its buses as `buses` says, ran under `works`, or why not.
+pub(super) fn run_stacked(
+    data: &[u8],
+    (step, copies): (Step, usize),
+    buses: stack::Buses,
+    works: impl FnOnce(&Blocks) -> Result<u64, String>,
+) -> Result<u64, String> {
+    let (stacked, _) = stack::stack(data, &[(step.direction(), copies)], buses)
+        .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
+    let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
+    works(&blocks)
+}
+
+/// How copies of the adder in `data`, a file whose own cases came out
+/// right, chain into a wider adder, each taking the carry from the one
+/// before; `None` when it is no adder.
+pub fn adder(data: &[u8]) -> Option<Stacker<'_>> {
+    let blocks = Blocks::read(data).ok()?;
+    let mut interface = interface::read(&blocks);
+    let ports = adder_ports(&mut interface, &ADD).ok()?;
     let width = input_bits(&interface.inputs[ports.a]);
     // How the copy reads, as a subtractor's, B inverted, so its stack is
     // read alike.
     let variant = Test::Adder
         .check(&blocks, true)
         .map_or_else(|_| adder::Variant::default(), |run| run.adder_variant());
-    // A 1-bit adder's carry out need not be where the next copy's carry in
-    // goes, as when the copy above covers it, or it may have none, its carry
-    // leaving by dust that carry in lands on; short steps are tried with
-    // the one from its carry in to its carry out.
-    if width == 1 {
-        return Some(search(
-            data,
-            &blocks,
-            step(&interface, &ports).ok(),
-            variant,
-        ));
-    }
-    let step = match step(&interface, &ports) {
-        Ok(step) => step,
-        Err(reason) => return Some(not(None, reason)),
-    };
-    let copies = copies(step, width)?;
-    // The box rule's reason stands when no box works.
-    let found = step.find(data, true, stack::Buses::own(), |step| {
-        stacked(data, step, copies, width, variant)
-    });
-    Some(match found {
-        Some(Ok((step, cases))) => Stacking::Stacks {
-            step,
-            copies,
-            bits: copies * width,
-            cases,
-        },
-        Some(Err(reason)) => not(Some(step), reason),
-        None => not(Some(step), "Its file could not be read.".to_owned()),
-    })
-}
-
-/// Whether `copies` of the adder in `data`, a file whose own cases came out
-/// right, stacked `step` make one adder, as [`check`] tests each step: the
-/// box rule's box first, then boxes leaving out more of the first copy.
-/// The step with the box that works and the cases run, or the box rule's
-/// reason; `None` when it is no adder with a carry in, or the stack would
-/// be wider than the simulator tests.
-pub fn adder_at(
-    data: &[u8],
-    step: Step,
-    copies: usize,
-) -> Option<Result<(Step, u64), String>> {
-    let blocks = Blocks::read(data).ok()?;
-    let mut interface = interface::read(&blocks);
-    let ports = adder_ports(&mut interface, &ADD).ok()?;
-    ports.carry_in?;
-    let width = input_bits(&interface.inputs[ports.a]);
-    if width * copies > MAX_STACKED {
-        return None;
-    }
-    let variant = Test::Adder
-        .check(&blocks, true)
-        .map_or_else(|_| adder::Variant::default(), |run| run.adder_variant());
-    step.find(data, true, stack::Buses::own(), |step| {
-        stacked(data, step, copies, width, variant)
-    })
-}
-
-/// The shortest step whose copies of 1-bit adder `data` add right, of
-/// `first`, if given, which wins a tie, and the steps up, west, or north as
-/// far as the build reaches. The shortest that works packs the bits
-/// closest, and each wrong one mostly fails a cheap check, so this is
-/// quick.
-fn search(
-    data: &[u8],
-    blocks: &Blocks,
-    first: Option<Step>,
-    variant: adder::Variant,
-) -> Stacking {
-    let (low, high) = interface::core(blocks);
-    let reach = |axis: usize| high[axis] - low[axis] + 1;
-    let longest = (0..3).map(reach).max().unwrap_or(1);
-    let short = (1..=i64::from(longest)).flat_map(|n| {
-        [
-            (1, Step::new(0, n, 0)),
-            (0, Step::new(n, 0, 0)),
-            (2, Step::new(0, 0, n)),
-        ]
-        .into_iter()
-        .filter(move |&(axis, _)| n <= i64::from(reach(axis)))
-        .map(|(_, step)| step)
-    });
-    let mut steps: Vec<Step> = first.into_iter().chain(short).collect();
-    steps.sort_by_key(|step| step.west + step.up + step.north);
-    steps.dedup();
-    for step in steps {
-        let Some(copies) = copies(step, 1) else {
-            continue;
-        };
-        let found = step.find(data, true, stack::Buses::own(), |step| {
-            stacked(data, step, copies, 1, variant)
-        });
-        if let Some(Ok((step, cases))) = found {
-            return Stacking::Stacks {
-                step,
-                copies,
-                bits: copies,
-                cases,
-            };
+    let carry_in = ports.carry_in.is_some();
+    let works = move |step: Step, copies: usize, _| {
+        if !carry_in {
+            return Err("It has no carry in, so a copy cannot take the carry \
+                        from the one before."
+                .to_owned());
         }
-    }
-    Stacking::Not {
-        step: None,
-        reason: "No step up, west, or north as far as it reaches makes \
-                 copies that add right."
-            .to_owned(),
-    }
+        if width * copies > MAX_STACKED {
+            return Err(format!(
+                "{copies} copies would be wider than the simulator tests."
+            ));
+        }
+        stacked(data, step, copies, width, variant)
+    };
+    let not = "No pitch west or up makes copies that add right.";
+    let ways = (width, bit_ways(&interface));
+    Some(Stacker::new(data, Kind::Adder, ways, works, not))
 }
 
 /// How many copies to test: three, so one sits between two others, and
 /// enough that the stack reaches past what dust carries by a copy; but no
 /// wider than the simulator tests, and `None` when two would be.
 fn copies(step: Step, width: usize) -> Option<usize> {
-    let length = u64::try_from(step.west + step.up + step.north).ok()?;
+    let length = u64::try_from(step.west + step.up).ok()?;
     let reach = u64::try_from(DUST_REACH + 1).ok()?;
     let reaching = usize::try_from(reach.div_ceil(length) + 1).ok()?;
     let fitting = MAX_STACKED / width;
     let copies = reaching.max(3).min(fitting);
     (copies >= 2).then_some(copies)
-}
-
-/// The step that puts the next copy's bits where the bus would go on: the
-/// bus's spacing, which may repeat in a pattern, as a staggered bus's
-/// does, carried on past its last bit. A 1-bit adder steps from its carry
-/// in to its carry out, which the next copy's carry in continues.
-fn step(interface: &Interface, ports: &AdderPorts) -> Result<Step, String> {
-    let bits = |port: &interface::Port| -> Vec<Pos> {
-        port.bits.iter().map(|bit| bit.pos).collect()
-    };
-    let a = bits(&interface.inputs[ports.a]);
-    let offset = if a.len() >= 2 {
-        let along = |name: &str, positions: &[Pos]| {
-            next_after(positions).ok_or_else(|| {
-                format!("{name}'s bits are not spaced in a repeating pattern")
-            })
-        };
-        let offset = along("A", &a)?;
-        let b = bits(&interface.inputs[ports.b]);
-        let output = bits(&interface.outputs[ports.sum]);
-        let output = &output[..output.len().min(a.len())];
-        if along("B", &b)? != offset || along("The output", output)? != offset {
-            return Err("A, B, and the output are not spaced alike".to_owned());
-        }
-        offset
-    } else {
-        let line = |port: Option<usize>, ports: &[interface::Port]| {
-            Some(ports[port?].bits.first()?.pos)
-        };
-        let (Some(carry_in), Some(carry_out)) = (
-            line(ports.carry_in, &interface.inputs),
-            line(ports.carry_out, &interface.outputs),
-        ) else {
-            return Err(
-                "A 1-bit adder needs a carry in and a carry out to chain."
-                    .to_owned(),
-            );
-        };
-        [0, 1, 2].map(|axis| carry_out[axis] - carry_in[axis])
-    };
-    let step =
-        Step::new((-offset[0]).into(), offset[1].into(), (-offset[2]).into());
-    if step.west < 0 || step.up < 0 || step.north < 0 {
-        return Err(
-            "Its bits count east, down, or south, but copies go west, up, \
-             or north."
-                .to_owned(),
-        );
-    }
-    if step == (Step::new(0, 0, 0)) {
-        return Err("Its copies would sit on each other.".to_owned());
-    }
-    Ok(step)
-}
-
-/// How far the bus at `positions` reaches past its last bit to where the
-/// next copy's first bit goes: its spacing, the shortest pattern of gaps
-/// that repeats along it, carried on. `None` for gaps that do not repeat.
-fn next_after(positions: &[Pos]) -> Option<Pos> {
-    let gaps: Vec<Pos> = positions
-        .windows(2)
-        .map(|pair| [0, 1, 2].map(|axis| pair[1][axis] - pair[0][axis]))
-        .collect();
-    let period = (1..=gaps.len().max(1)).find(|&period| {
-        gaps.iter()
-            .enumerate()
-            .skip(period)
-            .all(|(i, gap)| *gap == gaps[i - period])
-    })?;
-    // A pattern longer than half the bus repeats too little to trust.
-    if period > positions.len() / 2 {
-        return None;
-    }
-    let (first, last) = (positions.first()?, positions.last()?);
-    let next = gaps[(positions.len() - 1) % period];
-    Some([0, 1, 2].map(|axis| last[axis] - first[axis] + next[axis]))
 }
 
 /// Stacks `copies` copies every `step` and tests them, cheapest first; the
@@ -494,186 +659,94 @@ fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
     cases
 }
 
-/// The shortest step up, west, or north, as far as the build reaches, whose
-/// copies of the incrementer, decrementer, or carry out in `data` make a
-/// wider one under `test`: each copy's carry out, landing on the next's
-/// control line, takes its place, as an adder's carry does. One with no
-/// carry out keeps every copy's own line, so none does. Copies are as many
-/// as `copies` gives, so the stack reaches past what dust carries.
-pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
-    let not = |reason: &str| Stacking::Not {
-        step: None,
-        reason: reason.to_owned(),
-    };
-    let Ok(blocks) = Blocks::read(data) else {
-        return not("Its file could not be read.");
-    };
-    let width = interface::read(&blocks)
-        .inputs
-        .first()
-        .map_or(0, |a| a.bits.len());
-    let (low, high) = interface::core(&blocks);
-    let reach = |axis: usize| i64::from(high[axis] - low[axis] + 1) + 2;
-    let mut steps: Vec<Step> = (1..=reach(1))
-        .map(|up| Step::new(0, up, 0))
-        .chain((1..=reach(0)).map(|west| Step::new(west, 0, 0)))
-        .chain((1..=reach(2)).map(|north| Step::new(0, 0, north)))
-        .collect();
-    steps.sort_by_key(|step| step.west + step.up + step.north);
-    let works = |step: Step, copies: usize| {
-        let (stacked, _) = stack::stack(
-            data,
-            &[(step.direction(), copies)],
-            stack::Buses::own(),
-        )
-        .ok()?;
-        let blocks = Blocks::read(&stacked).ok()?;
-        // Copies that overlap may read as a bus wider than any test, so
-        // only a stack of the bits its copies add is run.
-        let stacked = interface::read(&blocks);
-        let wide = |port: &interface::Port| port.bits.len() > MAX_STACKED;
-        if stacked.inputs.first()?.bits.len() != width * copies
-            || stacked.inputs.iter().any(wide)
-        {
-            return None;
-        }
-        let Report::Ran(run) = test.run(&blocks) else {
-            return None;
-        };
-        (run.wrong == 0).then_some(run.cases)
-    };
-    for step in steps {
-        let Some(copies) = copies(step, width) else {
-            continue;
-        };
-        let found = step.find(data, true, stack::Buses::own(), |step| {
-            works(step, copies).ok_or(())
-        });
-        if let Some(Ok((step, cases))) = found {
-            return Stacking::Stacks {
-                step,
-                copies,
-                bits: width * copies,
-                cases,
-            };
-        }
-    }
-    not(
-        "No step up, west, or north as far as it reaches makes copies \
-         whose carries chain into a wider one.",
-    )
-}
-
-/// The most copies stacked into more bits; a build whose copies work with
-/// this many is taken to stack any number of times.
-const MOST_COPIES: usize = 16;
-
-/// The farthest apart copies that don't overlap stack: a bus's widest
-/// spacing, so copies side by side or apart, each on its own, don't count
-/// as stacking.
-const BUS_PITCH: i64 = 4;
-
-/// Whether copies of the build in `data`, whose own cases came out right,
-/// stack into more bits, each copy one more bit as `buses` stacks them:
-/// each way, west and up, the shortest step at which two copies work,
-/// short of how far the file reaches that way, `reach`, so copies overlap,
-/// or else at most [`BUS_PITCH`], as a bus's bits are, and the most copies
-/// that do, up to `MOST_COPIES`. The shorter step comes
-/// first, west on a tie, the other kept as `also`. `works` tests a stack of
-/// so many copies, giving the cases it ran when every one came out right;
-/// `not` says why none stacks.
-pub(super) fn into_bits(
-    data: &[u8],
-    reach: [i64; 2],
-    bits: usize,
-    buses: stack::Buses,
-    works: impl Fn(&Blocks, usize) -> Option<u64>,
-    not: &str,
-) -> Stacking {
-    let reach = reach.map(|n| (n - 1).max(BUS_PITCH));
-    let tried = |step: Step, copies: usize| {
-        let (stacked, _) =
-            stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
-        works(&Blocks::read(&stacked).ok()?, copies)
-    };
-    let shortest = |steps: Vec<Step>| {
-        steps.into_iter().find_map(|step| {
-            step.find(data, true, buses, |step| tried(step, 2).ok_or(()))?
-                .ok()
-                .map(|(step, _)| step)
-        })
-    };
-    let west = shortest((1..=reach[0]).map(|n| Step::new(n, 0, 0)).collect());
-    let up = shortest((1..=reach[1]).map(|n| Step::new(0, n, 0)).collect());
-    let mut ways: Vec<Apart> = [west, up]
-        .into_iter()
-        .flatten()
-        .map(|step| {
-            let mut way = Apart {
-                step,
-                copies: 2,
-                cases: tried(step, 2).unwrap_or_default(),
-                most: None,
-            };
-            while way.copies < MOST_COPIES {
-                let Some(more) = tried(step, way.copies + 1) else {
-                    way.most = Some(way.copies);
-                    break;
-                };
-                way.copies += 1;
-                way.cases = more;
+/// How copies of the incrementer, decrementer, or carry out in `data`
+/// chain into a wider one under `test`: each copy's carry out, landing on
+/// the next's control line, takes its place, as an adder's carry does. One
+/// with no carry out keeps every copy's own line, so none does.
+pub(super) fn chained(data: &[u8], test: Test) -> Option<Stacker<'_>> {
+    let blocks = Blocks::read(data).ok()?;
+    let interface = interface::read(&blocks);
+    let width = interface.inputs.first().map_or(0, |a| a.bits.len());
+    let works = move |step: Step, copies: usize, buses| {
+        run_stacked(data, (step, copies), buses, |blocks| {
+            // Copies that overlap may read as a bus wider than any test, so
+            // only a stack of the bits its copies add is run.
+            let stacked = interface::read(blocks);
+            let wide = |port: &interface::Port| port.bits.len() > MAX_STACKED;
+            let a = stacked.inputs.first().map_or(0, |a| a.bits.len());
+            if a != width * copies || stacked.inputs.iter().any(wide) {
+                return Err(format!(
+                    "{copies} copies make A of {a} bits, not {}.",
+                    width * copies
+                ));
             }
-            way
+            match test.run(blocks) {
+                Report::Ran(run) if run.wrong == 0 => Ok(run.cases),
+                Report::Ran(run) => Err(format!(
+                    "{copies} copies get {} of {} cases wrong.",
+                    run.wrong, run.cases
+                )),
+                Report::Skipped { reason } | Report::Broken { reason } => {
+                    Err(reason)
+                }
+            }
         })
-        .collect();
-    ways.sort_by_key(|way| way.step.west + way.step.up);
-    if ways.is_empty() {
-        return Stacking::Not {
-            step: None,
-            reason: not.to_owned(),
-        };
-    }
-    let first = ways.remove(0);
-    Stacking::Wider {
-        step: first.step,
-        copies: first.copies,
-        bits: bits * first.copies,
-        cases: first.cases,
-        most: first.most,
-        also: ways,
-    }
+    };
+    let not = "No pitch west or up makes copies whose carries chain into a \
+               wider one.";
+    let ways = (width, bit_ways(&interface));
+    Some(Stacker::new(data, test.kind(), ways, works, not))
 }
 
-/// Whether copies of the build in `data`, a gate or another whose bits
-/// each work alone, stack into more bits as [`into_bits`] tries: a stack
-/// works when every case of `test` comes out right and its A, the input
-/// `a` finds, has every copy's bits, no more than [`MAX_STACKED`] of them.
-/// `None` when `a` finds no A in the
-/// build itself; `not` says why none stacks.
-pub(super) fn bitwise(
-    data: &[u8],
+/// How copies of the build in `data`, a gate or another whose bits each
+/// work alone, stack into more bits: a stack works when every case of
+/// `test`, the wider build's, comes out right and its A, the input `a`
+/// finds, has every copy's bits, no more than [`MAX_STACKED`] of them.
+/// Copies of an inverter share its control line, as its category's group
+/// says. `None` when `a` finds no A in the build itself; `not` says why
+/// none stacks.
+pub(super) fn bitwise<'a>(
+    data: &'a [u8],
     test: Test,
-    a: impl Fn(&Interface) -> Option<usize>,
+    a: impl Fn(&Interface) -> Option<usize> + Copy + 'a,
     not: &str,
-) -> Option<Stacking> {
+) -> Option<Stacker<'a>> {
     let blocks = Blocks::read(data).ok()?;
     let interface = interface::read(&blocks);
     let width = interface.inputs[a(&interface)?].bits.len();
-    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses = stack::Buses::of(test.kind(), Orientation::Horizontal);
-    let works = |blocks: &Blocks, copies: usize| {
-        if width * copies > MAX_STACKED {
-            return None;
-        }
-        let interface = interface::read(blocks);
-        let a = a(&interface)?;
-        let Report::Ran(run) = test.run(blocks) else {
-            return None;
-        };
-        (run.wrong == 0 && interface.inputs[a].bits.len() == width * copies)
-            .then_some(run.cases)
+    let works = move |step: Step, copies: usize, buses| {
+        run_stacked(data, (step, copies), buses, |blocks| {
+            if width * copies > MAX_STACKED {
+                return Err(format!(
+                    "{copies} copies would be wider than the simulator tests."
+                ));
+            }
+            let interface = interface::read(blocks);
+            let a = a(&interface)
+                .ok_or_else(|| format!("{copies} copies have no input A."))?;
+            match test.run(blocks) {
+                Report::Ran(run)
+                    if run.wrong == 0
+                        && interface.inputs[a].bits.len() == width * copies =>
+                {
+                    Ok(run.cases)
+                }
+                Report::Ran(run) if run.wrong > 0 => Err(format!(
+                    "{copies} copies get {} of {} cases wrong.",
+                    run.wrong, run.cases
+                )),
+                Report::Ran(_) => Err(format!(
+                    "{copies} copies do not make A of {} bits.",
+                    width * copies
+                )),
+                Report::Skipped { reason } | Report::Broken { reason } => {
+                    Err(reason)
+                }
+            }
+        })
     };
-    Some(into_bits(data, reach, width, buses, works, not))
+    let ways = (width, bit_ways(&interface));
+    Some(Stacker::new(data, test.kind(), ways, works, not))
 }
 
 #[cfg(test)]
@@ -683,15 +756,14 @@ mod tests {
     #[test]
     fn a_stack_lies_the_way_it_steps() {
         let step = Step::new;
-        assert_eq!(step(0, 2, 0).orientation(), Some(Orientation::Vertical));
-        assert_eq!(step(5, 0, 0).orientation(), Some(Orientation::Horizontal));
-        assert_eq!(step(1, 1, 0).orientation(), Some(Orientation::Diagonal));
-        assert_eq!(step(0, 0, 4).orientation(), None);
+        assert_eq!(step(0, 2).orientation(), Some(Orientation::Vertical));
+        assert_eq!(step(5, 0).orientation(), Some(Orientation::Horizontal));
+        assert_eq!(step(1, 1).orientation(), Some(Orientation::Diagonal));
     }
 
     #[test]
     fn enough_copies_reach_past_what_dust_carries() {
-        let step = |west, up| Step::new(west, up, 0);
+        let step = |west, up| Step::new(west, up);
         // A 1-bit slice 2 wide: 9 copies, 18 blocks.
         assert_eq!(copies(step(2, 0), 1), Some(9));
         // An 8-bit adder 16 high: three, one in the middle.
@@ -702,22 +774,13 @@ mod tests {
     }
 
     #[test]
-    fn an_even_bus_goes_on_by_its_spacing() {
-        let bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, 0]).collect();
-        assert_eq!(next_after(&bus), Some([0, 16, 0]));
-    }
-
-    #[test]
-    fn a_staggered_bus_goes_on_by_its_pattern() {
-        // Each other bit a block north: gaps alternate.
-        let bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, -(i % 2)]).collect();
-        assert_eq!(next_after(&bus), Some([0, 16, 0]));
-    }
-
-    #[test]
-    fn a_bus_with_one_bit_out_of_line_has_no_spacing() {
-        let mut bus: Vec<Pos> = (0..8).map(|i| [0, 2 * i, 0]).collect();
-        bus[0] = [0, 1, 1];
-        assert_eq!(next_after(&bus), None);
+    fn a_step_is_classed_by_the_blocks_a_bit() {
+        // A 1-bit XOR every 2 and an 8-bit adder every 16 up: pitch 2.
+        assert_eq!(Step::new(2, 0).pitch(1), Some(2));
+        assert_eq!(Step::new(0, 16).pitch(8), Some(2));
+        assert_eq!(Step::new(0, 8).pitch(8), Some(1));
+        // A 1-bit adder every 8, or every 7: no class.
+        assert_eq!(Step::new(8, 0).pitch(1), None);
+        assert_eq!(Step::new(7, 0).pitch(1), None);
     }
 }

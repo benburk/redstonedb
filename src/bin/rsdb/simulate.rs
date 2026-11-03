@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail, ensure};
 use app::{
     models::{schematic, simulation},
-    simulate::{Action, Report, Stacking, Timing},
+    simulate::{Action, Report, Stacking, Step, Timing},
 };
 use sqlx::SqlitePool;
 
@@ -169,8 +169,20 @@ pub(super) fn print_report(name: &str, report: &Report) {
 }
 
 /// What stacking copies of a simulated build found, whose copies share
-/// any `controls` lines.
+/// any `controls` lines, each way with its pitch class where it has one.
 fn print_stacking(stacking: &Stacking, controls: bool) {
+    let pitch = |step: Step, bits: usize| {
+        step.pitch(bits)
+            .map(|pitch| format!(", pitch {pitch}"))
+            .unwrap_or_default()
+    };
+    let limit = |most: Option<usize>| {
+        if most.is_some() {
+            "; one more copy fails"
+        } else {
+            ""
+        }
+    };
     match stacking {
         Stacking::Stacks {
             step,
@@ -178,8 +190,9 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             bits,
             cases,
         } => println!(
-            "        stacks: {copies} copies {} apart make {bits} bits, all {cases} cases right",
-            step.describe()
+            "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right",
+            step.describe(),
+            pitch(*step, bits / copies)
         ),
         Stacking::Registers {
             step,
@@ -190,11 +203,7 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
         } => println!(
             "        stacks: {copies} copies {} apart make {registers} registers, all {cases} cases right{}",
             step.describe(),
-            if most.is_some() {
-                "; one more copy fails"
-            } else {
-                ""
-            }
+            limit(*most)
         ),
         Stacking::Wider {
             step,
@@ -203,34 +212,40 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             cases,
             most,
             also,
+            words,
         } => {
+            let each = bits / copies;
             for way in also {
                 println!(
-                    "        stacks: {} copies {} apart make {} bits too, all {} cases right{}",
+                    "        stacks: {} copies {} apart make {} bits too{}, all {} cases right{}",
                     way.copies,
                     way.step.describe(),
-                    *bits / *copies * way.copies,
+                    each * way.copies,
+                    pitch(way.step, each),
                     way.cases,
-                    if way.most.is_some() {
-                        "; one more copy fails"
-                    } else {
-                        ""
-                    }
+                    limit(way.most)
+                );
+            }
+            if let Some(words) = words {
+                println!(
+                    "        stacks: {} copies {} apart make {} words, all {} cases right{}",
+                    words.copies,
+                    words.step.describe(),
+                    words.copies,
+                    words.cases,
+                    limit(words.most)
                 );
             }
             println!(
-                "        stacks: {copies} copies {} apart make {bits} bits{}, all {cases} cases right{}",
+                "        stacks: {copies} copies {} apart make {bits} bits{}{}, all {cases} cases right{}",
                 step.describe(),
+                pitch(*step, each),
                 if controls {
                     " sharing their control lines"
                 } else {
                     ""
                 },
-                if most.is_some() {
-                    "; one more copy fails"
-                } else {
-                    ""
-                }
+                limit(*most)
             );
         }
         Stacking::Separate { ways } => {
@@ -240,11 +255,7 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
                     way.copies,
                     way.step.describe(),
                     way.cases,
-                    if way.most.is_some() {
-                        "; one more copy fails"
-                    } else {
-                        ""
-                    }
+                    limit(way.most)
                 );
             }
         }

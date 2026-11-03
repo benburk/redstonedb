@@ -9,7 +9,6 @@ use super::{
     check::{buses, check_on, ports},
 };
 use crate::{
-    models::schematic::Orientation,
     recognize::interface,
     schem::{Blocks, Pos, stack},
     simulate::{
@@ -17,127 +16,187 @@ use crate::{
         bench::mask,
         circuit::Circuit,
         rng::Rng,
-        stacking::{Stacking, Step},
+        stacking::{
+            Apart, MOST_COPIES, Stacker, Stacking, Step, Way, bit_ways,
+        },
         timing::Timing,
     },
 };
 
-/// The most copies a register file is stacked to; one that works with
-/// this many is taken to stack any number of times.
-const MOST_COPIES: usize = 16;
-
-/// Whether copies of the register in `data`, a file whose own cases came
-/// out right, stack west into a bigger register: the shortest step west,
-/// up to its width, at which two copies all store and read right, either
-/// as more cells sharing the data buses, driven and read at the first
-/// copy's end, or as more bits sharing the control lines, driven at the
-/// first copy's end; then the most copies that do, up to `MOST_COPIES`, as
-/// a shared line that runs too far fails. A buffer's copies only add bits,
-/// as its cells show all the time and so cannot share a bus. `None` when
-/// it is not of its `kind`.
-pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
+/// How copies of the register or buffer in `data`, a file whose own cases
+/// came out right, stack into more bits sharing its control lines, driven
+/// at the first copy's end: at each pitch class the way its bits run,
+/// every cell storing and reading right, quickly and then in full, with
+/// as many copies as do, as a shared line that runs too far fails. `None`
+/// when it is not of its `kind`.
+pub fn stacker(data: &[u8], kind: Kind) -> Option<Stacker<'_>> {
     let blocks = Blocks::read(data).ok()?;
     let (_, single) = check_on(&blocks, kind, true).ok()?;
-    let (low, high) = interface::measured(&blocks);
-    let reach = i64::from(high[0] - low[0] + 1);
-    let works = |step: Step, copies: usize, bits: bool, quick: bool| {
-        copies_work(data, kind, &single, (step, copies), bits, quick)
+    let interface = interface::read(&blocks);
+    let works = move |step: Step, copies: usize, buses| {
+        let work = |quick| {
+            copies_work(data, kind, &single, (step, copies), buses, true, quick)
+        };
+        work(true).and_then(|_| work(false)).ok_or_else(|| {
+            format!("{copies} copies don't store and read right as more bits.")
+        })
     };
-    let found = (1..=reach)
-        .map(|west| Step::new(west, 0, 0))
-        .flat_map(|step| [(step, false), (step, true)])
-        .filter(|&(_, bits)| bits || kind == Kind::Register)
-        .find_map(|(step, bits)| {
-            let orientation = if bits {
-                Orientation::Horizontal
-            } else {
-                Orientation::Vertical
-            };
-            let buses = stack::Buses::of(kind.category(), orientation);
-            let found = step.find(data, bits, buses, |step| {
-                (works(step, 2, bits, true).is_some()
-                    && works(step, 2, bits, false).is_some())
-                .then_some(())
-                .ok_or(())
-            })?;
-            found.ok().map(|(step, ())| (step, bits))
-        });
-    let Some((step, bits)) = found else {
-        return Some(Stacking::Not {
-            step: None,
-            reason: match kind {
-                Kind::Register => {
-                    "No step west, up to its width, makes copies whose every \
-                     cell stores and reads right, as more cells or more bits."
-                }
-                Kind::Buffer => {
-                    "No step west, up to its width, makes copies whose every \
-                     cell stores and shows right, as more bits."
-                }
+    let not = match kind {
+        Kind::Register => {
+            "No pitch west or up makes copies whose every cell stores and \
+             reads right as more bits."
+        }
+        Kind::Buffer => {
+            "No pitch west or up makes copies whose every cell stores and \
+             shows right as more bits."
+        }
+    };
+    let ways = (single.width, bit_ways(&interface));
+    Some(Stacker::new(data, kind.category(), ways, works, not))
+}
+
+/// Whether copies of the register or buffer in `data`, a file whose own
+/// cases came out right, stack into a bigger one: as more bits, at each
+/// pitch class as [`stacker`] tries them, and, for a register, as more
+/// words on its shared data buses, driven and read at the first copy's
+/// end, the shortest step across its bits, as far as it reaches, at which
+/// copies all store and read right, whatever the spacing. Words stack the
+/// way across its bits, west for a vertical register and up for a
+/// horizontal one, and a 1-bit register's the way its bits do not. A
+/// buffer's copies only add bits, as its cells show all the time and so
+/// cannot share a bus. `None` when it is not of its `kind`.
+pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
+    let bits = stacker(data, kind)?;
+    let found = bits.search();
+    let blocks = Blocks::read(data).ok()?;
+    let (_, single) = check_on(&blocks, kind, true).ok()?;
+    let taken: Vec<Way> = found
+        .iter()
+        .flatten()
+        .filter_map(|apart| Way::of(apart.step))
+        .collect();
+    let across: Vec<Way> = bit_ways(&interface::read(&blocks))
+        .into_iter()
+        .map(Way::across)
+        .filter(|way| !taken.contains(way))
+        .collect();
+    let words = (kind == Kind::Register)
+        .then(|| words(data, &blocks, &single, &across))
+        .flatten();
+    Some(match (found, words) {
+        (Ok(mut ways), words) => {
+            let first = ways.remove(0);
+            Stacking::Wider {
+                step: first.step,
+                copies: first.copies,
+                bits: single.width * first.copies,
+                cases: first.cases,
+                most: first.most,
+                also: ways,
+                words,
             }
-            .to_owned(),
-        });
-    };
-    let mut most = None;
-    let mut copies = 2;
-    while copies < MOST_COPIES {
-        if works(step, copies + 1, bits, true).is_none() {
-            most = Some(copies);
-            break;
         }
-        copies += 1;
-    }
-    // The most that pass quickly may yet get a case wrong.
-    let cases = loop {
-        if let Some(cases) = works(step, copies, bits, false) {
-            break cases;
-        }
-        copies -= 1;
-        most = Some(copies);
-    };
-    Some(if bits {
-        Stacking::Wider {
+        (Err(_), Some(words)) => Stacking::Registers {
+            step: words.step,
+            copies: words.copies,
+            registers: single.cells * words.copies,
+            cases: words.cases,
+            most: words.most,
+        },
+        (Err((step, reason)), None) => Stacking::Not {
             step,
-            copies,
-            bits: single.width * copies,
-            cases,
-            most,
-            also: Vec::new(),
-        }
-    } else {
-        Stacking::Registers {
-            step,
-            copies,
-            registers: single.cells * copies,
-            cases,
-            most,
-        }
+            reason: match kind {
+                Kind::Register => format!(
+                    "{reason} No step across its bits, up to its width, \
+                     makes copies whose every cell stores and reads right \
+                     as more words."
+                ),
+                Kind::Buffer => reason,
+            },
+        },
     })
 }
 
-/// How a register's copies share their lines: along its bits, its control
-/// lines; across them, its data buses.
-fn buses_of(kind: Kind, bits: bool) -> stack::Buses {
-    let orientation = if bits {
-        Orientation::Horizontal
-    } else {
-        Orientation::Vertical
+/// How copies of the register in `data`, `blocks`, one copy shaped
+/// `single`, stack as more words on its shared data buses, each of `ways`
+/// in turn: the shortest step, up to how far it reaches that way, whose
+/// copies touch and all store and read right, quickly and then in full,
+/// then the most copies that do, up to `MOST_COPIES`, as a shared bus that
+/// runs too far fails.
+fn words(
+    data: &[u8],
+    blocks: &Blocks,
+    single: &Shape,
+    ways: &[Way],
+) -> Option<Apart> {
+    let (low, high) = interface::measured(blocks);
+    let kind = Kind::Register;
+    let works = |step: Step, copies: usize, quick: bool| {
+        let buses = word_buses(kind, step);
+        copies_work(data, kind, single, (step, copies), buses, false, quick)
     };
-    stack::Buses::of(kind.category(), orientation)
+    ways.iter().find_map(|&way| {
+        let axis = usize::from(way == Way::Up);
+        let reach = i64::from(high[axis] - low[axis] + 1);
+        let step = (1..=reach).map(|n| way.step(n)).find_map(|step| {
+            if !stack::touches(data, step.direction()).unwrap_or(false) {
+                return None;
+            }
+            let found =
+                step.find(data, false, word_buses(kind, step), |step| {
+                    (works(step, 2, true).is_some()
+                        && works(step, 2, false).is_some())
+                    .then_some(())
+                    .ok_or(())
+                })?;
+            found.ok().map(|(step, ())| step)
+        })?;
+        let mut most = None;
+        let mut copies = 2;
+        while copies < MOST_COPIES {
+            if works(step, copies + 1, true).is_none() {
+                most = Some(copies);
+                break;
+            }
+            copies += 1;
+        }
+        // The most that pass quickly may yet get a case wrong.
+        let cases = loop {
+            if let Some(cases) = works(step, copies, false) {
+                break cases;
+            }
+            copies -= 1;
+            most = Some(copies);
+        };
+        Some(Apart {
+            step,
+            copies,
+            cases,
+            most,
+        })
+    })
+}
+
+/// How a register's copies stacked `step` as more words share their
+/// lines: their data buses, which run across the way they stack.
+fn word_buses(kind: Kind, step: Step) -> stack::Buses {
+    let across = Way::of(step).map_or(Way::Up, Way::across);
+    stack::Buses::of(kind.category(), across.orientation())
 }
 
 /// The cases `copies` of the register in `data`, one copy shaped `single`,
-/// run when stacked `step` and every cell stores and reads right, as more
-/// bits with `bits`, else as more cells; quickly with `quick`.
+/// run when stacked `step`, their buses as `buses` says, and every cell
+/// stores and reads right, as more bits with `bits`, else as more cells;
+/// quickly with `quick`.
 fn copies_work(
     data: &[u8],
     kind: Kind,
     single: &Shape,
     (step, copies): (Step, usize),
+    buses: stack::Buses,
     bits: bool,
     quick: bool,
 ) -> Option<u64> {
-    let buses = buses_of(kind, bits);
     let (stacked, _) =
         stack::stack(data, &[(step.direction(), copies)], buses).ok()?;
     let blocks = Blocks::read(&stacked).ok()?;
@@ -157,11 +216,12 @@ fn copies_work(
 }
 
 /// Whether `copies` of the register in `data` stacked `step` store and
-/// read right, as more cells or, for a buffer only, more bits, as
-/// [`stacking`] tries each step: the box rule's box first, then boxes
-/// leaving out more of the first copy. The step with its box, the cases
-/// run, and whether copies add bits; or why none works. `None` when it is
-/// not of its `kind`.
+/// read right, as [`stacking`] tries each step: for a register as more
+/// words, then as more bits, a buffer only as more bits, the box rule's
+/// box first, then boxes leaving out more of the first copy. The step
+/// with its box, the cases run, and whether copies add bits; or why none
+/// works. Copies that leave air between them never stack. `None` when it
+/// is not of its `kind`.
 pub fn stacks_at(
     data: &[u8],
     kind: Kind,
@@ -170,13 +230,25 @@ pub fn stacks_at(
 ) -> Option<Result<(Step, u64, bool), String>> {
     let blocks = Blocks::read(data).ok()?;
     let (_, single) = check_on(&blocks, kind, true).ok()?;
+    if !stack::touches(data, step.direction()).ok()? {
+        return Some(Err(format!(
+            "Copies {} apart leave air between them.",
+            step.describe()
+        )));
+    }
     let mut why = String::new();
     for bits in [false, true]
         .into_iter()
         .filter(|&bits| bits || kind == Kind::Register)
     {
-        let found = step.find(data, bits, buses_of(kind, bits), |step| {
-            copies_work(data, kind, &single, (step, copies), bits, false)
+        let buses = if bits {
+            let way = Way::of(step).unwrap_or(Way::West);
+            stack::Buses::of(kind.category(), way.orientation())
+        } else {
+            word_buses(kind, step)
+        };
+        let found = step.find(data, bits, buses, |step| {
+            copies_work(data, kind, &single, (step, copies), buses, bits, false)
                 .ok_or(())
         });
         match found {
@@ -184,7 +256,7 @@ pub fn stacks_at(
             _ => {
                 why = format!(
                     "{copies} copies don't store and read right as more {}",
-                    if bits { "bits" } else { "cells" }
+                    if bits { "bits" } else { "words" }
                 );
             }
         }

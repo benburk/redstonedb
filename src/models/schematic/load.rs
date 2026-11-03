@@ -249,11 +249,11 @@ async fn stacking_by_schematic(
 ) -> Result<HashMap<String, Vec<StackDirection>>, sqlx::Error> {
     let mut stacking: HashMap<String, Vec<StackDirection>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_id, west, up, north, max_copies, faces
+        "SELECT schematic_id, west, up, max_copies, faces, pitch
          FROM stack_direction
          WHERE ?1 IS NULL
             OR schematic_id IN (SELECT value FROM json_each(?1))
-         ORDER BY west DESC, up DESC, north DESC",
+         ORDER BY west DESC, up DESC",
         only
     )
     .fetch_all(db)
@@ -265,11 +265,11 @@ async fn stacking_by_schematic(
             .push(StackDirection {
                 west: row.west,
                 up: row.up,
-                north: row.north,
                 max_copies: row.max_copies,
                 faces: row
                     .faces
                     .and_then(|faces| serde_json::from_str(&faces).ok()),
+                pitch: row.pitch,
             });
     }
     Ok(stacking)

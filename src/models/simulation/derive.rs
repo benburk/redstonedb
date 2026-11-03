@@ -177,49 +177,17 @@ impl Derived {
         let Report::Ran(run) = report else {
             return;
         };
-        if !s.conventional
-            || matches!(
-                policy,
-                category::Stacking::Given | category::Stacking::Never
-            )
-        {
+        // A category whose builds never stack keeps no stacking, as a
+        // decoder's, whose copies side by side are separate decoders.
+        if policy == category::Stacking::Never {
+            self.stacking = Vec::new();
             return;
         }
-        match &run.stacking {
-            Some(Stacking::Stacks { step, .. }) => {
-                self.stacking = vec![step.direction()];
-            }
-            Some(Stacking::Separate { ways }) => {
-                self.stacking =
-                    ways.iter().map(|way| way.direction()).collect();
-            }
-            Some(
-                Stacking::Registers { step, most, .. }
-                | Stacking::Wider { step, most, .. },
-            ) => {
-                let found = StackDirection {
-                    max_copies: most.and_then(|n| i64::try_from(n).ok()),
-                    ..step.direction()
-                };
-                let also = match &run.stacking {
-                    Some(Stacking::Wider { also, .. }) => also.as_slice(),
-                    _ => &[],
-                };
-                self.stacking = s
-                    .stacking
-                    .iter()
-                    .filter(|typed| typed.west == 0 && also.is_empty())
-                    .copied()
-                    .chain([found])
-                    .chain(also.iter().map(|way| way.direction()))
-                    .collect();
-            }
-            Some(Stacking::Not { .. })
-                if policy == category::Stacking::Inferred =>
-            {
-                self.stacking = Vec::new();
-            }
-            Some(Stacking::Not { .. }) | None => {}
+        if !s.conventional || policy == category::Stacking::Given {
+            return;
+        }
+        if let Some(stacking) = &run.stacking {
+            self.stacking = stacking.directions();
         }
         // Copies that add up as a wider adder, or store as a wider register,
         // run the way its bits do, which a 1-bit build's lone input cannot

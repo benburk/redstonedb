@@ -324,6 +324,9 @@ pub struct Behaviour {
     pub stacking: Stacking,
     /// What its copies stacked do with its buses and lines.
     pub copies: Copies,
+    /// How its copies stacked must work together, which its stacking test
+    /// asks of them.
+    pub group: Group,
     /// Whether a conventional build's every measured detail comes from
     /// `evaluate` rather than being typed: its stacking, latency,
     /// synchronized, throughput, and design. Such a build must pass its
@@ -395,6 +398,26 @@ pub enum Copies {
     /// Each keeps its labelled outputs and status lines too, as a
     /// monostable's lone output is its own bit's.
     OwnOutputs,
+}
+
+/// How a category's copies stacked must work together: the group its
+/// stacking test puts them in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Group {
+    /// Data crosses its bits, as an adder's carry, a comparison's result,
+    /// or an ALU's, a multiplier's, a shifter's, or a converter's whole
+    /// value does, so copies must chain into one wider build.
+    #[default]
+    CrossesBits,
+    /// Each bit is a cell of its own, as a gate's or a monostable's: each
+    /// copy must still compute or pulse alone, its neighbours not
+    /// interfering, and the stack be the wider build.
+    Cells,
+    /// Its cells share lines, as an inverter's control line, or a
+    /// register's or buffer's control lines and data bus: copies must work
+    /// together on them, and how many still do is kept, as a shared line
+    /// reaches only so far.
+    SharedLines,
 }
 
 /// Who decides how a category's builds stack.

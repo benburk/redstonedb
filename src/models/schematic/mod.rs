@@ -13,7 +13,7 @@ pub use load::{
     all, all_people, get, get_many, get_visible, ids_with_prefix,
     valid_player_name, visible,
 };
-pub use stacking::{Faces, StackDirection, Widened};
+pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use write::{
     Measured, New, count_download, delete, favorited, favorites, insert,
     set_details, set_favorite, set_flags, set_import_details, set_measured,
@@ -165,10 +165,6 @@ pub struct Schematic {
     pub tags: Vec<Tag>,
 }
 
-/// The farthest apart copies stack for a tag to say how far, as
-/// `4-wide_stackable`: a bus's spacing, not a whole build's length.
-const MOST_PITCH: i64 = 4;
-
 /// `name` as a file's name, less `.schem`: an underscore for each run of
 /// anything but letters and digits, none at either end, as Schemati takes
 /// no other characters. Empty when `name` has no letter or digit.
@@ -270,24 +266,31 @@ impl Schematic {
                 behaviour.stacking == crate::category::Stacking::Inferred,
             ),
         });
-        // How far apart copies stack, where that is a few blocks, the
-        // spacing of a bus, as `2-high_stackable`.
-        let pitches = self.stacking.iter().filter_map(|way| {
-            let pitch = match (way.west, way.up, way.north) {
-                (n, 0, 0) if n > 0 => format!("{n}-wide"),
-                (0, n, 0) if n > 0 => format!("{n}-high"),
-                (0, 0, n) if n > 0 => format!("{n}-deep"),
-                _ => return None,
+        // The pitch class of copies that add bits, the blocks a bit apart
+        // they stack, as `2-wide_stackable` west or `2-high_stackable` up,
+        // and each looser class, which a tighter pitch counts in too.
+        let mut pitches: Vec<Tag> = Vec::new();
+        for way in &self.stacking {
+            let (Some(pitch), Some(shape)) = (way.pitch, way.pitch_shape())
+            else {
+                continue;
             };
-            (way.west + way.up + way.north <= MOST_PITCH).then(|| Tag {
-                name: tag::pitch_stackable(&pitch),
-                token: None,
-                kind: found(
-                    tag::Kind::Feature,
-                    behaviour.stacking == crate::category::Stacking::Inferred,
-                ),
-            })
-        });
+            for class in classes(pitch) {
+                let name = tag::pitch_stackable(&format!("{class}-{shape}"));
+                if pitches.iter().any(|tag| tag.name == name) {
+                    continue;
+                }
+                pitches.push(Tag {
+                    name,
+                    token: None,
+                    kind: found(
+                        tag::Kind::Feature,
+                        behaviour.stacking
+                            == crate::category::Stacking::Inferred,
+                    ),
+                });
+            }
+        }
         // Whether its outputs settle together, once measured, either way.
         let synced = self.synchronized.map(|synced| Tag {
             name: if synced { tag::SYNCED } else { tag::UNSYNCED }.to_owned(),
@@ -440,12 +443,11 @@ impl Schematic {
         if self.stacking.is_empty() {
             return None;
         }
-        let (mut x, mut y, mut z) = self.size;
+        let (mut x, mut y, z) = self.size;
         for d in &self.stacking {
-            match (d.west, d.up, d.north) {
-                (west, 0, 0) => x = west,
-                (0, up, 0) => y = up,
-                (0, 0, north) => z = north,
+            match (d.west, d.up) {
+                (west, 0) => x = west,
+                (0, up) => y = up,
                 _ => return None,
             }
         }
@@ -496,11 +498,7 @@ impl Schematic {
             .find(|d| d.adds_bits(self.orientation))?;
         let more = w.copies - 1;
         let (x, y, z) = self.size;
-        let size = (
-            x + along.west * more,
-            y + along.up * more,
-            z + along.north * more,
-        );
+        let size = (x + along.west * more, y + along.up * more, z);
         let stacking = self
             .stacking
             .iter()
@@ -509,9 +507,8 @@ impl Schematic {
                     StackDirection {
                         west: d.west * w.copies,
                         up: d.up * w.copies,
-                        north: d.north * w.copies,
                         max_copies: None,
-                        faces: d.faces,
+                        ..d
                     }
                 } else {
                     d
@@ -779,16 +776,16 @@ mod tests {
             ..cla()
         };
         assert_eq!(ram.name(), "8-bit 32-byte RAM");
-        let north = StackDirection {
+        let up = StackDirection {
             west: 0,
-            up: 0,
-            north: 3,
+            up: 3,
             max_copies: None,
             faces: None,
+            pitch: None,
         };
-        let stacked = ram.stacked(&[(north, 4)], [19, 11, 72]);
+        let stacked = ram.stacked(&[(up, 4)], [19, 11, 72]);
         assert_eq!(stacked.bytes, Some(128));
-        assert_eq!(stacked.width, Some(8), "copies north add words, not bits");
+        assert_eq!(stacked.width, Some(8), "copies up add words, not bits");
     }
 
     #[test]
@@ -879,12 +876,12 @@ mod tests {
 
     #[test]
     fn a_stack_grows_by_its_step_however_much_copies_overlap() {
-        let way = |west, up, north| StackDirection {
+        let way = |west, up, _| StackDirection {
             west,
             up,
-            north,
             max_copies: None,
             faces: None,
+            pitch: None,
         };
         // Copies 2 up a box 6 high overlap by 4, so each adds 2 high.
         let vertical = Schematic {

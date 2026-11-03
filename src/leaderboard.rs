@@ -1150,9 +1150,9 @@ mod tests {
             stacking: vec![StackDirection {
                 west: 2,
                 up: 0,
-                north: 0,
                 max_copies: None,
                 faces: None,
+                pitch: Some(2),
             }],
             widened: vec![Widened {
                 width: 8,

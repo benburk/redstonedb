@@ -41,7 +41,7 @@ pub(super) struct StackCheck {
     /// Copies in all, the original among them
     #[arg(long, default_value_t = 3)]
     copies: usize,
-    /// The ways to stack, of west, east, up, north, and south; a stored
+    /// The ways to stack, of west, east, and up; a stored
     /// build's own and their opposites by default, else west, east, and up
     #[arg(long, value_delimiter = ',')]
     dirs: Vec<String>,
@@ -159,8 +159,8 @@ pub(super) async fn stack_check_command(
     for dir in &dirs {
         let Ok(way) = Way::named(dir) else {
             println!(
-                "{dir}: skipped, as the site stacks west, up, and north, and \
-                 east and south as a mirror image"
+                "{dir}: skipped, as the site stacks west and up, and east \
+                 as a mirror image"
             );
             continue;
         };
@@ -194,7 +194,7 @@ pub(super) fn stored_ways(
     like.iter()
         .flat_map(|s| &s.stacking)
         .flat_map(|d| {
-            [(d.west, "west"), (d.up, "up"), (d.north, "north")]
+            [(d.west, "west"), (d.up, "up")]
                 .into_iter()
                 .filter(|&(n, _)| n > 0)
                 .map(|(n, way)| (way, n))
@@ -208,9 +208,7 @@ fn opposite(name: &str) -> &'static str {
         "west" => "east",
         "east" => "west",
         "up" => "down",
-        "down" => "up",
-        "north" => "south",
-        _ => "north",
+        _ => "up",
     }
 }
 
@@ -479,7 +477,7 @@ fn stack_once(
 ) -> Result<bool> {
     println!("{label}, {copies} copies:");
     let direction = way.direction(spacing, None);
-    let step = Step::new(direction.west, direction.up, direction.north);
+    let step = Step::new(direction.west, direction.up);
     let lying = way.lying(&single.coloured)?;
     let test = single.kind.and_then(Kind::test);
     // The site's own test of copies at this step: the box rule's box, then
@@ -536,10 +534,9 @@ fn stack_once(
             println!("  site's stacking test: fails, {reason}");
             if way.mirrored() {
                 println!(
-                    "    (run on the mirror image stacked {}, whose bits the \
-                     site reads from its south-east corner, the other end \
-                     from this stack's)",
-                    if way == Way::East { "west" } else { "north" }
+                    "    (run on the mirror image stacked west, whose bits \
+                     the site reads from its south-east corner, the other \
+                     end from this stack's)"
                 );
             }
             false

@@ -1135,16 +1135,13 @@ fn tell_fed(
 
 /// The level sides a tap would reach from one copy of `stored` into the
 /// next: along each way it stacks, west and east for a build stacked west,
-/// north and south for one stacked north, and each side whose layers the
-/// box its later copies repeat leaves out, where the copy before stands.
+/// and each side whose layers the box its later copies repeat leaves out,
+/// where the copy before stands.
 fn stacking_sides(stored: Option<&schematic::Schematic>) -> Vec<Direction> {
     let mut sides = Vec::new();
     for way in stored.iter().flat_map(|s| &s.stacking) {
         if way.west > 0 {
             sides.extend([Direction::West, Direction::East]);
-        }
-        if way.north > 0 {
-            sides.extend([Direction::North, Direction::South]);
         }
         if let Some(faces) = way.faces {
             for (n, side) in [

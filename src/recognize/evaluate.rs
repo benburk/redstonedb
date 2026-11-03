@@ -156,40 +156,21 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
 }
 
 impl Evaluation {
-    /// Takes the stacking its search found: its step, the most copies that
-    /// work, and the way its bits run, as copies that add bits run the way
-    /// its bits do, which a 1-bit build's lone input cannot show.
+    /// Takes the stacking its search found: each way, its step, the most
+    /// copies that work, and its pitch class, and the way its bits run, as
+    /// copies that add bits run the way its bits do, which a 1-bit build's
+    /// lone input cannot show. A register file's copies, more words, show
+    /// nothing of how its bits run.
     fn stacks(&mut self, stacking: Option<&Stacking>) {
-        // Copies side by side, as more decoders, stack each way they do,
-        // and show nothing of how its bits run.
-        if let Some(Stacking::Separate { ways }) = stacking {
-            self.stacking = ways.iter().map(|way| way.direction()).collect();
+        let Some(stacking) = stacking else {
             return;
-        }
-        let stepped = match stacking {
-            Some(Stacking::Stacks { step, .. }) => Some((step, None, true)),
-            Some(Stacking::Wider { step, most, .. }) => {
-                Some((step, *most, true))
-            }
-            // A register file's copies are more cells, not more bits, so
-            // they show nothing of how its bits run.
-            Some(Stacking::Registers { step, most, .. }) => {
-                Some((step, *most, false))
-            }
-            _ => None,
         };
-        if let Some((step, most, bits)) = stepped {
-            self.stacking = vec![StackDirection {
-                max_copies: most.and_then(|n| i64::try_from(n).ok()),
-                ..step.direction()
-            }];
-            // Other ways copies make a wider one, as a 1-bit gate's up.
-            if let Some(Stacking::Wider { also, .. }) = stacking {
-                self.stacking.extend(also.iter().map(|way| way.direction()));
-            }
-            if let Some(orientation) = step.orientation().filter(|_| bits) {
-                self.orientation = Some(orientation);
-            }
+        self.stacking = stacking.directions();
+        if let Stacking::Stacks { step, .. } | Stacking::Wider { step, .. } =
+            stacking
+            && let Some(orientation) = step.orientation()
+        {
+            self.orientation = Some(orientation);
         }
     }
 

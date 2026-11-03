@@ -537,15 +537,16 @@ pub(crate) mod tests {
     #[test]
     fn a_stack_answers_to_the_widths_its_copies_reach() {
         use crate::models::schematic::StackDirection;
-        let stacks = |width, west, north, max_copies| {
+        let stacks = |width, west, up, max_copies| {
             let mut s = schematic("adder", Orientation::Horizontal, &[]);
             s.width = Some(width);
+            let pitch = (width == 1 && west == 2).then_some(2);
             s.stacking = vec![StackDirection {
                 west,
-                up: 0,
-                north,
+                up,
                 max_copies,
                 faces: None,
+                pitch,
             }];
             s
         };
@@ -562,8 +563,11 @@ pub(crate) mod tests {
         let file = stacks(8, 0, 4, None);
         assert!(!find("16b", &file));
         assert_eq!(stacked_width(&parse("8b"), &eight), None);
-        // Each tag its page shows finds it, how far apart copies stack too.
+        // Each tag its page shows finds it, its pitch class and each looser
+        // one too.
         assert!(find("stackable", &slice) && find("2-wide_stackable", &slice));
+        assert!(find("4-wide_stackable", &slice));
+        assert!(!find("1-wide_stackable", &slice));
         assert!(!find("2-wide_stackable", &eight));
     }
 

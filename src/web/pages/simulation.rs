@@ -187,31 +187,16 @@ fn found_stack(report: &Report) -> Option<String> {
     let Report::Ran(run) = report else {
         return None;
     };
-    Some(match run.stacking.as_ref()? {
-        Stacking::Stacks { step, .. } => step.direction().describe(),
-        Stacking::Separate { ways } => ways
-            .iter()
-            .map(|way| way.direction().describe())
-            .collect::<Vec<_>>()
-            .join(", "),
-        Stacking::Registers { step, most, .. } => StackDirection {
-            max_copies: most.and_then(|n| i64::try_from(n).ok()),
-            ..step.direction()
-        }
-        .describe(),
-        Stacking::Wider {
-            step, most, also, ..
-        } => [StackDirection {
-            max_copies: most.and_then(|n| i64::try_from(n).ok()),
-            ..step.direction()
-        }]
-        .into_iter()
-        .chain(also.iter().map(|way| way.direction()))
-        .map(|direction| direction.describe())
-        .collect::<Vec<_>>()
-        .join(", "),
-        Stacking::Not { reason, .. } => format!("Doesn't stack: {reason}"),
-    })
+    let stacking = run.stacking.as_ref()?;
+    if let Stacking::Not { reason, .. } = stacking {
+        return Some(format!("Doesn't stack: {reason}"));
+    }
+    let ways: Vec<String> = stacking
+        .directions()
+        .iter()
+        .map(StackDirection::describe)
+        .collect();
+    (!ways.is_empty()).then(|| ways.join(", "))
 }
 
 /// When a passing build's inputs may change and its outputs settle, from

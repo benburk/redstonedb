@@ -22,12 +22,8 @@ use crate::{
 
 /// The ways the form can stack a build, as `StackDirection::name` gives
 /// them, with their labels.
-pub const STACK_DIRECTIONS: [(&str, &str); 4] = [
-    ("west", "West"),
-    ("up", "Up"),
-    ("north", "North"),
-    ("west-up", "West and up"),
-];
+pub const STACK_DIRECTIONS: [(&str, &str); 3] =
+    [("west", "West"), ("up", "Up"), ("west-up", "West and up")];
 
 /// One stacking direction as the form shows it, every field as text.
 #[derive(Clone, Default)]
@@ -44,11 +40,7 @@ impl StackRow {
     pub fn of(direction: &StackDirection) -> Self {
         StackRow {
             direction: direction.name(),
-            step: direction
-                .west
-                .max(direction.up)
-                .max(direction.north)
-                .to_string(),
+            step: direction.west.max(direction.up).to_string(),
             max: direction
                 .max_copies
                 .map(|n| n.to_string())
@@ -83,11 +75,10 @@ impl StackRow {
             .ok()
             .filter(|n| *n > 0)
             .ok_or("A stacking step must be a whole number of blocks.")?;
-        let (west, up, north) = match self.direction.as_str() {
-            "west" => (step, 0, 0),
-            "up" => (0, step, 0),
-            "north" => (0, 0, step),
-            "west-up" => (step, step, 0),
+        let (west, up) = match self.direction.as_str() {
+            "west" => (step, 0),
+            "up" => (0, step),
+            "west-up" => (step, step),
             _ => return Err("Choose a stacking direction.".to_owned()),
         };
         let max = self.max.trim();
@@ -102,9 +93,9 @@ impl StackRow {
         Ok(Some(StackDirection {
             west,
             up,
-            north,
             max_copies,
             faces: None,
+            pitch: None,
         }))
     }
 }
@@ -530,7 +521,7 @@ mod tests {
     fn stacking_reads_each_filled_row() {
         let on = form(
             true,
-            &[("west", "2", "7"), ("north", "4", ""), ("west", "", "")],
+            &[("west", "2", "7"), ("up", "4", ""), ("west", "", "")],
         );
         let directions = on.stacking().unwrap();
         assert_eq!(directions.len(), 2);
@@ -538,7 +529,7 @@ mod tests {
             (directions[0].west, directions[0].max_copies),
             (2, Some(7))
         );
-        assert_eq!((directions[1].north, directions[1].max_copies), (4, None));
+        assert_eq!((directions[1].up, directions[1].max_copies), (4, None));
         let diagonal = form(true, &[("west-up", "1", "")]).stacking().unwrap();
         assert_eq!((diagonal[0].west, diagonal[0].up), (1, 1));
     }
@@ -551,6 +542,7 @@ mod tests {
             vec![("west", "2", "1")],
             vec![("west", "2", ""), ("west", "3", "")],
             vec![("sideways", "2", "")],
+            vec![("north", "2", "")],
         ] {
             assert!(form(true, &rows).stacking().is_err(), "{rows:?}");
         }
@@ -558,12 +550,13 @@ mod tests {
 
     #[test]
     fn a_stored_direction_shows_as_its_row() {
-        let direction: StackDirection = "north=4,max=3".parse().unwrap();
+        let direction: StackDirection = "up=4,max=3".parse().unwrap();
         let row = StackRow::of(&direction);
         assert_eq!(
             (row.direction.as_str(), row.step.as_str(), row.max.as_str()),
-            ("north", "4", "3")
+            ("up", "4", "3")
         );
+        assert!("north=4".parse::<StackDirection>().is_err());
     }
 
     /// The date field's three boxes make one date, a single-digit month

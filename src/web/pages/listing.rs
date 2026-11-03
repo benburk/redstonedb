@@ -681,14 +681,30 @@ fn badges(s: &Schematic, class: &str) -> Markup {
 
 /// The tags of build `s` its card shows: not its design or orientation,
 /// nor a flag in [`SEEN`], nor any its name says in words, nor stackable
-/// where a tag says how far apart its copies stack.
+/// where a tag says how far apart its copies stack, nor a looser pitch
+/// class than one it shows, which the tighter one counts in.
 fn on_card(s: &Schematic) -> Vec<Tag> {
     let name = format!(" {} ", s.name().to_lowercase());
     let tags = s.every_tag();
     let pitched = tags.iter().any(|tag| tag::is_pitch_stackable(&tag.name));
-    tags.into_iter()
+    // A pitch class's number and shape, as `2` and `wide`.
+    let class = |name: &str| -> Option<(i64, String)> {
+        let pitch = name.strip_suffix(tag::STACKABLE)?.strip_suffix('_')?;
+        let (n, shape) = pitch.split_once('-')?;
+        Some((n.parse().ok()?, shape.to_owned()))
+    };
+    let looser = |name: &str| {
+        class(name).is_some_and(|(n, shape)| {
+            tags.iter().any(|other| {
+                class(&other.name)
+                    .is_some_and(|(m, other)| other == shape && m < n)
+            })
+        })
+    };
+    tags.iter()
         .filter(|tag| {
             (!pitched || tag.name != tag::STACKABLE)
+                && !looser(&tag.name)
                 && !matches!(
                     tag.kind,
                     tag::Kind::Design | tag::Kind::Orientation
@@ -697,6 +713,7 @@ fn on_card(s: &Schematic) -> Vec<Tag> {
                 && !SEEN.contains(&tag.name.as_str())
                 && !name.contains(&format!(" {} ", tag.label()))
         })
+        .cloned()
         .collect()
 }
 
@@ -1066,9 +1083,9 @@ mod tests {
         s.stacking = vec![crate::models::schematic::StackDirection {
             west: 2,
             up: 0,
-            north: 0,
             max_copies: None,
             faces: None,
+            pitch: Some(2),
         }];
         let names = |s: &Schematic| -> Vec<String> {
             on_card(s).into_iter().map(|tag| tag.name).collect()

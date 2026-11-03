@@ -9,8 +9,8 @@ use app::{
     recognize::interface,
     schem::{self, Blocks, orient, standardize},
     simulate::{
-        self, Action, CellControls, Edge, Report, Run, Stacking, Start, Takes,
-        Test,
+        self, Action, CellControls, Edge, Report, Run, Stacking, Start, Step,
+        Takes, Test,
     },
 };
 
@@ -1267,8 +1267,9 @@ fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
 /// A 1-wide monostable whose output rests on: A's lever turns one torch
 /// off at once and, three torches later, another on, the output on while
 /// either is, so it goes off for 3 ticks from tick 1 as A turns on, and
-/// stays on as A turns off. Copies 2 west each pulse alone, any number of
-/// them.
+/// stays on as A turns off. Copies 4 up each pulse alone, any number of
+/// them, pitch 4; copies 1 west interfere, and copies 2 west, a block of
+/// air between them, are no stack.
 #[test]
 fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     // Standardized as a register is, its quartz whitened and its lever
@@ -1293,8 +1294,13 @@ fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     else {
         panic!("the monostable does not stack: {stacking:?}");
     };
-    assert_eq!(step.describe(), "2 west");
-    assert_eq!((copies, most), (16, None));
+    assert_eq!(step.describe(), "4 up");
+    assert_eq!((copies, most), (5, None));
+    let apart = Test::Monostable.stacks_at(&data, Step::new(2, 0), 9);
+    assert!(
+        matches!(&apart, Some(Err(reason)) if reason.contains("air")),
+        "{apart:?}"
+    );
 }
 
 /// The inverted monostable with its output line turned into a torch,
@@ -1521,11 +1527,12 @@ fn an_xor_gate_is_no_xnor_gate() {
 }
 
 /// A gate has no lines, so copies side by side each add a bit to A, B, and
-/// the output; this one's copies fit four blocks apart west, and, its
-/// output read by a repeater standing on its own block, three up.
+/// the output; this one, 3 wide, its output read by a repeater standing on
+/// its own block, stacks 4 up, pitch 4, and no pitch west: copies 1 or 2
+/// west overlap wrongly, and 4 west leave air between them.
 #[test]
 #[ignore = "measures whole builds: just test-full"]
-fn an_xor_gate_stacks_west_into_wider_ones() {
+fn an_xor_gate_stacks_up_into_wider_ones() {
     let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
     let prepared = import::prepare_for(
         &raw,
@@ -1538,10 +1545,49 @@ fn an_xor_gate_stacks_west_into_wider_ones() {
     else {
         panic!("it does not stack");
     };
-    assert_eq!((step.describe().as_str(), copies), ("3 up", 16));
-    let west: Vec<String> =
-        also.iter().map(|way| way.step.describe()).collect();
-    assert_eq!(west, ["4 west"]);
+    assert_eq!((step.describe().as_str(), copies), ("4 up", 5));
+    assert!(also.is_empty(), "{also:?}");
+}
+
+/// Copies must touch or overlap to stack: a 1-bit XOR gate 2 wide stacks
+/// 2 west, pitch 2, each copy a gate of its own beside the next, but
+/// copies 4 west have a gap of air between them and so are no stack,
+/// though, of pitch 2, it counts as 4-wide stackable without them.
+#[test]
+fn a_2_wide_gate_stacks_at_2_but_not_at_4() {
+    let raw = std::fs::read("tests/fixtures/xor-1-2-wide.schem").unwrap();
+    let data = import::with_roles(&raw, "xor_gate").unwrap();
+    let at = |west| Test::Xor.stacks_at(&data, Step::new(west, 0), 3);
+    let Some(Ok((step, cases))) = at(2) else {
+        panic!("it does not stack 2 west: {:?}", at(2));
+    };
+    assert_eq!((step.pitch(1), cases), (Some(2), 64));
+    let apart = at(4);
+    assert!(
+        matches!(&apart, Some(Err(reason)) if reason.contains("air")),
+        "{apart:?}"
+    );
+    assert!(app::models::schematic::classes(2).any(|class| class == 4));
+}
+
+/// The 2-wide gate's own stacking: copies tested enough to reach past what
+/// dust carries, 9 of them 2 west apart, every case of the 9-bit gate
+/// right, pitch 2, tighter than any way up.
+#[test]
+#[ignore = "measures whole builds: just test-full"]
+fn a_2_wide_gates_stacking_is_pitch_2_west() {
+    let raw = std::fs::read("tests/fixtures/xor-1-2-wide.schem").unwrap();
+    let data = import::with_roles(&raw, "xor_gate").unwrap();
+    let stacking = Test::Xor.stacking(&data).expect("it is tried");
+    let Stacking::Wider {
+        step, copies, bits, ..
+    } = &stacking
+    else {
+        panic!("it does not stack: {stacking:?}");
+    };
+    assert_eq!((step.describe().as_str(), *copies, *bits), ("2 west", 9, 9));
+    let directions = stacking.directions();
+    assert_eq!(directions[0].pitch, Some(2), "{directions:?}");
 }
 
 /// A ripple adder holds nothing; a sequential multiplier holds its partial

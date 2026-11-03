@@ -1,13 +1,15 @@
 //! How to stack a build in game, as the site stacks it: paste it without
 //! the parts only its first copy keeps, `//rstack` it, and paste those
-//! parts back; and what looks wrong in a stacking its builder gave, rather
-//! than the simulation finding it: where two copies disagree, and whether
-//! they make a bigger build of the same shape.
+//! parts back; the pitch class of copies the simulation found add bits,
+//! or that they add words on a shared bus; and what looks wrong in a
+//! stacking its builder gave, rather than the simulation finding it:
+//! where two copies disagree, and whether they make a bigger build of the
+//! same shape.
 
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::{Schematic, StackDirection},
+    models::schematic::{Schematic, StackDirection, classes},
     schem::stack::{FirstCopy, Review},
 };
 
@@ -35,6 +37,9 @@ pub fn stacking_section(
                     @if reviews.len() > 1 {
                         h3 class="font-semibold" { "Stacking " (way(review.direction)) }
                     }
+                    @if let Some(class) = class(s, review.direction).filter(|_| decided) {
+                        p class="text-muted" { (class) }
+                    }
                     (steps(s, review))
                     @if !decided {
                         (warnings(review))
@@ -43,6 +48,52 @@ pub fn stacking_section(
             }
         }
     }
+}
+
+/// What copies of `s` stacked `direction` make, as the simulation found:
+/// for copies that add bits, their pitch class, the blocks a bit apart,
+/// and each looser class it counts in; for a register's copies across its
+/// bits, more words on its shared bus. `None` for any other.
+fn class(s: &Schematic, direction: StackDirection) -> Option<String> {
+    let (step, way) = direction.parts().next()?;
+    let limit = direction
+        .max_copies
+        .map(|n| {
+            format!(", up to {n} copies, as a shared line reaches only so far")
+        })
+        .unwrap_or_default();
+    let Some(pitch) = direction.pitch else {
+        return (!direction.adds_bits(s.orientation)).then(|| {
+            format!(
+                "Copies {step} {way} apart add words on its shared data bus, \
+                 at any spacing{limit}."
+            )
+        });
+    };
+    let shape = direction.pitch_shape()?;
+    let bits = s.width.unwrap_or(1);
+    let each = match bits {
+        1 => "its 1 bit".to_owned(),
+        n => format!("each of its {n} bits"),
+    };
+    let looser: Vec<String> = classes(pitch)
+        .skip(1)
+        .map(|class| format!("{class}-{shape}"))
+        .collect();
+    let also = if looser.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " It counts as {} stackable too, as copies packed closer serve \
+             wherever looser ones would.",
+            looser.join(" and ")
+        )
+    };
+    Some(format!(
+        "Copies {step} {way} apart, {pitch} {blocks} for {each}: pitch {pitch}, \
+         {pitch}-{shape} stackable{limit}.{also}",
+        blocks = if pitch == 1 { "block" } else { "blocks" },
+    ))
 }
 
 /// A direction as words, such as `west and up`.
@@ -57,10 +108,9 @@ fn rstack(direction: StackDirection, copies: i64) -> String {
     let token = match direction.name().as_str() {
         "west" => "w",
         "up" => "u",
-        "north" => "n",
         _ => "wu",
     };
-    let step = direction.west.max(direction.up).max(direction.north);
+    let step = direction.west.max(direction.up);
     format!("//rstack {token} {} {step}", copies - 1)
 }
 
@@ -108,7 +158,6 @@ fn parts(first_copy: &FirstCopy, direction: StackDirection) -> String {
     let face = match direction.name().as_str() {
         "west" => "east",
         "up" => "bottom",
-        "north" => "south",
         _ => "start",
     };
     let layers = match (direction.faces, first_copy.layers) {

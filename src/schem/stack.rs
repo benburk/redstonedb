@@ -1,8 +1,7 @@
 //! Copies of a stackable build joined into one schematic, as a player
 //! stacks it in game. A build stacks by its box: the build less the layers
-//! on the face its stack starts from, the east for a stack west, the
-//! bottom for one up, the south for one north, that only the first copy
-//! needs, each block of which is interface, an input or output and what is
+//! on the face its stack starts from, the east for a stack west and the
+//! bottom for one up, that only the first copy needs, each block of which is interface, an input or output and what is
 //! on it, or is what the copy before already has where it lands. See
 //! `first_copy`. Where its copies don't work, a box leaving out more of
 //! the build may, as only testing them tells; see `find_box`. Such a box
@@ -24,7 +23,9 @@
 //!
 //! Where two copies hold different blocks, `review` says so, and finds the
 //! shortest step at which they do not. Several directions stack one after
-//! another.
+//! another. Copies stack west or up, never north, east, or down, and the
+//! site's tests count copies as stacking only where they touch or
+//! overlap, each box reaching the next; see [`touches`].
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -176,17 +177,16 @@ fn along(
         return Ok(data.to_vec());
     }
     let blocks = Blocks::read(data)?;
-    let [west, up, north] =
-        [direction.west, direction.up, direction.north].map(i32::try_from);
-    let (west, up, north) = (west?, up?, north?);
+    let [west, up] = [direction.west, direction.up].map(i32::try_from);
+    let (west, up) = (west?, up?);
     let last = i32::try_from(copies - 1)?;
-    let step = [-west, up, -north];
+    let step = [-west, up, 0];
     let [w, h, l] = blocks.size;
-    let size = [w + last * west, h + last * up, l + last * north];
+    let size = [w + last * west, h + last * up, l];
     let volume: i64 = size.iter().map(|&n| i64::from(n)).product();
     ensure!(volume <= MAX_VOLUME, "that stack would be too large");
     // Where copy `i`'s blocks move to in the stacked box.
-    let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
+    let shift = |i: i32| [(last - i) * west, i * up, 0];
 
     let left_out = first_copy(&blocks, step, direction.faces).all;
     let orphaned = orphaned(&blocks, &left_out);
@@ -254,9 +254,9 @@ fn along(
         })
         .map(|(_, (_, entity))| entity)
         .collect();
-    // The first copy stays at the south-east-bottom end and the rest go
-    // west, north, and up, so the box's first block moved by this.
-    let low = [-(last * west), 0, -(last * north)];
+    // The first copy stays at the east-bottom end and the rest go west and
+    // up, so the box's first block moved by this.
+    let low = [-(last * west), 0, 0];
     nbt.write_blocks(low, size, &grid, stacked_entities)?;
     schem::encode(nbt)
 }
@@ -280,11 +280,22 @@ fn orphaned(blocks: &Blocks, left_out: &HashSet<Pos>) -> HashSet<Pos> {
 }
 
 /// The step a copy stacked `direction` sits from the one before, in the
-/// file's coordinates: west and north count down, up counts up.
+/// file's coordinates: west counts down, up counts up.
 fn step_of(direction: StackDirection) -> Result<Pos> {
-    let [west, up, north] =
-        [direction.west, direction.up, direction.north].map(i32::try_from);
-    Ok([-west?, up?, -north?])
+    let [west, up] = [direction.west, direction.up].map(i32::try_from);
+    Ok([-west?, up?, 0])
+}
+
+/// Whether copies of the build in `data` stacked `direction` touch or
+/// overlap: the box later copies repeat reaches at least a step along
+/// each way it steps, so no layer of air lies between one copy and the
+/// next. Copies apart, however near, are separate builds side by side,
+/// not a stack.
+pub fn touches(data: &[u8], direction: StackDirection) -> Result<bool> {
+    let blocks = Blocks::read(data)?;
+    let step = step_of(direction)?;
+    let [low, high] = first_copy(&blocks, step, direction.faces).sized;
+    Ok((0..3).all(|axis| high[axis] - low[axis] + 1 >= step[axis].abs()))
 }
 
 /// What stacking a build one way looks like, for its builder to check:
@@ -345,26 +356,22 @@ pub fn review(
 /// they do.
 fn agreeing(blocks: &Blocks, direction: StackDirection) -> Option<i64> {
     let (low, high) = interface::core(blocks);
-    let [width, height, length] =
-        [0, 1, 2].map(|axis| i64::from(high[axis] - low[axis] + 1));
-    let reach = [
-        (direction.west > 0, width),
-        (direction.up > 0, height),
-        (direction.north > 0, length),
-    ]
-    .into_iter()
-    .filter(|&(along, _)| along)
-    .map(|(_, extent)| extent)
-    .min()?;
+    let [width, height] =
+        [0, 1].map(|axis| i64::from(high[axis] - low[axis] + 1));
+    let reach = [(direction.west > 0, width), (direction.up > 0, height)]
+        .into_iter()
+        .filter(|&(along, _)| along)
+        .map(|(_, extent)| extent)
+        .min()?;
     // Copies a whole length apart do not overlap, so agree trivially.
     (1..reach).find(|&n| {
         let at = |part: i64| if part > 0 { n } else { 0 };
         let candidate = StackDirection {
             west: at(direction.west),
             up: at(direction.up),
-            north: at(direction.north),
             max_copies: None,
             faces: None,
+            pitch: None,
         };
         let Ok(step) = step_of(candidate) else {
             return false;
@@ -569,8 +576,8 @@ pub fn with_markers(
 
 /// The layers only the first copy keeps when copies stack a `step` along,
 /// which later copies leave out, so each stacks the build's box: from the
-/// face the stack starts from, the east for one west, the bottom for one
-/// up, the south for one north, each layer whose every block is interface,
+/// face the stack starts from, the east for one west and the bottom for
+/// one up, each layer whose every block is interface,
 /// or is what the copy before already has where it lands, as placed, so
 /// however either's power stood and dust on dust joining; never so many
 /// that the box is shorter than the step.

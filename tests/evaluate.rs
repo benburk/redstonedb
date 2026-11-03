@@ -174,12 +174,13 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(1));
     // A 1-bit gate's lone input can't show its orientation; its copies
-    // stacking into more bits do, the shortest step first, west first on a
-    // tie: its output's repeater standing on a block of its own, they fit
-    // 3 up, and 4 west.
-    let steps: Vec<(i64, i64)> =
-        e.stacking.iter().map(|d| (d.west, d.up)).collect();
-    assert_eq!(steps, [(0, 3), (4, 0)], "{:?}", e.stacking);
+    // stacking into more bits do, at the tightest pitch that works, west
+    // first on a tie: its output's repeater standing on a block of its
+    // own, they fit 4 up, pitch 4, and no pitch west, as copies 4 west of
+    // a gate 3 wide leave air between them.
+    let steps: Vec<(i64, i64, Option<i64>)> =
+        e.stacking.iter().map(|d| (d.west, d.up, d.pitch)).collect();
+    assert_eq!(steps, [(0, 4, Some(4))], "{:?}", e.stacking);
     assert_eq!(e.orientation, Some(Orientation::Vertical));
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
@@ -424,9 +425,9 @@ fn an_alus_inverted_add_and_subtract_are_found_by_its_lines() {
 
 /// An inverter is read whole from its file: its control line sits on its
 /// east face beside logic the box rule keeps in every copy, so its copies
-/// stack 2 west by a box found by testing, which leaves the east layer to
-/// the first copy, as many as the line reaches; and its throughput is
-/// measured.
+/// stack 2 west, pitch 2, by a box found by testing, which leaves the east
+/// layer to the first copy, as many as the line reaches; and its
+/// throughput is measured.
 #[test]
 fn an_inverter_is_read_whole_from_its_file() {
     let e = evaluate(&uploaded("inverter-1")).unwrap();
@@ -440,7 +441,7 @@ fn an_inverter_is_read_whole_from_its_file() {
             direction.describe().as_str(),
             direction.faces.map(|f| f.high)
         ),
-        ("2 west per copy, up to 8 copies", Some([1, 0, 0]))
+        ("2 west per copy, pitch 2, up to 8 copies", Some([1, 0, 0]))
     );
     assert!(e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
@@ -592,24 +593,18 @@ fn a_barrel_shifters_shifts_are_found_by_its_lines() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
-/// Copies of a decoder stacked side by side are more decoders, each
-/// decoding its own bits of A onto its own outputs, however their bits lie
-/// between each other's; they show nothing of how its bits run.
+/// Copies of a decoder side by side are separate decoders, not a wider
+/// one, so a decoder never stacks: its stacking is neither searched nor
+/// kept, and its orientation is its own bits'.
 #[test]
-fn a_decoders_copies_stack_as_more_decoders() {
+fn a_decoder_never_stacks() {
     let e = evaluate(&stored("decoder-4-inverted")).unwrap();
     let Some(Report::Ran(run)) = &e.report else {
         panic!("it ran");
     };
-    assert!(
-        matches!(run.stacking, Some(Stacking::Separate { .. })),
-        "{:?}",
-        run.stacking
-    );
-    // Both ways: copies side by side west, and up on top of each other.
-    assert_eq!(e.stacking.len(), 2, "{:?}", e.stacking);
-    assert!(e.stacking.iter().any(|d| d.west > 0 && d.up == 0));
-    assert!(e.stacking.iter().any(|d| d.up > 0 && d.west == 0));
+    assert!(e.passes(), "{:?}", e.report);
+    assert!(run.stacking.is_none(), "{:?}", run.stacking);
+    assert!(e.stacking.is_empty(), "{:?}", e.stacking);
     assert_eq!(
         e.orientation,
         Some(Orientation::Horizontal),

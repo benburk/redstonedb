@@ -260,12 +260,10 @@ fn count(way: StackDirection) -> i64 {
 
 /// Where `stack` moves each copy of a build stacked `way` that is read.
 fn shifts(way: StackDirection) -> Result<Vec<Pos>> {
-    let [west, up, north] = [way.west, way.up, way.north].map(i32::try_from);
-    let (west, up, north) = (west?, up?, north?);
+    let [west, up] = [way.west, way.up].map(i32::try_from);
+    let (west, up) = (west?, up?);
     let last = i32::try_from(count(way))? - 1;
-    Ok((0..=last)
-        .map(|i| [(last - i) * west, i * up, (last - i) * north])
-        .collect())
+    Ok((0..=last).map(|i| [(last - i) * west, i * up, 0]).collect())
 }
 
 /// Copies of the build in `data` stacked `way`, as the site stacks them,

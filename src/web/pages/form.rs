@@ -335,8 +335,8 @@ fn stacking_fields(f: &Form) -> Markup {
                     }
                 }
                 p class="text-meta text-muted" {
-                    "Fill in the second row only for a build that also stacks another way, such as north for "
-                    "more registers side by side. Leave the most copies empty for no limit. Saving stacks two "
+                    "Fill in the second row only for a build that also stacks another way, such as up for "
+                    "more registers on a shared bus. Leave the most copies empty for no limit. Saving stacks two "
                     "copies each way to check the step."
                 }
             }

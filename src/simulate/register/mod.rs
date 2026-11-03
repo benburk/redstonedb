@@ -18,9 +18,10 @@
 //! must leave the buses empty, and each read alone must show its cell's
 //! value on its bus and nothing on any other.
 //!
-//! Copies stack west into a bigger register file, sharing the data buses,
-//! which are driven and read at the first copy's end, or into a wider
-//! register, sharing the control lines; see `stacking`.
+//! Copies stack across its bits into a bigger register file, more words
+//! sharing the data buses, which are driven and read at the first copy's
+//! end, or along them into a wider register, sharing the control lines;
+//! see `stacking`.
 //!
 //! A buffer is a register without reads: each cell shows what it holds on
 //! its own output bus all the time. Its control lines are writes, by a
@@ -44,7 +45,7 @@ mod check;
 mod throughput;
 mod timing;
 
-pub use throughput::{stacking, stacks_at, throughput};
+pub use throughput::{stacker, stacking, stacks_at, throughput};
 pub use timing::time;
 
 /// One control line, by its port and bit, where its block is, and whether

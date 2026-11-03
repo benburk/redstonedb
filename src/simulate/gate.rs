@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use super::{
-    Broken, Stacking, Test, Value,
+    Broken, Stacker, Test, Value,
     adder::adder_cases,
     bench::{Bench, Case, Cases, Kind, Spec, mask},
     stacking,
@@ -175,30 +175,31 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
     })
 }
 
-/// How copies of the NAND+XNOR gate in `data` stack west into a wider one,
-/// as an XOR gate's do.
-pub fn nand_xnor_stacking(data: &[u8]) -> Option<Stacking> {
+/// How copies of the NAND+XNOR gate in `data` stack into a wider one, as
+/// an XOR gate's do, each a gate of its own.
+pub fn nand_xnor_stacker(data: &[u8]) -> Option<Stacker<'_>> {
     stacking::bitwise(
         data,
         Test::NandXnor,
         |interface| nand_xnor(interface).ok().map(|_| 0),
-        "No step west or up, as far as it reaches, makes copies whose bits \
-         together give A nand B and A xnor B.",
+        "No pitch west or up makes copies whose bits together give A nand \
+         B and A xnor B.",
     )
 }
 
-/// How copies of the `gate` in `data` stack west into a wider one, each
-/// adding its bits to A, B, and the output, as the inverter's do; `None`
-/// when it is not one.
-pub fn stacking(data: &[u8], gate: Gate) -> Option<Stacking> {
+/// How copies of the `gate` in `data` stack into a wider one, each a gate
+/// of its own adding its bits to A, B, and the output, the stack tested
+/// as the wider gate, which shows each copy still computes alone and its
+/// neighbours don't interfere; `None` when it is not one.
+pub fn stacker(data: &[u8], gate: Gate) -> Option<Stacker<'_>> {
     let pattern = gate.pattern();
     stacking::bitwise(
         data,
         gate.test(),
-        |interface| spec(interface, gate).ok().map(|_| 0),
+        move |interface| spec(interface, gate).ok().map(|_| 0),
         &format!(
-            "No step west or up, as far as it reaches, makes copies whose \
-             bits together give {pattern}."
+            "No pitch west or up makes copies whose bits together give \
+             {pattern}."
         ),
     )
 }

@@ -29,16 +29,15 @@ use super::{
     Broken, Run, Signal, Value, Wrong,
     bench::mask,
     circuit::{Circuit, MAX_TICKS},
-    stacking::{self, Stacking},
+    stacking::{self, Stacker, Step},
     timing::{
         BitTiming, Edge, InputTiming, OutputTiming, Pulse, Start, Takes, Timing,
     },
 };
 use crate::{
     category::Kind,
-    models::schematic::Orientation,
     recognize::interface::{self, Interface},
-    schem::{Blocks, stack},
+    schem::Blocks,
 };
 
 /// The most wrong cases a run keeps to show.
@@ -700,35 +699,46 @@ impl Retriggered<'_> {
     }
 }
 
-/// Whether copies of the monostable in `data`, whose own cases came out
-/// right, stack west into a wider one: the shortest step west, up to two
-/// past its width, at which two copies give the same pulse on each bit,
-/// then the most copies that do, up to `MOST_COPIES`, as one that pulses
-/// on both edges if `dual`. `None` when it is no monostable.
-pub fn stacking(data: &[u8], dual: bool) -> Option<Stacking> {
+/// How copies of the monostable in `data`, whose own cases came out
+/// right, stack into a wider one, each a cell of its own: every bit of
+/// the stack, on alone and then all together, gives the copy's pulse and
+/// no other bit moves, so each copy still pulses alone and its neighbours
+/// don't interfere, as one that pulses on both edges if `dual`. `None`
+/// when it is no monostable.
+pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
     let blocks = Blocks::read(data).ok()?;
     let single = cases(&blocks).ok()?;
     let edge = single.edge(dual);
     let pulse = single.pulse(edge)?;
-    let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
-    let buses = stack::Buses::of(Kind::Monostable, Orientation::Horizontal);
-    let works = |blocks: &Blocks, copies: usize| {
-        let found = cases(blocks).ok()?;
-        let run = run(&found, dual);
-        (run.wrong == 0
-            && found.width == single.width * copies
-            && found.edge(dual) == edge
-            && found.pulse(edge) == Some(pulse)
-            && found.inverted == single.inverted)
-            .then_some(run.cases)
+    let (width, inverted) = (single.width, single.inverted);
+    let works = move |step: Step, copies: usize, buses| {
+        stacking::run_stacked(data, (step, copies), buses, |blocks| {
+            let found = cases(blocks).map_err(|err| err.to_string())?;
+            let run = run(&found, dual);
+            if run.wrong > 0 {
+                return Err(format!(
+                    "{copies} copies get {} of {} cases wrong.",
+                    run.wrong, run.cases
+                ));
+            }
+            (found.width == width * copies
+                && found.edge(dual) == edge
+                && found.pulse(edge) == Some(pulse)
+                && found.inverted == inverted)
+                .then_some(run.cases)
+                .ok_or_else(|| {
+                    format!("{copies} copies don't each give its pulse alone.")
+                })
+        })
     };
-    Some(stacking::into_bits(
-        data,
-        reach,
-        single.width,
-        buses,
-        works,
-        "No step west or up, as far as it reaches, makes copies that each \
-         give its pulse alone.",
-    ))
+    let interface = interface::read(&blocks);
+    let not = "No pitch west or up makes copies that each give its pulse \
+               alone.";
+    let kind = if dual {
+        Kind::DualEdgeMonostable
+    } else {
+        Kind::Monostable
+    };
+    let ways = (width, stacking::bit_ways(&interface));
+    Some(Stacker::new(data, kind, ways, works, not))
 }

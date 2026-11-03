@@ -70,9 +70,9 @@ fn stacking_markers_sit_at_opposite_corners_of_the_box() {
     let west = StackDirection {
         west: 2,
         up: 0,
-        north: 0,
         max_copies: None,
         faces: None,
+        pitch: None,
     };
     let marked = stack::with_markers(&data, west).unwrap().unwrap();
     let (before, after) =
@@ -200,7 +200,7 @@ fn stacked_slices_form_one_wider_build() {
 fn a_register_stacks_two_ways() {
     let plan = [
         (direction("west=2,max=7"), 7),
-        (direction("north=4,max=3"), 3),
+        (direction("up=12,max=3"), 3),
     ];
     let (data, size) = stack::stack(
         &slice("alpha-register"),
@@ -208,16 +208,18 @@ fn a_register_stacks_two_ways() {
         stack::Buses::of(Kind::Register, Orientation::Horizontal),
     )
     .unwrap();
-    // Seven 2-wide copies, and the first copy's feed for the control lines.
-    assert_eq!(size, [15, 12, 12]);
+    // Seven 2-wide copies, and the first copy's feed for the control lines,
+    // three rows of them, each 12 high.
+    assert_eq!(size, [15, 36, 4]);
     let interface::Interface { inputs, .. } =
         interface::read(&Blocks::read(&data).unwrap());
     // Its read and write lines sit inside the box, so every copy keeps
-    // its own: its copies west are no wider register.
+    // its own: its copies west are no wider register, and each of the 21
+    // has its read and write.
     let controls = inputs
         .iter()
         .filter(|p| p.name == "read" || p.name == "write");
-    assert_eq!(controls.count(), 28);
+    assert_eq!(controls.count(), 42);
 }
 
 #[test]
@@ -242,19 +244,19 @@ fn stacking_respects_the_limit() {
 }
 
 /// A later copy covers the copy before, as `//rstack` pastes it, even
-/// where they disagree, as a wrong step's do: 1 north here stacks, and its
+/// where they disagree, as a wrong step's do: 1 up here stacks, and its
 /// review lists the spots where the later copy puts another block over the
 /// copy before's, as its inputs and outputs over the next bit's.
 #[test]
 fn a_wrong_step_shows_where_copies_disagree() {
-    let plan = [(direction("north=1"), 2)];
+    let plan = [(direction("up=1"), 2)];
     assert!(
         stack::stack(&slice("alpha-rca-slice"), &plan, stack::Buses::own())
             .is_ok()
     );
     let review = stack::review(
         &slice("alpha-rca-slice"),
-        direction("north=1"),
+        direction("up=1"),
         stack::Buses::own(),
     )
     .unwrap();

@@ -4,8 +4,8 @@
 //! people add to it here.
 
 use super::{
-    Behaviour, Copies, Design, Facts, Flag, Guess, Kind, Lines, Measure, Probe,
-    Probing, Reads, Section, Stacking,
+    Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Lines, Measure,
+    Probe, Probing, Reads, Section, Stacking,
 };
 use crate::{models::schematic::Logic, recognize::probe::Line, simulate::Test};
 
@@ -18,6 +18,7 @@ const NOTHING: Behaviour = Behaviour {
     lines: Lines::Signed,
     stacking: Stacking::Given,
     copies: Copies::Chain,
+    group: Group::CrossesBits,
     evaluated: false,
 };
 
@@ -68,10 +69,11 @@ const fn held(test: Test) -> Behaviour {
 }
 
 /// A monostable's: its lone output needs no sign, and its copies add bits,
-/// each with its own.
+/// each a cell with its own.
 const fn monostable(test: Test) -> Behaviour {
     Behaviour {
         copies: Copies::OwnOutputs,
+        group: Group::Cells,
         ..lined(Lines::Result("pulse"), test, Stacking::Inferred)
     }
 }
@@ -85,9 +87,13 @@ const fn lone(control: &'static str, status: &'static str) -> Lines {
     }
 }
 
-/// A gate's: its copies add bits, each with its own A, B, and output.
+/// A gate's: its copies add bits, each a cell with its own A, B, and
+/// output.
 const fn gate(test: Test) -> Behaviour {
-    evaluated(test, Stacking::Inferred)
+    Behaviour {
+        group: Group::Cells,
+        ..evaluated(test, Stacking::Inferred)
+    }
 }
 
 /// The name an unsigned carry in goes by; see `colour::CARRY_IN`.
@@ -622,11 +628,14 @@ pub(super) const TABLE: [Facts; 47] = [
         guess: Guess::Tried(50),
         role_words: &["invert", "inv"],
         // Its copies add bits, sharing its control line.
-        behaviour: lined(
-            Lines::Control("invert"),
-            Test::Inverter,
-            Stacking::Inferred,
-        ),
+        behaviour: Behaviour {
+            group: Group::SharedLines,
+            ..lined(
+                Lines::Control("invert"),
+                Test::Inverter,
+                Stacking::Inferred,
+            )
+        },
         ..ROW
     },
     Facts {
@@ -639,11 +648,9 @@ pub(super) const TABLE: [Facts; 47] = [
         listed_as: Some("decoders"),
         probe: probed(250, Probe::Decoder),
         guess: Guess::Tried(20),
-        // Its copies are more decoders, each with its own input and outputs.
-        behaviour: Behaviour {
-            copies: Copies::OwnOutputs,
-            ..evaluated(Test::Decoder, Stacking::Inferred)
-        },
+        // Its copies side by side are separate decoders, each with its own
+        // input and outputs, not a wider one, so it never stacks.
+        behaviour: evaluated(Test::Decoder, Stacking::Never),
         ..ROW
     },
     Facts {
@@ -714,6 +721,7 @@ pub(super) const TABLE: [Facts; 47] = [
         behaviour: Behaviour {
             lines: Lines::Register,
             copies: Copies::SharedBuses,
+            group: Group::SharedLines,
             ..evaluated(Test::Register, Stacking::Inferred)
         },
         ..ROW
@@ -729,8 +737,12 @@ pub(super) const TABLE: [Facts; 47] = [
         probe: probed(230, Probe::Register),
         guess: Guess::Tried(200),
         role_words: &["write", "write enable", "data in", "data out"],
-        // Its copies add bits, as its cells cannot share a bus.
-        behaviour: lined(Lines::Buffer, Test::Buffer, Stacking::Inferred),
+        // Its copies add bits, sharing its control lines, as its cells
+        // cannot share a bus.
+        behaviour: Behaviour {
+            group: Group::SharedLines,
+            ..lined(Lines::Buffer, Test::Buffer, Stacking::Inferred)
+        },
         ..ROW
     },
     Facts {
@@ -905,6 +917,7 @@ pub(super) const TABLE: [Facts; 47] = [
         // Its copies across its bits are more words on one bus.
         behaviour: Behaviour {
             copies: Copies::SharedBuses,
+            group: Group::SharedLines,
             ..NOTHING
         },
         ..ROW

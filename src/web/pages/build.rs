@@ -593,23 +593,26 @@ pub(super) fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
     }
 }
 
-/// One way a build stacks, short, such as `2 wide west, up to 7` or `2
-/// west and 2 up, any number`.
-fn short_stacking(direction: &StackDirection) -> String {
-    let steps: Vec<(i64, &str)> = [
-        (direction.west, "west"),
-        (direction.up, "up"),
-        (direction.north, "north"),
-    ]
-    .into_iter()
-    .filter(|&(n, _)| n > 0)
-    .collect();
-    let step = if let [(n, way)] = steps.as_slice() {
-        format!("{n} wide {way}")
-    } else {
-        let each: Vec<String> =
-            steps.iter().map(|(n, way)| format!("{n} {way}")).collect();
-        each.join(" and ")
+/// One way build `s` stacks, short: for copies that add bits, their step
+/// and pitch class, such as `16 up, pitch 2, any number`; for a
+/// register's copies across its bits, as more words, such as `4 west as
+/// words, up to 3`; and for a stacking its builder gave, its step, such
+/// as `2 wide west, up to 7` or `2 west and 2 up, any number`.
+fn short_stacking(s: &Schematic, direction: &StackDirection) -> String {
+    let steps: Vec<(i64, &str)> = direction.parts().collect();
+    let step = match (steps.as_slice(), direction.pitch) {
+        ([(n, way)], Some(pitch)) => format!("{n} {way}, pitch {pitch}"),
+        ([(n, way)], None)
+            if stacking_found(s) && !direction.adds_bits(s.orientation) =>
+        {
+            format!("{n} {way} as words")
+        }
+        ([(n, way)], None) => format!("{n} wide {way}"),
+        _ => {
+            let each: Vec<String> =
+                steps.iter().map(|(n, way)| format!("{n} {way}")).collect();
+            each.join(" and ")
+        }
     };
     match direction.max_copies {
         Some(n) => format!("{step}, up to {n}"),
@@ -661,7 +664,7 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 // Whether it stacks is among its tags; how, here.
                 @if !s.stacking.is_empty() {
                     (field("Stacks", sourced(html! {
-                        a href="#stacking" { (s.stacking.iter().map(short_stacking).collect::<Vec<_>>().join(" · ")) }
+                        a href="#stacking" { (s.stacking.iter().map(|d| short_stacking(s, d)).collect::<Vec<_>>().join(" · ")) }
                     }, sources.stacking, sources)))
                 }
                 // Its copies stacked to each wider width, as they compete

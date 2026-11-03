@@ -75,7 +75,7 @@ pub use design::{Design, Terms, adder_design, design_of, groups};
 pub use gate::Gate;
 pub use incrementer::Counts;
 pub use shifter::flags as shifter_flags;
-pub use stacking::{Stacking, Step};
+pub use stacking::{Stacker, Stacking, Step, Way as StackWay};
 pub use strength::Strength;
 pub use throughput::throughput;
 pub use timing::{
@@ -178,9 +178,9 @@ const MAX_STACKED: usize = 32;
 /// file and its interface, whose lines it names for their roles.
 type SpecOf = fn(&Blocks, &mut Interface) -> Result<bench::Spec>;
 
-/// Whether copies of a build, its file, whose own cases came out right,
-/// stack into a wider one of its kind; see `Test::stacking`.
-type StacksOf = fn(&[u8]) -> Option<Stacking>;
+/// How copies of a build, its file, whose own cases came out right, are
+/// stacked and tested as its category's group asks; see `Test::stacking`.
+type StacksOf = for<'a> fn(&'a [u8]) -> Option<Stacker<'a>>;
 
 /// How a test runs: from a spec, as most stateless ones do, or its own
 /// way.
@@ -248,17 +248,16 @@ impl Test {
         match self {
             Test::Adder => (
                 Kind::Adder,
-                Way::stacked(|_, i| adder::adder(i), stacking::check),
+                Way::stacked(|_, i| adder::adder(i), stacking::adder),
             ),
-            Test::Decoder => (
-                Kind::Decoder,
-                Way::stacked(|_, i| decoder::spec(i), decoder::stacking),
-            ),
+            Test::Decoder => {
+                (Kind::Decoder, Way::spec(|_, i| decoder::spec(i)))
+            }
             Test::NandXnor => (
                 Kind::NandXnorGate,
                 Way::stacked(
                     |_, i| gate::nand_xnor(i),
-                    gate::nand_xnor_stacking,
+                    gate::nand_xnor_stacker,
                 ),
             ),
             Test::BarrelShifter => (Kind::BarrelShifter, Way::Shifter),
@@ -266,14 +265,14 @@ impl Test {
                 Kind::Incrementer,
                 Way::stacked(
                     |b, i| counting(Kind::Incrementer, Counts::Up, b, i),
-                    |data| Some(stacking::chained(data, Test::Incrementer)),
+                    |data| stacking::chained(data, Test::Incrementer),
                 ),
             ),
             Test::Decrementer => (
                 Kind::Decrementer,
                 Way::stacked(
                     |b, i| counting(Kind::Decrementer, Counts::Down, b, i),
-                    |data| Some(stacking::chained(data, Test::Decrementer)),
+                    |data| stacking::chained(data, Test::Decrementer),
                 ),
             ),
             Test::IncDec => (
@@ -311,7 +310,7 @@ impl Test {
                 Kind::CarryOut,
                 Way::stacked(
                     |_, i| adder::carry_out(i),
-                    |data| Some(stacking::chained(data, Test::CarryOut)),
+                    |data| stacking::chained(data, Test::CarryOut),
                 ),
             ),
             Test::GreaterThan => {
@@ -334,7 +333,7 @@ impl Test {
                         interface::name_lines(Kind::Inverter, b, i);
                         inverter::spec(i)
                     },
-                    inverter::stacking,
+                    inverter::stacker,
                 ),
             ),
             Test::Popcount => {
@@ -354,42 +353,42 @@ impl Test {
                 Kind::XorGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::Xor),
-                    |data| gate::stacking(data, Gate::Xor),
+                    |data| gate::stacker(data, Gate::Xor),
                 ),
             ),
             Test::Xnor => (
                 Kind::XnorGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::Xnor),
-                    |data| gate::stacking(data, Gate::Xnor),
+                    |data| gate::stacker(data, Gate::Xnor),
                 ),
             ),
             Test::And => (
                 Kind::AndGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::And),
-                    |data| gate::stacking(data, Gate::And),
+                    |data| gate::stacker(data, Gate::And),
                 ),
             ),
             Test::Nand => (
                 Kind::NandGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::Nand),
-                    |data| gate::stacking(data, Gate::Nand),
+                    |data| gate::stacker(data, Gate::Nand),
                 ),
             ),
             Test::Or => (
                 Kind::OrGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::Or),
-                    |data| gate::stacking(data, Gate::Or),
+                    |data| gate::stacker(data, Gate::Or),
                 ),
             ),
             Test::Nor => (
                 Kind::NorGate,
                 Way::stacked(
                     |_, i| gate::spec(i, Gate::Nor),
-                    |data| gate::stacking(data, Gate::Nor),
+                    |data| gate::stacker(data, Gate::Nor),
                 ),
             ),
             Test::Counter => {
@@ -516,15 +515,34 @@ impl Test {
     }
 
     /// Whether copies of the build in `data`, whose own cases came out
-    /// right, stack into a wider one of its kind: tried on an adder, whose
-    /// copies' carries must chain, a register, whose copies may add cells
-    /// or bits, and a buffer, a monostable, an inverter, and a gate,
-    /// whose copies add bits; `None` for any other.
+    /// right, stack into a wider one of its kind, tried at each pitch
+    /// class as its category's group asks: an adder's, an incrementer's,
+    /// and a carry out's copies must chain; a gate's and a monostable's
+    /// each work alone beside the others; an inverter's, a register's, and
+    /// a buffer's share lines, as many copies as work counted, and a
+    /// register's copies may also add words on its shared bus. `None` for
+    /// any other, and for a category whose builds never stack, as a
+    /// decoder's, whose copies side by side are separate decoders.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
+        if self.kind().facts().behaviour.stacking
+            == crate::category::Stacking::Never
+        {
+            return None;
+        }
+        match self.way() {
+            Way::Register(kind) => register::stacking(data, kind),
+            _ => Some(self.stacker(data)?.stacking()),
+        }
+    }
+
+    /// How copies of the build in `data` are stacked and tested, as
+    /// [`Test::stacking`] tries each pitch, for one step at a time; see
+    /// [`Stacker::at`]. `None` for a test whose copies are never stacked.
+    pub fn stacker(self, data: &[u8]) -> Option<Stacker<'_>> {
         match self.way() {
             Way::Spec { stacks, .. } => stacks.and_then(|stacks| stacks(data)),
-            Way::Register(kind) => register::stacking(data, kind),
-            Way::Monostable { dual } => monostable::stacking(data, dual),
+            Way::Register(kind) => register::stacker(data, kind),
+            Way::Monostable { dual } => monostable::stacker(data, dual),
             Way::Alu | Way::Shifter | Way::Sequential(_) => None,
         }
     }
@@ -533,25 +551,21 @@ impl Test {
     /// right, stacked `step` make a wider one of its kind, as its own
     /// `stacking` tests each step, the box rule's box first, then boxes
     /// leaving out more of the first copy: the step with the box that
-    /// works and the cases run, or why not. An adder's copies chain their
-    /// carries; a decoder's each decode their own bits; a register's or
-    /// buffer's store and read as more cells or bits. `None` for a test
-    /// that tries no step it is given.
+    /// works and the cases run, or why not. Copies that leave air between
+    /// them never stack. A register's copies are tried as more words on
+    /// its shared bus, then as more bits. `None` for a test whose copies
+    /// are never stacked.
     pub fn stacks_at(
         self,
         data: &[u8],
         step: Step,
         copies: usize,
     ) -> Option<Result<(Step, u64), String>> {
-        match (self, self.way()) {
-            (Test::Adder, _) => stacking::adder_at(data, step, copies),
-            (Test::Decoder, _) => decoder::stacks_at(data, step, copies),
-            (_, Way::Register(kind)) => {
-                register::stacks_at(data, kind, step, copies)
-                    .map(|found| found.map(|(step, cases, _)| (step, cases)))
-            }
-            _ => None,
+        if let Way::Register(kind) = self.way() {
+            return register::stacks_at(data, kind, step, copies)
+                .map(|found| found.map(|(step, cases, _)| (step, cases)));
         }
+        Some(self.stacker(data)?.at(step, copies))
     }
 
     /// How often the build in `blocks`, its file `data`, timed as

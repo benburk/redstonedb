@@ -38,7 +38,6 @@ pub(in crate::web) struct Download {
     /// Copies each way the build stacks.
     west: Option<usize>,
     up: Option<usize>,
-    north: Option<usize>,
     #[serde(rename = "west-up")]
     west_up: Option<usize>,
     /// The colours to show it in: the site's own, its builder's, the
@@ -94,7 +93,6 @@ impl Download {
         [
             ("west", self.west),
             ("up", self.up),
-            ("north", self.north),
             ("west-up", self.west_up),
         ]
         .into_iter()

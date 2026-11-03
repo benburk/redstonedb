@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Stacking, Test,
+    Broken, Stacker, Test,
     bench::{Bench, Case, Cases, Kind, Spec, mask},
     circuit::output_bits,
     converters::byte_cases,
@@ -81,17 +81,16 @@ fn ports(interface: &Interface) -> Result<(usize, usize)> {
     Ok((a, line))
 }
 
-/// Whether copies of the inverter in `data`, whose own cases came out
-/// right, stack west into a wider one sharing its control line: the
-/// shortest step west, up to two past its width, at which two copies
-/// invert every bit with the one line, then the most copies that do.
-/// `None` when it is no inverter.
-pub fn stacking(data: &[u8]) -> Option<Stacking> {
+/// How copies of the inverter in `data`, whose own cases came out right,
+/// stack into a wider one sharing its control line: two copies inverting
+/// every bit with the one line, then as many more as do, as the line runs
+/// only so far. `None` when it is no inverter.
+pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
     stacking::bitwise(
         data,
         Test::Inverter,
         |interface| ports(interface).ok().map(|(a, _)| a),
-        "No step west or up, as far as it reaches, makes copies that one \
-         control line inverts together.",
+        "No pitch west or up makes copies that one control line inverts \
+         together.",
     )
 }

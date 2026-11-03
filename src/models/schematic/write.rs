@@ -300,14 +300,14 @@ pub async fn set_stacking(
             .map(|faces| serde_json::to_string(&faces).unwrap_or_default());
         sqlx::query!(
             "INSERT INTO stack_direction
-                (schematic_id, west, up, north, max_copies, faces)
+                (schematic_id, west, up, max_copies, faces, pitch)
              VALUES (?, ?, ?, ?, ?, ?)",
             id,
             d.west,
             d.up,
-            d.north,
             d.max_copies,
             faces,
+            d.pitch,
         )
         .execute(&mut *tx)
         .await?;

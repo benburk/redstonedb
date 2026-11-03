@@ -12,8 +12,8 @@
 //! block, to say which copy each block came from and where one covered
 //! another. A player then runs `//update`; see [`settle`].
 //!
-//! The site stacks west, up, and north. A stack east or south is the
-//! mirror image's stacked west or north, mirrored back.
+//! The site stacks west and up. A stack east is the mirror image's
+//! stacked west, mirrored back.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -93,8 +93,6 @@ pub enum Way {
     West,
     East,
     Up,
-    North,
-    South,
 }
 
 impl Way {
@@ -104,11 +102,9 @@ impl Way {
             "west" => Way::West,
             "east" => Way::East,
             "up" => Way::Up,
-            "north" => Way::North,
-            "south" => Way::South,
             _ => bail!(
-                "no way {name}: the site stacks west, up, or north, and east \
-                 or south as a mirror image"
+                "no way {name}: the site stacks west or up, and east as a \
+                 mirror image"
             ),
         })
     }
@@ -118,31 +114,23 @@ impl Way {
             Way::West => "west",
             Way::East => "east",
             Way::Up => "up",
-            Way::North => "north",
-            Way::South => "south",
         }
     }
 
-    /// How the build is mirrored to stack this way west or north, which
-    /// mirrors it back too.
+    /// How the build is mirrored to stack this way west, which mirrors it
+    /// back too.
     fn mirror(self) -> Turn {
         match self {
             Way::East => Turn {
                 mirrored: true,
                 quarters: 0,
             },
-            // Mirrored east for west and turned a half turn, it is mirrored
-            // north for south.
-            Way::South => Turn {
-                mirrored: true,
-                quarters: 2,
-            },
-            Way::West | Way::Up | Way::North => Turn::default(),
+            Way::West | Way::Up => Turn::default(),
         }
     }
 
     /// The build in `data` as the site stacks it this way: mirrored for
-    /// east or south, so it stacks west or north.
+    /// east, so it stacks west.
     pub fn lying(self, data: &[u8]) -> Result<Vec<u8>> {
         let mirror = self.mirror();
         if mirror.is_none() {
@@ -152,38 +140,36 @@ impl Way {
         }
     }
 
-    /// Whether the site stacks it as its mirror image: east or south.
+    /// Whether the site stacks it as its mirror image: east.
     pub fn mirrored(self) -> bool {
         self.flipped().is_some()
     }
 
-    /// The axis a mirror flips: x for east, z for south.
+    /// The axis a mirror flips: x for east.
     fn flipped(self) -> Option<usize> {
         match self {
             Way::East => Some(0),
-            Way::South => Some(2),
-            Way::West | Way::Up | Way::North => None,
+            Way::West | Way::Up => None,
         }
     }
 
-    /// The site's direction for `spacing` blocks this way, or for east or
-    /// south its mirror's, with the box `faces` leaves, as the build lies.
+    /// The site's direction for `spacing` blocks this way, or for east its
+    /// mirror's, with the box `faces` leaves, as the build lies.
     pub fn direction(
         self,
         spacing: i64,
         faces: Option<Faces>,
     ) -> StackDirection {
-        let [west, up, north] = match self {
-            Way::West | Way::East => [spacing, 0, 0],
-            Way::Up => [0, spacing, 0],
-            Way::North | Way::South => [0, 0, spacing],
+        let [west, up] = match self {
+            Way::West | Way::East => [spacing, 0],
+            Way::Up => [0, spacing],
         };
         StackDirection {
             west,
             up,
-            north,
             max_copies: None,
             faces: faces.map(|faces| self.flip_faces(faces)),
+            pitch: None,
         }
     }
 
@@ -258,9 +244,8 @@ pub fn stack_as_site(
         .filter(|pos| !boxed.contains_key(*pos))
         .copied()
         .collect();
-    let [west, up, north] =
-        [direction.west, direction.up, direction.north].map(i32::try_from);
-    let step = [-west?, up?, -north?];
+    let [west, up] = [direction.west, direction.up].map(i32::try_from);
+    let step = [-west?, up?, 0];
     let (pasted, overwrites) = paste(&whole, &boxed, step, copies);
     let last = i32::try_from(copies - 1)?;
     let origin: Pos = [0, 1, 2].map(|axis| -(last * step[axis]).min(0));
