@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn a_stack_east_is_the_mirror_of_one_west() {
         let data =
-            std::fs::read("tests/fixtures/rca-1-repeater-a.schem").unwrap();
+            std::fs::read("tests/fixtures/old/rca-1-repeater-a.schem").unwrap();
         let blocks = Blocks::read(&data).unwrap();
         for (way, origin, step) in [
             (Way::West, [4, 0, 0], [-2, 0, 0]),

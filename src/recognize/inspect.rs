@@ -1,14 +1,19 @@
 //! The check of a build by its function rather than its colours: its
-//! inputs are its levers and buttons, found wherever they are, and
-//! its outputs lone coloured blocks, each read through the dust or
-//! repeater on it. What the site can put right itself, it does and lists;
-//! what only the builder can, it names with the blocks at fault.
+//! inputs are its levers and buttons, and its comparators with nothing
+//! behind them, found wherever they are, and its outputs its repeaters and
+//! comparators powering nothing, on any block. What the site can put right
+//! itself, it does and lists; what only the builder can, it names with the
+//! blocks at fault.
 //!
 //! The rules:
 //!
 //! - An input is a lever, or any button for a pulse, on a side of a solid
 //!   block, a lamp too, its input block. The lever touches nothing else
 //!   that carries power.
+//! - A signal-strength input, taking a value from 0 to 15, is a comparator
+//!   with nothing behind it, the cell its `facing` points at air, giving
+//!   out into the build; a tester drives it by putting a barrel there. See
+//!   [`repeater_outputs::strength_input`].
 //! - The input block drives dust on any side, on top and below too,
 //!   torches, repeaters, and comparators, and nothing else powers it or
 //!   touches it but plain blocks, a target, and, on top, a redstone block,
@@ -18,22 +23,22 @@
 //!   bus can drive the input: nothing below it but air or a solid block,
 //!   and nothing behind it; and the build compiled with every lever so
 //!   swapped is the same circuit, the proof by the rules of redstone.
-//! - Every output, data or status, is a block with dust, a repeater, or a
-//!   comparator on top, which is what is read, but a repeater or comparator
-//!   powering a block in front of it, which carries the circuit on; and no
-//!   block of its kind touching it, even diagonally, a kind marking outputs
-//!   only where every block of it does: of an upload, any full block that
-//!   carries power but a component, or stained glass of a colour, as plain
-//!   and white glass hold a build's dust up; of the site's own files, the
-//!   colours it marks outputs with, see [`SITE`].
+//! - Every output, data or status, is a repeater or comparator powering
+//!   nothing, the cell in front of it air, on a block of any kind or
+//!   colour; see [`repeater_outputs::find`]. A repeater gives a bit; whether
+//!   a comparator's strength is read as a bit or a value from 0 to 15 its
+//!   category's test decides. Each is read by the block holding it up, as
+//!   a signal-strength input is.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
-//!   block for each block across.
+//!   block for each block across, or two such lines with their bits
+//!   alternating, as [`repeater_outputs::lines`] groups outputs.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 
 use crate::{
+    recognize::repeater_outputs,
     schem::{self, Blocks, Direction, Pos, Switch, block, standardize},
     simulate,
 };
@@ -45,8 +50,14 @@ pub struct Report {
     pub errors: Vec<Problem>,
     /// What else it found, such as which inputs need strong power.
     pub notes: Vec<String>,
-    /// The inputs and outputs, grouped into buses and lone lines.
+    /// The levers and buttons, each by its input block, grouped into buses
+    /// and lone lines.
     pub inputs: Vec<Run>,
+    /// The signal-strength inputs, each by the block under its comparator,
+    /// grouped as outputs are.
+    pub digits: Vec<Run>,
+    /// The outputs, each by the block under its repeater or comparator,
+    /// grouped into buses and lone lines.
     pub outputs: Vec<Run>,
 }
 
@@ -76,60 +87,23 @@ struct Input {
     hard: bool,
 }
 
-/// Which kinds of block mark a build's outputs, each only where every
-/// block of it is alone with something reading it on top.
-#[derive(Clone, Copy, Debug)]
-pub enum Marks<'a> {
-    /// Any kind that could, as [`could_mark`] says.
-    Any,
-    /// Only the kinds named, such as `yellow_concrete`.
-    Kinds(&'a [&'a str]),
-}
+/// What the upload page says of a build with no inputs, which tells how
+/// to mark one.
+pub const NO_INPUTS: &str = "Inputs: none found — mark each with a lever \
+                             or button, or a comparator with air behind for \
+                             a signal strength";
 
-impl Marks<'_> {
-    /// Whether a block of kind `name` may mark an output.
-    fn takes(&self, name: &str) -> bool {
-        match self {
-            Marks::Any => could_mark(name),
-            Marks::Kinds(kinds) => kinds.contains(&name),
-        }
-    }
-}
+/// What the upload page says of a build with no outputs, which tells how
+/// to mark one.
+pub const NO_OUTPUTS: &str =
+    "Outputs: none found — mark each with a repeater or comparator facing air";
 
-/// Yellow concrete and yellow stained glass, the blocks a builder marks
-/// each output with, its status lines too.
-pub const YELLOW: Marks<'static> =
-    Marks::Kinds(&["yellow_concrete", "yellow_stained_glass"]);
-
-/// What an uploaded build's outputs are read as: any kind that could mark
-/// one, until builders mark them as [`YELLOW`] says.
-pub const UPLOAD: Marks<'static> = Marks::Any;
-
-/// The blocks the site marks outputs with in the files it keeps: each
-/// output colour and the status colour, see [`colour::is_output`], of
-/// concrete or stained glass. Its own files are read back with these.
-pub const SITE: Marks<'static> = Marks::Kinds(&[
-    "yellow_concrete",
-    "yellow_stained_glass",
-    "orange_concrete",
-    "orange_stained_glass",
-    "brown_concrete",
-    "brown_stained_glass",
-    "pink_concrete",
-    "pink_stained_glass",
-]);
-
-/// The check of an uploaded build, its outputs marked as [`UPLOAD`] says.
+/// The check of a build by function: its levers and buttons, its
+/// signal-strength inputs, and its outputs, each read by the block
+/// holding it, its colour playing no part.
 pub fn inspect(blocks: &Blocks) -> Report {
-    inspect_marked(blocks, UPLOAD)
-}
-
-/// The check of a build whose outputs are marked as `marks` says, such as
-/// [`SITE`] for a file the site keeps.
-pub fn inspect_marked(blocks: &Blocks, marks: Marks) -> Report {
     let mut report = Report::default();
     let inputs = inputs(blocks, &mut report);
-    let outputs = outputs(blocks, marks, &mut report);
     report.inputs = runs(
         &inputs
             .iter()
@@ -138,8 +112,11 @@ pub fn inspect_marked(blocks: &Blocks, marks: Marks) -> Report {
             })
             .collect::<Vec<_>>(),
     );
-    report.outputs =
-        runs(&outputs.iter().map(|&pos| (pos, ())).collect::<Vec<_>>());
+    report.digits = digits(blocks, &mut report);
+    if blocks.switches().is_empty() && report.digits.is_empty() {
+        problem(&mut report, "no inputs", Vec::new(), NO_INPUTS.to_owned());
+    }
+    report.outputs = outputs(blocks, &mut report);
     let hard = inputs.iter().filter(|input| input.hard).count();
     if !inputs.is_empty() {
         report.notes.push(format!(
@@ -149,6 +126,84 @@ pub fn inspect_marked(blocks: &Blocks, marks: Marks) -> Report {
         ));
     }
     report
+}
+
+/// Each of `found`, standing at the position `at` gives, by the block
+/// under it, or a problem `rule` saying `what` stands at the file's bottom
+/// with nothing under it, where the site can't read it.
+fn held<T>(
+    found: Vec<T>,
+    at: impl Fn(&T) -> Pos,
+    (rule, what): (&'static str, impl Fn(&T) -> String),
+    report: &mut Report,
+) -> Vec<T> {
+    let (held, bottom): (Vec<T>, Vec<T>) =
+        found.into_iter().partition(|one| at(one)[1] > 0);
+    for one in &bottom {
+        problem(
+            report,
+            rule,
+            vec![at(one)],
+            format!(
+                "{} at {}: nothing under it in the file",
+                what(one),
+                place(at(one))
+            ),
+        );
+    }
+    held
+}
+
+/// The signal-strength inputs, comparators with air behind giving out into
+/// the build, grouped into buses as [`repeater_outputs::strength_lines`]
+/// groups them, each run of the blocks under them.
+fn digits(blocks: &Blocks, report: &mut Report) -> Vec<Run> {
+    let found = held(
+        repeater_outputs::strength_inputs(blocks),
+        |input| input.at,
+        (
+            "input at the bottom",
+            |_: &repeater_outputs::StrengthInput| "Input comparator".to_owned(),
+        ),
+        report,
+    );
+    under(repeater_outputs::strength_lines(&found))
+}
+
+/// The outputs, repeaters and comparators powering nothing, grouped into
+/// buses as [`repeater_outputs::lines`] groups them, each run of the blocks
+/// under them.
+fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Run> {
+    let found = repeater_outputs::find(blocks);
+    if found.is_empty() {
+        problem(report, "no outputs", Vec::new(), NO_OUTPUTS.to_owned());
+    }
+    let found = held(
+        found,
+        |output| output.at,
+        (
+            "output at the bottom",
+            |output: &repeater_outputs::Output| {
+                format!("Output {}", output.kind())
+            },
+        ),
+        report,
+    );
+    under(repeater_outputs::lines(&found))
+}
+
+/// `runs` of components, each of the blocks under them.
+fn under(runs: Vec<Run>) -> Vec<Run> {
+    runs.into_iter()
+        .map(|run| Run {
+            bits: run
+                .bits
+                .iter()
+                .map(|&at| schem::step(at, Direction::Down))
+                .collect(),
+            step: run.step,
+        })
+        .collect()
 }
 
 /// The rule of a block behind a lever, where a bus's driver would feed the
@@ -162,6 +217,36 @@ pub const BLOCK_BEHIND: &str = "block behind a lever";
 pub const DATA_ONLY: [&str; 1] = [BLOCK_BEHIND];
 
 impl Report {
+    /// The inputs and outputs found, in short, as the upload page shows
+    /// them: each run by its length, a lone line as 1, such as `Inputs:
+    /// switches 8, 8, 1; comparators 8, 8. Outputs: 8, 1.`
+    pub fn summary(&self) -> String {
+        let lengths = |runs: &[Run]| {
+            runs.iter()
+                .map(|run| run.bits.len().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut inputs = Vec::new();
+        if !self.inputs.is_empty() {
+            inputs.push(format!("switches {}", lengths(&self.inputs)));
+        }
+        if !self.digits.is_empty() {
+            inputs.push(format!("comparators {}", lengths(&self.digits)));
+        }
+        let inputs = if inputs.is_empty() {
+            "none".to_owned()
+        } else {
+            inputs.join("; ")
+        };
+        let outputs = if self.outputs.is_empty() {
+            "none".to_owned()
+        } else {
+            lengths(&self.outputs)
+        };
+        format!("Inputs: {inputs}. Outputs: {outputs}.")
+    }
+
     /// Its faults but those only a data input's, which probing tells
     /// apart; see `DATA_ONLY`.
     pub fn faults(&self) -> impl Iterator<Item = &Problem> {
@@ -234,9 +319,6 @@ fn reads_from(blocks: &Blocks, from: Pos, block: Pos) -> bool {
 
 fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
     let switches = blocks.switches();
-    if switches.is_empty() {
-        problem(report, "no inputs", Vec::new(), "No inputs".to_owned());
-    }
     let mut found = Vec::new();
     for switch in switches {
         if !placed(blocks, &switch, report) {
@@ -441,113 +523,6 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     }
 }
 
-/// The outputs: blocks of the kinds `marks` takes, each with dust, a
-/// repeater, or a comparator on top reading it out, as [`reads_out`] says,
-/// and no block of its own kind touching it, even diagonally, of a kind
-/// every block of which is so. An input's block, under its switch, is
-/// never one.
-fn outputs(blocks: &Blocks, marks: Marks, report: &mut Report) -> Vec<Pos> {
-    // A kind marks outputs only where every block of it could: one a build
-    // is built of, such as lime glass, also stands where nothing reads it.
-    let found: Vec<Pos> = kinds(blocks, |name| marks.takes(name))
-        .into_values()
-        .filter(|members| members.iter().all(|&(_, could)| could))
-        .flatten()
-        .map(|(pos, _)| pos)
-        .collect();
-    if found.is_empty() {
-        problem(report, "no outputs", Vec::new(), "No outputs".to_owned());
-    }
-    found
-}
-
-/// The kinds of block that might mark a build's outputs where it marks
-/// none as [`YELLOW`] says, each with how many blocks it has: any kind
-/// that could, as [`could_mark`] says, every block of which is alone, with
-/// something reading it on top, as an output's is. The most blocks first.
-/// Which of them, if any, marks its outputs only its builder can say: a hex
-/// adder's digit inputs or a build's glass under dust may be lone too.
-pub fn candidates(blocks: &Blocks) -> Vec<(String, usize)> {
-    let mut found: Vec<(String, usize)> = kinds(blocks, could_mark)
-        .into_iter()
-        .filter(|(_, members)| members.iter().all(|&(_, could)| could))
-        .map(|(name, members)| (name.to_owned(), members.len()))
-        .collect();
-    found.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    found
-}
-
-/// Each kind of block `wanted` takes but the inputs', with its blocks, and
-/// whether each could mark an output: alone, with dust, a repeater, or a
-/// comparator on.
-fn kinds(
-    blocks: &Blocks,
-    wanted: impl Fn(&str) -> bool,
-) -> BTreeMap<&str, Vec<(Pos, bool)>> {
-    let switched: HashSet<Pos> =
-        blocks.switches().iter().map(|s| s.block).collect();
-    let mut kinds: BTreeMap<&str, Vec<(Pos, bool)>> = BTreeMap::new();
-    for (pos, state) in blocks.iter() {
-        let name = schem::short(state);
-        if !wanted(name) || switched.contains(&pos) {
-            continue;
-        }
-        let read = reads_out(blocks, pos);
-        kinds
-            .entry(name)
-            .or_default()
-            .push((pos, read && lone(blocks, pos, name)));
-    }
-    kinds
-}
-
-/// Whether what stands on the block at `pos` reads it out of the build:
-/// dust, or a repeater or comparator but one powering a block in front of
-/// it, which carries the build's signal on rather than out, so the block
-/// under it only holds it up.
-fn reads_out(blocks: &Blocks, pos: Pos) -> bool {
-    let top = schem::step(pos, Direction::Up);
-    match short(blocks, top) {
-        "redstone_wire" => true,
-        "repeater" | "comparator" => {
-            let powers = Direction::facing(blocks.get(top)).is_some_and(|f| {
-                block::solid(blocks.get(schem::step(top, f.opposite())))
-            });
-            !powers
-        }
-        _ => false,
-    }
-}
-
-/// Whether a block of kind `name` could mark an output where a build
-/// marks none with [`YELLOW`]: any full block that carries power but a
-/// redstone component, such as a target or lamp, or stained glass of any
-/// colour but white. Plain glass and white glass are what a build holds
-/// dust up with, and the site stores its own plain transparent blocks as
-/// white glass.
-fn could_mark(name: &str) -> bool {
-    if let Some(colour) = name.strip_suffix("_stained_glass") {
-        return colour != "white";
-    }
-    !block::is_component(name)
-        && !name.ends_with("glass")
-        && block::solid(&format!("minecraft:{name}"))
-}
-
-/// Whether no block of kind `name` touches `pos`, even at a corner.
-fn lone(blocks: &Blocks, pos: Pos, name: &str) -> bool {
-    let near = -1..=1;
-    !near.clone().any(|dx| {
-        near.clone().any(|dy| {
-            near.clone().any(|dz| {
-                [dx, dy, dz] != [0, 0, 0]
-                    && short(blocks, [pos[0] + dx, pos[1] + dy, pos[2] + dz])
-                        == name
-            })
-        })
-    })
-}
-
 /// The positions grouped into runs: lines of evenly spaced bits, the
 /// longest first, each bit sharing its `kind` (for an input, its lever's
 /// side and whether it is a button) with the rest of its run; what is
@@ -612,11 +587,11 @@ fn steps() -> Vec<Pos> {
     steps
 }
 
-/// The check of the file in `data`, as `inspect_marked` makes it with
-/// `marks`; with `adder`, then probed as an adder.
-pub fn inspect_file(data: &[u8], marks: Marks, adder: bool) -> Result<Report> {
+/// The check of the file in `data`, as [`inspect`] makes it; with
+/// `adder`, then probed as an adder.
+pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
     let blocks = Blocks::read(data)?;
-    let mut report = inspect_marked(&blocks, marks);
+    let mut report = inspect(&blocks);
     if !report
         .errors
         .iter()
@@ -753,7 +728,6 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::recognize::colour;
 
     /// The input-block faults the check finds in an input, its lever on
     /// the south and dust to the north, with `other` beside its block, on
@@ -827,170 +801,102 @@ mod tests {
         );
     }
 
-    /// A lone block with a repeater on top is an output only when the
-    /// repeater powers no block in front of it: one feeding a block carries
-    /// the circuit on, and the block under it only holds it up.
-    #[test]
-    fn a_block_under_a_repeater_powering_a_block_is_no_output() {
-        let outputs = |front: &str| {
-            let states: HashMap<Pos, String> = [
-                ([0, 0, 1], "yellow_concrete"),
-                (
-                    [0, 1, 1],
-                    "repeater[delay=1,facing=south,locked=false,powered=false]",
-                ),
-                ([0, 1, 0], front),
-            ]
-            .into_iter()
-            .filter(|(_, state)| *state != "air")
-            .map(|(pos, state)| (pos, format!("minecraft:{state}")))
-            .collect();
-            inspect(&Blocks::from_grid([1, 2, 2], &states))
-                .outputs
-                .len()
-        };
-        assert_eq!(outputs("air"), 1, "a repeater carrying the bit out");
-        assert_eq!(outputs("black_wool"), 0, "a repeater powering a block");
+    /// The outputs `inspect` finds of a block `under` with `on` on top, a
+    /// repeater or dust, and `front` north of it.
+    fn outputs_of(under: &str, on: &str, front: &str) -> Vec<Run> {
+        let states: HashMap<Pos, String> =
+            [([0, 0, 1], under), ([0, 1, 1], on), ([0, 1, 0], front)]
+                .into_iter()
+                .filter(|(_, state)| *state != "air")
+                .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+                .collect();
+        inspect(&Blocks::from_grid([1, 2, 2], &states)).outputs
     }
 
-    /// How many outputs a lone block of kind `block` with dust on top is,
-    /// read as `marks` says.
-    fn lone_outputs(block: &str, marks: Marks) -> usize {
+    const REPEATER: &str =
+        "repeater[delay=1,facing=south,locked=false,powered=false]";
+
+    /// A repeater facing air is an output whatever block holds it up, read
+    /// by that block; one powering a block in front of it carries the
+    /// circuit on and isn't one.
+    #[test]
+    fn a_repeater_facing_air_on_any_block_is_an_output() {
+        for under in ["yellow_concrete", "white_concrete", "stone"] {
+            let found = outputs_of(under, REPEATER, "air");
+            assert_eq!(found.len(), 1, "{under}");
+            assert_eq!(found[0].bits, [[0, 0, 1]]);
+        }
+        assert!(
+            outputs_of("yellow_concrete", REPEATER, "black_wool").is_empty()
+        );
+    }
+
+    /// Dust on a lone yellow block, the old rule's output, is no output:
+    /// colour plays no part.
+    #[test]
+    fn dust_on_a_coloured_block_is_no_output() {
+        let dust =
+            "redstone_wire[east=none,north=side,power=0,south=side,west=none]";
+        assert!(outputs_of("yellow_concrete", dust, "air").is_empty());
+    }
+
+    /// A comparator with air behind giving out into dust is a
+    /// signal-strength input, read by the block under it; its colour plays
+    /// no part, and with no lever it is input enough.
+    #[test]
+    fn a_comparator_with_air_behind_is_a_digit_input() {
         let states: HashMap<Pos, String> = [
-            ([0, 0, 0], block),
+            ([0, 0, 2], "white_concrete"),
             (
-                [0, 1, 0],
+                [0, 1, 2],
+                "comparator[facing=south,mode=compare,powered=false]",
+            ),
+            ([0, 0, 1], "stone"),
+            (
+                [0, 1, 1],
                 "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
             ),
+            ([0, 0, 0], "stone"),
+            ([0, 1, 0], REPEATER),
         ]
         .into_iter()
         .map(|(pos, state)| (pos, format!("minecraft:{state}")))
         .collect();
-        inspect_marked(&Blocks::from_grid([1, 2, 1], &states), marks)
-            .outputs
-            .len()
+        let report = inspect(&Blocks::from_grid([1, 2, 4], &states));
+        assert_eq!(report.digits.len(), 1);
+        assert_eq!(report.digits[0].bits, [[0, 0, 2]]);
+        assert!(report.inputs.is_empty());
+        assert!(!report.errors.iter().any(|p| p.rule == "no inputs"));
     }
 
-    /// Read as a builder marks them, only yellow concrete and yellow glass
-    /// are outputs: not glass of another colour under dust, as a staircase
-    /// is built of, nor a lamp, nor an input's colour, nor the colours the
-    /// site marks status lines and further buses with.
-    #[test]
-    fn only_lone_yellow_concrete_or_glass_marks_an_output() {
-        for block in ["yellow_concrete", "yellow_stained_glass"] {
-            assert_eq!(lone_outputs(block, YELLOW), 1, "{block}");
-        }
-        for block in [
-            "gray_stained_glass",
-            "light_gray_stained_glass",
-            "redstone_lamp",
-            "lime_concrete",
-            "light_blue_concrete",
-            "pink_concrete",
-            "orange_concrete",
-            "brown_stained_glass",
-            "yellow_wool",
-            "stone",
-        ] {
-            assert_eq!(lone_outputs(block, YELLOW), 0, "{block}");
-        }
-    }
-
-    /// Read with any lone block marking an output, as the kinds that might
-    /// mark a build's outputs are listed, a lone block with dust on top is
-    /// one whatever its colour or kind, but plain or white glass, which
-    /// holds dust up, and a component, such as a target.
-    #[test]
-    fn any_lone_block_but_plain_glass_or_a_component_might_mark_an_output() {
-        for block in [
-            "yellow_concrete",
-            "red_wool",
-            "magenta_wool",
-            "lime_concrete",
-            "light_blue_stained_glass",
-            "gray_stained_glass",
-            "light_gray_stained_glass",
-            "white_wool",
-            "gold_block",
-            "stone",
-        ] {
-            assert_eq!(lone_outputs(block, Marks::Any), 1, "{block}");
-        }
-        for block in ["glass", "white_stained_glass", "target", "redstone_lamp"]
-        {
-            assert_eq!(lone_outputs(block, Marks::Any), 0, "{block}");
-        }
-    }
-
-    /// The site's own files are read with every colour it marks an output
-    /// with, as [`colour::is_output`] reads them, and nothing else.
-    #[test]
-    fn the_sites_files_are_read_in_its_output_colours() {
-        let Marks::Kinds(kinds) = SITE else {
-            panic!("the site's marks are its colours");
-        };
-        for kind in kinds {
-            assert!(colour::is_output(kind), "{kind}");
-            assert_eq!(lone_outputs(kind, SITE), 1, "{kind}");
-        }
-        assert_eq!(kinds.len(), 2 * (colour::OUTPUT_COLOURS.len() + 1));
-        for block in ["light_gray_stained_glass", "lime_concrete", "stone"] {
-            assert_eq!(lone_outputs(block, SITE), 0, "{block}");
-        }
-    }
-
-    /// A hex adder's digit inputs, lime and light blue blocks each taking
-    /// a digit through the dust on it, are lone and read on top as an
-    /// output is, but aren't one; its sum is.
+    /// The owner's 8-digit hex adder, ported: its 16 digit inputs are
+    /// comparators with air behind, read as two buses of digits and no
+    /// outputs, and its sum and carry out are read by their repeaters and
+    /// comparators alone.
     #[test]
     fn a_hex_adders_digit_inputs_are_no_outputs() {
         let data = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
         let blocks = Blocks::read(&data).unwrap();
-        let named = |report: &Report| -> BTreeMap<String, usize> {
-            let mut named = BTreeMap::new();
-            for bit in report.outputs.iter().flat_map(|run| &run.bits) {
-                *named.entry(short(&blocks, *bit).to_owned()).or_default() += 1;
-            }
-            named
+        let report = inspect(&blocks);
+        let lengths = |runs: &[Run]| -> Vec<usize> {
+            runs.iter().map(|run| run.bits.len()).collect()
         };
-        let candidates: Vec<String> = candidates(&blocks)
-            .into_iter()
-            .map(|(kind, _)| kind)
-            .collect();
-        assert!(candidates.contains(&"lime_concrete".to_owned()));
-        assert_eq!(
-            named(&inspect_marked(&blocks, YELLOW)),
-            BTreeMap::from([("yellow_concrete".to_owned(), 8)])
-        );
+        assert_eq!(lengths(&report.digits), [8, 8]);
+        assert_eq!(lengths(&report.outputs), [8, 1]);
     }
 
     /// The owner's parity circuit as uploaded, its dust climbing light gray
-    /// glass, read with yellow outputs is found a parity circuit; read with
-    /// any lone block, its 34 glass blocks are outputs too, and it isn't.
-    /// Listed as kinds that might mark outputs, the glass is among them.
+    /// glass, with its output on a repeater: the glass under its dust is no
+    /// output, and it is found a parity circuit.
     #[test]
-    fn a_parity_circuit_on_a_glass_staircase_is_found_by_its_yellow_output() {
+    fn a_parity_circuit_on_a_glass_staircase_is_found_by_its_repeater() {
         let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
         let blocks = Blocks::read(&raw).unwrap();
-        assert!(
-            candidates(&blocks)
-                .contains(&("light_gray_stained_glass".to_owned(), 34))
-        );
-        assert_eq!(inspect_marked(&blocks, YELLOW).outputs.len(), 1);
-        let found = |marks| {
-            crate::recognize::probe::recognize_watched(
-                &raw,
-                None,
-                marks,
-                &mut |_, _| {},
-            )
-            .unwrap()
-            .found
-        };
+        assert_eq!(inspect(&blocks).outputs.len(), 1);
+        let found = crate::recognize::probe::recognize(&raw).unwrap().found;
         assert_eq!(
-            found(YELLOW).as_deref(),
+            found.as_deref(),
             Some("a parity circuit: all 256 cases right, xor of A's bits")
         );
-        assert_eq!(found(Marks::Any), None);
     }
 }

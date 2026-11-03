@@ -15,10 +15,7 @@ use crate::{
     category::Kind,
     import::{self, Upload},
     models::{simulation, user::User},
-    recognize::{
-        inspect,
-        probe::{self, Recognition},
-    },
+    recognize::probe::{self, Recognition},
     simulate::{self, Guess},
     web::app_state::AppState,
 };
@@ -117,25 +114,20 @@ pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
         // A file in blocks the simulator doesn't model, such as wool, is
         // read standardized, as publishing keeps it; one it can't run even
         // so is read as it came, saying why.
-        let recognition =
-            probe::recognize_watched(&file, None, inspect::UPLOAD, &mut trying)
-                .or_else(|err| {
-                    let standard = Upload::read(&file)
-                        .ok()
-                        .and_then(|upload| upload.standard.ok())
-                        .ok_or(err)?;
-                    probe::recognize_watched(
-                        &standard.data,
-                        None,
-                        inspect::UPLOAD,
-                        &mut trying,
-                    )
-                })
-                .unwrap_or_else(|err| Recognition {
-                    file: file.clone(),
-                    found: None,
-                    problems: vec![format!("{err:#}")],
-                });
+        let recognition = probe::recognize_watched(&file, None, &mut trying)
+            .or_else(|err| {
+                let standard = Upload::read(&file)
+                    .ok()
+                    .and_then(|upload| upload.standard.ok())
+                    .ok_or(err)?;
+                probe::recognize_watched(&standard.data, None, &mut trying)
+            })
+            .unwrap_or_else(|err| Recognition {
+                file: file.clone(),
+                found: None,
+                problems: vec![format!("{err:#}")],
+                lines: String::new(),
+            });
         set(Step::Preparing);
         let analyzed = Upload::read(&recognition.file)
             .map(|upload| Analyzed {

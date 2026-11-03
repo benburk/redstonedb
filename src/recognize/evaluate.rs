@@ -76,8 +76,8 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         },
     )?;
     let blocks = &prepared.blocks;
-    // An adder whose inputs take hex digits through dust is guessed a hex
-    // adder.
+    // An adder whose inputs take hex digits, comparators with air behind,
+    // is guessed a hex adder.
     let category = simulate::guess(blocks).map(|guess| guess.category);
     let interface = interface::read(blocks);
     let read = category

@@ -1,8 +1,8 @@
-//! Measuring the rule proposed for outputs, a repeater or comparator
-//! powering nothing, see [`repeater_outputs`], before the site reads
-//! builds by it: what it finds in a build beside what today's rule finds;
-//! `convert` ports a build to it, and `stack_check` stacks copies of one.
-//! Nothing here writes to the database.
+//! What the rule for outputs, a repeater or comparator powering nothing,
+//! see [`repeater_outputs`], finds in a build, beside what the old rule,
+//! which read them by their colours, found, see [`legacy`]; `convert`
+//! ports a build saved under the old rule to it, and `stack_check` stacks
+//! copies of one. Nothing here writes to the database.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -16,7 +16,7 @@ use app::{
     recognize::{
         inspect::{self, Run},
         interface::{self, Interface},
-        probe,
+        legacy, probe,
         repeater_outputs::{self, Output},
     },
     schem::{self, Blocks, Direction, Pos},
@@ -124,7 +124,7 @@ pub(super) async fn outputs_command(
     let source = source(db, &args.file_or_id).await?;
     let blocks = Blocks::read(&source.data)?;
     println!("{}", source.name);
-    let report = repeater_outputs::report(&blocks);
+    let report = inspect::inspect(&blocks);
     println!("inputs: {}", report.inputs.len());
     let switches: BTreeMap<Pos, schem::Switch> = blocks
         .switches()
@@ -168,7 +168,8 @@ pub(super) async fn outputs_command(
     }
     let meant = kind_of(args.category.as_deref(), source.stored.as_ref());
     if !repeater_outputs::strength_inputs(&blocks).is_empty() {
-        // Probing reads no hex digits, so the roles are the shapes'.
+        // The roles of a build with hex digits are the shapes', as the hex
+        // adder's probe reads them.
         let test = meant.and_then(Kind::test);
         let Some(test) = test else {
             println!("tested with these lines: no test for its category");
@@ -210,7 +211,7 @@ pub(super) async fn outputs_command(
 /// it points into on one, which a build ported from today's rule keeps.
 pub(super) fn print_strength_inputs(blocks: &Blocks) {
     let found = repeater_outputs::strength_inputs(blocks);
-    let today = interface::dust_inputs(blocks);
+    let today = legacy::dust_inputs(blocks);
     println!(
         "signal-strength inputs by the proposed rule: {}; by today's \
          colours: {}",
@@ -289,10 +290,10 @@ fn lines_words(lines: &Interface) -> String {
 /// blocks under the proposed rule's outputs.
 fn print_today(blocks: &Blocks, proposed: &BTreeSet<Pos>) {
     for (label, marks) in [
-        ("site colours", inspect::SITE),
-        ("as an upload", inspect::UPLOAD),
+        ("site colours", legacy::SITE),
+        ("as an upload", legacy::UPLOAD),
     ] {
-        let today = inspect::inspect_marked(blocks, marks);
+        let today = legacy::inspect(blocks, marks);
         let bits: BTreeSet<Pos> =
             today.outputs.iter().flat_map(|r| r.bits.clone()).collect();
         let runs: Vec<String> = today

@@ -195,14 +195,29 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
     assert_eq!(file.sha256, ahead.sha256);
 }
 
-/// A hex adder's inputs take a hex digit per block through dust, which
-/// probing doesn't read, so it says so, rather than faulting its lone
-/// carry in as an input out of line.
+/// A hex adder's inputs, comparators with air behind each taking a hex
+/// digit, are probed by their shapes, so it is found a hex adder, rather
+/// than its lone carry in faulted as an input out of line, and its digits
+/// are coloured in as A and B.
 #[test]
-fn probing_a_hex_adder_says_its_inputs_take_no_levers() {
+fn probing_a_hex_adder_finds_its_digits() {
     let recognition =
         app::recognize::probe::recognize(&common::fixture("hex-cca-8"))
             .unwrap();
-    assert_eq!(recognition.found, None);
-    assert_eq!(recognition.problems, [details::WITHOUT_LEVERS]);
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a hex adder: all 11928 cases right, A + B"),
+        "{:?}",
+        recognition.problems
+    );
+    let lines = app::recognize::interface::read(
+        &app::schem::Blocks::read(&recognition.file).unwrap(),
+    );
+    let digits: Vec<(&str, usize)> = lines
+        .inputs
+        .iter()
+        .filter(|port| port.signal_strength)
+        .map(|port| (port.block.as_str(), port.bits.len()))
+        .collect();
+    assert_eq!(digits, [("lime concrete", 8), ("light blue concrete", 8)]);
 }

@@ -420,7 +420,7 @@ pub async fn unrecognized(
     };
     // Inputs taking a strength, a hex digit per block, are a hex adder's,
     // and no other's, as a build kept as built says too.
-    let hex = !crate::recognize::interface::dust_inputs(&blocks).is_empty();
+    let hex = crate::recognize::interface::takes_digits(&blocks);
     if kind != Kind::HexAdder && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }

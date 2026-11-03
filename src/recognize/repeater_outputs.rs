@@ -1,19 +1,20 @@
-//! A rule for outputs proposed in place of their colours, measured here
-//! before the site adopts it: an output is a repeater or comparator
-//! powering nothing, the cell in front of it, the side it gives out from,
-//! air. A repeater gives a bit, on or off; a comparator a strength from 0
-//! to 15. Colour plays no part, so any block may hold one up. Outputs side
-//! by side, evenly spaced and facing the same way, are a bus; one alone is
-//! a line. Inputs are as the check by function finds them, levers and
-//! buttons on any block, and, for a hex digit, a comparator with nothing
-//! behind it, the cell its `facing` points at air, giving out into the
-//! build, which a tester drives by putting a barrel there; these too are
-//! read by where they stand, not their colours.
+//! The rule the site reads outputs and signal-strength inputs by, in place
+//! of their colours: an output is a repeater or comparator powering
+//! nothing, the cell in front of it, the side it gives out from, air. A
+//! repeater gives a bit, on or off; whether a comparator's strength is read
+//! as a bit or a value from 0 to 15 its category's test decides. Colour
+//! plays no part, so any block may hold one up. Outputs side by side,
+//! evenly spaced and facing the same way, are a bus; one alone is a line.
+//! Inputs are levers and buttons on any block, and, for a hex digit, a
+//! comparator with nothing behind it, the cell its `facing` points at air,
+//! giving out into the build, which a tester drives by putting a barrel
+//! there; these too are read by where they stand, not their colours.
 //!
-//! Nothing that recognizes an upload reads outputs so yet: `rsdb outputs`,
-//! `convert`, and `stack-check` measure what the rule would find, `convert`
-//! porting a build to it by [`tap`] and [`feed`], as the owner ports one by
-//! hand.
+//! [`crate::recognize::inspect`] checks a build by this rule, and
+//! [`interface`] reads its lines' roles by their shapes. `rsdb convert`
+//! ports a build saved under the old rule, see
+//! [`crate::recognize::legacy`], to this one by [`tap`] and [`feed`], as
+//! the owner ports one by hand.
 
 use std::collections::BTreeMap;
 
@@ -23,7 +24,7 @@ use crate::{
     category::Kind,
     recognize::{
         colour,
-        inspect::{self, Problem, Report, Run},
+        inspect::{self, Run},
         interface::{self, Bit, Interface, Port},
         probe::{self, Fault, Found, Layout},
     },
@@ -213,52 +214,10 @@ fn interleaved<K: Copy>(
 }
 
 /// The output colour of the block under `output`, such as `yellow`, the
-/// role today's rule reads it by; `None` for any other block.
+/// role the site coloured it in, or the old rule read it by; `None` for any
+/// other block.
 pub fn colour_under(blocks: &Blocks, output: Output) -> Option<&str> {
     colour::output_colour(schem::short(blocks.get(output.block())))
-}
-
-/// The check by function with outputs read by this rule: its inputs and
-/// their problems as [`inspect::inspect_marked`] finds them, and its
-/// outputs `find`'s, each run of the blocks holding them up, where the
-/// site's tests read an output. An output with nothing under it in the
-/// file, at its bottom, can't be read so, and is a problem.
-pub fn report(blocks: &Blocks) -> Report {
-    let mut report =
-        inspect::inspect_marked(blocks, inspect::Marks::Kinds(&[]));
-    report.errors.retain(|problem| problem.rule != "no outputs");
-    let (held, bottom): (Vec<Output>, Vec<Output>) =
-        find(blocks).into_iter().partition(|o| o.at[1] > 0);
-    for output in &bottom {
-        report.errors.push(Problem {
-            rule: "output at the bottom",
-            at: vec![output.at],
-            message: format!(
-                "Output {} at {}: nothing under it in the file",
-                output.kind(),
-                inspect::place(output.at)
-            ),
-        });
-    }
-    if held.is_empty() && bottom.is_empty() {
-        report.errors.push(Problem {
-            rule: "no outputs",
-            at: Vec::new(),
-            message: "No outputs".to_owned(),
-        });
-    }
-    report.outputs = lines(&held)
-        .into_iter()
-        .map(|run| Run {
-            bits: run
-                .bits
-                .iter()
-                .map(|&at| schem::step(at, Direction::Down))
-                .collect(),
-            step: run.step,
-        })
-        .collect();
-    report
 }
 
 /// A comparator with nothing behind it, the cell its `facing` points at
@@ -317,14 +276,18 @@ pub fn strength_lines(inputs: &[StrengthInput]) -> Vec<Run> {
 }
 
 /// The signal-strength input driving the digit read at `bit`: the
-/// comparator at `bit` itself, as this rule reads one, or one beside the
-/// dust on `bit` pointing into it, as a port of a build whose digit
-/// inputs today's rule reads by their colour keeps that block.
+/// comparator on `bit`, the block under it, as the site reads a digit, or
+/// at `bit` itself; or one beside the dust on `bit` pointing into it, as a
+/// port of a build whose digit inputs the old rule read by their colour
+/// keeps that block.
 pub fn driving(blocks: &Blocks, bit: Pos) -> Option<StrengthInput> {
-    if let Some(input) = strength_input(blocks, bit) {
+    let on = schem::step(bit, Direction::Up);
+    if let Some(input) =
+        strength_input(blocks, on).or_else(|| strength_input(blocks, bit))
+    {
         return Some(input);
     }
-    let dust = schem::step(bit, Direction::Up);
+    let dust = on;
     if schem::short(blocks.get(dust)) != "redstone_wire" {
         return None;
     }
@@ -335,21 +298,22 @@ pub fn driving(blocks: &Blocks, bit: Pos) -> Option<StrengthInput> {
 }
 
 /// A build's lines as this rule reads them, named for the roles their
-/// shapes give them so a test reads them as it reads a build's colours:
-/// its signal-strength buses A, B, and on, the longest first, then its
-/// buses of levers; a lone lever its control line, such as a carry in;
-/// each bus of outputs an output, a comparator's read as a strength in a
-/// build without signal-strength inputs, whose outputs each show a digit;
-/// and a lone output beside a bus, or a lone repeater beside a comparator
-/// of a build with signal-strength inputs, its status line, such as a
-/// carry out.
+/// shapes give them so a test reads them as it reads the roles the site
+/// colours in: its signal-strength buses A, B, and on, the longest first,
+/// then its buses of levers; a lone lever its control line, such as a
+/// carry in; each bus of outputs an output, a comparator's read as a
+/// strength in a build without signal-strength inputs, whose outputs each
+/// show a digit; and a lone output beside a bus, or a lone repeater beside
+/// a comparator of a build with signal-strength inputs, its status line,
+/// such as a carry out. Each line is read by the blocks under its
+/// comparators and repeaters, as [`inspect::inspect`] finds them.
 pub fn interface(blocks: &Blocks) -> Interface {
     let switches: BTreeMap<Pos, schem::Switch> = blocks
         .switches()
         .into_iter()
         .map(|switch| (switch.block, switch))
         .collect();
-    let report = report(blocks);
+    let report = inspect::inspect(blocks);
     let mut letters = (b'A'..=b'Z').map(|l| char::from(l).to_string());
     let mut operand = |colour: &str, bits: Vec<Bit>, strength: bool| Port {
         name: letters.next().unwrap_or_default(),
@@ -363,9 +327,8 @@ pub fn interface(blocks: &Blocks) -> Interface {
     let operand_colours = ["lime", "light blue", "cyan", "blue"];
     let mut colours = operand_colours.iter().cycle();
     let mut inputs = Vec::new();
-    let strength = strength_inputs(blocks);
-    for run in strength_lines(&strength) {
-        let mut bits = run.bits;
+    for run in &report.digits {
+        let mut bits = run.bits.clone();
         interface::lsb_first(blocks, &mut bits);
         let bits = bits.into_iter().map(Bit::at).collect();
         inputs.push(operand(colours.next().unwrap_or(&"lime"), bits, true));
@@ -408,7 +371,7 @@ pub fn interface(blocks: &Blocks) -> Interface {
         }
     }
     inputs.extend(control);
-    let digits = !strength.is_empty();
+    let digits = !report.digits.is_empty();
     let found = find(blocks);
     let by_block: BTreeMap<Pos, Output> =
         found.iter().map(|&o| (o.block(), o)).collect();
@@ -456,16 +419,16 @@ pub struct Probed {
 
 /// The build in `data` probed with its outputs read by this rule, as
 /// `meant` alone, or as each kind probing tries in turn, as
-/// [`probe::recognize_as`] does with outputs read by colour: the first
-/// kind it holds as, or the fault of each it was tried as. A build with
-/// faults in its inputs or outputs is probed all the same, as a measure.
+/// [`probe::recognize_as`] does: the first kind it holds as, or the fault
+/// of each it was tried as. A build with faults in its inputs or outputs is
+/// probed all the same, as a measure.
 pub fn probe(
     data: &[u8],
     meant: Option<Kind>,
 ) -> Result<Result<Probed, Vec<(Kind, Fault)>>> {
     let simulated = probe::simulatable(data)?;
     let blocks = Blocks::read(&simulated)?;
-    let report = report(&blocks);
+    let report = inspect::inspect(&blocks);
     let mut faults = Vec::new();
     for (kind, ..) in Kind::probed() {
         if meant.is_some_and(|meant| probed_as(meant) != kind) {
@@ -524,7 +487,7 @@ const OUTWARD: [Direction; 4] = [
     Direction::East,
 ];
 
-/// An output, as today's rule reads it, tapped so this rule reads it: the
+/// An output, as the old rule read it, tapped so this rule reads it: the
 /// block it was read by whitened, what stands on it left, and beside it,
 /// one block out of the build, a support with a repeater or comparator on
 /// top reading what stands on the output block and giving out into air.
@@ -754,7 +717,7 @@ fn tap_one(
     }
 }
 
-/// Each run of `outputs`, today's rule's, tapped as the owner taps them by
+/// Each run of `outputs`, the old rule's, tapped as the owner taps them by
 /// hand: each output block whitened, the dust on it left, and one block out
 /// of the build beside it a support, white concrete, or white stained glass
 /// over a torch, which powers the block above it, or over dust, whose climb
@@ -803,7 +766,7 @@ pub fn tap(
     (changes, done)
 }
 
-/// A signal-strength input, as today's rule reads it by its colour, an
+/// A signal-strength input, as the old rule read it by its colour, an
 /// input block with dust on top, fed so this rule reads it: a comparator
 /// beside the dust, pointing into it, with air behind it, where a tester
 /// puts a barrel.
@@ -947,7 +910,7 @@ fn feed_from(
     })
 }
 
-/// Each signal-strength input of `pads`, today's, input blocks with dust
+/// Each signal-strength input of `pads`, the old rule's, input blocks with dust
 /// on top, each with the side its dust is open to, fed as the owner feeds
 /// one by hand: beside its dust a comparator pointing into it with air
 /// behind, where a tester puts a barrel, on the block under it or on a
@@ -994,12 +957,14 @@ pub struct Ported {
     pub fed: Vec<Fed>,
 }
 
-/// The file in `data` with each output of `outputs`, today's, tapped as
+/// The file in `data` with each output of `outputs`, the old rule's, tapped as
 /// [`tap`] taps them, `along` the ways copies stack, and each
-/// signal-strength input of `pads`, today's, fed as [`feed`] feeds them,
+/// signal-strength input of `pads`, the old rule's, fed as [`feed`] feeds them,
 /// its box grown to hold the taps, then as `//update` leaves it,
 /// [`crate::schem::rstack::settle`]: dust shaped as the game shapes it,
-/// then every component at rest, each lever as it was. No file unless
+/// then every component at rest, each lever as it was; a file with a block
+/// the simulator doesn't model, as an upload's slab, only its dust shaped,
+/// as it can't be run to rest. No file unless
 /// every output was tapped or already one and every input fed or already.
 pub fn tapped(
     data: &[u8],
@@ -1024,7 +989,13 @@ pub fn tapped(
         });
     }
     let (file, moved) = crate::schem::standardize::edit_grown(data, &changes)?;
-    let file = crate::schem::rstack::settle(&file)?;
+    // A file with a block the simulator doesn't model, as an upload's slab,
+    // can't come to rest, so only its dust is shaped.
+    let file = if modelled(&file)? {
+        crate::schem::rstack::settle(&file)?
+    } else {
+        crate::schem::dust::update(&file)?
+    };
     Ok(Ported {
         file: Some(file),
         moved,
@@ -1033,11 +1004,24 @@ pub fn tapped(
     })
 }
 
+/// Whether the simulator models every block of the file in `data`, which
+/// [`probe::simulatable`] then leaves as it is.
+fn modelled(data: &[u8]) -> Result<bool> {
+    let states = |data: &[u8]| -> Result<Vec<(Pos, String)>> {
+        Ok(Blocks::read(data)?
+            .iter()
+            .map(|(pos, state)| (pos, state.to_owned()))
+            .collect())
+    };
+    Ok(states(data)? == states(&probe::simulatable(data)?)?)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::recognize::legacy;
 
     const LEVER: &str = "lever[face=wall,facing=west,powered=false]";
 
@@ -1081,7 +1065,7 @@ mod tests {
         );
         assert_eq!(found[0].points(), Direction::East);
         assert_eq!(found[0].front(), [4, 1, 0]);
-        let report = report(&blocks);
+        let report = inspect::inspect(&blocks);
         assert_eq!(report.outputs.len(), 1);
         assert_eq!(report.outputs[0].bits, [[3, 0, 0]]);
         assert_eq!(report.inputs.len(), 1);
@@ -1152,8 +1136,8 @@ mod tests {
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
             find(&Blocks::read(&data).unwrap()).len()
         };
-        assert_eq!(count("rca-1-repeater-a"), 1);
-        assert_eq!(count("rca-1-repeater-b"), 1);
+        assert_eq!(count("old/rca-1-repeater-a"), 1);
+        assert_eq!(count("old/rca-1-repeater-b"), 1);
         assert_eq!(count("rca-1-repeater-c"), 2);
     }
 
@@ -1379,13 +1363,13 @@ mod tests {
 
     /// A tapped file is settled as `//update` leaves it: the box grown to
     /// hold the taps, the dust on each output block shaped to join its
-    /// repeater, so settling it again changes nothing, and the proposed
+    /// repeater, so settling it again changes nothing, and the site's
     /// rule finds every tap an output.
     #[test]
     fn a_tapped_file_is_settled() {
-        let data = std::fs::read("tests/fixtures/inc-8.schem").unwrap();
+        let data = std::fs::read("tests/fixtures/old/inc-8.schem").unwrap();
         let blocks = Blocks::read(&data).unwrap();
-        let today = inspect::inspect_marked(&blocks, inspect::SITE);
+        let today = legacy::inspect(&blocks, legacy::SITE);
         let Ported {
             file,
             moved,
@@ -1424,7 +1408,7 @@ mod tests {
     }
 
     /// Lime concrete with dust on it, open to the south, a digit input as
-    /// today's rule reads it by its colour, in a box 3 by 3 by 3.
+    /// the old rule read it by its colour, in a box 3 by 3 by 3.
     fn pad(extra: &[(Pos, &str)]) -> Blocks {
         let wire = "redstone_wire[east=none,north=side,power=0,south=side,\
                     west=none]";
@@ -1579,20 +1563,20 @@ mod tests {
     }
 
     /// The owner's 8-digit carry-cancel hex adder, its digit inputs read
-    /// by their colour, fed and its outputs tapped: the proposed rule reads
+    /// by their colour, fed and its outputs tapped: the site's rule reads
     /// the port with no colour, its comparators A and B, and it adds as the
     /// original does.
     #[test]
     #[ignore = "simulates a whole build"]
     fn a_hex_adder_fed_and_tapped_adds_by_the_proposed_rule() {
-        let data = std::fs::read("tests/fixtures/hex-cca-8.schem").unwrap();
+        let data = std::fs::read("tests/fixtures/old/hex-cca-8.schem").unwrap();
         let data = probe::simulatable(&data).unwrap();
         let blocks = Blocks::read(&data).unwrap();
-        let today = inspect::inspect_marked(&blocks, inspect::SITE);
+        let today = legacy::inspect(&blocks, legacy::SITE);
         let pads: Vec<(Pos, Option<Direction>)> =
-            interface::dust_inputs(&blocks).into_iter().collect();
+            legacy::dust_inputs(&blocks).into_iter().collect();
         assert_eq!(pads.len(), 16);
-        let sum: Vec<Pos> = interface::read(&blocks)
+        let sum: Vec<Pos> = legacy::read(&blocks)
             .outputs
             .iter()
             .filter(|port| port.bits.len() > 1)

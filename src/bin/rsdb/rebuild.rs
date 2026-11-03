@@ -346,10 +346,7 @@ async fn rebuild_one(
     let data = app::recognize::probe::simulatable(data)?;
     let data = data.as_slice();
     let blocks = app::schem::Blocks::read(data)?;
-    let report = app::recognize::inspect::inspect_marked(
-        &blocks,
-        app::recognize::inspect::SITE,
-    );
+    let report = app::recognize::inspect::inspect(&blocks);
     if let Some(problem) = report.faults().next() {
         return Ok(Err(problem.message.clone()));
     }

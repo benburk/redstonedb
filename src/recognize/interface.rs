@@ -1,20 +1,30 @@
-//! A build's inputs and outputs, read from its blocks and signs as
-//! `docs/conventions.md` lays them out. An input is a block with a lever on
-//! it, or for a control line a button, or for a signal-strength input dust
-//! on top; an output is a block of an output colour. Each colour is one
-//! bus, named by a sign on any of its blocks, except magenta control lines
-//! and pink status lines, each one line named by its own sign, or a row of
-//! them named by one sign on any of the row, as a memory's read lines are.
-//! Each bus's least significant bit, and a row's first line, is the one
-//! nearest the south-east-bottom corner of the bounding box, unless an
-//! `lsb` or `msb` sign says otherwise; such a sign on one bus orders every
-//! unmarked bus running alongside it too.
+//! A build's inputs and outputs, read from its blocks and signs. Which
+//! blocks are inputs and outputs the rule [`crate::recognize::inspect`]
+//! checks says, colour playing no part: an input is a block with a lever on
+//! it, or for a control line a button, or for a signal-strength input the
+//! block under a comparator with air behind it; an output is the block
+//! under a repeater or comparator facing air.
+//!
+//! What each line is for, its role, is read from the colours the site
+//! gives a build once probing finds them, see [`crate::recognize::probe`]:
+//! each colour one bus, named by a sign on any of its blocks, except
+//! magenta control lines and pink status lines, each one line named by its
+//! own sign, or a row of them named by one sign on any of the row, as a
+//! memory's read lines are. In a file the site has coloured, an output or
+//! signal-strength input on a block of no role colour plays no role, as
+//! one a stacked copy hands on to the next. A file it hasn't coloured has
+//! its outputs and signal-strength inputs read by their shapes, as
+//! [`repeater_outputs::interface`] reads them, and its levers by the
+//! blocks they are on. Each bus's least significant bit, and a row's first
+//! line, is the one nearest the south-east-bottom corner of the bounding
+//! box, unless an `lsb` or `msb` sign says otherwise; such a sign on one
+//! bus orders every unmarked bus running alongside it too.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     category::{Behaviour, Kind, Lines},
-    recognize::colour,
+    recognize::{colour, repeater_outputs},
     schem::{self, Blocks, Direction, Pos, Switch},
 };
 
@@ -44,8 +54,8 @@ pub struct Port {
     /// empty when it has none.
     pub words: Vec<String>,
     /// A signal-strength input: each block takes a value from 0 to 15 as
-    /// its strength, through the dust on top, rather than a bit from a
-    /// lever. For an output, its test reads each block's strength as a
+    /// its strength, through the comparator on top, rather than a bit from
+    /// a lever. For an output, its test reads each block's strength as a
     /// value from 0 to 15, as a popcount's one output shows its count.
     pub signal_strength: bool,
 }
@@ -55,7 +65,7 @@ pub struct Bit {
     /// Position in the file.
     pub pos: Pos,
     /// For an input, the side power enters through, such as south: the
-    /// side its lever is on, or the open end of the dust on top.
+    /// side its lever is on, or the side its comparator reads from.
     pub entry: Option<Direction>,
     /// For an input, whether dust touches its block, so only strong power
     /// from a repeater, comparator, or torch drives it.
@@ -267,9 +277,22 @@ pub fn measured(blocks: &Blocks) -> (Pos, Pos) {
 /// The build's box less its outer layers of nothing but interface, and of
 /// outputs too when `outputs`.
 fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
-    let fed = dust_inputs(blocks);
+    let interface = interface_cells(blocks);
+    let read_out = output_cells(blocks);
     let only = |axis, at, low, high| {
-        interface_only(blocks, &fed, outputs, axis, at, low, high)
+        let (mut low, mut high): (Pos, Pos) = (low, high);
+        low[axis] = at;
+        high[axis] = at;
+        (low[0]..=high[0]).all(|x| {
+            (low[1]..=high[1]).all(|y| {
+                (low[2]..=high[2]).all(|z| {
+                    let pos = [x, y, z];
+                    blocks.get(pos) == schem::AIR
+                        || interface.contains(&pos)
+                        || (outputs && read_out.contains(&pos))
+                })
+            })
+        })
     };
     let mut low = [0; 3];
     let mut high = blocks.size.map(|n| n - 1);
@@ -284,68 +307,105 @@ fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
     (low, high)
 }
 
-/// Whether the layer at `at` along `axis`, within `low` to `high` on the
-/// other axes, holds nothing but the interface, and with `outputs`, output
-/// blocks and what stands on them to carry them out. `fed` holds the
-/// signal-strength inputs, whose dust is part of the interface.
-fn interface_only(
-    blocks: &Blocks,
-    fed: &HashMap<Pos, Option<Direction>>,
-    outputs: bool,
-    axis: usize,
-    at: i32,
-    low: Pos,
-    high: Pos,
-) -> bool {
-    let (mut low, mut high) = (low, high);
-    low[axis] = at;
-    high[axis] = at;
-    (low[0]..=high[0]).all(|x| {
-        (low[1]..=high[1]).all(|y| {
-            (low[2]..=high[2]).all(|z| {
-                let pos = [x, y, z];
-                let state = blocks.get(pos);
-                let support = schem::torch_block(pos, state)
-                    .map(|block| blocks.get(block));
-                let below = schem::step(pos, Direction::Down);
-                state == schem::AIR
-                    || colour::is_interface(state, support)
-                    || (schem::id(state) == DUST && fed.contains_key(&below))
-                    || (outputs && is_read_out(blocks, state, below))
-            })
-        })
-    })
+/// The cells of a build's interface by the rule for inputs: each lever,
+/// button, and sign, each input block, a lever's or the block under a
+/// signal-strength input's comparator, the comparator itself, and any
+/// torch on an input block.
+fn interface_cells(blocks: &Blocks) -> HashSet<Pos> {
+    let mut cells: HashSet<Pos> = HashSet::new();
+    for switch in blocks.switches() {
+        cells.extend([switch.pos, switch.block]);
+    }
+    for input in repeater_outputs::strength_inputs(blocks) {
+        cells.extend([input.at, schem::step(input.at, Direction::Down)]);
+    }
+    let inputs = cells.clone();
+    for (pos, state) in blocks.iter() {
+        let name = schem::short(state);
+        if name.ends_with("sign")
+            || (name.contains("torch")
+                && schem::torch_block(pos, state)
+                    .is_some_and(|block| inputs.contains(&block)))
+        {
+            cells.insert(pos);
+        }
+    }
+    cells
 }
 
-const DUST: &str = "minecraft:redstone_wire";
-
-/// Whether `state`, above `below`, is an output block, or the dust,
-/// repeater, or comparator standing on one, which carries it out.
-fn is_read_out(blocks: &Blocks, state: &str, below: Pos) -> bool {
-    let output = |state: &str| {
-        colour::is_output(schem::id(state).trim_start_matches("minecraft:"))
-    };
-    output(state)
-        || (matches!(
-            schem::id(state),
-            DUST | "minecraft:repeater" | "minecraft:comparator"
-        ) && output(blocks.get(below)))
+/// The cells of a build's outputs by the rule for them: each repeater or
+/// comparator facing air and the block under it.
+fn output_cells(blocks: &Blocks) -> HashSet<Pos> {
+    repeater_outputs::find(blocks)
+        .into_iter()
+        .flat_map(|output| [output.at, output.block()])
+        .collect()
 }
 
 /// How an input block takes its signal.
 pub enum Feed {
     /// A lever, or for a control line a button, on the block.
     Switch(Switch),
-    /// Dust on top, for a signal-strength input, entered through the side
-    /// its open end points to.
-    Dust { entry: Option<Direction> },
+    /// A signal-strength input's comparator on the block, reading from the
+    /// side `entry`, where a tester's barrel goes.
+    Strength { entry: Option<Direction> },
 }
 
-/// Every input block, with what feeds it.
-pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
-    let mut feeds: HashMap<Pos, Feed> = dust_inputs(blocks)
+/// What [`read`] takes from a file: every input block with what feeds it,
+/// and the output blocks, as the rule for inputs and outputs finds them;
+/// in a file the site has coloured, see [`coloured`], only the
+/// signal-strength inputs and outputs on blocks of a role colour.
+struct Found {
+    feeds: HashMap<Pos, Feed>,
+    outputs: Vec<Pos>,
+    coloured: bool,
+}
+
+/// Whether the site has coloured in the roles of a build with
+/// signal-strength inputs `digits` and outputs `outputs`, each by the
+/// block under it: any of those blocks is of a role colour, as probing
+/// colours them.
+fn coloured(
+    blocks: &Blocks,
+    digits: &[repeater_outputs::StrengthInput],
+    outputs: &[repeater_outputs::Output],
+) -> bool {
+    let name = |pos: Pos| schem::short(blocks.get(pos));
+    digits.iter().any(|input| {
+        colour::input_mark(name(schem::step(input.at, Direction::Down)))
+            .is_some()
+    }) || outputs
+        .iter()
+        .any(|output| colour::is_output(name(output.block())))
+}
+
+fn found(blocks: &Blocks) -> Found {
+    let held = |at: Pos| at[1] > 0;
+    let digits: Vec<repeater_outputs::StrengthInput> =
+        repeater_outputs::strength_inputs(blocks)
+            .into_iter()
+            .filter(|input| held(input.at))
+            .collect();
+    let found: Vec<repeater_outputs::Output> = repeater_outputs::find(blocks)
         .into_iter()
-        .map(|(pos, entry)| (pos, Feed::Dust { entry }))
+        .filter(|output| held(output.at))
+        .collect();
+    let coloured = coloured(blocks, &digits, &found);
+    let name = |pos: Pos| schem::short(blocks.get(pos));
+    let mut feeds: HashMap<Pos, Feed> = digits
+        .iter()
+        .map(|input| (schem::step(input.at, Direction::Down), input))
+        .filter(|&(block, _)| {
+            !coloured || colour::input_mark(name(block)).is_some()
+        })
+        .map(|(block, input)| {
+            (
+                block,
+                Feed::Strength {
+                    entry: Some(input.facing),
+                },
+            )
+        })
         .collect();
     feeds.extend(
         blocks
@@ -353,64 +413,97 @@ pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
             .into_iter()
             .map(|switch| (switch.block, Feed::Switch(switch))),
     );
-    feeds
-}
-
-/// The signal-strength inputs: input-colour concrete with no lever or
-/// button on it and dust on top, each with the side its signal enters
-/// through.
-pub fn dust_inputs(blocks: &Blocks) -> HashMap<Pos, Option<Direction>> {
-    let switched: HashSet<Pos> = blocks
-        .switches()
+    let outputs = found
         .iter()
-        .map(|switch| switch.block)
+        .map(|output| output.block())
+        .filter(|&block| {
+            !feeds.contains_key(&block)
+                && (!coloured || colour::is_output(name(block)))
+        })
         .collect();
-    blocks
-        .iter()
-        .filter(|&(pos, state)| {
-            colour::is_input(schem::short(state))
-                && !switched.contains(&pos)
-                && schem::id(blocks.get(schem::step(pos, Direction::Up)))
-                    == DUST
-        })
-        .map(|(pos, _)| {
-            (pos, open_end(blocks, schem::step(pos, Direction::Up)))
-        })
-        .collect()
-}
-
-/// The side of the dust at `pos` that leads nowhere, where its driver
-/// goes; `None` unless exactly one side does.
-fn open_end(blocks: &Blocks, pos: Pos) -> Option<Direction> {
-    let state = blocks.get(pos);
-    let mut open = Direction::SIDES.into_iter().filter(|&side| {
-        let next = schem::step(pos, side);
-        schem::property(state, side.name()) == Some("side")
-            && blocks.get(next) == schem::AIR
-            && schem::id(blocks.get(schem::step(next, Direction::Down))) != DUST
-    });
-    match (open.next(), open.next()) {
-        (Some(side), None) => Some(side),
-        _ => None,
+    Found {
+        feeds,
+        outputs,
+        coloured,
     }
 }
 
+/// Every input block, with what feeds it, as [`read`] takes them.
+pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
+    if crate::recognize::legacy::old() {
+        return crate::recognize::legacy::feeds(blocks);
+    }
+    found(blocks).feeds
+}
+
+/// Whether a build takes a signal strength, a hex digit per block, on an
+/// input, as [`read`] reads its roles.
+pub fn takes_digits(blocks: &Blocks) -> bool {
+    read(blocks).inputs.iter().any(|port| port.signal_strength)
+}
+
+/// A build's lines: its inputs and outputs, by the rule for them, each
+/// grouped into ports by the role the site coloured it in, or in a file
+/// it hasn't coloured, its signal-strength inputs and outputs by their
+/// shapes. Inside [`crate::recognize::legacy::reading`], by the old rule,
+/// as only `rsdb convert` reads a build saved under it.
 pub fn read(blocks: &Blocks) -> Interface {
-    let feeds = feeds(blocks);
-    let signs = blocks.sign_texts();
-    let outputs: Vec<Pos> = blocks
-        .iter()
-        .filter(|(pos, state)| {
-            !feeds.contains_key(pos) && colour::is_output(schem::short(state))
-        })
-        .map(|(pos, _)| pos)
+    if crate::recognize::legacy::old() {
+        return crate::recognize::legacy::read(blocks);
+    }
+    let Found {
+        feeds,
+        outputs,
+        coloured,
+    } = found(blocks);
+    if coloured {
+        return read_from(blocks, &feeds, outputs);
+    }
+    let levers: HashMap<Pos, Feed> = feeds
+        .into_iter()
+        .filter(|(_, feed)| matches!(feed, Feed::Switch(_)))
         .collect();
+    let mut interface = read_from(blocks, &levers, Vec::new());
+    let shaped = repeater_outputs::interface(blocks);
+    let digits: Vec<Port> = shaped
+        .inputs
+        .into_iter()
+        .filter(|port| port.signal_strength)
+        .collect();
+    if !digits.is_empty() {
+        // The digits' buses are A, B, and on, so a lever bus named by
+        // the next letter follows them.
+        let mut letters = ('A'..='Z').skip(digits.len());
+        for port in &mut interface.inputs {
+            let lettered = !port.labelled
+                && port.name.len() == 1
+                && port.name.chars().all(|c| c.is_ascii_uppercase());
+            if lettered {
+                port.name =
+                    letters.next().map(String::from).unwrap_or_default();
+            }
+        }
+        interface.inputs.splice(0..0, digits);
+    }
+    interface.outputs = shaped.outputs;
+    interface
+}
+
+/// The lines of the input blocks `feeds` and output blocks `outputs`, each
+/// grouped by its colour as [`ports`] groups them, the buses running
+/// alongside a marked one ordered as it is.
+pub(crate) fn read_from(
+    blocks: &Blocks,
+    feeds: &HashMap<Pos, Feed>,
+    outputs: Vec<Pos>,
+) -> Interface {
+    let signs = blocks.sign_texts();
     // In a fixed order, so bits as near the corner as each other, and
     // lines, always come out the same way.
     let mut inputs: Vec<Pos> = feeds.keys().copied().collect();
     inputs.sort_unstable();
     let mut interface = Interface {
-        inputs: ports(blocks, inputs, &signs, Some(&feeds)),
+        inputs: ports(blocks, inputs, &signs, Some(feeds)),
         outputs: ports(blocks, outputs, &signs, None),
     };
     follow_marks(blocks, &mut interface);
@@ -637,7 +730,7 @@ fn port(
     let signal_strength = !members.is_empty()
         && members
             .iter()
-            .all(|&pos| matches!(feed(pos), Some(Feed::Dust { .. })));
+            .all(|&pos| matches!(feed(pos), Some(Feed::Strength { .. })));
     let bits = members
         .iter()
         .map(|&pos| {
@@ -649,12 +742,13 @@ fn port(
                 pos,
                 entry: match feed(pos) {
                     Some(Feed::Switch(lever)) => Some(lever.side),
-                    Some(Feed::Dust { entry }) => *entry,
+                    Some(Feed::Strength { entry }) => *entry,
                     None => None,
                 },
                 hard: lever.is_some()
                     && Direction::ALL.into_iter().any(|d| {
-                        schem::id(blocks.get(schem::step(pos, d))) == DUST
+                        schem::short(blocks.get(schem::step(pos, d)))
+                            == "redstone_wire"
                     }),
                 inverted: lever.is_some_and(|lever| lever.on) || inverted_line,
             }
@@ -675,10 +769,12 @@ fn port(
 }
 
 /// The colour an input or output block marks, such as `yellow` for yellow
-/// stained glass. Any other block is its own kind.
+/// stained glass or `lime` for lime stained glass under a comparator. Any
+/// other block is its own kind.
 fn colour(state: &str) -> &str {
     let block = schem::short(state);
     colour::output_colour(block)
+        .or_else(|| colour::input_mark(block))
         .or_else(|| block.strip_suffix("_concrete"))
         .unwrap_or(block)
 }

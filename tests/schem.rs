@@ -109,8 +109,8 @@ fn interface_names_operands_and_control_lines() {
         interface::read(&blocks("alpha-cla"));
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
-    assert_eq!(inputs[0].bits[0].pos, [15, 6, 17]);
-    assert_eq!(outputs[0].bits[0].pos, [18, 6, 0]);
+    assert_eq!(inputs[0].bits[0].pos, [16, 6, 18]);
+    assert_eq!(outputs[0].bits[0].pos, [19, 6, 0]);
     assert!(inputs[2].bits[0].inverted);
     assert!(
         inputs[0]
@@ -188,13 +188,11 @@ fn stacked_slices_form_one_wider_build() {
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
-    // Each copy's carry in hangs a torch on the previous copy's carry out, a
-    // bare block, so the last copy's carry out has nothing on it to read.
+    // Each copy's carry in hangs a torch on the previous copy's carry out
+    // block, and its sign covers the repeater reading that block, so only
+    // the last copy's carry out is read, and the stack adds.
     let report = simulate::Test::Adder.run(&blocks);
-    let simulate::Report::Broken { reason } = report else {
-        panic!("the stack did not fail: {report:?}");
-    };
-    assert!(reason.starts_with("Output carry out"), "{reason}");
+    assert!(report.passed(), "{report:?}");
 }
 
 #[test]
@@ -271,7 +269,9 @@ fn standardizing_whitens_the_build() {
     let interface::Interface { inputs, outputs } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8)]);
     assert_eq!(names(&outputs), [("output", 1)]);
-    assert_eq!(outputs[0].block, "yellow stained glass");
+    // Its output is read by the repeater tapping it, on concrete coloured
+    // as the stained glass it tapped was.
+    assert_eq!(outputs[0].block, "yellow concrete");
 }
 
 #[test]
@@ -423,9 +423,10 @@ fn a_status_line_is_pink() {
 }
 
 #[test]
-fn dust_on_an_input_block_is_a_signal_strength_input() {
-    // A hex digit to four bits: one lime block with dust on top, its open
-    // end south, feeding comparators. No lever could give its value.
+fn a_comparator_with_air_behind_is_a_signal_strength_input() {
+    // A hex digit to four bits: one comparator with air behind it to the
+    // south, on lime concrete, feeding dust into comparators. No lever
+    // could give its value.
     let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
@@ -437,10 +438,13 @@ fn dust_on_an_input_block_is_a_signal_strength_input() {
     assert!(!a.bits[0].hard);
     assert_eq!(names(&interface.outputs), [("output", 4)]);
     assert_eq!(import::guess(&interface).0, Some(4));
+    // The comparator's layer is left out; the dust it feeds, on the block
+    // that was the input before the build took a comparator, is the
+    // build's.
     let size = import::measure(&blocks, true).unwrap();
     assert_eq!(
         (size.x, size.y, size.z),
-        (8, 3, 11),
+        (8, 3, 12),
         "the input layer is left out"
     );
 }
@@ -638,17 +642,19 @@ fn standardizing_takes_out_signs_that_label_nothing() {
     assert!(blocks.signs.is_empty());
 }
 
-/// Its yellow output, with the dust on it, sticks out a layer to the east,
-/// and its pink carry out two layers up, as its inputs stick out to the
-/// south; none of those layers counts toward its size. Stacking still goes
-/// by the core, which keeps the outputs.
+/// Its sum's repeater, on yellow concrete, sticks out a layer to the east,
+/// and its carry out's a layer to the north, beside the block two layers
+/// up whose dust it reads, as its inputs stick out to the south; the
+/// layers of outputs and inputs don't count toward its size, but the dust
+/// its carry out reads, and the block under it, do. Stacking still goes by
+/// the core, which keeps the outputs.
 #[test]
 fn an_output_sticking_out_is_not_measured() {
     let data =
         std::fs::read("tests/fixtures/rca-1-vert-output-out.schem").unwrap();
     let blocks = app::schem::Blocks::read(&data).unwrap();
     let size = app::import::measure(&blocks, true).unwrap();
-    assert_eq!((size.y, size.x, size.z), (4, 4, 6));
+    assert_eq!((size.y, size.x, size.z), (6, 4, 6));
     let (low, high) = app::recognize::interface::core(&blocks);
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
 }
@@ -697,7 +703,11 @@ fn tidying_faces_barrels_up_and_hoppers_down() {
 fn the_viewers_copy_turns_east_and_west_wall_signs() {
     let mut turned = 0;
     for entry in std::fs::read_dir("tests/fixtures").unwrap() {
-        let data = std::fs::read(entry.unwrap().path()).unwrap();
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            continue;
+        }
+        let data = std::fs::read(path).unwrap();
         let before = Blocks::read(&data).unwrap();
         let after =
             Blocks::read(&standardize::for_viewer(&data).unwrap()).unwrap();

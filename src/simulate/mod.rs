@@ -1017,8 +1017,9 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
         .filter(|port| port.block.starts_with(colour::CONTROL))
         .flat_map(|port| port.words.iter())
         .any(|word| alu::Op::named(word).is_some());
-    // Inputs taking a hex digit per block through dust are a hex adder's.
-    let hex = !interface::dust_inputs(blocks).is_empty();
+    // Inputs taking a hex digit per block, a signal strength, are a hex
+    // adder's.
+    let hex = interface::takes_digits(blocks);
     category::Kind::guessed()
         .into_iter()
         .filter(|&(_, test)| test != Test::Alu || names_ops)

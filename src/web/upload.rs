@@ -575,6 +575,7 @@ async fn show_preview(
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
         recognized: recognition.found.as_deref(),
         problems: &recognition.problems,
+        lines: &recognition.lines,
     };
     let shown = form::Shown {
         file,

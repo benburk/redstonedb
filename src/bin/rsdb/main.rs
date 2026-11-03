@@ -46,8 +46,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Check a .schem file, or a stored build by id, or with neither every
-    /// build on the list, by function: levers in, yellow outputs, what
-    /// the site would fix and what only the builder can
+    /// build on the list, by function: levers, buttons, and comparators with
+    /// air behind in, repeaters and comparators facing air out, what the
+    /// site would fix and what only the builder can
     Inspect(Inspect),
     /// Add the builds of a category from another copy of the database,
     /// such as a pull of the live one, the colour-free way: each probed,
@@ -107,24 +108,25 @@ enum Command {
         standardizing: Standardizing,
     },
     /// List a file's or stored build's inputs and its outputs by the rule
-    /// proposed for them, a repeater or comparator powering nothing, in
-    /// buses by how they line up, beside today's outputs, and its
-    /// signal-strength inputs, comparators with air behind, beside today's,
-    /// and probe it with them, or test one with signal-strength inputs
-    /// through the lines their shapes give. Reads the database only
+    /// for them, a repeater or comparator powering nothing, in buses by how
+    /// they line up, beside the outputs the old colour rule read, and its
+    /// signal-strength inputs, comparators with air behind, beside the old
+    /// rule's, and probe it with them, or test one with signal-strength
+    /// inputs through the lines their shapes give. Reads the database only
     Outputs(Outputs),
-    /// Port a build's outputs, as today's rule reads them, to the proposed
-    /// rule as the owner does by hand: each output block whitened, its dust
-    /// left, and beside it, out of the build, a repeater on a support
-    /// reading the dust and giving out into air; and its signal-strength
-    /// inputs, as today's rule reads them, each fed by a comparator beside
-    /// its dust with air behind; then check the port tests, computes, and
-    /// stacks as the original does. With --all, every stored build,
-    /// writing the ports that pass. Reads the database only
+    /// Port a build saved under the old rule, which read outputs and
+    /// signal-strength inputs by their colours, to the rule the site reads
+    /// them by, as the owner does by hand: each output block whitened, its
+    /// dust left, and beside it, out of the build, a repeater on a support
+    /// reading the dust and giving out into air; and each signal-strength
+    /// input fed by a comparator beside its dust with air behind; then
+    /// check the port tests, computes, and stacks as the original does.
+    /// With --all, every stored build, writing the ports that pass. Reads
+    /// the database only
     Convert(Convert),
     /// Stack copies of a build as the site's stacking test does, the first
     /// whole and the rest its box, each way asked, settle them, read them
-    /// by the proposed rule, and test them as the site tests its kind's
+    /// by the rule for outputs, and test them as the site tests its kind's
     /// copies. Reads the database only
     StackCheck(StackCheck),
     /// Change fields of a schematic; omitted fields are kept

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, adder, alu, colour, decoder, multiplier, one_operand,
+    Fault, adder, alu, colour, decoder, hex_adder, multiplier, one_operand,
     operands_probe, register, sequential, shifter,
 };
 use crate::{
@@ -26,6 +26,9 @@ pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
     pub problems: Vec<String>,
+    /// Its inputs and outputs as the check found them, in short; see
+    /// [`inspect::Report::summary`].
+    pub lines: String,
 }
 
 /// The file in `data` with what the simulator does not model but redstone
@@ -48,36 +51,34 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     crate::schem::standardize::edit(&data, &changes)
 }
 
-/// The file in `data` inspected and, if nothing is wrong with its levers
-/// and outputs, probed as an adder, then as a register, an ALU, and a
-/// decoder.
+/// The file in `data` inspected and, if nothing is wrong with its inputs
+/// and outputs, probed as each kind probing tries in turn.
 pub fn recognize(data: &[u8]) -> anyhow::Result<Recognition> {
     recognize_as(data, None)
 }
 
 /// As `recognize`, probing only as the category named `meant`, when
 /// given. Probed as each and recognized as none, its fault is as
-/// `fault_of` chooses. Its outputs are an upload's, see [`inspect::UPLOAD`].
+/// `fault_of` chooses. Its inputs and outputs are as
+/// [`inspect::inspect`] finds them, colour playing no part.
 pub fn recognize_as(
     data: &[u8],
     meant: Option<&str>,
 ) -> anyhow::Result<Recognition> {
-    recognize_watched(data, meant, inspect::UPLOAD, &mut |_, _| {})
+    recognize_watched(data, meant, &mut |_, _| {})
 }
 
-/// As [`recognize_as`], its outputs marked as `marks` says, telling
-/// `trying` each kind as it is probed, with how many of the kinds probing
-/// tries came before it; see [`Kind::probed`].
+/// As [`recognize_as`], telling `trying` each kind as it is probed, with
+/// how many of the kinds probing tries came before it; see
+/// [`Kind::probed`].
 pub fn recognize_watched(
     data: &[u8],
     meant: Option<&str>,
-    marks: inspect::Marks,
     trying: &mut dyn FnMut(Kind, usize),
 ) -> anyhow::Result<Recognition> {
-    let hex_adder = meant.and_then(Kind::named) == Some(Kind::HexAdder);
     // Each meant as another, as a subtractor is the adder it is, its B
-    // subtracted, is probed as that one; one never probed, as a hex adder,
-    // or a category off the list, is probed as nothing.
+    // subtracted, is probed as that one; one never probed, a category off
+    // the list, is probed as nothing.
     let meant: Option<Option<Kind>> = meant.map(|meant| {
         let kind = Kind::named(meant)?;
         match kind.facts().probe {
@@ -89,7 +90,7 @@ pub fn recognize_watched(
     let simulated = simulatable(data)?;
     let data = simulated.as_slice();
     let blocks = Blocks::read(data)?;
-    let report = inspect::inspect_marked(&blocks, marks);
+    let report = inspect::inspect(&blocks);
     let mut problems: Vec<String> =
         report.faults().map(|p| p.message.clone()).collect();
     if problems.is_empty() {
@@ -99,20 +100,13 @@ pub fn recognize_watched(
             },
         ));
     }
+    let lines = report.summary();
     let unrecognized = |problems| Recognition {
         file: data.to_vec(),
         found: None,
         problems,
+        lines: lines.clone(),
     };
-    // Inputs taking a hex digit per block through dust are a hex adder's,
-    // which probing doesn't read, whatever else the check finds.
-    if !hex_adder
-        && !crate::recognize::interface::dust_inputs(&blocks).is_empty()
-    {
-        return Ok(unrecognized(vec![
-            crate::details::WITHOUT_LEVERS.to_owned(),
-        ]));
-    }
     if !problems.is_empty() {
         return Ok(unrecognized(problems));
     }
@@ -125,6 +119,7 @@ pub fn recognize_watched(
                 file,
                 found: Some(found),
                 problems: Vec::new(),
+                lines: lines.clone(),
             }
         } else {
             unrecognized(faults)
@@ -194,11 +189,12 @@ fn probe_by(
     report: &inspect::Report,
 ) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
-        // Probing reads no hex digits, so an adder is one or a subtractor.
-        let kind = if kind == Kind::Adder {
-            run.adder_category(false)
-        } else {
-            kind
+        // An adder is one or a subtractor, and a hex adder adds or
+        // subtracts digits.
+        let kind = match kind {
+            Kind::Adder => run.adder_category(false),
+            Kind::HexAdder => run.adder_category(true),
+            _ => kind,
         };
         format!(
             "{}: all {} cases right, {}",
@@ -260,6 +256,12 @@ fn probed_as(
             )),
             Err(why) => Err(why),
         },
+        Probe::HexAdder => {
+            hex_adder(data, blocks, report, test).map(|probed| {
+                let found = found(&probed.run);
+                (probed.digits, probed.file, found)
+            })
+        }
         Probe::Register => register(data, report, test).map(|probed| {
             let found = found(&probed.run);
             (probed.data_in, probed.file, found)
@@ -300,7 +302,8 @@ fn probed_as(
 /// Of the `faults` probing found as each kind it tried, the one to show:
 /// the one it is meant as, if any; else one whose test ran and got cases
 /// wrong, as nearest to holding, over those that could not run. Of either
-/// kind, the decoder's when it has one input line; the register's when it
+/// kind, the hex adder's when it has signal-strength inputs; the decoder's
+/// when it has one input line; the register's when it
 /// has a button, which only a register's writes and a sequential
 /// multiplier's lines are; the ALU's when it has more than one lone lever,
 /// its control lines; else the adder's.
@@ -326,6 +329,7 @@ fn fault_of<'f>(
         .filter(|run| run.bits.len() == 1)
         .count();
     let order: &[Kind] = match () {
+        () if !report.digits.is_empty() => &[Kind::HexAdder, Kind::Adder],
         () if report.inputs.len() == 1 => {
             &[Kind::Decoder, Kind::Adder, Kind::Register]
         }

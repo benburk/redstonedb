@@ -60,6 +60,8 @@ pub enum File<'a> {
         recognized: Option<&'a str>,
         /// What only its builder can put right, by that check.
         problems: &'a [String],
+        /// Its inputs and outputs as that check found them, in short.
+        lines: &'a str,
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
@@ -371,8 +373,8 @@ fn checks(page: &DetailsPage) -> Markup {
                         }, false))
                     }
                 }
-                @if let File::Upload { recognized, problems, .. } = &page.file {
-                    (recognition_check(*recognized, problems))
+                @if let File::Upload { recognized, problems, lines, .. } = &page.file {
+                    (recognition_check(*recognized, problems, lines))
                 }
                 (swap_checks(page))
                 @match stored {
@@ -400,25 +402,24 @@ fn checks(page: &DetailsPage) -> Markup {
     }
 }
 
-/// What the check by function made of an upload: recognized, with its
-/// inputs and outputs found and coloured in; inputs taking a hex digit per
-/// block, which it doesn't read, so the category's test says; or what
-/// only its builder can put right.
-fn recognition_check(recognized: Option<&str>, problems: &[String]) -> Markup {
-    let hex = problems == [crate::details::WITHOUT_LEVERS];
+/// What the check by function made of an upload: its inputs and outputs
+/// as `lines` gives them, in short; and recognized, with them coloured in,
+/// or what only its builder can put right.
+fn recognition_check(
+    recognized: Option<&str>,
+    problems: &[String],
+    lines: &str,
+) -> Markup {
     html! {
-        @if hex {
-            (check("recognized", State::Pass, &html! {
-                "Its inputs take a hex digit per block, as a hex adder's do. "
-                "Its test says whether it's recognized as one."
-            }, false))
-        } @else if let Some(found) = recognized {
+        @if let Some(found) = recognized {
             (check("recognized", State::Pass, &html! {
                 "Recognized as " (found) ". Its inputs and outputs are coloured in for it."
+                @if !lines.is_empty() { p class="mt-1 text-meta text-muted" { (lines) } }
             }, false))
         } @else {
             (check("recognized", State::Warn, &html! {
                 "Not recognized, so it goes up as built, unverified, until it's fixed:"
+                @if !lines.is_empty() { p class="mt-1 text-meta text-muted" { (lines) } }
                 ul class="mt-1 flex list-disc flex-col gap-2 pl-5 text-ink" {
                     @for problem in problems { (super::reason_item(problem)) }
                 }

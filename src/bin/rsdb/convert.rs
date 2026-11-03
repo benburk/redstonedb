@@ -1,15 +1,19 @@
-//! Porting builds to the rule proposed for outputs, see
-//! [`repeater_outputs`], as the owner ports them by hand: each output today's
-//! rule reads tapped, [`repeater_outputs::tap`], each signal-strength input
-//! it reads by its colour fed, [`repeater_outputs::feed`], each comparator
+//! Porting builds saved under the old rule, which read inputs and outputs
+//! by their colours, see [`legacy`], to the rule the site reads them by,
+//! see [`repeater_outputs`], as the owner ports them by hand: each output
+//! the old rule reads tapped, [`repeater_outputs::tap`], each
+//! signal-strength input it reads by its colour fed,
+//! [`repeater_outputs::feed`], each comparator
 //! with air behind taken out of a build that takes no signal-strength
 //! inputs, as it drives nothing yet the proposed rule would read it as one,
 //! and the port checked against the original by its category's test, also
 //! through the lines the proposed rule reads for a build with
 //! signal-strength inputs, its truth table, and, for a build that stacks,
 //! the stacks it makes. One build at a time, or every stored build, each in
-//! a process of its own, writing the ports that pass.
-//! Nothing here writes to the database.
+//! a process of its own, writing the ports that pass. The original, and
+//! the port with its taps coloured as its outputs were, are read and
+//! tested by the old rule, [`legacy::reading`]; this is the one place the
+//! site still reads it. Nothing here writes to the database.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -29,7 +33,7 @@ use app::{
     recognize::{
         colour, inspect,
         interface::{self, Interface},
-        probe,
+        legacy, probe,
         repeater_outputs::{self, Fed, StrengthInput, Tapped},
     },
     schem::{self, Blocks, Direction, Pos, standardize},
@@ -57,8 +61,8 @@ pub(super) struct Convert {
     /// The build's category, for its test; a stored build's own by default
     #[arg(long)]
     category: Option<String>,
-    /// Read today's outputs as an upload's, any lone block read on top,
-    /// rather than in the site's output colours
+    /// Read the old rule's outputs as an upload's, any lone block read on
+    /// top, rather than in the site's output colours
     #[arg(long)]
     upload: bool,
     /// Port every stored build, each in a process of its own, and say
@@ -74,6 +78,18 @@ pub(super) struct Convert {
     /// are still ported, to compare, but listed apart and not written
     #[arg(long, requires = "all")]
     hand_ported: Option<PathBuf>,
+    /// Where to write the port with its roles kept in the site's colours,
+    /// as the site colours a build it recognizes: each tap's support as its
+    /// output block was, a sign naming the block moved onto the support,
+    /// and each fed comparator's support as its input block was, which
+    /// turns white; for a test fixture standing for a file the site keeps
+    #[arg(long, conflicts_with = "all")]
+    coloured_out: Option<PathBuf>,
+    /// Sides no tap goes toward, as the file's copies stack that way, for
+    /// a file not stored, whose stacking says so otherwise, such as
+    /// `north,south`
+    #[arg(long, value_delimiter = ',', conflicts_with = "all")]
+    avoid: Vec<String>,
     /// With `--all`, how many builds to port at once
     #[arg(long, default_value_t = 4, requires = "all")]
     jobs: usize,
@@ -143,6 +159,9 @@ impl Outcome {
 /// found, in lines, and what came of it.
 struct Conversion {
     file: Option<Vec<u8>>,
+    /// The port with its roles kept in the site's colours, see
+    /// [`keep_roles`], when it was made.
+    coloured: Option<Vec<u8>>,
     said: String,
     outcome: Outcome,
 }
@@ -160,15 +179,30 @@ pub(super) async fn convert_command(
     let file_or_id = args.file_or_id.as_deref().context("name a build")?;
     let source = source(db, file_or_id).await?;
     println!("{}", source.name);
+    let avoid = args
+        .avoid
+        .iter()
+        .map(|side| {
+            Direction::SIDES
+                .into_iter()
+                .find(|d| d.name() == side)
+                .with_context(|| format!("no side {side}"))
+        })
+        .collect::<Result<Vec<Direction>>>()?;
     let conversion = convert(
         &source.data,
-        args.upload,
+        (args.upload, &avoid),
         args.category
             .as_deref()
             .or(source.stored.as_ref().map(|s| s.category.as_str())),
         source.stored.as_ref(),
     )?;
     print!("{}", conversion.said);
+    if let (Some(out), Some(file)) = (&args.coloured_out, &conversion.coloured)
+    {
+        fs::write(out, file)?;
+        println!("wrote {}", out.display());
+    }
     if let (Some(out), Some(file)) = (&args.out, &conversion.file) {
         fs::write(out, file)?;
         println!("wrote {}", out.display());
@@ -179,6 +213,17 @@ pub(super) async fn convert_command(
     Ok(())
 }
 
+/// The build in `data`, saved under the old rule, ported as
+/// [`port_legacy`] ports it, every read of its lines by the old rule.
+fn convert(
+    data: &[u8],
+    (upload, avoid): (bool, &[Direction]),
+    category: Option<&str>,
+    stored: Option<&schematic::Schematic>,
+) -> Result<Conversion> {
+    legacy::reading(|| port_legacy(data, (upload, avoid), category, stored))
+}
+
 /// The build in `data` ported to the proposed rule by tapping its outputs,
 /// read as an upload's with `upload`, else in the site's colours, and
 /// feeding its signal-strength inputs, read by their colour, and taking
@@ -187,21 +232,17 @@ pub(super) async fn convert_command(
 /// gives it, and `stored`'s width; case by case through one interface;
 /// read back by the proposed rule; and, when `stored` stacks, stacked
 /// each way it does.
-fn convert(
+fn port_legacy(
     data: &[u8],
-    upload: bool,
+    (upload, avoid): (bool, &[Direction]),
     category: Option<&str>,
     stored: Option<&schematic::Schematic>,
 ) -> Result<Conversion> {
     let mut said = String::new();
     let simulated = probe::simulatable(data)?;
     let blocks = Blocks::read(&simulated)?;
-    let marks = if upload {
-        inspect::UPLOAD
-    } else {
-        inspect::SITE
-    };
-    let today = inspect::inspect_marked(&blocks, marks);
+    let marks = if upload { legacy::UPLOAD } else { legacy::SITE };
+    let today = legacy::inspect(&blocks, marks);
     if today.outputs.is_empty() {
         return no_outputs(&blocks, said);
     }
@@ -215,7 +256,8 @@ fn convert(
     let test = category.and_then(|category| Test::of(category, width));
     let before = test.map(|test| test.run(&blocks));
     let digits = digit_outputs(&lines, before.as_ref());
-    let along = stacking_sides(stored);
+    let mut along = stacking_sides(stored);
+    along.extend(avoid);
     let pads = digit_pads(&blocks);
     let original = Original {
         blocks: &blocks,
@@ -243,6 +285,7 @@ fn convert(
             outcome.details.push(format!("settling: {err}"));
             return Ok(Conversion {
                 file: None,
+                coloured: None,
                 said,
                 outcome,
             });
@@ -265,6 +308,7 @@ fn convert(
     let Some(file) = ported.file else {
         return Ok(Conversion {
             file: None,
+            coloured: None,
             said,
             outcome: Outcome { removed, ..outcome },
         });
@@ -274,6 +318,7 @@ fn convert(
         writeln!(said, "  the box grew, every old position moved by {moved}")?;
     }
     let port = Port::new(file, moved, done, &ported.fed)?;
+    let coloured = keep_roles(&port.file, &blocks, done, &ported.fed, moved)?;
     let mut outcome = check(&original, &port, done, &mut said)?;
     if dead_outcome.class == Class::Review {
         let min_ss = std::mem::take(&mut outcome.min_ss);
@@ -291,6 +336,7 @@ fn convert(
     }
     Ok(Conversion {
         file: Some(port.file),
+        coloured: Some(coloured),
         said,
         outcome,
     })
@@ -312,6 +358,7 @@ fn no_outputs(blocks: &Blocks, mut said: String) -> Result<Conversion> {
     };
     Ok(Conversion {
         file: None,
+        coloured: None,
         said,
         outcome,
     })
@@ -322,7 +369,7 @@ fn no_outputs(blocks: &Blocks, mut said: String) -> Result<Conversion> {
 /// open to, in order.
 fn digit_pads(blocks: &Blocks) -> Vec<(Pos, Option<Direction>)> {
     let mut pads: Vec<(Pos, Option<Direction>)> =
-        interface::dust_inputs(blocks).into_iter().collect();
+        legacy::dust_inputs(blocks).into_iter().collect();
     pads.sort_unstable_by_key(|&(pad, _)| pad);
     pads
 }
@@ -383,7 +430,7 @@ fn dead_comparators(
     original: &Original,
     data: &[u8],
     outputs: &[inspect::Run],
-    marks: inspect::Marks,
+    marks: legacy::Marks,
     pads: &[(Pos, Option<Direction>)],
 ) -> Dead {
     let mut dead = Dead::default();
@@ -433,7 +480,7 @@ fn dead_comparators(
                 continue;
             }
         };
-        let now = bits(&inspect::inspect_marked(&after, marks).outputs);
+        let now = bits(&legacy::inspect(&after, marks).outputs);
         let new: Vec<String> = repeater_outputs::find(&after)
             .into_iter()
             .filter(|output| !ruled.contains(&output.at))
@@ -1033,6 +1080,114 @@ fn not_reason(why: &str) -> &'static str {
     } else {
         "not tapped: something other than dust on it"
     }
+}
+
+/// The port in `file`, which moved every position of `original` by
+/// `moved`, with the roles the old rule read in `original`'s colours kept
+/// in the site's colours, as probing colours a build it recognizes: each
+/// tap of `done` with its support coloured as its output block was, of
+/// concrete or stained glass as the support is, and each sign naming the
+/// output block moved onto the support's outer face; each input of `fed`
+/// with its comparator's support coloured as its input block was, and that
+/// block, which only holds dust now, whitened.
+fn keep_roles(
+    file: &[u8],
+    original: &Blocks,
+    done: &[Tapped],
+    fed: &[Fed],
+    moved: Pos,
+) -> Result<Vec<u8>> {
+    let port = Blocks::read(file)?;
+    let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
+    let mut signs: HashMap<Pos, Pos> = HashMap::new();
+    let material = |at: Pos| {
+        if schem::short(port.get(at)).ends_with("glass") {
+            "stained_glass"
+        } else {
+            "concrete"
+        }
+    };
+    for tapped in done {
+        let Tapped::Tapped {
+            block,
+            side,
+            support,
+            ..
+        } = tapped
+        else {
+            continue;
+        };
+        let Some(colour) =
+            colour::output_colour(schem::short(original.get(*block)))
+        else {
+            continue;
+        };
+        let (block, support) =
+            (schem::add(*block, moved), schem::add(*support, moved));
+        changes.insert(
+            support,
+            format!("minecraft:{colour}_{}", material(support)),
+        );
+        let naming: Vec<Pos> = port
+            .signs
+            .keys()
+            .copied()
+            .filter(|&pos| port.sign_block(pos) == Some(block))
+            .collect();
+        let faces: Vec<(Direction, Pos)> = std::iter::once(*side)
+            .chain(
+                Direction::SIDES
+                    .into_iter()
+                    .filter(|&d| d != *side && d != side.opposite()),
+            )
+            .map(|d| (d, schem::step(support, d)))
+            .filter(|&(_, at)| {
+                port.get(at) == schem::AIR && !changes.contains_key(&at)
+            })
+            .collect();
+        for (sign, (facing, at)) in naming.into_iter().zip(faces) {
+            changes.insert(sign, schem::AIR.to_owned());
+            changes.insert(
+                at,
+                format!(
+                    "minecraft:oak_wall_sign[facing={facing},\
+                     waterlogged=false]"
+                ),
+            );
+            signs.insert(sign, at);
+        }
+    }
+    for input in fed {
+        let pad = schem::add(input.pad(), moved);
+        let support = match input {
+            Fed::Fed {
+                comparator,
+                support,
+                ..
+            } => support.map_or_else(
+                || schem::step(schem::add(*comparator, moved), Direction::Down),
+                |support| schem::add(support, moved),
+            ),
+            Fed::Already { .. } => {
+                let Some(driver) = repeater_outputs::driving(&port, pad) else {
+                    continue;
+                };
+                schem::step(driver.at, Direction::Down)
+            }
+            Fed::Not { .. } => continue,
+        };
+        let Some(colour) =
+            colour::input_mark(schem::short(original.get(input.pad())))
+        else {
+            continue;
+        };
+        changes.insert(
+            support,
+            format!("minecraft:{colour}_{}", material(support)),
+        );
+        changes.insert(pad, format!("minecraft:white_{}", material(pad)));
+    }
+    Ok(standardize::edit_grown_moving(file, &changes, &signs)?.0)
 }
 
 /// The port in `file` as the category's test reads it, its outputs at the
@@ -1811,7 +1966,7 @@ mod tests {
 
     /// A one-bit XOR gate with `extra` put out west of it, on stone.
     fn xor_with(extra: &[(Pos, &str)]) -> Vec<u8> {
-        let data = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+        let data = std::fs::read("tests/fixtures/old/xor-1.schem").unwrap();
         let changes: BTreeMap<Pos, String> = extra
             .iter()
             .flat_map(|&(at, state)| {
@@ -1840,7 +1995,8 @@ mod tests {
         let data = xor_with(&[([-3, 1, 0], DEAD), ([-2, 1, 0], "stone")]);
         let blocks = Blocks::read(&data).unwrap();
         assert_eq!(repeater_outputs::strength_inputs(&blocks).len(), 1);
-        let conversion = convert(&data, false, Some("xor_gate"), None).unwrap();
+        let conversion =
+            convert(&data, (false, &[]), Some("xor_gate"), None).unwrap();
         assert_eq!(
             conversion.outcome.class,
             Class::Ported,
@@ -1859,7 +2015,8 @@ mod tests {
             ([-3, 1, 1], side),
             ([-3, 1, 2], "barrel[facing=up,open=false]"),
         ]);
-        let conversion = convert(&data, false, Some("xor_gate"), None).unwrap();
+        let conversion =
+            convert(&data, (false, &[]), Some("xor_gate"), None).unwrap();
         assert_eq!(
             conversion.outcome.class,
             Class::Review,
@@ -1884,7 +2041,7 @@ mod tests {
         assert!(!Kind::Multiplier.digit_inputs());
         let data = xor_with(&[([-3, 1, 0], DEAD), ([-2, 1, 0], "stone")]);
         let conversion =
-            convert(&data, false, Some("hex_adder"), None).unwrap();
+            convert(&data, (false, &[]), Some("hex_adder"), None).unwrap();
         assert!(conversion.outcome.removed.is_empty());
         assert!(!conversion.said.contains("comparators with air behind,"));
     }

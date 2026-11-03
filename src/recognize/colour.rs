@@ -1,6 +1,7 @@
 //! The blocks the site colours a build's interface with, once probing
-//! finds each line's role, and how it reads them back: inputs on cool
-//! concrete, outputs on warm concrete or glass. See `docs/conventions.md`.
+//! finds each line's role, and how it reads the roles back: inputs on cool
+//! concrete, outputs on warm concrete or glass. Which blocks are inputs and
+//! outputs their colours never say; see [`crate::recognize::inspect`].
 
 use crate::schem;
 
@@ -37,19 +38,6 @@ pub const BORROW_IN: [&str; 2] = ["borrow in", "bin"];
 /// with; an unsigned one goes by the first.
 pub const BORROW_OUT: [&str; 2] = ["borrow out", "bout"];
 
-/// Whether `state` is part of a build's interface: a lever or button, a
-/// sign, an input block, or a torch on an input block. `support` is the block a
-/// torch stands on or hangs from.
-pub fn is_interface(state: &str, support: Option<&str>) -> bool {
-    let name = schem::short(state);
-    name == "lever"
-        || name.ends_with("_button")
-        || name.ends_with("sign")
-        || is_input(name)
-        || (name.contains("torch")
-            && support.is_some_and(|s| is_input(schem::short(s))))
-}
-
 /// Whether standardizing keeps `name` as it is: a redstone component, an
 /// output block, or a block only a stack's first copy keeps.
 pub fn keeps(name: &str) -> bool {
@@ -67,12 +55,22 @@ pub fn barrel_stands_in(name: &str) -> bool {
 }
 
 /// Whether a block id without its namespace, such as `lime_concrete`, is
-/// an input colour of concrete; it is an input once a lever is on it, or
-/// dust for a signal-strength input.
+/// an input colour of concrete, which marks an input's role once a lever is
+/// on it.
 pub fn is_input(block: &str) -> bool {
     block.strip_suffix("_concrete").is_some_and(|colour| {
         colour == CONTROL || INPUT_COLOURS.contains(&colour)
     })
+}
+
+/// The input colour a block the site marks an input's role with shows,
+/// such as `lime` for lime stained glass: concrete, or stained glass for a
+/// signal-strength input's comparator standing on glass.
+pub fn input_mark(block: &str) -> Option<&str> {
+    block
+        .strip_suffix("_concrete")
+        .or_else(|| block.strip_suffix("_stained_glass"))
+        .filter(|colour| *colour == CONTROL || INPUT_COLOURS.contains(colour))
 }
 
 /// Whether a block id without its namespace marks an output: yellow,

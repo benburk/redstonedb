@@ -43,11 +43,17 @@ fn a_ripple_carry_adder_gets_every_sum_right() {
     assert_eq!(run.cases, 1 << 17);
 }
 
-/// Its carry out is a bare block, powered by dust run into its side, with
-/// nothing standing on it for an output to be read by, so it fails.
+/// Its carry out as first built is a bare block, powered by dust run into
+/// its side: read by the old rule, by its colour, it has nothing standing
+/// on it for an output to be read by, so it fails; by the rule now, which
+/// reads only a repeater or comparator facing air, it is no output at all,
+/// nor is its sum's dust.
 #[test]
 fn an_output_with_nothing_on_its_block_fails() {
-    let report = Test::Adder.run(&blocks("alpha-rca-slice"));
+    let data =
+        std::fs::read("tests/fixtures/old/alpha-rca-slice.schem").unwrap();
+    let old = Blocks::read(&data).unwrap();
+    let report = app::recognize::legacy::reading(|| Test::Adder.run(&old));
     let Report::Broken { reason } = report else {
         panic!("it did not fail: {report:?}");
     };
@@ -55,6 +61,7 @@ fn an_output_with_nothing_on_its_block_fails() {
         reason.starts_with("Output carry out has a block with no dust"),
         "{reason}"
     );
+    assert!(app::recognize::inspect::inspect(&old).outputs.is_empty());
 }
 
 /// The game agrees: mc-tick, a vanilla-accurate engine, lights bit 7 for
@@ -378,7 +385,7 @@ fn a_copy_may_cover_the_copy_below() {
 
 /// Nothing powers its yellow output blocks: the repeaters standing on
 /// them carry the sum out of the build, a tick later, which its latency
-/// leaves out. Its carry out has none.
+/// leaves out, as the repeater tapping its carry out does.
 #[test]
 fn an_output_is_timed_where_it_reaches_its_repeaters() {
     let timing = Test::Adder
@@ -389,7 +396,7 @@ fn an_output_is_timed_where_it_reaches_its_repeaters() {
         .iter()
         .map(|output| (output.name.as_str(), output.latency, output.carried))
         .collect();
-    assert_eq!(outputs, [("output", 3, 1), ("carry out", 5, 0)]);
+    assert_eq!(outputs, [("output", 3, 1), ("carry out", 5, 1)]);
     assert_eq!(timing.latency(), Some(3));
 }
 
@@ -1330,12 +1337,12 @@ fn a_register_whose_cells_disturb_each_other_shows_how() {
         run.cells,
         [
             CellControls {
-                write: [4, 2, 19],
-                read: Some([3, 1, 6]),
+                write: [4, 2, 20],
+                read: Some([3, 1, 7]),
             },
             CellControls {
-                write: [1, 1, 19],
-                read: Some([0, 0, 6]),
+                write: [1, 1, 20],
+                read: Some([0, 0, 7]),
             },
         ]
     );
@@ -1446,7 +1453,8 @@ fn an_xor_gate_is_no_xnor_gate() {
 }
 
 /// A gate has no lines, so copies side by side each add a bit to A, B, and
-/// the output; this one's copies fit four blocks apart.
+/// the output; this one's copies fit four blocks apart west, and, its
+/// output read by a repeater standing on its own block, three up.
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_xor_gate_stacks_west_into_wider_ones() {
@@ -1456,12 +1464,16 @@ fn an_xor_gate_stacks_west_into_wider_ones() {
         import::Purpose::Standard { keep_paste: false },
     )
     .unwrap();
-    let Some(Stacking::Wider { step, copies, .. }) =
-        Test::Xor.stacking(&prepared.data)
+    let Some(Stacking::Wider {
+        step, copies, also, ..
+    }) = Test::Xor.stacking(&prepared.data)
     else {
         panic!("it does not stack");
     };
-    assert_eq!((step.describe().as_str(), copies), ("4 west", 16));
+    assert_eq!((step.describe().as_str(), copies), ("3 up", 16));
+    let west: Vec<String> =
+        also.iter().map(|way| way.step.describe()).collect();
+    assert_eq!(west, ["4 west"]);
 }
 
 /// A ripple adder holds nothing; a sequential multiplier holds its partial
@@ -1537,8 +1549,8 @@ fn a_build_is_stored_with_its_inputs_at_logical_0() {
 
 /// Driven weakly, as a comparator into each block would, every data input
 /// at one strength: this carry-cancel adder's operands reach its
-/// comparators through dust, so it needs 5, its outputs leaving through
-/// repeaters at 15; the ripple carry slice needs 8, its sum's dust at 14.
+/// comparators through dust, so it needs 5; the ripple carry slice needs
+/// 8. Each output leaves through a repeater, at 15.
 #[test]
 fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
     let strength = |name: &str| {
@@ -1552,7 +1564,7 @@ fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
     assert_eq!(cca.outputs, [("output".to_owned(), vec![15; 8])]);
     let rca = strength("rca-slice-capped");
     assert_eq!(rca.input, 8);
-    assert_eq!(rca.outputs, [("output".to_owned(), vec![14])]);
+    assert_eq!(rca.outputs, [("output".to_owned(), vec![15])]);
 }
 
 /// A hex adder of 16 digits, 64 bits a side, gives a sum and a carry out

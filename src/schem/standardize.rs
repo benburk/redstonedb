@@ -1,8 +1,10 @@
 //! Shaping a build's file: fitting its box tightly and bringing a
 //! downloaded build into the building conventions' palette.
 //!
-//! Standardizing needs the build's inputs and outputs already marked, since
-//! everything else turns white:
+//! Standardizing needs the build's roles already coloured in, as probing
+//! colours them, since everything else turns white; its inputs and outputs
+//! themselves are its levers, buttons, and comparators with air behind,
+//! and its repeaters and comparators facing air, whatever their colour:
 //!
 //! - Old corner markers are taken out: any group of plain glass that
 //!   touches nothing but air, wherever it sits.
@@ -10,11 +12,12 @@
 //!   same signal strength.
 //! - Slabs, stairs, and every kind of glass become white stained glass;
 //!   every other solid block becomes white concrete. Redstone components
-//!   and output blocks are kept, and so is an input: a coloured block with
-//!   a lever on it, which becomes that colour's concrete, or input-colour
-//!   concrete with dust on top, a signal-strength input.
-//! - A status line, a block whose sign names a status output such as
-//!   `carry out`, turns pink, as older builds marked them on yellow.
+//!   and blocks of an output colour are kept, and so is an input block: a
+//!   coloured block with a lever on it, or under a signal-strength input's
+//!   comparator, which becomes that colour's concrete.
+//! - A status line, an output's block whose sign names a status output
+//!   such as `carry out`, turns pink, as older builds marked them on
+//!   yellow.
 //! - A sign of any wood becomes an oak one, and a sign on a block that is
 //!   neither an input nor an output, such as a note of the build's date,
 //!   is taken out, as signs carry only labels. Redstone passes a sign by as
@@ -32,7 +35,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use anyhow::{Result, ensure};
 
 use crate::{
-    recognize::{colour, interface},
+    recognize::{colour, interface, repeater_outputs},
     schem::{self, AIR, Blocks, Direction, Pos, block},
 };
 
@@ -68,16 +71,14 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let found = interface::read(&Blocks::read(&standardized)?);
     ensure!(
         !found.inputs.is_empty(),
-        "no inputs found: mark each input with a lever on lime, light blue, \
-         cyan, blue, or magenta concrete, or for a signal-strength input \
-         dust on top, before standardizing"
+        "inputs: none found — mark each with a lever or button, or a \
+         comparator with air behind for a signal strength"
     );
     ensure!(
         !found.outputs.is_empty(),
-        "no outputs found: mark each output with yellow, orange, brown, or \
-         pink concrete or stained glass before standardizing; if the file \
-         should have some, check the selection it was saved from covers \
-         the whole build"
+        "outputs: none found — mark each with a repeater or comparator \
+         facing air; if the file should have some, check the selection it \
+         was saved from covers the whole build"
     );
     Ok(data_levers_off(&standardized).unwrap_or(standardized))
 }
@@ -111,12 +112,13 @@ pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// The signs on a block that is neither an input, one of `inputs`, nor an
-/// output or one of the `status` lines, so label nothing.
+/// output's, or one of the `status` lines, so label nothing.
 fn notes(
     blocks: &Blocks,
     inputs: &HashSet<Pos>,
     status: &HashSet<Pos>,
 ) -> HashSet<Pos> {
+    let outputs = output_blocks(blocks);
     blocks
         .signs
         .keys()
@@ -125,15 +127,24 @@ fn notes(
             blocks.sign_block(sign).is_none_or(|on| {
                 !inputs.contains(&on)
                     && !status.contains(&on)
-                    && !colour::is_output(schem::short(blocks.get(on)))
+                    && !outputs.contains(&on)
             })
         })
         .collect()
 }
 
-/// The file with each status line pink: a block with no lever whose sign
-/// names a status output, such as `carry out`, as older builds marked them
-/// on yellow. A file with none comes back as it was.
+/// The blocks under the build's outputs, its repeaters and comparators
+/// facing air.
+fn output_blocks(blocks: &Blocks) -> HashSet<Pos> {
+    repeater_outputs::find(blocks)
+        .into_iter()
+        .map(repeater_outputs::Output::block)
+        .collect()
+}
+
+/// The file with each status line pink: an output's block with no lever
+/// whose sign names a status output, such as `carry out`, as older builds
+/// marked them on yellow. A file with none comes back as it was.
 pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let status = status_lines(&blocks);
@@ -155,15 +166,17 @@ pub fn pink_status(data: &[u8]) -> Result<Vec<u8>> {
     rebox(data, &grid, [0, 0, 0], blocks.size)
 }
 
-/// The blocks that are status lines but not yet pink: not inputs, and a
-/// sign naming a status output.
+/// The blocks that are status lines but not yet pink: outputs' blocks, not
+/// inputs, with a sign naming a status output.
 fn status_lines(blocks: &Blocks) -> HashSet<Pos> {
     let inputs = interface::feeds(blocks);
+    let outputs = output_blocks(blocks);
     blocks
         .sign_texts()
         .into_iter()
         .filter(|(pos, lines)| {
-            !inputs.contains_key(pos)
+            outputs.contains(pos)
+                && !inputs.contains_key(pos)
                 && interface::sign_name(lines)
                     .is_some_and(|name| colour::is_status_name(&name))
                 && !blocks.get(*pos).starts_with("minecraft:pink_")
@@ -267,7 +280,14 @@ pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
     grid.extend(changes);
-    rebox_with(data, &grid, [0, 0, 0], blocks.size, &strengths)
+    rebox_with(
+        data,
+        &grid,
+        [0, 0, 0],
+        blocks.size,
+        &strengths,
+        &HashMap::new(),
+    )
 }
 
 /// The file with each block of `changes` put in place, as `edit` does, its
@@ -275,6 +295,16 @@ pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
 pub fn edit_grown(
     data: &[u8],
     changes: &BTreeMap<Pos, String>,
+) -> Result<(Vec<u8>, Pos)> {
+    edit_grown_moving(data, changes, &HashMap::new())
+}
+
+/// As [`edit_grown`], each block entity at a key of `moves`, such as a
+/// sign's, moved to its value, `changes` putting its block there.
+pub fn edit_grown_moving<S: std::hash::BuildHasher>(
+    data: &[u8],
+    changes: &BTreeMap<Pos, String>,
+    moves: &HashMap<Pos, Pos, S>,
 ) -> Result<(Vec<u8>, Pos)> {
     let blocks = Blocks::read(data)?;
     let mut grid: HashMap<Pos, String> = blocks
@@ -295,7 +325,8 @@ pub fn edit_grown(
         }
     }
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
-    Ok((rebox(data, &grid, low, size)?, low.map(|n| -n)))
+    let file = rebox_with(data, &grid, low, size, &HashMap::new(), moves)?;
+    Ok((file, low.map(|n| -n)))
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
@@ -500,17 +531,19 @@ fn rebox(
     low: Pos,
     size: Pos,
 ) -> Result<Vec<u8>> {
-    rebox_with(data, grid, low, size, &HashMap::new())
+    rebox_with(data, grid, low, size, &HashMap::new(), &HashMap::new())
 }
 
 /// As `rebox`, each comparator at a position of `strengths`, in the old
-/// box, putting out its strength.
-fn rebox_with(
+/// box, putting out its strength, and each block entity at a key of
+/// `moves` moved to its value.
+fn rebox_with<S: std::hash::BuildHasher>(
     data: &[u8],
     grid: &HashMap<Pos, String>,
     low: Pos,
     size: Pos,
     strengths: &HashMap<Pos, u8>,
+    moves: &HashMap<Pos, Pos, S>,
 ) -> Result<Vec<u8>> {
     let shift = |pos: Pos| [0, 1, 2].map(|axis| pos[axis] - low[axis]);
     let inside =
@@ -527,7 +560,7 @@ fn rebox_with(
         .iter()
         .filter_map(|entity| {
             let was = schem::entity_pos(entity)?;
-            let pos = shift(was);
+            let pos = shift(moves.get(&was).copied().unwrap_or(was));
             let entity = match strengths.get(&was) {
                 Some(&strength) => schem::with_output_signal(entity, strength),
                 None => entity.clone(),
@@ -611,14 +644,21 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
 }
 
 /// The block a standardized build uses in place of `state`. A coloured
-/// block with a lever or signal-strength dust on it, an `input`, becomes
-/// that colour's concrete; without one, its colour means nothing and it
-/// turns white.
+/// block with a lever on it or a signal-strength input's comparator, an
+/// `input`, becomes that colour's concrete, or stays stained glass; without
+/// one, its colour means nothing and it turns white.
 fn restyle(state: &str, input: bool) -> String {
     let id = schem::id(state);
     let name = id.strip_prefix("minecraft:").unwrap_or(id);
     if input && let Some(colour) = colour::input_colour(name) {
         format!("minecraft:{colour}_concrete")
+    } else if input
+        && name.ends_with("_stained_glass")
+        && colour::input_mark(name).is_some()
+    {
+        // Glass under a signal-strength input's comparator stays glass,
+        // as a block there may be cutting no dust.
+        state.to_owned()
     } else if colour::keeps(name) {
         state.to_owned()
     } else if name.ends_with("_sign") && !name.contains("hanging") {

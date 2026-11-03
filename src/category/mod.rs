@@ -129,8 +129,8 @@ pub struct Facts {
 /// first kind it holds as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Probing {
-    /// Never: nothing it is meant as is probed, as a hex adder's inputs,
-    /// which take hex digits, are not, or it is no blessed category.
+    /// Never: it is no blessed category, so nothing it is meant as is
+    /// probed.
     Not,
     /// In `order`, the lowest first, by `how`. Gates go first, as a 1-bit
     /// XOR is a sum without a carry, an inverter's bit, and a 1-bit AND a
@@ -149,6 +149,9 @@ pub enum Probing {
 pub enum Probe {
     /// An adder's operands, carry in, sum, and carry out.
     Adder,
+    /// A hex adder's digit inputs, carry in, sum, and carry out, each by
+    /// its shape.
+    HexAdder,
     /// A register's or buffer's data buses and its cells' controls.
     Register,
     Shifter,
@@ -496,12 +499,12 @@ mod tests {
     }
 
     /// Only a blessed category is probed, and every one is found by
-    /// probing or meant as one, but for a hex adder.
+    /// probing or meant as one.
     #[test]
     fn probing_finds_the_blessed_categories() {
         for kind in Kind::all() {
             let probed = kind.facts().probe != Probing::Not;
-            assert_eq!(probed, kind.blessed() && kind != Kind::HexAdder);
+            assert_eq!(probed, kind.blessed());
         }
     }
 }

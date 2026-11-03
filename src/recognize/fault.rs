@@ -48,16 +48,34 @@ use Shape::{Has, Is, Starts};
 
 const CASES: &[Case] = &[
     Case {
-        when: &[Is("No inputs")],
+        when: &[Is("No inputs"), Starts("Inputs: none found")],
         fix: "Put a lever on the side of each input bit's block, one line \
-              of levers for each input.",
+              of levers for each input, or for a hex digit a comparator with \
+              air behind it.",
         rule: Some("data-inputs"),
     },
     Case {
-        when: &[Is("No outputs")],
-        fix: "Give each output bit a lone block with dust, a repeater, or a \
-              comparator on top, and no block like it touching it.",
+        when: &[Is("No outputs"), Starts("Outputs: none found")],
+        fix: "Give each output bit a repeater, or a comparator, that powers \
+              nothing, the block in front of it air, on a block of any kind.",
         rule: Some("outputs"),
+    },
+    Case {
+        when: &[Has("nothing under it in the file")],
+        fix: "Save the build with the block under it, so the file holds \
+              what it stands on.",
+        rule: Some("outputs"),
+    },
+    Case {
+        when: &[
+            Starts("Inputs: no comparator"),
+            Has("a hex adder takes"),
+            Has("a hex adder gives"),
+        ],
+        fix: "Give a hex adder two buses of comparators with air behind \
+              them, A and B, one for each digit, and its sum a bus of \
+              repeaters or comparators facing air.",
+        rule: Some("per-category"),
     },
     Case {
         when: &[Has(": on top of block"), Has(": on bottom of block")],
@@ -120,7 +138,8 @@ const CASES: &[Case] = &[
     Case {
         when: &[Starts("Couldn't recognize input")],
         fix: "Put a lever on each input bit's block. If its inputs take a hex \
-              digit per block through dust, upload it as a Hex Adder.",
+              digit each, a comparator with air behind it, upload it as a \
+              Hex Adder.",
         rule: Some("data-inputs"),
     },
     Case {
@@ -136,13 +155,14 @@ const CASES: &[Case] = &[
     Case {
         when: &[Is(crate::details::NO_HEX_INPUTS)],
         fix: "Upload it as an Adder. A hex adder's inputs each take a hex \
-              digit, a signal strength through dust on top of the block.",
+              digit, a signal strength through a comparator with air behind \
+              it.",
         rule: Some("per-category"),
     },
     Case {
         when: &[Is("Couldn't read its inputs and outputs")],
-        fix: "Give each input bit a lever, and each output bit a lone block \
-              read from on top.",
+        fix: "Give each input bit a lever, and each output bit a repeater or \
+              comparator facing air.",
         rule: Some("data-inputs"),
     },
     Case {

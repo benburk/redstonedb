@@ -36,7 +36,7 @@ use anyhow::{Result, ensure};
 use crate::{
     category::{self, Behaviour, Kind},
     models::schematic::{Faces, Orientation, StackDirection},
-    recognize::{colour, interface},
+    recognize::{colour, interface, repeater_outputs},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -187,13 +187,19 @@ fn along(
     let shift = |i: i32| [(last - i) * west, i * up, (last - i) * north];
 
     let left_out = first_copy(&blocks, step, direction.faces).all;
-    // A later copy's input whose switch stays with the first copy is a
-    // plain block.
-    let switched: HashSet<Pos> = blocks
+    // A later copy's input whose switch or comparator stays with the first
+    // copy is a plain block.
+    let orphaned: HashSet<Pos> = blocks
         .switches()
         .into_iter()
-        .filter(|switch| !left_out.contains(&switch.pos))
+        .filter(|switch| left_out.contains(&switch.pos))
         .map(|switch| switch.block)
+        .chain(
+            repeater_outputs::strength_inputs(&blocks)
+                .into_iter()
+                .filter(|input| left_out.contains(&input.at))
+                .map(|input| schem::step(input.at, Direction::Down)),
+        )
         .collect();
     let outputs = if buses.own_outputs {
         Outputs {
@@ -218,9 +224,7 @@ fn along(
             }
             let name = schem::short(state);
             let plain = (!final_copy && outputs.blocks.contains(&pos))
-                || (i > 0
-                    && colour::is_input(name)
-                    && !switched.contains(&pos))
+                || (i > 0 && orphaned.contains(&pos))
                 || (shared && i > 0 && bus(name));
             let state = if plain { WHITE } else { state };
             place(&mut grid, schem::add(pos, shift(i)), state);
@@ -794,34 +798,38 @@ fn data_bits(blocks: &Blocks) -> (usize, usize) {
     (bits, lines)
 }
 
-/// A build's interface: its input and output blocks, the levers, buttons,
-/// and signs on any block, and the dust, repeaters, and comparators
-/// standing on an input or output.
+/// A build's interface by the rule for inputs and outputs, colour playing
+/// no part: its input blocks, each lever's and button's and the block
+/// under each comparator with air behind, with the comparator; the levers,
+/// buttons, and signs on any block; the dust, repeaters, and comparators
+/// standing on an input block; and each repeater or comparator facing air
+/// with the block under it.
 fn interface_blocks(blocks: &Blocks) -> HashSet<Pos> {
-    let marked = |pos: Pos| {
-        let name = schem::short(blocks.get(pos));
-        colour::is_input(name) || colour::is_output(name)
-    };
-    let mut found: HashSet<Pos> = blocks
-        .iter()
-        .filter(|&(pos, _)| marked(pos))
-        .map(|(p, _)| p)
-        .collect();
+    let mut found: HashSet<Pos> = HashSet::new();
     for switch in blocks.switches() {
         found.insert(switch.pos);
         found.insert(switch.block);
+    }
+    for input in repeater_outputs::strength_inputs(blocks) {
+        found.insert(input.at);
+        found.insert(schem::step(input.at, Direction::Down));
+    }
+    let inputs = found.clone();
+    found.extend(blocks.iter().filter_map(|(pos, state)| {
+        (matches!(
+            schem::short(state),
+            "redstone_wire" | "repeater" | "comparator"
+        ) && inputs.contains(&schem::step(pos, Direction::Down)))
+        .then_some(pos)
+    }));
+    for output in repeater_outputs::find(blocks) {
+        found.insert(output.at);
+        found.insert(output.block());
     }
     for &sign in blocks.signs.keys() {
         found.insert(sign);
         found.extend(blocks.sign_block(sign));
     }
-    found.extend(blocks.iter().filter_map(|(pos, state)| {
-        (matches!(
-            schem::short(state),
-            "redstone_wire" | "repeater" | "comparator"
-        ) && marked(schem::step(pos, Direction::Down)))
-        .then_some(pos)
-    }));
     found
 }
 

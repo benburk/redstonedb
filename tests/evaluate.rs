@@ -164,15 +164,13 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.width, Some(1));
     // A 1-bit gate's lone input can't show its orientation; its copies
-    // stacking into more bits do, west first on a tie, then up.
+    // stacking into more bits do, the shortest step first, west first on a
+    // tie: its output's repeater standing on a block of its own, they fit
+    // 3 up, and 4 west.
     let steps: Vec<(i64, i64)> =
         e.stacking.iter().map(|d| (d.west, d.up)).collect();
-    assert_eq!(steps[0], (4, 0), "{:?}", e.stacking);
-    assert!(
-        steps[1..].iter().all(|&(west, up)| west == 0 && up >= 4),
-        "{steps:?}"
-    );
-    assert_eq!(e.orientation, Some(Orientation::Horizontal));
+    assert_eq!(steps, [(0, 3), (4, 0)], "{:?}", e.stacking);
+    assert_eq!(e.orientation, Some(Orientation::Vertical));
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
     assert!(e.flags.is_empty(), "{:?}", e.flags);
@@ -274,16 +272,19 @@ fn a_parity_circuit_is_read_whole_from_its_file() {
 /// number, is not.
 #[test]
 fn an_even_parity_circuit_is_flagged_even() {
-    // The output's dust, which its two last comparators power, powers a
-    // block north of it in place of the output block below it, and a torch
-    // on that block powers the output, moved above the torch.
+    // The dust its two last comparators power, which its output's
+    // repeater read, powers a block in the repeater's place, and a torch
+    // on that block feeds the output's repeater, moved north of the torch.
     let standard = uploaded("parity-8");
     let changes: BTreeMap<[i32; 3], String> = [
         ([1, 0, 0], "white_concrete"),
-        ([1, 1, -1], "white_concrete"),
-        ([1, 2, -1], "redstone_torch[lit=true]"),
-        ([1, 3, -1], "yellow_concrete"),
-        ([1, 4, -1], "redstone_wire[power=0]"),
+        ([1, 1, 0], "white_concrete"),
+        ([1, 1, -1], "redstone_wall_torch[facing=north,lit=true]"),
+        ([1, 0, -2], "yellow_concrete"),
+        (
+            [1, 1, -2],
+            "repeater[delay=1,facing=south,locked=false,powered=true]",
+        ),
     ]
     .into_iter()
     .map(|(pos, state)| (pos, format!("minecraft:{state}")))

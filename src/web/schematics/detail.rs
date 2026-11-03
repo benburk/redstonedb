@@ -187,8 +187,7 @@ pub async fn detail(
             unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
             block_counts: crate::schem::standardize::block_counts(&blocks),
-            strength_inputs: !crate::recognize::interface::dust_inputs(&blocks)
-                .is_empty(),
+            strength_inputs: crate::recognize::interface::takes_digits(&blocks),
             stacking: s
                 .stacking
                 .iter()

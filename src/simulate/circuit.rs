@@ -603,9 +603,10 @@ fn container(strength: u8) -> BlockEntity {
 
 /// A driver for each digit of signal-strength input `port`: a barrel
 /// behind the build's own comparator for it, the one with nothing behind
-/// it that the rule proposed for inputs reads, see
-/// [`repeater_outputs::driving`]; or with none, a comparator beside its
-/// dust, pointing into it, and a barrel behind, where both are air and
+/// it that the rule for inputs reads, see [`repeater_outputs::driving`];
+/// or with none, as a build saved under the old rule has, a comparator
+/// beside its dust, pointing into it, and a barrel behind, where both are
+/// air and
 /// nothing runs into the comparator's sides, which would change what it
 /// puts out, the side the dust is open to first. `taken` holds the places
 /// drivers have already used.

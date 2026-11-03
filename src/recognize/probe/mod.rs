@@ -1,7 +1,8 @@
 //! What a build's levers and outputs are, found by how it behaves rather than
 //! by colour: each way its runs of levers and outputs could be an adder's
 //! A, B, carry in, sum, and carry out, with each bus either way round, is
-//! tried with the adder's test, and the one that adds is kept.
+//! tried with the adder's test, and the one that adds is kept. The roles
+//! found are coloured into the file, as the site's tests read them.
 use std::{collections::HashMap, fmt};
 
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
 
 mod alu;
 mod decoder;
+mod hex_adder;
 mod multiplier;
 mod one_operand;
 mod operands;
@@ -26,6 +28,7 @@ mod shifter;
 
 pub use alu::{AluProbed, alu};
 pub use decoder::{DecoderProbed, decoder};
+pub use hex_adder::{HexAdderProbed, hex_adder};
 pub use multiplier::{MultiplierProbed, multiplier};
 pub use one_operand::{Line, OneInputProbed, one_operand};
 pub use operands::{OperandsProbed, operands_probe};
@@ -496,9 +499,11 @@ fn operands(runs: &[Run]) -> Result<Vec<Operands>, Fault> {
 }
 
 /// Every way the output runs could be an adder's sum of `width` bits and a
-/// carry out: a bus and at most one lone output; a bus one longer, its last
-/// bit the carry out or the sum's top bit; two equal buses, the sum's bits
-/// alternating between them; or, for one bit, lone outputs.
+/// carry out: a bus and at most one lone output, its carry out or no line
+/// of the adder's, as a comparator ending a chain may give out into air;
+/// a bus one longer, its last bit the carry out or the sum's top bit; two
+/// equal buses, the sum's bits alternating between them; or, for one bit,
+/// lone outputs.
 fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
     let (buses, lones) = split(runs);
     let mut found = Vec::new();
@@ -506,6 +511,11 @@ fn results(runs: &[Run], width: usize) -> Result<Vec<Results>, Fault> {
         ([sum], _) if lones.len() <= 1 && sum.bits.len() == width => {
             for bits in both(&sum.bits) {
                 found.push((bits, lones.first().copied()));
+            }
+            if !lones.is_empty() {
+                for bits in both(&sum.bits) {
+                    found.push((bits, None));
+                }
             }
         }
         ([sum], []) if sum.bits.len() == width + 1 => {

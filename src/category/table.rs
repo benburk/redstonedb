@@ -263,7 +263,11 @@ pub(super) const TABLE: [Facts; 47] = [
         designs: ADDER_DESIGNS,
         flags: ADDER_FLAGS,
         listed_as: Some("hex adders"),
+        // First, as only a build with signal-strength inputs can be one,
+        // and one without is told so at once.
+        probe: probed(5, Probe::HexAdder),
         guess: Guess::ByRunOf(Kind::Adder),
+        role_words: ADDER_WORDS,
         digit_inputs: true,
         behaviour: ADDER,
         ..ROW

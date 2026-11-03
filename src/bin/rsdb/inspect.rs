@@ -32,19 +32,10 @@ pub(super) async fn inspect_command(
 ) -> Result<()> {
     let (file_or_id, category) =
         (args.file_or_id.as_deref(), args.category.as_deref());
-    // A file is read as an upload, a stored build as the site keeps it,
-    // in its colours when it follows the conventions.
-    let marks = |conventional: bool| {
-        if conventional {
-            inspect::SITE
-        } else {
-            inspect::UPLOAD
-        }
-    };
-    let mut files: Vec<(String, Vec<u8>, inspect::Marks)> = Vec::new();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     match file_or_id {
         Some(path) if fs::exists(path)? => {
-            files.push((path.to_owned(), fs::read(path)?, marks(false)));
+            files.push((path.to_owned(), fs::read(path)?));
         }
         Some(prefix) => {
             let id = resolve(db, prefix).await?;
@@ -52,11 +43,7 @@ pub(super) async fn inspect_command(
             let data = version::current_file(db, &id)
                 .await?
                 .context("schematic vanished")?;
-            files.push((
-                format!("{}  {}", &id[..8], s.filename()),
-                data,
-                marks(s.conventional),
-            ));
+            files.push((format!("{}  {}", &id[..8], s.filename()), data));
         }
         None => {
             for s in schematic::all(db).await? {
@@ -68,11 +55,7 @@ pub(super) async fn inspect_command(
                 let data = version::current_file(db, &s.id)
                     .await?
                     .context("schematic vanished")?;
-                files.push((
-                    format!("{}  {}", &s.id[..8], s.filename()),
-                    data,
-                    marks(s.conventional),
-                ));
+                files.push((format!("{}  {}", &s.id[..8], s.filename()), data));
             }
         }
     }
@@ -80,9 +63,9 @@ pub(super) async fn inspect_command(
     let mut problems: BTreeMap<&str, usize> = BTreeMap::new();
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
-    for (name, data, marks) in &files {
+    for (name, data) in &files {
         let adder = category == Some("adder");
-        let report = inspect::inspect_file(data, *marks, adder)?;
+        let report = inspect::inspect_file(data, adder)?;
         let buses = |runs: &[inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())
