@@ -131,7 +131,9 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                      or a strength from 0 to 15 where the category reads one, like a popcount's count. \
                      A repeater or comparator that powers a block or dust isn't one: that's just wiring. \
                      A sign naming one, like carry out, goes under the air it gives out into, on the block \
-                     holding it up.",
+                     holding it up. An outer layer of nothing but outputs, the blocks holding them up, and \
+                     their signs doesn't add to a build's size, nor one of nothing but its levers and the \
+                     blocks they're on.",
                     &["output", "output-powering"],
                 ))
                 (rule(

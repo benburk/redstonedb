@@ -257,26 +257,30 @@ fn button(blocks: &Blocks, bit: &Bit) -> bool {
 }
 
 /// The bounds, inclusive, of the build itself: its box less any outer
-/// layer that holds nothing but its interface, meaning input blocks with
-/// their levers, dust, signs, and torches. Such a layer only carries the
-/// inputs, so it does not make the build bigger, and a stack's copies share
-/// it.
+/// layer that holds nothing but its interface, meaning its inputs, each
+/// lever or button with the block it is on, or a signal-strength input's
+/// comparator with the block under it, any torch on an input block, and
+/// signs. Such a layer only carries the inputs, so it does not make the
+/// build bigger, and a stack's copies share it.
 pub fn core(blocks: &Blocks) -> (Pos, Pos) {
     trimmed(blocks, false)
 }
 
 /// The bounds, inclusive, a build is measured by: its core, less any outer
-/// layer that holds nothing but its interface and its outputs, each output
-/// block with the dust, repeater, or comparator standing on it to carry it
-/// out. An output that sticks out of the build is read there, as an input
-/// sticking out is driven there, so neither makes the build bigger. Stacking
-/// goes by the core, whose outputs a copy's step may need to reach past.
+/// layer that holds nothing but its interface and its outputs, each
+/// repeater or comparator facing air with the block holding it up, and
+/// the sign under its front. An output that sticks out of the build is
+/// read there, as an input sticking out is driven there, so neither makes
+/// the build bigger; a layer counts once any other block of the build is
+/// in it, as the dust a port's tap reads. Stacking goes by the core, whose
+/// outputs a copy's step may need to reach past.
 pub fn measured(blocks: &Blocks) -> (Pos, Pos) {
     trimmed(blocks, true)
 }
 
 /// The build's box less its outer layers of nothing but interface, and of
-/// outputs too when `outputs`.
+/// outputs too when `outputs`, taken off every face in turn until none
+/// is left, as taking one face's may leave another's of nothing but them.
 fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
     let interface = interface_cells(blocks);
     let read_out = output_cells(blocks);
@@ -297,15 +301,20 @@ fn trimmed(blocks: &Blocks, outputs: bool) -> (Pos, Pos) {
     };
     let mut low = [0; 3];
     let mut high = blocks.size.map(|n| n - 1);
-    for axis in 0..3 {
-        while high[axis] > low[axis] && only(axis, low[axis], low, high) {
-            low[axis] += 1;
+    loop {
+        let before = (low, high);
+        for axis in 0..3 {
+            while high[axis] > low[axis] && only(axis, low[axis], low, high) {
+                low[axis] += 1;
+            }
+            while high[axis] > low[axis] && only(axis, high[axis], low, high) {
+                high[axis] -= 1;
+            }
         }
-        while high[axis] > low[axis] && only(axis, high[axis], low, high) {
-            high[axis] -= 1;
+        if (low, high) == before {
+            return (low, high);
         }
     }
-    (low, high)
 }
 
 /// The cells of a build's interface by the rule for inputs: each lever,
@@ -335,7 +344,8 @@ fn interface_cells(blocks: &Blocks) -> HashSet<Pos> {
 }
 
 /// The cells of a build's outputs by the rule for them: each repeater or
-/// comparator facing air and the block under it.
+/// comparator facing air and the block holding it up. The sign under its
+/// front is the interface's, as every sign is.
 fn output_cells(blocks: &Blocks) -> HashSet<Pos> {
     repeater_outputs::find(blocks)
         .into_iter()
@@ -881,6 +891,49 @@ mod tests {
 
     fn lines(text: [&str; 4]) -> Vec<String> {
         text.map(str::to_owned).to_vec()
+    }
+
+    /// A lever on a block driving dust east into a repeater giving out
+    /// east into air, its sign under its front, with `more` besides.
+    fn measured_line(more: &[(Pos, &str)]) -> Blocks {
+        let states: HashMap<Pos, String> = [
+            ([0, 1, 1], "lever[face=wall,facing=west,powered=false]"),
+            ([1, 1, 1], "white_concrete"),
+            ([2, 0, 1], "stone"),
+            (
+                [2, 1, 1],
+                "redstone_wire[east=side,north=none,power=0,south=none,\
+                 west=side]",
+            ),
+            ([3, 0, 1], "stone"),
+            (
+                [3, 1, 1],
+                "repeater[delay=1,facing=west,locked=false,powered=false]",
+            ),
+            ([4, 0, 1], "oak_wall_sign[facing=east,waterlogged=false]"),
+        ]
+        .iter()
+        .chain(more)
+        .map(|&(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        let mut blocks = Blocks::from_grid([5, 2, 3], &states);
+        let text = ["carry out", "", "", ""].map(str::to_owned).to_vec();
+        blocks.signs.insert([4, 0, 1], text);
+        blocks
+    }
+
+    /// The layers of nothing but its input, the lever and its block, and
+    /// of nothing but its output, the repeater, the block holding it up,
+    /// and the sign under its front, don't count toward a build's size; the
+    /// output's layer does once anything else of the build is in it. The
+    /// core keeps the output.
+    #[test]
+    fn layers_of_only_inputs_or_outputs_are_not_measured() {
+        let blocks = measured_line(&[]);
+        assert_eq!(measured(&blocks), ([2, 0, 1], [2, 1, 1]));
+        assert_eq!(core(&blocks), ([2, 0, 1], [3, 1, 1]));
+        let wired = measured_line(&[([3, 0, 0], "stone")]);
+        assert_eq!(measured(&wired), ([2, 0, 0], [3, 1, 1]));
     }
 
     #[test]
