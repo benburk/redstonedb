@@ -7,9 +7,9 @@
 use anyhow::Result;
 
 use super::{
-    Broken, Stacking, Test,
+    Broken, Stacking, Test, Value,
     adder::adder_cases,
-    bench::{Bench, Cases, Kind, Spec, mask},
+    bench::{Bench, Case, Cases, Kind, Spec, mask},
     stacking,
 };
 use crate::recognize::interface::Interface;
@@ -65,7 +65,7 @@ impl Gate {
     }
 
     /// Its function of `a` and `b`, bit by bit, each `width` bits.
-    fn apply(self, a: u64, b: u64, width: usize) -> u64 {
+    fn apply(self, a: Value, b: Value, width: usize) -> Value {
         let all = mask(width);
         match self {
             Gate::Xor => a ^ b,
@@ -160,8 +160,8 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
         );
     }
     let all = mask(width);
-    let nand = move |case: &[u64; 3]| !(case[0] & case[1]) & all;
-    let xnor = move |case: &[u64; 3]| !(case[0] ^ case[1]) & all;
+    let nand = move |case: &Case| !(case[0] & case[1]) & all;
+    let xnor = move |case: &Case| !(case[0] ^ case[1]) & all;
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![first, second], NAND_XNOR),
         cases: Cases::Combinations(Box::new(move || {

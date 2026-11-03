@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::atomic::AtomicBool};
 use anyhow::{Context, Result, bail};
 
 use super::{
-    Reading, Run, Signal, Timing, Wrong,
+    Reading, Run, Signal, Timing, Value, Wrong,
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
@@ -21,9 +21,12 @@ use crate::{
 /// case of each byte and every pairing of the test patterns.
 pub(super) const EXHAUSTIVE_BITS: usize = 20;
 
+/// The widest input whose every bit `patterns` sets and clears alone.
+const WIDE: usize = 32;
+
 /// One case's input values, in the order of its bench's inputs; those it
 /// has no input for are 0.
-pub(super) type Case = [u64; 3];
+pub(super) type Case = [Value; 3];
 
 /// What a test drives and reads.
 pub(super) struct Bench {
@@ -36,11 +39,11 @@ pub(super) struct Bench {
     pub pattern: String,
     /// Inputs set once and held through every case, by their place in the
     /// interface, such as the control lines choosing an ALU's operation.
-    pub held: Vec<(usize, u64)>,
+    pub held: Vec<(usize, Value)>,
     /// The bits of the outputs read together that the cases decide; the
     /// rest, such as a status line an operation leaves meaningless, are
     /// not checked.
-    pub care: u64,
+    pub care: Value,
     /// A control line pressed once each case's inputs settle, as a
     /// sequential multiplier's calculate.
     pub press: Option<usize>,
@@ -53,9 +56,9 @@ pub(super) struct Bench {
 
 impl Bench {
     /// Fails for a bench too wide to run on `interface`, which the cases'
-    /// numbers cannot hold: an input wider than `MAX_WIDTH`, whose sums
-    /// would overflow one number, or outputs of more bits together than one
-    /// number holds, as they are read as one. A test asked of a build by
+    /// values cannot hold: an input wider than `MAX_WIDTH`, whose sums or
+    /// products would overflow one, or outputs of more bits together than
+    /// one holds, as they are read as one. A test asked of a build by
     /// its category is held to its width already, see `Test::of`, but a
     /// guess at what a build is, and its copies stacked wider, are not.
     pub fn fits(&self, interface: &Interface) -> Result<()> {
@@ -73,11 +76,11 @@ impl Bench {
             );
         }
         let bits: usize = self.output_widths(interface).iter().sum();
-        if bits > u64::BITS as usize {
+        if bits > Value::BITS as usize {
             bail!(
                 "Too wide to simulate: its outputs have {bits} bits, and the \
                  simulator reads at most {}.",
-                u64::BITS
+                Value::BITS
             );
         }
         Ok(())
@@ -91,7 +94,7 @@ impl Bench {
             outputs,
             pattern: pattern.to_owned(),
             held: Vec::new(),
-            care: u64::MAX,
+            care: Value::MAX,
             press: None,
             invertible: true,
         }
@@ -135,13 +138,13 @@ pub(super) struct Spec {
 pub(super) struct Kind {
     pub pattern: String,
     pub reading: Option<Reading>,
-    pub expected: Box<dyn Fn(&Case) -> u64>,
+    pub expected: Box<dyn Fn(&Case) -> Value>,
 }
 
 impl Kind {
     pub fn new(
         pattern: &str,
-        expected: impl Fn(&Case) -> u64 + 'static,
+        expected: impl Fn(&Case) -> Value + 'static,
     ) -> Self {
         Kind {
             pattern: pattern.to_owned(),
@@ -170,7 +173,7 @@ pub(super) enum Cases {
     /// Only the values of A the function gives, quick or not, with whether
     /// they are every one, for an input that takes only some values, as a
     /// BCD input takes only decimal digits.
-    Only(Box<dyn Fn(bool) -> (Vec<u64>, bool)>),
+    Only(Box<dyn Fn(bool) -> (Vec<Value>, bool)>),
 }
 
 impl Spec {
@@ -266,17 +269,20 @@ impl Spec {
 }
 
 /// `bits` ones, the lowest bits.
-pub(super) fn mask(bits: usize) -> u64 {
+pub(super) fn mask(bits: usize) -> Value {
     match bits {
         0 => 0,
-        bits => u64::MAX >> 64usize.saturating_sub(bits),
+        bits => Value::MAX >> (Value::BITS as usize).saturating_sub(bits),
     }
 }
 
 /// Values of `width` bits that make an adder carry far and across its
 /// groups: none and all set; ones and zeros alternating in runs of one,
-/// two, and four, at every shift; and each bit alone set or clear.
-pub(super) fn patterns(width: usize) -> Vec<u64> {
+/// two, and four, at every shift; and each bit alone set or clear. Past
+/// `WIDE` bits, only each hex digit's lowest and highest bit is set or
+/// cleared alone, a carry into it and out of it, so a 64-bit build pairs
+/// as many as a 32-bit one.
+pub(super) fn patterns(width: usize) -> Vec<Value> {
     let all = mask(width);
     let mut found = vec![0, all];
     for period in [2, 4, 8] {
@@ -287,7 +293,8 @@ pub(super) fn patterns(width: usize) -> Vec<u64> {
             found.push(runs);
         }
     }
-    for bit in 0..width {
+    let alone = |bit: usize| width <= WIDE || matches!(bit % 4, 0 | 3);
+    for bit in (0..width).filter(|&bit| alone(bit)) {
         found.extend([1 << bit, all & !(1 << bit)]);
     }
     found.sort_unstable();
@@ -332,7 +339,7 @@ pub(super) fn cases(
             let mut case = [0; 3];
             let mut shift = 0;
             for (value, &width) in case.iter_mut().zip(widths) {
-                *value = packed >> shift & mask(width);
+                *value = Value::from(packed) >> shift & mask(width);
                 shift += width;
             }
             case
@@ -345,7 +352,7 @@ pub(super) fn cases(
 /// taking 0 and 1, with how many there are: a quick look, enough to tell
 /// an adder from a multiplier, even for a build slow to run.
 pub(super) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
-    let choices: Vec<Vec<u64>> = widths
+    let choices: Vec<Vec<Value>> = widths
         .iter()
         .map(|&width| {
             if width == 1 {
@@ -375,12 +382,12 @@ pub(super) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
 /// About a dozen values of `width` bits that tell functions apart: none,
 /// one, and all set; alternate bits and pairs of bits, each way; the top
 /// bit alone; the low half set; and two with no pattern.
-fn telling(width: usize) -> Vec<u64> {
+fn telling(width: usize) -> Vec<Value> {
     let all = mask(width);
-    let mut values: Vec<u64> = [
+    let mut values: Vec<Value> = [
         0,
         1,
-        u64::MAX,
+        Value::MAX,
         0x5555_5555_5555_5555,
         0xAAAA_AAAA_AAAA_AAAA,
         0x3333_3333_3333_3333,
@@ -427,7 +434,7 @@ impl Run {
 
 /// The bits of one of a bench's inputs, by its place in each case, to
 /// drive the other way round, as a lever saved the wrong way does.
-type Flip = Option<(usize, u64)>;
+type Flip = Option<(usize, Value)>;
 
 /// Which of a bench's inputs read inverted, a bit per input in the order
 /// of its inputs.
@@ -475,7 +482,7 @@ fn best(
     bench: &Bench,
     kinds: &[Kind],
     cases: &[Case],
-    got: &[u64],
+    got: &[Value],
 ) -> Option<Run> {
     let widths = bench.widths(interface);
     let readings: Vec<(&Kind, Inversion)> = kinds
@@ -530,7 +537,7 @@ fn reading<'k>(
     kind: &'k Kind,
     widths: &'k [usize],
     inversion: Inversion,
-) -> impl Fn(&Case) -> u64 + 'k {
+) -> impl Fn(&Case) -> Value + 'k {
     move |case: &Case| {
         let mut case = *case;
         for (i, &width) in widths.iter().enumerate() {
@@ -551,7 +558,7 @@ pub(super) fn sweep(
     bench: &Bench,
     cases: &[Case],
     flip: Flip,
-    expected: impl Fn(&Case) -> u64,
+    expected: impl Fn(&Case) -> Value,
 ) -> Result<Run> {
     let got = observe(blocks, interface, bench, cases, flip)?;
     Ok(judge(interface, bench, cases, &got, expected))
@@ -566,7 +573,7 @@ pub(super) fn observe(
     bench: &Bench,
     cases: &[Case],
     flip: Flip,
-) -> Result<Vec<u64>> {
+) -> Result<Vec<Value>> {
     let mut circuit = Circuit::new(blocks, interface)?;
     for &(port, value) in &bench.held {
         circuit.set(port, value);
@@ -631,7 +638,7 @@ pub(super) fn remembers_any(
     blocks: &Blocks,
     interface: &Interface,
     (inputs, outputs): (&[usize], &[usize]),
-    settings: impl IntoIterator<Item = Vec<(usize, u64)>>,
+    settings: impl IntoIterator<Item = Vec<(usize, Value)>>,
 ) -> Result<bool> {
     for held in settings {
         let bench = Bench {
@@ -639,7 +646,7 @@ pub(super) fn remembers_any(
             outputs: outputs.to_vec(),
             pattern: String::new(),
             held,
-            care: u64::MAX,
+            care: Value::MAX,
             press: None,
             invertible: false,
         };
@@ -669,13 +676,13 @@ pub(super) fn judge(
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
-    got: &[u64],
-    expected: impl Fn(&Case) -> u64,
+    got: &[Value],
+    expected: impl Fn(&Case) -> Value,
 ) -> Run {
     let widths = bench.output_widths(interface);
     let result_bits: usize = widths.iter().sum();
     // Each output's value from a result, the first holding the lowest bits.
-    let split = |result: u64| {
+    let split = |result: Value| {
         let mut shift = 0;
         widths
             .iter()
@@ -684,7 +691,7 @@ pub(super) fn judge(
                 shift += width;
                 value
             })
-            .collect::<Vec<u64>>()
+            .collect::<Vec<Value>>()
     };
     let mut wrong = 0;
     let mut wrong_by_bit = vec![0; result_bits];
@@ -696,7 +703,7 @@ pub(super) fn judge(
         if want != got {
             wrong += 1;
             for (bit, count) in wrong_by_bit.iter_mut().enumerate() {
-                *count += (want ^ got) >> bit & 1;
+                *count += u64::from((want ^ got) >> bit & 1 == 1);
             }
             if examples.len() < 5 {
                 examples.push(Wrong {
@@ -800,7 +807,7 @@ mod tests {
         inputs: Vec<Port>,
         outputs: Vec<Port>,
         kinds: &[Kind],
-        got: impl Fn(&Case) -> u64,
+        got: impl Fn(&Case) -> Value,
     ) -> Run {
         let interface = Interface { inputs, outputs };
         let bench = Bench::new(
@@ -811,7 +818,7 @@ mod tests {
         let (cases, _, _) = cases(&bench.widths(&interface), || {
             unreachable!("few enough bits to try every case")
         });
-        let got: Vec<u64> = cases.iter().map(got).collect();
+        let got: Vec<Value> = cases.iter().map(got).collect();
         best(&interface, &bench, kinds, &cases, &got).unwrap()
     }
 
@@ -857,8 +864,8 @@ mod tests {
                 port("B", "light blue concrete", 2),
             ],
             vec![port("A = B", "pink concrete", 1)],
-            &[Kind::new("A = B", |case| u64::from(case[0] == case[1]))],
-            |case| u64::from(case[0] != case[1]),
+            &[Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
+            |case| Value::from(case[0] != case[1]),
         );
         assert_eq!(run.wrong, run.cases);
     }
@@ -903,7 +910,7 @@ mod tests {
             outputs: outputs.clone(),
         })
         .unwrap();
-        let odd = |case: &Case| u64::from(case[0].count_ones() % 2 == 1);
+        let odd = |case: &Case| Value::from(case[0].count_ones() % 2 == 1);
         let run = judged(inputs, outputs, &spec.kinds, odd);
         assert_eq!((run.wrong, run.cases), (0, 16));
         assert_eq!(run.pattern, "xor of A's bits");

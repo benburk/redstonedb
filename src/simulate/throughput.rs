@@ -14,6 +14,7 @@
 use anyhow::Result;
 
 use super::{
+    Value,
     bench::mask,
     circuit::{Circuit, input_bits},
     rng::Rng,
@@ -95,7 +96,7 @@ pub(super) fn controlled(
     interface: &interface::Interface,
     timing: &Timing,
     control: impl Fn(usize) -> bool,
-    stream: impl Fn(usize) -> Vec<Vec<u64>>,
+    stream: impl Fn(usize) -> Vec<Vec<Value>>,
 ) -> Result<Option<i32>> {
     let latency = read_at(timing);
     if latency.len() != interface.outputs.len() {
@@ -129,7 +130,7 @@ pub(super) fn controlled(
 /// right too.
 pub(super) fn shortest(
     blocks: &Blocks,
-    (short, long): (&[Vec<u64>], &[Vec<u64>]),
+    (short, long): (&[Vec<Value>], &[Vec<Value>]),
     offset: &[i32],
     latency: &[i32],
     most: i32,
@@ -180,11 +181,11 @@ pub(super) fn shortest(
 /// `presses`, pressed in turn, each settling, read from its `outputs`.
 fn settled_cases(
     circuit: &mut Circuit,
-    cases: &[Vec<u64>],
+    cases: &[Vec<Value>],
     button: &[bool],
     presses: &[usize],
     outputs: usize,
-) -> Result<Vec<Vec<u64>>> {
+) -> Result<Vec<Vec<Value>>> {
     let mut expected = Vec::with_capacity(cases.len());
     for case in cases {
         for (port, &value) in case.iter().enumerate() {
@@ -207,8 +208,8 @@ fn settled_cases(
 struct Stream<'a> {
     blocks: &'a Blocks,
     interface: &'a crate::recognize::interface::Interface,
-    cases: &'a [Vec<u64>],
-    expected: &'a [Vec<u64>],
+    cases: &'a [Vec<Value>],
+    expected: &'a [Vec<Value>],
     offset: &'a [i32],
     latency: &'a [i32],
     button: &'a [bool],
@@ -232,7 +233,7 @@ impl Stream<'_> {
         // Ticks from the stream's start: case `i`'s A goes in at
         // `start + i * period`.
         let start = -soonest.unwrap_or(0).min(0);
-        let mut sets: Vec<(i32, usize, u64)> = Vec::new();
+        let mut sets: Vec<(i32, usize, Value)> = Vec::new();
         let mut reads: Vec<(i32, usize, usize)> = Vec::new();
         for ((i, case), n) in cases.iter().enumerate().zip(0..) {
             let a = start + n * period;
@@ -280,10 +281,16 @@ impl Stream<'_> {
 /// carries and the most bits change, as zero, all ones, one, and
 /// alternating bits, then as many from a simple generator, so every build
 /// is measured on the same stream.
-fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
+fn stream(widths: &[usize], random: usize) -> Vec<Vec<Value>> {
     let special = |w: usize| {
-        [0, u64::MAX, 1, 0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa]
-            .map(|v| v & mask(w))
+        [
+            0,
+            Value::MAX,
+            1,
+            0x5555_5555_5555_5555,
+            0xaaaa_aaaa_aaaa_aaaa,
+        ]
+        .map(|v| v & mask(w))
     };
     // Every mix only while there are few: past `MIXES`, as for many
     // control lines, the generator alone.
@@ -291,7 +298,7 @@ fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
         .ok()
         .and_then(|n| 5_usize.checked_pow(n))
         .is_some_and(|mixes| mixes <= MIXES);
-    let mut cases: Vec<Vec<u64>> =
+    let mut cases: Vec<Vec<Value>> =
         if few { vec![Vec::new()] } else { Vec::new() };
     for &w in widths {
         cases = cases
@@ -312,10 +319,20 @@ fn stream(widths: &[usize], random: usize) -> Vec<Vec<u64>> {
     let mut stream = Vec::new();
     for case in cases {
         stream.push(case);
-        stream.push(widths.iter().map(|&w| rng.draw() & mask(w)).collect());
+        stream.push(
+            widths
+                .iter()
+                .map(|&w| Value::from(rng.draw()) & mask(w))
+                .collect(),
+        );
     }
     while stream.len() < 2 * random {
-        stream.push(widths.iter().map(|&w| rng.draw() & mask(w)).collect());
+        stream.push(
+            widths
+                .iter()
+                .map(|&w| Value::from(rng.draw()) & mask(w))
+                .collect(),
+        );
     }
     stream
 }

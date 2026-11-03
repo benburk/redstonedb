@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Run, Signal, Wrong,
+    Broken, Run, Signal, Value, Wrong,
     bench::{mask, patterns},
     circuit::{Circuit, MAX_TICKS},
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
@@ -76,7 +76,7 @@ enum Op {
 
 impl Op {
     /// What it makes of `value`, `data` on A, `width` bits wide.
-    fn apply(self, value: u64, data: u64, width: usize) -> u64 {
+    fn apply(self, value: Value, data: Value, width: usize) -> Value {
         let all = mask(width);
         match self {
             Op::Up => value.wrapping_add(1) & all,
@@ -84,9 +84,9 @@ impl Op {
             Op::Load => data & all,
             Op::Clear => 0,
             Op::Toggle => !value & all,
-            Op::ShiftUp { fill } => (value << 1 | u64::from(fill)) & all,
+            Op::ShiftUp { fill } => (value << 1 | Value::from(fill)) & all,
             Op::ShiftDown { fill } => {
-                (value >> 1 | u64::from(fill) << (width - 1)) & all
+                (value >> 1 | Value::from(fill) << (width - 1)) & all
             }
         }
     }
@@ -116,7 +116,7 @@ impl Op {
 
 /// The operation, if any, that took `value` to `got` with `data` on A:
 /// one of `value` and `data` that no two operations agree on.
-fn classify(value: u64, data: u64, got: u64, width: usize) -> Option<Op> {
+fn classify(value: Value, data: Value, got: Value, width: usize) -> Option<Op> {
     let ops = [
         Op::Up,
         Op::Down,
@@ -229,7 +229,7 @@ struct Machine<'a> {
 
 impl Machine<'_> {
     /// The value held.
-    fn read(&self) -> u64 {
+    fn read(&self) -> Value {
         self.circuit.get(self.lines.state)
     }
 
@@ -239,7 +239,7 @@ impl Machine<'_> {
     }
 
     /// Makes `way` with `data` on A, running until nothing changes.
-    fn apply(&mut self, way: Way, data: u64) -> Result<()> {
+    fn apply(&mut self, way: Way, data: Value) -> Result<()> {
         if let Some(port) = self.lines.data {
             self.circuit.set(port, data);
             self.circuit.settle()?;
@@ -258,7 +258,7 @@ impl Machine<'_> {
 
     /// Brings the value held to `value`, as `setter` sets it: loading it,
     /// or counting to it.
-    fn reach(&mut self, setter: Setter, value: u64) -> Result<()> {
+    fn reach(&mut self, setter: Setter, value: Value) -> Result<()> {
         if setter.1 == Op::Load {
             return self.apply(setter.0, value);
         }
@@ -341,19 +341,20 @@ struct Found {
 const EXAMPLES: usize = 10;
 
 /// The most pulses a count is checked over.
-const MOST_COUNTS: u64 = 300;
+const MOST_COUNTS: Value = 300;
 
 /// The pulses a toggle is checked over: enough that one toggling only on
 /// some pulses, or every other, shows it.
-const TOGGLES: u64 = 16;
+const TOGGLES: Value = 16;
 
 /// A value of `width` bits no two operations agree on from, with `salt`
 /// for a second such value: neither all off nor all on, its bits mixed.
-fn telling(width: usize, salt: u64) -> u64 {
+fn telling(width: usize, salt: Value) -> Value {
     let all = mask(width);
-    let value = (0xB2D4_96A5_C3E1_7F0B_u64
-        .rotate_left(u32::try_from(salt * 7).unwrap_or(0)))
-        & all;
+    let value = Value::from(
+        0xB2D4_96A5_C3E1_7F0B_u64
+            .rotate_left(u32::try_from(salt * 7).unwrap_or(0)),
+    ) & all;
     if width < 3 || value == 0 || value == all {
         // Narrow builds have few values; any not 0 does.
         return (1 + salt) & all;
@@ -583,7 +584,7 @@ fn operations<'a>(
     let (first, second) = (telling(width, 0), telling(width, 1));
     let mut found: Vec<(Way, Op)> = Vec::new();
     for &way in all_ways {
-        let tried = |data: u64| -> Result<u64> {
+        let tried = |data: Value| -> Result<Value> {
             let mut machine = fresh()?;
             machine.reach(setter, first)?;
             machine.apply(way, data)?;
@@ -623,10 +624,10 @@ impl Tally {
     /// was due, made as `what` says.
     fn note(
         &mut self,
-        before: u64,
-        data: u64,
-        expected: u64,
-        got: u64,
+        before: Value,
+        data: Value,
+        expected: Value,
+        got: Value,
         what: &str,
     ) {
         self.cases += 1;
@@ -676,7 +677,7 @@ impl Tally {
             }
             return Ok(());
         }
-        let values: Vec<u64> = if width <= 8 {
+        let values: Vec<Value> = if width <= 8 {
             (0..=mask(width)).collect()
         } else {
             patterns(width)

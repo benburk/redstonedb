@@ -9,7 +9,7 @@ use crate::{
     schem::Pos,
     simulate::{
         Action, Edge, Glitch, InputTiming, OutputTiming, Report, Run, Stacking,
-        Start, Takes, Timing,
+        Start, Takes, Timing, Value,
     },
 };
 
@@ -558,7 +558,7 @@ fn cell_faults(run: &Run) -> Markup {
 
 /// `value` as `bits` binary digits, those that differ from `expected`
 /// marked, then in decimal when it has more than one bit.
-fn value_bits(value: u64, expected: u64, bits: usize) -> Markup {
+fn value_bits(value: Value, expected: Value, bits: usize) -> Markup {
     html! {
         span class="whitespace-nowrap" {
             span class="font-mono" { (marked_bits(value, expected, bits)) }
@@ -571,7 +571,7 @@ fn value_bits(value: u64, expected: u64, bits: usize) -> Markup {
 
 /// `value` in binary, `width` digits, with each digit that differs from
 /// `expected` marked.
-fn marked_bits(value: u64, expected: u64, width: usize) -> Markup {
+fn marked_bits(value: Value, expected: Value, width: usize) -> Markup {
     html! {
         @for bit in (0..width).rev() {
             @let digit = value >> bit & 1;

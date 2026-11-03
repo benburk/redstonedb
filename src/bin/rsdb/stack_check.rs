@@ -859,7 +859,7 @@ fn carry_power(blocks: &Blocks, layout: &Layout) -> Result<CarryPower> {
     for (carry, power) in each.iter_mut().enumerate() {
         circuit.set(0, 0);
         circuit.set(1, 0);
-        circuit.set(2, u64::try_from(carry)?);
+        circuit.set(2, simulate::Value::try_from(carry)?);
         circuit.settle()?;
         for (pos, state) in blocks.iter() {
             if state != schem::AIR {
@@ -1099,7 +1099,7 @@ fn carry_across(
     let mut circuit = Circuit::new(after, &wide.interface(after))?;
     let width = layout.a.len();
     let at = order.iter().position(|&c| c == from).unwrap_or(0);
-    let ones = ((1u64 << width) - 1) << (at * width);
+    let ones: simulate::Value = ((1 << width) - 1) << (at * width);
     // The path as later copies repeat it: not a lever, nor what only the
     // first copy keeps.
     let cells: Vec<Pos> = carry_path(power, carry_in)

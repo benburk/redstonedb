@@ -20,7 +20,7 @@ use mchprs_redpiler::{
 };
 use mchprs_world::{World, testing::TestWorld};
 
-use super::Broken;
+use super::{Broken, Value};
 use crate::{
     recognize::{
         colour,
@@ -211,7 +211,7 @@ impl Circuit {
 
     /// Sets input `port` to `value`, flipping the levers that change, or
     /// filling each digit's barrel.
-    pub fn set(&mut self, port: usize, value: u64) {
+    pub fn set(&mut self, port: usize, value: Value) {
         match &mut self.inputs[port] {
             Drive::Levers(levers) => {
                 for (i, lever) in levers.iter_mut().enumerate() {
@@ -420,7 +420,7 @@ impl Circuit {
     /// component carrying it out of the build, however the block below is
     /// powered. A bit is on while its component is; a digit is the strength
     /// its component gives out.
-    pub fn get(&self, port: usize) -> u64 {
+    pub fn get(&self, port: usize) -> Value {
         let (blocks, digits) = &self.outputs[port];
         blocks.iter().enumerate().fold(0, |value, (i, &pos)| {
             let top = pos.offset(BlockFace::Top);
@@ -442,9 +442,9 @@ impl Circuit {
                 _ => (false, 0),
             };
             if *digits {
-                value | u64::from(strength) << (4 * i)
+                value | Value::from(strength) << (4 * i)
             } else {
-                value | u64::from(on) << i
+                value | Value::from(on) << i
             }
         })
     }

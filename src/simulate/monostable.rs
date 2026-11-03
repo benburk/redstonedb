@@ -26,7 +26,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Run, Signal, Wrong,
+    Broken, Run, Signal, Value, Wrong,
     bench::mask,
     circuit::{Circuit, MAX_TICKS},
     stacking::{self, Stacking},
@@ -50,9 +50,9 @@ const EXAMPLES: usize = 10;
 /// One change of input A and what every output bit did after it.
 struct Case {
     /// A after the change.
-    a: u64,
+    a: Value,
     /// The bits of A that changed.
-    flipped: u64,
+    flipped: Value,
     /// Whether they turned on rather than off.
     on: bool,
     /// Each output bit's change ticks, from A's.
@@ -134,7 +134,7 @@ impl Cases {
 }
 
 /// The bits set in `value`, of `width`.
-fn bits(value: u64, width: usize) -> impl Iterator<Item = usize> {
+fn bits(value: Value, width: usize) -> impl Iterator<Item = usize> {
     (0..width).filter(move |&bit| value >> bit & 1 == 1)
 }
 
@@ -313,7 +313,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
              off, where a monostable's all rest alike."
         ),
     };
-    let changes = |circuit: &mut Circuit, flipped: u64, on: bool| {
+    let changes = |circuit: &mut Circuit, flipped: Value, on: bool| {
         let a = if on { flipped } else { 0 };
         circuit.set(0, a);
         watch(circuit, &outputs).map(|changes| Case {
@@ -326,7 +326,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
     let mut cases = Vec::new();
     let mut follows = false;
     // Each bit alone, then every bit together.
-    let mut turned_on: Vec<u64> = (0..width).map(|bit| 1 << bit).collect();
+    let mut turned_on: Vec<Value> = (0..width).map(|bit| 1 << bit).collect();
     if width > 1 {
         turned_on.push(all);
     }
@@ -396,7 +396,7 @@ fn output_bits(interface: &Interface) -> Result<Vec<(usize, usize)>> {
 }
 
 /// The value `outputs` show, a bit for each bit of A.
-fn read(circuit: &Circuit, outputs: &[(usize, usize)]) -> u64 {
+fn read(circuit: &Circuit, outputs: &[(usize, usize)]) -> Value {
     outputs
         .iter()
         .enumerate()
@@ -607,7 +607,7 @@ struct Retriggered<'a> {
     edge: Edge,
     ticks: i32,
     latest: &'a [i32],
-    rest: u64,
+    rest: Value,
 }
 
 impl Retriggered<'_> {

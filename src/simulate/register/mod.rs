@@ -34,7 +34,7 @@
 use anyhow::Result;
 
 use self::check::check_on;
-use super::{Run, bench::mask};
+use super::{Run, Value, bench::mask};
 use crate::{
     category,
     schem::{Blocks, Pos},
@@ -103,7 +103,7 @@ struct Read {
 
 impl Read {
     /// What its bus shows of a cell holding `held`, of `width` bits.
-    fn shows(&self, held: u64, width: usize) -> u64 {
+    fn shows(&self, held: Value, width: usize) -> Value {
         if self.inverted {
             !held & mask(width)
         } else {
@@ -126,12 +126,12 @@ struct Register {
     cells: Vec<Cell>,
     /// What each bus shows with no read on, which no cell may change: 0,
     /// or all ones for an inverted bus.
-    idle: Vec<u64>,
+    idle: Vec<Value>,
 }
 
 /// The offset between the values one round writes into successive cells:
 /// odd, so each cell takes every value as the round's does.
-const STRIDE: u64 = 0x9d;
+const STRIDE: Value = 0x9d;
 
 /// Runs the register or buffer in `blocks` through its every case, or when
 /// `quick` a few telling ones, for a guess at what a build is.

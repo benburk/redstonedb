@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    MAX_WIDTH, Report, Test,
+    MAX_STACKED, Report, Test, Value,
     adder::{self, ADD, AdderPorts, adder_ports},
     bench::{Case, mask, sweep},
     circuit::{Circuit, input_bits},
@@ -259,7 +259,7 @@ pub fn adder_at(
     let ports = adder_ports(&mut interface, &ADD).ok()?;
     ports.carry_in?;
     let width = input_bits(&interface.inputs[ports.a]);
-    if width * copies > MAX_WIDTH {
+    if width * copies > MAX_STACKED {
         return None;
     }
     let variant = Test::Adder
@@ -328,7 +328,7 @@ fn copies(step: Step, width: usize) -> Option<usize> {
     let length = u64::try_from(step.west + step.up + step.north).ok()?;
     let reach = u64::try_from(DUST_REACH + 1).ok()?;
     let reaching = usize::try_from(reach.div_ceil(length) + 1).ok()?;
-    let fitting = MAX_WIDTH / width;
+    let fitting = MAX_STACKED / width;
     let copies = reaching.max(3).min(fitting);
     (copies >= 2).then_some(copies)
 }
@@ -478,7 +478,7 @@ fn stacked(
 }
 
 /// A stack's result from its outputs' values, the sum below its carry out.
-fn joined(values: &[u64], bits: usize) -> u64 {
+fn joined(values: &[Value], bits: usize) -> Value {
     values[0] | values.get(1).copied().unwrap_or(0) << bits
 }
 
@@ -486,7 +486,7 @@ fn joined(values: &[u64], bits: usize) -> u64 {
 /// all ones below it plus one, and its lowest bits each doubled, with
 /// carry in each way; and none and all ones plus one across the whole.
 fn seam_cases(bits: usize, width: usize, carry_in: bool) -> Vec<Case> {
-    let carries: &[u64] = if carry_in { &[0, 1] } else { &[0] };
+    let carries: &[Value] = if carry_in { &[0, 1] } else { &[0] };
     let mut cases = vec![[0, 0, 0], [mask(bits), 1, 0]];
     for seam in (width..bits).step_by(width) {
         let below = 1 << (seam - 1);
@@ -535,7 +535,7 @@ pub(super) fn chained(data: &[u8], test: Test) -> Stacking {
         // Copies that overlap may read as a bus wider than any test, so
         // only a stack of the bits its copies add is run.
         let stacked = interface::read(&blocks);
-        let wide = |port: &interface::Port| port.bits.len() > MAX_WIDTH;
+        let wide = |port: &interface::Port| port.bits.len() > MAX_STACKED;
         if stacked.inputs.first()?.bits.len() != width * copies
             || stacked.inputs.iter().any(wide)
         {
@@ -651,7 +651,8 @@ pub(super) fn into_bits(
 /// Whether copies of the build in `data`, a gate or another whose bits
 /// each work alone, stack into more bits as [`into_bits`] tries: a stack
 /// works when every case of `test` comes out right and its A, the input
-/// `a` finds, has every copy's bits. `None` when `a` finds no A in the
+/// `a` finds, has every copy's bits, no more than [`MAX_STACKED`] of them.
+/// `None` when `a` finds no A in the
 /// build itself; `not` says why none stacks.
 pub(super) fn bitwise(
     data: &[u8],
@@ -665,6 +666,9 @@ pub(super) fn bitwise(
     let reach = [0, 1].map(|axis| i64::from(blocks.size[axis]));
     let buses = stack::Buses::of(test.kind(), Orientation::Horizontal);
     let works = |blocks: &Blocks, copies: usize| {
+        if width * copies > MAX_STACKED {
+            return None;
+        }
         let interface = interface::read(blocks);
         let a = a(&interface)?;
         let Report::Ran(run) = test.run(blocks) else {

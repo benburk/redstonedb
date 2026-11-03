@@ -37,9 +37,10 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken,
+    Broken, Value,
     bench::{self, EXHAUSTIVE_BITS},
     circuit::{Circuit, MAX_TICKS, input_bits, output_bits},
+    value,
 };
 use crate::{
     recognize::{colour, interface::Interface},
@@ -62,7 +63,8 @@ pub struct Timing {
     pub p99: i32,
     pub slowest: i32,
     /// The inputs of the slowest, in the order of `inputs`.
-    pub slowest_case: Vec<u64>,
+    #[serde(with = "value::many")]
+    pub slowest_case: Vec<Value>,
     /// How many changes were measured.
     pub changes: u64,
     /// Whether the inputs took the test patterns rather than every value.
@@ -250,11 +252,14 @@ pub struct OutputTiming {
 pub struct Glitch {
     /// The inputs it changed to from all off, in the order of
     /// `Timing::inputs`.
-    pub case: Vec<u64>,
+    #[serde(with = "value::many")]
+    pub case: Vec<Value>,
     /// The output's value before the change.
-    pub before: u64,
+    #[serde(with = "value")]
+    pub before: Value,
     /// Each tick the output changed on, from A's, and its value from then.
-    pub steps: Vec<(i32, u64)>,
+    #[serde(with = "value::many::ticked")]
+    pub steps: Vec<(i32, Value)>,
 }
 
 impl Glitch {
@@ -285,8 +290,8 @@ pub(super) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
-    held: &[(usize, u64)],
-    chosen: Option<(Vec<Vec<u64>>, bool)>,
+    held: &[(usize, Value)],
+    chosen: Option<(Vec<Vec<Value>>, bool)>,
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
@@ -431,7 +436,7 @@ pub(super) fn pressed(
 ) -> Result<Timing> {
     let (cases, _) = bench::paired(&bench.widths(interface));
     let expected = bench::observe(blocks, interface, bench, &cases, None)?;
-    let on = |cases: &[bench::Case], expected: &[u64], offset: i32| {
+    let on = |cases: &[bench::Case], expected: &[Value], offset: i32| {
         if cancel.load(Ordering::Relaxed) {
             bail!("The timing was cancelled.");
         }
@@ -497,7 +502,7 @@ fn press_at(
     blocks: &Blocks,
     interface: &Interface,
     bench: &bench::Bench,
-    (cases, expected): (&[bench::Case], &[u64]),
+    (cases, expected): (&[bench::Case], &[Value]),
     offset: i32,
 ) -> Result<Option<(Runs, Vec<i32>)>> {
     let Some(calculate) = bench.press else {
@@ -513,7 +518,7 @@ fn press_at(
     let button = circuit.is_button(calculate, 0);
     let mut runs: Runs = Vec::with_capacity(cases.len());
     for (case, &want) in cases.iter().zip(expected) {
-        let mut shown: Vec<u64> =
+        let mut shown: Vec<Value> =
             bench.outputs.iter().map(|&o| circuit.get(o)).collect();
         let mut flips: Vec<Vec<Vec<i32>>> =
             widths.iter().map(|&w| vec![Vec::new(); w]).collect();
@@ -728,7 +733,7 @@ fn output_timings(
 
 /// The values each input of `widths` bits takes: every one, or the test
 /// patterns when that would be too many, which the `bool` says.
-fn values_to_try(widths: &[usize]) -> (Vec<Vec<u64>>, bool) {
+fn values_to_try(widths: &[usize]) -> (Vec<Vec<Value>>, bool) {
     let patterns = widths.iter().sum::<usize>() > EXHAUSTIVE_BITS;
     let values = widths
         .iter()
@@ -749,9 +754,9 @@ struct Rig<'a> {
     interface: &'a Interface,
     inputs: &'a [usize],
     /// Inputs set before anything is measured and left alone.
-    held: &'a [(usize, u64)],
+    held: &'a [(usize, Value)],
     /// The values each input takes, 0 among them.
-    values: &'a [Vec<u64>],
+    values: &'a [Vec<Value>],
     /// Each output port's width.
     outputs: &'a [usize],
     cancel: &'a AtomicBool,
@@ -847,7 +852,7 @@ impl Rig<'_> {
                 self.check_cancel()?;
             }
             let values = self.pick(&every, case);
-            let changes = |off: bool| -> Vec<(i32, usize, u64)> {
+            let changes = |off: bool| -> Vec<(i32, usize, Value)> {
                 values
                     .iter()
                     .enumerate()
@@ -880,7 +885,7 @@ impl Rig<'_> {
 
     /// The values of `inputs` in their `index`th combination, the first
     /// changing fastest.
-    fn pick(&self, inputs: &[usize], mut index: u64) -> Vec<u64> {
+    fn pick(&self, inputs: &[usize], mut index: u64) -> Vec<Value> {
         inputs
             .iter()
             .map(|&input| {
@@ -911,23 +916,23 @@ impl Rig<'_> {
 /// the last tick any output changed on, if one did.
 fn transition(
     circuit: &mut Circuit,
-    changes: &[(i32, usize, u64)],
-    case: Option<(u64, &[u64])>,
+    changes: &[(i32, usize, Value)],
+    case: Option<(u64, &[Value])>,
     stats: &mut Stats,
 ) -> Result<Option<i32>> {
     let lead = circuit.lead();
-    let mut changes: Vec<(i32, usize, u64)> = changes
+    let mut changes: Vec<(i32, usize, Value)> = changes
         .iter()
         .map(|&(tick, port, value)| (tick - lead[port], port, value))
         .collect();
     changes.sort_unstable_by_key(|&(tick, ..)| tick);
     let start = changes.first().map_or(0, |&(tick, ..)| tick);
-    let mut shown: Vec<u64> =
+    let mut shown: Vec<Value> =
         (0..stats.outputs.len()).map(|o| circuit.get(o)).collect();
     let before = shown.clone();
     let carried = circuit.carried();
     // Per output, each tick it changed on and its value from then.
-    let mut steps: Vec<Vec<(i32, u64)>> = vec![Vec::new(); shown.len()];
+    let mut steps: Vec<Vec<(i32, Value)>> = vec![Vec::new(); shown.len()];
     // Per output, per bit: how many times it changed, first, and last.
     let mut seen: Vec<Vec<(u32, i32, i32)>> = stats
         .outputs
@@ -1017,7 +1022,7 @@ struct Stats {
     /// How many changes settled the whole result by each tick.
     settled: BTreeMap<i32, u64>,
     /// The slowest change's tick and input values.
-    slowest: (i32, Vec<u64>),
+    slowest: (i32, Vec<Value>),
     changes: u64,
 }
 

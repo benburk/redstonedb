@@ -13,6 +13,7 @@ use crate::{
     recognize::interface,
     schem::{Blocks, Pos, stack},
     simulate::{
+        Value,
         bench::mask,
         circuit::Circuit,
         rng::Rng,
@@ -292,7 +293,7 @@ pub fn throughput(
 /// One period of a register's stream: the value the data bus takes, and
 /// the cell written or the cell and read read.
 struct Access {
-    value: u64,
+    value: Value,
     write: Option<usize>,
     read: Option<(usize, usize)>,
 }
@@ -305,7 +306,7 @@ fn accesses(register: &Register, count: usize, kind: Kind) -> Vec<Access> {
     let mut rng = Rng::default();
     (0..count)
         .map(|_| {
-            let value = rng.draw() & mask(register.width);
+            let value = Value::from(rng.draw()) & mask(register.width);
             let cell = rng.below(register.cells.len());
             if kind == Kind::Buffer {
                 return Access {
@@ -388,7 +389,7 @@ impl Stream<'_> {
         // Each read's start, bus, and what it should show, from what was
         // written before it, or a buffer's, which shows what it is given,
         // with it.
-        let mut reads: Vec<(i32, usize, u64)> = Vec::new();
+        let mut reads: Vec<(i32, usize, Value)> = Vec::new();
         for (i, step) in steps.iter().enumerate() {
             if let (Some(cell), None) = (step.write, register.reads.first()) {
                 held[cell] = step.value;
@@ -410,7 +411,7 @@ impl Stream<'_> {
         let end = self.period * i32::try_from(steps.len())?
             + late
             + self.latency.iter().copied().max().unwrap_or(0);
-        let mut shown: Vec<Vec<u64>> = Vec::new();
+        let mut shown: Vec<Vec<Value>> = Vec::new();
         for tick in 0..=end {
             let at = tick.div_euclid(self.period);
             let step = usize::try_from(at).ok().and_then(|at| steps.get(at));

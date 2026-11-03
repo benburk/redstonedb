@@ -16,7 +16,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use super::{
-    Broken, Run, Timing,
+    Broken, Run, Timing, Value,
     bench::{self, Bench, Case, mask, observe, sweep},
     circuit::output_bits,
     rng::Rng,
@@ -73,12 +73,12 @@ impl Shift {
     }
 
     /// What it gives for A and the amount `n`, of `width` bits.
-    fn apply(self, a: u64, n: u64, width: usize) -> u64 {
+    fn apply(self, a: Value, n: Value, width: usize) -> Value {
         let all = mask(width);
-        let w = u64::try_from(width).unwrap_or(64);
+        let w = Value::try_from(width).unwrap_or(Value::BITS.into());
         let n = n.min(w);
-        let left = |by: u64| if by >= w { 0 } else { a << by & all };
-        let right = |by: u64| if by >= w { 0 } else { a >> by };
+        let left = |by: Value| if by >= w { 0 } else { a << by & all };
+        let right = |by: Value| if by >= w { 0 } else { a >> by };
         let top = a >> (w - 1) & 1;
         match self {
             Shift::Left => left(n),
@@ -105,7 +105,7 @@ struct Shifter {
     a: usize,
     width: usize,
     /// Each line of the amount, and what it is worth.
-    amount: Vec<(usize, u64)>,
+    amount: Vec<(usize, Value)>,
     /// The lines choosing the shift.
     modes: Vec<usize>,
     output: usize,
@@ -113,14 +113,14 @@ struct Shifter {
 
 impl Shifter {
     /// The largest amount its lines give.
-    fn most(&self) -> u64 {
+    fn most(&self) -> Value {
         self.amount.iter().map(|&(_, worth)| worth).sum()
     }
 
     /// Each amount line's value for amount `n`, which its lines must give.
-    fn amount_lines(&self, n: u64) -> Vec<(usize, u64)> {
+    fn amount_lines(&self, n: Value) -> Vec<(usize, Value)> {
         let mut left = n;
-        let mut lines: Vec<(usize, u64)> = Vec::new();
+        let mut lines: Vec<(usize, Value)> = Vec::new();
         let mut by_worth = self.amount.clone();
         by_worth.sort_by_key(|&(_, worth)| std::cmp::Reverse(worth));
         for (port, worth) in by_worth {
@@ -128,17 +128,17 @@ impl Shifter {
             if on {
                 left -= worth;
             }
-            lines.push((port, u64::from(on)));
+            lines.push((port, Value::from(on)));
         }
         lines
     }
 
     /// The amounts its lines can give, each once.
-    fn amounts(&self) -> Vec<u64> {
+    fn amounts(&self) -> Vec<Value> {
         (0..=self.most())
             .filter(|&n| {
                 let lines = self.amount_lines(n);
-                let worth: u64 = lines
+                let worth: Value = lines
                     .iter()
                     .filter(|&&(_, on)| on == 1)
                     .map(|&(port, _)| {
@@ -168,12 +168,12 @@ fn ports(interface: &Interface) -> Result<Shifter> {
             operands.len()
         );
     };
-    let worth = |i: usize| -> Option<u64> {
+    let worth = |i: usize| -> Option<Value> {
         let words = &interface.inputs[i].words;
         let [word] = words.as_slice() else {
             return None;
         };
-        word.parse().ok().filter(|n: &u64| n.is_power_of_two())
+        word.parse().ok().filter(|n: &Value| n.is_power_of_two())
     };
     let (amount, modes): (Vec<usize>, Vec<usize>) =
         lines.into_iter().partition(|&i| worth(i).is_some());
@@ -219,7 +219,7 @@ fn ports(interface: &Interface) -> Result<Shifter> {
 struct Selection {
     shift: Shift,
     /// Each mode line's value.
-    modes: Vec<(usize, u64)>,
+    modes: Vec<(usize, Value)>,
     /// How it reads in a result, such as `A << n (shift left on)`.
     label: String,
 }
@@ -235,16 +235,16 @@ fn selections(
 ) -> Result<Vec<Selection>> {
     // Every value of A, while there are few, so a combination that shifts
     // only some of them right is not taken for one that shifts them all.
-    let values: Vec<u64> = if shifter.width <= 8 {
-        (0..1u64 << shifter.width).collect()
+    let values: Vec<Value> = if shifter.width <= 8 {
+        (0..1 << shifter.width).collect()
     } else {
         let top = 1 << (shifter.width - 1);
         vec![0, 1, mask(shifter.width), 0x9696 & mask(shifter.width), top]
     };
     let telling: Vec<Case> = values.into_iter().map(|a| [a, 0, 0]).collect();
     let mut found = Vec::new();
-    for combination in 0..1u64 << shifter.modes.len() {
-        let modes: Vec<(usize, u64)> = shifter
+    for combination in 0..1 << shifter.modes.len() {
+        let modes: Vec<(usize, Value)> = shifter
             .modes
             .iter()
             .enumerate()
@@ -262,7 +262,7 @@ fn selections(
                     .copied()
                     .chain(shifter.amount_lines(n))
                     .collect(),
-                care: u64::MAX,
+                care: Value::MAX,
                 press: None,
                 invertible: false,
             };
@@ -309,9 +309,9 @@ fn selections(
 struct Setting {
     /// The shift, by its place among those found.
     shift: usize,
-    amount: u64,
+    amount: Value,
     /// Every line's value.
-    held: Vec<(usize, u64)>,
+    held: Vec<(usize, Value)>,
 }
 
 /// Each setting of its lines to check: every shift found, at every amount.
@@ -354,7 +354,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
             outputs: vec![shifter.output],
             pattern: selection.label.clone(),
             held,
-            care: u64::MAX,
+            care: Value::MAX,
             press: None,
             invertible: false,
         };
@@ -366,7 +366,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
         } else {
             bench::cases(&widths, || {
                 (
-                    (0..1u64 << shifter.width.min(16))
+                    (0..1 << shifter.width.min(16))
                         .map(|a| [a, 0, 0])
                         .collect(),
                     0,
@@ -481,7 +481,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
             .map(|_| {
                 let setting = &settings[rng.below(settings.len())];
                 let mut case = vec![0; interface.inputs.len()];
-                case[shifter.a] = rng.draw() & mask(shifter.width);
+                case[shifter.a] = Value::from(rng.draw()) & mask(shifter.width);
                 for &(port, value) in &setting.held {
                     case[port] = value;
                 }

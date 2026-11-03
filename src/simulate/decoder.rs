@@ -6,7 +6,7 @@
 use anyhow::Result;
 
 use super::{
-    Broken, Test,
+    Broken, Test, Value,
     bench::{Bench, Cases, Kind, Spec, mask},
     rng::Rng,
     stacking::{Apart, Stacking, Step},
@@ -217,22 +217,24 @@ fn apart(
         .iter()
         .map(|bit| owner(bit.pos, &single.outputs[0].bits))
         .collect::<Option<_>>()?;
-    let decode = move |value: u64| {
+    let decode = move |value: Value| {
         let mut each = vec![0; copies];
         for (i, &(k, j)) in a_bits.iter().enumerate() {
             each[k] |= (value >> i & 1) << j;
         }
         out_bits.iter().enumerate().fold(0, |output, (i, &(k, j))| {
-            let on = u64::try_from(j).unwrap_or(u64::MAX) != each[k];
-            output | u64::from(on) << i
+            let on = Value::try_from(j).unwrap_or(Value::MAX) != each[k];
+            output | Value::from(on) << i
         })
     };
     let cases = move || {
-        let values: Vec<u64> = if bits <= EVERY {
+        let values: Vec<Value> = if bits <= EVERY {
             (0..1 << bits).collect()
         } else {
             let mut rng = Rng::default();
-            (0..4096).map(|_| rng.draw() & mask(bits)).collect()
+            (0..4096)
+                .map(|_| Value::from(rng.draw()) & mask(bits))
+                .collect()
         };
         (values.into_iter().map(|a| [a, 0, 0]).collect(), 0)
     };

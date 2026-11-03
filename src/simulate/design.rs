@@ -38,6 +38,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    Value,
     adder::Variant,
     circuit::{Circuit, compiled},
     rng::Rng,
@@ -294,12 +295,14 @@ impl Adder {
     }
 
     /// The value each of A, B, and the carry in takes in `case`.
-    fn values(&self, case: u64) -> Vec<(usize, u64)> {
+    fn values(&self, case: u64) -> Vec<(usize, Value)> {
         let mask = (1u64 << self.width) - 1;
-        let mut values =
-            vec![(self.a, case & mask), (self.b, case >> self.width & mask)];
+        let mut values = vec![
+            (self.a, Value::from(case & mask)),
+            (self.b, Value::from(case >> self.width & mask)),
+        ];
         if let Some(port) = self.carry_in {
-            values.push((port, u64::from(self.lever_carry_in(case))));
+            values.push((port, Value::from(self.lever_carry_in(case))));
         }
         values
     }

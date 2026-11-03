@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken, Reading, Run,
+    Broken, Reading, Run, Value,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::recognize::{
@@ -99,9 +99,9 @@ impl Variant {
     /// What it gives for a case of A, B, and the carry in, as an output
     /// that may hold the carry as its top bit, and a carry out above it if
     /// it has one.
-    pub(super) fn apply(self, case: &Case) -> u64 {
+    pub(super) fn apply(self, case: &Case) -> Value {
         let (a, b) = (case[0], case[1]);
-        let carry = case[2] ^ u64::from(self.carry_in);
+        let carry = case[2] ^ Value::from(self.carry_in);
         if self.subtract {
             a.wrapping_sub(b).wrapping_sub(carry)
         } else {
@@ -232,10 +232,10 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
             adder_cases(width, false, 8)
         })),
         kinds: vec![
-            Kind::new("A > B", |case| u64::from(case[0] > case[1]))
+            Kind::new("A > B", |case| Value::from(case[0] > case[1]))
                 .reading(Reading::GreaterThan { signed: false }),
             Kind::new(SIGNED_GREATER_THAN, move |case| {
-                u64::from(
+                Value::from(
                     sign_extended(case[0], width)
                         > sign_extended(case[1], width),
                 )
@@ -256,7 +256,7 @@ pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
         cases: Cases::Combinations(Box::new(move || {
             adder_cases(width, false, 8)
         })),
-        kinds: vec![Kind::new("A = B", |case| u64::from(case[0] == case[1]))],
+        kinds: vec![Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
         by_digit: false,
     })
 }
@@ -277,8 +277,8 @@ fn comparison(
 }
 
 /// `n`, of `width` bits, read in two's complement.
-fn sign_extended(n: u64, width: usize) -> i64 {
-    let unused = 64 - width;
+fn sign_extended(n: Value, width: usize) -> i128 {
+    let unused = Value::BITS as usize - width;
     (n << unused).cast_signed() >> unused
 }
 
@@ -482,7 +482,7 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
                     cases.add([
                         below.0 | a << low,
                         below.1 | b << low,
-                        u64::from(below.2),
+                        Value::from(below.2),
                     ]);
                 }
             }
@@ -522,6 +522,19 @@ mod tests {
         let (cases, _) = adder_cases(16, false, 8);
         assert!(cases.contains(&[0x00FF, 0x0101, 0]));
         assert!(cases.iter().all(|case| case[2] == 0));
+    }
+
+    /// A 64-bit hex adder takes each digit's every case and pairs as many
+    /// patterns as a 32-bit one, sampled rather than every sum.
+    #[test]
+    fn a_64_bit_hex_adder_takes_as_many_cases_as_a_32_bit_one_and_some() {
+        let (narrow, narrow_paired) = adder_cases(32, true, 4);
+        let (wide, wide_paired) = adder_cases(64, true, 4);
+        assert_eq!((narrow.len(), narrow_paired), (18_399, 12_532));
+        assert_eq!((wide.len(), wide_paired), (24_631, 12_644));
+        // A carry out of the top digit, and all ones plus one across it.
+        assert!(wide.contains(&[0x8 << 60, 0x8 << 60, 1]));
+        assert!(wide.contains(&[u64::MAX.into(), 1, 0]));
     }
 
     #[test]

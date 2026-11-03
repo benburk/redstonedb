@@ -68,6 +68,7 @@ mod stacking;
 mod strength;
 mod throughput;
 mod timing;
+mod value;
 
 pub use adder::Variant as AdderVariant;
 pub use alu::{flags as alu_flags, op as alu_op};
@@ -84,6 +85,7 @@ pub use timing::{
     BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,
     Timing,
 };
+pub use value::Value;
 
 /// The test a build of one category gets, which tries every case when they
 /// number few enough, else every case of each byte and the test patterns.
@@ -167,9 +169,13 @@ pub enum Test {
     TFlipFlop,
 }
 
-/// The widest build tested, whose every value fits one number with room
-/// for a carry; see `Bench::fits`.
-const MAX_WIDTH: usize = 32;
+/// The widest build tested, whose every value fits one [`Value`] with room
+/// for a carry, or a product of two; see `Bench::fits`.
+const MAX_WIDTH: usize = 64;
+
+/// The widest stack of copies tested, narrower than [`MAX_WIDTH`], as each
+/// copy more slows the run and a few copies show whether they stack.
+const MAX_STACKED: usize = 32;
 
 /// What a stateless test drives, reads, and expects of a build, from its
 /// file and its interface, whose lines it names for their roles.
@@ -748,7 +754,7 @@ impl Run {
     /// in binary, such as `A=3 B=5 carry in=0 → output=0b0110, expected
     /// 0b1000`.
     pub fn case(&self, wrong: &Wrong) -> String {
-        let value = |signal: &Signal, value: u64| {
+        let value = |signal: &Signal, value: Value| {
             if signal.bits > 1 {
                 format!("0b{value:0width$b}", width = signal.bits)
             } else {
@@ -907,14 +913,20 @@ pub struct CellControls {
 pub enum Action {
     /// Data in set to `value`, then the cell's write pressed, or its lever
     /// flicked on and off; data in stays on `value`.
-    Write { cell: usize, value: u64 },
+    Write {
+        cell: usize,
+        #[serde(with = "value")]
+        value: Value,
+    },
     /// The cell's first read turned on and its bus, by its place in
     /// `Run::outputs`, read, then the read turned off.
     Read {
         cell: usize,
         bus: usize,
-        expected: u64,
-        got: u64,
+        #[serde(with = "value")]
+        expected: Value,
+        #[serde(with = "value")]
+        got: Value,
     },
 }
 
@@ -928,7 +940,7 @@ impl Action {
     }
 
     /// What a read showed; a write shows nothing.
-    pub fn got(&self) -> Option<u64> {
+    pub fn got(&self) -> Option<Value> {
         match self {
             Action::Write { .. } => None,
             Action::Read { got, .. } => Some(*got),
@@ -950,9 +962,12 @@ pub struct Wrong {
     /// The operation it was on, for a build of several, such as an ALU.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
-    pub inputs: Vec<u64>,
-    pub expected: Vec<u64>,
-    pub got: Vec<u64>,
+    #[serde(with = "value::many")]
+    pub inputs: Vec<Value>,
+    #[serde(with = "value::many")]
+    pub expected: Vec<Value>,
+    #[serde(with = "value::many")]
+    pub got: Vec<Value>,
 }
 
 /// What a build seems to be, from a few telling values run through each
@@ -1031,14 +1046,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_up_to_32_bits_are_tested() {
+    fn builds_up_to_64_bits_are_tested() {
         assert_eq!(Test::of("adder", Some(16)), Some(Test::Adder));
-        assert_eq!(Test::of("adder", Some(32)), Some(Test::Adder));
-        assert_eq!(Test::of("adder", Some(33)), None);
+        assert_eq!(Test::of("adder", Some(64)), Some(Test::Adder));
+        assert_eq!(Test::of("adder", Some(65)), None);
         assert_eq!(Test::of("adder", None), None);
         assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
         assert_eq!(Test::of("ram", Some(8)), None);
-        assert_eq!(Test::of("multiplier", Some(33)), None);
+        assert_eq!(Test::of("multiplier", Some(65)), None);
     }
 
     /// A report stored before readings were kept is read from its cases'

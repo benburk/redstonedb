@@ -265,7 +265,7 @@ mod tests {
             "Couldn't read its inputs and outputs",
             "Couldn't read its file",
             "Couldn't count its bits",
-            "Couldn't test adders of 64 bits yet",
+            "Couldn't test adders of 128 bits yet",
             "Gives wrong outputs for some inputs",
             "Couldn't simulate its piston head",
             "It was still changing 1000 ticks after it was loaded",

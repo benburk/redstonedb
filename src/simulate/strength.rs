@@ -10,6 +10,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    Value,
     bench::{Bench, Case, paired},
     circuit::{Circuit, output_bits},
 };
@@ -34,7 +35,7 @@ pub struct Strength {
 /// each data output bit's weakest strength while on, with its data inputs
 /// driven at `power`.
 struct Look {
-    got: Vec<u64>,
+    got: Vec<Value>,
     weakest: Vec<Vec<u8>>,
 }
 
@@ -47,7 +48,7 @@ pub(super) fn measure(
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
-    got: &[u64],
+    got: &[Value],
 ) -> Result<Option<Strength>> {
     let data: Vec<usize> = bench
         .inputs
@@ -77,7 +78,7 @@ pub(super) fn measure(
     };
     let (telling, _) = paired(&bench.widths(interface));
     let full = look(15, &telling)?.got;
-    let same = |looked: &Look, want: &[u64]| {
+    let same = |looked: &Look, want: &[Value]| {
         looked
             .got
             .iter()

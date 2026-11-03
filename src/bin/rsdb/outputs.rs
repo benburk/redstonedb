@@ -259,7 +259,7 @@ fn probed_interface(
 /// strength while on: arriving at the repeater or comparator on its block,
 /// and shown by what stands on it, as the site measures today.
 pub(super) struct Table {
-    pub(super) cases: Vec<(u64, Vec<u64>)>,
+    pub(super) cases: Vec<(u64, Vec<simulate::Value>)>,
     /// Each case's strength arriving at each output bit's repeater or
     /// comparator, the outputs' bits one after another.
     pub(super) arrivals: Vec<Vec<u8>>,
@@ -338,11 +338,11 @@ pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
             } else {
                 (1 << width) - 1
             };
-            circuit.set(port, value >> shift & mask);
+            circuit.set(port, (value >> shift & mask).into());
             shift += width;
         }
         circuit.settle()?;
-        let got: Vec<u64> = (0..interface.outputs.len())
+        let got: Vec<simulate::Value> = (0..interface.outputs.len())
             .map(|p| circuit.get(p))
             .collect();
         let mut arrived = Vec::new();

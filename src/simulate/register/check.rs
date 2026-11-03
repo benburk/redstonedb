@@ -13,7 +13,7 @@ use crate::{
     },
     schem::Blocks,
     simulate::{
-        Action, Broken, CellControls, Reading, Run, Signal, Wrong,
+        Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,
         bench::{mask, patterns},
         circuit::{Circuit, output_bits},
     },
@@ -37,7 +37,7 @@ pub(super) fn check_on(
     let mut ungated = 0;
     let cells = register.cells.len();
     for (round, &value) in values.iter().enumerate() {
-        let stored: Vec<u64> = (0..cells as u64)
+        let stored: Vec<Value> = (0..cells as Value)
             .map(|cell| value.wrapping_add(cell * STRIDE) & all)
             .collect();
         // Each round starts its writes a cell on, so every cell is written
@@ -169,7 +169,7 @@ fn faults(
     }
     // Single bits set, then single bits clear, so the first write found
     // to disturb a cell is the smallest.
-    let single: Vec<u64> = (0..width)
+    let single: Vec<Value> = (0..width)
         .map(|bit| 1 << bit)
         .chain((0..width).map(|bit| all ^ 1 << bit))
         .collect();
@@ -200,7 +200,7 @@ fn disturbed(
     circuit: &mut Circuit,
     register: &Register,
     (cell, other): (usize, usize),
-    others: &[u64],
+    others: &[Value],
 ) -> Result<Option<Vec<Action>>> {
     for held in [mask(register.width), 0] {
         for &value in others {
@@ -223,7 +223,7 @@ fn write_step(
     circuit: &mut Circuit,
     register: &Register,
     cell: usize,
-    value: u64,
+    value: Value,
 ) -> Result<Action> {
     write(circuit, register, register.cells[cell].write, value)?;
     Ok(Action::Write { cell, value })
@@ -235,7 +235,7 @@ fn read_step(
     circuit: &mut Circuit,
     register: &Register,
     cell: usize,
-    held: u64,
+    held: Value,
 ) -> Result<Action> {
     let Some(&first) = register.cells[cell].reads.first() else {
         bail!("cell {} has no read", cell + 1);
@@ -253,7 +253,7 @@ fn read_step(
 
 /// What the buses show with every read off, the cells holding `stored`:
 /// nothing, but for a buffer's cells, which show all the time.
-fn shown(register: &Register, stored: &[u64]) -> Vec<u64> {
+fn shown(register: &Register, stored: &[Value]) -> Vec<Value> {
     let mut shown = register.idle.clone();
     for (cell, &held) in register.cells.iter().zip(stored) {
         for read in cell.reads.iter().filter(|read| read.line.is_none()) {
@@ -265,13 +265,13 @@ fn shown(register: &Register, stored: &[u64]) -> Vec<u64> {
 
 /// Every value of `width` bits up to 8, with whether that is all of them;
 /// beyond, the test patterns and every value of each byte.
-pub(super) fn values(width: usize) -> (Vec<u64>, bool) {
+pub(super) fn values(width: usize) -> (Vec<Value>, bool) {
     if width <= 8 {
         return ((0..1 << width).collect(), true);
     }
     let mut values = patterns(width);
     for low in (0..width).step_by(8) {
-        values.extend((0..256u64).map(|byte| byte << low & mask(width)));
+        values.extend((0..256).map(|byte| byte << low & mask(width)));
     }
     values.sort_unstable();
     values.dedup();
@@ -280,7 +280,7 @@ pub(super) fn values(width: usize) -> (Vec<u64>, bool) {
 
 /// A few values that show whether each bit stores and reads: none and all
 /// set, and alternate bits each way.
-pub(super) fn telling(width: usize) -> Vec<u64> {
+pub(super) fn telling(width: usize) -> Vec<Value> {
     let all = mask(width);
     let alternate = 0x5555_5555_5555_5555 & all;
     let mut values = vec![all, 0, alternate, !alternate & all];
@@ -445,7 +445,7 @@ fn cells(
         circuit.set(register.data, 0);
         circuit.settle()?;
         let (saved, flipped) = look(circuit, register)?;
-        let changed = |a: &[u64], b: &[u64]| -> Vec<u64> {
+        let changed = |a: &[Value], b: &[Value]| -> Vec<Value> {
             a.iter().zip(b).map(|(a, b)| a ^ b).collect()
         };
         let as_saved = changed(&saved_before, &saved);
@@ -588,7 +588,7 @@ fn held(
 fn look(
     circuit: &mut Circuit,
     register: &Register,
-) -> Result<(Vec<u64>, Vec<Vec<u64>>)> {
+) -> Result<(Vec<Value>, Vec<Vec<Value>>)> {
     read(circuit, register, &[])?;
     let saved = buses(circuit, register);
     let mut flipped = Vec::with_capacity(register.reads.len());
@@ -607,7 +607,7 @@ pub(super) fn write(
     circuit: &mut Circuit,
     register: &Register,
     line: Line,
-    value: u64,
+    value: Value,
 ) -> Result<()> {
     circuit.set(register.data, value);
     circuit.settle()?;
@@ -656,7 +656,7 @@ pub(super) fn read(
 }
 
 /// What each output bus shows.
-pub(super) fn buses(circuit: &Circuit, register: &Register) -> Vec<u64> {
+pub(super) fn buses(circuit: &Circuit, register: &Register) -> Vec<Value> {
     register.buses.iter().map(|&bus| circuit.get(bus)).collect()
 }
 
@@ -698,9 +698,9 @@ impl Tally {
     fn check(
         &mut self,
         op: impl FnOnce() -> String,
-        value: u64,
-        expected: &[u64],
-        got: Vec<u64>,
+        value: Value,
+        expected: &[Value],
+        got: Vec<Value>,
     ) {
         self.cases += 1;
         if got == expected {
@@ -711,7 +711,7 @@ impl Tally {
             self.bits.iter_mut().zip(expected).zip(&got)
         {
             for (bit, (_, count)) in bus.iter_mut().enumerate() {
-                *count += (want ^ showed) >> bit & 1;
+                *count += u64::from((want ^ showed) >> bit & 1 == 1);
             }
         }
         if self.examples.len() < 5 {

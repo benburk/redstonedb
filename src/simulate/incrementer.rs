@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken, Reading,
+    Broken, Reading, Value,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
 use crate::{
@@ -86,7 +86,7 @@ impl Counts {
 pub(super) struct Change {
     pub name: String,
     pub counts: Counts,
-    pub apply: fn(u64, u64) -> u64,
+    pub apply: fn(Value, Value) -> Value,
 }
 
 /// The kinds of incrementer with control line `line`, if any.
@@ -104,8 +104,8 @@ pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
             }),
         ],
         Some(line) => vec![
-            change(format!("A + {line}"), Counts::Up, u64::wrapping_add),
-            change(format!("A − {line}"), Counts::Down, u64::wrapping_sub),
+            change(format!("A + {line}"), Counts::Up, Value::wrapping_add),
+            change(format!("A − {line}"), Counts::Down, Value::wrapping_sub),
             change(
                 format!("A + 1, or − 1 with {line} on"),
                 Counts::Either,
@@ -178,12 +178,12 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
 /// so a carry or borrow runs into it, and the test patterns; each with its
 /// control line, if any, each way.
 fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
-    let lines: &[u64] = if widths.len() > 1 { &[0, 1] } else { &[0] };
+    let lines: &[Value] = if widths.len() > 1 { &[0, 1] } else { &[0] };
     let mut cases = Distinct::default();
     for low in (0..widths[0]).step_by(8) {
         let bits = (widths[0] - low).min(8);
         for below in [0, mask(low)] {
-            for a in 0..1u64 << bits {
+            for a in 0..1 << bits {
                 for &line in lines {
                     cases.add([below | a << low, line, 0]);
                 }

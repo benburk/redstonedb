@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 
 use super::{
-    Broken, Reading,
+    Broken, Reading, Value,
     bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
     bench::{mask, patterns},
     circuit::output_bits,
@@ -25,7 +25,7 @@ pub(super) fn binary_to_bcd(interface: &Interface) -> Result<Spec> {
     let width = bench.widths(interface)[0];
     let result: usize = bench.output_widths(interface).iter().sum();
     let largest = mask(width);
-    let needed = 64 - to_bcd(largest).leading_zeros() as usize;
+    let needed = (Value::BITS - to_bcd(largest).leading_zeros()) as usize;
     if result < needed {
         broken!(
             "A has {width} bits, so up to {largest}, which takes {needed} \
@@ -103,7 +103,7 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
         bench,
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
         kinds: vec![Kind::new("ones in A", |case| {
-            u64::from(case[0].count_ones())
+            Value::from(case[0].count_ones())
         })],
         by_digit: false,
     })
@@ -158,7 +158,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
         kinds: (1..=most)
             .map(|k| {
                 Kind::new(&threshold_pattern(k), move |case| {
-                    u64::from(case[0].count_ones() >= k)
+                    Value::from(case[0].count_ones() >= k)
                 })
                 .reading(Reading::Threshold { at_least: k })
             })
@@ -188,11 +188,11 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
         kinds: vec![
             Kind::new("xor of A's bits", |case| {
-                u64::from(case[0].count_ones() % 2 == 1)
+                Value::from(case[0].count_ones() % 2 == 1)
             })
             .reading(Reading::Parity { even: false }),
             Kind::new(EVEN_PARITY, |case| {
-                u64::from(case[0].count_ones() % 2 == 0)
+                Value::from(case[0].count_ones() % 2 == 0)
             })
             .reading(Reading::Parity { even: true }),
         ],
@@ -234,10 +234,10 @@ pub(super) fn one_input_bench(
 
 /// `value` in binary-coded decimal: each decimal digit in four bits, the
 /// ones lowest.
-fn to_bcd(mut value: u64) -> u64 {
+fn to_bcd(mut value: Value) -> Value {
     let mut bcd = 0;
     let mut shift = 0;
-    while value > 0 && shift < 64 {
+    while value > 0 && shift < Value::BITS {
         bcd |= (value % 10) << shift;
         value /= 10;
         shift += 4;
@@ -246,15 +246,15 @@ fn to_bcd(mut value: u64) -> u64 {
 }
 
 /// The number binary-coded decimal `bcd` holds, its digits being decimal.
-fn from_bcd(bcd: u64) -> u64 {
-    (0..16)
+fn from_bcd(bcd: Value) -> Value {
+    (0..Value::BITS / 4)
         .rev()
         .fold(0, |value, digit| value * 10 + (bcd >> (4 * digit) & 0xf))
 }
 
 /// Whether `value` fits in `bits` bits.
-fn fits(value: u64, bits: usize) -> bool {
-    bits >= 64 || value >> bits == 0
+fn fits(value: Value, bits: usize) -> bool {
+    bits >= Value::BITS as usize || value >> bits == 0
 }
 
 /// The binary-coded decimal values of `width` bits whose numbers fit in
@@ -262,11 +262,11 @@ fn fits(value: u64, bits: usize) -> bool {
 /// when there are few enough and not `quick`, else every number below
 /// 1,000, each digit's every value alone, each run of nines, and the
 /// largest.
-fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<u64>, bool) {
-    let valid = |n: u64| fits(to_bcd(n), width) && fits(n, result);
+fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<Value>, bool) {
+    let valid = |n: Value| fits(to_bcd(n), width) && fits(n, result);
     if !quick {
         // Both tests rise with the number, so the valid ones run from 0.
-        let every: Vec<u64> = (0..=1u64 << EXHAUSTIVE_BITS)
+        let every: Vec<Value> = (0..=1 << EXHAUSTIVE_BITS)
             .take_while(|&n| valid(n))
             .map(to_bcd)
             .collect();
@@ -274,18 +274,18 @@ fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<u64>, bool) {
             return (every, true);
         }
     }
-    let mut numbers: Vec<u64> = (0..1000).collect();
-    let mut power = 1u64;
+    let mut numbers: Vec<Value> = (0..1000).collect();
+    let mut power: Value = 1;
     while let Some(next) = power.checked_mul(10) {
         numbers.extend((1..10).map(|d| d * power));
         numbers.push(next - 1);
         power = next;
     }
     // The largest valid number, found digit by digit from the top.
-    let mut largest = 0u64;
-    for digit in (0..16).rev() {
+    let mut largest: Value = 0;
+    for digit in (0..power.ilog10()).rev() {
         for d in (0..10).rev() {
-            let n = largest + d * 10u64.pow(digit);
+            let n = largest + d * Value::pow(10, digit);
             if valid(n) {
                 largest = n;
                 break;
@@ -302,7 +302,7 @@ fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<u64>, bool) {
 /// The magnitude of `a`, a signed number of `width` bits, unsigned in as
 /// many bits: `a` when its top bit is clear, else its negative, which for
 /// the most negative is itself.
-fn absolute(a: u64, width: usize) -> u64 {
+fn absolute(a: Value, width: usize) -> Value {
     if width > 0 && a >> (width - 1) & 1 == 1 {
         a.wrapping_neg() & mask(width)
     } else {
@@ -316,7 +316,7 @@ fn absolute(a: u64, width: usize) -> u64 {
 pub(super) fn byte_cases(width: usize) -> (Vec<Case>, u64) {
     let mut cases = Distinct::default();
     for low in (0..width).step_by(8) {
-        for v in 0..1u64 << (width - low).min(8) {
+        for v in 0..1 << (width - low).min(8) {
             cases.add([v << low, 0, 0]);
         }
     }
@@ -338,7 +338,7 @@ fn binary_cases(width: usize) -> (Vec<Case>, u64) {
         cases.add(case);
     }
     let before = cases.len();
-    let mut power = 1u64;
+    let mut power: Value = 1;
     while fits(power, width) {
         cases.add([power, 0, 0]);
         cases.add([power - 1, 0, 0]);

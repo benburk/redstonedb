@@ -31,7 +31,7 @@ use std::{
 use anyhow::Result;
 
 use super::{
-    Broken, Run, Timing,
+    Broken, Run, Timing, Value,
     adder::adder_cases,
     bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
     circuit::{input_bits, output_bits},
@@ -123,7 +123,7 @@ impl Op {
 
     /// What it gives for A and B of `width` bits, with `carry` into an
     /// add, before it is cut to `width` bits.
-    fn apply(self, a: u64, b: u64, carry: u64, width: usize) -> u64 {
+    fn apply(self, a: Value, b: Value, carry: Value, width: usize) -> Value {
         let top = 1 << (width - 1);
         match self {
             Op::Add => a + b + carry,
@@ -264,12 +264,12 @@ struct Looks<'a> {
     telling: Vec<Case>,
     /// What each setting, a bit per control line, gave, its carry in's
     /// lever off.
-    seen: HashMap<u64, Vec<u64>>,
+    seen: HashMap<u64, Vec<Value>>,
 }
 
 impl Looks<'_> {
     /// What `levers` give, looked at once.
-    fn look(&mut self, levers: u64) -> Result<&[u64]> {
+    fn look(&mut self, levers: u64) -> Result<&[Value]> {
         if !self.seen.contains_key(&levers) {
             let alu = self.alu;
             let bench = Bench {
@@ -277,10 +277,10 @@ impl Looks<'_> {
                 outputs: alu.data.clone(),
                 pattern: String::new(),
                 held: (0..alu.lines.len())
-                    .map(|k| (alu.lines[k].0, levers >> k & 1))
+                    .map(|k| (alu.lines[k].0, Value::from(levers >> k & 1)))
                     .chain(alu.carry_in.map(|port| (port, 0)))
                     .collect(),
-                care: u64::MAX,
+                care: Value::MAX,
                 press: None,
                 invertible: false,
             };
@@ -297,7 +297,7 @@ impl Looks<'_> {
     }
 
     /// How many telling cases `got` gives `op` right with `carry` added.
-    fn right_with(&self, op: Op, got: &[u64], carry: u64) -> usize {
+    fn right_with(&self, op: Op, got: &[Value], carry: Value) -> usize {
         let width = self.alu.width;
         self.telling
             .iter()
@@ -311,8 +311,8 @@ impl Looks<'_> {
 
     /// How many telling cases `got` gives `op` right, an add with the carry
     /// in either way.
-    fn right(&self, op: Op, got: &[u64]) -> usize {
-        (0..=u64::from(op.takes_carry()))
+    fn right(&self, op: Op, got: &[Value]) -> usize {
+        (0..=Value::from(op.takes_carry()))
             .map(|carry| self.right_with(op, got, carry))
             .max()
             .unwrap_or(0)
@@ -465,7 +465,7 @@ impl Alu {
 struct Selection {
     op: Op,
     /// Each control line's value, and the carry in held off.
-    held: Vec<(usize, u64)>,
+    held: Vec<(usize, Value)>,
     /// How it reads in a result, such as `add` for one a sign names, or
     /// `or (and + xor on)` for one found by trying the lines.
     label: String,
@@ -473,14 +473,14 @@ struct Selection {
 
 /// The levers setting every line off but those in `on`, an inverted
 /// line's lever on when it is off, with the carry in held off.
-fn hold(alu: &Alu, on: impl Fn(usize) -> bool) -> Vec<(usize, u64)> {
+fn hold(alu: &Alu, on: impl Fn(usize) -> bool) -> Vec<(usize, Value)> {
     alu.lines
         .iter()
         .enumerate()
-        .map(|(k, &(port, _))| (port, u64::from(on(k) != alu.inverted[k])))
+        .map(|(k, &(port, _))| (port, Value::from(on(k) != alu.inverted[k])))
         .chain(
             alu.carry_in
-                .map(|port| (port, u64::from(alu.carry_inverted))),
+                .map(|port| (port, Value::from(alu.carry_inverted))),
         )
         .collect()
 }
@@ -535,7 +535,7 @@ fn selections(
             outputs: alu.data.clone(),
             pattern: String::new(),
             held: held.clone(),
-            care: u64::MAX,
+            care: Value::MAX,
             press: None,
             invertible: false,
         };
@@ -612,7 +612,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
 
 /// The status lines checked, in the order they follow the result: each
 /// with whether `op` decides it and its value for a case.
-type Status = (usize, bool, fn(Op, u64, u64, u64, usize) -> bool);
+type Status = (usize, bool, fn(Op, Value, Value, Value, usize) -> bool);
 
 /// Checks one operation on every case, or on each byte's every case and
 /// the test patterns when there are too many, or with `quick` on a few
@@ -631,7 +631,7 @@ fn check_one(
     // holds it at 0, its lever as `hold` sets it.
     let mut inputs = vec![alu.a, alu.b];
     inputs.extend(alu.carry_in.filter(|_| carry));
-    let held: Vec<(usize, u64)> = selection
+    let held: Vec<(usize, Value)> = selection
         .held
         .iter()
         .copied()
@@ -642,7 +642,7 @@ fn check_one(
         (
             alu.carry_out,
             arithmetic,
-            carry_out as fn(Op, u64, u64, u64, usize) -> bool,
+            carry_out as fn(Op, Value, Value, Value, usize) -> bool,
         ),
         (alu.overflow, arithmetic, overflow),
         (alu.shift_out, matches!(op, Op::Shr | Op::Asr), shift_out),
@@ -681,7 +681,7 @@ fn check_one(
         cases(&widths, || adder_cases(width, carry, 8))
     };
     let data_bits = alu.data_bits;
-    let carry_inverted = u64::from(carry && alu.carry_inverted);
+    let carry_inverted = Value::from(carry && alu.carry_inverted);
     let expected = |case: &Case| {
         let carry = case[2] ^ carry_inverted;
         let result = op.apply(case[0], case[1], carry, width) & mask(width);
@@ -689,7 +689,7 @@ fn check_one(
             result,
             |value, (k, &(_, _, status))| {
                 let on = status(op, case[0], case[1], carry, width);
-                value | u64::from(on) << (data_bits + k)
+                value | Value::from(on) << (data_bits + k)
             },
         )
     };
@@ -704,7 +704,7 @@ fn check_one(
 /// Whether the adder carries out of `width` bits: an add of A, B, and
 /// `carry`, or a subtract, A + ~B + 1, which carries when A is at least B,
 /// borrowing nothing.
-fn carry_out(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
+fn carry_out(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
     if op == Op::Sub {
         return a >= b;
     }
@@ -714,7 +714,7 @@ fn carry_out(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
 /// Whether `op` on A and B overflows, as signed numbers of `width` bits.
 /// Only an add or subtract does; the overflow line is checked for no
 /// other.
-fn overflow(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
+fn overflow(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
     let top = 1 << (width - 1);
     let result = op.apply(a, b, carry, width);
     let (sa, sb, sr) = (a & top != 0, b & top != 0, result & top != 0);
@@ -736,12 +736,12 @@ fn overflow(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
 }
 
 /// Whether a shift right of A drops a 1: A's lowest bit.
-fn shift_out(_: Op, a: u64, _: u64, _: u64, _: usize) -> bool {
+fn shift_out(_: Op, a: Value, _: Value, _: Value, _: usize) -> bool {
     a & 1 == 1
 }
 
 /// Whether `op`'s result is 0.
-fn zero(op: Op, a: u64, b: u64, carry: u64, width: usize) -> bool {
+fn zero(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
     op.apply(a, b, carry, width) & mask(width) == 0
 }
 
@@ -853,22 +853,22 @@ fn streamed(
     alu: &Alu,
     ops: &[Selection],
     count: usize,
-) -> Vec<Vec<u64>> {
+) -> Vec<Vec<Value>> {
     let mut rng = Rng::default();
     let all = mask(alu.width);
     (0..count)
         .map(|_| {
             let op = &ops[rng.below(ops.len())];
             let mut case = vec![0; interface.inputs.len()];
-            case[alu.a] = rng.draw() & all;
-            case[alu.b] = rng.draw() & all;
+            case[alu.a] = Value::from(rng.draw()) & all;
+            case[alu.b] = Value::from(rng.draw()) & all;
             for &(port, value) in &op.held {
                 case[port] = value;
             }
             if op.op.takes_carry()
                 && let Some(port) = alu.carry_in
             {
-                case[port] = rng.draw() & 1;
+                case[port] = Value::from(rng.draw() & 1);
             }
             case
         })

@@ -64,14 +64,10 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
             a + b
         );
     }
-    let product = |case: &Case| {
-        let exact =
-            u128::from(case[0]) * u128::from(case[1]) + u128::from(case[2]);
-        // The low bits are all that is compared.
-        #[allow(clippy::cast_possible_truncation)]
-        let low = exact as u64;
-        low
-    };
+    // Exact for operands of up to 64 bits each, and the low bits are all
+    // that is compared.
+    let product =
+        |case: &Case| case[0].wrapping_mul(case[1]).wrapping_add(case[2]);
     let mut bench = Bench::new(inputs, outputs, pattern);
     bench.press = calculate;
     let widths = bench.widths(interface);
@@ -96,8 +92,8 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     };
     for (low_a, bits_a) in bytes(widths[0]) {
         for (low_b, bits_b) in bytes(widths[1]) {
-            for a in 0..1u64 << bits_a {
-                for b in 0..1u64 << bits_b {
+            for a in 0..1 << bits_a {
+                for b in 0..1 << bits_b {
                     cases.add([a << low_a, b << low_b, 0]);
                 }
             }
@@ -107,7 +103,7 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     if let Some(width) = addend {
         let full = [mask(widths[0]), mask(widths[1])];
         for (low, bits) in bytes(width) {
-            for c in 0..1u64 << bits {
+            for c in 0..1 << bits {
                 cases.add([0, 0, c << low]);
                 cases.add([full[0], full[1], c << low]);
             }

@@ -17,6 +17,7 @@ use crate::{
     recognize::interface::{self, Interface},
     schem::{Blocks, Pos},
     simulate::{
+        Value,
         bench::mask,
         circuit::{Circuit, MAX_TICKS, output_bits},
         timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
@@ -46,7 +47,7 @@ pub fn time(
         .collect();
     let mut stats: Vec<BusStats> =
         widths.iter().map(|&width| BusStats::new(width)).collect();
-    let mut settled: Vec<(i32, u64)> = Vec::new();
+    let mut settled: Vec<(i32, Value)> = Vec::new();
     let all = mask(register.width);
     let takes = if takes_data_closing(&mut circuit, &register)? {
         Takes::Closing
@@ -164,7 +165,7 @@ fn timed(
     register: &Register,
     cell: &Cell,
     read_line: Read,
-    value: u64,
+    value: Value,
     write_at: i32,
     read_at: Option<i32>,
 ) -> Result<(bool, Vec<Vec<i32>>)> {
@@ -328,7 +329,7 @@ fn from_data(
     (blocks, interface): (&Blocks, &Interface),
     register: &Register,
     carried: &[i32],
-    values: (&[u64], bool),
+    values: (&[Value], bool),
 ) -> Result<Option<Timing>> {
     let Some(found) = offsets(circuit, register, carried)? else {
         return Ok(None);
@@ -359,7 +360,7 @@ fn aligned(
     register: &Register,
     carried: &[i32],
     found: &Offsets,
-    (values, exhaustive): (&[u64], bool),
+    (values, exhaustive): (&[Value], bool),
 ) -> Result<Timing> {
     let widths: Vec<usize> = register
         .buses
@@ -368,7 +369,7 @@ fn aligned(
         .collect();
     let mut stats: Vec<BusStats> =
         widths.iter().map(|&width| BusStats::new(width)).collect();
-    let mut settled: Vec<(i32, u64)> = Vec::new();
+    let mut settled: Vec<(i32, Value)> = Vec::new();
     for cell in &register.cells {
         let Some(&read_line) = cell.reads.first() else {
             continue;
@@ -452,7 +453,7 @@ fn aligned(
 
 /// Of reads that each settled on a tick with a value, the tick half of them
 /// settled by, 99% by, and the slowest, with its value.
-fn spread(settled: &[(i32, u64)]) -> (i32, i32, i32, u64) {
+fn spread(settled: &[(i32, Value)]) -> (i32, i32, i32, Value) {
     let mut ticks: Vec<i32> = settled.iter().map(|&(tick, _)| tick).collect();
     ticks.sort_unstable();
     let at = |share: usize| {
@@ -631,7 +632,7 @@ fn data_latency(
             read(circuit, register, read_line.line.as_slice())?;
             circuit.set(register.data, value);
             circuit.settle()?;
-            let shows = |circuit: &Circuit, held: u64| {
+            let shows = |circuit: &Circuit, held: Value| {
                 buses(circuit, register)[read_line.bus]
                     == read_line.shows(held, register.width)
             };
