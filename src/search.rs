@@ -455,6 +455,7 @@ pub(crate) mod tests {
             downloads: 0,
             public: true,
             unverified: None,
+            operands: crate::models::schematic::Operands::Split,
             tags: tags
                 .iter()
                 .map(|name| Tag {
@@ -489,6 +490,22 @@ pub(crate) mod tests {
         assert!(!find("register -torchless", &register));
         assert!(!find("register not torchless", &register));
         assert!(find("register -carry_lookahead", &register));
+    }
+
+    /// A horizontal build whose operands alternate along one row is found
+    /// by its derived tag and left out by it; one whose operands lie
+    /// split, the usual way, or a vertical one, carries none.
+    #[test]
+    fn interleaved_inputs_can_be_asked_for_or_left_out() {
+        let mut xor = schematic("xor_gate", Orientation::Horizontal, &[]);
+        assert!(!find("xor interleaved_inputs", &xor));
+        assert!(find("xor -interleaved_inputs", &xor));
+        xor.operands = crate::models::schematic::Operands::Interleaved;
+        assert!(find("xor interleaved_inputs", &xor));
+        assert!(find("xor \"interleaved inputs\"", &xor));
+        assert!(!find("xor -interleaved_inputs", &xor));
+        xor.orientation = Orientation::Vertical;
+        assert!(!find("xor interleaved_inputs", &xor));
     }
 
     #[test]

@@ -520,7 +520,8 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
 /// The tags of a build a board may narrow to: those the site finds, such
 /// as its design, orientation, `synced`, or `torchless`, but for the
 /// flags that only say which lines it has, as a carry in, which never
-/// narrow a record's board.
+/// narrow a record's board, and `interleaved_inputs`, which boards do not
+/// yet split by.
 pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
     s.every_tag()
         .into_iter()
@@ -528,6 +529,7 @@ pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
             tag.is_found()
                 && !tag.is_unverified()
                 && !Flag::LINES.contains(&tag.name.as_str())
+                && tag.name != crate::models::tag::INTERLEAVED_INPUTS
         })
         .collect()
 }
@@ -831,6 +833,20 @@ mod tests {
         assert_eq!(wanted.href("/b"), "/b?at_least=3");
     }
 
+    /// A horizontal build whose operands alternate along one row carries
+    /// `interleaved_inputs`, but no board narrows to it yet.
+    #[test]
+    fn interleaved_inputs_split_no_board_yet() {
+        let mut adder = build("a", 1, None, Some(3), 10);
+        adder.operands = crate::models::schematic::Operands::Interleaved;
+        let named = |tags: Vec<Tag>| {
+            tags.iter()
+                .any(|tag| tag.name == crate::models::tag::INTERLEAVED_INPUTS)
+        };
+        assert!(named(adder.every_tag()));
+        assert!(!named(ranked_tags(&adder)));
+    }
+
     fn build(
         id: &str,
         width: i64,
@@ -882,6 +898,7 @@ mod tests {
             downloads: 0,
             public: true,
             unverified: None,
+            operands: crate::models::schematic::Operands::Split,
             tags: Vec::new(),
         }
     }

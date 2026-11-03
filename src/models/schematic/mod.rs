@@ -157,12 +157,26 @@ pub struct Schematic {
     /// recognized as one, as `details::unrecognized` says; `None` for one
     /// that is, or any other build. Such a build is kept as built.
     pub unverified: Option<String>,
+    /// How its current file's operands' bits lie, as its kept roles place
+    /// them.
+    pub operands: Operands,
     /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `fails_verification` if it is not recognized as its
     /// category or simulating its file got some cases wrong, see
     /// `models::simulation`; `torchless` when its file has
     /// no torches, and `alpha` when it works from Alpha.
     pub tags: Vec<Tag>,
+}
+
+/// How a build's operands' bits lie, A's and B's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Operands {
+    /// Each operand's bits together, as one bus above the other, as most
+    /// builds' are, or no two operands.
+    #[default]
+    Split,
+    /// Alternating along one row; see `Kept::interleaved`.
+    Interleaved,
 }
 
 /// `name` as a file's name, less `.schem`: an underscore for each run of
@@ -292,6 +306,15 @@ impl Schematic {
                 });
             }
         }
+        // A horizontal build whose A and B alternate along one row, as
+        // those of one whose copies tile with A and B split do not.
+        let interleaved = (self.operands == Operands::Interleaved
+            && self.orientation == Orientation::Horizontal)
+            .then(|| Tag {
+                name: tag::INTERLEAVED_INPUTS.to_owned(),
+                token: None,
+                kind: found(tag::Kind::Feature, true),
+            });
         // Whether its outputs settle together, once measured, either way.
         let synced = self.synchronized.map(|synced| Tag {
             name: if synced { tag::SYNCED } else { tag::UNSYNCED }.to_owned(),
@@ -308,6 +331,7 @@ impl Schematic {
             .chain(flags)
             .chain(stackable)
             .chain(pitches)
+            .chain(interleaved)
             .chain(synced)
             .chain(rest.into_iter().cloned())
             .collect()
@@ -609,6 +633,7 @@ mod tests {
             downloads: 0,
             public: true,
             unverified: None,
+            operands: Operands::Split,
             tags: vec![Tag {
                 name: "alpha".to_owned(),
                 token: None,

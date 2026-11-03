@@ -426,6 +426,43 @@ impl Kept {
         Some(Kept::of(&read(blocks)))
     }
 
+    /// Whether its operands' bits, A's and B's, lie in one row running
+    /// east to west, the way a horizontal build's bits run, alternating
+    /// along it, as copies of a 1-bit build with A and B side by side do,
+    /// rather than split, each operand's bits together, as one above the
+    /// other. False for a build without both.
+    pub fn interleaved(&self) -> bool {
+        let operand = |n| {
+            self.inputs
+                .iter()
+                .find(|line| line.role == Some(Role::Operand(n)))
+        };
+        let (Some(a), Some(b)) = (operand(0), operand(1)) else {
+            return false;
+        };
+        let mut bits: Vec<(Pos, bool)> = a
+            .bits
+            .iter()
+            .map(|&pos| (pos, true))
+            .chain(b.bits.iter().map(|&pos| (pos, false)))
+            .collect();
+        let Some(&(first, _)) = bits.first() else {
+            return false;
+        };
+        if bits
+            .iter()
+            .any(|(pos, _)| pos[1] != first[1] || pos[2] != first[2])
+        {
+            return false;
+        }
+        if a.bits.len() == 1 && b.bits.len() == 1 {
+            return true;
+        }
+        bits.sort_by_key(|(pos, _)| pos[0]);
+        let turns = bits.windows(2).filter(|two| two[0].1 != two[1].1).count();
+        turns > 1
+    }
+
     /// The role of each bit's block, as a file carries them.
     pub fn roles(&self) -> Roles {
         let mut roles = Roles::default();
@@ -940,6 +977,37 @@ fn along(pos: Pos, from: Pos, axis: usize) -> (i32, i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lines `a` and `b`, A's and B's bits, as kept.
+    fn operands(a: &[Pos], b: &[Pos]) -> Kept {
+        let line = |n, bits: &[Pos]| KeptLine {
+            role: Some(Role::Operand(n)),
+            name: String::new(),
+            signed: false,
+            bits: bits.to_vec(),
+        };
+        Kept {
+            inputs: vec![line(0, a), line(1, b)],
+            outputs: Vec::new(),
+        }
+    }
+
+    /// A 1-bit build's A and B side by side in a row east to west, as a
+    /// 3-wide XOR gate's, alternate once stacked, and so do 2-bit buses
+    /// whose bits take turns; buses one above the other, or side by side
+    /// in a row each together, or side by side north to south, are split.
+    #[test]
+    fn operands_alternating_along_a_row_are_interleaved() {
+        assert!(operands(&[[0, 0, 4]], &[[2, 0, 4]]).interleaved());
+        let turns = operands(&[[0, 0, 0], [4, 0, 0]], &[[2, 0, 0], [6, 0, 0]]);
+        assert!(turns.interleaved());
+        let above = operands(&[[0, 0, 0], [2, 0, 0]], &[[0, 2, 0], [2, 2, 0]]);
+        assert!(!above.interleaved());
+        let halves = operands(&[[0, 0, 0], [2, 0, 0]], &[[4, 0, 0], [6, 0, 0]]);
+        assert!(!halves.interleaved());
+        assert!(!operands(&[[0, 0, 0]], &[[0, 0, 2]]).interleaved());
+        assert!(!Kept::default().interleaved());
+    }
 
     fn lines(text: [&str; 4]) -> Vec<String> {
         text.map(str::to_owned).to_vec()

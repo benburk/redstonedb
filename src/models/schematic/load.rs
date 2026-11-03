@@ -6,10 +6,13 @@ use std::collections::HashMap;
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
-use super::{Encoding, Logic, Orientation, Schematic, StackDirection, Widened};
+use super::{
+    Encoding, Logic, Operands, Orientation, Schematic, StackDirection, Widened,
+};
 use crate::{
     category::{self, Design, Flag, Kind},
     models::tag::{self, Tag},
+    recognize::interface::Kept,
 };
 
 /// Every schematic, ordered by category, width, then insertion.
@@ -99,6 +102,7 @@ async fn load(
     let mut stacking = stacking_by_schematic(db, only.as_deref()).await?;
     let mut widened = widened_by_schematic(db, only.as_deref()).await?;
     let mut credits = credits_by_schematic(db, only.as_deref()).await?;
+    let mut operands = operands_by_schematic(db, only.as_deref()).await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -125,7 +129,6 @@ async fn load(
                 stacked_from: None,
                 builders,
                 contributors,
-                id: row.id,
                 category_label: facts.map(|f| f.label.to_owned()),
                 category: row.category,
                 width: row.width,
@@ -160,8 +163,35 @@ async fn load(
                 downloads: row.downloads,
                 public: row.public,
                 unverified: row.unverified,
+                operands: operands.remove(&row.id).unwrap_or_default(),
+                id: row.id,
             }
         })
+        .collect())
+}
+
+/// How the operands of the builds `only` names lie, by id, as each one's
+/// current file's kept roles place them, for those whose do not lie
+/// split; see `Kept::interleaved`.
+async fn operands_by_schematic(
+    db: &SqlitePool,
+    only: Option<&str>,
+) -> Result<HashMap<String, Operands>, sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT schematic_id, roles FROM current_file
+         WHERE roles IS NOT NULL AND (?1 IS NULL
+            OR schematic_id IN (SELECT value FROM json_each(?1)))",
+    )
+    .bind(only)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter(|(_, roles)| {
+            serde_json::from_str::<Kept>(roles)
+                .is_ok_and(|kept| kept.interleaved())
+        })
+        .map(|(id, _)| (id, Operands::Interleaved))
         .collect())
 }
 

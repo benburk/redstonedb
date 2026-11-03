@@ -66,6 +66,11 @@ pub fn is_pitch_stackable(name: &str) -> bool {
         .is_some_and(|pitch| pitch.ends_with('_'))
 }
 
+/// The tag a horizontal build carries whose operands' bits alternate
+/// along one row, rather than lie split, one operand above the other; see
+/// `Kept::interleaved`. It is not stored.
+pub const INTERLEAVED_INPUTS: &str = "interleaved_inputs";
+
 /// The tag a build carries whose outputs all settle on the same tick.
 pub const SYNCED: &str = "synced";
 
