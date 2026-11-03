@@ -174,6 +174,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "A board is a category at one width and state, narrowed by up to three of: its latency, and tags RedstoneDB finds, like synced, torchless, alpha, a design, an orientation, or a pitch class." }
                         li { "Gates, monostables, inverters, registers, buffers, and RAM rank as cells, at no width: an 8-bit XOR gate is eight XOR gates. A board of them can narrow to a pitch class, like 2-wide stackable, and ranks them by their blocks a bit: each copy's step that way where it names one, else the build's box alone. Those on shared lines show how many copies still work." }
                         li { "A looser class's board takes the tighter classes' builds too, so a 2-wide stackable gate can hold the smallest 4-wide stackable record; if it holds the 2-wide one as well, it's listed once, as 2-wide." }
+                        li { "Builds whose inputs are interleaved, A's and B's bits taking turns along one row, compete on their own boards, or with the rest when you ask for both." }
                         li { "First place on a board of two or more builds, fastest or smallest, is a record." }
                         li { "Each tag or latency has to change who's first. Most 8-bit adders are 3-tick CCAs, so there's no fastest CCA, but there is a smallest 3-tick adder." }
                         li { "Fastest counts only when speed decides it. When builds tie on ticks, the record is the smallest at that latency." }

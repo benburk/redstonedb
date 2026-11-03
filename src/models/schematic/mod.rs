@@ -224,6 +224,14 @@ impl Schematic {
             && crate::category::behaviour(&self.category).evaluated
     }
 
+    /// Whether it is a horizontal build whose operands' bits alternate
+    /// along one row, carrying `interleaved_inputs`, as those of one whose
+    /// copies tile with A and B split do not.
+    pub fn interleaved_inputs(&self) -> bool {
+        self.operands == Operands::Interleaved
+            && self.orientation == Orientation::Horizontal
+    }
+
     fn tags_in(&self, kind: tag::Kind) -> impl Iterator<Item = &Tag> {
         self.tags.iter().filter(move |tag| tag.kind == kind)
     }
@@ -336,15 +344,11 @@ impl Schematic {
                 });
             }
         }
-        // A horizontal build whose A and B alternate along one row, as
-        // those of one whose copies tile with A and B split do not.
-        let interleaved = (self.operands == Operands::Interleaved
-            && self.orientation == Orientation::Horizontal)
-            .then(|| Tag {
-                name: tag::INTERLEAVED_INPUTS.to_owned(),
-                token: None,
-                kind: found(tag::Kind::Feature, true),
-            });
+        let interleaved = self.interleaved_inputs().then(|| Tag {
+            name: tag::INTERLEAVED_INPUTS.to_owned(),
+            token: None,
+            kind: found(tag::Kind::Feature, true),
+        });
         // Whether its outputs settle together, once measured, either way.
         let synced = self.synchronized.map(|synced| Tag {
             name: if synced { tag::SYNCED } else { tag::UNSYNCED }.to_owned(),

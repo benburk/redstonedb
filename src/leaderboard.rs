@@ -64,6 +64,61 @@ impl FromStr for State {
     }
 }
 
+/// Which builds a board takes by how their operands lie. A horizontal
+/// build whose A and B alternate along one row, carrying
+/// `interleaved_inputs`, is the odd case, competing only where it is asked
+/// for, alone or with the rest.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Inputs {
+    /// Builds whose operands lie split, as most do.
+    #[default]
+    Split,
+    /// Builds whose operands are interleaved, alone.
+    Interleaved,
+    /// Both together.
+    All,
+}
+
+impl Inputs {
+    /// As a leaderboard's address writes it, such as `interleaved`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Inputs::Split => "split",
+            Inputs::Interleaved => "interleaved",
+            Inputs::All => "all",
+        }
+    }
+
+    /// As people read it, such as `Interleaved`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Inputs::Split => "Split",
+            Inputs::Interleaved => "Interleaved",
+            Inputs::All => "All",
+        }
+    }
+
+    /// Whether a board of these inputs takes `s`.
+    pub fn takes(self, s: &Schematic) -> bool {
+        match self {
+            Inputs::Split => !s.interleaved_inputs(),
+            Inputs::Interleaved => s.interleaved_inputs(),
+            Inputs::All => true,
+        }
+    }
+}
+
+impl FromStr for Inputs {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        [Inputs::Split, Inputs::Interleaved, Inputs::All]
+            .into_iter()
+            .find(|inputs| text.trim().eq_ignore_ascii_case(inputs.name()))
+            .ok_or_else(|| format!("no inputs named {text}"))
+    }
+}
+
 /// Whether builds of `group` rank as cells: each bit, or each copy, a cell
 /// of its own, as a gate's or a monostable's, or of cells on shared
 /// lines, as a register's, rather than data crossing its bits.
@@ -235,6 +290,9 @@ pub struct Wanted {
     pub ticks: Option<i64>,
     /// Tags each build must have, by name, as [`ranked_tags`] gives them.
     pub tags: Vec<String>,
+    /// How the builds' operands lie; `None` for split, or interleaved
+    /// where no build is split.
+    pub inputs: Option<Inputs>,
     /// Where builds rank as cells, the pitch class their copies stack in,
     /// such as `2-wide`; `None` for any, or none.
     pub stacking: Option<String>,
@@ -273,6 +331,7 @@ impl Wanted {
                 .filter(|tag| !tag.is_empty())
                 .map(str::to_owned)
                 .collect(),
+            inputs: parsed(value("inputs")),
             stacking: value("stacking")
                 .filter(|class| {
                     pitch_class(&tag::pitch_stackable(class)).is_some()
@@ -292,6 +351,7 @@ impl Wanted {
         let tags = (!self.tags.is_empty()).then(|| self.tags.join(","));
         let named = [
             ("logic", self.logic.map(State::name)),
+            ("inputs", self.inputs.map(Inputs::name)),
             ("stacking", self.stacking.as_deref()),
             ("orientation", self.orientation.map(Orientation::name)),
             ("design", self.design.as_deref()),
@@ -355,6 +415,9 @@ pub struct Board<'a> {
     /// Stateless and stateful; empty when the builds are all one.
     pub logics: Vec<Choice<State>>,
     pub logic: Option<State>,
+    /// Split and interleaved; empty when no build left is interleaved.
+    pub inputs_choices: Vec<Choice<Inputs>>,
+    pub inputs: Inputs,
     /// Where builds rank as cells, each pitch class the builds left stack
     /// in, such as `2-wide`, tightest first; else empty, a class being one
     /// of the tags.
@@ -390,7 +453,8 @@ pub struct Board<'a> {
 /// where most builds are; every orientation, latency, and design compete
 /// unless asked for, but for a category's one design. A build missing a
 /// measure, such as one of unknown width, competes on no board, nor does
-/// one not verified as its category. Builds that rank as cells split by no
+/// one not verified as its category. Interleaved builds compete only when
+/// asked for, unless every build is. Builds that rank as cells split by no
 /// width, and by how closely their copies stack, any way by default.
 pub fn board<'a>(
     category: &[&'a Schematic],
@@ -410,6 +474,7 @@ pub fn board<'a>(
         let state = State::of(s);
         (state, state.label().to_owned())
     });
+    let (inputs_choices, inputs, ranked) = by_inputs(ranked, wanted.inputs);
     let stacking = wanted.stacking.clone().filter(|_| cells);
     let (stackings, ruler, mut ranked) =
         by_stacking(ranked, stacking.as_deref(), group);
@@ -461,6 +526,8 @@ pub fn board<'a>(
         splits,
         logics: if logics.len() > 1 { logics } else { Vec::new() },
         logic,
+        inputs_choices,
+        inputs,
         stackings,
         stacking,
         ruler,
@@ -517,6 +584,37 @@ fn split<'a>(
     (splits, ranked)
 }
 
+/// Narrows `ranked` to the builds of the inputs `wanted`, by default split
+/// ones, or interleaved where none is split. Returns each kind's choice,
+/// none where no build is interleaved, the kind chosen, and the builds
+/// left.
+fn by_inputs(
+    mut ranked: Vec<&Schematic>,
+    wanted: Option<Inputs>,
+) -> (Vec<Choice<Inputs>>, Inputs, Vec<&Schematic>) {
+    let options = choices(&ranked, |s| {
+        let inputs = if s.interleaved_inputs() {
+            Inputs::Interleaved
+        } else {
+            Inputs::Split
+        };
+        (inputs, inputs.label().to_owned())
+    });
+    let has = |inputs: Inputs| options.iter().any(|c| c.value == inputs);
+    let chosen = wanted.unwrap_or(if has(Inputs::Split) {
+        Inputs::Split
+    } else {
+        Inputs::Interleaved
+    });
+    ranked.retain(|s| chosen.takes(s));
+    let options = if has(Inputs::Interleaved) {
+        options
+    } else {
+        Vec::new()
+    };
+    (options, chosen, ranked)
+}
+
 /// Narrows `ranked`, builds of `group`, to those stacking in the pitch
 /// class `class`, such as `2-wide`, where one is asked for. Returns, where
 /// builds rank as cells, each class's choice, then how the board measures
@@ -566,11 +664,12 @@ fn stackings(ranked: &[&Schematic]) -> Vec<Choice<String>> {
 }
 
 /// The tags `ranked` have, with how many builds have each, by label, but
-/// those chosen apart: a design, an orientation, and, where builds rank as
-/// `cells`, a pitch class.
+/// those chosen apart: a design, an orientation, interleaved inputs, and,
+/// where builds rank as `cells`, a pitch class.
 fn tag_choices(ranked: &[&Schematic], cells: bool) -> Vec<Choice<String>> {
     let chosen_apart = |tag: &Tag| {
         matches!(tag.kind, Kind::Design | Kind::Orientation)
+            || tag.name == tag::INTERLEAVED_INPUTS
             || (cells && pitch_class(&tag.name).is_some())
     };
     let mut choices: Vec<Choice<String>> = Vec::new();
@@ -797,13 +896,12 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
 }
 
 /// The tags of a build a board may narrow to: those the site finds, such
-/// as its design, orientation, `synced`, `torchless`, or a pitch class, as
-/// `2-wide_stackable`, but for the flags that only say which lines it has,
-/// as a carry in, which never narrow a record's board, `interleaved_inputs`,
-/// which boards do not yet split by, and how far apart a register's copies
-/// add words, as `3-wide_word_stackable`, shown on its page alone. Of a
-/// build that ranks as a cell, `stackable` is left out too, its pitch class
-/// saying more.
+/// as its design, orientation, `synced`, `torchless`, a pitch class, as
+/// `2-wide_stackable`, or `interleaved_inputs`, but for the flags that only
+/// say which lines it has, as a carry in, which never narrow a record's
+/// board, and how far apart a register's copies add words, as
+/// `3-wide_word_stackable`, shown on its page alone. Of a build that ranks
+/// as a cell, `stackable` is left out too, its pitch class saying more.
 pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
     let cells = as_cells(group_of(&s.category));
     s.every_tag()
@@ -812,7 +910,6 @@ pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
             tag.is_found()
                 && !tag.is_unverified()
                 && !Flag::LINES.contains(&tag.name.as_str())
-                && tag.name != tag::INTERLEAVED_INPUTS
                 && !tag::is_word_stackable(&tag.name)
                 && (!cells || tag.name != tag::STACKABLE)
         })
@@ -917,8 +1014,9 @@ pub fn in_sentence(name: &str) -> String {
 /// finds, such as `synced`, a design, an orientation, or a pitch class, as
 /// `2-wide_stackable`. Builds that rank as cells have no width among their
 /// measures, a board of theirs narrows to one pitch class at most, and
-/// they are measured as its [`Ruler`] says. Its first place is a record
-/// when the board ranks two or more builds, and
+/// they are measured as its [`Ruler`] says. An interleaved build competes
+/// only on a board narrowed to `interleaved_inputs`, and only one is. Its
+/// first place is a record when the board ranks two or more builds, and
 ///
 /// - its traits each change who is first, so no board with one fewer has
 ///   the same first place: a design nearly every fast build has makes no
@@ -1067,6 +1165,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
         return Vec::new();
     };
     let group = group_of(&first.category);
+    let interleaved = Trait::Tag(tag::INTERLEAVED_INPUTS.to_owned());
     let tags: Vec<Vec<Tag>> = base.iter().map(|s| ranked_tags(s)).collect();
     let traits: Vec<BTreeSet<Trait>> = base
         .iter()
@@ -1080,10 +1179,13 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
         .collect();
     let boards = boards(&traits, group);
     let ruler = |wanted: &BTreeSet<Trait>| Ruler::of(group, classes_in(wanted));
-    // The builds a board of `wanted` ranks `rank`, by their place in base.
+    // The builds a board of `wanted` ranks `rank`, by their place in base:
+    // interleaved builds only where it narrows to them.
     let field = |wanted: &BTreeSet<Trait>, rank: Rank| -> Vec<usize> {
+        let interleaving = wanted.contains(&interleaved);
         (0..base.len())
             .filter(|&i| wanted.is_subset(&traits[i]))
+            .filter(|&i| base[i].interleaved_inputs() == interleaving)
             .filter(|&i| rank == Rank::Smallest || base[i].latency.is_some())
             .collect()
     };
@@ -1217,17 +1319,69 @@ mod tests {
         assert_eq!(wanted.href("/b"), "/b?at_least=3");
     }
 
-    /// A horizontal build whose operands alternate along one row carries
-    /// `interleaved_inputs`, but no board narrows to it yet.
+    /// Interleaved builds compete only where a board asks for them: alone,
+    /// or with the rest. A board of nothing else takes them by default.
     #[test]
-    fn interleaved_inputs_split_no_board_yet() {
-        let mut adder = build("a", 1, None, Some(3), 10);
-        adder.operands = crate::models::schematic::Operands::Interleaved;
-        let named = |tags: Vec<Tag>| {
-            tags.iter().any(|tag| tag.name == tag::INTERLEAVED_INPUTS)
+    fn interleaved_builds_compete_only_when_asked_for() {
+        let mut odd = build("odd", 1, None, Some(3), 10);
+        odd.operands = crate::models::schematic::Operands::Interleaved;
+        let adders = [odd, build("a", 1, None, Some(4), 20)];
+        let all: Vec<&Schematic> = adders.iter().collect();
+        let ids = |inputs: Option<Inputs>| {
+            let wanted = Wanted {
+                inputs,
+                ..Wanted::default()
+            };
+            let board = board(&all, &wanted, &[Measure::Width]);
+            assert_eq!(board.inputs_choices.len(), 2);
+            board
+                .builds
+                .iter()
+                .map(|s| s.id.clone())
+                .collect::<Vec<_>>()
         };
-        assert!(named(adder.every_tag()));
-        assert!(!named(ranked_tags(&adder)));
+        assert_eq!(ids(None), ["a"]);
+        assert_eq!(ids(Some(Inputs::Interleaved)), ["odd"]);
+        assert_eq!(ids(Some(Inputs::All)), ["odd", "a"]);
+        let wanted = Wanted::parse("inputs=interleaved");
+        assert_eq!(wanted.inputs, Some(Inputs::Interleaved));
+        assert_eq!(wanted.href("/b"), "/b?inputs=interleaved");
+        let only = board(&all[..1], &Wanted::default(), &[Measure::Width]);
+        assert_eq!(only.inputs, Inputs::Interleaved);
+        assert_eq!(only.builds.len(), 1);
+    }
+
+    /// The smaller interleaved build makes no record among the split ones,
+    /// but one of its own among the interleaved.
+    #[test]
+    fn interleaved_builds_hold_records_apart() {
+        let interleaved = |id: &str, volume: i64| Schematic {
+            operands: crate::models::schematic::Operands::Interleaved,
+            ..build(id, 1, None, Some(3), volume)
+        };
+        let adders = [
+            interleaved("p", 10),
+            interleaved("q", 12),
+            build("a", 1, None, Some(3), 20),
+            build("b", 1, None, Some(3), 30),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest 1-bit adder".to_owned(), vec!["a"]),
+                (
+                    "Smallest 1-bit interleaved inputs adder".to_owned(),
+                    vec!["p"]
+                ),
+            ]
+        );
     }
 
     /// A gate of `bits`, `size`, stacking `ways`, each `(west, up, pitch)`.

@@ -5,8 +5,8 @@ use maud::{Markup, html};
 use crate::{
     category::{Category, Group, Measure},
     leaderboard::{
-        self, Board, Choice, Placed, Rank, Record, Ruler, SHOWN, Standing,
-        Wanted, in_sentence,
+        self, Board, Choice, Inputs, Placed, Rank, Record, Ruler, SHOWN,
+        Standing, Wanted, in_sentence,
     },
     models::{
         schematic::Schematic,
@@ -194,8 +194,8 @@ pub(super) fn record_table(
     }
 }
 
-/// The address of the board a record is first on: for cells, its pitch
-/// class chosen apart from its tags.
+/// The address of the board a record is first on: its interleaved inputs
+/// and, for cells, its pitch class, chosen apart from its tags.
 fn record_href(record: &Record) -> String {
     let of = |kind: Kind| record.tags.iter().find(|tag| tag.kind == kind);
     let cells = leaderboard::as_cells(leaderboard::group_of(record.category));
@@ -203,6 +203,10 @@ fn record_href(record: &Record) -> String {
         let (pitch, shape) = leaderboard::pitch_class(name)?;
         cells.then(|| format!("{pitch}-{shape}"))
     };
+    let interleaved = record
+        .tags
+        .iter()
+        .any(|t| t.name == tag::INTERLEAVED_INPUTS);
     Wanted {
         measures: record.measures.clone(),
         logic: Some(record.logic),
@@ -214,9 +218,11 @@ fn record_href(record: &Record) -> String {
             .tags
             .iter()
             .filter(|tag| !matches!(tag.kind, Kind::Design | Kind::Orientation))
+            .filter(|tag| tag.name != tag::INTERLEAVED_INPUTS)
             .filter(|tag| class(&tag.name).is_none())
             .map(|tag| tag.name.clone())
             .collect(),
+        inputs: interleaved.then_some(Inputs::Interleaved),
         stacking: record.tags.iter().find_map(|tag| class(&tag.name)),
     }
     .href(&format!("/leaderboards/{}", record.category))
@@ -320,7 +326,7 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
         .collect()
 }
 
-/// The measures, such as width, then the logic, a cell's stacking,
+/// The measures, such as width, then the logic, inputs, a cell's stacking,
 /// orientation, design, latency, and tags the board is narrowed to.
 /// Changing a measure or the logic resets those after it, which the new
 /// choice may not have; the rest keep one another.
@@ -329,8 +335,17 @@ fn choices(path: &str, board: &Board) -> Markup {
         measures: chosen_measures(board, board.splits.len()),
         ..Wanted::default()
     };
+    // Split inputs are the default, unless no build has them.
+    let split_default = board
+        .inputs_choices
+        .iter()
+        .any(|c| c.value == Inputs::Split);
+    let inputs = |inputs: Inputs| {
+        (inputs != Inputs::Split || !split_default).then_some(inputs)
+    };
     let current = Wanted {
         logic: board.logic,
+        inputs: inputs(board.inputs),
         stacking: board.stacking.clone(),
         orientation: board.orientation,
         design: board.design.clone().filter(|_| board.all_designs),
@@ -367,6 +382,13 @@ fn choices(path: &str, board: &Board) -> Markup {
                     (board.logic == Some(c.value),
                         Wanted { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
+            }
+            @if !board.inputs_choices.is_empty() {
+                @let all = (board.inputs == Inputs::All, Wanted { inputs: Some(Inputs::All), ..current.clone() }.href(path));
+                (choice_row("Inputs", &board.inputs_choices, |c| {
+                    (board.inputs == c.value,
+                        Wanted { inputs: inputs(c.value), ..current.clone() }.href(path))
+                }, Some(all)))
             }
             @if !board.stackings.is_empty() || board.stacking.is_some() {
                 @let all = (board.stacking.is_none(), Wanted { stacking: None, ..current.clone() }.href(path));
@@ -545,6 +567,12 @@ fn board_name(category: &Category, board: &Board) -> String {
                 .map(tag::pitch_stackable)
                 .map(|c| c.replace('_', " ")),
         )
+        .chain(match board.inputs {
+            Inputs::Split => None,
+            Inputs::Interleaved => Some("interleaved inputs".to_owned()),
+            Inputs::All => (!board.inputs_choices.is_empty())
+                .then(|| "split and interleaved inputs".to_owned()),
+        })
         .chain(tags)
         .chain(orientation)
         .chain(design)
