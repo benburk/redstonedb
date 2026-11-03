@@ -4,11 +4,12 @@ mod accounts;
 mod builds;
 mod categories;
 mod inspect;
+mod outputs;
 mod rebuild;
 mod simulate;
 mod versions;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr as _};
 
 use anyhow::{Context, Result, bail};
 use app::{
@@ -16,7 +17,7 @@ use app::{
     models::{schematic, similarity, tag},
 };
 use clap::{Parser, Subcommand};
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
 use accounts::{list_users, respell, set_role};
 use builds::{
@@ -24,6 +25,10 @@ use builds::{
 };
 use categories::{define_tag, print_categories};
 use inspect::{Inspect, evaluate, inspect_command};
+use outputs::{
+    Convert, Outputs, StackCheck, convert_command, outputs_command,
+    stack_check_command,
+};
 use rebuild::{Rebuild, finish, needs, rebuild};
 use simulate::simulate;
 use versions::{
@@ -100,6 +105,20 @@ enum Command {
         #[command(flatten)]
         standardizing: Standardizing,
     },
+    /// List a file's or stored build's inputs and its outputs by the rule
+    /// proposed for them, a repeater or comparator powering nothing, in
+    /// buses by how they line up, beside today's outputs, and probe it
+    /// with them. Reads the database only
+    Outputs(Outputs),
+    /// Rework a build's outputs, as today's rule reads them, to the
+    /// proposed rule, the dust on each a repeater giving out into air,
+    /// and check the result computes what the original does. Reads the
+    /// database only
+    Convert(Convert),
+    /// Stack copies of a build as `//rstack` does, each way asked, settle
+    /// them, read them by the proposed rule, and test them as a wider build
+    /// of its kind. Reads the database only
+    StackCheck(StackCheck),
     /// Change fields of a schematic; omitted fields are kept
     Set(Set),
     /// Delete a schematic
@@ -188,6 +207,15 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Outputs(_) | Command::Convert(_) | Command::StackCheck(_) =
+        cli.command
+    {
+        // Measuring only, so nothing is written, not even a checkpoint.
+        let db = connect_read_only().await?;
+        let result = run(&db, cli.command).await;
+        db.close().await;
+        return result;
+    }
     let db = connect_to_database().await;
     let result = run(&db, cli.command).await;
     // Builds whose file or category the command changed are compared again.
@@ -223,6 +251,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             note,
             standardizing,
         } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
+        Command::Outputs(args) => outputs_command(db, &args).await,
+        Command::Convert(args) => convert_command(db, &args).await,
+        Command::StackCheck(args) => stack_check_command(db, &args).await,
         Command::Set(args) => set(db, args).await,
         Command::List { category, tags } => {
             list(db, category.as_deref(), &tags).await
@@ -274,6 +305,14 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             define_tag(db, &name, kind, token.as_deref()).await
         }
     }
+}
+
+/// Opens `DATABASE_URL` read-only, applying no migrations, for commands
+/// that only measure.
+async fn connect_read_only() -> Result<SqlitePool> {
+    let url = dotenvy::var("DATABASE_URL").context("DATABASE_URL not set")?;
+    let options = SqliteConnectOptions::from_str(&url)?.read_only(true);
+    Ok(SqlitePool::connect_with(options).await?)
 }
 
 /// Resolves a unique prefix of a schematic id to the full id.

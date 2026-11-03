@@ -11,4 +11,5 @@ pub mod inspect;
 pub mod interface;
 pub mod palette;
 pub mod probe;
+pub mod repeater_outputs;
 pub mod roles;

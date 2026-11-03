@@ -6,6 +6,7 @@
 pub mod block;
 pub mod dust;
 pub mod orient;
+pub mod rstack;
 pub mod stack;
 pub mod standardize;
 pub mod works_from;

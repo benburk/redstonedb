@@ -477,6 +477,41 @@ impl Circuit {
             .collect()
     }
 
+    /// The strength arriving at the input of the repeater or comparator at
+    /// `pos`, as of the last `settle`, as the game reads it: the power of
+    /// what is behind it, the side its `facing` names, dust at its level,
+    /// and for a comparator a container's fullness; 0 at any other block.
+    pub fn arriving(&self, pos: Pos) -> u8 {
+        let pos = at(pos);
+        let facing = match self.world.get_block(pos) {
+            Block::Repeater(repeater) => repeater.facing,
+            Block::Comparator(comparator) => comparator.facing,
+            _ => return 0,
+        };
+        let face = facing.block_face();
+        let behind = pos.offset(face);
+        let block = self.world.get_block(behind);
+        if let Block::Comparator(_) = self.world.get_block(pos)
+            && mchprs_redstone::comparator::has_override(block)
+        {
+            return mchprs_redstone::comparator::get_override(
+                block,
+                &self.world,
+                behind,
+            );
+        }
+        let power = mchprs_redstone::get_redstone_power(
+            block,
+            &self.world,
+            behind,
+            face,
+        );
+        match block {
+            Block::RedstoneWire(wire) if power == 0 => wire.power,
+            _ => power,
+        }
+    }
+
     /// For each input, the ticks its drivers take to change it once it is
     /// set: a signal-strength input's comparators, one, so its dust takes
     /// its value a tick on; a lever's, none.

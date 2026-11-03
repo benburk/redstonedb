@@ -552,7 +552,7 @@ fn lone(blocks: &Blocks, pos: Pos, name: &str) -> bool {
 /// longest first, each bit sharing its `kind` (for an input, its lever's
 /// side and whether it is a button) with the rest of its run; what is
 /// left, lone lines.
-fn runs<K: PartialEq + Copy>(bits: &[(Pos, K)]) -> Vec<Run> {
+pub fn runs<K: PartialEq + Copy>(bits: &[(Pos, K)]) -> Vec<Run> {
     let kind: BTreeMap<Pos, K> = bits.iter().copied().collect();
     let mut left: HashSet<Pos> = kind.keys().copied().collect();
     let mut found = Vec::new();
