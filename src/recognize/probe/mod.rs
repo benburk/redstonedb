@@ -261,6 +261,48 @@ impl Layout {
     }
 }
 
+/// Which of two operands probing finds interchangeable, as an adder's or a
+/// gate's, whose test passes either way round, is A: the one the build's
+/// own marking names A, `marked`, as
+/// [`crate::recognize::legacy::operand_marks`] reads a stored build's old
+/// colours while its roles are first found; else, or where the marking
+/// names neither or both, the one holding the least place, west first, then
+/// down, then north, as [`Pos`] orders them. An operand the test passes
+/// only one way round is that way whatever its marking.
+#[derive(Clone, Copy, Default)]
+pub struct Order<'r> {
+    pub marked: Option<&'r Roles>,
+}
+
+impl Order<'_> {
+    /// Whether `a` and `b` are A and B in that order rather than the other
+    /// way round.
+    pub fn keeps(&self, a: &[Pos], b: &[Pos]) -> bool {
+        let named = |bits: &[Pos], n: u8| {
+            self.marked.map_or(0, |marked| {
+                bits.iter()
+                    .filter(|&&pos| marked.get(pos) == Some(Role::Operand(n)))
+                    .count()
+            })
+        };
+        let kept = named(a, 0) + named(b, 1);
+        let swapped = named(a, 1) + named(b, 0);
+        if kept != swapped {
+            return kept > swapped;
+        }
+        a.iter().min() <= b.iter().min()
+    }
+
+    /// `a` and `b` as A and B, in the order [`Order::keeps`] prefers.
+    pub fn of<T: AsRef<[Pos]>>(&self, a: T, b: T) -> (T, T) {
+        if self.keeps(a.as_ref(), b.as_ref()) {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+}
+
 /// A and B, least significant bit first, and a carry in.
 type Operands = (Vec<Pos>, Vec<Pos>, Option<Pos>);
 
@@ -621,7 +663,7 @@ pub fn adder(
     blocks: &Blocks,
     report: &inspect::Report,
 ) -> Result<Probed, Fault> {
-    adder_from(data, blocks, report, false)
+    adder_from(data, blocks, report, false, Order::default())
 }
 
 /// As [`adder`], for a build kept as built, whose lines needn't keep the
@@ -636,18 +678,21 @@ pub fn adder_loosely(
     blocks: &Blocks,
     report: &inspect::Report,
 ) -> Result<Probed, Fault> {
-    adder_from(data, blocks, report, true)
+    adder_from(data, blocks, report, true, Order::default())
 }
 
 /// As [`adder`], its lines laid out loosely too when `loose`; see
-/// [`adder_loosely`].
+/// [`adder_loosely`]. Of A and B, which add either way round, A is as
+/// `order` prefers, each layout tried in that order first.
 pub(super) fn adder_from(
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
     loose: bool,
+    order: Order,
 ) -> Result<Probed, Fault> {
-    let (pairs, outs) = layouts(report, loose)?;
+    let (mut pairs, outs) = layouts(report, loose)?;
+    pairs.sort_by_key(|(a, b, _)| !order.keeps(a, b));
     let mut best: Option<(simulate::Run, Layout)> = None;
     let mut reasons: Vec<String> = Vec::new();
     for (a, b, carry_in) in &pairs {

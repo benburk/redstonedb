@@ -4,7 +4,7 @@
 //! shape as [`repeater_outputs::interface`] reads it; given those roles and
 //! run through the adder's test, which reads each digit as four bits.
 
-use super::{Fault, Role, Roles, try_roles};
+use super::{Fault, Order, Role, Roles, try_roles};
 use crate::{
     recognize::{inspect, repeater_outputs},
     schem::{Blocks, Pos},
@@ -22,13 +22,15 @@ pub struct HexAdderProbed {
 
 /// The hex adder the file in `data`, of `blocks`, is, run through `test`:
 /// its lines as their shapes give them, see
-/// [`repeater_outputs::interface`], given those roles and tested; or why it
-/// isn't one.
+/// [`repeater_outputs::interface`], given those roles and tested, its
+/// digits A and B as `order` prefers first and the other way round after;
+/// or why it isn't one.
 pub fn hex_adder(
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
     test: Test,
+    order: Order,
 ) -> Result<HexAdderProbed, Fault> {
     if report.digits.is_empty() {
         return Err(Fault::Unfit(
@@ -38,20 +40,25 @@ pub fn hex_adder(
     }
     let lines = repeater_outputs::interface(blocks);
     let mut roles = Roles::default();
-    let mut operands =
-        [Role::Operand(0), Role::Operand(1), Role::Operand(2)].into_iter();
+    let mut operands: Vec<Vec<Pos>> = Vec::new();
     for port in &lines.inputs {
-        let role = if port.name == "control line" {
-            Role::Control
+        let bits = port.bits.iter().map(|bit| bit.pos);
+        if port.name == "control line" {
+            roles.mark(Role::Control, &bits.collect::<Vec<_>>());
         } else {
-            operands.next().ok_or_else(|| {
-                Fault::Unfit(format!(
-                    "Inputs: {} buses, a hex adder takes A and B",
-                    lines.inputs.iter().filter(|p| p.bits.len() > 1).count()
-                ))
-            })?
-        };
-        roles.mark(role, port.bits.iter().map(|bit| &bit.pos));
+            operands.push(bits.collect());
+        }
+    }
+    if operands.len() > 3 {
+        return Err(Fault::Unfit(format!(
+            "Inputs: {} buses, a hex adder takes A and B",
+            lines.inputs.iter().filter(|p| p.bits.len() > 1).count()
+        )));
+    }
+    if let [a, b, ..] = operands.as_mut_slice()
+        && !order.keeps(a, b)
+    {
+        std::mem::swap(a, b);
     }
     // At most three output buses, the sum's lowest bits first.
     let mut places = 0..3;
@@ -69,7 +76,22 @@ pub fn hex_adder(
         };
         roles.mark(role, port.bits.iter().map(|bit| &bit.pos));
     }
-    let (file, run) = try_roles(data, &roles, test, true)??;
+    let given = |operands: &[Vec<Pos>]| {
+        let mut roles = roles.clone();
+        for (n, bits) in (0..).zip(operands) {
+            roles.mark(Role::Operand(n), bits);
+        }
+        roles
+    };
+    let (file, run) = match try_roles(data, &given(&operands), test, true)? {
+        Ok(found) => found,
+        Err(fault) if operands.len() >= 2 => {
+            operands.swap(0, 1);
+            try_roles(data, &given(&operands), test, true)?
+                .map_err(|other| fault.nearer(other))?
+        }
+        Err(fault) => return Err(fault),
+    };
     Ok(HexAdderProbed {
         digits: report
             .digits

@@ -17,6 +17,7 @@ use crate::{
     recognize::{
         colour,
         interface::{self, Interface, Port},
+        probe,
     },
     schem::{
         self, Blocks, Size,
@@ -597,8 +598,13 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
 /// stands in for, as an 8-bit adder's for an adder, its lines read loosely
 /// as a build kept as built may need, see [`probe::kept_roles`]; else, or
 /// when no probe's test runs, those its shapes give it, see
-/// [`interface::shaped_roles`]. Never its colours. A file carrying roles
-/// comes back as it is.
+/// [`interface::shaped_roles`]. Its colours never give a line its role,
+/// but a file carrying no roles is a stored build's from before the site
+/// kept them, or a port of one to the rule for outputs, so its colours are
+/// the marking the site once read: of two operands its test passes either
+/// way round, A is the one they mark A, see
+/// [`crate::recognize::legacy::operand_marks`] and [`probe::Order`]. A file
+/// carrying roles comes back as it is.
 pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     if blocks.roles.is_some() {
@@ -608,8 +614,12 @@ pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
         .chain(crate::models::simulation::meant_by(category))
         .find(|c| category::blessed(c))
         .and_then(Kind::named);
+    let marked = crate::recognize::legacy::operand_marks(&blocks);
+    let order = probe::Order {
+        marked: Some(&marked),
+    };
     let probed = match meant {
-        Some(kind) => crate::recognize::probe::kept_roles(data, kind)?,
+        Some(kind) => probe::kept_roles(data, kind, order)?,
         None => None,
     };
     let roles = probed.unwrap_or_else(|| interface::shaped_roles(&blocks));

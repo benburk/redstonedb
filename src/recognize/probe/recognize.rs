@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, Roles, adder_from, alu, decoder, hex_adder, multiplier, one_operand,
-    operands_probe, register, sequential, shifter,
+    Fault, Order, Roles, adder_from, alu, decoder, hex_adder, multiplier,
+    one_operand, operands_probe, register, sequential, shifter,
 };
 use crate::{
     category::{Kind, Probe, Probing},
@@ -134,7 +134,8 @@ pub fn recognize_watched(
             continue;
         }
         trying(kind, i);
-        match probe_by(kind, how, test, data, &blocks, &report, false)? {
+        let order = Order::default();
+        match probe_by(kind, how, test, data, &blocks, &report, false, order)? {
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
@@ -176,7 +177,16 @@ pub fn probe_as(
     else {
         return Ok(Err(Fault::Unfit(format!("{} isn't probed", kind.a()))));
     };
-    probe_by(kind, how, test, data, blocks, report, false)
+    probe_by(
+        kind,
+        how,
+        test,
+        data,
+        blocks,
+        report,
+        false,
+        Order::default(),
+    )
 }
 
 /// The roles of the lines of the build in `data`, kept as built and meant
@@ -184,8 +194,13 @@ pub fn probe_as(
 /// read whatever faults the conventions find in them, and its lines laid
 /// out loosely, as [`super::adder_loosely`] lays an adder's, as only its
 /// test says which is which; of a try that got cases wrong, the closest.
-/// `None` when no try's test ran, as for a kind never probed.
-pub fn kept_roles(data: &[u8], kind: Kind) -> anyhow::Result<Option<Roles>> {
+/// Of two operands its test passes either way round, A is as `order`
+/// prefers. `None` when no try's test ran, as for a kind never probed.
+pub fn kept_roles(
+    data: &[u8],
+    kind: Kind,
+    order: Order,
+) -> anyhow::Result<Option<Roles>> {
     let kind = match kind.facts().probe {
         Probing::As(other) => other,
         Probing::Tried { .. } => kind,
@@ -199,19 +214,22 @@ pub fn kept_roles(data: &[u8], kind: Kind) -> anyhow::Result<Option<Roles>> {
     let simulated = simulatable(&lines::without(data)?)?;
     let blocks = Blocks::read(&simulated)?;
     let report = inspect::inspect(&blocks);
-    let file =
-        match probe_by(kind, how, test, &simulated, &blocks, &report, true)? {
-            Ok((_, file, _)) => file,
-            Err(fault) => match fault.file() {
-                Some(file) => file.to_vec(),
-                None => return Ok(None),
-            },
-        };
+    let probed =
+        probe_by(kind, how, test, &simulated, &blocks, &report, true, order)?;
+    let file = match probed {
+        Ok((_, file, _)) => file,
+        Err(fault) => match fault.file() {
+            Some(file) => file.to_vec(),
+            None => return Ok(None),
+        },
+    };
     lines::of(&file)
 }
 
 /// As [`probe_as`], `kind` probed `how` its row says, by its `test`, its
-/// lines laid out loosely with `loose`; see [`kept_roles`].
+/// lines laid out loosely with `loose`, its operands in `order`; see
+/// [`kept_roles`].
+#[allow(clippy::too_many_arguments)]
 fn probe_by(
     kind: Kind,
     how: Probe,
@@ -220,6 +238,7 @@ fn probe_by(
     blocks: &Blocks,
     report: &inspect::Report,
     loose: bool,
+    order: Order,
 ) -> anyhow::Result<Result<Found, Fault>> {
     let found = |run: &simulate::Run| {
         // An adder is one or a subtractor, and a hex adder adds or
@@ -236,7 +255,8 @@ fn probe_by(
             run.pattern
         )
     };
-    let probed = probed_as(how, test, data, blocks, report, found, loose)?;
+    let probed =
+        probed_as(how, test, data, blocks, report, found, loose, order)?;
     Ok(match probed {
         Ok((inputs, file, found)) => {
             Ok((inputs, unlabelled(kind, &file)?, found))
@@ -273,7 +293,8 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// As `probe_as`, the file carrying the roles probing found, its signs as
 /// they were; laid out loosely with `loose`, as [`kept_roles`] reads a
-/// build kept as built.
+/// build kept as built; its operands in `order`.
+#[allow(clippy::too_many_arguments)]
 fn probed_as(
     how: Probe,
     test: Test,
@@ -282,9 +303,10 @@ fn probed_as(
     report: &inspect::Report,
     found: impl Fn(&simulate::Run) -> String,
     loose: bool,
+    order: Order,
 ) -> anyhow::Result<Result<Found, Fault>> {
     Ok(match how {
-        Probe::Adder => match adder_from(data, blocks, report, loose) {
+        Probe::Adder => match adder_from(data, blocks, report, loose, order) {
             Ok(probed) => Ok((
                 [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
                 super::with_layout(data, &probed.layout)?,
@@ -293,7 +315,7 @@ fn probed_as(
             Err(why) => Err(why),
         },
         Probe::HexAdder => {
-            hex_adder(data, blocks, report, test).map(|probed| {
+            hex_adder(data, blocks, report, test, order).map(|probed| {
                 let found = found(&probed.run);
                 (probed.digits, probed.file, found)
             })
@@ -306,7 +328,7 @@ fn probed_as(
             let found = found(&probed.run);
             (probed.a, probed.file, found)
         }),
-        Probe::Alu => alu(data, report).map(|probed| {
+        Probe::Alu => alu(data, report, order).map(|probed| {
             let found = found(&probed.run);
             ([probed.a, probed.b].concat(), probed.file, found)
         }),
@@ -314,16 +336,15 @@ fn probed_as(
             let found = found(&probed.run);
             (probed.a, probed.file, found)
         }),
-        Probe::Multiplier => multiplier(data, report).map(|probed| {
+        Probe::Multiplier => multiplier(data, report, order).map(|probed| {
             let found = found(&probed.run);
             ([probed.a, probed.b, probed.c].concat(), probed.file, found)
         }),
-        Probe::Operands => {
-            operands_probe(data, report, test, loose).map(|probed| {
+        Probe::Operands => operands_probe(data, report, test, loose, order)
+            .map(|probed| {
                 let found = found(&probed.run);
                 (probed.inputs, probed.file, found)
-            })
-        }
+            }),
         Probe::OneOperand(line) => {
             one_operand(data, report, test, line).map(|probed| {
                 let found = found(&probed.run);

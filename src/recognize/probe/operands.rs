@@ -4,7 +4,8 @@
 //! test.
 
 use super::{
-    Fault, Role, Roles, lengths, ordered, split, stray_operands, try_roles,
+    Fault, Order, Role, Roles, lengths, ordered, split, stray_operands,
+    try_roles,
 };
 use crate::{
     recognize::inspect::{self, Run},
@@ -27,7 +28,8 @@ pub struct OperandsProbed {
 /// as each, a gate's, or one bit, a comparison's or a carry out's; each way
 /// given those roles and run through the test. A carry out's lone lever
 /// left over, if any, is its carry in. A greater-than comparator's operands
-/// are tried both ways round; any other's give the same either way. With
+/// are tried both ways round, as `order` prefers first; any other's give
+/// the same either way, so A is the one `order` prefers. With
 /// `loose`, for a build kept as built, A and B may each take one of the
 /// bits left over beside two runs as wide as each other, as
 /// [`super::adder_loosely`] reads them, where no other split fits. Or why
@@ -37,6 +39,7 @@ pub fn operands_probe(
     report: &inspect::Report,
     test: Test,
     loose: bool,
+    order: Order,
 ) -> Result<OperandsProbed, Fault> {
     // A NAND+XNOR gate has two outputs, its NAND and its XNOR, either way
     // round; any other one.
@@ -109,6 +112,13 @@ pub fn operands_probe(
             .map(|(a, b, carry)| (b.clone(), a.clone(), *carry))
             .collect();
         splits.extend(swapped);
+        splits.sort_by_key(|(a, b, _)| !order.keeps(a, b));
+    } else {
+        for (a, b, _) in &mut splits {
+            if !order.keeps(a, b) {
+                std::mem::swap(a, b);
+            }
+        }
     }
     let mut why = Fault::Unfit(String::new());
     for (a, b, carry) in splits {

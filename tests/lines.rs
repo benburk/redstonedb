@@ -142,3 +142,38 @@ fn a_theme_colours_the_roles_not_the_blocks() {
         );
     }
 }
+
+/// A stored build's roles, first found by probing, name A the operand its
+/// old colours mark A where its test adds either way round: the port of an
+/// 8-bit carry-cancel adder whose builder put A in lime at x = 3 and B in
+/// light blue at x = 0 reads A at x = 3, though x = 0 is further west. Its
+/// colours whitened, nothing marks either, and A is the westernmost.
+#[test]
+fn interchangeable_operands_follow_the_builders_marking() {
+    let raw = std::fs::read("tests/fixtures/cca-8-b-slower.schem").unwrap();
+    let a_at = |data: &[u8]| {
+        let found = import::with_roles(data, "adder").unwrap();
+        let roles = lines::of(&found).unwrap().expect("its roles");
+        let xs: Vec<i32> = roles
+            .0
+            .iter()
+            .filter(|&(_, role)| *role == Role::Operand(0))
+            .map(|(pos, _)| pos[0])
+            .collect();
+        assert_eq!(xs.len(), 8);
+        xs[0]
+    };
+    assert_eq!(a_at(&raw), 3);
+    let blocks = Blocks::read(&raw).unwrap();
+    let white: std::collections::BTreeMap<_, _> = blocks
+        .iter()
+        .filter(|&(_, state)| {
+            ["minecraft:lime_concrete", "minecraft:light_blue_concrete"]
+                .contains(&state)
+        })
+        .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
+        .collect();
+    assert_eq!(white.len(), 16);
+    let whitened = standardize::edit(&raw, &white).unwrap();
+    assert_eq!(a_at(&whitened), 0);
+}

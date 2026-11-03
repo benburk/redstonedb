@@ -328,6 +328,23 @@ pub fn colour_roles(blocks: &Blocks) -> Option<Roles> {
     Some(roles)
 }
 
+/// The operands a file in the site's old colours marks, A lime, B light
+/// blue, and on, by the block of each lever or button, and under each
+/// signal-strength input's comparator, of an input colour: the order its
+/// builder, or the site colouring it, gave its operands, which a port
+/// keeps where its outputs, and so [`colour_roles`], no longer read the
+/// old colours. Only the order of operands probing finds interchangeable
+/// is read from it, see [`crate::recognize::probe::Order`].
+pub fn operand_marks(blocks: &Blocks) -> Roles {
+    let digits = repeater_outputs::strength_inputs(blocks)
+        .into_iter()
+        .map(|input| schem::step(input.at, Direction::Down));
+    let levered = blocks.switches().into_iter().map(|switch| switch.block);
+    let mut roles = marked(blocks, digits.chain(levered));
+    roles.0.retain(|_, role| matches!(role, Role::Operand(_)));
+    roles
+}
+
 /// The file in `data` carrying the roles its colours mark, as
 /// [`colour_roles`] reads them, in place of any it carried; as it was for
 /// a file the site never coloured.

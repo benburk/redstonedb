@@ -3,7 +3,7 @@
 //! lines, tried in every order, each way given those roles and run through
 //! the multiplier test, the closest that ran kept when none holds.
 
-use super::{Fault, Role, Roles, lengths, split, try_roles};
+use super::{Fault, Order, Role, Roles, lengths, split, try_roles};
 use crate::{
     recognize::inspect::{self, Run},
     schem::Pos,
@@ -26,15 +26,16 @@ pub struct MultiplierProbed {
 
 /// The multiplier the file in `data` is, from `report`'s levers and
 /// outputs: its two input lines of one width its operands, A and B,
-/// whichever is which, as A × B is B × A, and a third line, if any, a fused
-/// multiply-add's addend, C, each line tried as it; a lone lever or button,
-/// if any, a sequential one's calculate; and its output lines, up to three,
-/// its product, tried in each order, lowest first, each given those roles
-/// and run through the multiplier test, quick cases first. Or why none
-/// holds.
+/// whichever is which, as A × B is B × A, so A is the one `order` prefers,
+/// and a third line, if any, a fused multiply-add's addend, C, each line
+/// tried as it; a lone lever or button, if any, a sequential one's
+/// calculate; and its output lines, up to three, its product, tried in
+/// each order, lowest first, each given those roles and run through the
+/// multiplier test, quick cases first. Or why none holds.
 pub fn multiplier(
     data: &[u8],
     report: &inspect::Report,
+    order: Order,
 ) -> Result<MultiplierProbed, Fault> {
     let (buses, controls) = split(&report.inputs);
     // A and B, and for a fused multiply-add its addend, C, each line tried
@@ -50,6 +51,13 @@ pub fn multiplier(
     let operands: Vec<_> = operands
         .into_iter()
         .filter(|(a, b, _)| a.bits.len() == b.bits.len())
+        .map(|(a, b, c)| {
+            if order.keeps(&a.bits, &b.bits) {
+                (a, b, c)
+            } else {
+                (b, a, c)
+            }
+        })
         .collect();
     if operands.is_empty() {
         return Err(Fault::Unfit(format!(
