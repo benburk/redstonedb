@@ -268,7 +268,8 @@ impl Schematic {
         });
         // The pitch class of copies that add bits, the blocks a bit apart
         // they stack, as `2-wide_stackable` west or `2-high_stackable` up,
-        // and each looser class, which a tighter pitch counts in too.
+        // and each looser class, which a tighter pitch counts in too; or
+        // the pitch of copies end to end, as `7-wide_stackable`, alone.
         let mut pitches: Vec<Tag> = Vec::new();
         for way in &self.stacking {
             let (Some(pitch), Some(shape)) = (way.pitch, way.pitch_shape())

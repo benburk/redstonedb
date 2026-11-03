@@ -26,11 +26,20 @@
 //!   buffer's, they must work together on them, and the most copies that
 //!   do is kept, as a shared line that runs too far fails.
 //!
-//! A build 1 block wide the way its copies go counts as 2 wide, so its
-//! copies 2 apart, a block of air between each, stack, as no other copies
-//! with air between do. Cells so apart cannot meet, so each works alone,
-//! and they are taken to stack untested; copies that chain or share lines
-//! must still reach across the air, so theirs are tested as any others.
+//! Where no pitch class works a way, copies are tried end to end too, at
+//! each step from the build's core width that way, as
+//! `interface::measured` finds it, to its whole width, where the outputs
+//! and inputs sticking out of one copy meet the next's, when that is a
+//! whole pitch: an adder whose copies work only 7 apart is 7-wide
+//! stackable, a class of its own, which counts in no other.
+//!
+//! Cells narrower than a step, copies of a gate or a monostable with air
+//! between them, cannot meet, so each works alone, and they are taken to
+//! stack untested, `stack::apart`: a 3-wide gate is 4-wide stackable, and
+//! a 1-wide one 2-wide. Copies that touch are tested. A build 1 block
+//! wide the way its copies go counts as 2 wide, so the copies 2 apart of
+//! one that chains or shares lines are tried too, though they must reach
+//! across the air to work; no other copies with air between are.
 //!
 //! A stack tested is long enough that one copy sits between two others
 //! and that it is longer than dust carries a signal, 15 blocks, plus a
@@ -224,14 +233,15 @@ impl Step {
         }
     }
 
-    /// Its pitch class for copies each adding `bits`: the blocks a bit, 1,
-    /// 2, or 4; `None` for any other spacing.
+    /// Its pitch for copies each adding `bits`: the blocks a bit, a class,
+    /// 1, 2, or 4, or the build's own width end to end, as the search
+    /// tries no other; `None` for a step that is no whole number of blocks
+    /// a bit, or goes both ways.
     pub fn pitch(self, bits: usize) -> Option<i64> {
         let bits = i64::try_from(bits).ok()?;
         let length = self.west + self.up;
-        PITCHES
-            .into_iter()
-            .find(|&pitch| bits > 0 && pitch * bits == length)
+        (bits > 0 && Way::of(self).is_some() && length % bits == 0)
+            .then_some(length / bits)
     }
 
     /// The step with the box its copies of the build in `data` repeat,
@@ -415,27 +425,21 @@ impl<'a> Stacker<'a> {
     /// Whether `copies` stacked `step` work, the box rule's box first,
     /// then boxes leaving out more of the first copy: the step with the
     /// box that works and the cases run, or why not. Copies apart, as
-    /// `stack::touches` has them, never stack. Cells of a build 1 block
-    /// wide the way they go, 2 apart, a block of air between each, are
-    /// taken to work untested, no cases run, as nothing joins them for one
-    /// to reach the next; copies that chain or share lines must still
-    /// meet across the air, so theirs are tested.
+    /// `stack::touches` has them, never stack, but cells apart, a block of
+    /// air or more between each, are taken to work untested, no cases run,
+    /// as nothing of one is beside the next; see [`Stacker::untested`].
     pub fn at(&self, step: Step, copies: usize) -> Result<(Step, u64), String> {
-        let read = |err: anyhow::Error| err.to_string();
-        let touching =
-            stack::touches(self.data, step.direction()).map_err(read)?;
+        if self.untested(step) {
+            return Ok((step, 0));
+        }
+        let touching = stack::touches(self.data, step.direction())
+            .map_err(|err| err.to_string())?;
         if !touching {
             return Err(format!(
                 "Copies {} apart leave air between them, so they are \
                  separate builds side by side rather than a stack.",
                 step.describe()
             ));
-        }
-        if self.group() == Group::Cells
-            && stack::one_wide_apart(self.data, step.direction())
-                .map_err(read)?
-        {
-            return Ok((step, 0));
         }
         let buses = self.buses(Way::of(step).unwrap_or(Way::West));
         step.find(self.data, true, buses, |step| {
@@ -444,23 +448,60 @@ impl<'a> Stacker<'a> {
         .unwrap_or_else(|| Err("Its file could not be read.".to_owned()))
     }
 
+    /// Whether copies stacked `step` are cells apart, which cannot meet,
+    /// so they are taken to stack untested.
+    fn untested(&self, step: Step) -> bool {
+        self.group() == Group::Cells
+            && stack::apart(self.data, step.direction()).unwrap_or(false)
+    }
+
+    /// The pitches copies are tried at `way`: each class, then end to end,
+    /// each step from the build's core width that way, as
+    /// `interface::measured` finds it, to its whole width, outputs and
+    /// inputs sticking out of it meeting the next copy's, where that is a
+    /// whole pitch and no class, tried only once no class works.
+    fn pitches(&self, way: Way) -> Vec<i64> {
+        let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
+        let mut pitches = PITCHES.to_vec();
+        let Ok(blocks) = Blocks::read(self.data) else {
+            return pitches;
+        };
+        let (low, high) = interface::measured(&blocks);
+        let axis = usize::from(way == Way::Up);
+        let core = i64::from(high[axis] - low[axis] + 1);
+        let whole = i64::from(blocks.size[axis]);
+        for width in core..=whole {
+            let pitch = width / bits.max(1);
+            if bits > 0
+                && width % bits == 0
+                && pitch > 0
+                && !pitches.contains(&pitch)
+            {
+                pitches.push(pitch);
+            }
+        }
+        pitches
+    }
+
     /// Each way its copies add bits, at the tightest pitch class that
-    /// works, with the most copies that do where they share lines, the
-    /// tightest first and west on a tie; or the last step tried whose
-    /// copies touch and why it failed, or, where none touch, why not.
+    /// works, or else end to end, with the most copies that do where they
+    /// share lines, the tightest first and west on a tie; or the last step
+    /// tried whose copies touch and why it failed, or, where none touch,
+    /// why not.
     pub fn search(&self) -> Result<Vec<Apart>, (Option<Step>, String)> {
         let mut found: Vec<(i64, Apart)> = Vec::new();
         let mut last = (None, self.not.clone());
         let mut tested = false;
         let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
         for &way in &self.ways {
-            for pitch in PITCHES {
+            for pitch in self.pitches(way) {
                 let step = way.step(pitch * bits);
                 let Some(copies) = self.copies(step) else {
                     continue;
                 };
-                let touching = stack::touches(self.data, step.direction())
-                    .unwrap_or(false);
+                let touching = self.untested(step)
+                    || stack::touches(self.data, step.direction())
+                        .unwrap_or(false);
                 if tested && !touching {
                     continue;
                 }
@@ -802,9 +843,11 @@ mod tests {
         assert_eq!(Step::new(2, 0).pitch(1), Some(2));
         assert_eq!(Step::new(0, 16).pitch(8), Some(2));
         assert_eq!(Step::new(0, 8).pitch(8), Some(1));
-        // A 1-bit adder every 8, or every 7: no class.
-        assert_eq!(Step::new(8, 0).pitch(1), None);
-        assert_eq!(Step::new(7, 0).pitch(1), None);
+        // A 1-bit adder end to end every 7: pitch 7; an 8-bit one every
+        // 12 up has no whole pitch.
+        assert_eq!(Step::new(7, 0).pitch(1), Some(7));
+        assert_eq!(Step::new(0, 12).pitch(8), None);
+        assert_eq!(Step::new(1, 1).pitch(1), None);
     }
 
     /// The 1-wide inverted monostable, as an upload standardizes it.
@@ -824,9 +867,10 @@ mod tests {
     /// are tested as its group asks: as cells, they cannot meet, so they
     /// are taken to stack with no stack built or run; chained, as an
     /// adder's, or sharing lines, as an inverter's, they must reach across
-    /// the air, so they are tested as any copies are.
+    /// the air, so they are tested as any copies are. Farther apart, cells
+    /// still stack untested, and a chain's copies are separate builds.
     #[test]
-    fn only_cells_1_wide_and_2_apart_stack_untested() {
+    fn only_cells_with_air_between_stack_untested() {
         let data = one_wide();
         let tested = std::cell::Cell::new(0);
         let stacker = |kind| {
@@ -849,5 +893,13 @@ mod tests {
         tested.set(0);
         let one = stacker(Kind::Monostable).at(Step::new(1, 0), 9);
         assert!(one.is_err() && tested.get() > 0, "{one:?}");
+        // Cells farther apart stack untested; a chain's are no stack.
+        tested.set(0);
+        let four = Step::new(4, 0);
+        let found = stacker(Kind::Monostable).at(four, 9);
+        assert_eq!(found.map(|(_, cases)| cases), Ok(0));
+        let chain = stacker(Kind::Adder).at(four, 9);
+        assert!(chain.is_err_and(|why| why.contains("air")));
+        assert_eq!(tested.get(), 0);
     }
 }

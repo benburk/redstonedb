@@ -1,6 +1,7 @@
 -- Copies stack west or up, never north, and copies that add bits are
 -- classed by their pitch: the step from one copy to the next over the bits
--- each adds, 1, 2, or 4, the only spacings tested. The one stored stack
+-- each adds, 1, 2, or 4, or, where none works, the build's own width, the
+-- only spacings tested. The one stored stack
 -- north, of a RAM off the list, goes, and so do decoders' stacks, as
 -- copies of a decoder side by side are separate decoders.
 
@@ -15,12 +16,13 @@ CREATE TABLE stack_direction_new (
     -- `{"low": [west, bottom, north], "high": [east, top, south]}`. NULL for
     -- the box rule's.
     faces TEXT CHECK (faces IS NULL OR json_valid(faces)),
-    -- For copies the simulation found add bits, the class of their pitch,
-    -- the step over the bits each copy adds: 1, 2, or 4, a build of a
-    -- tighter pitch counting in each looser class too. NULL for copies that
-    -- add words on a shared bus, as a register's across its bits, and for
-    -- a stack its builder gave.
-    pitch INTEGER CHECK (pitch IN (1, 2, 4)),
+    -- For copies the simulation found add bits, their pitch, the step over
+    -- the bits each copy adds: a class, 1, 2, or 4, a build of a tighter
+    -- pitch counting in each looser class too, or the build's own width,
+    -- end to end, which counts in no other. NULL for copies that add words
+    -- on a shared bus, as a register's across its bits, and for a stack
+    -- its builder gave.
+    pitch INTEGER CHECK (pitch > 0),
     CHECK (west + up > 0),
     PRIMARY KEY (schematic_id, west, up)
 ) STRICT;
