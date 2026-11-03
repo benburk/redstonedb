@@ -262,6 +262,22 @@ pub async fn check(
     })
 }
 
+impl Checked {
+    /// Why it cannot replace the current version but for changing too many
+    /// of its blocks, which only the migration to the rule for outputs
+    /// waives, as `rsdb new-version --outputs-migration` asks: a port to
+    /// the rule may change more than a fix may, as its outputs' taps add
+    /// blocks to a small build, yet it is the same build.
+    pub fn refusals_but_changes(&self) -> Vec<&str> {
+        let changes = refusals(self.comparison);
+        self.refusals
+            .iter()
+            .filter(|refusal| !changes.contains(refusal))
+            .map(String::as_str)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -104,6 +104,11 @@ enum Command {
         /// What it fixes
         #[arg(long)]
         note: Option<String>,
+        /// For the migration to the rule for outputs alone, its port of a
+        /// build: let it change more than 10% of the blocks, the only check
+        /// it waives, as a port's taps may on a small build
+        #[arg(long)]
+        outputs_migration: bool,
         #[command(flatten)]
         standardizing: Standardizing,
     },
@@ -259,8 +264,13 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             id,
             file,
             note,
+            outputs_migration,
             standardizing,
-        } => new_version(db, &id, &file, note.as_deref(), &standardizing).await,
+        } => {
+            let note = note.as_deref();
+            let migration = outputs_migration;
+            new_version(db, &id, &file, note, migration, &standardizing).await
+        }
         Command::Outputs(args) => outputs_command(db, &args).await,
         Command::Convert(args) => convert_command(db, &args).await,
         Command::StackCheck(args) => stack_check_command(db, &args).await,

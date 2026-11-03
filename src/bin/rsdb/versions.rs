@@ -158,12 +158,15 @@ pub(super) async fn colours(
 }
 
 /// Replaces build `id`'s file with `file` as its next version, after the
-/// checks the site makes, then simulates it again.
+/// checks the site makes, then simulates it again. For the migration to
+/// the rule for outputs, `migration`, it may change more blocks than a
+/// new version may, every other check made.
 pub(super) async fn new_version(
     db: &SqlitePool,
     id: &str,
     file: &Path,
     note: Option<&str>,
+    migration: bool,
     standardizing: &Standardizing,
 ) -> Result<()> {
     let id = resolve(db, id).await?;
@@ -177,11 +180,19 @@ pub(super) async fn new_version(
         comparison.changed,
         comparison.changed + comparison.same
     );
-    if !checked.refusals.is_empty() {
-        for refusal in &checked.refusals {
+    let refusals: Vec<&str> = if migration {
+        checked.refusals_but_changes()
+    } else {
+        checked.refusals.iter().map(String::as_str).collect()
+    };
+    if !refusals.is_empty() {
+        for refusal in &refusals {
             println!("{refusal}");
         }
         bail!("{} cannot replace {}", file.display(), &id[..8]);
+    }
+    if refusals.len() < checked.refusals.len() {
+        println!("changing more than a new version may, for the migration");
     }
     let how = Replacing::NextVersion {
         added_by: None,
