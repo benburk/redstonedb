@@ -161,6 +161,7 @@ const ROW: Facts = Facts {
     probe: Probing::Not,
     guess: Guess::Not,
     role_words: &[],
+    digit_inputs: false,
     behaviour: NOTHING,
 };
 
@@ -263,6 +264,7 @@ pub(super) const TABLE: [Facts; 47] = [
         flags: ADDER_FLAGS,
         listed_as: Some("hex adders"),
         guess: Guess::ByRunOf(Kind::Adder),
+        digit_inputs: true,
         behaviour: ADDER,
         ..ROW
     },
@@ -865,6 +867,7 @@ pub(super) const TABLE: [Facts; 47] = [
         plural: Some("Hex to Binary"),
         section: Section::Conversion,
         logic: Some(Logic::Stateless),
+        digit_inputs: true,
         ..ROW
     },
     Facts {

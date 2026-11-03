@@ -118,6 +118,10 @@ pub struct Facts {
     /// it takes out of a probed build; an ALU's, a decoder's, and a shift
     /// register's signs are kept, as they tell what their lines do.
     pub role_words: &'static [&'static str],
+    /// Whether its inputs take a hex digit a block, a signal-strength
+    /// input, as a hex adder's and a hex to binary converter's do; no
+    /// other build is driven by one.
+    pub digit_inputs: bool,
     pub behaviour: Behaviour,
 }
 
@@ -223,6 +227,11 @@ impl Kind {
     /// simulator takes; see `Test::of`.
     pub fn test(self) -> Option<Test> {
         self.facts().behaviour.test
+    }
+
+    /// Whether its inputs take hex digits; see `Facts::digit_inputs`.
+    pub fn digit_inputs(self) -> bool {
+        self.facts().digit_inputs
     }
 
     /// Whether it is a blessed category; see `Facts::listed_as`.

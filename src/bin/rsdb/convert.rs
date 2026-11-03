@@ -1,11 +1,14 @@
 //! Porting builds to the rule proposed for outputs, see
 //! [`repeater_outputs`], as the owner ports them by hand: each output today's
 //! rule reads tapped, [`repeater_outputs::tap`], each signal-strength input
-//! it reads by its colour fed, [`repeater_outputs::feed`], and the port
-//! checked against the original by its category's test, also through the
-//! lines the proposed rule reads for a build with signal-strength inputs,
-//! its truth table, and, for a build that stacks, the stacks it makes. One build at a time, or every
-//! stored build, each in a process of its own, writing the ports that pass.
+//! it reads by its colour fed, [`repeater_outputs::feed`], each comparator
+//! with air behind taken out of a build that takes no signal-strength
+//! inputs, as it drives nothing yet the proposed rule would read it as one,
+//! and the port checked against the original by its category's test, also
+//! through the lines the proposed rule reads for a build with
+//! signal-strength inputs, its truth table, and, for a build that stacks,
+//! the stacks it makes. One build at a time, or every stored build, each in
+//! a process of its own, writing the ports that pass.
 //! Nothing here writes to the database.
 
 use std::{
@@ -21,12 +24,13 @@ use std::{
 
 use anyhow::{Context, Result};
 use app::{
+    category::Kind,
     models::{schematic, simulation},
     recognize::{
         colour, inspect,
         interface::{self, Interface},
         probe,
-        repeater_outputs::{self, Fed, Tapped},
+        repeater_outputs::{self, Fed, StrengthInput, Tapped},
     },
     schem::{self, Blocks, Direction, Pos, standardize},
     simulate::{self, Test},
@@ -102,10 +106,14 @@ struct Outcome {
     /// How the original and the port stacked, for a build that stacks.
     #[serde(default)]
     stacked: Option<String>,
+    /// Each comparator with air behind taken out of a build that takes no
+    /// signal-strength inputs, such as `(4, 17, 11) into redstone wire`.
+    #[serde(default)]
+    removed: Vec<String>,
 }
 
 #[derive(
-    Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord,
+    Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord,
 )]
 enum Class {
     /// Every output tapped and every check passed.
@@ -126,6 +134,7 @@ impl Outcome {
             details: Vec::new(),
             min_ss: Vec::new(),
             stacked: None,
+            removed: Vec::new(),
         }
     }
 }
@@ -172,8 +181,9 @@ pub(super) async fn convert_command(
 
 /// The build in `data` ported to the proposed rule by tapping its outputs,
 /// read as an upload's with `upload`, else in the site's colours, and
-/// feeding its signal-strength inputs, read by their colour, then
-/// checked against the original: by its category's test, as `category`
+/// feeding its signal-strength inputs, read by their colour, and taking
+/// out each comparator with air behind where its category takes none, see
+/// [`dead_comparators`], then checked against the original: by its category's test, as `category`
 /// gives it, and `stored`'s width; case by case through one interface;
 /// read back by the proposed rule; and, when `stored` stacks, stacked
 /// each way it does.
@@ -193,22 +203,7 @@ fn convert(
     };
     let today = inspect::inspect_marked(&blocks, marks);
     if today.outputs.is_empty() {
-        let found = repeater_outputs::find(&blocks);
-        writeln!(
-            said,
-            "  no outputs by today's rule; {} by the proposed rule",
-            found.len()
-        )?;
-        let outcome = if found.is_empty() {
-            Outcome::new(Class::Untestable, "no outputs by either rule")
-        } else {
-            Outcome::new(Class::Already, "outputs by the proposed rule only")
-        };
-        return Ok(Conversion {
-            file: None,
-            said,
-            outcome,
-        });
+        return no_outputs(&blocks, said);
     }
     let lines = interface::read(&blocks);
     let width = match (category, stored.and_then(|s| s.width)) {
@@ -221,9 +216,19 @@ fn convert(
     let before = test.map(|test| test.run(&blocks));
     let digits = digit_outputs(&lines, before.as_ref());
     let along = stacking_sides(stored);
+    let pads = digit_pads(&blocks);
+    let original = Original {
+        blocks: &blocks,
+        lines: table_lines(data, lines, category)?,
+        category,
+        width,
+        test,
+        before: before.as_ref(),
+    };
+    let dead = dead_comparators(&original, data, &today.outputs, marks, &pads);
     let ported = repeater_outputs::tapped(
-        data,
-        (&today.outputs, &digit_pads(&blocks)),
+        &dead.cleared(data)?,
+        (&today.outputs, &pads),
         |pos| digits.contains(&pos),
         &along,
     );
@@ -243,16 +248,25 @@ fn convert(
             });
         }
     };
+    let dead_outcome = tell_dead(&blocks, &dead, &mut said)?;
     let outcome = joined(
-        tell_tapped(&blocks, &ported.tapped, &mut said)?,
-        tell_fed(&blocks, &ported.fed, &mut said)?,
+        joined(
+            tell_tapped(&blocks, &ported.tapped, &mut said)?,
+            tell_fed(&blocks, &ported.fed, &mut said)?,
+        ),
+        dead_outcome.clone(),
     );
+    let removed: Vec<String> = dead
+        .removed
+        .iter()
+        .map(|input| into(&blocks, input))
+        .collect();
     let (moved, done) = (ported.moved, &ported.tapped);
     let Some(file) = ported.file else {
         return Ok(Conversion {
             file: None,
             said,
-            outcome,
+            outcome: Outcome { removed, ..outcome },
         });
     };
     if moved != [0; 3] {
@@ -260,16 +274,13 @@ fn convert(
         writeln!(said, "  the box grew, every old position moved by {moved}")?;
     }
     let port = Port::new(file, moved, done, &ported.fed)?;
-    let original = Original {
-        data,
-        blocks: &blocks,
-        lines,
-        category,
-        width,
-        test,
-        before: before.as_ref(),
-    };
     let mut outcome = check(&original, &port, done, &mut said)?;
+    if dead_outcome.class == Class::Review {
+        let min_ss = std::mem::take(&mut outcome.min_ss);
+        outcome = joined(outcome, dead_outcome);
+        outcome.min_ss = min_ss;
+    }
+    outcome.removed = removed;
     if outcome.class == Class::Ported
         && let Some(stored) = stored
     {
@@ -285,6 +296,27 @@ fn convert(
     })
 }
 
+/// What came of a build in `blocks` with no outputs by today's rule, so
+/// nothing to port, after what `said` says so far.
+fn no_outputs(blocks: &Blocks, mut said: String) -> Result<Conversion> {
+    let found = repeater_outputs::find(blocks);
+    writeln!(
+        said,
+        "  no outputs by today's rule; {} by the proposed rule",
+        found.len()
+    )?;
+    let outcome = if found.is_empty() {
+        Outcome::new(Class::Untestable, "no outputs by either rule")
+    } else {
+        Outcome::new(Class::Already, "outputs by the proposed rule only")
+    };
+    Ok(Conversion {
+        file: None,
+        said,
+        outcome,
+    })
+}
+
 /// The signal-strength inputs today's rule reads in `blocks` by their
 /// colour, input blocks with dust on top, each with the side its dust is
 /// open to, in order.
@@ -295,12 +327,232 @@ fn digit_pads(blocks: &Blocks) -> Vec<(Pos, Option<Direction>)> {
     pads
 }
 
+/// The lines a build's truth table is run through: `lines`, as its
+/// colours mark them, or else, missing inputs or outputs, as probing the
+/// build in `data` as `category` finds them.
+fn table_lines(
+    data: &[u8],
+    lines: Interface,
+    category: Option<&str>,
+) -> Result<Interface> {
+    if (lines.inputs.is_empty() || lines.outputs.is_empty())
+        && let Ok(found) = probe::recognize_as(data, category)
+        && found.found.is_some()
+    {
+        return Ok(interface::read(&Blocks::read(&found.file)?));
+    }
+    Ok(lines)
+}
+
+/// What came of the comparators with air behind of a build whose category
+/// takes no signal-strength inputs: dead, as nothing behind them drives
+/// them, yet the proposed rule would read each as an input.
+#[derive(Default)]
+struct Dead {
+    /// Each taken out, as taking it out alone changed nothing.
+    removed: Vec<StrengthInput>,
+    /// Each kept, with what taking it out alone changed.
+    kept: Vec<(StrengthInput, String)>,
+}
+
+impl Dead {
+    /// The file in `data` without the comparators taken out.
+    fn cleared(&self, data: &[u8]) -> Result<Vec<u8>> {
+        if self.removed.is_empty() {
+            return Ok(data.to_vec());
+        }
+        let air = self
+            .removed
+            .iter()
+            .map(|input| (input.at, "minecraft:air".to_owned()))
+            .collect();
+        standardize::edit(data, &air)
+    }
+}
+
+/// The comparators with air behind in `original`, when its category takes
+/// no signal-strength inputs, each taken out but where
+/// taking it out alone, the build then settled as a port is, changes what
+/// the original does: the outputs today's rule reads, by `marks`, its
+/// `outputs`; the outputs the proposed rule reads, as a repeater or
+/// comparator that gave out into it then gives out into air; its test's
+/// result; or its truth table, where it runs. One
+/// that drives a signal-strength input of `pads`, read by its colour, is
+/// left as it is, as feeding takes it for that input's.
+fn dead_comparators(
+    original: &Original,
+    data: &[u8],
+    outputs: &[inspect::Run],
+    marks: inspect::Marks,
+    pads: &[(Pos, Option<Direction>)],
+) -> Dead {
+    let mut dead = Dead::default();
+    // A category off the list may take them, for all anyone knows.
+    if original
+        .category
+        .and_then(Kind::named)
+        .is_none_or(Kind::digit_inputs)
+    {
+        return dead;
+    }
+    let blocks = original.blocks;
+    let driving: HashSet<Pos> = pads
+        .iter()
+        .filter_map(|&(pad, _)| repeater_outputs::driving(blocks, pad))
+        .map(|input| input.at)
+        .collect();
+    let found: Vec<StrengthInput> = repeater_outputs::strength_inputs(blocks)
+        .into_iter()
+        .filter(|input| !driving.contains(&input.at))
+        .collect();
+    if found.is_empty() {
+        return dead;
+    }
+    let bits = |outputs: &[inspect::Run]| -> HashSet<Pos> {
+        outputs.iter().flat_map(|run| run.bits.clone()).collect()
+    };
+    let read = bits(outputs);
+    let proposed = |blocks: &Blocks| -> HashSet<Pos> {
+        repeater_outputs::find(blocks)
+            .iter()
+            .map(|o| o.at)
+            .collect()
+    };
+    let ruled = proposed(blocks);
+    let table_before = table(blocks, &original.lines).ok();
+    for input in found {
+        let air = BTreeMap::from([(input.at, "minecraft:air".to_owned())]);
+        let after = standardize::edit(data, &air)
+            .and_then(|file| schem::rstack::settle(&file))
+            .and_then(|file| Blocks::read(&probe::simulatable(&file)?));
+        let after = match after {
+            Ok(after) => after,
+            Err(err) => {
+                dead.kept
+                    .push((input, format!("not settled without it: {err}")));
+                continue;
+            }
+        };
+        let now = bits(&inspect::inspect_marked(&after, marks).outputs);
+        let new: Vec<String> = repeater_outputs::find(&after)
+            .into_iter()
+            .filter(|output| !ruled.contains(&output.at))
+            .map(|output| {
+                format!(
+                    "{} at {} giving out {}",
+                    output.kind(),
+                    place(output.at),
+                    output.points()
+                )
+            })
+            .collect();
+        let changed = if now != read {
+            Some(format!(
+                "today's rule reads {} outputs without it, {} with",
+                now.len(),
+                read.len()
+            ))
+        } else if !new.is_empty() {
+            Some(format!(
+                "the proposed rule reads an output without it that it gave \
+                 out into: {}",
+                new.join(", ")
+            ))
+        } else if let (Some(test), Some(before)) =
+            (original.test, original.before)
+            && let (was, then) = (verdict(before), verdict(&test.run(&after)))
+            && was != then
+        {
+            Some(format!("its test {was} with it, {then} without"))
+        } else if let Some(before) = &table_before
+            && let Ok(then) = table(&after, &original.lines)
+            && let Some(i) = (0..before.cases.len())
+                .find(|&i| before.cases[i] != then.cases[i])
+        {
+            Some(format!(
+                "its truth table differs, first inputs {:#b}: outputs {:?} \
+                 with it, {:?} without",
+                before.cases[i].0, before.cases[i].1, then.cases[i].1
+            ))
+        } else {
+            None
+        };
+        match changed {
+            Some(why) => dead.kept.push((input, why)),
+            None => dead.removed.push(input),
+        }
+    }
+    dead
+}
+
+/// Writes to `said` what came of each comparator with air behind, `dead`;
+/// what came of them: to review, naming each kept and why, else already.
+fn tell_dead(
+    blocks: &Blocks,
+    dead: &Dead,
+    said: &mut String,
+) -> Result<Outcome> {
+    let into = |input: &StrengthInput| into(blocks, input);
+    for input in &dead.removed {
+        writeln!(
+            said,
+            "  removed: comparator with air behind at {}, facing {}",
+            into(input),
+            input.facing
+        )?;
+    }
+    for (input, why) in &dead.kept {
+        writeln!(
+            said,
+            "  kept: comparator with air behind at {}: {why}",
+            into(input)
+        )?;
+    }
+    if dead.removed.is_empty() && dead.kept.is_empty() {
+        return Ok(Outcome::new(Class::Already, ""));
+    }
+    writeln!(
+        said,
+        "  {} comparators with air behind, in a build that takes no \
+         signal-strength inputs: {} removed, {} kept",
+        dead.removed.len() + dead.kept.len(),
+        dead.removed.len(),
+        dead.kept.len()
+    )?;
+    Ok(if dead.kept.is_empty() {
+        Outcome::new(Class::Already, "")
+    } else {
+        let mut outcome = Outcome::new(
+            Class::Review,
+            "a comparator with air behind changes the build without it",
+        );
+        outcome.details = dead
+            .kept
+            .iter()
+            .map(|(input, why)| {
+                format!("comparator with air behind at {}: {why}", into(input))
+            })
+            .collect();
+        outcome
+    })
+}
+
+/// A comparator with air behind in words, where it stands and what it
+/// gives out into, such as `(4, 17, 11) into redstone wire`.
+fn into(blocks: &Blocks, input: &StrengthInput) -> String {
+    format!(
+        "{} into {}",
+        place(input.at),
+        schem::short(blocks.get(input.front())).replace('_', " ")
+    )
+}
+
 /// The original build a port is checked against.
 struct Original<'a> {
-    data: &'a [u8],
     /// Its blocks, made simulatable.
     blocks: &'a Blocks,
-    /// Its lines, as its colours mark them.
+    /// The lines its truth table is run through: as its colours mark
+    /// them, or else as probing finds them.
     lines: Interface,
     category: Option<&'a str>,
     width: Option<i64>,
@@ -366,24 +618,14 @@ fn check(
     } else if let Some(category) = original.category {
         writeln!(said, "  no test for {category} of {:?}", original.width)?;
     }
-    // One interface for both, from the colours, or else from probing, its
-    // outputs moved to the taps.
-    let mut lines = Interface {
-        inputs: original.lines.inputs.clone(),
-        outputs: original.lines.outputs.clone(),
-    };
-    if (lines.inputs.is_empty() || lines.outputs.is_empty())
-        && let Ok(found) = probe::recognize_as(original.data, original.category)
-        && found.found.is_some()
-    {
-        lines = interface::read(&Blocks::read(&found.file)?);
-    }
-    let moved_lines = moved_interface(&lines, &port.now_at, port.moved);
+    // One interface for both, its outputs moved to the taps.
+    let lines = &original.lines;
+    let moved_lines = moved_interface(lines, &port.now_at, port.moved);
     let mut no_table = None;
     let mut min_ss = Vec::new();
     let on_off = on_off_outputs(&moved_lines, &port.after);
     match compare_tables(
-        (original.blocks, &lines),
+        (original.blocks, lines),
         (&port.after, &moved_lines),
         &on_off,
         said,
@@ -1454,8 +1696,9 @@ fn print_review(results: &[Ported]) {
     print_measures(results);
 }
 
-/// Prints how each build that stacks stacked, original and port, and each
-/// port's weakest strengths arriving at its taps, the weakest first.
+/// Prints how each build that stacks stacked, original and port, the
+/// comparators with air behind taken out of each, and each port's weakest
+/// strengths arriving at its taps, the weakest first.
 fn print_measures(results: &[Ported]) {
     let stacked: Vec<&Ported> = results
         .iter()
@@ -1477,6 +1720,19 @@ fn print_measures(results: &[Ported]) {
             } else {
                 ""
             }
+        );
+    }
+    println!();
+    println!(
+        "== COMPARATORS WITH AIR BEHIND REMOVED, from builds that take no \
+         signal-strength inputs"
+    );
+    for p in results.iter().filter(|p| !p.outcome.removed.is_empty()) {
+        println!(
+            "{} {}: {}",
+            &p.id[..8],
+            p.category,
+            p.outcome.removed.join("; ")
         );
     }
     println!();
@@ -1551,6 +1807,86 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(found.len(), 2);
         assert_eq!(found["54926989"], "NEEDS-FIX_adder_54926989.schem");
+    }
+
+    /// A one-bit XOR gate with `extra` put out west of it, on stone.
+    fn xor_with(extra: &[(Pos, &str)]) -> Vec<u8> {
+        let data = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+        let changes: BTreeMap<Pos, String> = extra
+            .iter()
+            .flat_map(|&(at, state)| {
+                [
+                    (at, format!("minecraft:{state}")),
+                    (
+                        schem::step(at, Direction::Down),
+                        "minecraft:stone".into(),
+                    ),
+                ]
+            })
+            .collect();
+        standardize::edit_grown(&data, &changes).unwrap().0
+    }
+
+    const DEAD: &str = "comparator[facing=west,mode=compare,powered=false]";
+
+    /// A comparator with air behind in a build that takes no
+    /// signal-strength inputs drives nothing, so is taken out, and the
+    /// port, which the proposed rule then reads no input in, checks as the
+    /// original; but one whose going would leave a comparator that gave out
+    /// into its side giving out into air, an output to the proposed rule,
+    /// is kept, and the build is to review.
+    #[test]
+    fn a_comparator_with_air_behind_is_taken_out_where_nothing_changes() {
+        let data = xor_with(&[([-3, 1, 0], DEAD), ([-2, 1, 0], "stone")]);
+        let blocks = Blocks::read(&data).unwrap();
+        assert_eq!(repeater_outputs::strength_inputs(&blocks).len(), 1);
+        let conversion = convert(&data, false, Some("xor_gate"), None).unwrap();
+        assert_eq!(
+            conversion.outcome.class,
+            Class::Ported,
+            "{}",
+            conversion.said
+        );
+        assert_eq!(conversion.outcome.removed.len(), 1);
+        assert!(conversion.said.contains("removed: comparator with air"));
+        let port = Blocks::read(&conversion.file.unwrap()).unwrap();
+        assert!(repeater_outputs::strength_inputs(&port).is_empty());
+
+        let side = "comparator[facing=south,mode=compare,powered=false]";
+        let data = xor_with(&[
+            ([-3, 1, 0], DEAD),
+            ([-2, 1, 0], "stone"),
+            ([-3, 1, 1], side),
+            ([-3, 1, 2], "barrel[facing=up,open=false]"),
+        ]);
+        let conversion = convert(&data, false, Some("xor_gate"), None).unwrap();
+        assert_eq!(
+            conversion.outcome.class,
+            Class::Review,
+            "{}",
+            conversion.said
+        );
+        assert!(conversion.outcome.removed.is_empty());
+        assert!(
+            conversion.outcome.details[0]
+                .contains("reads an output without it"),
+            "{:?}",
+            conversion.outcome.details
+        );
+    }
+
+    /// A hex adder takes signal-strength inputs, so a comparator with air
+    /// behind in one is left for the proposed rule to read as an input.
+    #[test]
+    fn a_build_taking_digits_keeps_its_comparators_with_air_behind() {
+        assert!(Kind::HexAdder.digit_inputs());
+        assert!(Kind::HexToBinary.digit_inputs());
+        assert!(!Kind::Multiplier.digit_inputs());
+        let data = xor_with(&[([-3, 1, 0], DEAD), ([-2, 1, 0], "stone")]);
+        let conversion =
+            convert(&data, false, Some("hex_adder"), None).unwrap();
+        assert!(conversion.outcome.removed.is_empty());
+        assert!(!conversion.said.contains("comparators with air behind,"));
     }
 
     #[test]
