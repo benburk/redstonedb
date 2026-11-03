@@ -1,7 +1,10 @@
 //! Leaderboards: a category's builds ranked against the others that match
 //! them in its measures, such as width, then state, orientation, and
 //! design, since only those compete: a stateful build never meets a
-//! stateless one.
+//! stateless one. A category whose bits are cells of their own, as a
+//! gate's, a monostable's, or a register's, ranks them as cells instead:
+//! never by width, as an 8-bit XOR gate is eight XOR gates, but by how
+//! closely their copies stack and how small each cell is.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -9,10 +12,10 @@ use std::{
 };
 
 use crate::{
-    category::{Flag, Measure, NO_DESIGN},
+    category::{self, Flag, Group, Measure, NO_DESIGN},
     models::{
-        schematic::{Logic, Orientation, Schematic},
-        tag::{Kind, Tag},
+        schematic::{Logic, Orientation, PITCHES, Schematic},
+        tag::{self, Kind, Tag},
     },
 };
 
@@ -61,6 +64,158 @@ impl FromStr for State {
     }
 }
 
+/// Whether builds of `group` rank as cells: each bit, or each copy, a cell
+/// of its own, as a gate's or a monostable's, or of cells on shared
+/// lines, as a register's, rather than data crossing its bits.
+pub fn as_cells(group: Group) -> bool {
+    group != Group::CrossesBits
+}
+
+/// The group of the category named `category`; see [`Group`].
+pub fn group_of(category: &str) -> Group {
+    category::behaviour(category).group
+}
+
+/// The measures a board of a category of `group`, measured by `measures`,
+/// splits by: each of them, but width where builds rank as cells, as an
+/// 8-bit XOR gate is eight XOR gates, its blocks counted a bit.
+pub fn split_by(measures: &[Measure], group: Group) -> Vec<Measure> {
+    measures
+        .iter()
+        .copied()
+        .filter(|&m| !(as_cells(group) && m == Measure::Width))
+        .collect()
+}
+
+/// The value of each measure a board of `s`'s category splits by, in its
+/// order; `None` where one is unknown, a cell's width among them, as its
+/// blocks are counted a bit, or where its category has no measures.
+fn ranked_values(s: &Schematic) -> Option<Vec<(Measure, i64)>> {
+    let group = group_of(&s.category);
+    let unknown_width = as_cells(group)
+        && s.measures.contains(&Measure::Width)
+        && s.width.is_none();
+    if s.measures.is_empty() || unknown_width {
+        return None;
+    }
+    split_by(&s.measures, group)
+        .into_iter()
+        .map(|m| Some((m, m.of(s)?)))
+        .collect()
+}
+
+/// The pitch class a tag names, the blocks a bit apart copies stack and
+/// the way, as `2-wide_stackable` names `(2, "wide")`; `None` for any
+/// other tag, as `stackable` or `3-wide_word_stackable`.
+pub fn pitch_class(name: &str) -> Option<(i64, &str)> {
+    let class = name.strip_suffix(tag::STACKABLE)?.strip_suffix('_')?;
+    let (pitch, shape) = class.split_once('-')?;
+    let pitch = pitch.parse().ok()?;
+    matches!(shape, "wide" | "high").then_some((pitch, shape))
+}
+
+/// A build's size as a board compares it: `blocks` over `bits`, so a 2-bit
+/// cell of 98 blocks is as small as a 1-bit cell of 49.
+#[derive(Debug, Clone, Copy)]
+pub struct Size {
+    pub blocks: i64,
+    pub bits: i64,
+}
+
+impl Ord for Size {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let cross =
+            |a: Size, b: Size| i128::from(a.blocks) * i128::from(b.bits);
+        cross(*self, *other).cmp(&cross(*other, *self))
+    }
+}
+
+impl PartialOrd for Size {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Size {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Size {}
+
+/// How a board measures its builds' size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ruler {
+    /// A build's blocks as [`Schematic::volume`] counts them: what each
+    /// copy adds for a stackable build, its box for any other, and a
+    /// narrower build's stack, the whole stack.
+    Whole,
+    /// A cell's blocks a bit: its box, but its step along each way its
+    /// copies add bits that the board's pitch class names, west or up,
+    /// over the bits it holds. A cell on no board of a class counts its
+    /// box alone, the air its copies need between them not counted.
+    Cell { west: bool, up: bool },
+}
+
+impl Ruler {
+    /// The ruler of a board of builds of `group`, narrowed to the pitch
+    /// classes that `tags` name, by their names.
+    pub fn of<'a>(
+        group: Group,
+        tags: impl IntoIterator<Item = &'a str>,
+    ) -> Ruler {
+        if !as_cells(group) {
+            return Ruler::Whole;
+        }
+        let (mut west, mut up) = (false, false);
+        for (_, shape) in tags.into_iter().filter_map(pitch_class) {
+            match shape {
+                "wide" => west = true,
+                _ => up = true,
+            }
+        }
+        Ruler::Cell { west, up }
+    }
+
+    /// Whether it counts copies stacked, as a pitch class's board does.
+    pub fn stacked(self) -> bool {
+        matches!(self, Ruler::Cell { west, up } if west || up)
+    }
+
+    /// The size of `s` as it measures it.
+    pub fn size(self, s: &Schematic) -> Size {
+        let Ruler::Cell { west, up } = self else {
+            return Size {
+                blocks: s.volume(),
+                bits: 1,
+            };
+        };
+        let (mut x, mut y, z) = s.size;
+        for way in s.stacking.iter().filter(|way| way.pitch.is_some()) {
+            match (way.west, way.up) {
+                (step, 0) if west => x = step,
+                (0, step) if up => y = step,
+                _ => {}
+            }
+        }
+        Size {
+            blocks: x * y * z,
+            bits: bits(s),
+        }
+    }
+}
+
+/// The bits a build holds, as its cells count: a memory's bytes' bits,
+/// else its width, else one.
+fn bits(s: &Schematic) -> i64 {
+    s.bytes
+        .map(|bytes| bytes * 8)
+        .or(s.width)
+        .unwrap_or(1)
+        .max(1)
+}
+
 /// What a leaderboard's address asks for, such as
 /// `?width=8&orientation=horz&design=carry_cancel&ticks=3&tags=synced`, each
 /// part optional; `None` takes the default. A measure goes under its own
@@ -80,6 +235,9 @@ pub struct Wanted {
     pub ticks: Option<i64>,
     /// Tags each build must have, by name, as [`ranked_tags`] gives them.
     pub tags: Vec<String>,
+    /// Where builds rank as cells, the pitch class their copies stack in,
+    /// such as `2-wide`; `None` for any, or none.
+    pub stacking: Option<String>,
 }
 
 impl Wanted {
@@ -115,6 +273,11 @@ impl Wanted {
                 .filter(|tag| !tag.is_empty())
                 .map(str::to_owned)
                 .collect(),
+            stacking: value("stacking")
+                .filter(|class| {
+                    pitch_class(&tag::pitch_stackable(class)).is_some()
+                })
+                .map(str::to_owned),
         }
     }
 
@@ -129,6 +292,7 @@ impl Wanted {
         let tags = (!self.tags.is_empty()).then(|| self.tags.join(","));
         let named = [
             ("logic", self.logic.map(State::name)),
+            ("stacking", self.stacking.as_deref()),
             ("orientation", self.orientation.map(Orientation::name)),
             ("design", self.design.as_deref()),
             ("ticks", ticks.as_deref()),
@@ -181,11 +345,24 @@ pub struct Split {
 /// builds left.
 #[derive(Debug)]
 pub struct Board<'a> {
-    /// Its category's measures, in order.
+    /// Its category's group, which says whether its builds rank as cells.
+    pub group: Group,
+    /// Whether any build ranks, before the choices narrow them.
+    pub ranked: bool,
+    /// Its category's measures it splits by, in order: width only where
+    /// its builds do not rank as cells.
     pub splits: Vec<Split>,
     /// Stateless and stateful; empty when the builds are all one.
     pub logics: Vec<Choice<State>>,
     pub logic: Option<State>,
+    /// Where builds rank as cells, each pitch class the builds left stack
+    /// in, such as `2-wide`, tightest first; else empty, a class being one
+    /// of the tags.
+    pub stackings: Vec<Choice<String>>,
+    /// `None` for every build, however it stacks.
+    pub stacking: Option<String>,
+    /// How it measures its builds' size, as its stacking says.
+    pub ruler: Ruler,
     pub orientations: Vec<Choice<Orientation>>,
     /// `None` for every orientation together.
     pub orientation: Option<Orientation>,
@@ -213,36 +390,29 @@ pub struct Board<'a> {
 /// where most builds are; every orientation, latency, and design compete
 /// unless asked for, but for a category's one design. A build missing a
 /// measure, such as one of unknown width, competes on no board, nor does
-/// one not verified as its category.
+/// one not verified as its category. Builds that rank as cells split by no
+/// width, and by how closely their copies stack, any way by default.
 pub fn board<'a>(
     category: &[&'a Schematic],
     wanted: &Wanted,
     measures: &[Measure],
 ) -> Board<'a> {
-    let mut ranked: Vec<&Schematic> =
-        category.iter().copied().filter(|s| s.verified()).collect();
-    let mut splits = Vec::new();
-    for &measure in measures {
-        ranked.retain(|s| measure.of(s).is_some());
-        let (choices, chosen, left) =
-            narrow(ranked, wanted.measure(measure), |s| {
-                let n = measure.of(s).unwrap_or_default();
-                (n, measure.lead(n))
-            });
-        ranked = left;
-        splits.push(Split {
-            measure,
-            choices,
-            chosen,
-        });
-    }
+    let group = category
+        .first()
+        .map_or_else(Group::default, |s| group_of(&s.category));
+    let cells = as_cells(group);
+    let (splits, ranked) = split(category, wanted, measures, group);
+    let any = !ranked.is_empty();
 
     // Stateless and stateful builds never compete: a stateful build's
     // latency is no stateless one's.
-    let (logics, logic, mut ranked) = narrow(ranked, wanted.logic, |s| {
+    let (logics, logic, ranked) = narrow(ranked, wanted.logic, |s| {
         let state = State::of(s);
         (state, state.label().to_owned())
     });
+    let stacking = wanted.stacking.clone().filter(|_| cells);
+    let (stackings, ruler, mut ranked) =
+        by_stacking(ranked, stacking.as_deref(), group);
     let orientations = choices(&ranked, |s| {
         (s.orientation, s.orientation.label().to_owned())
     });
@@ -276,23 +446,7 @@ pub fn board<'a>(
     });
     let ticks = wanted.ticks;
     ranked.retain(|s| ticks.is_none_or(|t| s.latency == Some(t)));
-    let mut tag_choices: Vec<Choice<String>> = Vec::new();
-    for s in &ranked {
-        for tag in ranked_tags(s) {
-            if matches!(tag.kind, Kind::Design | Kind::Orientation) {
-                continue;
-            }
-            match tag_choices.iter_mut().find(|c| c.value == tag.name) {
-                Some(choice) => choice.count += 1,
-                None => tag_choices.push(Choice {
-                    label: tag.label(),
-                    value: tag.name,
-                    count: 1,
-                }),
-            }
-        }
-    }
-    tag_choices.sort_by(|a, b| a.label.cmp(&b.label));
+    let tag_choices = tag_choices(&ranked, cells);
     let tags = wanted.tags.clone();
     let builds = ranked
         .into_iter()
@@ -302,9 +456,14 @@ pub fn board<'a>(
         })
         .collect();
     Board {
+        group,
+        ranked: any,
         splits,
         logics: if logics.len() > 1 { logics } else { Vec::new() },
         logic,
+        stackings,
+        stacking,
+        ruler,
         orientations,
         orientation,
         designs: if designs.len() > 1 {
@@ -320,6 +479,118 @@ pub fn board<'a>(
         tags,
         builds,
     }
+}
+
+/// The verified builds of `category`, whose measures are `measures`, of
+/// `group`, narrowed by each measure a board of theirs splits by, as
+/// [`board`] does, with each measure's split.
+fn split<'a>(
+    category: &[&'a Schematic],
+    wanted: &Wanted,
+    measures: &[Measure],
+    group: Group,
+) -> (Vec<Split>, Vec<&'a Schematic>) {
+    let cells = as_cells(group);
+    let mut ranked: Vec<&Schematic> = category
+        .iter()
+        .copied()
+        .filter(|s| s.verified())
+        .filter(|s| {
+            !(cells && measures.contains(&Measure::Width) && s.width.is_none())
+        })
+        .collect();
+    let mut splits = Vec::new();
+    for measure in split_by(measures, group) {
+        ranked.retain(|s| measure.of(s).is_some());
+        let (choices, chosen, left) =
+            narrow(ranked, wanted.measure(measure), |s| {
+                let n = measure.of(s).unwrap_or_default();
+                (n, measure.lead(n))
+            });
+        ranked = left;
+        splits.push(Split {
+            measure,
+            choices,
+            chosen,
+        });
+    }
+    (splits, ranked)
+}
+
+/// Narrows `ranked`, builds of `group`, to those stacking in the pitch
+/// class `class`, such as `2-wide`, where one is asked for. Returns, where
+/// builds rank as cells, each class's choice, then how the board measures
+/// its builds, and the builds left.
+fn by_stacking<'a>(
+    mut ranked: Vec<&'a Schematic>,
+    class: Option<&str>,
+    group: Group,
+) -> (Vec<Choice<String>>, Ruler, Vec<&'a Schematic>) {
+    let options = if as_cells(group) {
+        stackings(&ranked)
+    } else {
+        Vec::new()
+    };
+    let class = class.map(tag::pitch_stackable);
+    ranked.retain(|s| {
+        class
+            .as_ref()
+            .is_none_or(|class| ranked_tags(s).iter().any(|t| &t.name == class))
+    });
+    (options, Ruler::of(group, class.as_deref()), ranked)
+}
+
+/// The pitch classes `ranked` stack in, as `2-wide`, each with how many
+/// builds do: west first, then up, each tightest first.
+fn stackings(ranked: &[&Schematic]) -> Vec<Choice<String>> {
+    let mut counts: BTreeMap<(bool, i64), usize> = BTreeMap::new();
+    for s in ranked {
+        for tag in ranked_tags(s) {
+            if let Some((pitch, shape)) = pitch_class(&tag.name) {
+                *counts.entry((shape == "high", pitch)).or_default() += 1;
+            }
+        }
+    }
+    counts
+        .into_iter()
+        .map(|((high, pitch), count)| {
+            let class =
+                format!("{pitch}-{}", if high { "high" } else { "wide" });
+            Choice {
+                label: class.clone(),
+                value: class,
+                count,
+            }
+        })
+        .collect()
+}
+
+/// The tags `ranked` have, with how many builds have each, by label, but
+/// those chosen apart: a design, an orientation, and, where builds rank as
+/// `cells`, a pitch class.
+fn tag_choices(ranked: &[&Schematic], cells: bool) -> Vec<Choice<String>> {
+    let chosen_apart = |tag: &Tag| {
+        matches!(tag.kind, Kind::Design | Kind::Orientation)
+            || (cells && pitch_class(&tag.name).is_some())
+    };
+    let mut choices: Vec<Choice<String>> = Vec::new();
+    for s in ranked {
+        for tag in ranked_tags(s) {
+            if chosen_apart(&tag) {
+                continue;
+            }
+            match choices.iter_mut().find(|c| c.value == tag.name) {
+                Some(choice) => choice.count += 1,
+                None => choices.push(Choice {
+                    label: tag.label(),
+                    value: tag.name,
+                    count: 1,
+                }),
+            }
+        }
+    }
+    choices.sort_by(|a, b| a.label.cmp(&b.label));
+    choices
 }
 
 /// Narrows `ranked` to the builds of one `(value, label)` of `key`: the
@@ -370,12 +641,14 @@ fn most_common<V>(choices: &[Choice<V>]) -> Option<&V> {
 }
 
 /// Copies of each of `builds` stacked into each wider build they make, as
-/// they compete at its width; see `Schematic::widened_to`.
+/// they compete at its width; see `Schematic::widened_to`. A cell's copies
+/// make none, as cells compete by no width.
 pub fn stacked<'a>(
     builds: impl IntoIterator<Item = &'a Schematic>,
 ) -> Vec<Schematic> {
     builds
         .into_iter()
+        .filter(|s| !as_cells(group_of(&s.category)))
         .flat_map(|s| s.widened.iter().filter_map(|w| s.widened_to(w)))
         .collect()
 }
@@ -385,37 +658,43 @@ pub fn stacked<'a>(
 pub type Placed<'a> = (usize, &'a Schematic);
 
 /// The builds of known latency, quickest first, a tie going to the
-/// smaller.
-pub fn fastest<'a>(builds: &[&'a Schematic]) -> Vec<Placed<'a>> {
+/// smaller, as `ruler` measures them.
+pub fn fastest<'a>(builds: &[&'a Schematic], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut timed: Vec<&Schematic> = builds
         .iter()
         .copied()
         .filter(|s| s.latency.is_some())
         .collect();
-    timed.sort_by_key(|s| (s.latency, s.volume(), s.added_at.clone()));
-    placed(&timed, |s| (s.latency, s.volume()))
+    let key = |s: &Schematic| (s.latency, ruler.size(s));
+    timed.sort_by_key(|s| (key(s), s.added_at.clone()));
+    placed(&timed, key)
 }
 
-/// Every build, smallest first, a tie going to the quicker and then to one
-/// of known latency.
-pub fn smallest<'a>(builds: &[&'a Schematic]) -> Vec<Placed<'a>> {
+/// Every build, smallest as `ruler` measures them first, a tie going to
+/// the quicker and then to one of known latency.
+pub fn smallest<'a>(builds: &[&'a Schematic], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut sorted = builds.to_vec();
-    let key = |s: &Schematic| (s.volume(), s.latency.unwrap_or(i64::MAX));
+    let key = |s: &Schematic| (ruler.size(s), s.latency.unwrap_or(i64::MAX));
     sorted.sort_by_key(|s| (key(s), s.added_at.clone()));
     placed(&sorted, key)
 }
 
-/// The builds nothing beats on both counts: each is smaller than every
-/// build at least as quick, so the list runs quickest to smallest.
-pub fn tradeoffs<'a>(builds: &[&'a Schematic]) -> Vec<&'a Schematic> {
-    let mut best = i64::MAX;
-    fastest(builds)
+/// The builds nothing beats on both counts: each is smaller, as `ruler`
+/// measures them, than every build at least as quick, so the list runs
+/// quickest to smallest.
+pub fn tradeoffs<'a>(
+    builds: &[&'a Schematic],
+    ruler: Ruler,
+) -> Vec<&'a Schematic> {
+    let mut best: Option<Size> = None;
+    fastest(builds, ruler)
         .into_iter()
         .map(|(_, s)| s)
         .filter(|s| {
-            let smaller = s.volume() < best;
+            let size = ruler.size(s);
+            let smaller = best.is_none_or(|best| size < best);
             if smaller {
-                best = s.volume();
+                best = Some(size);
             }
             smaller
         })
@@ -518,20 +797,24 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
 }
 
 /// The tags of a build a board may narrow to: those the site finds, such
-/// as its design, orientation, `synced`, or `torchless`, but for the
-/// flags that only say which lines it has, as a carry in, which never
-/// narrow a record's board, and `interleaved_inputs` and how far apart a
-/// register's copies add words, as `3-wide_word_stackable`, which boards
-/// do not yet split by.
+/// as its design, orientation, `synced`, `torchless`, or a pitch class, as
+/// `2-wide_stackable`, but for the flags that only say which lines it has,
+/// as a carry in, which never narrow a record's board, `interleaved_inputs`,
+/// which boards do not yet split by, and how far apart a register's copies
+/// add words, as `3-wide_word_stackable`, shown on its page alone. Of a
+/// build that ranks as a cell, `stackable` is left out too, its pitch class
+/// saying more.
 pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
+    let cells = as_cells(group_of(&s.category));
     s.every_tag()
         .into_iter()
         .filter(|tag| {
             tag.is_found()
                 && !tag.is_unverified()
                 && !Flag::LINES.contains(&tag.name.as_str())
-                && tag.name != crate::models::tag::INTERLEAVED_INPUTS
-                && !crate::models::tag::is_word_stackable(&tag.name)
+                && tag.name != tag::INTERLEAVED_INPUTS
+                && !tag::is_word_stackable(&tag.name)
+                && (!cells || tag.name != tag::STACKABLE)
         })
         .collect()
 }
@@ -581,6 +864,8 @@ pub struct Record<'a> {
     /// The tags its board narrows to, in the order a build lists them.
     pub tags: Vec<Tag>,
     pub rank: Rank,
+    /// How its board measures its builds' size.
+    pub ruler: Ruler,
     /// The builds it ranks.
     pub field: Vec<&'a Schematic>,
     /// The builds in first place, more than one on a tie.
@@ -629,48 +914,52 @@ pub fn in_sentence(name: &str) -> String {
 /// Every record `builds` hold, the most contested first: by most builders,
 /// then most builds. A board is one of a category's measures and state,
 /// narrowed to up to [`MOST_TRAITS`] traits: a latency, and tags the site
-/// finds, such as `synced`, a design, or an orientation. Its first place is
-/// a record when the board ranks two or more builds, and
+/// finds, such as `synced`, a design, an orientation, or a pitch class, as
+/// `2-wide_stackable`. Builds that rank as cells have no width among their
+/// measures, a board of theirs narrows to one pitch class at most, and
+/// they are measured as its [`Ruler`] says. Its first place is a record
+/// when the board ranks two or more builds, and
 ///
 /// - its traits each change who is first, so no board with one fewer has
 ///   the same first place: a design nearly every fast build has makes no
 ///   fastest board of its own;
 /// - as fastest, speed decides it: when builds tie on the fewest ticks,
 ///   the record is the smallest at that latency, a board of its own;
-/// - as fastest, it narrows to no latency, which would rank by size.
+/// - as fastest, it narrows to no latency, which would rank by size;
+/// - of a looser stacking, such as `4-wide_stackable`, or `stackable`
+///   alone, whose board takes a tighter one's builds too, its first place
+///   is not a tighter one's record, as `2-wide_stackable`'s, its other
+///   traits the same: a build first on both holds the tighter one alone.
 ///
 /// Boards of the same builds with the same first place are one record.
 pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
     type Base<'a> = (&'a str, Vec<i64>, State);
-    let mut bases: BTreeMap<Base, Vec<&Schematic>> = BTreeMap::new();
+    let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Schematic>)> =
+        BTreeMap::new();
     for &s in builds
         .iter()
         .filter(|s| s.category_label.is_some() && s.verified())
     {
-        let Some(values) = s
-            .measures
-            .iter()
-            .map(|m| m.of(s))
-            .collect::<Option<Vec<i64>>>()
-            .filter(|values| !values.is_empty())
-        else {
+        let Some(values) = ranked_values(s) else {
             continue;
         };
+        let (measures, values): (Vec<Measure>, Vec<i64>) =
+            values.into_iter().unzip();
         bases
             .entry((&s.category, values, State::of(s)))
-            .or_default()
+            .or_insert_with(|| (measures, Vec::new()))
+            .1
             .push(s);
     }
     let mut records = Vec::new();
-    for ((category, values, logic), base) in &bases {
+    for ((category, values, logic), (measures, base)) in &bases {
         let logic_named = bases
             .keys()
             .any(|(c, v, l)| c == category && v == values && l != logic);
         records.extend(records_of(base).into_iter().map(|found| {
             Record {
                 category,
-                measures: base[0]
-                    .measures
+                measures: measures
                     .iter()
                     .copied()
                     .zip(values.iter().copied())
@@ -680,6 +969,7 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
                 ticks: found.ticks,
                 tags: found.tags,
                 rank: found.rank,
+                ruler: found.ruler,
                 builders: tally(found.field.iter().flat_map(|s| credited(s)))
                     .len(),
                 field: found.field,
@@ -696,9 +986,12 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
 /// A record as one category's builds at one value of each of its measures
 /// and one state find it, before it is named by them; see [`Record`].
 struct Found<'a> {
+    /// The traits its board narrows to.
+    wanted: BTreeSet<Trait>,
     ticks: Option<i64>,
     tags: Vec<Tag>,
     rank: Rank,
+    ruler: Ruler,
     field: Vec<&'a Schematic>,
     holders: Vec<&'a Schematic>,
 }
@@ -723,9 +1016,57 @@ fn boards_of(
     }
 }
 
+/// Each board builds of `group` with `traits` make, by the traits it
+/// narrows to: a cell's narrows to one pitch class at most, as it is
+/// measured by it.
+fn boards(
+    traits: &[BTreeSet<Trait>],
+    group: Group,
+) -> BTreeSet<BTreeSet<Trait>> {
+    let mut boards = BTreeSet::new();
+    for own in traits {
+        let own: Vec<&Trait> = own.iter().collect();
+        boards_of(&own, 0, &mut Vec::new(), &mut boards);
+    }
+    if as_cells(group) {
+        boards.retain(|wanted| classes_in(wanted).count() <= 1);
+    }
+    boards
+}
+
+/// The pitch classes, as `2-wide_stackable`, that the traits `wanted`
+/// narrow to.
+fn classes_in(wanted: &BTreeSet<Trait>) -> impl Iterator<Item = &str> {
+    wanted.iter().filter_map(|t| match t {
+        Trait::Tag(name) if pitch_class(name).is_some() => Some(name.as_str()),
+        _ => None,
+    })
+}
+
+/// Whether the tag `tight` names a tighter stacking than `loose` does,
+/// whose builds the board of `loose` takes too: a pitch class tighter than
+/// another of the same way, as `2-wide_stackable` is than
+/// `4-wide_stackable`, or any pitch class than `stackable` alone.
+fn tighter(tight: &str, loose: &str) -> bool {
+    match (pitch_class(tight), pitch_class(loose)) {
+        (Some(_), None) => loose == tag::STACKABLE,
+        (Some((tight, way)), Some((loose, loose_way))) => {
+            way == loose_way
+                && tight < loose
+                && PITCHES.contains(&tight)
+                && PITCHES.contains(&loose)
+        }
+        _ => false,
+    }
+}
+
 /// The records of `base`, one category's builds of one value of each of
 /// its measures and one state; see [`records`].
 fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
+    let Some(first) = base.first() else {
+        return Vec::new();
+    };
+    let group = group_of(&first.category);
     let tags: Vec<Vec<Tag>> = base.iter().map(|s| ranked_tags(s)).collect();
     let traits: Vec<BTreeSet<Trait>> = base
         .iter()
@@ -737,11 +1078,8 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
                 .collect()
         })
         .collect();
-    let mut boards: BTreeSet<BTreeSet<Trait>> = BTreeSet::new();
-    for own in &traits {
-        let own: Vec<&Trait> = own.iter().collect();
-        boards_of(&own, 0, &mut Vec::new(), &mut boards);
-    }
+    let boards = boards(&traits, group);
+    let ruler = |wanted: &BTreeSet<Trait>| Ruler::of(group, classes_in(wanted));
     // The builds a board of `wanted` ranks `rank`, by their place in base.
     let field = |wanted: &BTreeSet<Trait>, rank: Rank| -> Vec<usize> {
         (0..base.len())
@@ -749,21 +1087,25 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
             .filter(|&i| rank == Rank::Smallest || base[i].latency.is_some())
             .collect()
     };
-    let key = |i: usize, rank: Rank| {
+    // Ticks, then size, for the fastest; size, then ticks, the smallest.
+    let key = |i: usize, rank: Rank, ruler: Ruler| {
         let (s, ticks) = (base[i], base[i].latency.unwrap_or(i64::MAX));
         match rank {
-            Rank::Fastest => (ticks, s.volume()),
-            Rank::Smallest => (s.volume(), ticks),
+            Rank::Fastest => (ticks, ruler.size(s), 0),
+            Rank::Smallest => (0, ruler.size(s), ticks),
         }
     };
-    let firsts = |field: &[usize], rank: Rank| -> Vec<usize> {
-        let best = field.iter().map(|&i| key(i, rank)).min();
-        field
-            .iter()
-            .copied()
-            .filter(|&i| Some(key(i, rank)) == best)
-            .collect()
-    };
+    // The first places of the board of `wanted` ranking `field`.
+    let firsts =
+        |wanted: &BTreeSet<Trait>, field: &[usize], rank: Rank| -> Vec<usize> {
+            let ruler = ruler(wanted);
+            let best = field.iter().map(|&i| key(i, rank, ruler)).min();
+            field
+                .iter()
+                .copied()
+                .filter(|&i| Some(key(i, rank, ruler)) == best)
+                .collect()
+        };
     let mut seen: BTreeSet<(Vec<usize>, Vec<usize>)> = BTreeSet::new();
     let mut found = Vec::new();
     for wanted in &boards {
@@ -779,7 +1121,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
             if ranked.len() < 2 {
                 continue;
             }
-            let first = firsts(&ranked, rank);
+            let first = firsts(wanted, &ranked, rank);
             if rank == Rank::Fastest {
                 let fewest = base[first[0]].latency;
                 if ranked
@@ -794,7 +1136,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
             let changes = wanted.iter().all(|t| {
                 let mut fewer = wanted.clone();
                 fewer.remove(t);
-                firsts(&field(&fewer, rank), rank) != first
+                firsts(&fewer, &field(&fewer, rank), rank) != first
             });
             if !changes || !seen.insert((ranked.clone(), first.clone())) {
                 continue;
@@ -805,15 +1147,55 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
                 .cloned()
                 .collect();
             found.push(Found {
+                wanted: wanted.clone(),
                 ticks,
                 tags: named,
                 rank,
+                ruler: ruler(wanted),
                 field: ranked.iter().map(|&i| base[i]).collect(),
                 holders: first.iter().map(|&i| base[i]).collect(),
             });
         }
     }
+    shown_once(found)
+}
+
+/// `found` but each record of a looser stacking whose first place is a
+/// tighter one's record too, its other traits the same, as that of
+/// `4-wide_stackable` held by the record of `2-wide_stackable`: a build
+/// first on both holds the tightest alone.
+fn shown_once(found: Vec<Found>) -> Vec<Found> {
+    let redundant: Vec<bool> = found
+        .iter()
+        .map(|record| {
+            found.iter().any(|other| {
+                let only = |a: &BTreeSet<Trait>, b: &BTreeSet<Trait>| {
+                    let mut left = a.difference(b);
+                    match (left.next(), left.next()) {
+                        (Some(Trait::Tag(name)), None) => Some(name.clone()),
+                        _ => None,
+                    }
+                };
+                let swapped = only(&record.wanted, &other.wanted)
+                    .zip(only(&other.wanted, &record.wanted));
+                other.rank == record.rank
+                    && swapped
+                        .is_some_and(|(loose, tight)| tighter(&tight, &loose))
+                    && other.holders.len() == record.holders.len()
+                    && other
+                        .holders
+                        .iter()
+                        .zip(&record.holders)
+                        .all(|(a, b)| a.id == b.id)
+            })
+        })
+        .collect();
     found
+        .into_iter()
+        .zip(redundant)
+        .filter(|(_, redundant)| !redundant)
+        .map(|(record, _)| record)
+        .collect()
 }
 
 #[cfg(test)]
@@ -842,18 +1224,223 @@ mod tests {
         let mut adder = build("a", 1, None, Some(3), 10);
         adder.operands = crate::models::schematic::Operands::Interleaved;
         let named = |tags: Vec<Tag>| {
-            tags.iter()
-                .any(|tag| tag.name == crate::models::tag::INTERLEAVED_INPUTS)
+            tags.iter().any(|tag| tag.name == tag::INTERLEAVED_INPUTS)
         };
         assert!(named(adder.every_tag()));
         assert!(!named(ranked_tags(&adder)));
     }
 
-    /// A register whose copies add words on its shared bus carries how
-    /// far apart they do, as `3-wide_word_stackable`, but no board narrows
-    /// to it yet.
+    /// A gate of `bits`, `size`, stacking `ways`, each `(west, up, pitch)`.
+    fn gate(
+        id: &str,
+        bits: i64,
+        size: (i64, i64, i64),
+        latency: i64,
+        ways: &[(i64, i64, i64)],
+    ) -> Schematic {
+        Schematic {
+            category: "xor_gate".to_owned(),
+            category_label: Some("XOR Gate".to_owned()),
+            size,
+            stacking: ways
+                .iter()
+                .map(|&(west, up, pitch)| StackDirection {
+                    west,
+                    up,
+                    max_copies: None,
+                    faces: None,
+                    pitch: Some(pitch),
+                })
+                .collect(),
+            ..build(id, bits, None, Some(latency), 0)
+        }
+    }
+
+    /// Gates rank as cells: on no board of a width, every width together,
+    /// each measured a bit, its box alone where no pitch class is asked
+    /// for, and its step along the class's way where one is; copies of a
+    /// gate stacked wider compete on none. An adder keeps its widths.
     #[test]
-    fn word_stacking_splits_no_board_yet() {
+    fn cells_rank_by_no_width_and_crossing_bits_do() {
+        let gates = [
+            // 1 wide, standing alone in 25 blocks, its copies 2 apart.
+            gate("narrow", 1, (1, 5, 5), 3, &[(2, 0, 2)]),
+            gate("snug", 1, (2, 5, 4), 2, &[(2, 0, 2)]),
+            // 2 bits in 196 blocks, 98 a bit, stacking 4 west.
+            gate("pair", 2, (4, 7, 7), 2, &[(4, 0, 2)]),
+            gate("alone", 1, (3, 3, 3), 2, &[]),
+        ];
+        let all: Vec<&Schematic> = gates.iter().collect();
+        assert!(stacked(all.iter().copied()).is_empty());
+        let open = board(&all, &Wanted::default(), &[Measure::Width]);
+        assert!(open.splits.is_empty());
+        assert_eq!(open.builds.len(), 4);
+        assert_eq!(
+            open.ruler,
+            Ruler::Cell {
+                west: false,
+                up: false
+            }
+        );
+        let order = |placed: Vec<Placed>| {
+            placed.iter().map(|(_, s)| s.id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(smallest(&open.builds, open.ruler)),
+            ["narrow", "alone", "snug", "pair"]
+        );
+        let classes: Vec<&str> =
+            open.stackings.iter().map(|c| c.value.as_str()).collect();
+        assert_eq!(classes, ["2-wide", "4-wide"]);
+        let wanted = Wanted::parse("stacking=2-wide");
+        let two = board(&all, &wanted, &[Measure::Width]);
+        assert_eq!(
+            two.ruler,
+            Ruler::Cell {
+                west: true,
+                up: false
+            }
+        );
+        assert_eq!(
+            order(smallest(&two.builds, two.ruler)),
+            ["snug", "narrow", "pair"]
+        );
+        // Builds that cross bits keep their width boards.
+        let adders = adders();
+        let adders: Vec<&Schematic> = adders.iter().collect();
+        let board = board(&adders, &Wanted::default(), &[Measure::Width]);
+        assert_eq!(board.splits.len(), 1);
+        assert_eq!(board.ruler, Ruler::Whole);
+    }
+
+    /// Of builds that cross bits, as adders, a board of any stacking
+    /// takes every pitch class's builds, so its first place, a tighter
+    /// class's too, is held once, as the tighter class's record.
+    #[test]
+    fn a_stackable_record_held_by_a_pitch_classs_holder_is_shown_once() {
+        let stacking = |up: i64, pitch: i64, s: Schematic| Schematic {
+            stacking: vec![StackDirection {
+                west: 0,
+                up,
+                max_copies: None,
+                faces: None,
+                pitch: Some(pitch),
+            }],
+            ..s
+        };
+        let adders = [
+            build("a", 8, None, Some(3), 500),
+            // 400 blocks, 200 a copy, 2 high.
+            stacking(2, 2, build("b", 8, None, Some(4), 200)),
+            stacking(8, 8, build("c", 8, None, Some(5), 300)),
+            stacking(2, 2, build("d", 8, None, Some(6), 400)),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(
+            names,
+            [
+                "Smallest 8-bit adder",
+                "Fastest 8-bit adder",
+                "Fastest 8-bit 2-high stackable adder",
+            ]
+        );
+    }
+
+    /// Registers, cells on shared lines, rank as cells too: an 8-bit one
+    /// and a 1-bit one on one board, each measured a bit.
+    #[test]
+    fn cells_on_shared_lines_rank_a_bit() {
+        let register = |id: &str, bits: i64, size: (i64, i64, i64)| Schematic {
+            category: "register".to_owned(),
+            category_label: Some("Register".to_owned()),
+            logic: Some(Logic::Stateful),
+            size,
+            ..build(id, bits, None, Some(4), 0)
+        };
+        let registers = [
+            register("one", 1, (3, 12, 4)),
+            register("eight", 8, (3, 19, 7)),
+        ];
+        let all: Vec<&Schematic> = registers.iter().collect();
+        let board = board(&all, &Wanted::default(), &[Measure::Width]);
+        assert_eq!(board.group, Group::SharedLines);
+        assert!(board.splits.is_empty());
+        let smallest = smallest(&board.builds, board.ruler);
+        assert_eq!(ids(&smallest), [(1, "eight"), (2, "one")]);
+        let size = board.ruler.size(smallest[0].1);
+        assert_eq!((size.blocks, size.bits), (3 * 19 * 7, 8));
+        let names: Vec<String> =
+            records(&all).iter().map(Record::name).collect();
+        assert_eq!(names, ["Smallest register"]);
+    }
+
+    /// A looser pitch class's board takes the tighter classes' builds, so
+    /// a 2-wide gate may hold the 4-wide record; where it holds the 2-wide
+    /// one too, it holds that alone.
+    #[test]
+    fn a_looser_class_record_held_by_the_tighter_ones_holder_is_shown_once() {
+        let gates = [
+            // Smallest alone, but its copies need air between them.
+            gate("narrow", 1, (1, 5, 5), 3, &[(2, 0, 2)]),
+            gate("snug", 1, (2, 5, 4), 3, &[(2, 0, 2)]),
+            gate("wide", 1, (3, 5, 4), 3, &[(4, 0, 4)]),
+            gate("high", 1, (2, 3, 5), 3, &[(0, 4, 4)]),
+            gate("tall", 1, (3, 3, 5), 3, &[(0, 4, 4)]),
+        ];
+        let builds: Vec<&Schematic> = gates.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest XOR gate".to_owned(), vec!["narrow"]),
+                (
+                    "Smallest 2-wide stackable XOR gate".to_owned(),
+                    vec!["snug"]
+                ),
+                (
+                    "Smallest 4-high stackable XOR gate".to_owned(),
+                    vec!["high"]
+                ),
+            ]
+        );
+        // Alone on the 2-wide board, so holding no record there, the
+        // 2-wide gate holds the 4-wide one.
+        let gates = [
+            gate("tiny", 1, (1, 3, 3), 3, &[]),
+            gates[0].clone(),
+            gates[2].clone(),
+        ];
+        let builds: Vec<&Schematic> = gates.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest XOR gate".to_owned(), vec!["tiny"]),
+                (
+                    "Smallest 4-wide stackable XOR gate".to_owned(),
+                    vec!["narrow"]
+                ),
+            ]
+        );
+    }
+
+    /// A register whose copies add words on its shared bus carries how
+    /// far apart they do, as `3-wide_word_stackable`, shown on its page,
+    /// but no board narrows to it.
+    #[test]
+    fn word_stacking_splits_no_board() {
         let mut register = build("r", 8, None, Some(3), 10);
         register.category = "register".to_owned();
         register.orientation = Orientation::Vertical;
@@ -871,6 +1458,8 @@ mod tests {
         };
         assert!(named(register.every_tag()));
         assert!(!named(ranked_tags(&register)));
+        // Nor does it make the register stackable on its boards.
+        assert!(!ranked_tags(&register).iter().any(|t| t.name == "stackable"));
         // A stacking its builder gave says nothing of words.
         register.conventional = false;
         assert!(
@@ -1052,11 +1641,11 @@ mod tests {
         let all: Vec<&Schematic> = adders.iter().collect();
         let board = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(
-            ids(&fastest(&board.builds)),
+            ids(&fastest(&board.builds, Ruler::Whole)),
             [(1, "a"), (2, "b"), (3, "d"), (4, "c"), (5, "e")]
         );
         assert_eq!(
-            ids(&smallest(&board.builds)),
+            ids(&smallest(&board.builds, Ruler::Whole)),
             [(1, "g"), (2, "a"), (3, "b"), (4, "d"), (5, "e"), (6, "c")]
         );
         let tied = [
@@ -1065,7 +1654,10 @@ mod tests {
             build("z", 8, None, Some(2), 100),
         ];
         let tied: Vec<&Schematic> = tied.iter().collect();
-        assert_eq!(ids(&fastest(&tied)), [(1, "z"), (2, "x"), (2, "y")]);
+        assert_eq!(
+            ids(&fastest(&tied, Ruler::Whole)),
+            [(1, "z"), (2, "x"), (2, "y")]
+        );
     }
 
     /// The builds of the tests below, each by one builder.
@@ -1223,7 +1815,7 @@ mod tests {
             ..Wanted::default()
         };
         let board = board(&all, &wanted, &[Measure::Width]);
-        let fastest = fastest(&board.builds);
+        let fastest = fastest(&board.builds, board.ruler);
         assert_eq!(ids(&fastest), [(1, "s"), (2, "a")]);
         let stack = fastest[0].1;
         assert_eq!(stack.stacked_from, Some(1));
@@ -1241,8 +1833,10 @@ mod tests {
             build("d", 8, None, Some(9), 380),
         ];
         let builds: Vec<&Schematic> = builds.iter().collect();
-        let kept: Vec<&str> =
-            tradeoffs(&builds).iter().map(|s| s.id.as_str()).collect();
+        let kept: Vec<&str> = tradeoffs(&builds, Ruler::Whole)
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
         assert_eq!(kept, ["a", "c", "d"]);
     }
 }

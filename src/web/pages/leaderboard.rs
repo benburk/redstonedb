@@ -3,12 +3,16 @@
 use maud::{Markup, html};
 
 use crate::{
-    category::{Category, Measure},
+    category::{Category, Group, Measure},
     leaderboard::{
-        self, Board, Choice, Placed, Rank, Record, SHOWN, Standing, Wanted,
-        in_sentence,
+        self, Board, Choice, Placed, Rank, Record, Ruler, SHOWN, Standing,
+        Wanted, in_sentence,
     },
-    models::{schematic::Schematic, tag::Kind, user::User},
+    models::{
+        schematic::Schematic,
+        tag::{self, Kind},
+        user::User,
+    },
 };
 
 use super::{
@@ -175,7 +179,7 @@ pub(super) fn record_table(
                                 a href=(href) {
                                     @match record.rank {
                                         Rank::Fastest => (ticks(holder)),
-                                        Rank::Smallest => (blocks(holder)),
+                                        Rank::Smallest => (blocks(holder, record.ruler)),
                                     }
                                 }
                                 @if record.holders.len() > 1 {
@@ -190,9 +194,15 @@ pub(super) fn record_table(
     }
 }
 
-/// The address of the board a record is first on.
+/// The address of the board a record is first on: for cells, its pitch
+/// class chosen apart from its tags.
 fn record_href(record: &Record) -> String {
     let of = |kind: Kind| record.tags.iter().find(|tag| tag.kind == kind);
+    let cells = leaderboard::as_cells(leaderboard::group_of(record.category));
+    let class = |name: &str| {
+        let (pitch, shape) = leaderboard::pitch_class(name)?;
+        cells.then(|| format!("{pitch}-{shape}"))
+    };
     Wanted {
         measures: record.measures.clone(),
         logic: Some(record.logic),
@@ -204,8 +214,10 @@ fn record_href(record: &Record) -> String {
             .tags
             .iter()
             .filter(|tag| !matches!(tag.kind, Kind::Design | Kind::Orientation))
+            .filter(|tag| class(&tag.name).is_none())
             .map(|tag| tag.name.clone())
             .collect(),
+        stacking: record.tags.iter().find_map(|tag| class(&tag.name)),
     }
     .href(&format!("/leaderboards/{}", record.category))
 }
@@ -285,10 +297,10 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
                     h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
                     (board_menu(facets, &category.name))
                 }
-                @if board.splits.first().is_none_or(|split| split.choices.is_empty()) {
+                @if !board.ranked {
                     p class="text-muted" {
                         "No " (in_sentence(&category.plural)) " of known "
-                        (board.splits.first().map_or("width", |split| split.measure.label()).to_lowercase())
+                        (category.measures.first().map_or("width", |m| m.label()).to_lowercase())
                         " yet, so none to rank."
                     }
                 } @else {
@@ -308,10 +320,10 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
         .collect()
 }
 
-/// The measures, such as width, then the logic, orientation, design,
-/// latency, and tags the board is narrowed to. Changing a measure or the
-/// logic resets those after it, which the new choice may not have; the
-/// rest keep one another.
+/// The measures, such as width, then the logic, a cell's stacking,
+/// orientation, design, latency, and tags the board is narrowed to.
+/// Changing a measure or the logic resets those after it, which the new
+/// choice may not have; the rest keep one another.
 fn choices(path: &str, board: &Board) -> Markup {
     let measured = Wanted {
         measures: chosen_measures(board, board.splits.len()),
@@ -319,6 +331,7 @@ fn choices(path: &str, board: &Board) -> Markup {
     };
     let current = Wanted {
         logic: board.logic,
+        stacking: board.stacking.clone(),
         orientation: board.orientation,
         design: board.design.clone().filter(|_| board.all_designs),
         ticks: board.ticks,
@@ -354,6 +367,13 @@ fn choices(path: &str, board: &Board) -> Markup {
                     (board.logic == Some(c.value),
                         Wanted { logic: Some(c.value), ..measured.clone() }.href(path))
                 }, None))
+            }
+            @if !board.stackings.is_empty() || board.stacking.is_some() {
+                @let all = (board.stacking.is_none(), Wanted { stacking: None, ..current.clone() }.href(path));
+                (choice_row("Stacks", &board.stackings, |c| {
+                    (board.stacking.as_ref() == Some(&c.value),
+                        Wanted { stacking: Some(c.value.clone()), ..current.clone() }.href(path))
+                }, Some(all)))
             }
             @if board.orientations.len() > 1 || board.orientation.is_some() {
                 @let all = (board.orientation.is_none(), Wanted { orientation: None, ..current.clone() }.href(path));
@@ -412,7 +432,8 @@ fn choice_row<V>(
     }
 }
 
-/// The board's three rankings.
+/// The board's three rankings. Cells on shared lines show how many copies
+/// still work together, as a shared line reaches only so far.
 fn rankings(category: &Category, board: &Board) -> Markup {
     let builds = &board.builds;
     if builds.is_empty() {
@@ -420,9 +441,26 @@ fn rankings(category: &Category, board: &Board) -> Markup {
             p class="text-muted" { "No builds match these choices." }
         };
     }
-    let fastest = leaderboard::fastest(builds);
-    let smallest = leaderboard::smallest(builds);
-    let tradeoffs = leaderboard::tradeoffs(builds);
+    let ruler = board.ruler;
+    let fastest = leaderboard::fastest(builds, ruler);
+    let smallest = leaderboard::smallest(builds, ruler);
+    let tradeoffs = leaderboard::tradeoffs(builds, ruler);
+    let shared = board.group == Group::SharedLines;
+    let by_speed = |s: &Schematic| {
+        let mut values = vec![ticks(s), blocks(s, ruler)];
+        values.extend(shared.then(|| copies(s, ruler)));
+        values
+    };
+    let by_size = |s: &Schematic| {
+        let mut values = vec![blocks(s, ruler), ticks(s)];
+        values.extend(shared.then(|| copies(s, ruler)));
+        values
+    };
+    let heads = |first: &'static str, second: &'static str| {
+        let mut heads = vec![first, second];
+        heads.extend(shared.then_some("Copies"));
+        heads
+    };
     let competing = if builds.len() == 1 {
         "1 build so far".to_owned()
     } else {
@@ -442,16 +480,12 @@ fn rankings(category: &Category, board: &Board) -> Markup {
                 @if fastest.is_empty() {
                     p class="text-muted" { "No latencies known yet." }
                 } @else {
-                    (ranking(&fastest, ["Latency", "Volume"], |s| {
-                        [ticks(s), blocks(s)]
-                    }))
+                    (ranking(&fastest, &heads("Latency", "Volume"), by_speed))
                 }
             }
             section aria-labelledby="smallest" {
                 h2 id="smallest" class={ (SECTION_TITLE) " mb-2" } { "Smallest" }
-                (ranking(&smallest, ["Volume", "Latency"], |s| {
-                    [blocks(s), ticks(s)]
-                }))
+                (ranking(&smallest, &heads("Volume", "Latency"), by_size))
             }
         }
         @if tradeoffs.len() > 1 {
@@ -462,8 +496,8 @@ fn rankings(category: &Category, board: &Board) -> Markup {
                 }
                 (ranking(
                     &tradeoffs.iter().map(|s| (0, *s)).collect::<Vec<_>>(),
-                    ["Latency", "Volume"],
-                    |s| [ticks(s), blocks(s)],
+                    &heads("Latency", "Volume"),
+                    by_speed,
                 ))
             }
         }
@@ -471,7 +505,7 @@ fn rankings(category: &Category, board: &Board) -> Markup {
 }
 
 /// What the board holds, such as `3-tick 8-bit synced horizontal Carry
-/// Cancel (CCA) adders`.
+/// Cancel (CCA) adders`, or `2-wide stackable XOR gates`.
 fn board_name(category: &Category, board: &Board) -> String {
     let orientation = board.orientation.map(|o| o.label().to_lowercase());
     let design = board.design.as_ref().and_then(|d| {
@@ -504,6 +538,13 @@ fn board_name(category: &Category, board: &Board) -> String {
                 .filter(|_| !board.logics.is_empty())
                 .map(|logic| logic.name().to_owned()),
         )
+        .chain(
+            board
+                .stacking
+                .as_deref()
+                .map(tag::pitch_stackable)
+                .map(|c| c.replace('_', " ")),
+        )
         .chain(tags)
         .chain(orientation)
         .chain(design)
@@ -516,16 +557,58 @@ fn ticks(s: &Schematic) -> String {
     s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
 }
 
-fn blocks(s: &Schematic) -> String {
-    super::volume(s)
+/// Its size as `ruler` measures it: its volume, or a cell's blocks, those
+/// of each copy where its copies stack, or a bit where it holds more.
+fn blocks(s: &Schematic, ruler: Ruler) -> String {
+    if ruler == Ruler::Whole {
+        return super::volume(s);
+    }
+    let size = ruler.size(s);
+    if size.bits == 1 {
+        let per = if ruler.stacked() { " per copy" } else { "" };
+        return format!("{} blocks{per}", size.blocks);
+    }
+    // Tenths, but where a whole number of blocks.
+    let tenths = (size.blocks * 10 + size.bits / 2) / size.bits;
+    let n = if tenths % 10 == 0 {
+        (tenths / 10).to_string()
+    } else {
+        format!("{}.{}", tenths / 10, tenths % 10)
+    };
+    format!("{n} blocks a bit")
+}
+
+/// How many copies of `s` still work stacked the ways its board, as
+/// `ruler` measures it, counts, the most of them: any number, up to a
+/// limit, or a dash for a build whose copies add no bits.
+fn copies(s: &Schematic, ruler: Ruler) -> String {
+    let (west, up) = match ruler {
+        Ruler::Cell { west, up } if west || up => (west, up),
+        _ => (true, true),
+    };
+    let limits: Vec<Option<i64>> = s
+        .stacking
+        .iter()
+        .filter(|way| way.pitch.is_some())
+        .filter(|way| (west && way.west > 0) || (up && way.up > 0))
+        .map(|way| way.max_copies)
+        .collect();
+    if limits.is_empty() {
+        "—".to_owned()
+    } else if limits.contains(&None) {
+        "Any number".to_owned()
+    } else {
+        let most = limits.into_iter().flatten().max().unwrap_or_default();
+        format!("Up to {most}")
+    }
 }
 
 /// A table of the first [`SHOWN`] of `placed`, with their places unless all
-/// are zero, and the two measures `values` gives under `headings`.
+/// are zero, and the measures `values` gives under `headings`.
 fn ranking(
     placed: &[Placed],
-    headings: [&str; 2],
-    values: impl Fn(&Schematic) -> [String; 2],
+    headings: &[&str],
+    values: impl Fn(&Schematic) -> Vec<String>,
 ) -> Markup {
     let numbered = placed.iter().any(|(place, _)| *place > 0);
     html! {

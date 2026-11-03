@@ -133,8 +133,9 @@ fn tiles<'a>(
                 &leaderboard::Wanted::default(),
                 &category.measures,
             );
-            let leader =
-                leaderboard::fastest(&board.builds).first().map(|&(_, s)| s);
+            let leader = leaderboard::fastest(&board.builds, board.ruler)
+                .first()
+                .map(|&(_, s)| s);
             Some(pages::Tile {
                 category: category.name.clone(),
                 label: category.plural.clone(),
