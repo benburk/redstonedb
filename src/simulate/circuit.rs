@@ -1297,6 +1297,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn each_bit_arrives_its_own_delay_before_it_shows() {
+        // Bit 0 given out by a 1-tick repeater, bit 1 by a 3-tick one.
+        let carried = Carried(vec![vec![1, 3]]);
+        assert_eq!(
+            carried.arrived(0, &[vec![4], vec![6, 9]]),
+            [vec![3], vec![3, 6]]
+        );
+        // Both bits turn on as shown at 4 and 6, so both arrived at 3.
+        let steps = carried.arrived_steps(0, 0, &[(4, 0b01), (6, 0b11)]);
+        assert_eq!(steps, [(3, 0b11)]);
+        assert_eq!(carried.groups(0, 2), [(1, 0b01), (3, 0b10)]);
+        assert_eq!(carried.port(0), 3);
+    }
+
+    #[test]
     fn a_block_it_does_not_model_is_refused_by_name() {
         let err =
             block("minecraft:piston[extended=false,facing=up]").unwrap_err();
