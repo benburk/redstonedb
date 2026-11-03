@@ -739,6 +739,6 @@ pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
     } else {
         Kind::Monostable
     };
-    let ways = (width, stacking::bit_ways(&interface));
+    let ways = (width, stacking::bit_ways(&interface, width));
     Some(Stacker::new(data, kind, ways, works, not))
 }

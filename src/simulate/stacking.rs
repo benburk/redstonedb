@@ -313,11 +313,15 @@ impl Way {
     }
 }
 
-/// The ways copies of a build add bits, its bits running as `port`, its
-/// widest operand, runs: west for a horizontal build, up for a vertical
-/// one, and both, west first, for a 1-bit build, whose one bit runs
-/// neither way; none for a diagonal build.
-pub fn bit_ways(interface: &Interface) -> Vec<Way> {
+/// The ways copies of a build `bits` bits wide add bits: both, west
+/// first, for a 1-bit build, whose one bit runs neither way, and for a
+/// wider one the way its bits run, as its widest operand in `interface`
+/// runs, west for a horizontal build and up for a vertical one, and none
+/// for a diagonal build.
+pub fn bit_ways(interface: &Interface, bits: usize) -> Vec<Way> {
+    if bits <= 1 {
+        return vec![Way::West, Way::Up];
+    }
     match import::guess(interface).1 {
         None => vec![Way::West, Way::Up],
         Some(Orientation::Horizontal) => vec![Way::West],
@@ -555,7 +559,7 @@ pub fn adder(data: &[u8]) -> Option<Stacker<'_>> {
         stacked(data, step, copies, width, variant)
     };
     let not = "No pitch west or up makes copies that add right.";
-    let ways = (width, bit_ways(&interface));
+    let ways = (width, bit_ways(&interface, width));
     Some(Stacker::new(data, Kind::Adder, ways, works, not))
 }
 
@@ -694,7 +698,7 @@ pub(super) fn chained(data: &[u8], test: Test) -> Option<Stacker<'_>> {
     };
     let not = "No pitch west or up makes copies whose carries chain into a \
                wider one.";
-    let ways = (width, bit_ways(&interface));
+    let ways = (width, bit_ways(&interface, width));
     Some(Stacker::new(data, test.kind(), ways, works, not))
 }
 
@@ -745,7 +749,7 @@ pub(super) fn bitwise<'a>(
             }
         })
     };
-    let ways = (width, bit_ways(&interface));
+    let ways = (width, bit_ways(&interface, width));
     Some(Stacker::new(data, test.kind(), ways, works, not))
 }
 

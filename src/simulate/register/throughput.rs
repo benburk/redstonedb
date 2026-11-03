@@ -51,7 +51,7 @@ pub fn stacker(data: &[u8], kind: Kind) -> Option<Stacker<'_>> {
              shows right as more bits."
         }
     };
-    let ways = (single.width, bit_ways(&interface));
+    let ways = (single.width, bit_ways(&interface, single.width));
     Some(Stacker::new(data, kind.category(), ways, works, not))
 }
 
@@ -75,7 +75,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
         .flatten()
         .filter_map(|apart| Way::of(apart.step))
         .collect();
-    let across: Vec<Way> = bit_ways(&interface::read(&blocks))
+    let across: Vec<Way> = bit_ways(&interface::read(&blocks), single.width)
         .into_iter()
         .map(Way::across)
         .filter(|way| !taken.contains(way))

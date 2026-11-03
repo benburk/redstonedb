@@ -241,7 +241,7 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
                 step.describe(),
                 pitch(*step, each),
                 if controls {
-                    " sharing their control lines"
+                    ", sharing their control lines"
                 } else {
                     ""
                 },
