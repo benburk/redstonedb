@@ -63,14 +63,13 @@ pub struct Probed {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fault {
     /// Its lines don't fit the kind's roles, or its file couldn't be read
-    /// or coloured, in these words.
+    /// or given its roles, in these words.
     Unfit(String),
     /// The kind's test couldn't run on the roles tried, for this reason.
     NotRun(String),
-    /// The kind's test ran on the roles coloured into `file`, getting
-    /// `wrong` of its `cases` wrong: as near as a build comes to holding.
-    /// `said` is that, with the first wrong case as evidence; see
-    /// `Run::wrong_cases`.
+    /// The kind's test ran on the roles `file` carries, getting `wrong` of
+    /// its `cases` wrong: as near as a build comes to holding. `said` is
+    /// that, with the first wrong case as evidence; see `Run::wrong_cases`.
     Wrong {
         wrong: u64,
         cases: u64,
@@ -80,8 +79,8 @@ pub enum Fault {
 }
 
 impl Fault {
-    /// The fault of `run`, which got cases wrong on the roles coloured
-    /// into `file`.
+    /// The fault of `run`, which got cases wrong on the roles `file`
+    /// carries.
     fn wrong(run: &simulate::Run, file: &[u8]) -> Fault {
         Fault::Wrong {
             wrong: run.wrong,
@@ -125,8 +124,8 @@ impl Fault {
         matches!(self, Fault::Wrong { .. })
     }
 
-    /// The file as the try that got cases wrong coloured it, so its test
-    /// shows which.
+    /// The file carrying the roles of the try that got cases wrong, so its
+    /// test shows which.
     pub fn file(&self) -> Option<&[u8]> {
         match self {
             Fault::Wrong { file, .. } => Some(file),

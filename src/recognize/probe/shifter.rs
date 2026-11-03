@@ -1,15 +1,15 @@
 //! Probing for a barrel shifter: its one output line A shifted, an input
-//! line as wide its A, and every other lever a line of the shift, coloured
-//! and run through its test.
+//! line as wide its A, and every other lever a line of the shift, given
+//! those roles and run through its test.
 
 use super::{Fault, OneInputProbed, Role, Roles, lengths, try_roles};
 use crate::{recognize::inspect, simulate::Test};
 
 /// The barrel shifter the file in `data` is, from `report`'s levers and
 /// outputs: its one output line, A shifted, an input line as wide its A,
-/// and every other lever a line of the shift, its amount's signed with
-/// what each is worth, as `1`, `2`, and `4`, coloured and run through its
-/// test. Or why it isn't one.
+/// and every other lever a line of the shift, its amount's signed with what
+/// each is worth, as `1`, `2`, and `4`, given those roles and run through
+/// its test. Or why it isn't one.
 pub fn shifter(
     data: &[u8],
     report: &inspect::Report,

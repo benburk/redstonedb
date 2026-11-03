@@ -1,7 +1,7 @@
 //! Probing for a register or a buffer: its one output line the data bus
 //! out, an input line as wide the data bus in, and every other switch a
-//! control, each way of choosing the bus in coloured and run through the
-//! register test.
+//! control, each way of choosing the bus in given those roles and run
+//! through the register test.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
@@ -10,9 +10,9 @@ use crate::{
     simulate::{self, Test},
 };
 
-/// A register as probing found it: its data bus in, its controls, writes
-/// on buttons and reads on levers, its data bus out, the file with them
-/// coloured as the register test reads them, and that test's run.
+/// A register as probing found it: its data bus in, its controls, writes on
+/// buttons and reads on levers, its data bus out, the file carrying their
+/// roles, as the register test reads them, and that test's run.
 pub struct RegisterProbed {
     pub data_in: Vec<Pos>,
     pub controls: Vec<Pos>,
@@ -22,10 +22,10 @@ pub struct RegisterProbed {
 }
 
 /// The register the file in `data` is, from `report`'s levers and outputs:
-/// its one output line the data bus out, an input line as wide the data
-/// bus in, and every other switch a control; each way of choosing the bus
-/// in coloured and run through the register test, quick cases first. Or
-/// why none holds.
+/// its one output line the data bus out, an input line as wide the data bus
+/// in, and every other switch a control; each way of choosing the bus in
+/// given those roles and run through the register test, quick cases first.
+/// Or why none holds.
 pub fn register(
     data: &[u8],
     report: &inspect::Report,

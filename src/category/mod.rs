@@ -106,8 +106,8 @@ pub struct Facts {
     /// name it among them, such as `comparators`, which several share;
     /// `None` for any other. A blessed category's build is recognized by
     /// probing its levers and outputs, whatever colours they sit on, then
-    /// coloured and standardized, and loses its unused blocks when
-    /// uploaded, as a new version once the circuit is shown unchanged.
+    /// given the roles found and standardized, and loses its unused blocks
+    /// when uploaded, as a new version once the circuit is shown unchanged.
     /// Every other build keeps the blocks it came with.
     pub listed_as: Option<&'static str>,
     /// Whether and when probing tries it.

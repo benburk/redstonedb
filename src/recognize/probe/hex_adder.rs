@@ -1,7 +1,7 @@
 //! Probing for a hex adder: its signal-strength inputs, comparators with
-//! air behind, as A and B, a lone lever as its carry in, its bus of
-//! outputs as its sum, and a lone output beside it as its carry out, each
-//! by its shape as [`repeater_outputs::interface`] reads it; coloured and
+//! air behind, as A and B, a lone lever as its carry in, its bus of outputs
+//! as its sum, and a lone output beside it as its carry out, each by its
+//! shape as [`repeater_outputs::interface`] reads it; given those roles and
 //! run through the adder's test, which reads each digit as four bits.
 
 use super::{Fault, Role, Roles, try_roles};
@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// A hex adder as probing found it: its digit inputs, each by the block
-/// under its comparator, the file with its lines coloured as its test
+/// under its comparator, the file carrying its lines' roles, as its test
 /// reads them, and that test's run.
 pub struct HexAdderProbed {
     pub digits: Vec<Pos>,
@@ -21,8 +21,9 @@ pub struct HexAdderProbed {
 }
 
 /// The hex adder the file in `data`, of `blocks`, is, run through `test`:
-/// its lines as their shapes give them, see [`repeater_outputs::interface`],
-/// coloured in and tested; or why it isn't one.
+/// its lines as their shapes give them, see
+/// [`repeater_outputs::interface`], given those roles and tested; or why it
+/// isn't one.
 pub fn hex_adder(
     data: &[u8],
     blocks: &Blocks,

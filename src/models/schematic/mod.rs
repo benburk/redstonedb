@@ -619,9 +619,9 @@ mod tests {
         }
     }
 
-    /// Its design, orientation, and flags are among its tags, after failing and
-    /// before the rest, coloured as found when the site works them out, and as
-    /// given for a build kept as built.
+    /// Its design, orientation, and flags are among its tags, after failing
+    /// and before the rest, marked as found when the site works them out,
+    /// and as given for a build kept as built.
     #[test]
     fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
         let mut s = cla();

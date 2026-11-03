@@ -1,7 +1,7 @@
 //! Probing for a counter, a shift register, or a T flip-flop: its widest
 //! output the value it holds, an input line as wide its A, and every other
-//! lever or button a control line of its own, coloured and run through
-//! its test, which finds what each line does.
+//! lever or button a control line of its own, given those roles and run
+//! through its test, which finds what each line does.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// A counter or shift register as probing found it: its input A, if any,
-/// the file with its lines coloured as its test reads them, and that
+/// the file carrying its lines' roles, as its test reads them, and that
 /// test's run.
 pub struct SequentialProbed {
     pub data: Vec<Pos>,
@@ -23,8 +23,9 @@ pub struct SequentialProbed {
 /// it, from `report`'s levers and outputs: its widest output the value it
 /// holds and each lone output a status line, such as a shift out; an input
 /// line as wide as that value its input A, to load; and every other lever
-/// or button a control line of its own, each coloured and run through the
-/// test, which finds what each control line does. Or why it isn't one.
+/// or button a control line of its own, each given those roles and run
+/// through the test, which finds what each control line does. Or why it
+/// isn't one.
 pub fn sequential(
     data: &[u8],
     report: &inspect::Report,

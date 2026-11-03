@@ -1,7 +1,7 @@
 //! Probing for a multiplier: its operands, A and B, and a fused
 //! multiply-add's addend, C, its calculate, if any, and its product's
-//! lines, tried in every order, each way coloured and run through the
-//! multiplier test, the closest that ran kept when none holds.
+//! lines, tried in every order, each way given those roles and run through
+//! the multiplier test, the closest that ran kept when none holds.
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// A multiplier as probing found it: its operands A and B, its control
-/// lines, its product's lines, lowest first, the file with them coloured
+/// lines, its product's lines, lowest first, the file carrying their roles,
 /// as the multiplier test reads them, and that test's run.
 pub struct MultiplierProbed {
     pub a: Vec<Pos>,
@@ -29,8 +29,9 @@ pub struct MultiplierProbed {
 /// whichever is which, as A × B is B × A, and a third line, if any, a fused
 /// multiply-add's addend, C, each line tried as it; a lone lever or button,
 /// if any, a sequential one's calculate; and its output lines, up to three,
-/// its product, tried in each order, lowest first, each coloured and run
-/// through the multiplier test, quick cases first. Or why none holds.
+/// its product, tried in each order, lowest first, each given those roles
+/// and run through the multiplier test, quick cases first. Or why none
+/// holds.
 pub fn multiplier(
     data: &[u8],
     report: &inspect::Report,

@@ -1,7 +1,7 @@
 //! Probing for a build of one operand, A: an inverter, an absolute value,
 //! an incrementer, a monostable, a converter, and the like, its control
 //! line, if it has one, tried among its levers and the rest A, each way
-//! coloured and run through its test.
+//! given those roles and run through its test.
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
@@ -20,8 +20,8 @@ pub enum Line {
     Never,
 }
 
-/// A build of one operand, A, as probing found it: A, the file with its
-/// lines coloured as its test reads them, and that test's run.
+/// A build of one operand, A, as probing found it: A, the file carrying its
+/// lines' roles, as its test reads them, and that test's run.
 pub struct OneInputProbed {
     pub a: Vec<Pos>,
     pub file: Vec<u8>,
@@ -32,8 +32,8 @@ pub struct OneInputProbed {
 /// from `report`'s levers and outputs: its widest output its result and
 /// each lone one a status line, such as a carry out; of its levers, its
 /// control line, if `line` gives it one, each tried, lone ones first, and
-/// the rest A; each way coloured and run through the test. Or why it
-/// isn't one.
+/// the rest A; each way given those roles and run through the test. Or why
+/// it isn't one.
 pub fn one_operand(
     data: &[u8],
     report: &inspect::Report,

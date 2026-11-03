@@ -1,6 +1,7 @@
 //! Probing for a build of two operands, a gate or a comparison: its input
 //! lines split into A and B however they run, and its output line as wide
-//! as each, or one bit, each way coloured and run through its test.
+//! as each, or one bit, each way given those roles and run through its
+//! test.
 
 use super::{
     Fault, Role, Roles, lengths, ordered, split, stray_operands, try_roles,
@@ -11,8 +12,8 @@ use crate::{
     simulate::{self, Gate, Test},
 };
 
-/// A build of two operands as probing found it, a gate or a comparison:
-/// its inputs A and B, the file with its lines coloured as its test reads
+/// A build of two operands as probing found it, a gate or a comparison: its
+/// inputs A and B, the file carrying its lines' roles, as its test reads
 /// them, and that test's run.
 pub struct OperandsProbed {
     pub inputs: Vec<Pos>,
@@ -22,13 +23,13 @@ pub struct OperandsProbed {
 
 /// The build of two operands, run through `test`, the file in `data` is,
 /// from `report`'s levers and outputs: its input lines, half its levers
-/// each, A and B, found however they run, and its one output line, as
-/// wide as each, a gate's, or one bit, a comparison's or a carry out's;
-/// each way coloured and run through the test. A carry out's lone lever
-/// left over, if any, is its carry in. A greater-than comparator's
-/// operands are tried both ways round; any other's give the same either
-/// way. With `loose`, for a build kept as built, A and B may each take one
-/// of the bits left over beside two runs as wide as each other, as
+/// each, A and B, found however they run, and its one output line, as wide
+/// as each, a gate's, or one bit, a comparison's or a carry out's; each way
+/// given those roles and run through the test. A carry out's lone lever
+/// left over, if any, is its carry in. A greater-than comparator's operands
+/// are tried both ways round; any other's give the same either way. With
+/// `loose`, for a build kept as built, A and B may each take one of the
+/// bits left over beside two runs as wide as each other, as
 /// [`super::adder_loosely`] reads them, where no other split fits. Or why
 /// it isn't one.
 pub fn operands_probe(

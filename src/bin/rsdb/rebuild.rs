@@ -332,11 +332,10 @@ async fn store_as_before(
 }
 
 /// Stores build `s` of database `from`, its file `data`: inspected and
-/// probed as its category, one of the blessed ones, its roles coloured in,
-/// standardized, and checked as an upload is, under its own id, with its
-/// details, credits, tags, uploader, date added, and downloads; then
-/// simulated. The `Err` says why
-/// it can't be.
+/// probed as its category, one of the blessed ones, carrying the roles
+/// found, standardized, and checked as an upload is, under its own id, with
+/// its details, credits, tags, uploader, date added, and downloads; then
+/// simulated. The `Err` says why it can't be.
 async fn rebuild_one(
     db: &SqlitePool,
     from: &SqlitePool,

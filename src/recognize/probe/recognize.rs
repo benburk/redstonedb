@@ -391,9 +391,9 @@ mod tests {
     use crate::recognize::probe::tests::uncoloured;
 
     /// A multiplier of the low byte whose A's top bit is wired wrong, its
-    /// calculate a wooden button: the register's try can't run, as it has
-    /// a button, but the multiplier's runs, so its fault is the one shown,
-    /// with the file coloured as the multiplier's try had it.
+    /// calculate a wooden button: the register's try can't run, as it has a
+    /// button, but the multiplier's runs, so its fault is the one shown,
+    /// with the file carrying the roles the multiplier's try gave it.
     #[test]
     fn a_try_that_ran_is_shown_over_one_that_could_not() {
         let data =

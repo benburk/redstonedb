@@ -1,7 +1,7 @@
 //! Probing for an ALU: its widest output line its output and each lone one
 //! a status line, two input lines as wide its operands, either way round,
-//! and every other lever a control line, each way coloured and run through
-//! the ALU test.
+//! and every other lever a control line, each way given those roles and run
+//! through the ALU test.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
@@ -10,9 +10,9 @@ use crate::{
     simulate::{self, Test},
 };
 
-/// An ALU as probing found it: its operands A and B, its control lines,
-/// its output and status lines, the file with them coloured as the ALU
-/// test reads them, and that test's run.
+/// An ALU as probing found it: its operands A and B, its control lines, its
+/// output and status lines, the file carrying their roles, as the ALU test
+/// reads them, and that test's run.
 pub struct AluProbed {
     pub a: Vec<Pos>,
     pub b: Vec<Pos>,
@@ -26,8 +26,8 @@ pub struct AluProbed {
 /// The ALU the file in `data` is, from `report`'s levers and outputs: its
 /// widest output line its output and each lone output a status line, named
 /// by its sign; two input lines as wide its operands, A first either way
-/// round; and every other lever a control line, each coloured and run
-/// through the ALU test, quick cases first. Or why none holds.
+/// round; and every other lever a control line, each given those roles and
+/// run through the ALU test, quick cases first. Or why none holds.
 pub fn alu(data: &[u8], report: &inspect::Report) -> Result<AluProbed, Fault> {
     let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {

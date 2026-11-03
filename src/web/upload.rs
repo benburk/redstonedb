@@ -4,8 +4,8 @@
 //! publishing, which checks the file again.
 //!
 //! A build the site recognizes, passing its category's test, is kept
-//! standardized, as every such build lies and is coloured the same way;
-//! any other is kept with its own blocks, under a category of its own
+//! standardized, as every such build lies the same way, its roles kept with
+//! it; any other is kept with its own blocks, under a category of its own
 //! named for what it seems meant to be, until a new version that passes
 //! moves it up.
 
@@ -428,9 +428,9 @@ async fn recognition(data: &[u8]) -> anyhow::Result<probe::Recognition> {
     tokio::task::spawn_blocking(move || probe::recognize(&data)).await?
 }
 
-/// The file `data` with its inputs and outputs coloured in, when the check
-/// by function recognizes it, so the rest of the site reads them; else as
-/// it came.
+/// The file `data` carrying the roles of its inputs and outputs, when the
+/// check by function recognizes it, so the rest of the site reads them;
+/// else as it came.
 async fn recognized(data: &[u8]) -> Vec<u8> {
     recognition(data)
         .await
@@ -547,7 +547,7 @@ async fn show_preview(
             .await?
             .map(|(id, _)| id);
     }
-    // Its roles, if recognized, are coloured in already; this says so.
+    // Its roles, if recognized, are found already; this says so.
     let checked;
     let recognition = if let Some(recognition) = said.recognition {
         recognition

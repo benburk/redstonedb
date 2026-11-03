@@ -429,8 +429,8 @@ pub fn interface(blocks: &Blocks) -> Interface {
 /// What probing makes of a build whose outputs this rule reads.
 pub struct Probed {
     pub kind: Kind,
-    /// Its data inputs, its file coloured by the roles found, and what it
-    /// was found to be, in words.
+    /// Its data inputs, its file carrying the roles found, and what it was
+    /// found to be, in words.
     pub found: Found,
     /// For an adder, the roles found.
     pub layout: Option<Layout>,

@@ -41,7 +41,7 @@ pub async fn thumbnail(
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    schematic::get_visible(&state.db, &id, viewer.as_ref())
+    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::current_file(&state.db, &id)
@@ -50,16 +50,22 @@ pub async fn thumbnail(
     // A build is drawn in the viewer's palette, if they chose one, and kept
     // apart from others' pictures of it, else in the site's: its roles in
     // their colours and, for a recognized build, its building blocks the
-    // palette's.
+    // palette's. A build kept as built is drawn as its builder made it.
     let chosen = match &viewer {
-        Some(user) => palette::of(&state.db, user.id).await?,
-        None => None,
+        Some(user) if s.conventional => palette::of(&state.db, user.id).await?,
+        _ => None,
     };
     let painted = chosen.is_some();
     let palette = chosen.unwrap_or_default();
-    let needs = palette::needs(&state.db, &id).await?;
-    let key = format!("{}-{}", import::sha256(&data), palette.key());
-    let data = palette::apply(&data, needs.as_ref(), &palette)?;
+    let (data, key) = if s.conventional {
+        let needs = palette::needs(&state.db, &id).await?;
+        let key = format!("{}-{}", import::sha256(&data), palette.key());
+        (palette::apply(&data, needs.as_ref(), &palette)?, key)
+    } else {
+        let data = crate::schem::lines::without(&data)?;
+        let key = import::sha256(&data);
+        (data, key)
+    };
     let sha256 = key;
     let cached = state.thumbnails.lock().unwrap().get(&sha256);
     // From memory, else as drawn before and kept beside the database, else
@@ -218,8 +224,9 @@ pub async fn detail(
             None => false,
         };
     // Its stored blocks, its builder's, differ from the site's colours
-    // once a theme colours its roles.
-    let original = true;
+    // once a theme colours its roles, as for a build that follows the
+    // conventions; one kept as built shows only as built.
+    let original = s.conventional;
     let colours = pages::ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,

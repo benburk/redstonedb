@@ -402,9 +402,9 @@ fn checks(page: &DetailsPage) -> Markup {
     }
 }
 
-/// What the check by function made of an upload: its inputs and outputs
-/// as `lines` gives them, in short; and recognized, with them coloured in,
-/// or what only its builder can put right.
+/// What the check by function made of an upload: its inputs and outputs as
+/// `lines` gives them, in short; and recognized, with their roles found, or
+/// what only its builder can put right.
 fn recognition_check(
     recognized: Option<&str>,
     problems: &[String],

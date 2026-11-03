@@ -178,8 +178,8 @@ pub async fn check(
     file: &[u8],
     standardize: bool,
 ) -> anyhow::Result<Checked> {
-    // An adder's or register's inputs are its levers and buttons, coloured
-    // by probing before standardizing, as an upload's are.
+    // An adder's or register's inputs are its levers and buttons, given
+    // their roles by probing before standardizing, as an upload's are.
     let coloured = if standardize {
         import::probed(file, &s.category).await?
     } else {

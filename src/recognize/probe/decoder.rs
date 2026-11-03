@@ -1,5 +1,6 @@
 //! Probing for a decoder: its one input line A and its one output line, a
-//! bit for each of A's values, coloured and run through the decoder test.
+//! bit for each of A's values, given those roles and run through the
+//! decoder test.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
@@ -8,8 +9,9 @@ use crate::{
     simulate::{self, Test},
 };
 
-/// A decoder as probing found it: its input A, its output, the file with
-/// them coloured as the decoder test reads them, and that test's run.
+/// A decoder as probing found it: its input A, its output, the file
+/// carrying their roles, as the decoder test reads them, and that test's
+/// run.
 pub struct DecoderProbed {
     pub a: Vec<Pos>,
     pub output: Vec<Pos>,
@@ -19,7 +21,8 @@ pub struct DecoderProbed {
 
 /// The decoder the file in `data` is, from `report`'s levers and outputs:
 /// its one input line A and its one output line, a bit for each of A's
-/// values, coloured and run through the decoder test. Or why it isn't.
+/// values, given those roles and run through the decoder test. Or why it
+/// isn't.
 pub fn decoder(
     data: &[u8],
     report: &inspect::Report,

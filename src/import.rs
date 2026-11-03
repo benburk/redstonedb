@@ -616,11 +616,11 @@ pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
     schem::lines::with(data, Some(&roles))
 }
 
-/// The file in `data` with its inputs and outputs coloured by probing,
-/// as an upload's are, for a build meant as one of a blessed category,
-/// see `category::Facts::listed_as`: its inputs are its levers and buttons,
-/// whatever colour they sit on. Any other build, or one probing doesn't
-/// recognize, as it is.
+/// The file in `data` carrying the roles probing finds for its inputs and
+/// outputs, as an upload's are, for a build meant as one of a blessed
+/// category, see `category::Facts::listed_as`: its inputs are its levers
+/// and buttons, whatever colour they sit on. Any other build, or one
+/// probing doesn't recognize, as it is.
 pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
     if !category::blessed(meant) {
         return Ok(data.to_vec());
