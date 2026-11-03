@@ -176,12 +176,17 @@ fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // A 1-bit gate's lone input can't show its orientation; its copies
     // stacking into more bits do, at the tightest pitch that works, west
     // first on a tie: its output's repeater standing on a block of its
-    // own, they fit 4 up, pitch 4, and no pitch west, as copies 4 west of
-    // a gate 3 wide leave air between them.
+    // own, they fit 4 up, pitch 4, and 4 west, pitch 4, as copies of a
+    // gate 3 wide with air between them cannot meet.
     let steps: Vec<(i64, i64, Option<i64>)> =
         e.stacking.iter().map(|d| (d.west, d.up, d.pitch)).collect();
-    assert_eq!(steps, [(0, 4, Some(4))], "{:?}", e.stacking);
-    assert_eq!(e.orientation, Some(Orientation::Vertical));
+    assert_eq!(
+        steps,
+        [(4, 0, Some(4)), (0, 4, Some(4))],
+        "{:?}",
+        e.stacking
+    );
+    assert_eq!(e.orientation, Some(Orientation::Horizontal));
     assert!(e.latency.is_some() && e.throughput.is_some());
     assert_eq!(e.logic, Some(Logic::Stateless));
     assert!(e.flags.is_empty(), "{:?}", e.flags);

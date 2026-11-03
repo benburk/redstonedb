@@ -1522,8 +1522,9 @@ fn an_xor_gate_is_no_xnor_gate() {
 
 /// A gate has no lines, so copies side by side each add a bit to A, B, and
 /// the output; this one, 3 wide, its output read by a repeater standing on
-/// its own block, stacks 4 up, pitch 4, and no pitch west: copies 1 or 2
-/// west overlap wrongly, and 4 west leave air between them.
+/// its own block, stacks 4 up, pitch 4, 5 copies tested, and 4 west,
+/// pitch 4, untested, as copies with air between them cannot meet, where
+/// copies 1 or 2 west overlap wrongly.
 #[test]
 #[ignore = "measures whole builds: just test-full"]
 fn an_xor_gate_stacks_up_into_wider_ones() {
@@ -1534,13 +1535,17 @@ fn an_xor_gate_stacks_up_into_wider_ones() {
     )
     .unwrap();
     let Some(Stacking::Wider {
-        step, copies, also, ..
+        step, cases, also, ..
     }) = Test::Xor.stacking(&prepared.data)
     else {
         panic!("it does not stack");
     };
-    assert_eq!((step.describe().as_str(), copies), ("4 up", 5));
-    assert!(also.is_empty(), "{also:?}");
+    assert_eq!((step.describe().as_str(), cases), ("4 west", 0));
+    let [up] = also.as_slice() else {
+        panic!("it stacks one other way too: {also:?}");
+    };
+    assert_eq!((up.step.describe().as_str(), up.copies), ("4 up", 5));
+    assert!(up.cases > 0);
 }
 
 /// Cells that touch are tested: a 1-bit XOR gate 2 wide stacks 2 west,
