@@ -1,12 +1,12 @@
 //! A viewer's palette: the blocks a build is shown and downloaded in. The
-//! stored file keeps its builder's blocks, and its roles are kept beside it,
+//! stored file keeps its author's blocks, and its roles are kept beside it,
 //! see [`crate::schem::lines`]; a palette, the site's own unless the viewer
 //! chose one, gives a recognized build's building blocks its blocks by
 //! what each must be, white concrete for solid blocks and white stained
 //! glass for transparent ones in the site's, each block that may be either
 //! kind becoming the kind the palette prefers, and marks each block with a
 //! role in the role's colour, as the roles kept with it say. Only its
-//! builder's colours, the stored file's, mark no role.
+//! author's colours, the stored file's, mark no role.
 //!
 //! Any full block may be the solid one, and any glass the transparent one:
 //! what a block is for is never read from its colour, so a build of
@@ -469,7 +469,7 @@ pub fn apply(
 }
 
 /// The file in `data` with its building blocks `palette`'s, by what
-/// `needs` says each must be, whatever its builder made them. Its
+/// `needs` says each must be, whatever its author made them. Its
 /// positions are its own, so a stacked copy takes it before stacking.
 pub fn blocks_in(
     data: &[u8],

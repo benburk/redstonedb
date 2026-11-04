@@ -239,7 +239,7 @@ async fn set_people(
 ) -> Result<(), sqlx::Error> {
     let details = &ready.details;
     let credits = [
-        (Credit::Builder, &details.builders),
+        (Credit::Author, &details.authors),
         (Credit::Contributor, &details.contributors),
     ];
     for (credit, names) in credits {

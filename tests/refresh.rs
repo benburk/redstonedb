@@ -82,7 +82,7 @@ async fn a_build_without_a_test_keeps_no_result() {
             .is_none()
     );
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.latency, Some(64), "its builder's latency stands");
+    assert_eq!(s.latency, Some(64), "its author's latency stands");
 }
 
 #[tokio::test]
@@ -251,7 +251,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     assert_eq!(ran_at().await, first, "it was not simulated again");
 }
 
-/// Editing an adder's details, as renaming its builder, keeps what the
+/// Editing an adder's details, as renaming its author, keeps what the
 /// simulation measured: its result on the same file stands, so nothing
 /// runs again to set them back.
 #[tokio::test]
@@ -272,7 +272,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     assert!(measured.latency.is_some() && measured.throughput.is_some());
 
     let mut edited = Details::of(&measured);
-    edited.builders = vec!["Someone_Else".to_owned()];
+    edited.authors = vec!["Someone_Else".to_owned()];
     edited.description = Some("A slice.".to_owned());
     let data = app::models::version::current_file(&db, &id)
         .await
@@ -293,7 +293,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     // Respelled as the player spells it, whatever that is.
     assert!(
-        matches!(s.builders.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
+        matches!(s.authors.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
     );
     assert_eq!(s.description.as_deref(), Some("A slice."));
     let fields = |s: &schematic::Schematic| {

@@ -37,7 +37,7 @@ pub async fn show(
         u.minecraft_verified && u.minecraft_name.as_ref().is_some_and(same)
     });
     let credited = all.iter().find_map(|s| {
-        s.builders
+        s.authors
             .iter()
             .chain(&s.contributors)
             .chain(&s.imported_by)
@@ -81,7 +81,7 @@ pub async fn show(
     let records = leaderboard::records(&builds);
     let held: Vec<&leaderboard::Record> = records
         .iter()
-        .filter(|r| r.holders.iter().any(|s| s.builders.iter().any(same)))
+        .filter(|r| r.holders.iter().any(|s| s.authors.iter().any(same)))
         .collect();
     let pick = |names: fn(&Schematic) -> &Vec<String>| -> Vec<Schematic> {
         all.iter()
@@ -101,14 +101,14 @@ pub async fn show(
             name: &spelling,
             uuid: uuid.as_deref(),
             account,
-            built: &pick(|s| &s.builders),
+            built: &pick(|s| &s.authors),
             contributed: &pick(|s| &s.contributors),
             // Those that credit them already list them there.
             mentioned: &all
                 .iter()
                 .filter(|s| {
                     named(s).is_some()
-                        && !s.builders.iter().chain(&s.contributors).any(same)
+                        && !s.authors.iter().chain(&s.contributors).any(same)
                 })
                 .cloned()
                 .collect::<Vec<_>>(),

@@ -59,7 +59,7 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         holders,
         facets,
     } = *page;
-    let builder = |s: &Standing| super::player_href(&s.name);
+    let author = |s: &Standing| super::player_href(&s.name);
     // An upload's account has a profile; an importer is only a name.
     let adder = |name: &str, account: Option<&str>| match account {
         Some(username) => format!("/users/{username}"),
@@ -78,9 +78,9 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
                 (contested(records))
                 h2 class={ (SECTION_TITLE) " mt-10 mb-4" } { "People" }
                 div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
-                    (standings("most-built", "Most builds", "Builds", built, builder))
+                    (standings("most-built", "Most builds", "Builds", built, author))
                     (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
-                    (standings("most-records", "Most records", "Records", holders, builder))
+                    (standings("most-records", "Most records", "Records", holders, author))
                 }
             }
         },
@@ -88,7 +88,7 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
 }
 
 /// The records most contested, each build's under the board with the
-/// most builders it is first on.
+/// most authors it is first on.
 fn contested(records: &[Record]) -> Markup {
     let mut shown: Vec<&Record> = Vec::new();
     for record in records {
@@ -108,7 +108,7 @@ fn contested(records: &[Record]) -> Markup {
         section aria-labelledby="records" {
             h2 id="records" class={ (SECTION_TITLE) " mb-1" } { "Records" }
             p class="mb-2 max-w-prose text-meta text-muted" {
-                "First place on boards of two or more builds, each tag or latency changing who is first. Most builders first."
+                "First place on boards of two or more builds, each tag or latency changing who is first. Most authors first."
             }
             @if shown.is_empty() {
                 p class="text-muted" { "No board has two builds yet." }
@@ -133,7 +133,7 @@ pub(super) fn record_table(
     let named = player.is_some();
     let holder = |record: &Record<'_>| -> String {
         let theirs = record.holders.iter().find(|s| {
-            s.builders
+            s.authors
                 .iter()
                 .any(|b| player.is_some_and(|p| b.eq_ignore_ascii_case(p)))
         });
@@ -167,7 +167,7 @@ pub(super) fn record_table(
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                 a href=(record_href(record)) class="font-semibold" { (record.name()) }
                                 div class="mt-1 text-meta text-muted" {
-                                    (count(record.builders, "builder")) " · " (count(record.field.len(), "build"))
+                                    (count(record.authors, "author")) " · " (count(record.field.len(), "build"))
                                 }
                             }
                             @if named {
@@ -667,9 +667,9 @@ fn ranking(
                                         (width / from.max(1)) " copies of a " (from) "-bit build, stacked"
                                     }
                                 }
-                                @if !s.builders.is_empty() {
+                                @if !s.authors.is_empty() {
                                     div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta" {
-                                        @for name in &s.builders {
+                                        @for name in &s.authors {
                                             (super::person_link(name, &super::player_href(name)))
                                         }
                                     }

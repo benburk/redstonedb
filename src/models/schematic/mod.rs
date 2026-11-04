@@ -136,7 +136,7 @@ pub struct Schematic {
     /// username.
     pub uploader_name: Option<String>,
     /// In-game names, in the order given; empty when unknown.
-    pub builders: Vec<String>,
+    pub authors: Vec<String>,
     /// In-game names of people who helped without building it, in order.
     pub contributors: Vec<String>,
     pub built_on: Option<String>,
@@ -240,7 +240,7 @@ impl Schematic {
     /// data bus, as `3-wide_word_stackable` west or
     /// `4-high_word_stackable` up, each of `kind`, where the simulation
     /// found it: copies across its bits, with no pitch, as a stacking its
-    /// builder gave has none either.
+    /// author gave has none either.
     fn word_tags(&self, kind: tag::Kind) -> Vec<Tag> {
         let decided = self.conventional
             && crate::category::behaviour(&self.category).stacking
@@ -648,7 +648,7 @@ mod tests {
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
-            builders: vec!["embizone".to_owned()],
+            authors: vec!["embizone".to_owned()],
             contributors: Vec::new(),
             built_on: Some("2014-09-06".to_owned()),
             imported_by: None,
@@ -751,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_mod_a_confirmed_builder_or_the_uploader_may_edit() {
+    fn only_a_mod_a_confirmed_author_or_the_uploader_may_edit() {
         use crate::models::user::{Role, User};
         let user = |name: Option<&str>, verified, role| User {
             id: uuid::Uuid::nil(),
@@ -1000,7 +1000,7 @@ mod tests {
             synchronized: None,
             throughput: None,
             bytes: None,
-            builders: Vec::new(),
+            authors: Vec::new(),
             built_on: None,
             tags: Vec::new(),
             ..cla()

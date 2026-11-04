@@ -1,10 +1,10 @@
-//! A build's original colours: the block its builder put in each of its
+//! A build's original colours: the block its author put in each of its
 //! building blocks' places, kept beside the stored file, which the site
 //! standardizes to its own blocks. Like a palette, a colouring only
 //! chooses blocks for places the build already has: a palette by what
 //! each place must be, a colouring place by place.
 //!
-//! A builder's file is read against the stored one under each way of
+//! An author's file is read against the stored one under each way of
 //! turning and mirroring it, and every place must hold the same kind of
 //! block in both: the same redstone component, or a building block of the
 //! same kind, solid, see-through, or one a comparator reads, as a furnace
@@ -27,7 +27,7 @@ use crate::{
 /// stored file's, in the stored file's positions.
 pub type Colouring = Vec<(Pos, String)>;
 
-/// What kind of block `state` is, for matching a builder's file with the
+/// What kind of block `state` is, for matching an author's file with the
 /// stored one: air, a component by its name, or a building block by kind.
 fn kind(state: &str) -> &str {
     let name = schem::short(state);
@@ -68,7 +68,7 @@ fn building(kind: &str) -> bool {
     matches!(kind, "solid" | "see-through" | "container")
 }
 
-/// The colouring the builder's file `original` gives the stored file
+/// The colouring the author's file `original` gives the stored file
 /// `stored`: each building block it puts in another block's place. The
 /// `Err` says, for the way it comes closest, which places hold another
 /// kind of block, when no way of turning it matches.
@@ -111,7 +111,7 @@ pub fn read(
     )))
 }
 
-/// Where the builder's `turned` file, its place for each stored position
+/// Where the author's `turned` file, its place for each stored position
 /// `at`, holds another kind of block than `stored`, as lines saying so,
 /// with any block it has outside the stored build's box.
 fn faults(
@@ -152,7 +152,7 @@ fn faults(
     lines
 }
 
-/// The builder's block in each of `stored`'s building blocks' places
+/// The author's block in each of `stored`'s building blocks' places
 /// where it differs, `at` giving its place in `turned`.
 fn colouring(
     turned: &Blocks,
@@ -197,9 +197,9 @@ pub fn apply(data: &[u8], colouring: &Colouring) -> Result<Vec<u8>> {
 
 /// Each lamp among `changes`, a colouring of the file in `data` read as
 /// `blocks`, lit as the build at rest lights it, as `//update` would, not
-/// as its builder's file was saved: the stored file settled with those
+/// as its author's file was saved: the stored file settled with those
 /// lamps in it and its levers as they are. Its other building blocks carry
-/// power as the builder's do, which the simulator may not model, such as
+/// power as the author's do, which the simulator may not model, such as
 /// wool.
 fn lamps_at_rest(
     data: &[u8],
@@ -261,14 +261,14 @@ mod tests {
             .iter()
             .map(|&pos| (pos, "minecraft:blue_wool".to_owned()))
             .collect();
-        let builders = standardize::edit(&stored, &wool).unwrap();
+        let authors = standardize::edit(&stored, &wool).unwrap();
         let turn = Turn {
             mirrored: true,
             quarters: 2,
         };
-        let builders = orient::turned(&builders, turn).unwrap();
+        let authors = orient::turned(&authors, turn).unwrap();
 
-        let colouring = read(&builders, &stored).unwrap().unwrap();
+        let colouring = read(&authors, &stored).unwrap().unwrap();
         let expected: Colouring = solid
             .iter()
             .map(|&pos| (pos, "minecraft:blue_wool".to_owned()))

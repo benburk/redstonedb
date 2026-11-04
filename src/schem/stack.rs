@@ -321,7 +321,7 @@ pub fn apart(data: &[u8], direction: StackDirection) -> Result<bool> {
             .all(|&axis| step[axis].abs() > blocks.size[axis]))
 }
 
-/// What stacking a build one way looks like, for its builder to check:
+/// What stacking a build one way looks like, for its author to check:
 /// the parts only its first copy keeps, the spots where two copies hold
 /// different blocks, and whether two copies make a bigger build of the
 /// same shape.

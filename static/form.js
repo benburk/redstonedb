@@ -155,7 +155,7 @@ for (const toggle of document.querySelectorAll("input[data-unknown]")) {
   toggle.addEventListener("change", () => marker?.remove(), { once: true });
 }
 
-// Pill fields, for tags, builders, and contributors: pick a suggestion, or type a value
+// Pill fields, for tags, authors, and contributors: pick a suggestion, or type a value
 // and press Enter or comma, to add it as a pill. A value that is not a
 // suggestion is added when it matches the field's pattern. Backspace in
 // the empty box removes the last pill. Each pill carries a hidden input,

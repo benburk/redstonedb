@@ -1,5 +1,5 @@
 //! Shaping a build's file: fitting its box tightly and taking out what is
-//! no part of it, its blocks as its builder made them. What each line is
+//! no part of it, its blocks as its author made them. What each line is
 //! for goes with the file, see [`crate::schem::lines`], and a theme colours
 //! it when the build is shown or downloaded; see
 //! [`crate::recognize::palette`]. Its inputs and outputs themselves are its
@@ -303,7 +303,7 @@ fn is_container(name: &str) -> bool {
 /// dust that gives a comparator the same signal strength, and each barrel
 /// holding anything else, such as wooden shovels, given that dust in its
 /// place. Barrels are how a build takes a fixed strength; a hopper, which
-/// does not conduct as a barrel does, stays unless its builder asks.
+/// does not conduct as a barrel does, stays unless its author asks.
 pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let swapped: BTreeMap<Pos, u8> = blocks

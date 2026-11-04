@@ -423,7 +423,7 @@ pub enum Group {
 /// Who decides how a category's builds stack.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Stacking {
-    /// Their builders, as they give it.
+    /// Their authors, as they give it.
     #[default]
     Given,
     /// The simulation, for a conventional build: copies that work as their

@@ -1,6 +1,6 @@
 //! Uploading a build: choose a file, preview what the site reads from it,
 //! fill in its details, and publish. The preview carries the file as its
-//! builder made it in a hidden field, so nothing is stored until
+//! author made it in a hidden field, so nothing is stored until
 //! publishing, which checks the file again.
 //!
 //! A build the site recognizes, passing its category's test, is kept
@@ -505,7 +505,7 @@ async fn publish_checked(
     {
         schematic::set_public(db, id, false).await?;
     }
-    // The colours its builder gave it, read off the file they sent.
+    // The colours its author gave it, read off the file they sent.
     if let Ok(id) = &stored
         && !raw.is_empty()
         && let Ok(Ok(colours)) =
@@ -525,7 +525,7 @@ struct Said<'a> {
     guess: Option<&'a Guess>,
     /// What the check by function made of the file, when already known.
     recognition: Option<&'a probe::Recognition>,
-    /// The file as its builder made it, base64, carried for its colours.
+    /// The file as its author made it, base64, carried for its colours.
     original: &'a str,
 }
 

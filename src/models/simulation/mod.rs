@@ -366,7 +366,7 @@ async fn reused_at_zero(
 /// its file `data`:
 /// that category's test run on the file standardized, as recognizing it
 /// would, to show what keeps it from being one. Nothing else is set from
-/// the result, its details being its builder's.
+/// the result, its details being its author's.
 async fn refresh_off_list(
     db: &SqlitePool,
     s: &Schematic,
@@ -388,7 +388,7 @@ async fn refresh_off_list(
     );
     let report = match standard {
         Ok(standard) => {
-            // Its builder's width, when its file shows none.
+            // Its author's width, when its file shows none.
             let width = derived_width(meant, true, &standard.data)?.or(s.width);
             match Test::of(meant, width) {
                 Some(test) => run(test, standard.data).await?,

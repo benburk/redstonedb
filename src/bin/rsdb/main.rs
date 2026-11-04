@@ -48,7 +48,7 @@ enum Command {
     /// Check a .schem file, or a stored build by id, or with neither every
     /// build on the list, by function: levers, buttons, and comparators with
     /// air behind in, repeaters and comparators facing air out, what the
-    /// site would fix and what only the builder can
+    /// site would fix and what only the author can
     Inspect(Inspect),
     /// Add the builds of a category from another copy of the database,
     /// such as a pull of the live one, the colour-free way: each probed,
@@ -147,7 +147,7 @@ enum Command {
     /// as recolouring its blocks: no version is added and nothing is
     /// compared. Then read it as `reread` does
     Replace(Replace),
-    /// Keep the colours a builder's own copy of a stored build gives it,
+    /// Keep the colours an author's own copy of a stored build gives it,
     /// shown as its original colours: the copy must hold the same kind of
     /// block in every place under some turn or mirror, any solid block for
     /// a solid one, any see-through one for glass, and a furnace for a

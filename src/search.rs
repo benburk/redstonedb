@@ -7,9 +7,9 @@
 //! orientation, a tag, its design or a flag, its width such as `8b`, or a width
 //! its copies stack to where they add bits, as `16b` finds a 1-bit adder slice
 //! that stacks, a threshold's `at least 3`, its latency such as `3t`, a
-//! builder, contributor, or importer, `stackable`, `sync` or `unsync`,
+//! author, contributor, or importer, `stackable`, `sync` or `unsync`,
 //! `stateless` or `stateful`, as `comb` and `seq` still are, `pipelined`). A
-//! name can be tied to its role, as in `builder:embizone`,
+//! name can be tied to its role, as in `author:embizone`,
 //! `contributor:alex_you`, or `importer:lookaside`, a release it works in is
 //! `version:1.12` or `version:beta_1.3`, and the throughput is `throughput:3`,
 //! or `3t` for a serial build, whose throughput leads its name as its width
@@ -189,7 +189,7 @@ fn in_id(text: &str, s: &Schematic) -> bool {
 /// and credited names, lowercase, names with spaces for underscores.
 fn text(s: &Schematic) -> String {
     let names = s
-        .builders
+        .authors
         .iter()
         .chain(&s.contributors)
         .map(|name| name.to_lowercase().replace('_', " "))
@@ -296,7 +296,7 @@ fn facts(s: &Schematic) -> Vec<String> {
     // lowercase, with spaces for underscores.
     let person =
         |name: &String| name.to_lowercase().replace('_', " ").trim().to_owned();
-    let people = s.builders.iter().chain(&s.contributors);
+    let people = s.authors.iter().chain(&s.contributors);
     facts.extend(
         people
             .chain(&s.imported_by)
@@ -305,7 +305,9 @@ fn facts(s: &Schematic) -> Vec<String> {
             .map(person),
     );
     let roles = [
-        ("builder", s.builders.iter().collect::<Vec<_>>()),
+        ("author", s.authors.iter().collect::<Vec<_>>()),
+        // As authors were called before, so older links still find them.
+        ("builder", s.authors.iter().collect()),
         ("contributor", s.contributors.iter().collect()),
         (
             "importer",
@@ -435,7 +437,7 @@ pub(crate) mod tests {
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
-            builders: vec!["embizone".to_owned()],
+            authors: vec!["embizone".to_owned()],
             contributors: Vec::new(),
             built_on: None,
             imported_by: None,
@@ -520,7 +522,7 @@ pub(crate) mod tests {
     #[test]
     fn part_of_a_credited_name_finds_their_builds() {
         let s = Schematic {
-            builders: vec!["Don_Manuel_1229".to_owned()],
+            authors: vec!["Don_Manuel_1229".to_owned()],
             contributors: vec!["Owenage_".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
         };
@@ -690,9 +692,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_builder_matches_whatever_its_case_and_underscores() {
+    fn an_author_matches_whatever_its_case_and_underscores() {
         let s = Schematic {
-            builders: vec!["FEARLESS_Z_".to_owned()],
+            authors: vec!["FEARLESS_Z_".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
         };
         let terms = parse("fearless_z_");
@@ -702,16 +704,22 @@ pub(crate) mod tests {
     #[test]
     fn a_role_ties_a_name_to_it() {
         let built = Schematic {
-            builders: vec!["Alex_you".to_owned()],
+            authors: vec!["Alex_you".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
         };
         let helped = Schematic {
             contributors: vec!["alex_you".to_owned()],
             ..schematic("register", Orientation::Horizontal, &[])
         };
-        let found = matching(&parse("builder:Alex_you"), vec![built, helped]);
+        let found = matching(
+            &parse("author:Alex_you"),
+            vec![built.clone(), helped.clone()],
+        );
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].category, "adder");
+        // As authors were called before.
+        let found = matching(&parse("builder:Alex_you"), vec![built, helped]);
+        assert_eq!(found.len(), 1);
     }
 
     #[test]

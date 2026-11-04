@@ -891,7 +891,7 @@ mod tests {
 
     /// A subtractor whose output would read inverted one way round reads,
     /// with A and B swapped, as one whose borrow in is inverted, a control
-    /// line a builder may well invert, where an output may not be.
+    /// line an author may well invert, where an output may not be.
     #[test]
     fn a_subtractor_reads_its_borrow_in_inverted_not_its_output() {
         let data =

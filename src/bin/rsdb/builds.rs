@@ -35,7 +35,7 @@ pub(super) struct Set {
             "latency",
             "synchronized",
             "stacking",
-            "builders",
+            "authors",
             "contributors",
             "built-on",
             "imported-by",
@@ -63,10 +63,10 @@ struct DetailArgs {
     /// copies that work; repeatable, and replaces any stored directions
     #[arg(long = "stack")]
     stacking: Vec<StackDirection>,
-    /// A builder's in-game name, as written; repeatable, in order.
-    /// Given to `set`, the names replace the stored builders
-    #[arg(long = "builder", alias = "author")]
-    builders: Vec<String>,
+    /// An author's in-game name, as written; repeatable, in order.
+    /// Given to `set`, the names replace the stored authors
+    #[arg(long = "author", alias = "builder")]
+    authors: Vec<String>,
     /// The in-game name of someone who helped without building it, such as
     /// with the design; repeatable, in order. Given to `set`, the names
     /// replace the stored contributors
@@ -209,7 +209,7 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
     put(&mut details.logic, given.logic, unsets("logic"));
     // A list given replaces the stored one whole.
     let lists = [
-        (&mut details.builders, &given.builders, "builders"),
+        (&mut details.authors, &given.authors, "authors"),
         (
             &mut details.contributors,
             &given.contributors,
@@ -259,7 +259,7 @@ pub(super) async fn export(
     } else {
         data
     };
-    // As it is stored, in its builder's colours, without its roles.
+    // As it is stored, in its author's colours, without its roles.
     let data = app::schem::lines::without(&data)?;
     let path = out.join(s.filename());
     fs::File::create_new(&path)
@@ -405,10 +405,10 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     }
     println!(
         "built by     {}",
-        if s.builders.is_empty() {
+        if s.authors.is_empty() {
             "unknown".to_owned()
         } else {
-            s.builders.join(", ")
+            s.authors.join(", ")
         }
     );
     if !s.contributors.is_empty() {

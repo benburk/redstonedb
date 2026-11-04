@@ -25,7 +25,7 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub struct Details {
     /// A standard category by its name or label, in any capitals, or a name
-    /// of the builder's own.
+    /// of the author's own.
     pub category: String,
     pub width: Option<i64>,
     pub orientation: Orientation,
@@ -52,7 +52,7 @@ pub struct Details {
     pub design: Option<String>,
     /// Flags it has; any not of its category are dropped.
     pub flags: Vec<String>,
-    pub builders: Vec<String>,
+    pub authors: Vec<String>,
     pub contributors: Vec<String>,
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
@@ -84,7 +84,7 @@ impl Details {
             pulse: s.pulse,
             design: s.design.clone(),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
-            builders: s.builders.clone(),
+            authors: s.authors.clone(),
             contributors: s.contributors.clone(),
             stacking: s.stacking.clone(),
             tags: s
@@ -124,7 +124,7 @@ impl<'a> Build<'a> {
 
 /// Details that keep every rule, ready to store.
 pub struct Ready {
-    /// The category, as the list has it, or one of the builder's own.
+    /// The category, as the list has it, or one of the author's own.
     pub category: Category,
     /// The category by its name, the fields it has no use for dropped,
     /// flags not of it dropped, the names respelled as their players spell
@@ -261,10 +261,10 @@ async fn ready(
     }
 
     // Asked last, as it goes to Mojang, which is slow.
-    details.builders = mojang::respell(&details.builders).await?;
+    details.authors = mojang::respell(&details.authors).await?;
     details.contributors = mojang::respell(&details.contributors).await?;
     // A player the description names with `@name` must be one, as a
-    // builder must; the description keeps the names as written.
+    // author must; the description keeps the names as written.
     let named = details
         .description
         .as_deref()
@@ -484,7 +484,7 @@ pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 /// with a sentence saying which.
 fn shaped(details: &Details) -> Result<(), String> {
     if let Some(name) = details
-        .builders
+        .authors
         .iter()
         .chain(&details.contributors)
         .find(|n| !schematic::valid_player_name(n))

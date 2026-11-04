@@ -331,7 +331,7 @@ pub fn colour_roles(blocks: &Blocks) -> Option<Roles> {
 /// The operands a file in the site's old colours marks, A lime, B light
 /// blue, and on, by the block of each lever or button, and under each
 /// signal-strength input's comparator, of an input colour: the order its
-/// builder, or the site colouring it, gave its operands, which a port
+/// author, or the site colouring it, gave its operands, which a port
 /// keeps where its outputs, and so [`colour_roles`], no longer read the
 /// old colours. Only the order of operands probing finds interchangeable
 /// is read from it, see [`crate::recognize::probe::Order`].

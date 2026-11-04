@@ -13,7 +13,7 @@ A stack is named for what it became: its width is the slice's times the copies t
 
 The download dialog can give the file another name, kept to the same characters; left as it is, a stack still takes the name of its width.
 
-The name does not identify a build; the database's id does. Two builds can share a name, and everything else about them, such as tags, latency, size, builders, and build date, is in the database and on the site.
+The name does not identify a build; the database's id does. Two builds can share a name, and everything else about them, such as tags, latency, size, authors, and build date, is in the database and on the site.
 
 ## Decided
 

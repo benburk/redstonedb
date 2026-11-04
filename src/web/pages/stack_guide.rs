@@ -2,7 +2,7 @@
 //! the parts only its first copy keeps, `//rstack` it, and paste those
 //! parts back; the pitch class of copies the simulation found add bits,
 //! or that they add words on a shared bus; and what looks wrong in a
-//! stacking its builder gave, rather than the simulation finding it:
+//! stacking its author gave, rather than the simulation finding it:
 //! where two copies disagree, and whether they make a bigger build of the
 //! same shape.
 

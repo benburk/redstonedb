@@ -854,16 +854,16 @@ fn tally(
     standings
 }
 
-/// Builders by how many builds credit them.
+/// Authors by how many builds credit them.
 pub fn most_built(builds: &[Schematic]) -> Vec<Standing> {
     tally(builds.iter().flat_map(credited))
 }
 
-/// A build's builders, as people to count.
+/// A build's authors, as people to count.
 fn credited(
     s: &Schematic,
 ) -> impl Iterator<Item = (String, Option<String>)> + '_ {
-    s.builders.iter().map(|name| (name.clone(), None))
+    s.authors.iter().map(|name| (name.clone(), None))
 }
 
 /// People by how many builds they put on the site: an upload counts for
@@ -881,8 +881,8 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
     }))
 }
 
-/// Builders by records held: each record a build of theirs holds, see
-/// [`records`], a tie giving every holder's builders one.
+/// Authors by records held: each record a build of theirs holds, see
+/// [`records`], a tie giving every holder's authors one.
 pub fn most_records(records: &[Record]) -> Vec<Standing> {
     tally(records.iter().flat_map(|record| {
         let mut names: Vec<(String, Option<String>)> = Vec::new();
@@ -968,7 +968,7 @@ pub struct Record<'a> {
     /// The builds in first place, more than one on a tie.
     pub holders: Vec<&'a Schematic>,
     /// How many people built the field, whatever the case of their names.
-    pub builders: usize,
+    pub authors: usize,
 }
 
 impl Record<'_> {
@@ -1008,7 +1008,7 @@ pub fn in_sentence(name: &str) -> String {
         .join(" ")
 }
 
-/// Every record `builds` hold, the most contested first: by most builders,
+/// Every record `builds` hold, the most contested first: by most authors,
 /// then most builds. A board is one of a category's measures and state,
 /// narrowed to up to [`MOST_TRAITS`] traits: a latency, and tags the site
 /// finds, such as `synced`, a design, an orientation, or a pitch class, as
@@ -1071,7 +1071,7 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
                 tags: found.tags,
                 rank: found.rank,
                 ruler: found.ruler,
-                builders: tally(found.field.iter().flat_map(|s| credited(s)))
+                authors: tally(found.field.iter().flat_map(|s| credited(s)))
                     .len(),
                 field: found.field,
                 holders: found.holders,
@@ -1079,7 +1079,7 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
         }));
     }
     records.sort_by(|a, b| {
-        (b.builders, b.field.len()).cmp(&(a.builders, a.field.len()))
+        (b.authors, b.field.len()).cmp(&(a.authors, a.field.len()))
     });
     records
 }
@@ -1711,7 +1711,7 @@ mod tests {
         assert!(!named(ranked_tags(&register)));
         // Nor does it make the register stackable on its boards.
         assert!(!ranked_tags(&register).iter().any(|t| t.name == "stackable"));
-        // A stacking its builder gave says nothing of words.
+        // A stacking its author gave says nothing of words.
         register.conventional = false;
         assert!(
             !register.every_tag().iter().any(|tag| {
@@ -1751,7 +1751,7 @@ mod tests {
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
-            builders: Vec::new(),
+            authors: Vec::new(),
             contributors: Vec::new(),
             built_on: None,
             imported_by: None,
@@ -1911,10 +1911,10 @@ mod tests {
         );
     }
 
-    /// The builds of the tests below, each by one builder.
+    /// The builds of the tests below, each by one author.
     fn credited_adders() -> Vec<Schematic> {
         let by = |name: &str, s: Schematic| Schematic {
-            builders: vec![name.to_owned()],
+            authors: vec![name.to_owned()],
             ..s
         };
         vec![
@@ -2011,12 +2011,12 @@ mod tests {
     fn people_count_whatever_their_case() {
         let builds = [
             Schematic {
-                builders: vec!["embizone".to_owned()],
+                authors: vec!["embizone".to_owned()],
                 imported_by: Some("embizone".to_owned()),
                 ..build("a", 8, None, None, 1)
             },
             Schematic {
-                builders: vec!["EmbiZone".to_owned(), "alex".to_owned()],
+                authors: vec!["EmbiZone".to_owned(), "alex".to_owned()],
                 uploader: Some("lookaside".to_owned()),
                 uploader_name: Some("EMBIZONE".to_owned()),
                 ..build("b", 8, None, None, 1)

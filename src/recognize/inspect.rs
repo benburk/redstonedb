@@ -2,7 +2,7 @@
 //! inputs are its levers and buttons, and its comparators with nothing
 //! behind them, found wherever they are, and its outputs its repeaters and
 //! comparators powering nothing, on any block. What the site can put right
-//! itself, it does and lists; what only the builder can, it names with the
+//! itself, it does and lists; what only the author can, it names with the
 //! blocks at fault.
 //!
 //! The rules:
@@ -61,7 +61,7 @@ pub struct Report {
     pub outputs: Vec<Run>,
 }
 
-/// Something only the builder can put right.
+/// Something only the author can put right.
 #[derive(Debug, Clone)]
 pub struct Problem {
     /// A short name for the rule, to count problems by.

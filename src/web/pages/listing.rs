@@ -371,7 +371,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
 /// How the search reads its words.
 fn search_help() -> Markup {
     html! {
-        "Each word narrows it: a category, tag, " code { "8b" } ", " code { "3t" } ", a builder, "
+        "Each word narrows it: a category, tag, " code { "8b" } ", " code { "3t" } ", an author, "
         code { "stackable" } ". " code { "-" } " before a word leaves it out."
     }
 }
@@ -937,13 +937,13 @@ fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
                         }
                         (note)
                         (badges(s, ""))
-                        // Its builders, then who helped, on one line; the
+                        // Its authors, then who helped, on one line; the
                         // build's page names them all.
-                        @if !s.builders.is_empty() || !s.contributors.is_empty() {
+                        @if !s.authors.is_empty() || !s.contributors.is_empty() {
                             p class="mt-auto truncate pt-1 text-meta text-muted" {
-                                (name_links(&s.builders))
+                                (name_links(&s.authors))
                                 @if !s.contributors.is_empty() {
-                                    @if !s.builders.is_empty() { " · " }
+                                    @if !s.authors.is_empty() { " · " }
                                     "with " (name_links(&s.contributors))
                                 }
                             }
@@ -999,7 +999,7 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
                                 th scope="col" class=(TABLE_HEAD) { "Latency" }
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Size" }
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Volume" }
-                                th scope="col" class=(TABLE_HEAD) { "Builders" }
+                                th scope="col" class=(TABLE_HEAD) { "Authors" }
                                 th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Built" }
                             }
                         }
@@ -1016,7 +1016,7 @@ fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(&s.builders)) }
+                                    td class=(TABLE_CELL) { (name_links(&s.authors)) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
                                     }

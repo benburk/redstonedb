@@ -3,7 +3,7 @@
 //! each output block, a bit of an output bus or a status line. Probing
 //! finds the roles by how a build behaves, and the site keeps them with
 //! each version of its file, in the database, never in its blocks, which
-//! stay as their builder made them.
+//! stay as their author made them.
 //!
 //! A file being worked on carries its roles with it, in its metadata, so
 //! every way of changing it keeps them where its blocks go: fitting its

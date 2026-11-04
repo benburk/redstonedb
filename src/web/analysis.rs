@@ -67,7 +67,7 @@ impl Step {
 /// What an analysis found: the file read, what it seems to be, and what
 /// the check by function made of it.
 pub struct Analyzed {
-    /// The file as its builder made it, for the colours they gave it.
+    /// The file as its author made it, for the colours they gave it.
     pub raw: Vec<u8>,
     pub upload: Upload,
     pub guess: Option<Guess>,

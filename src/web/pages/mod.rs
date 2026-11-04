@@ -85,13 +85,13 @@ fn facts(s: &Schematic) -> Markup {
             .collect();
     html! {
         (measures.join(" · "))
-        @if !s.builders.is_empty() {
-            " · " (name_links(&s.builders))
+        @if !s.authors.is_empty() {
+            " · " (name_links(&s.authors))
         }
     }
 }
 
-/// The home page searching for `term`, such as a tag or a builder.
+/// The home page searching for `term`, such as a tag or an author.
 fn search_href(term: &str) -> String {
     let query = form_urlencoded::Serializer::new(String::new())
         .append_pair("q", term)
@@ -202,7 +202,7 @@ fn sections(categories: &[Category]) -> Vec<(&str, &str, Vec<&Category>)> {
         .collect()
 }
 
-/// `Builder` for one name, else `Builders`.
+/// `Author` for one name, else `Authors`.
 fn plural(singular: &str, names: &[String]) -> String {
     if names.len() == 1 {
         singular.to_owned()
@@ -256,7 +256,7 @@ fn reason_item(reason: &str) -> Markup {
 /// The mark of a build only its uploader sees.
 fn private_badge() -> Markup {
     html! {
-        span class="badge badge-builder" title="Only you can see it" {
+        span class="badge badge-author" title="Only you can see it" {
             (icons::icon(icons::LOCK, "size-3")) "Private"
         }
     }

@@ -143,7 +143,7 @@ pub async fn file<'e, E: SqliteExecutor<'e>>(
         .transpose()
 }
 
-/// The colours the builder of build `id`'s version `version` gave its
+/// The colours the author of build `id`'s version `version` gave its
 /// building blocks, if any are kept with it.
 pub async fn colours_of<'e, E: SqliteExecutor<'e>>(
     db: E,
@@ -178,7 +178,7 @@ pub async fn data<'e, E: SqliteExecutor<'e>>(
     .await
 }
 
-/// Keeps `colours` as the colours the builder of build `id`'s version
+/// Keeps `colours` as the colours the author of build `id`'s version
 /// `version` gave its building blocks.
 pub async fn set_colours<'e, E: SqliteExecutor<'e>>(
     db: E,

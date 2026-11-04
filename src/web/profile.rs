@@ -96,15 +96,13 @@ async fn show_profile(
             name: "all",
             label: "All",
             builds: pick(&|s| {
-                credited(&s.builders)
-                    || credited(&s.contributors)
-                    || uploaded(s)
+                credited(&s.authors) || credited(&s.contributors) || uploaded(s)
             }),
         },
         pages::ProfileList {
             name: "built",
             label: "Built",
-            builds: pick(&|s| credited(&s.builders)),
+            builds: pick(&|s| credited(&s.authors)),
         },
         pages::ProfileList {
             name: "contributed",

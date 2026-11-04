@@ -18,7 +18,7 @@ pub struct StackDirection {
     pub faces: Option<Faces>,
     /// For copies the simulation found add bits, their pitch, a class or
     /// an adder's own width; see [`PITCHES`]. `None` for copies that add words on a shared bus, and
-    /// for a stack its builder gave.
+    /// for a stack its author gave.
     pub pitch: Option<i64>,
 }
 

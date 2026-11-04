@@ -1,7 +1,7 @@
 //! Accounts, made at a person's first Discord login, each with a role, and
 //! the Minecraft name they give on their profile. One name belongs to one
 //! account, whatever its capitals; once an admin confirms it, the account
-//! may edit the builds crediting it as builder.
+//! may edit the builds crediting it as author.
 
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
@@ -115,7 +115,7 @@ impl User {
     }
 
     /// Whether the account may edit this build: a mod or admin may edit
-    /// any, a builder the ones crediting their confirmed Minecraft name,
+    /// any, an author the ones crediting their confirmed Minecraft name,
     /// and an uploader the ones they uploaded.
     pub fn may_edit(&self, s: &Schematic) -> bool {
         self.can_edit() || self.built(s) || self.uploaded(s)
@@ -133,11 +133,11 @@ impl User {
     }
 
     /// Whether the build credits the account's confirmed Minecraft name as
-    /// a builder.
+    /// an author.
     pub fn built(&self, s: &Schematic) -> bool {
         self.minecraft_verified
             && self.minecraft_name.as_deref().is_some_and(|own| {
-                s.builders.iter().any(|name| name.eq_ignore_ascii_case(own))
+                s.authors.iter().any(|name| name.eq_ignore_ascii_case(own))
             })
     }
 

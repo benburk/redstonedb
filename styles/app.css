@@ -211,7 +211,7 @@
     @apply bg-found text-on-found;
   }
 
-  .badge-builder {
+  .badge-author {
     @apply bg-selection text-ink;
   }
 

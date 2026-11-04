@@ -28,7 +28,7 @@ fn adder() -> Vec<u8> {
     prepared("alpha-rca", false)
 }
 
-/// Details with a category typed as `category`, and the rest as a builder
+/// Details with a category typed as `category`, and the rest as an author
 /// might fill them in, whether or not the category has a use for them.
 fn given(category: &str) -> Details {
     Details {

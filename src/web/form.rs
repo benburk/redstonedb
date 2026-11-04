@@ -104,7 +104,7 @@ impl StackRow {
 #[derive(Clone, Default)]
 pub struct Form {
     /// The category as typed: a standard one by its name or label, in any
-    /// capitals, or else a name of the builder's own.
+    /// capitals, or else a name of the author's own.
     pub category: String,
     /// An [`Orientation`]'s name.
     pub orientation: String,
@@ -124,8 +124,8 @@ pub struct Form {
     pub stackable: bool,
     /// The stacking directions so far, or a suggested first one.
     pub stack_rows: Vec<StackRow>,
-    /// In order, from the builder pills and anything typed beside them.
-    pub builders: Vec<String>,
+    /// In order, from the author pills and anything typed beside them.
+    pub authors: Vec<String>,
     /// Likewise, from the contributor pills.
     pub contributors: Vec<String>,
     /// From the tag pills and anything typed beside them.
@@ -153,7 +153,7 @@ fn date(year: &str, month: &str, day: &str) -> String {
 
 impl Form {
     /// Reads a urlencoded body by hand, since the pill fields repeat one
-    /// name per value. `builder_entry`, `contributor_entry`, and `tag_entry`
+    /// name per value. `author_entry`, `contributor_entry`, and `tag_entry`
     /// are their text boxes, sent as typed when scripting is off.
     pub fn read(pairs: &[(String, String)]) -> Self {
         let get = |key: &str| first(pairs, key).to_owned();
@@ -205,7 +205,7 @@ impl Form {
             logic: get("logic"),
             stackable: !get("stackable").is_empty(),
             stack_rows,
-            builders: all("builder", "builder_entry"),
+            authors: all("author", "author_entry"),
             contributors: all("contributor", "contributor_entry"),
             tags: all("tag", "tag_entry")
                 .iter()
@@ -237,7 +237,7 @@ impl Form {
             } else {
                 s.stacking.iter().map(StackRow::of).collect()
             },
-            builders: s.builders.clone(),
+            authors: s.authors.clone(),
             contributors: s.contributors.clone(),
             tags: s
                 .tags
@@ -298,7 +298,7 @@ impl Form {
             logic: or(self.logic, suggested.logic),
             stackable: self.stackable,
             stack_rows,
-            builders: self.builders,
+            authors: self.authors,
             contributors: self.contributors,
             tags: self.tags,
             public: self.public,
@@ -353,7 +353,7 @@ impl Form {
             built_on: text(&self.built_on),
             description: text(&self.description),
             logic: chosen(&self.logic)?,
-            builders: self.builders.clone(),
+            authors: self.authors.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,
             tags: self.tags.clone(),
@@ -492,7 +492,7 @@ mod tests {
         let sent = Form {
             category: "adder".to_owned(),
             latency: "6".to_owned(),
-            builders: vec!["Sam".to_owned()],
+            authors: vec!["Sam".to_owned()],
             description: "Fast.".to_owned(),
             tags: vec!["pistonless".to_owned()],
             ..Form::default()
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(form.category, "adder");
         assert_eq!(form.latency, "6");
         assert_eq!(form.orientation, "vert");
-        assert_eq!(form.builders, ["Sam"]);
+        assert_eq!(form.authors, ["Sam"]);
         assert_eq!(form.description, "Fast.");
         assert_eq!(form.tags, ["pistonless"]);
     }

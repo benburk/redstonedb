@@ -1,6 +1,6 @@
 //! Changing a stored build's file: as a new version, checked as the site
 //! checks one or with its unused blocks taken out, or in place as a fix to
-//! the file; reading every file again; and keeping a builder's colours.
+//! the file; reading every file again; and keeping an author's colours.
 
 use std::{
     fs,
@@ -112,7 +112,7 @@ pub(super) async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
     refile(db, &s, &file, args.standardizing.asked()).await
 }
 
-/// Keeps the colours the builder's copy at `file` gives build `id`, with
+/// Keeps the colours the author's copy at `file` gives build `id`, with
 /// the newest version it matches, or says where it comes closest to the
 /// current one.
 pub(super) async fn colours(
@@ -221,7 +221,7 @@ pub(super) async fn new_version(
     let number = version::replace(db, &id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
-    // The colours its builder gave it, read off the file given.
+    // The colours its author gave it, read off the file given.
     match app::recognize::colouring::read(&raw, &kept.data)? {
         Ok(colours) if !colours.is_empty() => {
             version::set_colours(db, &id, number, &colours).await?;

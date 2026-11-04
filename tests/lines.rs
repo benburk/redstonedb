@@ -1,6 +1,6 @@
 //! A build's roles kept apart from its blocks: carried by a file while the
 //! site works on it, moved with its blocks, kept with its version in the
-//! database, and shown in a theme's colours, its blocks its builder's.
+//! database, and shown in a theme's colours, its blocks its author's.
 
 mod common;
 
@@ -117,7 +117,7 @@ async fn a_versions_roles_are_kept_with_it() {
 }
 
 /// A theme colours each block with a role in its colour, as the roles the
-/// file carries say, whatever its builder made it: here every input and
+/// file carries say, whatever its author made it: here every input and
 /// output block gray wool.
 #[test]
 fn a_theme_colours_the_roles_not_the_blocks() {
@@ -145,11 +145,11 @@ fn a_theme_colours_the_roles_not_the_blocks() {
 
 /// A stored build's roles, first found by probing, name A the operand its
 /// old colours mark A where its test adds either way round: the port of an
-/// 8-bit carry-cancel adder whose builder put A in lime at x = 3 and B in
+/// 8-bit carry-cancel adder whose author put A in lime at x = 3 and B in
 /// light blue at x = 0 reads A at x = 3, though x = 0 is further west. Its
 /// colours whitened, nothing marks either, and A is the westernmost.
 #[test]
-fn interchangeable_operands_follow_the_builders_marking() {
+fn interchangeable_operands_follow_the_authors_marking() {
     let raw = std::fs::read("tests/fixtures/cca-8-b-slower.schem").unwrap();
     let a_at = |data: &[u8]| {
         let found = import::with_roles(data, "adder").unwrap();

@@ -124,8 +124,8 @@ impl Derived {
     /// decides, how it stacks. An adder takes the step its copies added
     /// right at, with no limit on copies, or none. A register takes the
     /// step west its copies stored and read right at, with the most copies
-    /// that did, in place of its builder's west step and beside their
-    /// others, which the search does not try; it keeps its builder's
+    /// that did, in place of its author's west step and beside their
+    /// others, which the search does not try; it keeps its author's
     /// stacking when none was found. A result that did not stack copies,
     /// such as one with wrong cases, leaves the stacking as it was.
     pub(super) fn decide(&mut self, s: &Schematic, report: &Report) {

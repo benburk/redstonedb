@@ -20,7 +20,7 @@
 //! an overflow, taken as signed, for add and subtract; an `lsb shift out`,
 //! the bit a shift right drops, for shr and asr; and a zero for every
 //! operation. Whether a nadd's or nsub's carry out is inverted too is the
-//! builder's choice, so it is not checked.
+//! author's choice, so it is not checked.
 
 use std::{
     collections::{HashMap, HashSet},

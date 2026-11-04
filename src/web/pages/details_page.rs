@@ -34,7 +34,7 @@ pub enum File<'a> {
     Upload {
         /// The prepared file, base64.
         data: &'a str,
-        /// The file as its builder made it, base64, for the colours they
+        /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
         /// The build less its interface layers.
@@ -58,7 +58,7 @@ pub enum File<'a> {
         /// What the check by function recognized it as, with where its
         /// inputs and outputs are, if it did.
         recognized: Option<&'a str>,
-        /// What only its builder can put right, by that check.
+        /// What only its author can put right, by that check.
         problems: &'a [String],
         /// Its inputs and outputs as that check found them, in short.
         lines: &'a str,
@@ -348,7 +348,7 @@ fn checks(page: &DetailsPage) -> Markup {
                     (check("similar", State::Warn, &html! {
                         "Nearly the same as "
                         a href={ "/schematics/" (other.id) } { (other.title()) }
-                        @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
+                        @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
                         ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
                         a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
                         " instead; if it builds on it, say so in the description."
@@ -404,7 +404,7 @@ fn checks(page: &DetailsPage) -> Markup {
 
 /// What the check by function made of an upload: its inputs and outputs as
 /// `lines` gives them, in short; and recognized, with their roles found, or
-/// what only its builder can put right.
+/// what only its author can put right.
 fn recognition_check(
     recognized: Option<&str>,
     problems: &[String],
@@ -512,7 +512,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             data-simulated[stored_result] data-unverified[unverified] class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
-                // Carried as its builder made it, so tested standardized.
+                // Carried as its author made it, so tested standardized.
                 File::Upload { data, original, .. } => {
                     input type="hidden" name="data" value=(data);
                     input type="hidden" name="original" value=(original);

@@ -21,7 +21,7 @@ use crate::{
 /// its roles, see [`crate::schem::lines`], when it is recognized as a
 /// category; when not, the closest try's, when that try ran and got cases
 /// wrong, so its test shows which; else none; what was found; and what
-/// only its builder can put right. Its blocks keep their colours.
+/// only its author can put right. Its blocks keep their colours.
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,

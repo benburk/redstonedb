@@ -1,4 +1,4 @@
-//! A build's original colours: kept with the version its builder's file
+//! A build's original colours: kept with the version its author's file
 //! matches, carried by later versions of the same size, such as one with
 //! its unused blocks taken out, and dropped by one of another size.
 
@@ -33,7 +33,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         .unwrap();
     assert!(version::colours(&db, &id).await.unwrap().is_none());
 
-    // The builder's copy in blue wool, turned a half turn.
+    // The author's copy in blue wool, turned a half turn.
     let blocks = app::schem::Blocks::read(&first.data).unwrap();
     let wool: std::collections::BTreeMap<_, _> = blocks
         .iter()

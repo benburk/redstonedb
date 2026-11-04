@@ -1,6 +1,6 @@
 //! The details form's fields, shared by the upload, edit, and new-version
 //! pages: the category menu, the fields that follow it, stacking, the build
-//! date, and the pill fields for builders, contributors, and tags.
+//! date, and the pill fields for authors, contributors, and tags.
 
 use maud::{Markup, html};
 
@@ -23,20 +23,20 @@ use super::{
 pub struct Choices {
     /// The standard categories.
     pub categories: Vec<Category>,
-    /// Everyone credited on a stored build, to suggest as builders and
+    /// Everyone credited on a stored build, to suggest as authors and
     /// contributors.
     pub people: Vec<String>,
     /// Every tag, to suggest.
     pub tags: Vec<Tag>,
 }
 
-/// The category: one of the list's, or a name of the builder's own.
+/// The category: one of the list's, or a name of the author's own.
 fn category_fields(f: &Form, choices: &Choices) -> Markup {
     html! {
         @let chosen = Category::find(&choices.categories, &f.category);
         // Typed, with a menu of the standard categories under their
         // sections, as in the sidebar, which form.js opens and narrows as
-        // the box is typed in; a name of the builder's own makes a category
+        // the box is typed in; a name of the author's own makes a category
         // off the list. Without the script, the box takes typing alone.
         div class="field" {
             label for="category" class="text-meta font-semibold text-muted" { "Category" }
@@ -165,7 +165,7 @@ pub(super) fn fields(
         }
         (logic_field(f, choices))
         (stacking_fields(f))
-        (person_field("Builders", "builder", "Add a builder's in-game name", &f.builders, choices))
+        (person_field("Authors", "author", "Add an author's in-game name", &f.authors, choices))
         (person_field("Contributors", "contributor", "Add someone who helped", &f.contributors, choices))
         (date_field(&f.built_on))
         // Typing @ offers the players the site credits, in a menu at the
@@ -363,7 +363,7 @@ fn person_field(
             .collect(),
         fixed: Vec::new(),
         chosen: chosen.iter().map(|name| person_pill(name)).collect(),
-        new_class: "badge-builder",
+        new_class: "badge-author",
         pattern: "^[A-Za-z0-9_]{1,16}$",
         hint: "is not a Minecraft name: letters, digits, and underscores, up to 16",
         keep_case: true,
@@ -374,7 +374,7 @@ fn person_pill(name: &str) -> Pill {
     Pill {
         label: name.to_owned(),
         value: name.to_owned(),
-        class: "badge-builder".to_owned(),
+        class: "badge-author".to_owned(),
     }
 }
 

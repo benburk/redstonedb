@@ -36,7 +36,7 @@ use super::super::{
     upload,
 };
 
-/// The page where a mod, or one of the build's confirmed builders, edits
+/// The page where a mod, or one of the build's confirmed authors, edits
 /// its details and tags.
 pub async fn edit(
     Path(id): Path<String>,
@@ -48,7 +48,7 @@ pub async fn edit(
 }
 
 /// Build `id`, when `user` may edit it: a mod, one of its confirmed
-/// builders, or its uploader. A 404 for no build, or one `user` may not
+/// authors, or its uploader. A 404 for no build, or one `user` may not
 /// see, and a 403 for anyone else.
 pub(in crate::web) async fn editable(
     db: &SqlitePool,
@@ -66,7 +66,7 @@ pub(in crate::web) async fn editable(
 }
 
 /// Saves an edit of a build's details and tags, by a mod or one of its
-/// builders, then shows its page; a refusal shows the edit page again with
+/// authors, then shows its page; a refusal shows the edit page again with
 /// the values sent.
 pub async fn save(
     Path(id): Path<String>,

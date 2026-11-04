@@ -80,7 +80,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
             // One only named in descriptions has no credits to list.
             @if !built.is_empty() || !contributed.is_empty() || mentioned.is_empty() {
                 (credits(built, contributed, &html! {
-                    p class="text-muted" { "No builds credit " (name) " as builder yet." }
+                    p class="text-muted" { "No builds credit " (name) " as author yet." }
                 }, viewing))
             }
             @if !mentioned.is_empty() {
@@ -93,7 +93,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
     )
 }
 
-/// The builds crediting a player, as builder and as contributor, as cards
+/// The builds crediting a player, as author and as contributor, as cards
 /// under their headings, as the viewer sees them; `unbuilt`
 /// stands for the first when it is empty.
 pub(super) fn credits(

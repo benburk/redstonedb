@@ -169,7 +169,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
     .unwrap();
     sqlx::query(
         "INSERT INTO credit (schematic_id, role, name, position)
-         VALUES ('b', 'builder', 'Pishleback', 0)",
+         VALUES ('b', 'author', 'Pishleback', 0)",
     )
     .execute(&db)
     .await

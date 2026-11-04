@@ -264,7 +264,7 @@ fn a_wrong_step_shows_where_copies_disagree() {
 }
 
 #[test]
-fn standardizing_keeps_the_builders_blocks() {
+fn standardizing_keeps_the_authors_blocks() {
     let raw = raw("threshold-3-raw");
     let data = standardize::standardize(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
@@ -384,7 +384,7 @@ fn a_role_with_a_sign_is_one_named_operand() {
 }
 
 #[test]
-fn standardizing_keeps_the_builders_colours() {
+fn standardizing_keeps_the_authors_colours() {
     // Light blue becomes cyan terracotta, which stays cyan terracotta, its
     // levers an input still.
     let data = rebuilt(&raw("mult-8-buttons"), |_, state| {

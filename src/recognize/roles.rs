@@ -152,7 +152,7 @@ pub fn roles(
     let mut found = BTreeMap::new();
     for (p, state) in file.iter() {
         let output = outputs.contains(&p);
-        // Any building block, whatever its builder made it.
+        // Any building block, whatever its author made it.
         let kind = crate::schem::standardize::block_kind(schem::short(state));
         let building = matches!(kind, Some("Solid" | "Transparent"));
         if !building || inputs.contains(&p) {

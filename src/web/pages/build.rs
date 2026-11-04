@@ -64,7 +64,7 @@ pub struct BuildPage<'a> {
 }
 
 /// The colours a build's page shows it in, and which others it offers:
-/// its builder's, when kept, and the viewer's theme, when they have one
+/// its author's, when kept, and the viewer's theme, when they have one
 /// and the build can take it.
 #[derive(Clone, Copy)]
 pub struct ColoursShown {
@@ -600,7 +600,7 @@ pub(super) fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
 /// One way build `s` stacks, short: for copies that add bits, their step
 /// and pitch class, such as `16 up, pitch 2, any number`; for a
 /// register's copies across its bits, as more words, such as `4 west as
-/// words, up to 3`; and for a stacking its builder gave, its step, such
+/// words, up to 3`; and for a stacking its author gave, its step, such
 /// as `2 wide west, up to 7` or `2 west and 2 up, any number`.
 fn short_stacking(s: &Schematic, direction: &StackDirection) -> String {
     let steps: Vec<(i64, &str)> = direction.parts().collect();
@@ -748,10 +748,10 @@ fn credits(s: &Schematic) -> Markup {
         section aria-labelledby="credits-heading" {
             h2 id="credits-heading" class={ (SECTION_TITLE) " mb-2" } { "Credits" }
             dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
-                (field(&plural("Builder", &s.builders), if s.builders.is_empty() {
+                (field(&plural("Author", &s.authors), if s.authors.is_empty() {
                     html! { span class="text-muted" { "unknown" } }
                 } else {
-                    name_badges(&s.builders)
+                    name_badges(&s.authors)
                 }))
                 @if !s.contributors.is_empty() {
                     (field(&plural("Contributor", &s.contributors), name_badges(&s.contributors)))
@@ -791,7 +791,7 @@ fn credits(s: &Schematic) -> Markup {
 }
 
 /// Whether the simulation decides how build `s` stacks, rather than its
-/// builder giving it: a conventional build of a category whose stacking
+/// author giving it: a conventional build of a category whose stacking
 /// it infers.
 fn stacking_found(s: &Schematic) -> bool {
     s.conventional
@@ -803,7 +803,7 @@ fn stacking_found(s: &Schematic) -> bool {
 /// edit it, upload a new version, or delete it. Nothing for a viewer who
 /// may do none of them.
 /// A choice of the colours the build at `path` shows in: the site's own,
-/// its builder's when kept, and the viewer's theme when they have one;
+/// its author's when kept, and the viewer's theme when they have one;
 /// nothing when the site's are the only ones.
 fn colours_switch(path: &str, shown: ColoursShown) -> Markup {
     let options = [
@@ -1014,7 +1014,7 @@ fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
                         span {
                             a href={ "/schematics/" (other.id) } { (other.title()) }
                             span class="text-muted" {
-                                @if !other.builders.is_empty() { " by " (other.builders.join(", ")) }
+                                @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
                                 ", " (size(other))
                             }
                         }

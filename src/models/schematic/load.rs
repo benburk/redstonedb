@@ -106,7 +106,7 @@ async fn load(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let (builders, contributors) =
+            let (authors, contributors) =
                 credits.remove(&row.id).unwrap_or_default();
             let facts = Kind::named(&row.category).map(Kind::facts);
             let (design_abbreviation, design_given_label) =
@@ -127,7 +127,7 @@ async fn load(
                 stacking: stacking.remove(&row.id).unwrap_or_default(),
                 widened: widened.remove(&row.id).unwrap_or_default(),
                 stacked_from: None,
-                builders,
+                authors,
                 contributors,
                 category_label: facts.map(|f| f.label.to_owned()),
                 category: row.category,
@@ -335,7 +335,7 @@ async fn widened_by_schematic(
     Ok(widened)
 }
 
-/// The builders and contributors of the builds `only` names, by id, each
+/// The authors and contributors of the builds `only` names, by id, each
 /// in the order given.
 async fn credits_by_schematic(
     db: &SqlitePool,
@@ -353,10 +353,10 @@ async fn credits_by_schematic(
     .fetch_all(db)
     .await?
     {
-        let (builders, contributors) =
+        let (authors, contributors) =
             credits.entry(row.schematic_id).or_default();
-        if row.role == Credit::Builder.as_str() {
-            builders.push(row.name);
+        if row.role == Credit::Author.as_str() {
+            authors.push(row.name);
         } else {
             contributors.push(row.name);
         }
@@ -367,7 +367,7 @@ async fn credits_by_schematic(
 /// What a person did for a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Credit {
-    Builder,
+    Author,
     /// Helped, such as with the design or testing, without building it.
     Contributor,
 }
@@ -375,7 +375,7 @@ pub(super) enum Credit {
 impl Credit {
     pub(super) fn as_str(self) -> &'static str {
         match self {
-            Credit::Builder => "builder",
+            Credit::Author => "author",
             Credit::Contributor => "contributor",
         }
     }

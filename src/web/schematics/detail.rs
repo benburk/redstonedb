@@ -50,7 +50,7 @@ pub async fn thumbnail(
     // A build is drawn in the viewer's palette, if they chose one, and kept
     // apart from others' pictures of it, else in the site's: its roles in
     // their colours and, for a recognized build, its building blocks the
-    // palette's. A build kept as built is drawn as its builder made it.
+    // palette's. A build kept as built is drawn as its author made it.
     let chosen = match &viewer {
         Some(user) if s.conventional => palette::of(&state.db, user.id).await?,
         _ => None,
@@ -214,17 +214,17 @@ pub async fn detail(
         Some(user) => schematic::favorited(db, user.id, &id).await?,
         None => false,
     };
-    // A theme or a builder's colours give the page a choice of colours; a
+    // A theme or an author's colours give the page a choice of colours; a
     // theme only for a build recognized, verified, and passing, whose
     // blocks the site knows the needs of, as any other's blocks are its
-    // builder's own.
+    // author's own.
     let themeable = palette::needs(db, &id).await?.is_some();
     let theme = themeable
         && match &user_opt {
             Some(user) => palette::of(db, user.id).await?.is_some(),
             None => false,
         };
-    // Its stored blocks, its builder's, differ from the site's colours
+    // Its stored blocks, its author's, differ from the site's colours
     // once a theme colours its roles, as for a build that follows the
     // conventions; one kept as built shows only as built.
     let original = s.conventional;

@@ -40,7 +40,7 @@ pub(in crate::web) struct Download {
     up: Option<usize>,
     #[serde(rename = "west-up")]
     west_up: Option<usize>,
-    /// The colours to show it in: the site's own, its builder's, the
+    /// The colours to show it in: the site's own, its author's, the
     /// viewer's theme, which is what shows when none is asked for, or a
     /// palette of the download's own, its fields sent beside these.
     pub(super) colours: Option<Colours>,
@@ -56,7 +56,7 @@ pub enum Colours {
     /// The site's own: its roles in the site's colours and, for a
     /// recognized build, its building blocks white.
     Default,
-    /// The colours its builder gave it, as stored.
+    /// The colours its author gave it, as stored.
     Original,
     /// The viewer's theme.
     Theme,
@@ -203,7 +203,7 @@ pub(in crate::web) async fn export(
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // In its builder's colours, as stored, with any kept from before the
+    // In its author's colours, as stored, with any kept from before the
     // site kept them, which go on its blocks before any stacking; and so
     // always for a build kept as built, whose roles no test settled.
     if asked.colours == Some(Colours::Original) || !s.conventional {

@@ -85,7 +85,7 @@ pub fn container_strength(items: &[(String, u32)], slots: u32) -> u8 {
 
 /// How many of item `id` stack in a slot, as the game has it: as the
 /// simulator's own list says, and where it lacks the item, 1 for a tool,
-/// weapon, armour, or anything else that never stacks, as a builder may
+/// weapon, armour, or anything else that never stacks, as an author may
 /// fill a barrel with wooden shovels, 16 for one that stacks only so far,
 /// such as an ender pearl or a sign, and 64 for the rest.
 fn max_stack(id: &str) -> u32 {

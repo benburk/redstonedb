@@ -97,7 +97,7 @@ pub fn timing_url(simulate: &str) -> String {
 
 /// The cases or the timing for the file being uploaded, or a stored
 /// build's next version, carried in the form's `data`. A file carried as
-/// its builder made it, as the form's `as_built` says, is tested
+/// its author made it, as the form's `as_built` says, is tested
 /// standardized, as it is kept once recognized, with where it goes up.
 pub async fn upload(
     State(state): State<AppState>,
@@ -117,7 +117,7 @@ pub async fn upload(
     }
 }
 
-/// A file as its builder made it, `data`, as the form's category tests it:
+/// A file as its author made it, `data`, as the form's category tests it:
 /// standardized when that is a category the site recognizes builds of,
 /// as it is kept once recognized, else as built; with a note, for the
 /// checks, saying whether it goes up as that category or off the list.

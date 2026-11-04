@@ -169,7 +169,7 @@ impl Category {
 
     /// The name of the category `typed` names: a standard one's among
     /// `categories`, or else the text as the name of a category of the
-    /// builder's own, empty when nothing is typed.
+    /// author's own, empty when nothing is typed.
     pub fn name_of(categories: &[Category], typed: &str) -> String {
         Self::find(categories, typed)
             .map_or_else(|| tag::name(typed), |c| c.name.clone())

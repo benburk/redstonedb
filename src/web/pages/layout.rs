@@ -12,7 +12,7 @@ use super::{
 
 /// What the site is, for search results and link previews.
 const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
-    multipliers, each with its latency, size, and builders, ranked and ready \
+    multipliers, each with its latency, size, and authors, ranked and ready \
     to download.";
 
 /// A block of redstone, turned on its corner, as in the header.

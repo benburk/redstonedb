@@ -71,7 +71,7 @@ pub enum Purpose {
 }
 
 impl Purpose {
-    /// A file as its builder made it, as an upload the site does not
+    /// A file as its author made it, as an upload the site does not
     /// recognize is kept: neither standardized nor turned, and measured
     /// whole, interface and all.
     pub const AS_BUILT: Purpose = Purpose::InPlace {
@@ -159,7 +159,7 @@ impl Prepared {
     }
 }
 
-/// `file` as its builder made it, as an upload the site does not recognize
+/// `file` as its author made it, as an upload the site does not recognize
 /// is kept; see `Purpose::AS_BUILT`.
 pub fn as_built(file: &[u8]) -> Result<Prepared> {
     prepare_for(file, Purpose::AS_BUILT)
@@ -482,7 +482,7 @@ fn orientation(port: &Port) -> Option<Orientation> {
 
 /// An uploaded file made ready both ways it may be kept.
 pub struct Upload {
-    /// As its builder made it, which a build the site does not recognize
+    /// As its author made it, which a build the site does not recognize
     /// keeps; see `import::as_built`.
     pub original: Prepared,
     /// Standardized and turned to lie the standard way, as a recognized
