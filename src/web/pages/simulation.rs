@@ -406,54 +406,76 @@ fn simulation_failures(run: &Run) -> Markup {
         @if !run.faults.is_empty() {
             (cell_faults(run))
         }
-        h3 class="mt-6 mb-2 font-semibold" { "Wrong bits" }
-        ul class="flex flex-col gap-1" {
-            @for (bit, count) in &run.wrong_bits {
-                li class="tabular-nums" { (bit) ", in " (grouped(*count)) " cases" }
+        // Every wrong bit of a wide build is a long list, so it starts
+        // folded away; the cases below say more.
+        details class="mt-6" {
+            summary class="cursor-pointer font-semibold" { "Wrong bits (" (run.wrong_bits.len()) ")" }
+            ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-meta" {
+                @for (bit, count) in &run.wrong_bits {
+                    li class="tabular-nums" { (bit) ", in " (grouped(*count)) " cases" }
+                }
             }
         }
         h3 class="mt-6 mb-2 font-semibold" { "First wrong cases" }
-        div class="relative overflow-x-auto" {
-            table class="w-full border-collapse" {
-                caption class="sr-only" { "First wrong cases" }
-                thead {
-                    tr {
+        // One case to a block, each value on its own line, so a wide build's
+        // cases wrap on a phone rather than overflow a table.
+        ol class="flex flex-col" {
+            @for wrong in &run.examples {
+                li class="border-b border-line py-3 first:pt-0" {
+                    dl class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1" {
                         // A build of several operations, such as an ALU,
                         // says which each case was on.
                         @if ops {
-                            th scope="col" class=(TABLE_HEAD) { "Operation" }
+                            dt class="text-muted" { "Operation" }
+                            dd { (wrong.op.as_deref().unwrap_or("")) }
                         }
-                        @for signal in run.inputs.iter().chain(&run.outputs) {
-                            th scope="col" class=(TABLE_HEAD) { (signal.name) }
+                        @for (signal, &value) in run.inputs.iter().zip(&wrong.inputs) {
+                            dt class="text-muted" { (signal.name) }
+                            dd class="break-all" { (shown(value, value, signal.bits)) }
                         }
-                    }
-                }
-                tbody {
-                    @for wrong in &run.examples {
-                        tr {
-                            @if ops {
-                                td class=(TABLE_CELL) { (wrong.op.as_deref().unwrap_or("")) }
-                            }
-                            @for (signal, &value) in run.inputs.iter().zip(&wrong.inputs) {
-                                td class=(TABLE_CELL) { (value_bits(value, value, signal.bits)) }
-                            }
-                            @for ((signal, &got), &expected) in run.outputs.iter().zip(&wrong.got).zip(&wrong.expected) {
-                                td class=(TABLE_CELL) {
-                                    @if got == expected {
-                                        (value_bits(got, expected, signal.bits))
-                                    } @else {
-                                        div class="grid grid-cols-[auto_auto] items-baseline gap-x-2" {
-                                            span class="text-meta text-muted" { "got" }
-                                            (value_bits(got, expected, signal.bits))
-                                            span class="text-meta text-muted" { "expected" }
-                                            span class="text-muted" { (value_bits(expected, expected, signal.bits)) }
-                                        }
-                                    }
-                                }
+                        @for ((signal, &got), &expected) in run.outputs.iter().zip(&wrong.got).zip(&wrong.expected) {
+                            @if got == expected {
+                                dt class="text-muted" { (signal.name) }
+                                dd class="break-all" { (shown(got, expected, signal.bits)) }
+                            } @else {
+                                dt class="text-muted" { "Expected " (signal.name) }
+                                dd class="break-all" { (shown(expected, expected, signal.bits)) }
+                                dt class="text-muted" { "Got " (signal.name) }
+                                dd class="break-all" { (shown(got, expected, signal.bits)) }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// `value`, a signal of `bits` bits, as a wrong case shows it, the digits
+/// that differ from `expected` marked: in binary, with its decimal beside
+/// it, up to a byte; wider, in hex, as a wide build's binary would run off
+/// a phone's screen.
+fn shown(value: Value, expected: Value, bits: usize) -> Markup {
+    if bits <= 8 {
+        return value_bits(value, expected, bits);
+    }
+    html! {
+        span class="font-mono" { "0x" (marked_hex(value, expected, bits.div_ceil(4))) }
+    }
+}
+
+/// `value` in hex, `digits` digits, with each digit that differs from
+/// `expected` marked.
+fn marked_hex(value: Value, expected: Value, digits: usize) -> Markup {
+    let digit = |v: Value, i: usize| (v >> (4 * i)) & 0xF;
+    html! {
+        @for i in (0..digits).rev() {
+            @let d = digit(value, i);
+            @let text = format!("{d:X}");
+            @if d == digit(expected, i) {
+                (text)
+            } @else {
+                mark class="bg-transparent font-semibold text-danger" { (text) }
             }
         }
     }
