@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user\n                (id, discord_id, username, display_name, avatar, created_at)\n             VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))\n             ON CONFLICT (discord_id) DO UPDATE SET\n                username = excluded.username,\n                display_name = excluded.display_name,\n                avatar = excluded.avatar",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "193fc6142ed48971ac83c4c3b63406db269543b16363b59504fe6bce78114bbc"
+}

@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use crate::models::{
     schematic::Schematic,
-    user::{Joined, Role, User},
+    user::{Role, User},
 };
 
 use super::{
@@ -101,7 +101,7 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             td class={ (CELL) " order-last min-w-0 basis-full" } { (minecraft_name(user, &target)) }
             // On a phone, under the Minecraft name, leaving the account's
             // line its room.
-            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (joined(&user.joined)) }
+            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (user.created_at.as_deref().map(super::build::long_date).unwrap_or_default()) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="flex items-center gap-2" {
@@ -125,23 +125,6 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
                     }
                 }
             }
-        }
-    }
-}
-
-/// The day join dates were first kept: an account with none joined before.
-const JOINS_KEPT_FROM: &str = "2026-11-04";
-
-/// When an account joined, as the users page says it: its day; for one
-/// from before join dates were kept, `by` the earliest thing it did, or
-/// `before` they were kept.
-fn joined(joined: &Joined) -> Markup {
-    let date = super::build::long_date;
-    html! {
-        @match joined {
-            Joined::At(at) => (date(at)),
-            Joined::By(at) => span title="The earliest thing it did; it joined before join dates were kept" { "by " (date(at)) },
-            Joined::Unknown => span title="It joined before join dates were kept" { "before " (date(JOINS_KEPT_FROM)) },
         }
     }
 }
