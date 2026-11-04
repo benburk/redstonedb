@@ -73,6 +73,7 @@ macro_rules! named_values {
 pub mod category;
 pub mod db;
 pub mod details;
+pub mod diff;
 pub mod external;
 pub mod import;
 pub mod leaderboard;

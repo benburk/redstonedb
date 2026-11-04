@@ -250,3 +250,104 @@ async fn a_private_build_is_not_found_by_anyone_else() {
         .await;
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+/// Gives build `id` a second version, one of its solid blocks glass, and
+/// returns that block's position.
+async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
+    let old = app::models::version::data(db, id, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    let blocks = app::schem::Blocks::read(&old).unwrap();
+    let (pos, _) = blocks
+        .iter()
+        .find(|(_, state)| app::schem::block::solid(state))
+        .unwrap();
+    let changes = std::collections::BTreeMap::from([(
+        pos,
+        "minecraft:white_stained_glass".to_owned(),
+    )]);
+    let new = app::schem::standardize::edit(&old, &changes).unwrap();
+    let prepared = app::import::prepare_for(&new, common::IN_PLACE).unwrap();
+    let how = app::models::version::Replacing::NextVersion {
+        added_by: None,
+        added_from: None,
+        note: Some("glass"),
+        restores: None,
+    };
+    app::models::version::replace(db, id, &prepared, how)
+        .await
+        .unwrap();
+    pos
+}
+
+#[tokio::test]
+async fn anyone_may_see_a_diff_but_only_an_account_download_it() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+    second_version(&site.db, &id).await;
+
+    let page = site.get(&format!("/schematics/{id}/diff"), None).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let page = page.text().await.unwrap();
+    assert!(page.contains("+1 −1 blocks"), "{page}");
+    for side in ["before", "after"] {
+        let preview =
+            format!("/schematics/{id}/diff/{side}?from=1&to=2&preview=yes");
+        let response = site.get(&preview, None).await;
+        assert_eq!(response.status(), StatusCode::OK, "{side}");
+    }
+    let file = format!("/schematics/{id}/diff/after?from=1&to=2");
+    let response = site.get(&file, None).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let owners = site.session(&owner).await;
+    let response = site.get(&file, Some(&owners)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        downloads(&site.db, &id).await,
+        [(Some(owner.id), 2, "diff".to_owned())]
+    );
+    let missing = site
+        .get(&format!("/schematics/{id}/diff?from=1&to=9"), None)
+        .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn the_uploader_restores_an_earlier_version_as_a_new_one() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let other = common::sign_in(&site.db, "2", "alex").await;
+    let id = site.adder(&owner).await;
+    second_version(&site.db, &id).await;
+    let restore = format!("/schematics/{id}/versions/1/restore");
+
+    let others = site.session(&other).await;
+    let refused = site
+        .ask(reqwest::Method::POST, &restore, Some(&others))
+        .await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+
+    let owners = site.session(&owner).await;
+    let response = site
+        .ask(reqwest::Method::POST, &restore, Some(&owners))
+        .await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let versions = app::models::version::list(&site.db, &id).await.unwrap();
+    let (newest, first) = (&versions[0], &versions[2]);
+    assert_eq!(newest.version, 3);
+    assert_eq!(newest.restores, Some(1));
+    assert_eq!(newest.note.as_deref(), Some("Restored version 1"));
+    assert_eq!(newest.added_by.as_deref(), Some("steve"));
+    let file = |n| app::models::version::data(&site.db, &id, n);
+    assert_eq!(file(3).await.unwrap(), file(first.version).await.unwrap());
+
+    // The current version is no version to restore.
+    let current = format!("/schematics/{id}/versions/3/restore");
+    let response = site
+        .ask(reqwest::Method::POST, &current, Some(&owners))
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

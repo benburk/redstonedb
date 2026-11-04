@@ -239,6 +239,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
         added_by: None,
         added_from: None,
         note: None,
+        restores: None,
     };
     app::models::version::replace(&db, &id, &prepared, how)
         .await
@@ -390,6 +391,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         added_by: None,
         added_from: None,
         note: None,
+        restores: None,
     };
     app::models::version::replace(&db, &id, &prepared, how)
         .await

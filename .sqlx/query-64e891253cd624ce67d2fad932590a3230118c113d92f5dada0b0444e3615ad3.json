@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT version, schematic_version.added_at,\n            coalesce(user.minecraft_name, user.username) as \"added_by?: String\",\n            added_by as \"added_by_id?: Uuid\", note, restores, measures, changes\n         FROM schematic_version LEFT JOIN user ON user.id = added_by\n         WHERE schematic_id = ? ORDER BY version DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "version",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "added_at",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_by?: String",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "added_by_id?: Uuid",
+        "ordinal": 3,
+        "type_info": "Blob"
+      },
+      {
+        "name": "note",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "restores",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "measures",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "changes",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "64e891253cd624ce67d2fad932590a3230118c113d92f5dada0b0444e3615ad3"
+}

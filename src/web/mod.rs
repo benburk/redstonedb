@@ -307,6 +307,12 @@ pub fn router(state: AppState) -> Router<AppState> {
             "/schematics/{id}/versions/{version}/download",
             get(versions::download),
         )
+        .route(
+            "/schematics/{id}/versions/{version}/restore",
+            post(versions::restore),
+        )
+        .route("/schematics/{id}/diff", get(versions::diff_page))
+        .route("/schematics/{id}/diff/{side}", get(versions::diff_file))
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/similar", get(similar::form).post(similar::search))
         .route("/upload/preview", post(upload::preview))

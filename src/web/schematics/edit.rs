@@ -143,6 +143,7 @@ pub async fn save(
             added_by: Some(user.id),
             added_from: ip.as_deref(),
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
+            restores: None,
         };
         version::replace(db, &id, prepared, how).await?;
         tracing::info!(id, by = user.username, ip, "new version");

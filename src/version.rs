@@ -93,6 +93,13 @@ impl Comparison {
 /// marked as an input, or turned from solid to see-through
 /// or back, as glass to show the circuit, is unchanged.
 pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
+    aligned(old, new).0
+}
+
+/// How `old` and `new` compare, as [`compare`] says, with the shift that
+/// lines them up so: the block at `pos` in `old` is at `pos` plus the
+/// shift in `new`.
+pub fn aligned(old: &Blocks, new: &Blocks) -> (Comparison, Pos) {
     let old = solid(old);
     let new = solid(new);
     let shifts = -3..=3;
@@ -100,6 +107,7 @@ pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
         same: 0,
         changed: old.len() + new.len(),
     };
+    let mut best_shift = [0, 0, 0];
     for dx in shifts.clone() {
         for dy in shifts.clone() {
             for dz in shifts.clone() {
@@ -111,13 +119,17 @@ pub fn compare(old: &Blocks, new: &Blocks) -> Comparison {
                     }
                 }
                 let changed = old.len() + new.len() - both - same;
-                if changed < best.changed {
+                // No shift wins a tie, as most versions keep their box.
+                let nearer =
+                    changed == best.changed && [dx, dy, dz] == [0, 0, 0];
+                if changed < best.changed || nearer {
                     best = Comparison { same, changed };
+                    best_shift = [dx, dy, dz];
                 }
             }
         }
     }
-    best
+    (best, best_shift)
 }
 
 /// Each block other than air, by position, as `compare` compares it.
@@ -131,7 +143,7 @@ fn solid(blocks: &Blocks) -> HashMap<Pos, String> {
 
 /// `state` as a new version is compared by: a component, sign, or
 /// container without its power, and any other block only as a block.
-fn compared(state: &str) -> String {
+pub fn compared(state: &str) -> String {
     let name = schem::short(state);
     if schem::block::is_component(name)
         || name.ends_with("_sign")

@@ -208,7 +208,8 @@ pub async fn detail(
             pages::build_info(&s, &similar, &file, report).into_response()
         );
     }
-    let versions = version::list(db, &id).await?;
+    let mut versions = version::list(db, &id).await?;
+    crate::web::versions::count_changes(db, &id, &mut versions).await?;
     let favorited = match &user_opt {
         Some(user) => schematic::favorited(db, user.id, &id).await?,
         None => false,

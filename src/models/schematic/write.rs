@@ -486,6 +486,8 @@ pub enum DownloadKind {
     Version,
     /// Its current file, sent to the account's Schemati.
     Schemati,
+    /// One side of a diff between two versions.
+    Diff,
 }
 
 impl DownloadKind {
@@ -495,6 +497,7 @@ impl DownloadKind {
             Self::Part => "part",
             Self::Version => "version",
             Self::Schemati => "schemati",
+            Self::Diff => "diff",
         }
     }
 }

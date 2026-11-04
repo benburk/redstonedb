@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic_version SET measures = ?\n         WHERE schematic_id = ? AND version = (\n             SELECT max(version) FROM schematic_version AS newest\n             WHERE newest.schematic_id = ?\n         )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "86ac7acf351ba3cc972dfe4b5bbbe9be979c29d4cc11acc236c588f18cff92bd"
+}

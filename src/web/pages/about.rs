@@ -46,7 +46,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     li { "Builds of types RedstoneDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
                     li { "Builds keep the colours their builder gave them: switch between Original, Default, and your theme on any build's page." }
-                    li { "Uploading a new version keeps the old ones, so a build's history stays downloadable." }
+                    li { "Uploading a new version keeps the old ones, so a build's history stays downloadable. Compare any two in 3D, with what changed in colour, and its uploader or a mod can restore an older one." }
                     li { "Tags RedstoneDB finds itself, like an adder's design, its orientation, carry in, or stackable, are teal. Tags people add are other colours. Each category's page filters by its tags." }
                     li { "Untick Public on upload and a build is yours alone. Star any build to keep it under Favourites on your profile." }
                     li { "Write " code { "@name" } " in a description to link a player. They're listed on that player's page." }

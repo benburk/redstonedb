@@ -27,6 +27,7 @@ mod about;
 mod build;
 mod description;
 mod details_page;
+mod diff;
 mod form;
 mod icons;
 mod interface;
@@ -50,6 +51,7 @@ pub use build::{
 };
 pub use description::mentions;
 pub use details_page::{DetailsPage, File, Reply, article, details_page};
+pub use diff::diff_page;
 pub use form::Choices;
 use layout::base;
 pub use layout::{forbidden, not_found};
@@ -355,12 +357,23 @@ const VIEWER_IMPORTS: &str = r#"{ "imports": {
 /// A 3D view of the schematic at `file`, an address the browser can fetch,
 /// drawn by `static/viewer.js`.
 fn viewer_3d(file: &str) -> Markup {
+    viewer_canvas(file, None)
+}
+
+/// A 3D view of the two sides of a diff, `after` shown first and `before`
+/// in its place when a `data-side` button asks, the camera kept.
+fn viewer_3d_sides(after: &str, before: &str) -> Markup {
+    viewer_canvas(after, Some(before))
+}
+
+/// The viewer's canvas, drawing `file`, and `before` too, hidden, if given.
+fn viewer_canvas(file: &str, before: Option<&str>) -> Markup {
     html! {
         script type="importmap" { (PreEscaped(VIEWER_IMPORTS)) }
         // The renderer sizes its canvas to the parent, so the parent's height
         // must be fixed or the two grow each other without bound.
         div class="relative h-[60vh] overflow-hidden rounded-overlay border border-line bg-sidebar desktop:h-[calc(100vh-12rem)]" {
-            canvas id="viewer" data-src=(file) aria-label="3D view of the schematic"
+            canvas id="viewer" data-src=(file) data-before=[before] aria-label="3D view of the schematic"
                 class="absolute inset-0 size-full" {}
             p id="viewer-status" class="absolute inset-0 flex items-center justify-center text-muted" {
                 "Loading viewer…"

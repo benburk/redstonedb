@@ -451,9 +451,9 @@ pub fn for_viewer(data: &[u8]) -> Result<Vec<u8>> {
 /// first block is at `low`, moving signs and other block entities along,
 /// each sign's lines plain text; see `schem::plain_sign`.
 /// Entities left outside the box are dropped.
-fn rebox(
+pub fn rebox<G: std::hash::BuildHasher>(
     data: &[u8],
-    grid: &HashMap<Pos, String>,
+    grid: &HashMap<Pos, String, G>,
     low: Pos,
     size: Pos,
 ) -> Result<Vec<u8>> {
@@ -463,9 +463,9 @@ fn rebox(
 /// As `rebox`, each comparator at a position of `strengths`, in the old
 /// box, putting out its strength, and each block entity at a key of
 /// `moves` moved to its value.
-fn rebox_with<S: std::hash::BuildHasher>(
+fn rebox_with<G: std::hash::BuildHasher, S: std::hash::BuildHasher>(
     data: &[u8],
-    grid: &HashMap<Pos, String>,
+    grid: &HashMap<Pos, String, G>,
     low: Pos,
     size: Pos,
     strengths: &HashMap<Pos, u8>,

@@ -1,19 +1,30 @@
-//! A build's list of versions.
+//! A build's list of versions: what each changed, comparing each with the
+//! one before, and restoring an older one.
 
 use maud::{Markup, html};
 
-use crate::models::{schematic::Schematic, version::Version};
+use crate::models::{schematic::Schematic, user::User, version::Version};
 
-use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
+use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, diff};
 
-/// A build's versions, newest first, each older one downloadable when
-/// `signed_in`; shown once it has more than one.
+/// A build's versions, newest first, each with what it changed from the
+/// one before and a link comparing the two; each older one downloadable
+/// for someone signed in, and restorable by `viewer` if `may_restore`.
+/// Shown once it has more than one.
 pub fn versions_section(
     s: &Schematic,
     versions: &[Version],
-    signed_in: bool,
+    viewer: Option<&User>,
+    may_restore: bool,
 ) -> Markup {
     let current = versions.first().map_or(1, |v| v.version);
+    let path = format!("/schematics/{}", s.id);
+    let measured = |number: i64| {
+        versions
+            .iter()
+            .find(|v| v.version == number)
+            .and_then(|v| v.measures.as_ref())
+    };
     html! {
         @if versions.len() > 1 {
             section aria-labelledby="versions-heading" class="mt-12 max-w-calm" {
@@ -30,30 +41,53 @@ pub fn versions_section(
                                 th scope="col" class=(TABLE_HEAD) { "Date" }
                                 th scope="col" class=(TABLE_HEAD) { "By" }
                                 th scope="col" class=(TABLE_HEAD) { "What it fixed" }
-                                th scope="col" class=(TABLE_HEAD) { span class="sr-only" { "File" } }
+                                th scope="col" class=(TABLE_HEAD) { "Changes" }
+                                th scope="col" class=(TABLE_HEAD) { span class="sr-only" { "Actions" } }
                             }
                         }
                         tbody {
                             @for version in versions {
+                                @let number = version.version;
                                 tr {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-normal tabular-nums" } {
-                                        (version.version)
-                                        @if version.version == current { span class="text-muted" { ", current" } }
+                                        (number)
+                                        @if number == current { span class="text-muted" { ", current" } }
                                     }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap" } {
                                         (version.added_at.get(..10).unwrap_or(&version.added_at))
                                     }
-                                    td class=(TABLE_CELL) { (version.added_by.as_deref().unwrap_or("")) }
                                     td class=(TABLE_CELL) {
-                                        @match &version.note {
-                                            Some(note) => (note),
-                                            None if version.version == 1 => span class="text-muted" { "First upload" },
-                                            None => "",
+                                        @if version.by_site {
+                                            span class="badge badge-found" title="Made by the site itself" { "RedstoneDB" }
+                                        } @else {
+                                            (version.added_by.as_deref().unwrap_or(""))
                                         }
                                     }
                                     td class=(TABLE_CELL) {
-                                        @if version.version != current {
-                                            (super::download_link(&format!("/schematics/{}/versions/{}/download", s.id, version.version), "Download", signed_in))
+                                        @match &version.note {
+                                            Some(note) => (note),
+                                            None if number == 1 => span class="text-muted" { "First upload" },
+                                            None => "",
+                                        }
+                                    }
+                                    td class={ (TABLE_CELL) " text-meta" } {
+                                        @if let Some(counts) = version.changes {
+                                            a href={ (path) "/diff?to=" (number) } class="whitespace-nowrap" { (diff::summary(counts)) }
+                                            @if let Some(lines) = diff::measured(measured(number - 1), measured(number)) {
+                                                @for line in lines { div class="text-muted" { (line) } }
+                                            }
+                                        }
+                                    }
+                                    td class={ (TABLE_CELL) " whitespace-nowrap" } {
+                                        @if number != current {
+                                            div class="flex items-center gap-3" {
+                                                (super::download_link(&format!("{path}/versions/{number}/download"), "Download", viewer.is_some()))
+                                                @if may_restore {
+                                                    form action={ (path) "/versions/" (number) "/restore" } method="post" class="contents" {
+                                                        button type="submit" class="cursor-pointer text-brand hover:underline" { "Restore" }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

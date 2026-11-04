@@ -239,7 +239,7 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
 
 /// The block the component `id` at `pos` rests on or hangs from, and
 /// whether it rests on its top; `None` for a block that needs none.
-fn support(pos: Pos, state: &str, id: &str) -> Option<(Pos, bool)> {
+pub(crate) fn support(pos: Pos, state: &str, id: &str) -> Option<(Pos, bool)> {
     let below = Some((schem::step(pos, Direction::Down), true));
     match id {
         "redstone_wire"

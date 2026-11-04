@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic_id, version FROM schematic_version WHERE sha256 = ?",
+  "query": "SELECT schematic_id, version FROM schematic_version\n         WHERE sha256 = ? ORDER BY restores IS NOT NULL, version",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "54f2a95b7e6db27340f1007f3cea481f312fcf33be03b6b64a875cc389b60105"
+  "hash": "e7939b0f9d1b774fc4891816e96da571df98e0fc735799562f229cb1a0260a88"
 }

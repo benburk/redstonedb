@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic_version SET changes = ?\n         WHERE schematic_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "1fb9f3bf36e02e0be1715dd6589f31449ae646c14d450c66b47fab411ac15f1e"
+}

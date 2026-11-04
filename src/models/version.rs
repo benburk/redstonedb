@@ -4,7 +4,10 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use crate::{import::Prepared, recognize::interface::Kept};
+use crate::{
+    diff::Counts, import::Prepared, models::user::REDSTONEDB,
+    recognize::interface::Kept,
+};
 
 /// One version, without its file.
 pub struct Version {
@@ -12,8 +15,31 @@ pub struct Version {
     pub added_at: String,
     /// The uploader as people know them: Minecraft name, else username.
     pub added_by: Option<String>,
+    /// Whether `RedstoneDB` itself made it.
+    pub by_site: bool,
     /// What it changed; `None` for the first.
     pub note: Option<String>,
+    /// The version it restores, whose file it copies, if it does.
+    pub restores: Option<i64>,
+    /// What it measured, once tested; `None` before it was kept.
+    pub measures: Option<Measures>,
+    /// What it changed from the version before, once counted.
+    pub changes: Option<Counts>,
+}
+
+/// What a version measured, kept with it so its list can say what each
+/// version changed in its results, as those of a build are kept only for
+/// its current file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Measures {
+    /// `passes`, `wrong`, `broken`, `skipped`, or `untested`.
+    pub verdict: String,
+    pub latency: Option<i64>,
+    pub throughput: Option<i64>,
+    /// Its size, as x, y, and z.
+    pub size: [i64; 3],
+    /// Its tightest stacking pitch, if it stacks at one.
+    pub pitch: Option<i64>,
 }
 
 /// Build `id`'s versions, newest first.
@@ -21,17 +47,115 @@ pub async fn list<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
 ) -> Result<Vec<Version>, sqlx::Error> {
-    sqlx::query_as!(
-        Version,
+    let rows = sqlx::query!(
         r#"SELECT version, schematic_version.added_at,
             coalesce(user.minecraft_name, user.username) as "added_by?: String",
-            note
+            added_by as "added_by_id?: Uuid", note, restores, measures, changes
          FROM schematic_version LEFT JOIN user ON user.id = added_by
          WHERE schematic_id = ? ORDER BY version DESC"#,
         id
     )
     .fetch_all(db)
-    .await
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| Version {
+            version: row.version,
+            added_at: row.added_at,
+            added_by: row.added_by,
+            by_site: row.added_by_id == Some(REDSTONEDB),
+            note: row.note,
+            restores: row.restores,
+            measures: json(row.measures),
+            changes: json(row.changes),
+        })
+        .collect())
+}
+
+/// The value JSON `text` holds, if it holds one.
+fn json<T: serde::de::DeserializeOwned>(text: Option<String>) -> Option<T> {
+    text.and_then(|text| serde_json::from_str(&text).ok())
+}
+
+/// Keeps `measures` as what build `id`'s current version measured.
+pub async fn set_measures<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    measures: &Measures,
+) -> Result<(), sqlx::Error> {
+    let json = serde_json::to_string(measures).expect("measures are JSON");
+    sqlx::query!(
+        "UPDATE schematic_version SET measures = ?
+         WHERE schematic_id = ? AND version = (
+             SELECT max(version) FROM schematic_version AS newest
+             WHERE newest.schematic_id = ?
+         )",
+        json,
+        id,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Keeps `changes` as what build `id`'s version `version` changed from
+/// the one before.
+pub async fn set_changes<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    version: i64,
+    changes: Counts,
+) -> Result<(), sqlx::Error> {
+    let json = serde_json::to_string(&changes).expect("counts are JSON");
+    sqlx::query!(
+        "UPDATE schematic_version SET changes = ?
+         WHERE schematic_id = ? AND version = ?",
+        json,
+        id,
+        version
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The file of build `id`'s version `version`, carrying the roles kept
+/// with it, as a restore copies it.
+pub async fn file<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    version: i64,
+) -> Result<Option<Vec<u8>>, sqlx::Error> {
+    let row = sqlx::query!(
+        "SELECT data, roles FROM schematic_version
+         WHERE schematic_id = ? AND version = ?",
+        id,
+        version
+    )
+    .fetch_optional(db)
+    .await?;
+    row.map(|row| carrying(row.data, row.roles.as_deref()))
+        .transpose()
+}
+
+/// The colours the builder of build `id`'s version `version` gave its
+/// building blocks, if any are kept with it.
+pub async fn colours_of<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    version: i64,
+) -> Result<Option<crate::recognize::colouring::Colouring>, sqlx::Error> {
+    let json = sqlx::query_scalar!(
+        "SELECT colours FROM schematic_version
+         WHERE schematic_id = ? AND version = ?",
+        id,
+        version
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
 }
 
 /// The file of build `id`'s version `version`.
@@ -175,13 +299,15 @@ pub async fn set_current_roles<'e, E: SqliteExecutor<'e>>(
 }
 
 /// The build and version whose file has the hash `sha256`, if any is
-/// stored: each file is stored once.
+/// stored: each file is stored once, but in a restored version, which
+/// shares its file with the version it restores.
 pub async fn holder<'e, E: SqliteExecutor<'e>>(
     db: E,
     sha256: &str,
 ) -> Result<Option<(String, i64)>, sqlx::Error> {
     Ok(sqlx::query!(
-        "SELECT schematic_id, version FROM schematic_version WHERE sha256 = ?",
+        "SELECT schematic_id, version FROM schematic_version
+         WHERE sha256 = ? ORDER BY restores IS NOT NULL, version",
         sha256
     )
     .fetch_optional(db)
@@ -219,12 +345,14 @@ pub(super) async fn first(
 #[derive(Clone, Copy)]
 pub enum Replacing<'a> {
     /// As its next version, uploaded by `added_by` from IP address
-    /// `added_from` with a `note` saying what it changed. The build counts
-    /// as edited.
+    /// `added_from` with a `note` saying what it changed, restoring the
+    /// version `restores` if it copies one's file. The build counts as
+    /// edited.
     NextVersion {
         added_by: Option<Uuid>,
         added_from: Option<&'a str>,
         note: Option<&'a str>,
+        restores: Option<i64>,
     },
     /// In its current version's place, as `rsdb reread` and `rsdb replace`
     /// fix a file: the same build, tidied, with no version added.
@@ -254,13 +382,14 @@ pub async fn replace(
             added_by,
             added_from,
             note,
+            restores,
         } => {
             let version = current + 1;
             sqlx::query!(
                 "INSERT INTO schematic_version
                     (schematic_id, version, data, sha256, added_by,
-                    added_from, note, roles)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    added_from, note, roles, restores)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 id,
                 version,
                 data,
@@ -268,7 +397,8 @@ pub async fn replace(
                 added_by,
                 added_from,
                 note,
-                roles
+                roles,
+                restores
             )
             .execute(&mut *tx)
             .await?;

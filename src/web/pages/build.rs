@@ -145,7 +145,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             @if let Ok(file) = file {
                 (stack_guide::stacking_section(s, &file.stacking, stacking_found(s), viewer.is_some()))
             }
-            (version::versions_section(s, versions, viewer.is_some()))
+            (version::versions_section(s, versions, viewer, viewer.is_some_and(|user| user.may_restore(s))))
         },
     )
 }

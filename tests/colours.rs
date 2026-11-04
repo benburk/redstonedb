@@ -65,6 +65,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         added_by: None,
         added_from: None,
         note: Some("Unused blocks taken out"),
+        restores: None,
     };
     version::replace(&db, &id, &same, how).await.unwrap();
     assert_eq!(version::colours(&db, &id).await.unwrap(), Some(colours));

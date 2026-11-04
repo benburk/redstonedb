@@ -519,6 +519,43 @@ pub async fn refresh_timing(
     id: &str,
     again: bool,
 ) -> Result<Option<Report>> {
+    let report = timed(db, id, again).await?;
+    keep_measures(db, id, report.as_ref()).await?;
+    Ok(report)
+}
+
+/// Keeps what build `id`'s current version measured, its result
+/// `report`, with the version, so its list can say what each changed.
+async fn keep_measures(
+    db: &SqlitePool,
+    id: &str,
+    report: Option<&Report>,
+) -> Result<()> {
+    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let verdict = match report {
+        Some(Report::Ran(run)) if run.wrong == 0 => "passes",
+        Some(Report::Ran(_)) => "wrong",
+        Some(Report::Broken { .. }) => "broken",
+        Some(Report::Skipped { .. }) => "skipped",
+        None => "untested",
+    };
+    let measures = version::Measures {
+        verdict: verdict.to_owned(),
+        latency: s.latency,
+        throughput: s.throughput,
+        size: [s.size.0, s.size.1, s.size.2],
+        pitch: s.stacking.iter().filter_map(|d| d.pitch).min(),
+    };
+    version::set_measures(db, id, &measures).await?;
+    Ok(())
+}
+
+/// `refresh_timing`'s work, but keeping the measures.
+async fn timed(
+    db: &SqlitePool,
+    id: &str,
+    again: bool,
+) -> Result<Option<Report>> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
@@ -582,9 +619,10 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
             crate::version::check(db, &s, &pruned.file, false).await?;
         if checked.refusals.is_empty() {
             let how = version::Replacing::NextVersion {
-                added_by: None,
+                added_by: Some(crate::models::user::REDSTONEDB),
                 added_from: None,
                 note: Some("Unused blocks taken out"),
+                restores: None,
             };
             version::replace(db, id, &checked.prepared, how).await?;
             // The same circuit, so its result carries over unsimulated.

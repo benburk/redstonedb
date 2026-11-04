@@ -8,6 +8,11 @@ use uuid::Uuid;
 
 use super::schematic::Schematic;
 
+/// The account of `RedstoneDB` itself, the author of the versions the site
+/// makes, as when it takes out a build's unused blocks. No one signs in as
+/// it, and it is listed among no accounts.
+pub const REDSTONEDB: Uuid = Uuid::from_u128(0xdb);
+
 /// What an account may do. Each role can do everything the ones before it
 /// can.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -116,6 +121,12 @@ impl User {
         self.can_edit() || self.built(s) || self.uploaded(s)
     }
 
+    /// Whether the account may restore an earlier version of the build:
+    /// its uploader, or a mod or admin.
+    pub fn may_restore(&self, s: &Schematic) -> bool {
+        self.uploaded(s) || self.can_edit()
+    }
+
     /// Whether the account uploaded the build through the site.
     pub fn uploaded(&self, s: &Schematic) -> bool {
         s.uploader.as_deref() == Some(self.username.as_str())
@@ -219,8 +230,9 @@ impl User {
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
                 minecraft_verified as "minecraft_verified: bool", minecraft_uuid
-             FROM user
-             ORDER BY role = 'user', role = 'mod', username"#
+             FROM user WHERE id <> ?
+             ORDER BY role = 'user', role = 'mod', username"#,
+            REDSTONEDB
         )
         .fetch_all(db)
         .await?;
