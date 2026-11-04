@@ -563,12 +563,17 @@ fn cell_faults(run: &Run) -> Markup {
     }
 }
 
-/// `value` as `bits` binary digits, those that differ from `expected`
+/// `value` as `bits` binary digits after `0b`, those that differ from `expected`
 /// marked, then in decimal when it has more than one bit.
 fn value_bits(value: Value, expected: Value, bits: usize) -> Markup {
     html! {
         span class="whitespace-nowrap" {
-            span class="font-mono" { (marked_bits(value, expected, bits)) }
+            span class="font-mono" {
+                // Marked as binary beside the hex of a wider value; a bit
+                // alone is plain.
+                @if bits > 1 { "0b" }
+                (marked_bits(value, expected, bits))
+            }
             @if bits > 1 {
                 span class="ml-2 text-meta text-muted tabular-nums" { (value) }
             }
