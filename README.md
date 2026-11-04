@@ -37,13 +37,16 @@ The full rules, with pictures, are on the site: [How builds are recognized](http
 
 ## Development
 
-The dev shell has everything `just serve` needs. Discord login redirects to port 3001, so serve there to sign in:
+Running the site needs Rust, [`just`](https://just.systems), and a C compiler: `build-essential` on Debian or Ubuntu, the Xcode command-line tools on macOS. `rust-toolchain.toml` pins Rust, so [rustup](https://rustup.rs) installs the right version on the first build. SQLite is compiled in, and TLS needs no OpenSSL. `nix develop` gives all of it, along with the tools `just check` uses.
 
 ```sh
-nix develop
-cp .env.example .env
+just setup
 just serve 3001
 ```
+
+`just setup` writes `.env` from `.env.example` unless there is one already. Discord login redirects to port 3001, so serve there to sign in. With no port given, `just serve` picks a free one with `lsof`.
+
+`just check` also needs `dprint`, `fd`, `ripgrep`, `nixfmt`, and Tailwind CSS v4, which `nix develop` provides.
 
 Discord login needs the three `DISCORD_` settings in `.env`; see `.env.example`. Without them the site runs with login turned off. To try it signed in without Discord, open `/dev/login` on a local server, such as `http://localhost:3001/dev/login?next=/upload`; only debug builds have that route. The first admin is made from the command line, after they have logged in once:
 
@@ -52,10 +55,11 @@ just rsdb users
 just rsdb role <discord username> admin
 ```
 
-`redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `just pull-db` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server.
+`redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `just pull-db` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
 
 | Recipe          | What it does                                            |
 | --------------- | ------------------------------------------------------- |
+| `just setup`    | Write `.env` from `.env.example` if there is none       |
 | `just serve`    | Run the site, on a free port or the one given           |
 | `just watch`    | Run the site, restarting when a source file changes     |
 | `just rsdb ...` | Run `rsdb` against this repo's `redstone.db`            |
@@ -67,7 +71,7 @@ just rsdb role <discord username> admin
 | `just prepare`  | Refresh the offline query metadata in `.sqlx/`          |
 | `just deploy`   | Test, then build and restart the live site              |
 
-`static/app.css` is committed, so the server and the Nix build need no Tailwind. Queries compile against `.sqlx/` with `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
+`static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/` with `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
 
 ## rsdb
 
