@@ -712,7 +712,7 @@ fn flag(on: bool, term: Option<&str>) -> Markup {
 
 /// A date such as `2022-07-01`, or a time starting with one, as `July 1,
 /// 2022`; anything else as it is.
-fn long_date(date: &str) -> String {
+pub(super) fn long_date(date: &str) -> String {
     const MONTHS: [&str; 12] = [
         "January",
         "February",

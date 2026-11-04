@@ -370,3 +370,16 @@ async fn a_link_to_a_build_previews_its_name_authors_size_and_picture() {
     )));
     assert!(page.contains(r#"<meta name="twitter:card" content="summary">"#));
 }
+
+#[tokio::test]
+async fn a_new_account_keeps_when_it_joined() {
+    let site = Site::start().await;
+    let user = common::sign_in(&site.db, "1", "steve").await;
+    let app::models::user::Joined::At(at) = &user.joined else {
+        panic!("joined {:?}", user.joined);
+    };
+    assert_eq!(at.len(), "2026-11-04T00:00:00Z".len());
+    // A later login keeps the first one's date.
+    let again = common::sign_in(&site.db, "1", "steve").await;
+    assert_eq!(again.joined, user.joined);
+}

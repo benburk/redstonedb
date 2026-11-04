@@ -57,6 +57,20 @@ pub struct User {
     pub minecraft_verified: bool,
     /// The player behind the Minecraft name, as Mojang knows them.
     pub minecraft_uuid: Option<String>,
+    /// When the account joined, as far as is known.
+    pub joined: Joined,
+}
+
+/// When an account joined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Joined {
+    /// At its first login, at this moment.
+    At(String),
+    /// On this day or before: the earliest thing it did, as it joined
+    /// before join dates were kept.
+    By(String),
+    /// Before join dates were kept, having done nothing to date it by.
+    Unknown,
 }
 
 /// What is known of an account's Schemati session, from Schemati's last
@@ -90,6 +104,8 @@ struct Row {
     minecraft_name: Option<String>,
     minecraft_verified: bool,
     minecraft_uuid: Option<String>,
+    joined_at: Option<String>,
+    joined_estimated: bool,
 }
 
 impl From<Row> for User {
@@ -104,6 +120,11 @@ impl From<Row> for User {
             minecraft_name: row.minecraft_name,
             minecraft_verified: row.minecraft_verified,
             minecraft_uuid: row.minecraft_uuid,
+            joined: match (row.joined_at, row.joined_estimated) {
+                (Some(at), false) => Joined::At(at),
+                (Some(at), true) => Joined::By(at),
+                (None, _) => Joined::Unknown,
+            },
         }
     }
 }
@@ -195,7 +216,8 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid,
+                joined_at, joined_estimated as "joined_estimated: bool"
              FROM user WHERE id = ?"#,
             id
         )
@@ -212,7 +234,8 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid,
+                joined_at, joined_estimated as "joined_estimated: bool"
              FROM user WHERE username = ?"#,
             username
         )
@@ -229,7 +252,8 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid,
+                joined_at, joined_estimated as "joined_estimated: bool"
              FROM user WHERE id <> ?
              ORDER BY role = 'user', role = 'mod', username"#,
             REDSTONEDB
@@ -257,8 +281,9 @@ impl User {
         .await?;
         let id = Uuid::new_v4();
         sqlx::query!(
-            "INSERT INTO user (id, discord_id, username, display_name, avatar)
-             VALUES (?, ?, ?, ?, ?)
+            "INSERT INTO user
+                (id, discord_id, username, display_name, avatar, joined_at)
+             VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
              ON CONFLICT (discord_id) DO UPDATE SET
                 username = excluded.username,
                 display_name = excluded.display_name,
@@ -275,7 +300,8 @@ impl User {
             Row,
             r#"SELECT id as "id: Uuid", discord_id, username, display_name,
                 avatar, role, minecraft_name,
-                minecraft_verified as "minecraft_verified: bool", minecraft_uuid
+                minecraft_verified as "minecraft_verified: bool", minecraft_uuid,
+                joined_at, joined_estimated as "joined_estimated: bool"
              FROM user WHERE discord_id = ?"#,
             profile.id
         )
