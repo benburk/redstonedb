@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT version, schematic_version.added_at,\n            coalesce(user.minecraft_name, user.username) as \"added_by?: String\",\n            added_by as \"added_by_id?: Uuid\", note, restores, measures, changes\n         FROM schematic_version LEFT JOIN user ON user.id = added_by\n         WHERE schematic_id = ? ORDER BY version DESC",
+  "query": "SELECT version, schematic_version.added_at,\n            coalesce(user.minecraft_name, user.username) as \"added_by?: String\",\n            user.username as \"added_by_username?: String\",\n            added_by as \"added_by_id?: Uuid\", note, restores, measures, changes\n         FROM schematic_version LEFT JOIN user ON user.id = added_by\n         WHERE schematic_id = ? ORDER BY version DESC",
   "describe": {
     "columns": [
       {
@@ -19,28 +19,33 @@
         "type_info": "Null"
       },
       {
-        "name": "added_by_id?: Uuid",
+        "name": "added_by_username?: String",
         "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_by_id?: Uuid",
+        "ordinal": 4,
         "type_info": "Blob"
       },
       {
         "name": "note",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text"
       },
       {
         "name": "restores",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer"
       },
       {
         "name": "measures",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text"
       },
       {
         "name": "changes",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -51,6 +56,7 @@
       false,
       false,
       null,
+      false,
       true,
       true,
       true,
@@ -58,5 +64,5 @@
       true
     ]
   },
-  "hash": "64e891253cd624ce67d2fad932590a3230118c113d92f5dada0b0444e3615ad3"
+  "hash": "6e5dc673df0dc1654962183288f2b73821efe7bbce76154809ad533a6c8ce84c"
 }

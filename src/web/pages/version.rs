@@ -44,8 +44,8 @@ pub fn versions_section(
                                     }
                                     @if version.by_site {
                                         span class="badge badge-found" title="Made by the site itself" { "RedstoneDB" }
-                                    } @else if let Some(by) = &version.added_by {
-                                        span class="text-meta" { (by) }
+                                    } @else if let (Some(by), Some(username)) = (&version.added_by, &version.added_by_username) {
+                                        (super::person_badge(by, &format!("/users/{username}")))
                                     }
                                 }
                                 @match &version.note {

@@ -15,6 +15,8 @@ pub struct Version {
     pub added_at: String,
     /// The uploader as people know them: Minecraft name, else username.
     pub added_by: Option<String>,
+    /// The uploader's username, which their profile's address takes.
+    pub added_by_username: Option<String>,
     /// Whether `RedstoneDB` itself made it.
     pub by_site: bool,
     /// What it changed; `None` for the first.
@@ -50,6 +52,7 @@ pub async fn list<'e, E: SqliteExecutor<'e>>(
     let rows = sqlx::query!(
         r#"SELECT version, schematic_version.added_at,
             coalesce(user.minecraft_name, user.username) as "added_by?: String",
+            user.username as "added_by_username?: String",
             added_by as "added_by_id?: Uuid", note, restores, measures, changes
          FROM schematic_version LEFT JOIN user ON user.id = added_by
          WHERE schematic_id = ? ORDER BY version DESC"#,
@@ -63,6 +66,7 @@ pub async fn list<'e, E: SqliteExecutor<'e>>(
             version: row.version,
             added_at: row.added_at,
             added_by: row.added_by,
+            added_by_username: row.added_by_username,
             by_site: row.added_by_id == Some(REDSTONEDB),
             note: row.note,
             restores: row.restores,
