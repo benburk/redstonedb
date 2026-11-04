@@ -21,6 +21,14 @@ if [ "$(sqlite3 "$copy" 'PRAGMA integrity_check')" != ok ]; then
     echo "The copy failed SQLite's integrity check; the local database is unchanged." >&2
     exit 1
 fi
+# Live sign-ins and the Schemati sessions people gave stay on the server: a
+# copy of either lets whoever holds it act as that person. What the site knew
+# of each Schemati session goes with it. VACUUM rewrites the file, so the
+# deleted rows don't linger in its free pages.
+sqlite3 "$copy" "DELETE FROM session;
+    UPDATE user SET schemati_session = NULL, schemati_player = NULL,
+        schemati_checked_at = NULL, schemati_expired_at = NULL;
+    VACUUM;"
 
 mkdir -p backups
 if [ -f redstone.db ]; then
