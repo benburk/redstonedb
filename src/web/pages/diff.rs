@@ -100,13 +100,15 @@ pub fn summary(counts: Counts) -> String {
         return "No blocks changed".to_owned();
     }
     let mut parts = Vec::new();
-    if counts.added > 0 || counts.removed > 0 {
-        parts.push(format!(
-            "+{} −{} {}",
-            counts.added,
-            counts.removed,
-            plural(counts.added + counts.removed, "block")
-        ));
+    // Only the sides that changed, as `+25 blocks` or `+1 −6 blocks`.
+    let sides: Vec<String> = [("+", counts.added), ("−", counts.removed)]
+        .into_iter()
+        .filter(|&(_, n)| n > 0)
+        .map(|(sign, n)| format!("{sign}{n}"))
+        .collect();
+    if !sides.is_empty() {
+        let blocks = plural(counts.added + counts.removed, "block");
+        parts.push(format!("{} {blocks}", sides.join(" ")));
     }
     if counts.components > 0 {
         parts.push(format!(
@@ -231,6 +233,12 @@ mod tests {
             components: 2,
         };
         assert_eq!(summary(counts), "+12 −3 blocks, ~2 components");
+        let taken = Counts {
+            added: 0,
+            removed: 1,
+            components: 0,
+        };
+        assert_eq!(summary(taken), "−1 block");
         let one = Counts {
             added: 0,
             removed: 0,
