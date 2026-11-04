@@ -61,6 +61,21 @@ fn an_adders_design_comes_from_how_its_carries_are_made() {
     );
     assert_eq!(design("diag-3t-cca").name, "carry_cancel");
     assert_eq!(design("rca-slice-capped").name, "ripple_carry");
+    // A torch for each transmit and a subtracting comparator for each term,
+    // reading a barrel, each carry's terms on its own dust straight into its
+    // sum: a cell gives 15 for its term and a little otherwise.
+    let everywhere = design("cle-8-subtract-cells");
+    assert_eq!(
+        (everywhere.name.as_str(), everywhere.terms.as_slice()),
+        ("carry_look_everywhere", terms(&[(36, 36)]).as_slice())
+    );
+    // Torches alone, from before comparators: its carries held only in the
+    // halves of its sums look ahead, not cancel.
+    let alpha = design("cla-4-alpha-torches");
+    assert_eq!(
+        (alpha.name.as_str(), alpha.signature.as_str()),
+        ("carry_lookahead", "rLLL")
+    );
 }
 
 /// Each group's lookahead terms, as `found` of `all`.

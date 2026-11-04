@@ -416,6 +416,17 @@ impl Circuit {
         }
     }
 
+    /// The strength the component at `pos` gives out, as of the last
+    /// `settle`: a comparator's own, and 15 for any other on.
+    pub fn strength(&self, pos: Pos) -> u8 {
+        match self.world.get_block_entity(at(pos)) {
+            Some(BlockEntity::Comparator { output_strength }) => {
+                *output_strength
+            }
+            _ => 15 * u8::from(self.on(pos)),
+        }
+    }
+
     /// The value output `port` shows, as of the last `settle`, read from
     /// the dust, repeater, or comparator standing on each bit's block, the
     /// component carrying it out of the build, however the block below is

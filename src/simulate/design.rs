@@ -5,8 +5,10 @@
 //! walking back along the circuit's links:
 //!
 //! - `~`: read as a strength, by a comparator reading dust from three or
-//!   more distances, or held only in the halves of a sum, as a carry
-//!   cancel's carry is;
+//!   more distances, or held only in the halves of a sum a comparator
+//!   holds, as a carry cancel's carry is; a carry held only in halves
+//!   torches hold, as in a build from before comparators, is read from
+//!   them as any other;
 //! - `r`: from the carry just below, rippling;
 //! - `L`: from the inputs alone, or the carry in, looking at every bit;
 //! - `s`: from a carry further down, skipping;
@@ -17,7 +19,10 @@
 //! from a run of strengths or ripples below it, as a 16-bit carry cancel's
 //! two groups of 8. A lookahead term is a bit's generate and the transmits
 //! above it within its group, or the carry in and the transmits above it in
-//! the lowest group, and a group has a term when a component holds it.
+//! the lowest group, and a group has a term when a component holds it, or
+//! a comparator gives at least some strength just when it holds, as a
+//! subtracting cell gives 15 for its term and a little otherwise, too
+//! little to reach the sum it feeds.
 //!
 //! A 1-bit adder is a ripple carry. One with a carry no component holds is
 //! other; one whose carries all ripple, a ripple carry. One whose every
@@ -112,7 +117,13 @@ pub fn adder_design(
     let circuit = Tabled::of(blocks, &interface, &adder)?;
     let signature = circuit.signature(&interface, &adder);
     let cases = adder.cases.len();
-    let held = |term: &Table| circuit.tables.iter().any(|t| t.is(term, cases));
+    let held = |term: &Table| {
+        circuit
+            .tables
+            .iter()
+            .chain(&circuit.levels)
+            .any(|t| t.is(term, cases))
+    };
     let groups = groups(&signature);
     let terms: Vec<Terms> = groups
         .iter()
@@ -336,6 +347,10 @@ impl Adder {
 struct Tabled {
     components: Vec<Pos>,
     tables: Vec<Table>,
+    /// Each comparator's table at each strength above 1: whether it gives
+    /// at least that, as a subtracting cell gives 15 only for its term and
+    /// a little otherwise, which dies on the dust before it is read.
+    levels: Vec<Table>,
     /// Each part's links in: from where, into the side, and the strength
     /// lost on the way.
     fanin: BTreeMap<Pos, Vec<(Pos, bool, u8)>>,
@@ -368,8 +383,15 @@ impl Tabled {
             })
             .collect();
         let mut circuit = Circuit::new(blocks, interface)?;
+        let comparators: Vec<Pos> = components
+            .iter()
+            .copied()
+            .filter(|p| kinds[p] == "comparator")
+            .collect();
         let mut on =
             vec![Vec::with_capacity(adder.cases.len()); components.len()];
+        let mut strengths =
+            vec![Vec::with_capacity(adder.cases.len()); comparators.len()];
         for &case in &adder.cases {
             for (port, value) in adder.values(case) {
                 circuit.set(port, value);
@@ -378,9 +400,23 @@ impl Tabled {
             for (seen, &p) in on.iter_mut().zip(&components) {
                 seen.push(circuit.on(p));
             }
+            for (seen, &p) in strengths.iter_mut().zip(&comparators) {
+                seen.push(circuit.strength(p));
+            }
         }
+        let levels = strengths
+            .iter()
+            .flat_map(|seen| {
+                (2..=15).map(move |level| {
+                    let at: Vec<bool> =
+                        seen.iter().map(|&s| s >= level).collect();
+                    Table::from_bools(&at)
+                })
+            })
+            .collect();
         Ok(Tabled {
             tables: on.iter().map(|seen| Table::from_bools(seen)).collect(),
+            levels,
             components,
             fanin,
             kinds,
@@ -409,18 +445,19 @@ impl Tabled {
         })
     }
 
-    /// Whether bit `k`'s carry is held only in halves of its sum: its
+    /// The components holding bit `k`'s carry in halves of its sum: its
     /// propagate and carry, either inverted, both on.
-    fn halves(&self, adder: &Adder, k: usize) -> bool {
+    fn halves(&self, adder: &Adder, k: usize) -> Vec<Pos> {
         [(false, false), (false, true), (true, false), (true, true)]
             .into_iter()
-            .any(|(np, nc)| {
+            .flat_map(|(np, nc)| {
                 let half = adder.table(|c| {
                     let p = bit(c, k) != adder.bit_b(c, k);
                     (p != np) && (adder.carry(c, k) != nc)
                 });
-                !self.matching(&half, adder.cases.len()).is_empty()
+                self.matching(&half, adder.cases.len())
             })
+            .collect()
     }
 
     /// A letter for each carry from bit 1's up to the carry out.
@@ -460,8 +497,21 @@ impl Tabled {
                 {
                     return '-';
                 }
+                // A carry no component holds is read from the halves of its
+                // sum: a strength where a comparator holds one, as a carry
+                // cancel's sum reads its carry, and otherwise by what feeds
+                // them, as torches do in a build from before comparators.
+                let start = if start.is_empty() {
+                    let halves = self.halves(adder, k);
+                    if halves.iter().any(|p| self.kinds[p] == "comparator") {
+                        return '~';
+                    }
+                    halves
+                } else {
+                    start
+                };
                 if start.is_empty() {
-                    return if self.halves(adder, k) { '~' } else { '?' };
+                    return '?';
                 }
                 if self.strength(&start) {
                     return '~';
