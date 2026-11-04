@@ -4,7 +4,9 @@
 //! lines left at a lever's 15: a strength from 14 down is tried on the
 //! telling cases until one changes what comes out, the weakest before it
 //! confirmed on every case. Each data output bit's weakest strength while
-//! on is read then, the inputs at their weakest, the worst it gets.
+//! on is read then, the inputs at their weakest, the worst it gets: what
+//! arrives at the input of the repeater or comparator carrying it out, as
+//! that gives 15 or its own strength whatever arrives, or dust's power.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -23,8 +25,9 @@ pub struct Strength {
     /// with every case still right.
     pub input: u8,
     /// Each data output, by name, and its bits' weakest strength while on,
-    /// least significant first, the data inputs at `input`; 0 for a bit
-    /// never on.
+    /// least significant first, the data inputs at `input`: arriving at
+    /// each one's repeater or comparator, see
+    /// [`Circuit::arriving_strengths`]; 0 for a bit never on.
     pub outputs: Vec<(String, Vec<u8>)>,
 }
 
@@ -104,7 +107,7 @@ pub(super) fn measure(
 
 /// Runs `cases` through `circuit` as `bench` drives them, reading what
 /// comes out and the weakest strength each bit of `outputs`, by their
-/// place in the bench, shows while on.
+/// place in the bench, carries while on.
 fn observe(
     circuit: &mut Circuit,
     interface: &Interface,
@@ -136,8 +139,10 @@ fn observe(
         }
         got.push(value);
         for (bits, &o) in weakest.iter_mut().zip(outputs) {
-            for (bit, strength) in
-                circuit.strengths(bench.outputs[o]).into_iter().enumerate()
+            for (bit, strength) in circuit
+                .arriving_strengths(bench.outputs[o])
+                .into_iter()
+                .enumerate()
             {
                 if strength > 0 && (bits[bit] == 0 || strength < bits[bit]) {
                     bits[bit] = strength;

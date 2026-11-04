@@ -220,7 +220,9 @@ const BITS_NOTE: &str = "Bits on the bus, or lines in a numbered row";
 const INVERTED_NOTE: &str = "Yes: powered reads as 0";
 const INPUT_SS_NOTE: &str = "Weakest signal strength the data inputs work at, all driven \
     at it together, every case still right";
-const OUTPUT_SS_NOTE: &str = "Weakest signal strength a bit shows while on, the data inputs at their weakest";
+const OUTPUT_SS_NOTE: &str = "Weakest signal strength arriving at a bit's output \
+    repeater or comparator while on, from the dust, block, or comparator behind it, \
+    not what the output gives out; a dust output's own. The data inputs at their weakest";
 const POWER_NOTE: &str = "Hard: dust touches the input block, so a repeater, comparator, \
     or torch must drive it. Soft: dust may drive it.";
 const DELAY_NOTE: &str = "Tick to switch it, from t = 0, when the inputs the \
@@ -369,7 +371,7 @@ fn inverted_cell(inverted: Inverted) -> Markup {
     }
 }
 
-/// The weakest strength any bit of output `entry` shows while on, as
+/// The weakest strength any bit of output `entry` carries while on, as
 /// `strength` measured it, each bit's in its row; a dash for an output it
 /// didn't measure, as a status line.
 fn output_strength(entry: &PortEntry, strength: &Strength) -> Markup {

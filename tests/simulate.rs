@@ -1716,7 +1716,9 @@ fn a_build_is_stored_with_its_inputs_at_logical_0() {
 /// Driven weakly, as a comparator into each block would, every data input
 /// at one strength: this carry-cancel adder's operands reach its
 /// comparators through dust, so it needs 5; the ripple carry slice needs
-/// 8. Each output leaves through a repeater, at 15.
+/// 8. Each output leaves through a repeater, which gives 15, but its
+/// strength is what arrives there: the carry-cancel adder's comparators
+/// leave its sum at 1, the slice's dust at 14.
 #[test]
 fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
     let strength = |name: &str| {
@@ -1727,10 +1729,10 @@ fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
     };
     let cca = strength("cca-8-repeated-out");
     assert_eq!(cca.input, 5);
-    assert_eq!(cca.outputs, [("output".to_owned(), vec![15; 8])]);
+    assert_eq!(cca.outputs, [("output".to_owned(), vec![1; 8])]);
     let rca = strength("rca-slice-capped");
     assert_eq!(rca.input, 8);
-    assert_eq!(rca.outputs, [("output".to_owned(), vec![15])]);
+    assert_eq!(rca.outputs, [("output".to_owned(), vec![14])]);
 }
 
 /// A hex adder of 16 digits, 64 bits a side, gives a sum and a carry out
