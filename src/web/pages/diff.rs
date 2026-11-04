@@ -50,7 +50,10 @@ pub fn diff_page(
         &format!("{path}/diff"),
         &html! {
             p class="mb-1 text-meta" { a href=(path) { "← " (name) } }
-            h1 class={ (PAGE_TITLE) " mb-6" } { "Version " (from) " to " (to) }
+            div class="mb-6 flex flex-wrap items-center justify-between gap-3" {
+                h1 class=(PAGE_TITLE) { "Version " (from) " to " (to) }
+                (steps(&path, versions, (from, to)))
+            }
             div class="grid grid-cols-[minmax(0,1fr)] items-start gap-8 desktop:grid-cols-[var(--container-form)_minmax(0,1fr)]" {
                 div class="desktop:sticky desktop:top-4 desktop:order-last" {
                     div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1" {
@@ -92,6 +95,26 @@ pub fn diff_page(
             }
         },
     )
+}
+
+/// Links to the diffs a step back and a step on, so the versions can be
+/// followed one change at a time: from comparing `from` with `to`, back
+/// to the version before `from` with `from`, and on to `to` with the one
+/// after; each only where that version is one of `versions`.
+fn steps(path: &str, versions: &[Version], (from, to): (i64, i64)) -> Markup {
+    let has = |number: i64| versions.iter().any(|v| v.version == number);
+    let link =
+        |older: i64, newer: i64| format!("{path}/diff?from={older}&to={newer}");
+    html! {
+        nav aria-label="Other changes" class="flex items-center gap-2" {
+            @if has(from - 1) {
+                a href=(link(from - 1, from)) class="btn btn-quiet" rel="prev" { "← v" (from - 1) " to v" (from) }
+            }
+            @if has(to + 1) {
+                a href=(link(to, to + 1)) class="btn btn-quiet" rel="next" { "v" (to) " to v" (to + 1) " →" }
+            }
+        }
+    }
 }
 
 /// What changed in blocks, as `+12 −3 blocks, ~2 components`.

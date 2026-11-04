@@ -292,6 +292,8 @@ async fn anyone_may_see_a_diff_but_only_an_account_download_it() {
     assert_eq!(page.status(), StatusCode::OK);
     let page = page.text().await.unwrap();
     assert!(page.contains("+1 −1 blocks"), "{page}");
+    // Two versions, so neither a step back nor a step on.
+    assert!(!page.contains(r#"rel="prev""#) && !page.contains(r#"rel="next""#));
     for side in ["before", "after"] {
         let preview =
             format!("/schematics/{id}/diff/{side}?from=1&to=2&preview=yes");
