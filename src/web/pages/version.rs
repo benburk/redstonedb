@@ -37,8 +37,15 @@ pub fn versions_section(
                         li class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line py-3" {
                             div class="flex min-w-0 flex-1 basis-64 flex-col gap-1" {
                                 div class="flex flex-wrap items-center gap-x-2 gap-y-1" {
-                                    span class="font-semibold tabular-nums" { "v" (number) }
-                                    @if number == current { span class="text-muted" { "current" } }
+                                    // Every number a pill of one width, so the
+                                    // lines align; the current one filled.
+                                    @if number == current {
+                                        span class="min-w-9 rounded-control bg-brand px-1.5 text-center font-semibold text-white tabular-nums" title="Current version" {
+                                            "v" (number) span class="sr-only" { ", current" }
+                                        }
+                                    } @else {
+                                        span class="min-w-9 rounded-control bg-sidebar px-1.5 text-center font-semibold tabular-nums" { "v" (number) }
+                                    }
                                     span class="text-meta text-muted tabular-nums" {
                                         (version.added_at.get(..10).unwrap_or(&version.added_at))
                                     }
