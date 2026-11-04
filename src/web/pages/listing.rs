@@ -863,7 +863,7 @@ const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_
 
 /// The picture of `s`, at an address that changes with its file and with
 /// the viewer's `palette`.
-fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
+pub(super) fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
     let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
     format!(
         "/schematics/{}/thumbnail.webp?v={}-{}{palette}",

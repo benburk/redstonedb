@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base,
+    CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base_previewed,
     beside_viewer_under, field, grouped,
     icons::{self, icon},
     interface::{Inversions, interface_section},
@@ -94,7 +94,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
     let simulating = matches!(simulation, Status::Pending(None));
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
-    base(
+    base_previewed(
         viewer,
         &name,
         &path,
@@ -147,6 +147,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             }
             (version::versions_section(s, versions, viewer, viewer.is_some_and(|user| user.may_restore(s))))
         },
+        Some(&preview(s)),
     )
 }
 
@@ -1023,5 +1024,46 @@ fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
                 }
             }
         }
+    }
+}
+
+/// How a link to build `s`'s page shows where it is posted, as in Discord:
+/// its name, authors, size, and blocks as the title; its latency, how it
+/// stacks, the oldest release it works in, and whether it is verified as
+/// the line under it; and its picture.
+fn preview(s: &Schematic) -> super::Preview {
+    let by = if s.authors.is_empty() {
+        String::new()
+    } else {
+        format!(" by {}", s.authors.join(", "))
+    };
+    let title = format!(
+        "{}{by} · {} H×W×D, {} blocks",
+        s.name(),
+        super::size(s),
+        s.volume()
+    );
+    let mut facts = vec![s.category_label()];
+    if let Some(t) = s.latency {
+        facts.push(format!("{t} {}", if t == 1 { "tick" } else { "ticks" }));
+    }
+    if let Some(pitch) = s.stacking.iter().filter_map(|d| d.pitch).min() {
+        facts.push(format!("{pitch}-wide stackable"));
+    }
+    if let Some(from) = &s.works_from {
+        facts.push(format!("works from {from}"));
+    }
+    facts.push(
+        if s.verified() {
+            "verified"
+        } else {
+            "unverified"
+        }
+        .to_owned(),
+    );
+    super::Preview {
+        title,
+        description: facts.join(" · "),
+        image: Some(super::listing::thumbnail_src(s, None)),
     }
 }

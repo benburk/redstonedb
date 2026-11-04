@@ -353,3 +353,20 @@ async fn the_uploader_restores_an_earlier_version_as_a_new_one() {
         .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn a_link_to_a_build_previews_its_name_authors_size_and_picture() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+    let page = site.get(&format!("/schematics/{id}"), None).await;
+    let page = page.text().await.unwrap();
+    let s = schematic::get(&site.db, &id).await.unwrap().unwrap();
+    let title = format!(r#"<meta property="og:title" content="{}"#, s.name());
+    assert!(page.contains(&title), "{page}");
+    assert!(page.contains(" H×W×D, "), "{page}");
+    assert!(page.contains(&format!(
+        r#"<meta property="og:image" content="https://redstonedb.com/schematics/{id}/thumbnail.webp?v="#
+    )));
+    assert!(page.contains(r#"<meta name="twitter:card" content="summary">"#));
+}

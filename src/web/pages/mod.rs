@@ -53,8 +53,8 @@ pub use description::mentions;
 pub use details_page::{DetailsPage, File, Reply, article, details_page};
 pub use diff::diff_page;
 pub use form::Choices;
-use layout::base;
-pub use layout::{forbidden, not_found};
+pub use layout::{Preview, forbidden, not_found};
+use layout::{base, base_previewed};
 pub use leaderboard::{LeaderboardPage, PeoplePage, leaderboard, people};
 pub use listing::{
     Facet, HomeQuery, Index, Listing, Sort, SortField, Tile, Viewing,

@@ -3,7 +3,7 @@
 
 use maud::{DOCTYPE, Markup, html};
 
-use crate::{APP_NAME, models::user::User};
+use crate::{APP_NAME, SITE_URL, models::user::User};
 
 use super::{
     PAGE_TITLE,
@@ -18,6 +18,15 @@ const DESCRIPTION: &str = "Minecraft redstone schematics, such as adders and \
 /// A block of redstone, turned on its corner, as in the header.
 const ICON: &str = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='1.5' transform='rotate(45 8 8)' fill='%23c4302b'/%3E%3C/svg%3E";
 
+/// How a link to a page shows where it is posted, as in Discord: its
+/// title, a line about it, and a picture, all in Open Graph tags.
+pub struct Preview {
+    pub title: String,
+    pub description: String,
+    /// The picture's address on the site, such as a build's thumbnail.
+    pub image: Option<String>,
+}
+
 /// A page around `content`, with the sidebar for `viewer`, the account
 /// viewing it, if any.
 pub fn base(
@@ -26,11 +35,30 @@ pub fn base(
     current_path: &str,
     content: &Markup,
 ) -> Markup {
+    base_previewed(viewer, page_title, current_path, content, None)
+}
+
+/// As [`base`], a link to it showing as `preview` says, or else by its
+/// title and what the site is.
+pub fn base_previewed(
+    viewer: Option<&User>,
+    page_title: &str,
+    current_path: &str,
+    content: &Markup,
+    preview: Option<&Preview>,
+) -> Markup {
     let document_title = if page_title == APP_NAME {
         APP_NAME.to_owned()
     } else {
         format!("{page_title} · {APP_NAME}")
     };
+    let og_title =
+        preview.map_or(document_title.as_str(), |p| p.title.as_str());
+    let og_description =
+        preview.map_or(DESCRIPTION, |p| p.description.as_str());
+    let og_image = preview
+        .and_then(|p| p.image.as_deref())
+        .map(|image| format!("{SITE_URL}{image}"));
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -38,7 +66,19 @@ pub fn base(
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { (document_title) }
-                meta name="description" content=(DESCRIPTION);
+                meta name="description" content=(og_description);
+                // How a link to it shows where it is posted, as in Discord.
+                meta property="og:site_name" content=(APP_NAME);
+                meta property="og:type" content="website";
+                meta property="og:title" content=(og_title);
+                meta property="og:description" content=(og_description);
+                meta property="og:url" content={ (SITE_URL) (current_path) };
+                @if let Some(image) = &og_image {
+                    meta property="og:image" content=(image);
+                    // A small picture beside the text, not a banner.
+                    meta name="twitter:card" content="summary";
+                }
+                meta name="theme-color" content="#c4302b";
                 // The brand mark, inline, so there is no icon file to fetch.
                 link rel="icon" href=(ICON);
                 link rel="stylesheet" href=(crate::web::CSS.url());

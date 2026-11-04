@@ -4,6 +4,10 @@
 /// lowercase and never displayed.
 pub const APP_NAME: &str = "RedstoneDB";
 
+/// Where the live site is, for addresses that must be whole, as in a link
+/// preview's picture.
+pub const SITE_URL: &str = "https://redstonedb.com";
+
 /// Declares an enum of a few words, as a column may hold: each value is
 /// stored, searched, and given on the command line as its name, such
 /// as `horz`, and read by people as its label, such as `Horizontal`. It
