@@ -59,7 +59,7 @@ pub struct User {
     pub minecraft_uuid: Option<String>,
     /// When the account joined: its first login, or a best guess for one
     /// from before join dates were kept.
-    pub created_at: Option<String>,
+    pub created_at: String,
 }
 
 /// What is known of an account's Schemati session, from Schemati's last
@@ -93,7 +93,7 @@ struct Row {
     minecraft_name: Option<String>,
     minecraft_verified: bool,
     minecraft_uuid: Option<String>,
-    created_at: Option<String>,
+    created_at: String,
 }
 
 impl From<Row> for User {

@@ -101,7 +101,7 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             td class={ (CELL) " order-last min-w-0 basis-full" } { (minecraft_name(user, &target)) }
             // On a phone, under the Minecraft name, leaving the account's
             // line its room.
-            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (user.created_at.as_deref().map(super::build::long_date).unwrap_or_default()) }
+            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (super::build::long_date(&user.created_at)) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="flex items-center gap-2" {

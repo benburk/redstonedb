@@ -375,9 +375,9 @@ async fn a_link_to_a_build_previews_its_name_authors_size_and_picture() {
 async fn a_new_account_keeps_when_it_joined() {
     let site = Site::start().await;
     let user = common::sign_in(&site.db, "1", "steve").await;
-    let at = user.created_at.clone().expect("a join time");
+    let at = user.created_at.clone();
     assert_eq!(at.len(), "2026-11-04T00:00:00Z".len());
     // A later login keeps the first one's time.
     let again = common::sign_in(&site.db, "1", "steve").await;
-    assert_eq!(again.created_at, Some(at));
+    assert_eq!(again.created_at, at);
 }
