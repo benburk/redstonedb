@@ -1029,7 +1029,10 @@ pub fn in_sentence(name: &str) -> String {
 ///   is not a tighter one's record, as `2-wide_stackable`'s, its other
 ///   traits the same: a build first on both holds the tighter one alone.
 ///
-/// Boards of the same builds with the same first place are one record.
+/// Boards of the same builds with the same first place are one record,
+/// named by the one that says the most of them: a pitch class, then a
+/// design, then a latency, so `Smallest 2-wide stackable 1-bit adder`
+/// over `Smallest 6-tick 1-bit adder`.
 pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
     type Base<'a> = (&'a str, Vec<i64>, State);
     let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Schematic>)> =
@@ -1208,7 +1211,6 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
                 .filter(|&i| Some(key(i, rank, ruler)) == best)
                 .collect()
         };
-    let mut seen: BTreeSet<(Vec<usize>, Vec<usize>)> = BTreeSet::new();
     let mut found = Vec::new();
     for wanted in &boards {
         let ticks = wanted.iter().find_map(|t| match t {
@@ -1240,7 +1242,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
                 fewer.remove(t);
                 firsts(&fewer, &field(&fewer, rank), rank) != first
             });
-            if !changes || !seen.insert((ranked.clone(), first.clone())) {
+            if !changes {
                 continue;
             }
             let named = tags[first[0]]
@@ -1259,7 +1261,45 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
             });
         }
     }
-    shown_once(found)
+    shown_once(named_once(found))
+}
+
+/// `found` but one record of each set of boards of the same builds with
+/// the same first place, where the first of them stood, named by the one
+/// whose name says the most of them, as [`says`] weighs it, the first of
+/// those that say as much.
+fn named_once(found: Vec<Found>) -> Vec<Found> {
+    let ids = |builds: &[&Schematic]| -> Vec<String> {
+        builds.iter().map(|s| s.id.clone()).collect()
+    };
+    let mut kept: Vec<Found> = Vec::new();
+    for record in found {
+        let same = kept.iter().position(|other| {
+            ids(&other.field) == ids(&record.field)
+                && ids(&other.holders) == ids(&record.holders)
+        });
+        match same {
+            Some(at) if says(&record) > says(&kept[at]) => kept[at] = record,
+            Some(_) => {}
+            None => kept.push(record),
+        }
+    }
+    kept
+}
+
+/// How much a record's name says of its builds, to choose which of the
+/// boards of the same builds with the same first place names it: a pitch
+/// class, as `2-wide_stackable`, then a design, then a latency, each
+/// before the board without it; boards that say as much keep the first.
+fn says(record: &Found) -> (bool, bool, bool) {
+    (
+        record
+            .tags
+            .iter()
+            .any(|tag| pitch_class(&tag.name).is_some()),
+        record.tags.iter().any(|tag| tag.kind == Kind::Design),
+        record.ticks.is_some(),
+    )
 }
 
 /// `found` but each record of a looser stacking whose first place is a
@@ -1498,6 +1538,63 @@ mod tests {
                 "Smallest 8-bit adder",
                 "Fastest 8-bit adder",
                 "Fastest 8-bit 2-high stackable adder",
+            ]
+        );
+    }
+
+    /// Boards of the same builds with the same first place are one record,
+    /// named by a pitch class over a design, and a design over a latency.
+    #[test]
+    fn a_merged_record_is_named_by_its_stacking_then_design_then_ticks() {
+        // Copies 2 apart, each as big as its box.
+        let stacking = |s: Schematic| Schematic {
+            size: (2, 5, s.size.0 / 10),
+            stacking: vec![StackDirection {
+                west: 2,
+                up: 0,
+                max_copies: None,
+                faces: None,
+                pitch: Some(2),
+            }],
+            ..s
+        };
+        let names = |adders: &[Schematic]| -> Vec<String> {
+            let builds: Vec<&Schematic> = adders.iter().collect();
+            records(&builds).iter().map(Record::name).collect()
+        };
+        // The 6-tick builds are the 2-wide stackable ones, ripple carry.
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            stacking(build("a", 1, None, Some(6), 100)),
+            stacking(build("c", 1, None, Some(6), 150)),
+        ];
+        assert_eq!(
+            names(&adders),
+            [
+                "Smallest 1-bit adder",
+                "Smallest 1-bit 2-wide stackable adder",
+            ]
+        );
+        let ripple = Some("ripple_carry");
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            build("a", 1, ripple, Some(6), 100),
+            build("c", 1, ripple, Some(6), 150),
+        ];
+        assert_eq!(
+            names(&adders),
+            ["Smallest 1-bit adder", "Smallest 1-bit ripple carry adder",]
+        );
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            stacking(build("a", 1, ripple, Some(6), 100)),
+            stacking(build("c", 1, ripple, Some(6), 150)),
+        ];
+        assert_eq!(
+            names(&adders),
+            [
+                "Smallest 1-bit adder",
+                "Smallest 1-bit 2-wide stackable adder",
             ]
         );
     }

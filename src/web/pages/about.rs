@@ -177,6 +177,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Builds whose inputs are interleaved, A's and B's bits taking turns along one row, compete on their own boards, or with the rest when you ask for both." }
                         li { "First place on a board of two or more builds, fastest or smallest, is a record." }
                         li { "Each tag or latency has to change who's first. Most 8-bit adders are 3-tick CCAs, so there's no fastest CCA, but there is a smallest 3-tick adder." }
+                        li { "Boards of the same builds with the same first place are one record, named for its pitch class first, then its design, then its latency: the smallest 1-bit 2-wide stackable adder, not the smallest 6-tick 1-bit adder, when those boards rank the same adders." }
                         li { "Fastest counts only when speed decides it. When builds tie on ticks, the record is the smallest at that latency." }
                     }
                     h2 id="per-category" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Per-category rules" }
