@@ -384,35 +384,35 @@ fn choices(path: &str, board: &Board) -> Markup {
                 }, None))
             }
             @if !board.inputs_choices.is_empty() {
-                @let all = (board.inputs == Inputs::All, Wanted { inputs: Some(Inputs::All), ..current.clone() }.href(path));
+                @let all = ("All", board.inputs == Inputs::All, Wanted { inputs: Some(Inputs::All), ..current.clone() }.href(path));
                 (choice_row("Inputs", &board.inputs_choices, |c| {
                     (board.inputs == c.value,
                         Wanted { inputs: inputs(c.value), ..current.clone() }.href(path))
                 }, Some(all)))
             }
             @if !board.stackings.is_empty() || board.stacking.is_some() {
-                @let all = (board.stacking.is_none(), Wanted { stacking: None, ..current.clone() }.href(path));
+                @let all = ("Alone", board.stacking.is_none(), Wanted { stacking: None, ..current.clone() }.href(path));
                 (choice_row("Stacks", &board.stackings, |c| {
                     (board.stacking.as_ref() == Some(&c.value),
                         Wanted { stacking: Some(c.value.clone()), ..current.clone() }.href(path))
                 }, Some(all)))
             }
             @if board.orientations.len() > 1 || board.orientation.is_some() {
-                @let all = (board.orientation.is_none(), Wanted { orientation: None, ..current.clone() }.href(path));
+                @let all = ("All", board.orientation.is_none(), Wanted { orientation: None, ..current.clone() }.href(path));
                 (choice_row("Orientation", &board.orientations, |c| {
                     (board.orientation == Some(c.value),
                         Wanted { orientation: Some(c.value), ..current.clone() }.href(path))
                 }, Some(all)))
             }
             @if !board.designs.is_empty() {
-                @let all = board.all_designs.then(|| (board.design.is_none(), Wanted { design: None, ..current.clone() }.href(path)));
+                @let all = board.all_designs.then(|| ("All", board.design.is_none(), Wanted { design: None, ..current.clone() }.href(path)));
                 (choice_row("Design", &board.designs, |c| {
                     (board.design.as_deref() == Some(c.value.as_str()),
                         Wanted { design: Some(c.value.clone()), ..current.clone() }.href(path))
                 }, all))
             }
             @if board.latencies.len() > 1 || board.ticks.is_some() {
-                @let all = (board.ticks.is_none(), Wanted { ticks: None, ..current.clone() }.href(path));
+                @let all = ("All", board.ticks.is_none(), Wanted { ticks: None, ..current.clone() }.href(path));
                 (choice_row("Ticks", &board.latencies, |c| {
                     (board.ticks == Some(c.value),
                         Wanted { ticks: Some(c.value), ..current.clone() }.href(path))
@@ -428,19 +428,20 @@ fn choices(path: &str, board: &Board) -> Markup {
 }
 
 /// A labelled segmented control of `options`. `link` gives each option
-/// whether it is chosen and its address; `all` adds an "All" option first.
+/// whether it is chosen and its address; `all` adds an option first, its
+/// label, as "All", whether it is chosen, and its address.
 fn choice_row<V>(
     label: &str,
     options: &[Choice<V>],
     link: impl Fn(&Choice<V>) -> (bool, String),
-    all: Option<(bool, String)>,
+    all: Option<(&str, bool, String)>,
 ) -> Markup {
     html! {
         nav aria-label=(label) class="flex flex-wrap items-center gap-x-3 gap-y-1" {
             span class="w-24 text-meta font-semibold text-muted" aria-hidden="true" { (label) }
             div class=(SWITCHES) {
-                @if let Some((chosen, href)) = all {
-                    a href=(href) class=(SWITCH) aria-current=[chosen.then_some("page")] { "All" }
+                @if let Some((all, chosen, href)) = all {
+                    a href=(href) class=(SWITCH) aria-current=[chosen.then_some("page")] { (all) }
                 }
                 @for option in options {
                     @let (chosen, href) = link(option);
