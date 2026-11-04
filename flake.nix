@@ -69,8 +69,6 @@
               rust-analyzer
               rustfmt
               sqlx-cli
-              openssl
-              pkg-config
               dprint
               fd
               ripgrep

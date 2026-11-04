@@ -10,6 +10,10 @@ default:
 
 alias fmt := format
 
+# Write .env from .env.example, unless there is one already
+setup:
+    test -e .env || cp .env.example .env
+
 # Format code and docs
 format:
     just --fmt
@@ -47,7 +51,7 @@ css:
     tailwindcss --input styles/app.css --minify > static/app.css
 
 # Build release binary
-build: css
+build:
     cargo build --release
 
 # The first port in 3000-3050 that nothing listens on at loopback or every
@@ -55,7 +59,7 @@ build: css
 free_port := `lsof -nP -iTCP -sTCP:LISTEN | awk '$9 ~ /^(127\.|\*:|\[::1?\]:)/ {sub(/.*:/, "", $9); used[$9]} END {for (p = 3000; p <= 3050; p++) if (!(p in used)) {print p; exit}}'`
 
 # Serve until interrupted, on a free port
-serve port=free_port: css
+serve port=free_port:
     cargo run --bin redstonedb -- {{ port }}
 
 # Test, unless the suite passed on exactly these files, then build the
@@ -78,7 +82,7 @@ status:
 
 # Restart the server when source files change
 watch:
-    watchexec --restart --watch src --watch static --watch styles --watch migrations --ignore static/app.css --exts rs,css,js,sql -- just serve
+    watchexec --restart --watch src --watch static --watch styles --watch migrations --ignore static/app.css --exts rs,css,js,sql -- just css serve
 
 # Needs a live database; everything else does not.
 [doc('Refresh the offline query metadata in .sqlx/ after changing a query')]
