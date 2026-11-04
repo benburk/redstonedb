@@ -114,11 +114,83 @@ async fn a_visitor_signed_out_is_sent_to_log_in_to_upload_or_edit() {
         "/settings".to_owned(),
         format!("/schematics/{id}/edit"),
         format!("/schematics/{id}/versions/new"),
+        format!("/schematics/{id}/download"),
+        format!("/schematics/{id}/download?colours=original"),
+        format!("/schematics/{id}/versions/1/download"),
     ] {
         let response = site.get(&path, None).await;
         assert_eq!(response.status(), StatusCode::SEE_OTHER, "{path}");
         assert_eq!(location(&response), "/sessions/new", "{path}");
     }
+}
+
+#[tokio::test]
+async fn a_visitor_signed_out_sees_the_viewer_but_not_a_download() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+
+    let preview = site
+        .get(&format!("/schematics/{id}/download?preview=yes"), None)
+        .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    let page = site.get(&format!("/schematics/{id}"), None).await;
+    let page = page.text().await.unwrap();
+    assert!(page.contains("Sign in to download"));
+    assert!(!page.contains(r#"commandfor="download" command="show-modal""#));
+    assert_eq!(downloads(&site.db, &id).await, Vec::new());
+}
+
+#[tokio::test]
+async fn each_download_is_logged_with_who_took_it() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let other = common::sign_in(&site.db, "2", "alex").await;
+    let id = site.adder(&owner).await;
+    let others = site.session(&other).await;
+
+    for path in [
+        format!("/schematics/{id}/download"),
+        format!("/schematics/{id}/download?preview=yes"),
+        format!("/schematics/{id}/versions/1/download"),
+    ] {
+        let response = site.get(&path, Some(&others)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+    }
+    let head = site
+        .ask(
+            reqwest::Method::HEAD,
+            &format!("/schematics/{id}/download"),
+            Some(&others),
+        )
+        .await;
+    assert_eq!(head.status(), StatusCode::OK);
+
+    // The viewer's fetch and a HEAD request are no download.
+    let alex = Some(other.id);
+    assert_eq!(
+        downloads(&site.db, &id).await,
+        [
+            (alex, 1, "file".to_owned()),
+            (alex, 1, "version".to_owned())
+        ]
+    );
+    let s = schematic::get(&site.db, &id).await.unwrap().unwrap();
+    assert_eq!(s.downloads, 1, "the counter counts the current file alone");
+}
+
+/// Build `id`'s logged downloads, oldest first: who, which version, what.
+async fn downloads(
+    db: &SqlitePool,
+    id: &str,
+) -> Vec<(Option<Uuid>, i64, String)> {
+    sqlx::query_as(
+        "SELECT user_id, version, kind FROM download WHERE schematic_id = ? ORDER BY id",
+    )
+    .bind(id)
+    .fetch_all(db)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -166,7 +238,7 @@ async fn a_private_build_is_not_found_by_anyone_else() {
     }
     for path in [
         format!("/schematics/{id}"),
-        format!("/schematics/{id}/download"),
+        format!("/schematics/{id}/download?preview=yes"),
     ] {
         let response = site.get(&path, None).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");

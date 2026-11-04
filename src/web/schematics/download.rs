@@ -13,7 +13,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, DownloadKind, Schematic},
         user::User,
         version,
     },
@@ -147,8 +147,12 @@ pub async fn download(
     Query(asked): Query<Download>,
     Query(fields): Query<PaletteFields>,
 ) -> Result<Response, AppError> {
-    // The 3D viewer's fetch, and a HEAD request, is no download.
+    // The 3D viewer's fetch, and a HEAD request, is no download. Anything
+    // else takes an account.
     let preview = asked.preview.is_some();
+    if !preview && viewer.is_none() {
+        return Err(AppError::SignedOut);
+    }
     let counted = !preview && method == Method::GET;
     let theme = match &viewer {
         Some(user) => palette::of(&state.db, user.id).await?,
@@ -164,6 +168,14 @@ pub async fn download(
         palette.as_ref(),
     )
     .await?;
+    if let (true, Some(user)) = (counted, &viewer) {
+        let kind = if asked.part.is_some() {
+            DownloadKind::Part
+        } else {
+            DownloadKind::File
+        };
+        schematic::log_download(&state.db, &id, user.id, None, kind).await?;
+    }
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {

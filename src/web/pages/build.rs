@@ -111,8 +111,12 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 // page with the menu at its end; beside the title once
                 // there is room.
                 div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
-                    button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
-                    (download_dialog(s, viewer.is_some(), colours))
+                    @if viewer.is_some() {
+                        button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
+                        (download_dialog(s, colours))
+                    } @else {
+                        button type="button" aria-disabled="true" title=(super::SIGN_IN_TO_DOWNLOAD) class="btn btn-primary flex-1 sm:flex-none" { "Download" }
+                    }
                     @if viewer.is_some() {
                         (favorite_button(&path, favorited))
                     }
@@ -139,9 +143,9 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 Status::Untested => {}
             }
             @if let Ok(file) = file {
-                (stack_guide::stacking_section(s, &file.stacking, stacking_found(s)))
+                (stack_guide::stacking_section(s, &file.stacking, stacking_found(s), viewer.is_some()))
             }
-            (version::versions_section(s, versions))
+            (version::versions_section(s, versions, viewer.is_some()))
         },
     )
 }
@@ -900,13 +904,9 @@ fn delete_dialog(s: &Schematic) -> Markup {
 /// editor custom asks the server for, with the fields so far, so choosing
 /// it again keeps them; copies of a stackable one, or one copy with glass
 /// at two corners of the box `//rstack` stacks, for `WorldEdit` to select
-/// it by; and, for someone `signed_in`, a button that sends the file so
-/// made to their Schemati instead.
-fn download_dialog(
-    s: &Schematic,
-    signed_in: bool,
-    colours: ColoursShown,
-) -> Markup {
+/// it by; and a button that sends the file so made to the viewer's
+/// Schemati instead. Only someone signed in is shown it.
+fn download_dialog(s: &Schematic, colours: ColoursShown) -> Markup {
     let path = format!("/schematics/{}", s.id);
     let filename = s.filename();
     let stem = filename.trim_end_matches(".schem");
@@ -987,18 +987,14 @@ fn download_dialog(
                 }
                 div class="flex flex-wrap items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Download" }
-                    @if signed_in {
-                        button type="submit" formaction={ (path) "/schemati" } formmethod="post"
-                            fx-action={ (path) "/schemati" } fx-method="post" fx-target="#sent" fx-swap="innerHTML"
-                            class="btn btn-quiet" {
-                            "Send to Schemati"
-                        }
+                    button type="submit" formaction={ (path) "/schemati" } formmethod="post"
+                        fx-action={ (path) "/schemati" } fx-method="post" fx-target="#sent" fx-swap="innerHTML"
+                        class="btn btn-quiet" {
+                        "Send to Schemati"
                     }
                     button type="button" commandfor="download" command="close" class="btn btn-quiet" { "Cancel" }
                 }
-                @if signed_in {
-                    div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
-                }
+                div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
             }
         }
     }

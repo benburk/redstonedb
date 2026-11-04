@@ -8,7 +8,7 @@ use axum::{
 };
 
 use crate::{
-    models::{schematic, user::User, version},
+    models::{schematic, version},
     web::{
         app_state::AppState, error::AppError, extractors::session::SignedIn,
     },
@@ -33,18 +33,27 @@ pub async fn form(
     show_edit(&state.db, &user, &s, view).await
 }
 
-/// An earlier version's file, under the build's filename with its number.
+/// An earlier version's file, under the build's filename with its number,
+/// to an account alone.
 pub async fn download(
     Path((id, number)): Path<(String, i64)>,
     State(state): State<AppState>,
-    viewer: Option<User>,
+    SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
-    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
+    let s = schematic::get_visible(&state.db, &id, Some(&user))
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::data(&state.db, &id, number)
         .await?
         .ok_or(AppError::NotFound)?;
+    schematic::log_download(
+        &state.db,
+        &id,
+        user.id,
+        Some(number),
+        schematic::DownloadKind::Version,
+    )
+    .await?;
     let filename = s.filename().replace(".schem", &format!("_v{number}.schem"));
     Ok(super::attachment(&filename, data))
 }

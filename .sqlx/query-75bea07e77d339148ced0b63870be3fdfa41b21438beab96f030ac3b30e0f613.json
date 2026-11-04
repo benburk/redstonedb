@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO download (schematic_id, user_id, version, kind)\n         VALUES (?1, ?2, coalesce(?3, (SELECT version FROM current_file\n             WHERE schematic_id = ?1)), ?4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "75bea07e77d339148ced0b63870be3fdfa41b21438beab96f030ac3b30e0f613"
+}

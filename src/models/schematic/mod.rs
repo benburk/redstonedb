@@ -15,9 +15,9 @@ pub use load::{
 };
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use write::{
-    Measured, New, count_download, delete, favorited, favorites, insert,
-    set_details, set_favorite, set_flags, set_import_details, set_measured,
-    set_public, set_stacking, set_widened,
+    DownloadKind, Measured, New, count_download, delete, favorited, favorites,
+    insert, log_download, set_details, set_favorite, set_flags,
+    set_import_details, set_measured, set_public, set_stacking, set_widened,
 };
 
 named_values! {

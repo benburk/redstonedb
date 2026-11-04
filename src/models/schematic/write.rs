@@ -475,6 +475,54 @@ pub async fn count_download<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
+/// What a download took of a build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DownloadKind {
+    /// Its current file, whole or stacked.
+    File,
+    /// A stacking part of its current file.
+    Part,
+    /// An earlier version's file.
+    Version,
+    /// Its current file, sent to the account's Schemati.
+    Schemati,
+}
+
+impl DownloadKind {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Part => "part",
+            Self::Version => "version",
+            Self::Schemati => "schemati",
+        }
+    }
+}
+
+/// Keeps a record of `user` taking schematic `id` as `kind`: version
+/// `version`, or the current one when `None`.
+pub async fn log_download<'e, E: SqliteExecutor<'e>>(
+    db: E,
+    id: &str,
+    user: uuid::Uuid,
+    version: Option<i64>,
+    kind: DownloadKind,
+) -> Result<(), sqlx::Error> {
+    let kind = kind.name();
+    sqlx::query!(
+        "INSERT INTO download (schematic_id, user_id, version, kind)
+         VALUES (?1, ?2, coalesce(?3, (SELECT version FROM current_file
+             WHERE schematic_id = ?1)), ?4)",
+        id,
+        user,
+        version,
+        kind
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Deletes a schematic, with its versions and everything else of it.
 pub async fn delete<'e, E: SqliteExecutor<'e>>(
     db: E,

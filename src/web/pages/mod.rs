@@ -260,6 +260,21 @@ fn private_badge() -> Markup {
     }
 }
 
+/// Why a download is greyed out for someone signed out.
+const SIGN_IN_TO_DOWNLOAD: &str = "Sign in to download";
+
+/// A link to download a file at `href`, for someone signed in; greyed out,
+/// saying why, for anyone else.
+fn download_link(href: &str, text: &str, signed_in: bool) -> Markup {
+    html! {
+        @if signed_in {
+            a href=(href) { (text) }
+        } @else {
+            span class="cursor-not-allowed text-muted" title=(SIGN_IN_TO_DOWNLOAD) { (text) }
+        }
+    }
+}
+
 fn field(name: &str, value: impl maud::Render) -> Markup {
     html! {
         dt class="text-muted" { (name) }

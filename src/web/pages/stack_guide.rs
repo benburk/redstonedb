@@ -20,11 +20,12 @@ const LISTED: usize = 8;
 
 /// The section for a stackable build's page; nothing for one that does
 /// not stack. `decided` when the simulation found the stacking, so it
-/// needs no warnings.
+/// needs no warnings. Its files download only when `signed_in`.
 pub fn stacking_section(
     s: &Schematic,
     reviews: &[Review],
     decided: bool,
+    signed_in: bool,
 ) -> Markup {
     if reviews.is_empty() {
         return html! {};
@@ -40,7 +41,7 @@ pub fn stacking_section(
                     @if let Some(class) = class(s, review.direction).filter(|_| decided) {
                         p class="text-muted" { (class) }
                     }
-                    (steps(s, review))
+                    (steps(s, review, signed_in))
                     @if !decided {
                         (warnings(review))
                     }
@@ -115,17 +116,19 @@ fn rstack(direction: StackDirection, copies: i64) -> String {
     format!("//rstack {token} {} {step}", copies - 1)
 }
 
-/// The steps to stack it one way, with the files they paste.
-fn steps(s: &Schematic, review: &Review) -> Markup {
+/// The steps to stack it one way, with the files they paste, downloadable
+/// when `signed_in`.
+fn steps(s: &Schematic, review: &Review, signed_in: bool) -> Markup {
     let direction = review.direction;
     let copies = direction.max_copies.unwrap_or(8);
     let command = rstack(direction, copies);
-    let download = |part: &str| {
-        format!(
+    let download = |part: &str, text: &str| {
+        let href = format!(
             "/schematics/{}/download?part={part}&direction={}",
             s.id,
             direction.name()
-        )
+        );
+        super::download_link(&href, text, signed_in)
     };
     let label = "text-muted tabular-nums";
     html! {
@@ -137,12 +140,12 @@ fn steps(s: &Schematic, review: &Review) -> Markup {
                 dd { code { (command) } " (" (copies) " copies)" }
             } @else {
                 dt class=(label) { "1  Paste" }
-                dd { a href=(download("without")) { "without first-copy parts" } }
+                dd { (download("without", "without first-copy parts")) }
                 dt class=(label) { "2  Stack" }
                 dd { code { (command) } " (" (copies) " copies)" }
                 dt class=(label) { "3  Paste" }
                 dd {
-                    a href=(download("first")) { "first-copy parts" } ", same spot: "
+                    (download("first", "first-copy parts")) ", same spot: "
                     code { "//gmask air" } " " code { "//paste -a" } " " code { "//gmask" }
                 }
                 dt class=(label) { "First copy" }

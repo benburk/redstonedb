@@ -6,9 +6,13 @@ use crate::models::{schematic::Schematic, version::Version};
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD};
 
-/// A build's versions, newest first, each older one downloadable; shown
-/// once it has more than one.
-pub fn versions_section(s: &Schematic, versions: &[Version]) -> Markup {
+/// A build's versions, newest first, each older one downloadable when
+/// `signed_in`; shown once it has more than one.
+pub fn versions_section(
+    s: &Schematic,
+    versions: &[Version],
+    signed_in: bool,
+) -> Markup {
     let current = versions.first().map_or(1, |v| v.version);
     html! {
         @if versions.len() > 1 {
@@ -49,7 +53,7 @@ pub fn versions_section(s: &Schematic, versions: &[Version]) -> Markup {
                                     }
                                     td class=(TABLE_CELL) {
                                         @if version.version != current {
-                                            a href={ "/schematics/" (s.id) "/versions/" (version.version) "/download" } { "Download" }
+                                            (super::download_link(&format!("/schematics/{}/versions/{}/download", s.id, version.version), "Download", signed_in))
                                         }
                                     }
                                 }
