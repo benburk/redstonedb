@@ -31,9 +31,9 @@ sqlite3 "$copy" "DELETE FROM session;
     VACUUM;"
 
 mkdir -p backups
-if [ -f redstone.db ]; then
-    sqlite3 redstone.db ".backup backups/local-$stamp.db"
+if [ -f database.sqlite3 ]; then
+    sqlite3 database.sqlite3 ".backup backups/local-$stamp.db"
     echo "Backed up the local database to backups/local-$stamp.db."
 fi
-sqlite3 redstone.db ".restore $copy"
-echo "redstone.db now holds the live data: $(sqlite3 redstone.db 'SELECT count(*) FROM schematic') builds."
+sqlite3 database.sqlite3 ".restore $copy"
+echo "database.sqlite3 now holds the live data: $(sqlite3 database.sqlite3 'SELECT count(*) FROM schematic') builds."

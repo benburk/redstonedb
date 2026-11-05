@@ -76,7 +76,6 @@
               watchexec
               sqlite
               tailwindcss_4
-              lsof
             ];
           };
         }

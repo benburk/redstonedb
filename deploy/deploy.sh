@@ -4,7 +4,7 @@
 # that it answers.
 #
 # A release with new migrations is worth trying first on a copy of the live
-# data: `just pull-db`, then `just serve`. To roll back, move each `.previous`
+# data: `just setup live`, then `just serve`. To roll back, move each `.previous`
 # binary in /usr/local/lib/redstonedb back over its new one and restart the
 # service; if the bad release migrated the database, restore the copy taken
 # below, with the site stopped.

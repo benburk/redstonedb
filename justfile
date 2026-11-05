@@ -10,11 +10,11 @@ default:
 
 alias fmt := format
 
-# Write .env from .env.example, and fill a new database from the test
-# fixtures, each unless there is one already
-setup:
+# Set up a fresh checkout to run, seeding a missing database from the test
+# fixtures. `just setup live` replaces the database with a copy of the live one
+setup data="seed":
     test -e .env || cp .env.example .env
-    test -e redstone.db || cargo run -q --bin rsdb -- seed
+    {{ if data == "seed" { "test -e database.sqlite3 || cargo run -q --bin rsdb -- seed" } else if data == "live" { "./deploy/pull-db.sh" } else { error("setup takes seed or live") } }}
 
 # Format code and docs
 format:
@@ -56,9 +56,9 @@ css:
 build:
     cargo build --release
 
-# The first port in 3000-3050 that nothing listens on at loopback or every
-# address, the listeners that would stop the server binding 127.0.0.1.
-free_port := `lsof -nP -iTCP -sTCP:LISTEN | awk '$9 ~ /^(127\.|\*:|\[::1?\]:)/ {sub(/.*:/, "", $9); used[$9]} END {for (p = 3000; p <= 3050; p++) if (!(p in used)) {print p; exit}}'`
+# The first port in 3000-3050 that nothing answers on at 127.0.0.1, whoever
+# runs it: a listener there or on every address stops a server binding it.
+free_port := `bash -c 'for p in {3000..3050}; do (exec 3<>/dev/tcp/127.0.0.1/$p) 2>/dev/null || { echo $p; exit; }; done'`
 
 # Serve until interrupted, on a free port
 serve port=free_port:
@@ -69,10 +69,6 @@ serve port=free_port:
 deploy:
     @./deploy/tested.sh head || just test
     ./deploy/deploy.sh
-
-# Replace the local database with a copy of the live one
-pull-db:
-    ./deploy/pull-db.sh
 
 # Follow the live site's log
 logs:
@@ -89,11 +85,11 @@ watch:
 # Needs a live database; everything else does not.
 [doc('Refresh the offline query metadata in .sqlx/ after changing a query')]
 prepare:
-    SQLX_OFFLINE=false cargo sqlx prepare -- --all-targets
+    SQLX_OFFLINE=false DATABASE_URL=sqlite:database.sqlite3 cargo sqlx prepare -- --all-targets
 
 # Positional arguments keep a quoted argument, such as a description, whole.
 [doc("Run the rsdb CLI against this repo's database, from any directory")]
 [no-cd]
 [positional-arguments]
 rsdb *args:
-    @DATABASE_URL=sqlite:{{ justfile_directory() }}/redstone.db cargo run -q --manifest-path {{ justfile_directory() }}/Cargo.toml --bin rsdb -- "$@"
+    @DATABASE_URL=sqlite:{{ justfile_directory() }}/database.sqlite3 cargo run -q --manifest-path {{ justfile_directory() }}/Cargo.toml --bin rsdb -- "$@"
