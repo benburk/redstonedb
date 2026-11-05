@@ -7,7 +7,7 @@ use maud::{Markup, html};
 use uuid::Uuid;
 
 use crate::models::{
-    activity::{Event, Filter, Kind, Page},
+    activity::{Change, Event, Filter, Kind, Page},
     schematic::Schematic,
     user::User,
 };
@@ -150,6 +150,13 @@ fn row(log: &ActivityLog, event: &Event) -> Markup {
                 @if let Some(note) = note(event, version) {
                     p class="text-meta text-muted" { (note) }
                 }
+                @if !event.changes.is_empty() {
+                    ul class="mt-1 flex flex-col gap-1 text-meta" {
+                        @for change in &event.changes {
+                            li { (change_row(change)) }
+                        }
+                    }
+                }
             }
             time datetime=(event.at) class="shrink-0 pt-0.5 text-meta text-muted tabular-nums" { (time) }
         }
@@ -160,9 +167,8 @@ fn row(log: &ActivityLog, event: &Event) -> Markup {
 /// or what a download took.
 fn note(event: &Event, version: i64) -> Option<String> {
     match event.kind {
-        Kind::SignUp | Kind::Upload => None,
+        Kind::SignUp | Kind::Upload | Kind::Edit => None,
         Kind::Version => event.detail.clone(),
-        Kind::Edit => Some(format!("Changed {}", event.changed.join(", "))),
         Kind::Download => Some(match event.detail.as_deref() {
             Some("part") => format!("A stacking part, version {version}"),
             Some("version") => format!("Earlier version {version}"),
@@ -170,6 +176,52 @@ fn note(event: &Event, version: i64) -> Option<String> {
             Some("diff") => format!("Side of a diff, version {version}"),
             _ => format!("Version {version}"),
         }),
+    }
+}
+
+/// Whether `value` reads on one line beside its detail's name.
+fn short(value: Option<&str>) -> bool {
+    value.is_none_or(|v| v.chars().count() <= 80 && !v.contains('\n'))
+}
+
+/// A detail's value before or after an edit, or none.
+fn value(value: Option<&str>, colours: &str) -> Markup {
+    html! {
+        @match value {
+            Some(v) => span class={ "rounded-[3px] px-1 " (colours) } { (v) },
+            None => span class="text-muted italic" { "none" },
+        }
+    }
+}
+
+/// One detail an edit changed: on one line, before and after, when both
+/// are short; else folded, each in full, as a description is.
+fn change_row(change: &Change) -> Markup {
+    let (from, to) = (change.from.as_deref(), change.to.as_deref());
+    let (removed, added) = (
+        "bg-danger/10 text-danger line-through",
+        "bg-success/10 text-success",
+    );
+    html! {
+        @if short(from) && short(to) {
+            span class="text-muted" { (change.detail) ": " }
+            (value(from, removed)) " → " (value(to, added))
+        } @else {
+            details {
+                summary class="cursor-pointer text-muted" { (change.detail) " changed" }
+                div class="mt-1 grid gap-2 sm:grid-cols-2" {
+                    @for (label, text, colours) in [("Before", from, "border-danger/40"), ("After", to, "border-success/40")] {
+                        div class={ "rounded-control border p-2 " (colours) } {
+                            p class="mb-1 font-semibold text-muted" { (label) }
+                            @match text {
+                                Some(text) => p class="whitespace-pre-wrap break-words text-ink" { (text) },
+                                None => p class="text-muted italic" { "none" },
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
