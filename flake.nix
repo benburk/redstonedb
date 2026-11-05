@@ -63,6 +63,7 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
+              just
               cargo
               rustc
               clippy
