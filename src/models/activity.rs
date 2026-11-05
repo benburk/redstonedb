@@ -6,7 +6,10 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use super::{schematic::Schematic, user::REDSTONEDB};
+use super::{
+    schematic::{Schematic, StackDirection},
+    user::REDSTONEDB,
+};
 
 /// What happened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,8 +118,8 @@ pub struct Event {
     pub detail: Option<String>,
     /// For a version, the one it restores.
     pub restores: Option<i64>,
-    /// For an edit, what it changed, such as `description`.
-    pub changed: Vec<String>,
+    /// For an edit, each detail it changed, before and after.
+    pub changes: Vec<Change>,
 }
 
 /// A page of the log: its events, newest first, and the time to pass as
@@ -152,7 +155,7 @@ pub async fn page(
                 schematic_id, version, note, restores
             FROM schematic_version
             UNION ALL
-            SELECT 'edit', at, user_id, schematic_id, NULL, changed, NULL
+            SELECT 'edit', at, user_id, schematic_id, NULL, changes, NULL
             FROM edit
             UNION ALL
             SELECT 'download', at, user_id, schematic_id, version, kind, NULL
@@ -173,13 +176,13 @@ pub async fn page(
         .into_iter()
         .filter_map(|row| {
             let kind = Kind::parse(&row.kind)?;
-            let (detail, changed) = if kind == Kind::Edit {
-                let changed = row
+            let (detail, changes) = if kind == Kind::Edit {
+                let changes = row
                     .detail
                     .as_deref()
                     .and_then(|json| serde_json::from_str(json).ok())
                     .unwrap_or_default();
-                (None, changed)
+                (None, changes)
             } else {
                 (row.detail, Vec::new())
             };
@@ -191,7 +194,7 @@ pub async fn page(
                 version: row.version,
                 detail,
                 restores: row.restores,
-                changed,
+                changes,
             })
         })
         .collect();
@@ -224,63 +227,102 @@ fn older_than(at: &str) -> String {
     }
 }
 
-/// What an edit changed of build `before`, which is `after` now, as the log
-/// names each detail, such as `description`; a new file is a version of its
-/// own, which this leaves out.
-pub fn changed(before: &Schematic, after: &Schematic) -> Vec<&'static str> {
-    let tag_names = |s: &Schematic| -> Vec<String> {
-        s.tags
-            .iter()
-            .filter(|t| !t.is_derived())
-            .map(|t| t.name.clone())
-            .collect()
-    };
-    [
-        ("category", before.category != after.category),
-        ("name", before.given_name != after.given_name),
-        ("design", before.design != after.design),
-        ("description", before.description != after.description),
-        ("date built", before.built_on != after.built_on),
-        ("width", before.width != after.width),
-        ("orientation", before.orientation != after.orientation),
-        ("encoding", before.encoding != after.encoding),
-        ("logic", before.own_logic != after.own_logic),
-        ("latency", before.latency != after.latency),
-        ("synchronized", before.synchronized != after.synchronized),
-        ("throughput", before.throughput != after.throughput),
-        ("at least", before.at_least != after.at_least),
-        ("pulse", before.pulse != after.pulse),
-        ("bytes", before.bytes != after.bytes),
-        ("flags", before.flags != after.flags),
-        ("authors", before.authors != after.authors),
-        ("contributors", before.contributors != after.contributors),
-        ("tags", tag_names(before) != tag_names(after)),
-        ("stacking", before.stacking != after.stacking),
-        ("visibility", before.public != after.public),
-    ]
-    .into_iter()
-    .filter_map(|(name, changed)| changed.then_some(name))
-    .collect()
+/// One detail an edit changed, as text, such as the authors before and
+/// after; `None` for a detail that was empty.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Change {
+    /// As the log names it, such as `description`.
+    pub detail: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
-/// Keeps `user`'s edit of build `id`, which changed `changed`; an edit
-/// that changed nothing is not kept.
+/// Build `s`'s details an edit can change, each as the log names it and
+/// as text; a new file is a version of its own, which this leaves out.
+fn details(s: &Schematic) -> Vec<(&'static str, Option<String>)> {
+    let list =
+        |items: Vec<String>| Some(items.join(", ")).filter(|l| !l.is_empty());
+    let number = |n: Option<i64>| n.map(|n| n.to_string());
+    vec![
+        ("category", Some(s.category_label())),
+        ("name", s.given_name.clone()),
+        ("design", s.design_label()),
+        ("description", s.description.clone()),
+        ("date built", s.built_on.clone()),
+        ("width", number(s.width)),
+        ("orientation", Some(s.orientation.label().to_owned())),
+        ("encoding", s.encoding.map(|e| e.label().to_owned())),
+        ("logic", s.own_logic.map(|l| l.label().to_owned())),
+        ("latency", number(s.latency)),
+        (
+            "synchronized",
+            s.synchronized
+                .map(|yes| if yes { "yes" } else { "no" }.to_owned()),
+        ),
+        ("throughput", number(s.throughput)),
+        ("at least", number(s.at_least)),
+        ("pulse", number(s.pulse)),
+        ("bytes", number(s.bytes)),
+        (
+            "flags",
+            list(s.flags.iter().map(|f| f.label.to_owned()).collect()),
+        ),
+        ("authors", list(s.authors.clone())),
+        ("contributors", list(s.contributors.clone())),
+        (
+            "tags",
+            list(
+                s.tags
+                    .iter()
+                    .filter(|t| !t.is_derived())
+                    .map(|t| t.name.clone())
+                    .collect(),
+            ),
+        ),
+        (
+            "stacking",
+            list(s.stacking.iter().map(StackDirection::describe).collect()),
+        ),
+        (
+            "visibility",
+            Some(if s.public { "public" } else { "private" }.to_owned()),
+        ),
+    ]
+}
+
+/// What an edit changed of build `before`, which is `after` now: each
+/// detail whose text differs, with its text before and after.
+pub fn changed(before: &Schematic, after: &Schematic) -> Vec<Change> {
+    details(before)
+        .into_iter()
+        .zip(details(after))
+        .filter(|((_, from), (_, to))| from != to)
+        .map(|((detail, from), (_, to))| Change {
+            detail: detail.to_owned(),
+            from,
+            to,
+        })
+        .collect()
+}
+
+/// Keeps `user`'s edit of build `id`, which made `changes`; an edit that
+/// changed nothing is not kept.
 pub async fn log_edit<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
     user: Uuid,
-    changed: &[&str],
+    changes: &[Change],
 ) -> Result<(), sqlx::Error> {
-    if changed.is_empty() {
+    if changes.is_empty() {
         return Ok(());
     }
-    let changed =
-        serde_json::to_string(changed).expect("a list of strings is JSON");
+    let changes =
+        serde_json::to_string(changes).expect("a list of changes is JSON");
     sqlx::query!(
-        "INSERT INTO edit (schematic_id, user_id, changed) VALUES (?, ?, ?)",
+        "INSERT INTO edit (schematic_id, user_id, changes) VALUES (?, ?, ?)",
         id,
         user,
-        changed
+        changes
     )
     .execute(db)
     .await?;
