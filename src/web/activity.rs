@@ -1,10 +1,12 @@
-//! The moderation log, for mods and admins.
+//! The moderation log, for mods and admins, where an edit's description
+//! or credits can be put back.
 
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Query, State},
-    response::{IntoResponse, Response},
+    Form,
+    extract::{Path, Query, State},
+    response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 
@@ -33,22 +35,67 @@ pub struct Shown {
     before: Option<String>,
 }
 
+impl Shown {
+    /// The time the page starts from, if it names one.
+    fn before(&self) -> Option<&str> {
+        self.before.as_deref().filter(|b| !b.is_empty())
+    }
+}
+
 /// The log, newest first, filtered to one kind of event when its button
 /// is chosen.
 pub async fn show(
     State(state): State<AppState>,
     Moderator(viewer): Moderator,
-    Query(Shown { show, before }): Query<Shown>,
+    Query(shown): Query<Shown>,
+) -> Result<Response, AppError> {
+    render(&state, &viewer, &shown, "").await
+}
+
+/// What a revert sends: the detail to put back, and the log page it was
+/// sent from, to return to.
+#[derive(Deserialize)]
+pub struct Revert {
+    detail: String,
+    #[serde(flatten)]
+    shown: Shown,
+}
+
+/// Puts back a detail as it was before edit `id`, then returns to the log
+/// page it was sent from; a refusal shows that page saying why.
+pub async fn revert(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Moderator(viewer): Moderator,
+    Form(form): Form<Revert>,
+) -> Result<Response, AppError> {
+    match activity::revert(&state.db, id, &form.detail, &viewer).await? {
+        Ok(build) => {
+            tracing::info!(
+                build,
+                edit = id,
+                detail = form.detail,
+                by = viewer.username,
+                "reverted an edit"
+            );
+            let filter = Filter::named(&form.shown.show);
+            let back = pages::activity_href(filter, form.shown.before());
+            Ok(Redirect::to(&back).into_response())
+        }
+        Err(message) => render(&state, &viewer, &form.shown, message).await,
+    }
+}
+
+/// The log page `shown` names, saying `message` if it isn't empty.
+async fn render(
+    state: &AppState,
+    viewer: &User,
+    shown: &Shown,
+    message: &str,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let filter = Filter::named(&show);
-    let page = activity::page(
-        db,
-        filter,
-        before.as_deref().filter(|b| !b.is_empty()),
-        PAGE,
-    )
-    .await?;
+    let filter = Filter::named(&shown.show);
+    let page = activity::page(db, filter, shown.before(), PAGE).await?;
     let mut users: HashMap<_, _> = User::all(db)
         .await?
         .into_iter()
@@ -75,8 +122,10 @@ pub async fn show(
         .map(|s| (s.id.clone(), s))
         .collect();
     let log = pages::ActivityLog {
-        viewer: &viewer,
+        viewer,
         filter,
+        before: shown.before(),
+        message,
         page: &page,
         users: &users,
         builds: &builds,

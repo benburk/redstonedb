@@ -7,8 +7,8 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
 use super::{
-    schematic::{Schematic, StackDirection},
-    user::REDSTONEDB,
+    schematic::{self, Restorable, Schematic, StackDirection},
+    user::{REDSTONEDB, User},
 };
 
 /// What happened.
@@ -103,6 +103,8 @@ impl Filter {
 /// One thing that happened.
 #[derive(Debug, Clone)]
 pub struct Event {
+    /// For an edit, its id, which reverting it names.
+    pub edit: Option<i64>,
     pub kind: Kind,
     /// Such as `2026-11-04T17:03:12Z`.
     pub at: String,
@@ -144,21 +146,22 @@ pub async fn page(
         r#"SELECT kind as "kind!: String", at as "at!: String",
             user_id as "user_id?: Uuid", schematic_id as "schematic_id?: String",
             version as "version?: i64", detail as "detail?: String",
-            restores as "restores?: i64"
+            restores as "restores?: i64", edit as "edit?: i64"
          FROM (
             SELECT 'signup' AS kind, created_at AS at, id AS user_id,
                 NULL AS schematic_id, NULL AS version, NULL AS detail,
-                NULL AS restores
+                NULL AS restores, NULL AS edit
             FROM user WHERE id <> ?1
             UNION ALL
             SELECT iif(version = 1, 'upload', 'version'), added_at, added_by,
-                schematic_id, version, note, restores
+                schematic_id, version, note, restores, NULL
             FROM schematic_version
             UNION ALL
-            SELECT 'edit', at, user_id, schematic_id, NULL, changes, NULL
+            SELECT 'edit', at, user_id, schematic_id, NULL, changes, NULL, id
             FROM edit
             UNION ALL
-            SELECT 'download', at, user_id, schematic_id, version, kind, NULL
+            SELECT 'download', at, user_id, schematic_id, version, kind, NULL,
+                NULL
             FROM download
          )
          WHERE (?2 IS NULL OR kind = ?2 OR (?2 = 'upload' AND kind = 'version'))
@@ -187,6 +190,7 @@ pub async fn page(
                 (row.detail, Vec::new())
             };
             Some(Event {
+                edit: row.edit,
                 kind,
                 at: row.at,
                 user: row.user_id,
@@ -327,6 +331,64 @@ pub async fn log_edit<'e, E: SqliteExecutor<'e>>(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Whether `change`, an edit of build `s`, can be put back: a description
+/// or credits, still as the edit left them.
+pub fn revertible(s: &Schematic, change: &Change) -> bool {
+    Restorable::named(&change.detail).is_some()
+        && details(s)
+            .into_iter()
+            .any(|(detail, now)| detail == change.detail && now == change.to)
+}
+
+/// Puts back `detail` as it was before edit `edit`, by `by`, keeping that
+/// as an edit of its own; the build's id, or a sentence saying why it
+/// cannot be put back.
+pub async fn revert(
+    db: &SqlitePool,
+    edit: i64,
+    detail: &str,
+    by: &User,
+) -> Result<Result<String, &'static str>, sqlx::Error> {
+    let Some(row) = sqlx::query!(
+        "SELECT schematic_id, changes FROM edit WHERE id = ?",
+        edit
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(Err("That edit is not in the log."));
+    };
+    let changes: Vec<Change> =
+        serde_json::from_str(&row.changes).unwrap_or_default();
+    let Some(change) = changes.into_iter().find(|c| c.detail == detail) else {
+        return Ok(Err("That edit did not change that."));
+    };
+    let Some(restorable) = Restorable::named(detail) else {
+        return Ok(Err(
+            "Only a description, authors, or contributors can be put back.",
+        ));
+    };
+    let s = schematic::get(db, &row.schematic_id)
+        .await?
+        .filter(|s| s.visible_to(Some(by)));
+    let Some(s) = s else {
+        return Ok(Err("That build is gone."));
+    };
+    if !revertible(&s, &change) {
+        return Ok(Err(
+            "It has changed since that edit, so it was left as it is; edit the build to change it.",
+        ));
+    }
+    schematic::restore(db, &s.id, restorable, change.from.as_deref()).await?;
+    let undone = Change {
+        detail: change.detail,
+        from: change.to,
+        to: change.from,
+    };
+    log_edit(db, &s.id, by.id, &[undone]).await?;
+    Ok(Ok(s.id))
 }
 
 #[cfg(test)]

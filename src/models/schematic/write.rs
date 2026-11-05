@@ -248,6 +248,68 @@ async fn set_people(
     tag::set(tx, id, &details.tags).await
 }
 
+/// A detail the moderation log can put back as an edit left it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Restorable {
+    Description,
+    Authors,
+    Contributors,
+}
+
+impl Restorable {
+    /// The detail the log names `name`, if it can be put back.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "description" => Some(Self::Description),
+            "authors" => Some(Self::Authors),
+            "contributors" => Some(Self::Contributors),
+            _ => None,
+        }
+    }
+}
+
+/// Sets build `id`'s `detail` to `value`, as the log keeps it: a
+/// description whole, or names joined by `, `; `None` for none. The build
+/// counts as edited.
+pub async fn restore(
+    db: &SqlitePool,
+    id: &str,
+    detail: Restorable,
+    value: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let names = || -> Vec<String> {
+        value
+            .map(|v| v.split(", ").map(str::to_owned).collect())
+            .unwrap_or_default()
+    };
+    match detail {
+        Restorable::Description => {
+            sqlx::query!(
+                "UPDATE schematic SET description = ? WHERE id = ?",
+                value,
+                id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        Restorable::Authors => {
+            set_credits(&mut tx, id, Credit::Author, &names()).await?;
+        }
+        Restorable::Contributors => {
+            set_credits(&mut tx, id, Credit::Contributor, &names()).await?;
+        }
+    }
+    sqlx::query!(
+        "UPDATE schematic
+         SET edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
+}
+
 /// Replaces the people a build credits in one role with `names`, in that
 /// order. A name given twice, in any case, is credited once.
 async fn set_credits(
