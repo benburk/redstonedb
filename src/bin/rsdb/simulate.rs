@@ -41,7 +41,21 @@ pub(super) async fn simulate(
         }
         ids
     };
-    let one = !all;
+    let failed = run_tests(db, ids, !all).await?;
+    if failed > 0 {
+        bail!("{failed} builds fail their tests");
+    }
+    Ok(())
+}
+
+/// Runs the tests of the builds `ids` again, saying of each build with
+/// none so only when there is `one`, stores what they find, and returns
+/// how many fail.
+pub(super) async fn run_tests(
+    db: &SqlitePool,
+    ids: Vec<String>,
+    one: bool,
+) -> Result<usize> {
     let mut failed = 0;
     // Each build simulates on its own thread, `AT_ONCE` at a time, and
     // says how it went as it finishes.
@@ -77,10 +91,7 @@ pub(super) async fn simulate(
             None => {}
         }
     }
-    if failed > 0 {
-        bail!("{failed} builds fail their tests");
-    }
-    Ok(())
+    Ok(failed)
 }
 
 /// One build's simulation result, on a line or a few.

@@ -227,3 +227,24 @@ fn probing_a_hex_adder_finds_its_digits() {
         ]
     );
 }
+
+/// A file published with the details its preview suggests, as `rsdb seed`
+/// publishes each fixture, goes up as the category it is recognized as,
+/// and the same file again is refused.
+#[tokio::test]
+async fn a_file_published_as_suggested_goes_up_as_what_it_is() {
+    let db = common::database().await;
+    let user = common::sign_in(&db, "1", "seeder").await;
+    let raw = std::fs::read("tests/fixtures/alpha-rca.schem").unwrap();
+    let id = app::web::publish_suggested(&db, &user, &raw)
+        .await
+        .unwrap()
+        .expect("it goes up");
+    let s = app::models::schematic::get(&db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.category, "adder");
+    let again = app::web::publish_suggested(&db, &user, &raw).await.unwrap();
+    assert!(again.is_err());
+}

@@ -44,22 +44,24 @@ just setup
 just serve 3001
 ```
 
-`just setup` writes `.env` from `.env.example` unless there is one already. Discord login redirects to port 3001, so serve there to sign in. With no port given, `just serve` picks a free one with `lsof`.
+`just setup` writes `.env` from `.env.example` and, when there is no `redstone.db`, fills a new one from the test fixtures with `rsdb seed`. With no port given, `just serve` picks a free one with `lsof`.
+
+A fresh checkout needs no `.env`: the development settings, such as the database's path and Discord login's public ID, are in `.cargo/config.toml`, which Cargo gives to `cargo run` and `cargo test` and never to the deployed binary. `.env` holds only what is your own, the Discord secret and the deploy host, and any setting there wins over the committed one.
 
 `just check` also needs `dprint`, `fd`, `ripgrep`, `nixfmt`, and Tailwind CSS v4, which `nix develop` provides.
 
-Discord login needs the three `DISCORD_` settings in `.env`; see `.env.example`. Without them the site runs with login turned off. To try it signed in without Discord, open `/dev/login` on a local server, such as `http://localhost:3001/dev/login?next=/upload`; only debug builds have that route. The first admin is made from the command line, after they have logged in once:
+A development build signs every request in as `DEV_USER`, the admin account `debug` that `rsdb seed` makes; set `DEV_USER` in `.env` to another account's name, or empty to see the site signed out. `/dev/login` signs in as `debug` too, with the role asked for, such as `http://localhost:3001/dev/login?role=user&next=/upload`; only debug builds have that route. Discord login needs `DISCORD_CLIENT_SECRET` in `.env`, and redirects to port 3001, so serve there to sign in with it. On the live site, the first admin is made from the command line, after they have logged in once:
 
 ```sh
 just rsdb users
 just rsdb role <discord username> admin
 ```
 
-`redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `just pull-db` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
+`redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, and runs their tests and timing; it refuses a database that has builds. `just pull-db` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
 
 | Recipe          | What it does                                            |
 | --------------- | ------------------------------------------------------- |
-| `just setup`    | Write `.env` from `.env.example` if there is none       |
+| `just setup`    | Write `.env`, and seed `redstone.db`, if either is gone |
 | `just serve`    | Run the site, on a free port or the one given           |
 | `just watch`    | Run the site, restarting when a source file changes     |
 | `just rsdb ...` | Run `rsdb` against this repo's `redstone.db`            |
@@ -73,7 +75,7 @@ just rsdb role <discord username> admin
 
 Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
 
-`static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/` with `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
+`static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/`, as `.cargo/config.toml` sets `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
 
 ## rsdb
 

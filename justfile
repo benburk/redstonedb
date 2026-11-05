@@ -10,9 +10,11 @@ default:
 
 alias fmt := format
 
-# Write .env from .env.example, unless there is one already
+# Write .env from .env.example, and fill a new database from the test
+# fixtures, each unless there is one already
 setup:
     test -e .env || cp .env.example .env
+    test -e redstone.db || cargo run -q --bin rsdb -- seed
 
 # Format code and docs
 format:
