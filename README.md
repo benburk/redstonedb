@@ -73,7 +73,7 @@ just rsdb role <discord username> admin
 | `just prepare`    | Refresh the offline query metadata in `.sqlx/`          |
 | `just deploy`     | Test, then build and restart the live site              |
 
-Every pull request runs `just check` and `just test` in the flake's shell, from `.github/workflows/check.yml`. Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
+Every pull request runs `just check` and `just test` in the flake's shell, side by side, from `.github/workflows/check.yml`, which also runs on main to keep the build cache pull requests start from. Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
 
 `static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/`, as `.cargo/config.toml` sets `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
 
