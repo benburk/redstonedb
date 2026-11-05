@@ -9,7 +9,7 @@ use crate::{
     import::Analysis,
     recognize::{
         colour,
-        interface::{Bit, Interface, Port},
+        interface::{Bit, Port},
     },
     schem::lines::Role,
     simulate::{InputTiming, OutputTiming, Strength, Timing},
@@ -112,7 +112,8 @@ pub(super) fn interface_section(
     strength: Option<&Strength>,
     inversions: &Inversions,
 ) -> Markup {
-    let Interface { inputs, outputs } = &analysis.interface;
+    let (inputs, outputs) =
+        (&analysis.interface.inputs, &analysis.interface.outputs);
     let inverted = |entry: &PortEntry, input: bool| inversions.of(entry, input);
     let any_inverted = port_entries(inputs)
         .iter()
@@ -121,8 +122,7 @@ pub(super) fn interface_section(
             .iter()
             .any(|e| inverted(e, false) != Inverted::No);
     let timed_in = |entry: &PortEntry| {
-        let timing = timing?;
-        timing
+        timing?
             .inputs
             .iter()
             .find(|input| input.name == entry.ports[0].name)

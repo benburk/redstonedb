@@ -809,7 +809,11 @@ mod tests {
         kinds: &[Kind],
         got: impl Fn(&Case) -> Value,
     ) -> Run {
-        let interface = Interface { inputs, outputs };
+        let interface = Interface {
+            inputs,
+            outputs,
+            binary_outputs: false,
+        };
         let bench = Bench::new(
             (0..interface.inputs.len()).collect(),
             (0..interface.outputs.len()).collect(),
@@ -884,6 +888,7 @@ mod tests {
         let spec = super::super::decoder::spec(&Interface {
             inputs: inputs.clone(),
             outputs: outputs.clone(),
+            binary_outputs: false,
         })
         .unwrap();
         let off =
@@ -908,6 +913,7 @@ mod tests {
         let spec = super::super::converters::parity(&Interface {
             inputs: inputs.clone(),
             outputs: outputs.clone(),
+            binary_outputs: false,
         })
         .unwrap();
         let odd = |case: &Case| Value::from(case[0].count_ones() % 2 == 1);

@@ -1,7 +1,8 @@
 //! Testing stateless builds of one input, A, that convert it: to binary-
 //! coded decimal and back, to its absolute value, and to how many of its
 //! bits are on, as a popcount and a threshold read it, and whether that
-//! is odd, as a parity circuit does.
+//! is odd, as a parity circuit does; and from hex digits, each a block's
+//! signal strength, to binary.
 
 use anyhow::{Result, bail};
 
@@ -128,6 +129,39 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
         bench,
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
         kinds: vec![Kind::new("A as a strength", |case| case[0])],
+        by_digit: false,
+    })
+}
+
+/// A hex-to-binary converter's every value of A, its digit inputs, a hex
+/// digit a block as each block's strength: A in binary, four bits a digit,
+/// on outputs that give a bit a block.
+pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "hex-to-binary converter")?;
+    if !interface.inputs[0].signal_strength {
+        broken!(
+            "A hex-to-binary converter takes a hex digit a block as its \
+             strength, through a comparator with air behind, but A has \
+             levers."
+        );
+    }
+    interface.binary_outputs = true;
+    let width = bench.widths(interface)[0];
+    let has: usize = bench
+        .outputs
+        .iter()
+        .map(|&i| output_bits(interface, &interface.outputs[i]))
+        .sum();
+    if has < width {
+        broken!(
+            "A has {} hex digits, so {width} bits, but the outputs have {has}.",
+            width / 4
+        );
+    }
+    Ok(Spec {
+        bench,
+        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        kinds: vec![Kind::new("A in binary", |case| case[0])],
         by_digit: false,
     })
 }

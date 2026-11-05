@@ -20,6 +20,7 @@ pub(crate) use crate::schem::lines::{Role, Roles};
 mod alu;
 mod decoder;
 mod hex_adder;
+mod hex_to_binary;
 mod multiplier;
 mod one_operand;
 mod operands;
@@ -31,6 +32,7 @@ mod shifter;
 pub use alu::{AluProbed, alu};
 pub use decoder::{DecoderProbed, decoder};
 pub use hex_adder::{HexAdderProbed, hex_adder};
+pub use hex_to_binary::{HexToBinaryProbed, hex_to_binary};
 pub use multiplier::{MultiplierProbed, multiplier};
 pub use one_operand::{Line, OneInputProbed, one_operand};
 pub use operands::{OperandsProbed, operands_probe};
@@ -231,7 +233,11 @@ impl Layout {
         if let Some(pos) = self.carry_out {
             outputs.push(port("carry out", Role::Status, vec![output(pos)]));
         }
-        Interface { inputs, outputs }
+        Interface {
+            inputs,
+            outputs,
+            binary_outputs: false,
+        }
     }
 
     /// Where its parts are, for a message.

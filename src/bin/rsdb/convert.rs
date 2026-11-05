@@ -1460,6 +1460,7 @@ fn moved_interface(
     let mut moved = Interface {
         inputs: lines.inputs.clone(),
         outputs: lines.outputs.clone(),
+        binary_outputs: lines.binary_outputs,
     };
     for port in &mut moved.inputs {
         for bit in &mut port.bits {

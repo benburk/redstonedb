@@ -707,6 +707,7 @@ mod tests {
                 line("zero"),
                 line("negative"),
             ],
+            binary_outputs: false,
         };
         assert_eq!(
             sign_flags(&interface),

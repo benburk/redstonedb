@@ -423,7 +423,11 @@ pub fn interface(blocks: &Blocks) -> Interface {
             signal_strength: comparator && !digits && !status,
         });
     }
-    Interface { inputs, outputs }
+    Interface {
+        inputs,
+        outputs,
+        binary_outputs: false,
+    }
 }
 
 /// What probing makes of a build whose outputs this rule reads.

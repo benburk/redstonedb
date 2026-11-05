@@ -37,6 +37,11 @@ use crate::{
 pub struct Interface {
     pub inputs: Vec<Port>,
     pub outputs: Vec<Port>,
+    /// Whether its outputs give a bit a block though it takes a
+    /// signal-strength input, as a hex to binary converter's do; any other
+    /// build that takes one shows a digit on each block of every output but
+    /// a status line, as a hex adder's sum does.
+    pub binary_outputs: bool,
 }
 
 /// A bus, or one named line such as `carry in`.
@@ -619,6 +624,7 @@ pub(crate) fn read_from(
     let mut interface = Interface {
         inputs: ports(blocks, roles, inputs, &signs, Some(feeds)),
         outputs: ports(blocks, roles, outputs, &signs, None),
+        binary_outputs: false,
     };
     follow_marks(blocks, &mut interface);
     interface

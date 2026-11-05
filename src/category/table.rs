@@ -518,6 +518,23 @@ pub(super) const TABLE: [Facts; 47] = [
         ..ROW
     },
     Facts {
+        kind: Kind::HexToBinary,
+        name: "hex_to_binary",
+        label: "Hex to Binary",
+        noun: "hex to binary",
+        plural: Some("Hex to Binary"),
+        section: Section::Conversion,
+        logic: Some(Logic::Stateless),
+        listed_as: Some("hex-to-binary converters"),
+        // Next to the hex adder, as only a build with a signal-strength
+        // input can be one.
+        probe: probed(6, Probe::HexToBinary),
+        guess: Guess::Tried(135),
+        digit_inputs: true,
+        behaviour: evaluated(Test::HexToBinary, Stacking::Never),
+        ..ROW
+    },
+    Facts {
         kind: Kind::XorGate,
         name: "xor_gate",
         label: "XOR Gate",
@@ -873,17 +890,6 @@ pub(super) const TABLE: [Facts; 47] = [
         noun: "divider",
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::HexToBinary,
-        name: "hex_to_binary",
-        label: "Hex to Binary",
-        noun: "hex to binary",
-        plural: Some("Hex to Binary"),
-        section: Section::Conversion,
-        logic: Some(Logic::Stateless),
-        digit_inputs: true,
         ..ROW
     },
     Facts {

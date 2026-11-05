@@ -188,7 +188,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Counters take A, one clock button, and one write enable lever." }
                         li { "Subtractors are adders that take B away: A − B, less a borrow in. They rank apart from adders." }
                         li { "T flip-flops take one input, a button or a lever, and give one output, which each press toggles." }
-                        li { "Hex adders take A and B a hex digit each, a comparator with air behind it, in place of levers. Every other category takes levers." }
+                        li { "Hex adders take A and B a hex digit each, a comparator with air behind it, in place of levers, and hex-to-binary converters take A so, giving its bits. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
                         li { "Parity circuits give one output, on when an odd number of inputs are on, or an even number, which is flagged Even." }
