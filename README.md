@@ -71,6 +71,8 @@ just rsdb role <discord username> admin
 | `just prepare`  | Refresh the offline query metadata in `.sqlx/`          |
 | `just deploy`   | Test, then build and restart the live site              |
 
+Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
+
 `static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/` with `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
 
 ## rsdb
