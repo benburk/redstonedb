@@ -13,7 +13,7 @@ use super::{
 use crate::{
     category::{Kind, Probe, Probing},
     recognize::inspect,
-    schem::{self, Blocks, Pos, lines},
+    schem::{self, Blocks, Pos, lines, orient},
     simulate::{self, Test},
 };
 
@@ -74,6 +74,20 @@ pub fn recognize_watched(
     data: &[u8],
     meant: Option<&str>,
     trying: &mut dyn FnMut(Kind, usize),
+) -> anyhow::Result<Recognition> {
+    recognize_laid(data, meant, trying, true)
+}
+
+/// As [`recognize_watched`]. With `reorient`, a build whose closest try
+/// got cases wrong is probed as that kind again laid the standard way, as
+/// [`orient::orient`] lays it for publishing and the guess and the
+/// simulation read it: one whose lowest bits sit at its west end reads
+/// its buses the wrong way round as it lies.
+fn recognize_laid(
+    data: &[u8],
+    meant: Option<&str>,
+    trying: &mut dyn FnMut(Kind, usize),
+    reorient: bool,
 ) -> anyhow::Result<Recognition> {
     // Each meant as another, as a subtractor is the adder it is, its B
     // subtracted, is probed as that one; one never probed, a category off
@@ -144,6 +158,21 @@ pub fn recognize_watched(
     }
     // Meant as a kind never probed, nothing was, so there is no fault.
     let fault = fault_of(&blocks, &report, meant.flatten(), &faults);
+    // Laid as the roles of the try that came nearest have it read.
+    let nearest = faults
+        .iter()
+        .find(|(_, f)| fault.is_some_and(|fault| std::ptr::eq(f, fault)))
+        .and_then(|(kind, fault)| Some((*kind, fault.file()?)));
+    if reorient && let Some((kind, file)) = nearest {
+        let (laid, turn) = orient::orient(file)?;
+        if !turn.is_none() {
+            let again =
+                recognize_laid(&laid, Some(kind.name()), trying, false)?;
+            if again.found.is_some() {
+                return Ok(again);
+            }
+        }
+    }
     problems.push(fault.map_or_else(String::new, ToString::to_string));
     // The file with the roles of the try whose fault is shown, when it ran.
     let closest = fault.and_then(Fault::file).unwrap_or(data);
