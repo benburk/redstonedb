@@ -307,7 +307,10 @@ pub async fn favorite(
         return Ok(pages::card_star(&id, on.is_some()).into_response());
     }
     if fixi {
-        return Ok(pages::favorite_button(&path, on.is_some()).into_response());
+        let count = schematic::favorite_count(&state.db, &id).await?;
+        return Ok(
+            pages::favorite_button(&path, on.is_some(), count).into_response()
+        );
     }
     Ok(Redirect::to(&path).into_response())
 }

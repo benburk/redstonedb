@@ -933,6 +933,12 @@ fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
                                     span class="font-semibold" { (latency(s)) }
                                 }
                                 span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
+                                @if s.favorites > 0 {
+                                    @let label = super::favourites_label(s.favorites);
+                                    span class="ml-auto inline-flex items-center gap-1 self-center text-meta text-muted" title=(label) aria-label=(label) {
+                                        (icon(icons::STAR, "size-3.5")) (s.favorites)
+                                    }
+                                }
                             }
                         }
                         (note)
