@@ -1076,6 +1076,28 @@ fn a_hex_to_binary_converter_gives_each_digit_in_binary() {
     assert!(timing.latency().is_some());
 }
 
+/// The same converter mirrored east for west, its bits lowest at its
+/// west end, as built facing the other way: its lines read the wrong way
+/// round as they lie, it is probed again laid the standard way, as the
+/// guess and the simulation read it, and found so.
+#[test]
+fn a_hex_to_binary_converter_lowest_at_the_west_is_found_mirrored() {
+    let data = read_fixture("tests/fixtures/hex-bin-4-fixed.schem").unwrap();
+    let data = schem::lines::without(&data).unwrap();
+    let turn = orient::Turn {
+        mirrored: true,
+        quarters: 0,
+    };
+    let mirrored = orient::turned(&data, turn).unwrap();
+    let found = app::recognize::probe::recognize(&mirrored).unwrap();
+    assert_eq!(
+        found.found.as_deref(),
+        Some("a hex to binary: all 16 cases right, A in binary"),
+        "{:?}",
+        found.problems
+    );
+}
+
 /// Torchless 4-bit Hex To Binary, cfc02dcb, as built: the constant 2 on
 /// the side of its lowest bit's comparator lets a digit of 2 through, as
 /// of 6, 10, and 14, and its top bit reads dust one block short of the 8
