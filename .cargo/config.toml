@@ -8,7 +8,7 @@
 # changing a query.
 SQLX_OFFLINE = "true"
 
-DATABASE_URL = "sqlite:redstone.db"
+DATABASE_URL = "sqlite:database.sqlite3"
 
 # Discord login. The ID is public, and the redirect must be listed on the
 # Discord Developer Portal's OAuth2 page exactly as written here. The secret

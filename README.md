@@ -44,7 +44,7 @@ just setup
 just serve 3001
 ```
 
-`just setup` writes `.env` from `.env.example` and, when there is no `redstone.db`, fills a new one from the test fixtures with `rsdb seed`. With no port given, `just serve` picks a free one with `lsof`.
+`just setup` writes `.env` from `.env.example` and, when there is no `database.sqlite3`, fills a new one from the test fixtures with `rsdb seed`. With no port given, `just serve` picks the first port from 3000 that nothing answers on.
 
 A fresh checkout needs no `.env`: the development settings, such as the database's path and Discord login's public ID, are in `.cargo/config.toml`, which Cargo gives to `cargo run` and `cargo test` and never to the deployed binary. `.env` holds only what is your own, the Discord secret and the deploy host, and any setting there wins over the committed one.
 
@@ -57,23 +57,23 @@ just rsdb users
 just rsdb role <discord username> admin
 ```
 
-`redstone.db` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, and runs their tests and timing; it refuses a database that has builds. `just pull-db` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
+`database.sqlite3` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, and runs their tests and timing; it refuses a database that has builds. `just setup live` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
 
-| Recipe          | What it does                                            |
-| --------------- | ------------------------------------------------------- |
-| `just setup`    | Write `.env`, and seed `redstone.db`, if either is gone |
-| `just serve`    | Run the site, on a free port or the one given           |
-| `just watch`    | Run the site, restarting when a source file changes     |
-| `just rsdb ...` | Run `rsdb` against this repo's `redstone.db`            |
-| `just pull-db`  | Replace the local database with a copy of the live one  |
-| `just test`     | Run the test suite                                      |
-| `just check`    | Lint: formatting, clippy, nixfmt, and a stale `app.css` |
-| `just format`   | Format the code and docs                                |
-| `just css`      | Build `static/app.css` from `styles/app.css`            |
-| `just prepare`  | Refresh the offline query metadata in `.sqlx/`          |
-| `just deploy`   | Test, then build and restart the live site              |
+| Recipe            | What it does                                            |
+| ----------------- | ------------------------------------------------------- |
+| `just setup`      | Write `.env`, and seed the database, if either is gone  |
+| `just serve`      | Run the site, on a free port or the one given           |
+| `just watch`      | Run the site, restarting when a source file changes     |
+| `just rsdb ...`   | Run `rsdb` against this repo's `database.sqlite3`       |
+| `just setup live` | Replace the database with a copy of the live one        |
+| `just test`       | Run the test suite                                      |
+| `just check`      | Lint: formatting, clippy, nixfmt, and a stale `app.css` |
+| `just format`     | Format the code and docs                                |
+| `just css`        | Build `static/app.css` from `styles/app.css`            |
+| `just prepare`    | Refresh the offline query metadata in `.sqlx/`          |
+| `just deploy`     | Test, then build and restart the live site              |
 
-Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
+Every pull request runs `just check` and `just test` in the flake's shell, from `.github/workflows/check.yml`. Pushing a `v*` tag on main deploys it too: `.github/workflows/deploy.yml` runs the suite, then `deploy/deploy.sh`, with the key and host as secrets of the repo's production environment.
 
 `static/app.css` is committed, so `just serve`, `just build`, and the Nix build need no Tailwind; `just watch` rebuilds it as `styles/app.css` changes. Queries compile against `.sqlx/`, as `.cargo/config.toml` sets `SQLX_OFFLINE=true`, so after changing one, run `just prepare`.
 

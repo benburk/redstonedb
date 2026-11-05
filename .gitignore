@@ -1,15 +1,16 @@
-.claude/
-.direnv/
 .env
+.direnv/
+.claude/worktrees/
+.claude/settings.local.json
 target/
-*.db-wal
-*.db-shm
 
 # The database holds the schematics and is backed up outside git.
-redstone.db
+database.sqlite3
+database.sqlite3-wal
+database.sqlite3-shm
 result
 
-# Local database copies made by `just pull-db`.
+# Local database copies made by `just setup live`.
 backups/
 
 # The game's files thumbnails are drawn with, and drawn thumbnails.
