@@ -52,7 +52,9 @@ pub use build::{
     favorite_button, schematic_page, waiting,
 };
 pub use description::mentions;
-pub use details_page::{DetailsPage, File, Reply, article, details_page};
+pub use details_page::{
+    DetailsPage, File, Reply, details_page, failing_or_untested, reason_items,
+};
 pub use diff::diff_page;
 pub use form::Choices;
 pub use layout::{Preview, forbidden, not_found};

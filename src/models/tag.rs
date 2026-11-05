@@ -12,11 +12,11 @@ named_values! {
         Other = "other", "Other";
         /// That the build gives wrong outputs, never stored.
         #[value(skip)]
-        Failing = "failing", "Verification";
+        Failing = "failing", "Failing";
         /// That the build's inputs, outputs, or parts don't fit its
         /// category's, so it couldn't be verified, never stored.
         #[value(skip)]
-        NonStandard = "non_standard", "Non-standard";
+        Untested = "untested", "Untested";
         /// Its design, such as `carry_cancel`, when the site works it out,
         /// never stored as a tag.
         #[value(skip)]
@@ -43,12 +43,12 @@ pub struct Tag {
 
 /// The name of the tag a build carries that gets some cases of its test
 /// wrong. It is not stored, so no one can add or remove it.
-pub const FAILS_VERIFICATION: &str = "fails_verification";
+pub const FAILING: &str = "failing";
 
 /// The name of the tag a build carries whose inputs, outputs, or parts
-/// don't fit its category's, so it couldn't be verified, though it may
+/// don't fit its category's, so its test couldn't run, though it may
 /// work. It is not stored either.
-pub const NON_STANDARD: &str = "non-standard";
+pub const UNTESTED: &str = "untested";
 
 /// The tag a build carries whose copies stack.
 pub const STACKABLE: &str = "stackable";
@@ -101,8 +101,7 @@ const TORCHLESS: &str = "torchless";
 const ALPHA: &str = "alpha";
 
 /// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 4] =
-    [FAILS_VERIFICATION, NON_STANDARD, TORCHLESS, ALPHA];
+pub const DERIVED: [&str; 4] = [FAILING, UNTESTED, TORCHLESS, ALPHA];
 
 impl Tag {
     pub(super) fn derived(name: &str, kind: Kind) -> Self {
@@ -130,13 +129,12 @@ impl Tag {
             )
     }
 
-    /// The class that colours its badge: failing in the colour of danger,
-    /// non-standard in a caution's, any other the site finds in its own, and
+    /// The class that colours its badge: failing and untested in the
+    /// colour of danger, as either keeps a build off the list, any other the site finds in its own, and
     /// one a person gives by its kind.
     pub fn class(&self) -> &'static str {
         match self.kind {
-            Kind::Failing => "badge-failing",
-            Kind::NonStandard => "badge-caution",
+            Kind::Failing | Kind::Untested => "badge-failing",
             _ if self.is_found() => "badge-found",
             Kind::Restriction => "badge-restriction",
             _ => "badge-other",
@@ -152,10 +150,9 @@ impl Tag {
         }
     }
 
-    /// Whether it says the build is not verified, as failing or
-    /// non-standard.
+    /// Whether it says the build is not verified, as failing or untested.
     pub fn is_unverified(&self) -> bool {
-        matches!(self.kind, Kind::Failing | Kind::NonStandard)
+        matches!(self.kind, Kind::Failing | Kind::Untested)
     }
 
     /// The name as words, such as `carry lookahead`.
@@ -188,7 +185,14 @@ impl Tag {
 
 /// The form of a tag name a person types, with spaces for underscores.
 pub fn name(typed: &str) -> String {
-    typed.trim().to_lowercase().replace(' ', "_")
+    let name = typed.trim().to_lowercase().replace(' ', "_");
+    // The names failing and untested builds' tags had, in links made
+    // before.
+    match name.as_str() {
+        "fails_verification" => FAILING.to_owned(),
+        "non-standard" => UNTESTED.to_owned(),
+        _ => name,
+    }
 }
 
 /// Whether a typed name, once in the form [`name`] gives, can name a tag:
@@ -219,28 +223,28 @@ pub fn from_file(facts: &crate::import::FileFacts) -> Vec<Tag> {
 /// its inputs, outputs, or parts don't fit its category's.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Unverified {
-    Fails,
-    NonStandard,
+    Failing,
+    Untested,
 }
 
 /// Whether a build that `fails_simulation`, or is unverified for `reason`,
 /// isn't verified, and why: wrong outputs, as a failing test or the reason
-/// says, fail it, and any other reason leaves it non-standard.
+/// says, leave it failing, and any other reason untested.
 pub fn unverified(
     fails_simulation: bool,
     reason: Option<&str>,
 ) -> Option<Unverified> {
     match reason {
-        _ if fails_simulation => Some(Unverified::Fails),
+        _ if fails_simulation => Some(Unverified::Failing),
         Some(reason) if crate::recognize::fault::wrong_outputs(reason) => {
-            Some(Unverified::Fails)
+            Some(Unverified::Failing)
         }
-        Some(_) => Some(Unverified::NonStandard),
+        Some(_) => Some(Unverified::Untested),
         None => None,
     }
 }
 
-/// A build's stored `tags`, led by `fails_verification` or `non-standard`
+/// A build's stored `tags`, led by `failing` or `untested`
 /// when it is `unverified`, with `torchless` among its restrictions when
 /// its file has no torches, and `alpha` when it works from Alpha.
 pub(super) fn with_derived(
@@ -262,11 +266,11 @@ pub(super) fn with_derived(
         tags.insert(at, Tag::derived(name, Kind::Restriction));
     }
     match unverified {
-        Some(Unverified::Fails) => {
-            tags.insert(0, Tag::derived(FAILS_VERIFICATION, Kind::Failing));
+        Some(Unverified::Failing) => {
+            tags.insert(0, Tag::derived(FAILING, Kind::Failing));
         }
-        Some(Unverified::NonStandard) => {
-            tags.insert(0, Tag::derived(NON_STANDARD, Kind::NonStandard));
+        Some(Unverified::Untested) => {
+            tags.insert(0, Tag::derived(UNTESTED, Kind::Untested));
         }
         None => {}
     }
@@ -432,11 +436,11 @@ mod tests {
         assert_eq!(
             names(with_derived(
                 stored.clone(),
-                Some(Unverified::Fails),
+                Some(Unverified::Failing),
                 Some(0),
                 None
             )),
-            ["fails_verification", "alpha", "torchless", "buffer"]
+            ["failing", "alpha", "torchless", "buffer"]
         );
         assert_eq!(
             names(with_derived(stored.clone(), None, Some(3), None)),

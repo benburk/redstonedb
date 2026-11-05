@@ -207,7 +207,7 @@ impl HomeQuery {
                 "category" => query.category = value,
                 "sort" => query.sort = Sort::parse(&value),
                 "tag"
-                    if [tag::FAILS_VERIFICATION, tag::NON_STANDARD]
+                    if [tag::FAILING, tag::UNTESTED]
                         .contains(&tag::name(&value).as_str()) =>
                 {
                     query.unverified = true;
@@ -543,7 +543,7 @@ fn unverified_switch(count: usize, here: &HomeQuery) -> Markup {
                     (if shown { "border-brand bg-brand text-on-brand" } else { "border-boundary" }) } {
                     @if shown { (icon(icons::CHECK, "size-3")) }
                 }
-                span { "Show unverified (" span class="tabular-nums" { (count) } ")" }
+                span { "Show failing and untested (" span class="tabular-nums" { (count) } ")" }
             }
         }
     }
@@ -780,7 +780,7 @@ fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
     filters.extend(unmatched);
     let rank = |f: &Filter| {
         let kind = match f.tag.kind {
-            tag::Kind::Failing | tag::Kind::NonStandard => 0,
+            tag::Kind::Failing | tag::Kind::Untested => 0,
             tag::Kind::Design => 1,
             tag::Kind::Orientation => 2,
             tag::Kind::Feature => 3,
