@@ -7,6 +7,7 @@ mod convert;
 mod inspect;
 mod outputs;
 mod rebuild;
+mod seed;
 mod simulate;
 mod stack_check;
 mod versions;
@@ -30,6 +31,7 @@ use convert::{Convert, convert_command};
 use inspect::{Inspect, evaluate, inspect_command};
 use outputs::{Outputs, outputs_command};
 use rebuild::{Rebuild, finish, needs, rebuild};
+use seed::seed;
 use simulate::simulate;
 use stack_check::{StackCheck, stack_check_command};
 use versions::{
@@ -159,6 +161,13 @@ enum Command {
     /// List the standard categories, with their measures, designs, flags,
     /// and aliases, as the code lists them; a category is added there
     Categories,
+    /// Fill a new database for development: the admin account `debug`, as
+    /// `/dev/login` makes, and every `.schem` file in `dir` published as its
+    /// upload with the details its preview suggests, tests and timing run
+    Seed {
+        #[arg(default_value = "tests/fixtures")]
+        dir: PathBuf,
+    },
     /// List accounts with their roles
     Users,
     /// Set an account's role: user, mod, or admin
@@ -287,6 +296,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             print_categories();
             Ok(())
         }
+        Command::Seed { dir } => seed(db, &dir).await,
         Command::Users => list_users(db).await,
         Command::Role { username, role } => {
             set_role(db, &username, &role).await

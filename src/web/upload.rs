@@ -350,7 +350,7 @@ pub async fn publish(
     }
     let raw = STANDARD.decode(&original).unwrap_or_default();
     let published =
-        publish_checked(&state, &user, ip.as_deref(), &upload, &form, &raw)
+        publish_checked(&state.db, &user, ip.as_deref(), &upload, &form, &raw)
             .await?;
     let refused = match published {
         Ok(id) => {
@@ -419,6 +419,29 @@ async fn chosen_instead(
     show_preview(state, user, &upload, &form, said).await
 }
 
+/// Publishes the file `raw` as `user` uploading it and leaving every
+/// detail as its preview suggests, as `rsdb seed` fills a new database
+/// from the test fixtures, and returns its id, or says why it was refused.
+/// Its tests and timing are not run; `rsdb simulate` runs them.
+pub async fn publish_suggested(
+    db: &sqlx::SqlitePool,
+    user: &User,
+    raw: &[u8],
+) -> anyhow::Result<Result<String, String>> {
+    let upload = Upload::read(&recognized(raw).await)?;
+    let guess = guessed(&upload.read_as().data).await;
+    let form = Form::suggested(
+        guess.as_ref(),
+        &interface::read(&upload.read_as().blocks),
+        &upload.read_as().size,
+    );
+    match publish_checked(db, user, None, &upload, &form, raw).await {
+        Ok(published) => Ok(published),
+        Err(AppError::Internal(err)) => Err(err),
+        Err(other) => Err(anyhow::anyhow!("{other:?}")),
+    }
+}
+
 /// What the check by function makes of the file `data`, off the async
 /// workers, as probing takes a second or two.
 async fn recognition(data: &[u8]) -> anyhow::Result<probe::Recognition> {
@@ -453,14 +476,13 @@ async fn guessed(data: &[u8]) -> Option<Guess> {
 /// does; else under a category of its own, named for what it seems meant
 /// to be.
 async fn publish_checked(
-    state: &AppState,
+    db: &sqlx::SqlitePool,
     user: &User,
     ip: Option<&str>,
     upload: &Upload,
     form: &Form,
     raw: &[u8],
 ) -> Result<Result<String, String>, AppError> {
-    let db = &state.db;
     let categories = Category::all();
     let mut given = match form.parse() {
         Ok(given) => given,

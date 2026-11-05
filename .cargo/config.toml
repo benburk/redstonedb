@@ -1,0 +1,22 @@
+# Settings for building and running on a development machine. Cargo gives
+# them to `cargo build`, `cargo run`, and `cargo test`, and never to the
+# deployed binary, which systemd runs with /etc/redstonedb.env. A variable set
+# already, as `.env` sets one through just or direnv, wins over its value here.
+[env]
+# Compile against the query metadata in .sqlx/ rather than a live database,
+# so building and linting need no database at all. Run `just prepare` after
+# changing a query.
+SQLX_OFFLINE = "true"
+
+DATABASE_URL = "sqlite:redstone.db"
+
+# Discord login. The ID is public, and the redirect must be listed on the
+# Discord Developer Portal's OAuth2 page exactly as written here. The secret
+# goes in `.env`; without it the site runs with login turned off.
+DISCORD_CLIENT_ID = "1557512599057211402"
+DISCORD_REDIRECT_URI = "http://127.0.0.1:3001/auth/discord/callback"
+
+# On a development build, every request is signed in as this account, if it
+# exists: the admin `rsdb seed` makes, as /dev/login does. Set it empty in
+# `.env` to see the site signed out, or to another account's name.
+DEV_USER = "debug"
