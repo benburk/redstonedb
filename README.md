@@ -46,7 +46,7 @@ just serve 3001
 
 `just setup` writes `.env` from `.env.example` and, when there is no `database.sqlite3`, fills a new one from the test fixtures with `rsdb seed`. With no port given, `just serve` picks the first port from 3000 that nothing answers on.
 
-A fresh checkout needs no `.env`: the development settings, such as the database's path and Discord login's public ID, are in `.cargo/config.toml`, which Cargo gives to `cargo run` and `cargo test` and never to the deployed binary. `.env` holds only what is your own, the Discord secret and the deploy host, and any setting there wins over the committed one.
+A fresh checkout needs no `.env`: the development settings, such as the database's path and Discord login's public ID, are in `.cargo/config.toml`, which Cargo gives to `cargo run` and `cargo test` and never to the deployed binary. `.env` holds only what is your own, such as the Discord secret, and any setting there wins over the committed one. The recipes that reach the live site, `setup live`, `deploy`, `logs`, and `status`, go to `root@redstonedb.com` unless `DEPLOY_HOST` says otherwise.
 
 `just check` also needs `dprint`, `fd`, `ripgrep`, `nixfmt`, and Tailwind CSS v4, which `nix develop` provides.
 
