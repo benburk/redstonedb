@@ -46,7 +46,7 @@ mod users;
 mod version;
 
 pub use about::{about, credits, recognized};
-pub use activity::{ActivityLog, activity};
+pub use activity::{ActivityLog, activity, activity_href};
 pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
     favorite_button, schematic_page, waiting,
