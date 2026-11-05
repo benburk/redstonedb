@@ -418,16 +418,17 @@ pub async fn unrecognized(
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
         return off("Couldn't read its file".to_owned());
     };
-    // Inputs taking a strength, a hex digit per block, are a hex adder's,
-    // and no other's, as a build kept as built says too.
+    // Inputs taking a strength, a hex digit per block, are only those of a
+    // kind that takes digits, a hex adder's or a hex-to-binary converter's,
+    // as a build kept as built says too.
     let hex = crate::recognize::interface::takes_digits(&blocks);
-    if kind != Kind::HexAdder && hex {
+    if !kind.digit_inputs() && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }
     if !build.conventional {
         return off("Couldn't read its inputs and outputs".to_owned());
     }
-    if kind == Kind::HexAdder && !hex {
+    if kind.digit_inputs() && !hex {
         return off(NO_HEX_INPUTS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
@@ -463,7 +464,8 @@ pub async fn unrecognized(
     }
 }
 
-/// Why a hex adder whose inputs are levers is not verified as one.
+/// Why a hex adder or hex-to-binary converter whose inputs are levers is
+/// not verified as one.
 pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
 
 /// Why an adder whose B is subtracted is not verified as an adder.

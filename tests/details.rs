@@ -271,6 +271,24 @@ async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
     );
 }
 
+/// A hex-to-binary converter, its digit a comparator with air behind, is
+/// verified as Hex to Binary, as a hex adder's digits are as a Hex Adder,
+/// and not as an Adder; its maker's simplified fix of cfc02dcb.
+#[tokio::test]
+async fn a_hex_to_binary_converters_digit_input_is_its_own() {
+    let db = common::database().await;
+    let data = prepared("hex-bin-4-simplified", true);
+    let why = |ready: Result<Ready, String>| ready.unwrap().details.unverified;
+    assert_eq!(
+        why(check_file(&db, given("hex to binary"), &data, true).await),
+        None
+    );
+    assert_eq!(
+        why(check_file(&db, given("adder"), &data, true).await).as_deref(),
+        Some(details::WITHOUT_LEVERS)
+    );
+}
+
 /// An adder is verified as an Adder and not as a Subtractor, and a
 /// subtractor, its B subtracted, as a Subtractor and not as an Adder.
 #[tokio::test]
