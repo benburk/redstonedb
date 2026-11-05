@@ -154,9 +154,9 @@ const CASES: &[Case] = &[
     },
     Case {
         when: &[Is(crate::details::NO_HEX_INPUTS)],
-        fix: "Upload it as an Adder. A hex adder's inputs each take a hex \
-              digit, a signal strength through a comparator with air behind \
-              it.",
+        fix: "A hex adder's or hex-to-binary converter's inputs each take a \
+              hex digit, a signal strength through a comparator with air \
+              behind it. An adder with levers is an Adder.",
         rule: Some("per-category"),
     },
     Case {

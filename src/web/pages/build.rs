@@ -160,7 +160,10 @@ fn not_recognized(
     file: &Result<FileRead, String>,
 ) -> Markup {
     let label = meant.replace('_', " ");
-    let strength = file.as_ref().is_ok_and(|file| file.strength_inputs);
+    // Only a kind that takes digits may take a signal strength.
+    let strength = file.as_ref().is_ok_and(|file| file.strength_inputs)
+        && !category::Kind::named(meant)
+            .is_some_and(category::Kind::digit_inputs);
     let faults = file
         .as_ref()
         .map(|file| file.unrecognized.as_slice())
