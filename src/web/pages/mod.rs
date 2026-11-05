@@ -24,6 +24,7 @@ const SWITCHES: &str =
     "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";
 
 mod about;
+mod activity;
 mod build;
 mod description;
 mod details_page;
@@ -45,6 +46,7 @@ mod users;
 mod version;
 
 pub use about::{about, credits, recognized};
+pub use activity::{ActivityLog, activity};
 pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
     favorite_button, schematic_page, waiting,

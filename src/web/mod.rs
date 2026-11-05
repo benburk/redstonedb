@@ -19,6 +19,7 @@ use crate::{
 };
 
 mod about;
+mod activity;
 pub mod analysis;
 pub mod app_state;
 mod auth;
@@ -345,6 +346,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/heads/{uuid}", get(heads::show))
         .route("/players/{name}", get(players::show))
         .route("/players/{name}/head.png", get(players::head))
+        .route("/log", get(activity::show))
         .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
         .route("/users/{username}/role", post(users::set_role))

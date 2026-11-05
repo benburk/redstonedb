@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod player;
 pub mod schematic;
 pub mod session;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO edit (schematic_id, user_id, changed) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "616184991e47388d4caf2ad8b94646e4619f07b605dcab0fdfa411a0255183f8"
+}
