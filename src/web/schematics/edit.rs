@@ -13,6 +13,7 @@ use crate::{
     details,
     import::{self, Prepared},
     models::{
+        activity,
         schematic::{self, Schematic},
         similarity, simulation,
         user::User,
@@ -137,6 +138,12 @@ pub async fn save(
     let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
     if form.public != s.public {
         schematic::set_public(db, &id, form.public).await?;
+    }
+    // What the edit changed, before a new version changes what its file
+    // sets.
+    if let Some(after) = schematic::get(db, &id).await? {
+        let changed = activity::changed(&s, &after);
+        activity::log_edit(db, &id, user.id, &changed).await?;
     }
     if let Some(prepared) = new_prepared {
         let how = Replacing::NextVersion {
