@@ -118,7 +118,12 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                         button type="button" aria-disabled="true" title=(super::SIGN_IN_TO_DOWNLOAD) class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                     }
                     @if viewer.is_some() {
-                        (favorite_button(&path, favorited))
+                        (favorite_button(&path, favorited, s.favorites))
+                    } @else if s.favorites > 0 {
+                        @let label = super::favourites_label(s.favorites);
+                        span class="flex h-10 items-center gap-1.5 px-2 text-muted tabular-nums" title=(label) aria-label=(label) {
+                            (icon(icons::STAR, "size-5")) (s.favorites)
+                        }
                     }
                     (actions_menu(s, viewer, &path))
                 }
@@ -833,13 +838,19 @@ fn colours_switch(path: &str, shown: ColoursShown) -> Markup {
 }
 
 /// A star that favourites the build at `path`, filled once it is, and
-/// pressed again takes it back. Through fixi the answer is the star alone,
-/// so the rest of the page, its viewer too, stays as it is.
-pub fn favorite_button(path: &str, favorited: bool) -> Markup {
+/// pressed again takes it back, beside how many people have favourited it,
+/// `count`, once anyone has. Through fixi the answer is the star alone, so
+/// the rest of the page, its viewer too, stays as it is.
+pub fn favorite_button(path: &str, favorited: bool, count: i64) -> Markup {
     let label = if favorited {
         "Remove from favourites"
     } else {
         "Add to favourites"
+    };
+    let title = if count > 0 {
+        format!("{label} · {}", super::favourites_label(count))
+    } else {
+        label.to_owned()
     };
     html! {
         form action={ (path) "/favorite" } method="post" class="contents"
@@ -847,9 +858,11 @@ pub fn favorite_button(path: &str, favorited: bool) -> Markup {
             @if !favorited {
                 input type="hidden" name="on" value="yes";
             }
-            button id="favorite" type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
-                class="btn btn-quiet flex size-10 cursor-pointer items-center justify-center p-0" {
+            button id="favorite" type="submit" aria-label=(title) title=(title) aria-pressed=(favorited)
+                class={ "btn btn-quiet flex h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 tabular-nums "
+                    (if count > 0 { "px-2.5" } else { "p-0" }) } {
                 (icon(icons::STAR, if favorited { "size-5 fill-current text-brand" } else { "size-5" }))
+                @if count > 0 { span { (count) } }
             }
         }
     }

@@ -171,6 +171,14 @@ pub fn spinner() -> Markup {
     }
 }
 
+/// How many people favourited a build, said in words.
+fn favourites_label(count: i64) -> String {
+    match count {
+        1 => "Favourited by 1 person".to_owned(),
+        n => format!("Favourited by {n} people"),
+    }
+}
+
 /// `n` with its thousands separated by commas, such as `131,072`.
 fn grouped(n: u64) -> String {
     let digits = n.to_string();

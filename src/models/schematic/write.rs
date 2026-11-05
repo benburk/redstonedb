@@ -43,6 +43,19 @@ pub async fn favorited(
     .await
 }
 
+/// How many people have favourited build `id`.
+pub async fn favorite_count(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!: i64" FROM favorite WHERE schematic_id = ?"#,
+        id
+    )
+    .fetch_one(db)
+    .await
+}
+
 /// Favourites build `id` for `user`, or takes it back when `on` is false.
 pub async fn set_favorite(
     db: &SqlitePool,

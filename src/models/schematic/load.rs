@@ -87,7 +87,9 @@ async fn load(
             coalesce(user.minecraft_name, user.username) as "uploader_name?: String",
             EXISTS (SELECT 1 FROM simulation WHERE simulation.failed
                 AND simulation.schematic_id = schematic.id
-                AND simulation.sha256 = file.sha256) as "fails_simulation!: bool"
+                AND simulation.sha256 = file.sha256) as "fails_simulation!: bool",
+            (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)
+                as "favorites!: i64"
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
          LEFT JOIN user ON user.id = schematic.uploaded_by
@@ -161,6 +163,7 @@ async fn load(
                 added_at: row.added_at,
                 edited_at: row.edited_at,
                 downloads: row.downloads,
+                favorites: row.favorites,
                 public: row.public,
                 unverified: row.unverified,
                 operands: operands.remove(&row.id).unwrap_or_default(),

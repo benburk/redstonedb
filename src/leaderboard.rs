@@ -1769,6 +1769,7 @@ mod tests {
             added_at: id.to_owned(),
             edited_at: None,
             downloads: 0,
+            favorites: 0,
             public: true,
             unverified: None,
             operands: crate::models::schematic::Operands::Split,

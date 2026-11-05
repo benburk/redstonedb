@@ -77,6 +77,10 @@ async fn favourites_are_each_accounts_own() {
         .await
         .unwrap();
     assert!(schematic::favorited(&db, alex.id, &id).await.unwrap());
+    // Its cards and page count each account that favourited it once.
+    assert_eq!(schematic::favorite_count(&db, &id).await.unwrap(), 1);
+    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(s.favorites, 1);
     assert_eq!(
         schematic::favorites(&db, alex.id).await.unwrap(),
         std::slice::from_ref(&id)

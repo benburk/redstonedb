@@ -15,10 +15,10 @@ pub use load::{
 };
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use write::{
-    DownloadKind, Measured, New, Restorable, count_download, delete, favorited,
-    favorites, insert, log_download, restore, set_details, set_favorite,
-    set_flags, set_import_details, set_measured, set_public, set_stacking,
-    set_widened,
+    DownloadKind, Measured, New, Restorable, count_download, delete,
+    favorite_count, favorited, favorites, insert, log_download, restore,
+    set_details, set_favorite, set_flags, set_import_details, set_measured,
+    set_public, set_stacking, set_widened,
 };
 
 named_values! {
@@ -151,6 +151,8 @@ pub struct Schematic {
     pub edited_at: Option<String>,
     /// How many times it has been downloaded.
     pub downloads: i64,
+    /// How many people have favourited it.
+    pub favorites: i64,
     /// Whether anyone may see it; a private build only its uploader and
     /// admins see.
     pub public: bool,
@@ -667,6 +669,7 @@ mod tests {
             added_at: String::new(),
             edited_at: None,
             downloads: 0,
+            favorites: 0,
             public: true,
             unverified: None,
             operands: Operands::Split,
