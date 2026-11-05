@@ -4,6 +4,11 @@ set dotenv-load
 # below runs for `serve` alone.
 set lazy
 
+# Where `setup live`, `deploy`, `logs`, and `status` reach the live site, for
+# the recipes and the scripts they run. DEPLOY_HOST in .env or the
+# environment, as the deploy workflow sets it, wins unless it is empty.
+export DEPLOY_HOST := if env("DEPLOY_HOST", "") == "" { "root@redstonedb.com" } else { env("DEPLOY_HOST") }
+
 # Display available recipes
 default:
     just --list --unsorted
