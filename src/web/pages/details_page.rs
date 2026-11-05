@@ -10,7 +10,8 @@ use maud::{Markup, html};
 use crate::{
     import::Analysis,
     models::{schematic::Schematic, user::User},
-    simulate::{Guess, Report},
+    recognize::fault::wrong_outputs,
+    simulate::Report,
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
 
@@ -20,11 +21,7 @@ use super::{
     form::{fields, tag_picker},
     grouped,
     interface::{Inversions, interface_section},
-    simulation::{
-        Waiting, simulation_results, simulation_section, simulation_summary,
-        timing_summary,
-    },
-    spinner,
+    simulation::{Waiting, simulation_results, simulation_section},
     upload::file_fields,
 };
 
@@ -37,8 +34,6 @@ pub enum File<'a> {
         /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
-        /// The build less its interface layers.
-        size: [u16; 3],
         /// The id of a stored build with the same file, if any.
         duplicate: Option<&'a str>,
         /// The stored build most like it, with how alike, if any is
@@ -47,8 +42,6 @@ pub enum File<'a> {
         /// Whether the blocks read for it break the conventions, so are
         /// not read by them.
         unconventional: bool,
-        /// What it seems to be, which the category and design start as.
-        guess: Option<&'a Guess>,
         /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
         /// with how many.
         swapped: &'a [(String, usize)],
@@ -170,7 +163,10 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (file_chooser(page))
                 (details_form(user, page))
             }, true))
+            @let (_, reasons) = verdict(page);
+            @let lines = match &page.file { File::Upload { lines, .. } => *lines, _ => "" };
             div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, None, &Inversions { category: "", flags: &[], found: &[] })) }
+            (reasons_section(&reasons, lines))
             // Redrawn as the category and width call for a test.
             @let simulate = simulate_url(page);
             @let timing = super::super::simulation::timing_url(&simulate);
@@ -194,36 +190,32 @@ fn simulate_url(page: &DetailsPage) -> String {
     }
 }
 
-/// Whether a check passed, failed, is under way, or waits on something.
+/// Whether a check passed, failed, or waits on something.
 #[derive(Clone, Copy)]
 enum State {
     Pass,
     /// Worth a look, but holding nothing up.
     Warn,
     Fail,
-    Run,
     Wait,
 }
 
-/// One line of the checks panel; `form.js` changes the simulation's and
-/// the timing's as they run, by their `name`.
-fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
+/// One line of the checks panel.
+fn check(name: &str, state: State, text: &Markup) -> Markup {
     let (key, class) = match state {
         State::Pass => ("pass", ""),
         State::Warn => ("warn", ""),
         State::Fail => ("fail", "text-danger"),
-        State::Run => ("run", "text-muted"),
         State::Wait => ("wait", "text-muted"),
     };
     html! {
-        li data-check=(name) data-state=(key) hidden[hidden]
+        li data-check=(name) data-state=(key)
             class={ "flex items-start gap-2 " (class) } {
             span data-icon aria-hidden="true" class="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center" {
                 @match state {
                     State::Pass => "✓",
                     State::Warn => "!",
                     State::Fail => "✗",
-                    State::Run => (spinner()),
                     State::Wait => "○",
                 }
             }
@@ -236,22 +228,13 @@ fn check(name: &str, state: State, text: &Markup, hidden: bool) -> Markup {
 /// and its hoppers, with an offer to swap them too.
 fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
-        // A recognized build's check already says what it is.
-        @if let File::Upload { guess: Some(guess), recognized: None, .. } = &page.file {
-            (check("guess", State::Pass, &html! {
-                @if guess.wrong == 0 { "Looks like " } @else { "Looks most like " }
-                (article(&guess.category.replace('_', " "))) ": " (guess.pattern) ", right in "
-                (grouped(guess.cases - guess.wrong)) " of " (grouped(guess.cases))
-                " quick cases, so its category starts as that. Change it if it's something else."
-            }, false))
-        }
         @if let File::Upload { swapped, .. } = &page.file {
             @if !swapped.is_empty() {
                 (check("swapped", State::Pass, &html! {
                     "Swapped " (counted(swapped)) " for "
                     @if matches!(swapped, [(_, 1)]) { "a barrel" } @else { "barrels" }
                     " giving the same signal strength."
-                }, false))
+                }))
             }
         }
         @if let File::Upload { hoppers, .. } = &page.file {
@@ -260,17 +243,9 @@ fn swap_checks(page: &DetailsPage) -> Markup {
                     @if *hoppers == 1 { "Has a hopper, kept as it is: the simulator reads its signal strength but moves no items. " }
                     @else { "Has " (hoppers) " hoppers, kept as they are: the simulator reads their signal strength but moves no items. " }
                     (swap_button("hopper", if *hoppers == 1 { "Swap it for a barrel" } else { "Swap them for barrels" }))
-                }, false))
+                }))
             }
         }
-    }
-}
-
-/// `word` after `a` or `an`, such as `an adder`.
-pub fn article(word: &str) -> String {
-    match word.chars().next() {
-        Some('a' | 'e' | 'i' | 'o' | 'u') => format!("an {word}"),
-        _ => format!("a {word}"),
     }
 }
 
@@ -320,110 +295,136 @@ fn blocked(page: &DetailsPage) -> Option<&'static str> {
     }
 }
 
-/// The checks the file and its details go through, each with how it
-/// stands: those decided here, then the simulation and its timing, which
-/// `form.js` runs and updates.
+/// The checks the file and its details go through that it has something
+/// to say about, such as a duplicate; none when it has nothing. Whether
+/// the build is verified is its category's badge, why not and the
+/// simulation's result are under the form, and what the simulation
+/// measures fills the details' fields.
 fn checks(page: &DetailsPage) -> Markup {
-    let stored = match &page.file {
-        File::Stored { simulation, .. } => *simulation,
-        _ => None,
+    let lines = html! {
+        @if let File::Upload { duplicate: Some(id), .. } = &page.file {
+            (check("duplicate", State::Fail, &html! {
+                "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
+            }))
+        }
+        @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
+            (check("similar", State::Warn, &html! {
+                "Nearly the same as "
+                a href={ "/schematics/" (other.id) } { (other.title()) }
+                @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
+                ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
+                a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
+                " instead; if it builds on it, say so in the description."
+            }))
+        }
+        @if let File::Version { comparison, refusals, .. } = &page.file {
+            @let permille = comparison.same_permille();
+            @let same = html! {
+                "Changes " (grouped(comparison.changed as u64)) " of "
+                (grouped((comparison.same + comparison.changed) as u64)) " blocks, keeping "
+                (permille / 10) "." (permille % 10) "%. "
+                a href="#file-chooser" data-open-chooser { "Choose a different file" }
+            };
+            @if refusals.is_empty() {
+                (check("same", State::Pass, &same))
+            } @else {
+                (check("same", State::Fail, &html! {
+                    (same)
+                    ul class="mt-1 flex list-disc flex-col gap-1 pl-5" {
+                        @for refusal in *refusals { li { (refusal) } }
+                    }
+                }))
+            }
+        }
+        (swap_checks(page))
     };
     html! {
-        section aria-labelledby="checks-heading"
-            class="flex flex-col gap-2 rounded-overlay border border-line bg-raised p-4 shadow-sm" {
-            h2 id="checks-heading" class="font-semibold" { "Checks" }
-            ul class="flex flex-col gap-1.5" {
-                @if let File::Upload { size: [x, y, z], .. } = &page.file {
-                    (check("file", State::Pass, &html! {
-                        "Read the file: " span class="tabular-nums" { (y) "×" (x) "×" (z) " (HWD)" } ". "
-                        a href="#file-chooser" data-open-chooser { "Choose a different one" }
-                    }, false))
-                }
-                @if let File::Upload { duplicate: Some(id), .. } = &page.file {
-                    (check("duplicate", State::Fail, &html! {
-                        "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
-                    }, false))
-                }
-                @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
-                    (check("similar", State::Warn, &html! {
-                        "Nearly the same as "
-                        a href={ "/schematics/" (other.id) } { (other.title()) }
-                        @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
-                        ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
-                        a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
-                        " instead; if it builds on it, say so in the description."
-                    }, false))
-                }
-                @if let File::Version { comparison, refusals, .. } = &page.file {
-                    @let permille = comparison.same_permille();
-                    @let same = html! {
-                        "Changes " (grouped(comparison.changed as u64)) " of "
-                        (grouped((comparison.same + comparison.changed) as u64)) " blocks, keeping "
-                        (permille / 10) "." (permille % 10) "%. "
-                        a href="#file-chooser" data-open-chooser { "Choose a different file" }
-                    };
-                    @if refusals.is_empty() {
-                        (check("same", State::Pass, &same, false))
-                    } @else {
-                        (check("same", State::Fail, &html! {
-                            (same)
-                            ul class="mt-1 flex list-disc flex-col gap-1 pl-5" {
-                                @for refusal in *refusals { li { (refusal) } }
-                            }
-                        }, false))
-                    }
-                }
-                @if let File::Upload { recognized, problems, lines, .. } = &page.file {
-                    (recognition_check(*recognized, problems, lines))
-                }
-                (swap_checks(page))
-                @match stored {
-                    Some(report) => {
-                        @let failed = report.failed();
-                        (check("simulation", if failed { State::Fail } else { State::Pass },
-                            &html! { "Simulation: " (simulation_summary(report)) }, false))
-                        @match report.timing() {
-                            Some(timing) => (check("timing",
-                                if timing.synced { State::Pass } else { State::Fail },
-                                &html! { "Timing: " (timing_summary(timing)) }, false)),
-                            None => (check("timing", State::Run, &html! { "Measuring the timing…" }, !report.passed())),
-                        }
-                    }
-                    None => {
-                        (check("simulation", State::Wait, &html! { "Choose a category to simulate it." }, false))
-                        (check("timing", State::Wait, &html! {}, true))
-                    }
-                }
-                // Whether it goes up as its category or off the list,
-                // which `form.js` shows from the simulation's result.
-                (check("filing", State::Wait, &html! {}, true))
+        @if !lines.0.is_empty() {
+            section aria-labelledby="checks-heading"
+                class="flex flex-col gap-2 rounded-overlay border border-line bg-raised p-4 shadow-sm" {
+                h2 id="checks-heading" class="font-semibold" { "Checks" }
+                ul class="flex flex-col gap-1.5" { (lines) }
             }
         }
     }
 }
 
-/// What the check by function made of an upload: its inputs and outputs as
-/// `lines` gives them, in short; and recognized, with their roles found, or
-/// what only its author can put right.
-fn recognition_check(
-    recognized: Option<&str>,
-    problems: &[String],
-    lines: &str,
-) -> Markup {
-    html! {
-        @if let Some(found) = recognized {
-            (check("recognized", State::Pass, &html! {
-                "Recognized as " (found) ". What each of its lines is for is kept with it, and shown in the site's colours or your theme."
-                @if !lines.is_empty() { p class="mt-1 text-meta text-muted" { (lines) } }
-            }, false))
-        } @else {
-            (check("recognized", State::Warn, &html! {
-                "Not recognized, so it goes up as built, unverified, until it's fixed:"
-                @if !lines.is_empty() { p class="mt-1 text-meta text-muted" { (lines) } }
-                ul class="mt-1 flex list-disc flex-col gap-2 pl-5 text-ink" {
-                    @for problem in problems { (super::reason_item(problem)) }
+/// Whether the build is verified as far as is known before the simulation
+/// runs, for its category's badge: `pass`, `fail` for one whose test got
+/// cases wrong, `warn` for one whose test couldn't run, or empty for not
+/// known yet; and why not, each reason with how to fix it, leaving out
+/// wrong cases the stored result shows under the form. `form.js` puts what
+/// the simulation finds in their place.
+fn verdict<'p>(page: &DetailsPage<'p>) -> (&'static str, Vec<&'p str>) {
+    match &page.file {
+        File::Upload {
+            recognized: None,
+            problems,
+            ..
+        } => {
+            let problems: Vec<&str> =
+                problems.iter().map(String::as_str).collect();
+            (failing_or_untested(&problems), problems)
+        }
+        File::Stored { s, simulation } => {
+            let failed = simulation.is_some_and(Report::failed);
+            match &s.unverified {
+                Some(why) => (
+                    failing_or_untested(&[why]),
+                    [why.as_str()]
+                        .into_iter()
+                        .filter(|why| !(failed && wrong_outputs(why)))
+                        .collect(),
+                ),
+                None if failed => ("fail", Vec::new()),
+                None if simulation.is_some_and(Report::passed) => {
+                    ("pass", Vec::new())
                 }
-            }, false))
+                None => ("", Vec::new()),
+            }
+        }
+        _ => ("", Vec::new()),
+    }
+}
+
+/// The verdict of a build that isn't verified for `reasons`: `fail` when
+/// its test ran and got cases wrong, else `warn`, as its test couldn't
+/// run.
+pub fn failing_or_untested(reasons: &[&str]) -> &'static str {
+    if reasons.iter().any(|reason| wrong_outputs(reason)) {
+        "fail"
+    } else {
+        "warn"
+    }
+}
+
+/// The heading over why a build isn't verified, for its `verdict`.
+fn reasons_heading(verdict: &str) -> &'static str {
+    if verdict == "fail" {
+        "Why it's failing"
+    } else {
+        "Why it's untested"
+    }
+}
+
+/// Why a build isn't verified, each reason with how to fix it, as list
+/// items, for the section under the form that says so.
+pub fn reason_items(reasons: &[&str]) -> Markup {
+    html! { @for reason in reasons { (super::reason_item(reason)) } }
+}
+
+/// Why the build is untested or failing, under the form, each reason with how to
+/// fix it, and its inputs and outputs as `lines` gives them, in short;
+/// hidden with no reasons. `form.js` fills it from the simulation's.
+fn reasons_section(reasons: &[&str], lines: &str) -> Markup {
+    html! {
+        section id="reasons" aria-labelledby="reasons-heading" data-reasons
+            hidden[reasons.is_empty()] class="mt-12 max-w-calm" {
+            h2 id="reasons-heading" class={ (SECTION_TITLE) " mb-2" } data-reasons-heading {
+                (reasons_heading(failing_or_untested(reasons)))
+            }
+            ul class="flex list-disc flex-col gap-2 pl-5" data-reason-list { (reason_items(reasons)) }
+            @if !lines.is_empty() { p class="mt-2 text-meta text-muted" { (lines) } }
         }
     }
 }
@@ -509,7 +510,8 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
     html! {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
             data-simulate=(simulate) data-listed-kinds=(crate::category::Kind::listed())
-            data-simulated[stored_result] data-unverified[unverified] class="flex flex-col gap-4" {
+            data-simulated[stored_result] data-unverified[unverified]
+            data-verdict=(verdict(page).0) class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
                 // Carried as its author made it, so tested standardized.

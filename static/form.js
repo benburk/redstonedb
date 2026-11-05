@@ -17,8 +17,7 @@ const namedCategory = (options, text) => {
 // under their sections, and the fields follow the one it names, by label or
 // name in any capitals. A blessed category, one probing recognizes, has
 // every measured detail worked out from its file and by the simulation: its
-// orientation, stacking, and logic give way to what the file shows, and a
-// note says so. Any other name puts the build off the list, described by
+// width, orientation, and stacking show what was found, locked. Any other name puts the build off the list, described by
 // hand; that waits until the box is left, so the fields do not jump while a
 // name is typed.
 for (const input of document.querySelectorAll("input[data-category]")) {
@@ -55,8 +54,6 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
     const logic = form.querySelector("[data-logic-field]");
     if (logic) logic.hidden = evaluated;
-    const note = form.querySelector("[data-evaluated-note]");
-    if (note) note.hidden = !evaluated;
   };
   // The checks say whether it goes up unverified once they have run.
   form.addEventListener("filing", () => update(true));
@@ -262,18 +259,19 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 // it redraws only once one changes. A category with no test answers at
 // once, so the waiting note shows only for a run that takes a while. A
 // passing result means latency and synchronized are measured, so their
-// fields give way to a note.
+// fields lock and fill in as the timing comes.
 //
-// The checks panel follows along, saying whether the build goes up as its
-// category or off the list, and the button waits for the cases' result,
-// though not the timing, which carries on after publishing. Anything the
-// server found, such as a duplicate, it disables the button for itself and
-// says why beside it, which this leaves be.
+// The category's badge follows along, saying whether the build is
+// verified, and the section under the form says why not, beside the
+// failing cases; and the button waits for the cases' result, though not the timing, which
+// carries on after publishing. Anything the server found, such as a
+// duplicate, it disables the button for itself and says why beside it,
+// which this leaves be.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
   const results = () => document.getElementById("simulation-results");
   const category = form.querySelector('input[name="category"]');
   const timingFields = form.querySelector("[data-timing-fields]");
-  const timingNote = form.querySelector("[data-timing-note]");
+  const marker = form.querySelector("[data-measured-marker]");
   const button = form.querySelector("[data-publish]");
   const reason = form.querySelector("[data-gate-reason]");
   const key = () => category.value.trim().toLowerCase();
@@ -297,35 +295,44 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     if (button.getAttribute("aria-disabled") === "true") event.preventDefault();
   });
 
-  // One line of the checks panel: its state, `pass`, `warn`, `fail`,
-  // `run`, or `wait`, and its words; no state hides it.
-  const spinner = document.createElement("span");
-  spinner.className =
-    "inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none";
-  const mark = (name, state, text) => {
-    const line = document.querySelector(`[data-check="${name}"]`);
-    if (!line) return;
-    line.hidden = !state;
-    if (!state) return;
-    line.dataset.state = state;
-    line.classList.toggle("text-danger", state === "fail");
-    line.classList.toggle("text-muted", state === "run" || state === "wait");
-    const icon = line.querySelector("[data-icon]");
-    icon.replaceChildren(
-      state === "run" ? spinner.cloneNode() : { pass: "✓", warn: "!", fail: "✗", wait: "○" }[state],
-    );
-    line.querySelector("[data-text]").textContent = text;
+  // The category's badge: `pass`, `fail` for cases wrong, `warn` for a
+  // test that couldn't run, `run` while simulating, or none, which hides
+  // it.
+  const badge = form.querySelector("[data-verdict-badge]");
+  const verdict = (state) => {
+    if (!badge) return;
+    const [words, kind] = {
+      pass: ["Verified", "badge-found"],
+      warn: ["Untested", "badge-failing"],
+      fail: ["Failing", "badge-failing"],
+      run: ["Simulating…", "badge-author"],
+    }[state] ?? ["", ""];
+    badge.hidden = !words;
+    badge.textContent = words;
+    badge.className = `badge ${kind}`;
   };
-  const marked = (name, section, label) => {
-    if (section) mark(name, section.dataset.state, `${label}: ${section.dataset.summary}`);
-    else mark(name, null);
+  // Why it isn't verified, under the form, as `state` says, failing or
+  // untested: `items`, its reasons as list items; none hides it.
+  const reasons = document.querySelector("[data-reasons]");
+  const why = (state, items) => {
+    if (!reasons) return;
+    reasons.querySelector("[data-reasons-heading]").textContent =
+      state === "fail" ? "Why it's failing" : "Why it's untested";
+    reasons.querySelector("[data-reason-list]").replaceChildren(...items);
+    reasons.hidden = items.length === 0;
+  };
+  // What the page first said, from the check by function or the stored
+  // result, for when the simulation has nothing to say.
+  const first = {
+    state: form.dataset.verdict,
+    items: [...(reasons?.querySelectorAll("[data-reason-list] > li") ?? [])],
   };
 
   // A category with a test has its latency and synchronized measured, so
-  // their fields give way from the start, and are not sent, unless the
+  // their fields lock from the start, and are not sent, unless the
   // simulation could not run the build, as for a block it does not model.
   // `fresh` is false while a new result is on its way. A new version's form
-  // has no latency fields to give way.
+  // has no latency fields to lock.
   const categoryOptions = [...form.querySelectorAll("[data-category-menu] [role=option]")];
   const chosenOption = () => namedCategory(categoryOptions, category.value);
   const measured = (fresh = true) => {
@@ -340,14 +347,22 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     const ran = shown?.querySelector("#simulation") != null;
     // An unverified build is tested, not measured, so its timing is typed.
     const measures = !form.hasAttribute("data-unverified") && (ran ? passed : tested && !skipped);
-    timingFields.hidden = measures;
-    timingNote.hidden = !measures;
-    for (const input of timingFields.querySelectorAll("input")) {
-      input.disabled = measures;
+    const timing = shown?.querySelector("[data-timing]");
+    const latency = timingFields.querySelector('input[name="latency"]');
+    const synced = timingFields.querySelector('input[name="synchronized"]');
+    for (const input of [latency, synced]) input.disabled = measures;
+    marker.disabled = !measures;
+    for (const mark of timingFields.querySelectorAll("[data-found-mark]")) {
+      mark.hidden = !measures;
+      mark.textContent = timing ? " · measured" : " · measuring…";
     }
-    timingNote.querySelector("[data-measured-marker]").disabled = !measures;
+    if (!measures) return;
+    // Filled once measured, blank and neither on nor off until then.
+    latency.value = timing?.dataset.latency ?? "";
+    synced.indeterminate = !timing;
+    synced.checked = timing?.dataset.synced === "true";
   };
-  // A blessed build's stacking is the simulation's, which the note shows
+  // A blessed build's stacking is the simulation's, which the field shows
   // once it has run.
   const derivedStacking = form.querySelector("[data-derived-stacking]");
   const found = (fresh) => {
@@ -357,31 +372,26 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       stack ?? "Found by the simulation once it has run.";
   };
 
-  // The checks once a result is in.
+  // The verdict once a result is in: verified or not as the filing
+  // says, else as the cases came out; with no test, what the page first
+  // said.
   const settled = () => {
     const filing = results().querySelector("[data-filing]");
     if (filing) {
-      form.toggleAttribute("data-unverified", filing.dataset.filing === "warn");
+      form.toggleAttribute("data-unverified", filing.dataset.filing !== "pass");
       form.dispatchEvent(new Event("filing"));
     }
     measured();
-    if (filing) mark("filing", filing.dataset.filing, filing.textContent);
-    else mark("filing", null);
     const section = results().querySelector("#simulation");
-    if (!section) {
-      mark(
-        "simulation",
-        "wait",
-        category.value.trim() === ""
-          ? "Choose a category to simulate it."
-          : `Only ${form.dataset.listedKinds} are simulated so far.`,
-      );
-      mark("timing", null);
-      return;
-    }
-    marked("simulation", section, "Simulation");
-    if (!section.querySelector("[data-timing-pending]")) {
-      marked("timing", section.querySelector("[data-timing]"), "Timing");
+    if (filing) {
+      verdict(filing.dataset.filing);
+      why(filing.dataset.filing, [...filing.content.cloneNode(true).children]);
+    } else if (section && !section.hasAttribute("data-skipped")) {
+      verdict(section.dataset.state);
+      why(section.dataset.state, []);
+    } else {
+      verdict(first.state);
+      why(first.state, first.items);
     }
   };
 
@@ -391,9 +401,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       running += 1;
       gate();
       measured(false);
-      mark("simulation", "run", "Simulating every case…");
-      mark("timing", null);
-      mark("filing", null);
+      verdict("run");
       clearTimeout(waiting);
       waiting = setTimeout(() => {
         const note = document.createElement("p");
@@ -401,8 +409,6 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
         note.textContent = "Simulating every case…";
         results().replaceChildren(note);
       }, 300);
-    } else if (event.target.matches("[data-timing-pending]")) {
-      mark("timing", "run", "Measuring the timing, which carries on after you publish…");
     }
   });
   document.addEventListener("fx:finally", (event) => {
@@ -413,10 +419,16 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   });
   document.addEventListener("fx:error", (event) => {
     if (event.detail.error?.name === "AbortError") return;
+    // Said where the result would have been.
+    const note = document.createElement("p");
+    note.className = "mt-6 text-muted";
     if (event.target.id === "simulation-results") {
-      mark("simulation", "fail", "Could not simulate it.");
+      verdict(null);
+      note.textContent = "Could not simulate it.";
+      results().replaceChildren(note);
     } else if (event.target.matches("[data-timing-pending]")) {
-      mark("timing", "fail", "Could not measure the timing.");
+      note.textContent = "Could not measure the timing.";
+      event.target.replaceChildren(note);
     }
   });
   // A swap replaces its target, so fixi tells the document, with the
@@ -424,9 +436,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   document.addEventListener("fx:swapped", (event) => {
     const { cfg } = event.detail;
     if (cfg.target.id === "simulation-results") settled();
-    else if (cfg.target.matches?.("[data-timing-pending]")) {
-      marked("timing", results().querySelector("[data-timing]"), "Timing");
-    }
+    else if (cfg.target.matches?.("[data-timing-pending]")) measured();
   });
 
   const ask = () => {
@@ -437,6 +447,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   category.addEventListener("change", ask);
   measured();
   gate();
+  verdict(first.state);
   // fixi takes up the panel on DOMContentLoaded, after this script runs.
   document.addEventListener("DOMContentLoaded", ask);
 }

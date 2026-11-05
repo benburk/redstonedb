@@ -249,7 +249,6 @@ pub async fn analyzed(
     );
     let raw = STANDARD.encode(&analyzed.raw);
     let said = Said {
-        guess: analyzed.guess.as_ref(),
         recognition: Some(&analyzed.recognition),
         original: &raw,
         ..Said::default()
@@ -414,7 +413,6 @@ async fn chosen_instead(
     );
     let form = form.keeping_sent(suggested);
     let said = Said {
-        guess: guess.as_ref(),
         original: &raw,
         ..Said::default()
     };
@@ -518,11 +516,10 @@ async fn publish_checked(
 }
 
 /// What the preview says beside the form: what it says back to the last
-/// thing sent, and what the file seems to be.
+/// thing sent.
 #[derive(Default)]
 struct Said<'a> {
     reply: Reply<'a>,
-    guess: Option<&'a Guess>,
     /// What the check by function made of the file, when already known.
     recognition: Option<&'a probe::Recognition>,
     /// The file as its author made it, base64, carried for its colours.
@@ -566,12 +563,10 @@ async fn show_preview(
     let file = File::Upload {
         data: &STANDARD.encode(&prepared.data),
         original: said.original,
-        size: [size.x, size.y, size.z],
         duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
         unconventional: !upload.read_as().conventional,
         swapped: &prepared.swapped,
-        guess: said.guess,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
         recognized: recognition.found.as_deref(),
         problems: &recognition.problems,

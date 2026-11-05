@@ -42,7 +42,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 }
                 p class="mb-2" { "A few other things:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
-                    li { "Builds RedstoneDB can't verify still go in their category, as built, with the specs their uploader gives: non-standard when their inputs and outputs don't fit, fails verification when they give wrong outputs. They're hidden until you tick Show unverified, and never rank." }
+                    li { "Builds RedstoneDB can't verify still go in their category, as built, with the specs their uploader gives: untested when their inputs and outputs don't fit its test, failing when they give wrong outputs. They're hidden until you tick Show failing and untested, and never rank." }
                     li { "Builds of types RedstoneDB can't test yet are still archived, as built, under Other." }
                     li { "Every build shows in your own block theme, and you can send any of them straight to your Schemati." }
                     li { "Builds keep the colours their author gave them: switch between Original, Default, and your theme on any build's page." }
@@ -197,7 +197,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         "Recognized so far: " (crate::category::Kind::listed()) "."
                     }
                     p class="mb-4" {
-                        "A build that doesn't fit goes up as built, unverified, with a note on what's in the way. "
+                        "A build that doesn't fit goes up as built, untested, with a note on what's in the way. "
                         "Upload a fixed version later and it's verified."
                     }
                 }

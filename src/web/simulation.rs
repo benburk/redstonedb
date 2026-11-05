@@ -26,6 +26,7 @@ use crate::{
         simulation::{self, Status},
         user::User,
     },
+    recognize::fault,
     simulate::{Report, Test},
     web::{app_state::AppState, error::AppError},
 };
@@ -119,12 +120,12 @@ pub async fn upload(
 
 /// A file as its author made it, `data`, as the form's category tests it:
 /// standardized when that is a category the site recognizes builds of,
-/// as it is kept once recognized, else as built; with a note, for the
-/// checks, saying whether it goes up as that category or off the list.
+/// as it is kept once recognized, else as built; with whether it goes up
+/// verified as that category, or unverified, and why.
 async fn readied(
     pairs: &[(String, String)],
     data: &[u8],
-) -> Result<(Vec<u8>, Option<Markup>), AppError> {
+) -> Result<(Vec<u8>, Option<Filing>), AppError> {
     let Ok(upload) = Upload::read(data) else {
         return Ok((data.to_vec(), None));
     };
@@ -134,19 +135,6 @@ async fn readied(
         .filter(|c| category::behaviour(&c.name).evaluated)
     else {
         return Ok((upload.original.data, None));
-    };
-    let label = meant.label.to_lowercase();
-    let off = |off: details::Unrecognized| {
-        filing_note(
-            false,
-            &format!(
-                "{}, so it goes up as an unverified {label}, with its own \
-                 blocks and the specs you give, listed only when unverified \
-                 builds are shown. Fix it and upload a new version to \
-                 verify it.",
-                off.why
-            ),
-        )
     };
     // Read as built, it can only say it breaks the conventions.
     let (data, unrecognized) = if let Ok(standard) = upload.standard {
@@ -162,26 +150,38 @@ async fn readied(
         let found = details::unrecognized(meant, build).await;
         (upload.original.data, found)
     };
-    let note = match unrecognized {
-        Ok(Some(found)) => Some(off(found)),
-        Ok(None) => Some(filing_note(
-            true,
-            &format!(
-                "Recognized as {}, so it goes up standardized, with every \
-                 detail measured.",
-                pages::article(&label)
-            ),
-        )),
+    let filing = match unrecognized {
+        Ok(Some(found)) => Some(Filing::Unverified(found.why)),
+        Ok(None) => Some(Filing::Verified),
         Err(_) => None,
     };
-    Ok((data, note))
+    Ok((data, filing))
 }
 
-/// Where a build goes up, for `form.js` to show in the checks: as its
-/// category when `recognized`, else off the list, as `text` says.
-fn filing_note(recognized: bool, text: &str) -> Markup {
-    let state = if recognized { "pass" } else { "warn" };
-    html! { p data-filing=(state) hidden { (text) } }
+/// Whether a build goes up verified as its category, or unverified, and
+/// why.
+enum Filing {
+    Verified,
+    Unverified(String),
+}
+
+impl Filing {
+    /// The filing, for `form.js` to badge the category with, verified,
+    /// failing, or untested, and say why under the form, leaving out
+    /// wrong cases when `failed`, as the simulation's section shows them.
+    fn note(&self, failed: bool) -> Markup {
+        let (state, why) = match self {
+            Filing::Verified => ("pass", None),
+            Filing::Unverified(why) => {
+                (pages::failing_or_untested(&[why]), Some(why.as_str()))
+            }
+        };
+        let reasons: Vec<&str> = why
+            .into_iter()
+            .filter(|why| !(failed && fault::wrong_outputs(why)))
+            .collect();
+        html! { template data-filing=(state) { (pages::reason_items(&reasons)) } }
+    }
 }
 
 /// The cases or the timing for stored build `id` under the category and
@@ -196,15 +196,7 @@ pub async fn stored(
     let (s, data) = stored_file(&state, user_opt.as_ref(), &id).await?;
     let pairs = form::pairs(&body);
     // An unverified build says why it stays so, whatever its cases show.
-    let filing = s.unverified.as_ref().map(|why| {
-        filing_note(
-            false,
-            &format!(
-                "{why}, so it stays unverified. Upload a fixed version to \
-                 verify it."
-            ),
-        )
-    });
+    let filing = s.unverified.clone().map(Filing::Unverified);
     match step {
         Step::Cases => cases(&state, &pairs, data, Some(&s), filing).await,
         Step::Timing => timing(&state, &pairs, data, Some(&s)).await,
@@ -288,31 +280,34 @@ async fn cases(
     pairs: &[(String, String)],
     data: Vec<u8>,
     s: Option<&schematic::Schematic>,
-    filing: Option<Markup>,
+    filing: Option<Filing>,
 ) -> Result<Response, AppError> {
     let simulate = match s {
         Some(s) => format!("/schematics/{}/simulation", s.id),
         None => "/upload/simulation".to_owned(),
     };
-    let panel = |content: &Markup| {
-        let content = html! { (filing.clone().unwrap_or_default()) (content) };
+    let panel = |content: &Markup, failed: bool| {
+        let note = filing.as_ref().map(|filing| filing.note(failed));
+        let content = html! { (note.unwrap_or_default()) (content) };
         pages::simulation_results(&simulate, &content).into_response()
     };
     let Some(test) = test(pairs, &data)? else {
-        return Ok(panel(&html! {}));
+        return Ok(panel(&html! {}, false));
     };
     let report = match stored_result(state, s, test).await? {
         Some(report) => report,
         None => match simulation::run(test, data).await {
             Ok(report) => report,
-            Err(err) => return Ok(panel(&could_not(&err.to_string()))),
+            Err(err) => {
+                return Ok(panel(&could_not(&err.to_string()), false));
+            }
         },
     };
     let timing = timing_url(&simulate);
-    Ok(panel(&pages::simulation_section(
-        &report,
-        Waiting::Posted(&timing),
-    )))
+    Ok(panel(
+        &pages::simulation_section(&report, Waiting::Posted(&timing)),
+        report.failed(),
+    ))
 }
 
 /// What takes the timing's place when there is none to show: nothing.

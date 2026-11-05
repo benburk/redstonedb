@@ -27,7 +27,7 @@ Each type of build has an input and output contract. RedstoneDB finds a build's 
 - **Buses** are evenly spaced lines, straight or diagonal, or two lines with their bits alternating.
 - **Stacking** is checked by `//rstack`ing copies west or up, 1, 2, or 4 blocks a bit apart, and testing the result.
 
-The full rules, with pictures, are on the site: [How builds are recognized](https://redstonedb.com/about/recognized). A build that doesn't fit still goes up, unverified, with a note on what's in the way.
+The full rules, with pictures, are on the site: [How builds are recognized](https://redstonedb.com/about/recognized). A build that doesn't fit still goes up, untested, with a note on what's in the way.
 
 ## Docs
 

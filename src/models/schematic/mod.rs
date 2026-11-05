@@ -164,7 +164,7 @@ pub struct Schematic {
     /// them.
     pub operands: Operands,
     /// Sorted by kind in glossary order (restriction, other),
-    /// then name, after `fails_verification` if it is not recognized as its
+    /// then name, after `failing` if it is not recognized as its
     /// category or simulating its file got some cases wrong, see
     /// `models::simulation`; `torchless` when its file has
     /// no torches, and `alpha` when it works from Alpha.
@@ -207,10 +207,11 @@ impl Schematic {
         self.unverified.is_none() && !self.tags.iter().any(Tag::is_unverified)
     }
 
-    /// Whether it is unverified only because its inputs, outputs, or
-    /// parts don't fit its category's, rather than for wrong outputs.
-    pub fn non_standard(&self) -> bool {
-        self.tags.iter().any(|t| t.kind == tag::Kind::NonStandard)
+    /// Whether it is untested, unverified only because its inputs,
+    /// outputs, or parts don't fit its category's, rather than failing,
+    /// for wrong outputs.
+    pub fn untested(&self) -> bool {
+        self.tags.iter().any(|t| t.kind == tag::Kind::Untested)
     }
 
     /// Its category, when that is a standard one; `None` for one off the
@@ -270,7 +271,7 @@ impl Schematic {
     }
 
     /// Its tags with its design, orientation, and flags among them, as its page
-    /// shows them and a list is narrowed by: `fails_verification` first, then
+    /// shows them and a list is narrowed by: `failing` first, then
     /// its design, its orientation, its flags in its category's order,
     /// `stackable` when its copies stack, `synced` when its outputs settle
     /// together or `unsynced` when they don't, and its other tags. One the site
@@ -691,16 +692,14 @@ mod tests {
             name: "carry_in",
             label: "Carry in",
         }];
-        s.tags.insert(
-            0,
-            Tag::derived(tag::FAILS_VERIFICATION, tag::Kind::Failing),
-        );
+        s.tags
+            .insert(0, Tag::derived(tag::FAILING, tag::Kind::Failing));
         let tags = s.every_tag();
         let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "fails_verification",
+                "failing",
                 "carry_lookahead",
                 "horizontal",
                 "carry_in",

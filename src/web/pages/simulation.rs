@@ -58,7 +58,7 @@ pub(super) fn simulation_summary(report: &Report) -> String {
             grouped(run.cases)
         ),
         Report::Broken { reason } => format!("broken. {reason}"),
-        Report::Skipped { reason } => format!("not simulated. {reason}"),
+        Report::Skipped { reason } => format!("untested. {reason}"),
     }
 }
 
@@ -133,7 +133,7 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                 @if report.passed() { "Timing" } @else { "Simulation" }
             }
             @match report {
-                Report::Skipped { reason } => p class="text-muted" { "Not simulated: " (reason) },
+                Report::Skipped { reason } => p class="text-muted" { "Untested: " (reason) },
                 Report::Broken { reason } => p class="text-danger" { strong { "Broken: " } (reason) },
                 Report::Ran(run) => {
                     // A pass is the build's badge; a failure says how badly
@@ -263,7 +263,8 @@ pub fn timing_section(timing: &Timing) -> Markup {
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
         div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
-            data-summary=(timing_summary(timing)) hidden[quiet] {
+            data-summary=(timing_summary(timing)) hidden[quiet]
+            data-latency=[timing.latency()] data-synced=(timing.synced) {
             (timing_intro(timing))
             dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 tabular-nums" {
                 dt class="text-muted" { "Synced" }

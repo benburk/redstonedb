@@ -55,7 +55,7 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     assert_eq!(s.width, Some(8));
     assert_eq!(s.orientation, Orientation::Horizontal);
     assert_eq!(s.encoding, Some(Encoding::Binary));
-    assert!(!s.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION));
+    assert!(!s.tags.iter().any(|t| t.name == tag::FAILING));
     assert!(simulation::current(&db, &s).await.unwrap().is_some());
 
     // The result is current and the details already match, so refreshing
@@ -154,7 +154,7 @@ async fn an_unverified_build_is_tested_as_its_category() {
     assert_eq!(s.category, "adder");
     assert!(s.unverified.is_some());
     assert!(!s.verified());
-    assert!(s.tags.iter().any(|t| t.name == tag::FAILS_VERIFICATION));
+    assert!(s.tags.iter().any(|t| t.name == tag::FAILING));
     assert_eq!(s.latency, Some(99), "its typed details stay");
     assert_eq!(s.width, Some(8));
     assert!(matches!(

@@ -34,7 +34,7 @@ const VERIFIED_NOTE: &str = "Each spec here, and each key fact above, comes from
     the build or reading its file, not from what its uploader typed. Each new version is measured again.";
 
 const UNVERIFIED_NOTE: &str = "The site couldn't verify this build as its category, so its \
-    specs are as its uploader gave them, unchecked.";
+    specs are as its uploader gave them, untested.";
 
 /// What a stored build's file says about it.
 pub struct FileRead {
@@ -195,7 +195,7 @@ fn not_recognized(
     html! {
         section id="unverified" aria-labelledby="unrecognized-heading" class="scroll-mt-4" {
             h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } {
-                (if s.non_standard() { "Non-standard" } else { "Failed verification" })
+                (if s.untested() { "Why it's untested" } else { "Why it's failing" })
             }
             ul class="flex list-disc flex-col gap-3 pl-5" {
                 @for reason in &reasons {
@@ -231,7 +231,7 @@ pub fn build_banner(
         // A pass needs no badge: it is what puts a build on the list.
         Some(Report::Ran(run)) if run.wrong == 0 => None,
         Some(Report::Ran(run)) => Some((
-            "Fails simulation",
+            "Failing",
             "bg-danger/12 text-danger",
             format!(
                 "{} of {} cases of {} wrong; see which below.",
@@ -240,13 +240,11 @@ pub fn build_banner(
                 run.pattern
             ),
         )),
-        Some(Report::Broken { reason }) => Some((
-            "Fails simulation",
-            "bg-danger/12 text-danger",
-            reason.clone(),
-        )),
+        Some(Report::Broken { reason }) => {
+            Some(("Failing", "bg-danger/12 text-danger", reason.clone()))
+        }
         Some(Report::Skipped { reason }) => {
-            Some(("Not simulated", "bg-muted/12 text-muted", reason.clone()))
+            Some(("Untested", "bg-muted/12 text-muted", reason.clone()))
         }
         None if simulating => Some((
             "Simulating…",
@@ -254,7 +252,7 @@ pub fn build_banner(
             "Its cases are running; this updates when they finish.".to_owned(),
         )),
         None => Some((
-            "Not simulated",
+            "Untested",
             "bg-muted/12 text-muted",
             "The simulator has no test for this category yet.".to_owned(),
         )),
@@ -263,11 +261,8 @@ pub fn build_banner(
     html! {
         div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
             @if s.unverified.is_some() {
-                @let (label, tone) = if s.non_standard() {
-                    ("Non-standard", "bg-restriction text-on-restriction")
-                } else {
-                    ("Fails verification", "bg-danger/12 text-danger")
-                };
+                @let label = if s.untested() { "Untested" } else { "Failing" };
+                @let tone = "bg-danger/12 text-danger";
                 a href="#unverified"
                     class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold hover:no-underline " (tone) } {
                     (label)
@@ -352,10 +347,11 @@ impl Sources {
             Source::Given
         };
         let category_source = if report.is_some_and(Report::failed) {
-            Source::Unconfirmed("fails simulation")
+            Source::Unconfirmed("failing")
         } else if crate::models::simulation::stands_in(s).is_some() {
-            // Passing or not, it is unverified until recognized.
-            Source::Unconfirmed("not recognized")
+            // Passing or not, it is untested as its category until
+            // recognized.
+            Source::Unconfirmed("untested")
         } else {
             checked(false, passed)
         };
@@ -439,7 +435,7 @@ fn sourced(
         @match source {
             Source::Simulated | Source::File => {},
             Source::Given => @if sources.some_checked() {
-                " " span class="text-meta text-muted" { "unverified" }
+                " " span class="text-meta text-muted" { "untested" }
             },
             Source::Unconfirmed(why) => {
                 " " span class="text-meta text-danger" { (why) }
@@ -649,7 +645,7 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                     }, VERIFIED_NOTE))
                 } @else if s.unverified.is_some() {
                     (hover_note("specs-note", &html! {
-                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Unverified specs" }
+                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Untested specs" }
                     }, UNVERIFIED_NOTE))
                 } @else {
                     "Specs"
@@ -1072,8 +1068,10 @@ fn preview(s: &Schematic) -> super::Preview {
     facts.push(
         if s.verified() {
             "verified"
+        } else if s.untested() {
+            "untested"
         } else {
-            "unverified"
+            "failing"
         }
         .to_owned(),
     );

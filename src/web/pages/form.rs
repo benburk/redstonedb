@@ -39,7 +39,12 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
         // the box is typed in; a name of the author's own makes a category
         // off the list. Without the script, the box takes typing alone.
         div class="field" {
-            label for="category" class="text-meta font-semibold text-muted" { "Category" }
+            // Whether the build is verified as this category, which
+            // form.js says once the simulation has run.
+            div class="flex items-center gap-2" {
+                label for="category" class="text-meta font-semibold text-muted" { "Category" }
+                span class="badge" data-verdict-badge hidden {}
+            }
             div class="relative" {
                 input id="category" name="category" required autocomplete="off"
                     role="combobox" aria-controls="category-menu" aria-expanded="false"
@@ -81,18 +86,15 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                 "Or type your own, such as piston door."
             }
         }
-        (evaluated_note())
     }
 }
 
-/// For a blessed category, whose measured details all come from its file
-/// and the simulation; form.js shows it.
-fn evaluated_note() -> Markup {
+/// The mark on a field's label that its value was found, not typed, such
+/// as `measured`; `form.js` shows the latency's and synchronized's while
+/// the simulation fills them, saying `measuring…` until it has.
+fn found_mark(how: &str, hidden: bool) -> Markup {
     html! {
-        p data-evaluated-note hidden class="text-muted" {
-            "Every measured detail is worked out by the simulation. "
-            "If it isn't recognized, it goes up unverified, with the specs you give."
-        }
+        span class="font-normal text-muted" data-found-mark hidden[hidden] { " · " (how) }
     }
 }
 
@@ -107,10 +109,12 @@ pub(super) fn fields(
 ) -> Markup {
     html! {
         (category_fields(f, choices))
+        // A blessed category's, found in the file, shown as the field it
+        // is typed in otherwise, but locked.
         @if let Some(width) = derived.width {
             div class="field" data-derived-width hidden {
-                span { "Width in bits" }
-                p class="tabular-nums" { (width) span class="text-muted" { ", counted from input A" } }
+                span { "Width in bits" (found_mark("counted from input A", false)) }
+                input type="number" value=(width) disabled class="input tabular-nums";
             }
         }
         // Only an unverified build's width is typed; form.js shows it.
@@ -121,11 +125,8 @@ pub(super) fn fields(
         }
         @if let Some(orientation) = derived.orientation {
             div class="field" data-derived-orientation hidden {
-                span { "Orientation" }
-                p {
-                    (orientation.label())
-                    span class="text-muted" { ", from the way input A runs" }
-                }
+                span { "Orientation" (found_mark("from the way input A runs", false)) }
+                select disabled class="input" { option selected { (orientation.label()) } }
             }
         }
         label class="field" data-typed-orientation {
@@ -136,19 +137,17 @@ pub(super) fn fields(
                 }
             }
         }
-        // Hidden by form.js once a passing simulation measures them.
-        p data-timing-note hidden class="text-muted" {
-            "Latency and synchronized are measured by the simulation."
-            // Sent in place of the hidden fields, so nothing typed is kept.
-            input type="hidden" name="synchronized_unknown" value="yes" disabled data-measured-marker;
-        }
+        // Enabled by form.js while the simulation measures them, sent in
+        // place of the locked fields, so nothing typed is kept.
+        input type="hidden" name="synchronized_unknown" value="yes" disabled data-measured-marker;
+        // Locked by form.js, and filled, while the simulation measures them.
         div class="contents" data-timing-fields {
         label class="field" {
-            span { "Latency in ticks" }
+            span { "Latency in ticks" (found_mark("measured", true)) }
             input name="latency" type="number" min="0" value=(f.latency) class="input tabular-nums";
         }
         div class="field" {
-            span { "Synchronized" }
+            span { "Synchronized" (found_mark("measured", true)) }
             // An unknown build's toggle stays unknown until it is clicked;
             // form.js shows it as neither on nor off and drops the marker.
             label class="flex items-center gap-2" {
@@ -295,7 +294,7 @@ fn stacking_fields(f: &Form) -> Markup {
         // For a blessed category, the simulation stacks copies and decides,
         // so the rows give way to a note.
         div class="field" data-derived-stacking hidden {
-            span { "Stacking" }
+            span { "Stacking" (found_mark("measured", false)) }
             // The stack the simulation found, once it has run.
             p class="text-muted" data-stack-note {
                 "Found by the simulation once it has run."

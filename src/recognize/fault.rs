@@ -222,9 +222,9 @@ const CASES: &[Case] = &[
     },
 ];
 
-/// Whether `reason` says a build gives wrong outputs, so it fails
-/// verification, rather than that its inputs, outputs, or parts don't fit
-/// its category's, which leaves it non-standard.
+/// Whether `reason` says a build gives wrong outputs, so it is failing,
+/// rather than that its inputs, outputs, or parts don't fit its
+/// category's, which leaves it untested.
 pub fn wrong_outputs(reason: &str) -> bool {
     let reason = reason.trim();
     reason == crate::details::WRONG_OUTPUTS || reason.contains("cases wrong")
