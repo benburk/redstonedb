@@ -106,8 +106,9 @@ fn a_named_output_leaves_the_bus() {
 
 #[test]
 fn interface_names_operands_and_control_lines() {
-    let interface::Interface { inputs, outputs } =
-        interface::read(&blocks("alpha-cla"));
+    let interface::Interface {
+        inputs, outputs, ..
+    } = interface::read(&blocks("alpha-cla"));
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
     assert_eq!(inputs[0].bits[0].pos, [16, 6, 18]);
@@ -186,7 +187,9 @@ fn stacked_slices_form_one_wider_build() {
             .unwrap();
     assert_eq!(size, [16, 6, 9]);
     let blocks = Blocks::read(&data).unwrap();
-    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    let interface::Interface {
+        inputs, outputs, ..
+    } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8), ("B", 8), ("carry in", 1)]);
     assert_eq!(names(&outputs), [("output", 8), ("carry out", 1)]);
     // Each copy's carry in hangs a torch on the previous copy's carry out
@@ -276,7 +279,9 @@ fn standardizing_keeps_the_authors_blocks() {
     };
     assert!(quartz(&blocks) > 0);
     assert_eq!(quartz(&blocks), quartz(&Blocks::read(&raw).unwrap()));
-    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    let interface::Interface {
+        inputs, outputs, ..
+    } = interface::read(&blocks);
     assert_eq!(names(&inputs), [("A", 8)]);
     assert_eq!(names(&outputs), [("output", 1)]);
     // Its output is read by the repeater tapping it, its role an output's
@@ -317,7 +322,9 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
 fn a_control_line_may_use_a_button() {
     let data = standardize::standardize(&raw("mult-8-buttons")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let interface::Interface { inputs, outputs } = interface::read(&blocks);
+    let interface::Interface {
+        inputs, outputs, ..
+    } = interface::read(&blocks);
     let mut controls = names(&inputs);
     controls.sort_unstable();
     assert_eq!(

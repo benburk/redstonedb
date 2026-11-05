@@ -16,7 +16,7 @@ Depending on the circuit, RedstoneDB tests every build automatically for:
 
 All of this is worked out mechanically, in MCHPRS's Redpiler, so it can't drift out of date with a description, and an uploader can't enter incorrect information. Even an adder's design, like ripple carry or carry lookahead, is read from the circuit.
 
-Recognized so far: adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, parity circuits, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops. Anything else is still archived, as built, under Other.
+Recognized so far: adders, hex adders, subtractors, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, parity circuits, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops. Anything else is still archived, as built, under Other.
 
 ## How builds are recognized
 

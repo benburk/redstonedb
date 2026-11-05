@@ -140,6 +140,8 @@ pub enum Test {
     Popcount,
     /// A as the strength of one output block.
     BinaryToHex,
+    /// A, a hex digit a block as its strength, in binary.
+    HexToBinary,
     /// Whether at least some number of A's bits are on.
     Threshold,
     /// Whether an odd number of A's bits are on, the xor of them all, or
@@ -342,6 +344,10 @@ impl Test {
             Test::BinaryToHex => (
                 Kind::BinaryToHex,
                 Way::spec(|_, i| converters::binary_to_hex(i)),
+            ),
+            Test::HexToBinary => (
+                Kind::HexToBinary,
+                Way::spec(|_, i| converters::hex_to_binary(i)),
             ),
             Test::Threshold => {
                 (Kind::Threshold, Way::spec(|_, i| converters::threshold(i)))

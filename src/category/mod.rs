@@ -36,6 +36,7 @@ pub enum Kind {
     Threshold,
     Parity,
     BinaryToHex,
+    HexToBinary,
     XorGate,
     XnorGate,
     AndGate,
@@ -60,7 +61,6 @@ pub enum Kind {
     Dataloop,
     Display,
     Divider,
-    HexToBinary,
     LineDrawer,
     NandNorGate,
     Ram,
@@ -152,6 +152,9 @@ pub enum Probe {
     /// A hex adder's digit inputs, carry in, sum, and carry out, each by
     /// its shape.
     HexAdder,
+    /// A hex-to-binary converter's digit inputs and its output bits, each
+    /// by its shape.
+    HexToBinary,
     /// A register's or buffer's data buses and its cells' controls.
     Register,
     Shifter,

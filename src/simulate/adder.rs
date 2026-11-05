@@ -580,6 +580,7 @@ mod tests {
                 port("B", Role::Operand(1), false, b),
             ],
             outputs,
+            binary_outputs: false,
         }
     }
 

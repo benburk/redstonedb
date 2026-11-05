@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The How builds are recognized page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its author gives. A new version that is recognized moves it up.
+A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its author gives. A new version that is recognized moves it up.
 
 ## Inputs
 
@@ -26,6 +26,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - An incrementer or decrementer has input A and, if it has one, a control line that adds or subtracts it; an inc/dec's line picks between adding and subtracting 1. Its output may be a bit wider, or have a lone carry out.
 - A barrel shifter has input A, an output as wide, and lines for its shift: the amount's signed with what each is worth, as `1`, `2`, and `4`.
 - A binary-to-hex converter has input A, of at most 4 bits, and one output block whose strength is A.
+- A hex-to-binary converter has input A, a hex digit a block, each a comparator with air behind, and outputs giving A's bits, four a digit; a lone output beside a bus is its lowest bit or its highest, which the test finds.
 - A popcount has input A and outputs wide enough for its count, or one output block whose strength is the count; a threshold has input A and one output, on when at least some number of A's bits are, which the test finds.
 - A monostable has input A and a lone output, its pulse. A buffer is read as a register is.
 - A counter has input A, one button, its clock, and one lever, its write enable: pressing the clock counts up or down, and pressing it with write enable on loads A.

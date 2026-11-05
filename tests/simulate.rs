@@ -1049,6 +1049,51 @@ fn a_parity_circuit_gives_whether_an_odd_number_of_bits_are_on() {
     assert!(timing.latency().is_some());
 }
 
+/// A 4-bit hex-to-binary converter, its digit a comparator with air
+/// behind and its outputs a bus of three and a lone line, its lowest bit,
+/// found by probing alone: each of the 16 strengths given in binary on its
+/// four outputs, a bit a block, though it takes a digit, and timed by them.
+/// It is torchless 4-bit Hex To Binary, cfc02dcb, fixed by two blocks.
+#[test]
+fn a_hex_to_binary_converter_gives_each_digit_in_binary() {
+    let data = read_fixture("tests/fixtures/hex-bin-4-fixed.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    assert_eq!(
+        found.found.as_deref(),
+        Some("a hex to binary: all 16 cases right, A in binary"),
+        "{:?}",
+        found.problems
+    );
+    let blocks = Blocks::read(&found.file).unwrap();
+    let Report::Ran(run) = Test::HexToBinary.run(&blocks) else {
+        panic!("the converter was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (16, 0), "{:?}", run.examples);
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "hex_to_binary");
+    let timing = Test::HexToBinary
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert!(timing.latency().is_some());
+}
+
+/// Torchless 4-bit Hex To Binary, cfc02dcb, as built: the constant 2 on
+/// the side of its lowest bit's comparator lets a digit of 2 through, as
+/// of 6, 10, and 14, and its top bit reads dust one block short of the 8
+/// it needs, so turns on at 7 too; probing finds its lines all the same.
+#[test]
+fn a_hex_to_binary_converter_wrong_on_five_digits_is_told_so() {
+    let data = read_fixture("tests/fixtures/hex-bin-4.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    assert_eq!(found.found, None);
+    let blocks = Blocks::read(&found.file).unwrap();
+    let Report::Ran(run) = Test::HexToBinary.run(&blocks) else {
+        panic!("the converter was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (16, 5));
+    let digits: Vec<_> = run.examples.iter().map(|w| w.inputs[0]).collect();
+    assert_eq!(digits, [2, 6, 7, 10, 14]);
+}
+
 /// An 8-bit carry out: of A + B, only the carry, on one unsigned status
 /// line, in every one of its 65,536 cases, timed by that line, as it has no
 /// other output.

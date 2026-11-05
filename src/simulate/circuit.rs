@@ -161,7 +161,8 @@ impl Circuit {
                     .collect::<Result<_>>()?;
                 Ok((
                     blocks,
-                    digits && shows_digits(port) || port.signal_strength,
+                    digits && shows_digits(interface, port)
+                        || port.signal_strength,
                 ))
             })
             .collect::<Result<_>>()?;
@@ -704,9 +705,10 @@ impl Carried {
 }
 
 /// Whether an output of a build with a signal-strength input shows a digit
-/// per block: any but a status line, such as a carry out.
-fn shows_digits(port: &Port) -> bool {
-    !port.status()
+/// per block: any but a status line, such as a carry out, unless its
+/// outputs give bits, as a hex to binary converter's do.
+fn shows_digits(interface: &Interface, port: &Port) -> bool {
+    !port.status() && !interface.binary_outputs
 }
 
 /// How many bits input `port` carries: four for each block of a
@@ -721,7 +723,7 @@ pub(super) fn input_bits(port: &Port) -> usize {
 /// each block.
 pub(super) fn output_bits(interface: &Interface, port: &Port) -> usize {
     let digits = interface.inputs.iter().any(|input| input.signal_strength)
-        && shows_digits(port)
+        && shows_digits(interface, port)
         || port.signal_strength;
     port.bits.len() * if digits { 4 } else { 1 }
 }
