@@ -63,6 +63,7 @@ pub(super) fn bcd_to_binary(interface: &Interface) -> Result<Spec> {
 pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "absolute value")?;
     let width = bench.widths(interface)[0];
+    at_least_two(width, "An absolute value")?;
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
@@ -73,6 +74,16 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
 
 /// The fewest bits a popcount counts.
 const MIN_POPCOUNT: usize = 4;
+
+/// Refuses `what`, a build of A alone, for an A of `width` bits under two:
+/// one bit's absolute value, parity, or threshold is the bit itself, as a
+/// buffer's is.
+fn at_least_two(width: usize, what: &str) -> Result<()> {
+    if width < 2 {
+        broken!("{what} takes at least 2 bits, but A has {width}.");
+    }
+    Ok(())
+}
 
 /// A popcount's every value of A, or with too many, each byte's and the
 /// test patterns: how many of A's bits are on, on outputs wide enough to
@@ -188,6 +199,7 @@ pub(super) fn threshold_pattern(k: u32) -> String {
 pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "threshold")?;
     let width = bench.widths(interface)[0];
+    at_least_two(width, "A threshold")?;
     if bench.outputs.len() != 1
         || interface.outputs[bench.outputs[0]].bits.len() != 1
     {
@@ -215,6 +227,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
 pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "parity circuit")?;
     let width = bench.widths(interface)[0];
+    at_least_two(width, "A parity circuit")?;
     if bench.outputs.len() != 1
         || interface.outputs[bench.outputs[0]].bits.len() != 1
     {
