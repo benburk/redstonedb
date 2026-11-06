@@ -86,10 +86,17 @@ pub(super) async fn trace_command(db: &SqlitePool, args: &Trace) -> Result<()> {
             .collect();
         println!("switching {}", each.join(", "));
     }
+    if let Some(world) = &a.world {
+        println!();
+        println!("block by block:");
+        print_outputs(&a, &world.trace);
+    }
     for (i, run) in a.runs.iter().enumerate() {
         println!();
         if a.runs.len() > 1 {
-            println!("{}", order(&a, i));
+            println!("redpiler {}, {}", i + 1, order(&a, i));
+        } else {
+            println!("redpiler:");
         }
         print_races(&a, i);
         print_outputs(&a, &run.trace);

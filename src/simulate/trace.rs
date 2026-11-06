@@ -667,7 +667,22 @@ pub struct Tracer {
 impl Tracer {
     /// Sets up `blocks`, whose lines are `interface`.
     pub fn new(blocks: &Blocks, interface: Interface) -> Result<Tracer> {
-        let circuit = Circuit::new(blocks, &interface)?;
+        Self::with(blocks, interface, Circuit::new)
+    }
+
+    /// Sets up `blocks` to run in the world itself, block by block, its
+    /// races going the way the game's block updates take them; see
+    /// [`Circuit::in_world`].
+    pub fn in_world(blocks: &Blocks, interface: Interface) -> Result<Tracer> {
+        Self::with(blocks, interface, Circuit::in_world)
+    }
+
+    fn with(
+        blocks: &Blocks,
+        interface: Interface,
+        set_up: fn(&Blocks, &Interface) -> Result<Circuit>,
+    ) -> Result<Tracer> {
+        let circuit = set_up(blocks, &interface)?;
         let carried = circuit.carried();
         Ok(Tracer {
             graph: Graph::of(blocks)?,
