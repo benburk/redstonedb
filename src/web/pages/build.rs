@@ -672,7 +672,14 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if let Some(synced) = s.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { tag::SYNCED } else { tag::UNSYNCED })), sources.timing, sources)))
                 }
-                // Whether it stacks is among its tags; how, here.
+                @if let Some(logic) = s.logic {
+                    (field("Stateless", sourced(flag(logic == Logic::Stateless, Some(logic.name())), sources.logic, sources)))
+                }
+                @if s.pipelined() {
+                    (field("Pipelined", sourced(flag(true, Some("pipelined")), sources.throughput, sources)))
+                }
+                // Whether it stacks is among its tags; how, here, after
+                // the yes-or-no specs, as it says more.
                 @if !s.stacking.is_empty() {
                     (field("Stacks", sourced(html! {
                         a href="#stacking" { (s.stacking.iter().map(|d| short_stacking(s, d)).collect::<Vec<_>>().join(" · ")) }
@@ -685,12 +692,6 @@ fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
                 }).collect();
                 @if !timed.is_empty() {
                     (field("Stacked", sourced(html! { (timed.join(" · ")) }, sources.timing, sources)))
-                }
-                @if let Some(logic) = s.logic {
-                    (field("Stateless", sourced(flag(logic == Logic::Stateless, Some(logic.name())), sources.logic, sources)))
-                }
-                @if s.pipelined() {
-                    (field("Pipelined", sourced(flag(true, Some("pipelined")), sources.throughput, sources)))
                 }
             }
         }
