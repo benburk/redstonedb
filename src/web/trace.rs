@@ -72,9 +72,12 @@ pub struct Analysis {
     /// The change traced, and the tick each input switches on.
     pub case: Case,
     pub at: Vec<i32>,
-    /// The change as run, then, when its first race went the other way in
-    /// another compile, that run too.
+    /// The change as Redpiler ran it, then, when its first race went the
+    /// other way in another compile, that run too.
     pub runs: Vec<Run>,
+    /// The change run block by block, its races going the way the game's
+    /// block updates take them; see [`Tracer::in_world`].
+    pub world: Option<Run>,
     /// The sweep of many changes, for the analyzer's page, and how many of
     /// them it ran at random.
     pub sweep: Option<Sweep>,
@@ -166,6 +169,14 @@ impl Setup {
         Tracer::new(&self.blocks, interface).map_err(|err| err.to_string())
     }
 
+    /// `case`, each input switching on its tick of `at`, run block by
+    /// block; `None` when the build cannot run so.
+    fn world(&self, case: &Case, at: &[i32]) -> Option<Run> {
+        let interface = lines(&self.blocks, self.kind).ok()?;
+        let mut tracer = Tracer::in_world(&self.blocks, interface).ok()?;
+        run(&mut tracer, case, at).ok()
+    }
+
     fn analysis(
         self,
         graph: Graph,
@@ -173,7 +184,9 @@ impl Setup {
         runs: Vec<Run>,
         sweep: Option<Sweep>,
     ) -> Analysis {
+        let world = self.world(&case, &at);
         Analysis {
+            world,
             inputs: self.inputs,
             outputs: self.outputs,
             graph,

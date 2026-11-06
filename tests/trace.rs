@@ -7,17 +7,26 @@ mod common;
 use app::{
     category::Kind,
     import,
+    recognize::interface::Interface,
     schem::{Blocks, Pos},
     simulate::trace::{self, Tracer},
 };
 
-/// Fixture adder `name` set up to be traced, its lines named as its
-/// timing names them: A, B, and carry in.
-fn tracer(name: &str) -> Tracer {
+/// Fixture adder `name` set up to be traced by `set_up`, its lines named
+/// as its timing names them: A, B, and carry in.
+fn traced(
+    name: &str,
+    set_up: fn(&Blocks, Interface) -> anyhow::Result<Tracer>,
+) -> Tracer {
     let data = import::with_roles(&common::fixture(name), "adder").unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let lines = Kind::Adder.test().unwrap().lines(&blocks).unwrap();
-    Tracer::new(&blocks, lines).unwrap()
+    set_up(&blocks, lines).unwrap()
+}
+
+/// Fixture adder `name` compiled by Redpiler.
+fn tracer(name: &str) -> Tracer {
+    traced(name, Tracer::new)
 }
 
 fn at(tracer: &Tracer, node: usize) -> Pos {
@@ -108,4 +117,23 @@ fn a_sweep_finds_the_races() {
     let sweep = trace::sweep(&mut clean, &cases, None).unwrap();
     assert!(sweep.races.is_empty());
     assert!(sweep.outputs[0].glitches.is_empty());
+}
+
+/// Block by block, as the game orders a tick's ticks, the comparator
+/// taking over the line hears it fall as soon as the dust beside it does,
+/// long before the generate torch hears it reach nothing, so it is
+/// scheduled first and goes first: the torch never lights, and the sum is 1
+/// on tick 3. The race is still found, the tie being in the circuit, but
+/// it goes one way only, as in game; only Redpiler's own order glitches.
+#[test]
+fn block_by_block_the_hand_off_goes_first() {
+    let mut world = traced("cca-10-bit-3-carry-lost", Tracer::in_world);
+    let run = world.run(&[0, 0, 0], &[0, 1, 0], &[0, 0, 0]).unwrap();
+    assert_eq!(run.output_steps(0), [(3, 1)]);
+    let races = run.races(&world.graph);
+    let race = &races[0];
+    assert_eq!(
+        (race.tick, at(&world, race.node), race.ran),
+        (2, [9, 3, 4], 0)
+    );
 }
