@@ -110,9 +110,7 @@ pub async fn restore(
         version::set_colours(db, &id, restored, &colours).await?;
     }
     tracing::info!(id, by = user.username, ip, number, "restored a version");
-    if let Err(err) = simulation::complete(db, &id).await {
-        tracing::error!(id, "simulating a build: {err:#}");
-    }
+    simulation::complete_soon(db, &id);
     similarity::refresh_soon(db);
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }

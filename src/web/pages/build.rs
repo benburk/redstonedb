@@ -24,7 +24,7 @@ use super::{
     icons::{self, icon},
     interface::{Inversions, interface_section},
     name_badges, percent, person_badge, plural, search_link,
-    simulation::{Waiting, simulation_section},
+    simulation::{Waiting, cases_pending, simulation_section},
     size, stack_guide, version,
 };
 
@@ -57,6 +57,9 @@ pub struct BuildPage<'a> {
     pub similar: &'a [(Schematic, u32)],
     pub file: &'a Result<FileRead, String>,
     pub simulation: &'a Option<Report>,
+    /// Whether storing it is still simulating it in the background, so
+    /// what is stored is yet to come.
+    pub simulating: bool,
     pub versions: &'a [Version],
     pub favorited: bool,
     pub colours: ColoursShown,
@@ -82,6 +85,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
         similar,
         file,
         simulation,
+        simulating,
         versions,
         favorited,
         colours,
@@ -100,7 +104,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                     @if !s.public {
                         (super::private_badge())
                     }
-                    (build_banner(s, report))
+                    (build_banner(s, report, simulating))
                 }
                 // On a phone, under the title, the download as wide as the
                 // page with the menu at its end; beside the title once
@@ -133,7 +137,9 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             // says why under its reasons already.
             @let skipped_off_list = crate::models::simulation::stands_in(s).is_some()
                 && matches!(report, Some(Report::Skipped { .. }));
-            @if let Some(report) = report.filter(|_| !skipped_off_list) {
+            @if simulating {
+                (cases_pending(&format!("{path}/simulation")))
+            } @else if let Some(report) = report.filter(|_| !skipped_off_list) {
                 (simulation_section(report, Waiting::Stored))
             }
             @if let Ok(file) = file {
@@ -196,10 +202,21 @@ fn not_recognized(
 }
 
 /// Beside a build's title, what its simulation says, as a badge, unless it
-/// passes: fails or not simulated, with the counts or the reason in a
-/// popup on hover or focus.
-pub fn build_banner(s: &Schematic, report: Option<&Report>) -> Markup {
+/// passes: fails, still simulating, as just after it is stored, or not
+/// simulated, with the counts or the reason in a popup on hover or focus.
+/// A live panel, redrawn when its simulation comes in.
+pub fn build_banner(
+    s: &Schematic,
+    report: Option<&Report>,
+    simulating: bool,
+) -> Markup {
     let verdict = match report {
+        _ if simulating => Some((
+            "Simulating…",
+            "bg-muted/12 text-muted",
+            "Its cases and timing are running; this updates when they finish."
+                .to_owned(),
+        )),
         // An unverified build's reasons are a section of their own.
         _ if s.unverified.is_some() => None,
         // A pass needs no badge: it is what puts a build on the list.

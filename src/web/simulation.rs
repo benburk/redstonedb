@@ -10,6 +10,7 @@ use std::sync::{
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -30,6 +31,37 @@ use super::{
     form::{self, Form},
     pages::{self, Waiting},
 };
+
+/// Build `id`'s simulation, for its page to ask after while storing it
+/// simulates it in the background: 204 until that is done, then its
+/// section, naming the panels it changes for the page to redraw, or
+/// nothing in its place when none is stored to show.
+pub async fn poll(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    viewer: Option<User>,
+) -> Result<Response, AppError> {
+    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if simulation::completing(&id) {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+    // Off the list, a build the simulator can't run says why under its
+    // reasons already.
+    let report = simulation::current(&state.db, &s).await?.filter(|report| {
+        simulation::stands_in(&s).is_none()
+            || !matches!(report, Report::Skipped { .. })
+    });
+    let redraw = [("FX-Redraw", "build-banner build-info")];
+    Ok(match report {
+        Some(report) => {
+            (redraw, pages::simulation_section(&report, Waiting::Stored))
+                .into_response()
+        }
+        None => (redraw, nothing()).into_response(),
+    })
+}
 
 /// Which part of a simulation the details form asks for: the cases, or,
 /// once they pass, the slower timing, as `?step=timing`.
