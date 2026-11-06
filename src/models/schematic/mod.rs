@@ -217,7 +217,7 @@ impl Schematic {
 
     /// Whether it ranks on its category's boards: verified, its buses laid
     /// as the conventions lay them, as an unaligned build's are not, which
-    /// lists only when asked for.
+    /// lists all the same.
     pub fn ranks(&self) -> bool {
         self.verified() && !self.unaligned
     }
