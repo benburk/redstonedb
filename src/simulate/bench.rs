@@ -899,6 +899,23 @@ mod tests {
         assert_eq!(on.wrong, on.cases);
     }
 
+    /// A popcount counts at least four bits: one of fewer is refused, as
+    /// a one-bit one's count is the bit itself, as a buffer's is.
+    #[test]
+    fn a_popcount_counts_at_least_four_bits() {
+        let counted = |bits: usize| {
+            super::super::converters::popcount(&mut Interface {
+                inputs: vec![port("A", Role::Operand(0), bits)],
+                outputs: vec![port("output", Role::Output(0), 3)],
+                binary_outputs: false,
+            })
+        };
+        for bits in 1..4 {
+            assert!(counted(bits).is_err(), "{bits}");
+        }
+        assert!(counted(4).is_ok());
+    }
+
     /// A parity circuit is on for an odd number of A's bits on; its
     /// inverse, on for an even number, gets every case wrong.
     #[test]
