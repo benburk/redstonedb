@@ -71,6 +71,9 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
     })
 }
 
+/// The fewest bits a popcount counts.
+const MIN_POPCOUNT: usize = 4;
+
 /// A popcount's every value of A, or with too many, each byte's and the
 /// test patterns: how many of A's bits are on, on outputs wide enough to
 /// hold A's width, in binary, or as the strength of its one output block,
@@ -78,6 +81,14 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
 pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "popcount")?;
     let width = bench.widths(interface)[0];
+    // Fewer, and its count is little more than its inputs: one bit's is
+    // the bit itself, as a buffer's.
+    if width < MIN_POPCOUNT {
+        broken!(
+            "A popcount counts at least {MIN_POPCOUNT} bits, but A has \
+             {width}."
+        );
+    }
     let needed = usize::BITS - width.leading_zeros();
     if let &[out] = bench.outputs.as_slice()
         && interface.outputs[out].bits.len() == 1
