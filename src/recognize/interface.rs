@@ -112,6 +112,35 @@ impl Bit {
             inverted: false,
         }
     }
+
+    /// The input whose block is at `pos`, its switch among `switches`:
+    /// entered from its switch's side, hard when dust touches its block,
+    /// and inverted when its switch is saved on.
+    pub fn input(
+        blocks: &Blocks,
+        switches: &HashMap<Pos, Switch>,
+        pos: Pos,
+    ) -> Self {
+        let switch = &switches[&pos];
+        Bit {
+            pos,
+            entry: Some(switch.side),
+            hard: Direction::ALL.iter().any(|&side| {
+                schem::id(blocks.get(schem::step(pos, side)))
+                    == "minecraft:redstone_wire"
+            }),
+            inverted: switch.on,
+        }
+    }
+}
+
+/// Each switch of `blocks`, by its input block.
+pub fn switches(blocks: &Blocks) -> HashMap<Pos, Switch> {
+    blocks
+        .switches()
+        .into_iter()
+        .map(|switch| (switch.block, switch))
+        .collect()
 }
 
 /// Names a build's unsigned ports for what its `category` takes them to

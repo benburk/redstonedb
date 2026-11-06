@@ -266,7 +266,7 @@ impl Spec {
 }
 
 /// `bits` ones, the lowest bits.
-pub(super) fn mask(bits: usize) -> Value {
+pub fn mask(bits: usize) -> Value {
     match bits {
         0 => 0,
         bits => Value::MAX >> (Value::BITS as usize).saturating_sub(bits),
@@ -379,7 +379,7 @@ pub(super) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
 /// About a dozen values of `width` bits that tell functions apart: none,
 /// one, and all set; alternate bits and pairs of bits, each way; the top
 /// bit alone; the low half set; and two with no pattern.
-fn telling(width: usize) -> Vec<Value> {
+pub fn telling(width: usize) -> Vec<Value> {
     let all = mask(width);
     let mut values: Vec<Value> = [
         0,

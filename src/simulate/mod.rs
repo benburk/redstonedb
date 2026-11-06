@@ -69,6 +69,7 @@ mod value;
 
 pub use adder::Variant as AdderVariant;
 pub use alu::{flags as alu_flags, op as alu_op};
+pub use bench::{mask, telling};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use design::{Design, Terms, adder_design, design_of, groups};
