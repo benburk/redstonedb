@@ -246,6 +246,25 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
     assert_eq!((faces.low, faces.high), ([0, 2, 2], [0, 0, 0]));
 }
 
+/// A hex adder's pitch is the blocks a digit, as a binary build's is the
+/// blocks a bit: the one-digit adder of issue 6, its copies a digit every 2
+/// blocks up, each taking the carry from the one below, half a block a
+/// bit, stacks 2 wide, where only whole blocks a bit were tried.
+#[test]
+fn a_hex_adder_stacks_a_digit_every_2_blocks() {
+    let raw =
+        std::fs::read("tests/fixtures/hex-adder-4-stacks-2-up.schem").unwrap();
+    let data = import::with_roles(&raw, "hex_adder").unwrap();
+    let stacking = Test::Adder.stacking(&data).expect("it is stacked");
+    let Stacking::Stacks { step, bits, .. } = &stacking else {
+        panic!("it does not stack: {stacking:?}");
+    };
+    assert_eq!((step.describe().as_str(), *bits), ("2 up", 32));
+    let pitches: Vec<_> =
+        stacking.directions().iter().map(|d| d.pitch).collect();
+    assert_eq!(pitches, [Some(2)]);
+}
+
 /// Its outputs are read through the repeaters standing on them, which lead
 /// the product out of the build, since nothing powers the yellow blocks.
 #[test]

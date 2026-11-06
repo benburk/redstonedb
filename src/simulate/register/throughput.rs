@@ -94,6 +94,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
                 most: first.most,
                 also: ways,
                 words,
+                place: 1,
             }
         }
         (Err(_), Some(words)) => Stacking::Registers {

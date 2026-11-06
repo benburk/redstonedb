@@ -89,6 +89,9 @@ pub enum Stacking {
         copies: usize,
         bits: usize,
         cases: u64,
+        /// The bits a place on its buses holds, as [`Stacker`] has it.
+        #[serde(default = "one_bit", skip_serializing_if = "is_one_bit")]
+        place: usize,
     },
     /// Copies of a register every `step`, words on its shared data bus,
     /// make a register file whose every cell stores and reads right:
@@ -113,6 +116,9 @@ pub enum Stacking {
         bits: usize,
         cases: u64,
         most: Option<usize>,
+        /// The bits a place on its buses holds, as [`Stacker`] has it.
+        #[serde(default = "one_bit", skip_serializing_if = "is_one_bit")]
+        place: usize,
         /// The other way copies make a wider one, as a 1-bit gate's may
         /// both west and up.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -132,17 +138,38 @@ pub enum Stacking {
     Not { step: Option<Step>, reason: String },
 }
 
+/// The bits a place holds where a report kept none: one, a bit.
+fn one_bit() -> usize {
+    1
+}
+
+/// Whether `place` holds one bit, as a report need not say.
+#[allow(clippy::trivially_copy_pass_by_ref, reason = "as serde calls it")]
+fn is_one_bit(place: &usize) -> bool {
+    *place == 1
+}
+
+/// The places each of `copies` adds, of `bits` in all, `place` bits a
+/// place.
+fn per_copy(bits: usize, copies: usize, place: usize) -> usize {
+    bits / copies.max(1) / place.max(1)
+}
+
 impl Stacking {
     /// The ways it stacks, as a build's stacking is kept: each with its
     /// step, its box, the most copies that work, and, for copies that add
-    /// bits, their pitch class; none when it does not stack.
+    /// bits, their pitch class, in blocks a place; none when it does not
+    /// stack.
     pub fn directions(&self) -> Vec<StackDirection> {
-        let per_copy = |bits: usize, copies: usize| bits / copies.max(1);
         match self {
             Stacking::Stacks {
-                step, copies, bits, ..
+                step,
+                copies,
+                bits,
+                place,
+                ..
             } => vec![StackDirection {
-                pitch: step.pitch(per_copy(*bits, *copies)),
+                pitch: step.pitch(per_copy(*bits, *copies, *place)),
                 ..step.direction()
             }],
             Stacking::Registers { step, most, .. } => {
@@ -155,9 +182,10 @@ impl Stacking {
                 most,
                 also,
                 words,
+                place,
                 ..
             } => {
-                let bits = Some(per_copy(*bits, *copies));
+                let bits = Some(per_copy(*bits, *copies, *place));
                 [Apart::of(*step, *most)]
                     .iter()
                     .chain(also)
@@ -194,12 +222,12 @@ impl Apart {
     }
 
     /// The direction it stacks, with the most copies that work, and the
-    /// pitch class of copies each adding `bits`, or none for copies that
+    /// pitch class of copies each adding `places`, or none for copies that
     /// add words.
-    pub fn direction(self, bits: Option<usize>) -> StackDirection {
+    pub fn direction(self, places: Option<usize>) -> StackDirection {
         StackDirection {
             max_copies: self.most.and_then(|n| i64::try_from(n).ok()),
-            pitch: bits.and_then(|bits| self.step.pitch(bits)),
+            pitch: places.and_then(|places| self.step.pitch(places)),
             ..self.step.direction()
         }
     }
@@ -236,15 +264,15 @@ impl Step {
         }
     }
 
-    /// Its pitch for copies each adding `bits`: the blocks a bit, a class,
-    /// 1, 2, or 4, or, for an adder, its own width end to end, as the
-    /// search tries no other; `None` for a step that is no whole number of blocks
-    /// a bit, or goes both ways.
-    pub fn pitch(self, bits: usize) -> Option<i64> {
-        let bits = i64::try_from(bits).ok()?;
+    /// Its pitch for copies each adding `places`: the blocks a place, a
+    /// bit or a hex digit, a class, 1, 2, or 4, or, for an adder, its own
+    /// width end to end, as the search tries no other; `None` for a step
+    /// that is no whole number of blocks a place, or goes both ways.
+    pub fn pitch(self, places: usize) -> Option<i64> {
+        let places = i64::try_from(places).ok()?;
         let length = self.west + self.up;
-        (bits > 0 && Way::of(self).is_some() && length % bits == 0)
-            .then_some(length / bits)
+        (places > 0 && Way::of(self).is_some() && length % places == 0)
+            .then_some(length / places)
     }
 
     /// The step with the box its copies of the build in `data` repeat,
@@ -364,6 +392,10 @@ pub struct Stacker<'a> {
     kind: Kind,
     /// The bits each copy adds.
     bits: usize,
+    /// The bits a place on its buses holds: four for a hex digit, else
+    /// one. Pitches are blocks a place, so a hex adder's copies a digit
+    /// every 2 blocks are 2 wide, as copies a bit every 2 blocks are.
+    place: usize,
     /// The ways its copies may add bits.
     ways: Vec<Way>,
     /// The cases `copies` stacked `step`, their buses as given, ran, every
@@ -387,10 +419,25 @@ impl<'a> Stacker<'a> {
             data,
             kind,
             bits,
+            place: 1,
             ways,
             works: Box::new(works),
             not: not.to_owned(),
         }
+    }
+
+    /// It, each place on its buses holding `place` bits, as a hex digit
+    /// holds four.
+    pub(super) fn placed(self, place: usize) -> Self {
+        Stacker {
+            place: place.max(1),
+            ..self
+        }
+    }
+
+    /// The places each copy adds: its bits, or its digits.
+    fn places(&self) -> i64 {
+        i64::try_from(self.bits / self.place).unwrap_or(i64::MAX)
     }
 
     /// The group its copies are in.
@@ -471,7 +518,7 @@ impl<'a> Stacker<'a> {
     /// inputs sticking out of it meeting the next copy's, where that is a
     /// whole pitch and no class, tried only once no class works.
     fn pitches(&self, way: Way) -> Vec<i64> {
-        let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
+        let places = self.places();
         let mut pitches = PITCHES.to_vec();
         if !self.end_to_end() {
             return pitches;
@@ -497,9 +544,9 @@ impl<'a> Stacker<'a> {
             .fold(core, i64::min)
             .max(1);
         for width in narrowest..=whole {
-            let pitch = width / bits.max(1);
-            if bits > 0
-                && width % bits == 0
+            let pitch = width / places.max(1);
+            if places > 0
+                && width % places == 0
                 && pitch > 0
                 && !pitches.contains(&pitch)
             {
@@ -518,10 +565,10 @@ impl<'a> Stacker<'a> {
         let mut found: Vec<(i64, Apart)> = Vec::new();
         let mut last = (None, self.not.clone());
         let mut tested = false;
-        let bits = i64::try_from(self.bits).unwrap_or(i64::MAX);
+        let places = self.places();
         for &way in &self.ways {
             for pitch in self.pitches(way) {
-                let step = way.step(pitch * bits);
+                let step = way.step(pitch * places);
                 let Some(copies) = self.copies(step) else {
                     continue;
                 };
@@ -585,6 +632,7 @@ impl<'a> Stacker<'a> {
                     copies: first.copies,
                     bits: first.copies * self.bits,
                     cases: first.cases,
+                    place: self.place,
                 }
             }
             Ok(mut ways) => {
@@ -597,6 +645,7 @@ impl<'a> Stacker<'a> {
                     most: first.most,
                     also: ways,
                     words: None,
+                    place: self.place,
                 }
             }
         }
@@ -646,7 +695,13 @@ pub fn adder(data: &[u8]) -> Option<Stacker<'_>> {
     };
     let not = "No pitch west or up makes copies that add right.";
     let ways = (width, bit_ways(&interface, width));
-    Some(Stacker::new(data, Kind::Adder, ways, works, not))
+    // A hex adder's copies add digits, its pitch the blocks a digit.
+    let place = if interface.inputs[ports.a].signal_strength {
+        4
+    } else {
+        1
+    };
+    Some(Stacker::new(data, Kind::Adder, ways, works, not).placed(place))
 }
 
 /// How many copies to test: three, so one sits between two others, and
