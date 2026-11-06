@@ -1838,3 +1838,17 @@ fn a_64_bit_hex_adder_is_tested_digit_by_digit() {
     assert_eq!(run.examples[0].expected, [0x1001, 0]);
     assert_eq!(run.examples[0].got, [0x001, 0]);
 }
+
+/// A 1-wide T flip-flop's copies are cells, each toggling its own bit:
+/// copies 2 west, a block of air between them, cannot meet, so they stack
+/// untested, pitch 2, and it is 2-wide stackable.
+#[test]
+fn a_1_wide_t_flip_flop_stacks_2_west() {
+    let data = read_fixture("tests/fixtures/t-flip-flop.schem").unwrap();
+    assert_eq!(Blocks::read(&data).unwrap().size[0], 1);
+    let stacking = Test::TFlipFlop.stacking(&data);
+    let Some(Stacking::Wider { step, copies, .. }) = stacking else {
+        panic!("the T flip-flop does not stack: {stacking:?}");
+    };
+    assert_eq!((step.describe().as_str(), copies), ("2 west", 9));
+}
