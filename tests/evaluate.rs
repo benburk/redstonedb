@@ -327,11 +327,11 @@ fn a_negator_is_read_whole_from_its_file() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
-/// A parity circuit whose output a torch inverts, on for an even number of
-/// A's bits on, is one too, flagged even; the owner's, on for an odd
-/// number, is not.
+/// A parity circuit is on for an odd number of A's bits on: the owner's
+/// with its output inverted by a torch, on for an even number, is not
+/// one.
 #[test]
-fn an_even_parity_circuit_is_flagged_even() {
+fn an_even_parity_circuit_is_not_a_parity_circuit() {
     // The dust its two last comparators power, which its output's
     // repeater read, powers a block in the repeater's place, and a torch
     // on that block feeds the output's repeater, moved north of the torch.
@@ -351,16 +351,14 @@ fn an_even_parity_circuit_is_flagged_even() {
     .collect();
     let (even, _) = standardize::edit_grown(&standard, &changes).unwrap();
     let recognition = app::recognize::probe::recognize(&even).unwrap();
-    assert_eq!(
-        recognition.found.as_deref(),
-        Some("a parity circuit: all 256 cases right, xnor of A's bits"),
+    assert!(
+        !recognition
+            .found
+            .as_deref()
+            .is_some_and(|found| found.starts_with("a parity circuit")),
         "{:?}",
-        recognition.problems
+        recognition.found
     );
-    let e = evaluate(&recognition.file).unwrap();
-    assert_eq!(e.category, Some("parity"));
-    assert!(e.passes(), "{:?}", e.report);
-    assert_eq!(e.flags, ["even"]);
 }
 
 /// A register is read whole from its file: holding what it was written is

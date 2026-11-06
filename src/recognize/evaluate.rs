@@ -14,7 +14,7 @@ use crate::{
     import::{self, Prepared},
     models::{
         schematic::{Encoding, Logic, Orientation, StackDirection, Widened},
-        simulation::{EVEN, FALLING_EDGE, INVERTED, SIGNED},
+        simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
     recognize::interface,
     schem::{Blocks, stack},
@@ -258,11 +258,6 @@ impl Evaluation {
             let variant = run.adder_variant();
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
-        }
-        // A parity circuit's cases say whether it is on for an even number
-        // of A's bits.
-        if test == Test::Parity && run.even() {
-            self.flags.push(EVEN.to_owned());
         }
         if test == Test::Register && run.reads_inverted() {
             self.flags.push(INVERTED.to_owned());

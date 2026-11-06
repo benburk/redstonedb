@@ -447,14 +447,9 @@ impl Category for Parity {
     }
 
     fn ops(&self, _: &Shape) -> Vec<Op> {
-        vec![
-            Op::new("odd parity of A", |v| {
-                vec![(v[0].count_ones() % 2 == 1).into()]
-            }),
-            Op::new("even parity of A", |v| {
-                vec![(v[0].count_ones() % 2 == 0).into()]
-            }),
-        ]
+        vec![Op::new("odd parity of A", |v| {
+            vec![(v[0].count_ones() % 2 == 1).into()]
+        })]
     }
 }
 

@@ -516,7 +516,6 @@ pub(super) const TABLE: [Facts; 48] = [
         plural: Some("Parity Circuits"),
         section: Section::Logic,
         logic: Some(Logic::Stateless),
-        flags: &[flag("even", "Even")],
         aliases: &["parity checker", "parity generator", "xor reduce"],
         listed_as: Some("parity circuits"),
         probe: one_operand(215, Line::Never),

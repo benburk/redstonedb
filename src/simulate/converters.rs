@@ -198,14 +198,9 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
     })
 }
 
-/// The cases of a parity circuit whose output is on for an even number of
-/// A's bits, the inverse of the xor of them all.
-pub(super) const EVEN_PARITY: &str = "xnor of A's bits";
-
 /// A parity build's every value of A, or with too many, each byte's and
 /// the test patterns: whether an odd number of A's bits are on, the xor of
-/// them all, on its one output, or an even number, its inverse, whichever
-/// the build gets right; the even one is flagged.
+/// them all, on its one output. One on for an even number is not one.
 pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "parity circuit")?;
     let width = bench.widths(interface)[0];
@@ -217,16 +212,9 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     Ok(Spec {
         bench,
         cases: Cases::Combinations(Box::new(move || byte_cases(width))),
-        kinds: vec![
-            Kind::new("xor of A's bits", |case| {
-                Value::from(case[0].count_ones() % 2 == 1)
-            })
-            .reading(Reading::Parity { even: false }),
-            Kind::new(EVEN_PARITY, |case| {
-                Value::from(case[0].count_ones() % 2 == 0)
-            })
-            .reading(Reading::Parity { even: true }),
-        ],
+        kinds: vec![Kind::new("xor of A's bits", |case| {
+            Value::from(case[0].count_ones() % 2 == 1)
+        })],
         by_digit: false,
     })
 }

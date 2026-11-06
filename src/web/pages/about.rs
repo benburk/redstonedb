@@ -191,7 +191,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Hex adders take A and B a hex digit each, a comparator with air behind it, in place of levers, and hex-to-binary converters take A so, giving its bits. Every other category takes levers." }
                         li { "Thresholds find their own number: how many inputs it takes to turn them on." }
                         li { "Popcounts and binary-to-hex converters can give their answer as one output's signal strength." }
-                        li { "Parity circuits give one output, on when an odd number of inputs are on, or an even number, which is flagged Even." }
+                        li { "Parity circuits give one output, on when an odd number of inputs are on." }
                     }
                     p class="mb-4" {
                         "Recognized so far: " (crate::category::Kind::listed()) "."

@@ -899,10 +899,10 @@ mod tests {
         assert_eq!(on.wrong, on.cases);
     }
 
-    /// A parity circuit may be on for an odd number of A's bits on, or for
-    /// an even number, its inverse, each found as its own kind.
+    /// A parity circuit is on for an odd number of A's bits on; its
+    /// inverse, on for an even number, gets every case wrong.
     #[test]
-    fn a_parity_circuit_is_odd_or_even() {
+    fn a_parity_circuit_is_odd() {
         let interface = || {
             (
                 vec![port("A", Role::Operand(0), 4)],
@@ -922,9 +922,7 @@ mod tests {
         assert_eq!(run.pattern, "xor of A's bits");
         let (inputs, outputs) = interface();
         let run = judged(inputs, outputs, &spec.kinds, |case| odd(case) ^ 1);
-        assert_eq!((run.wrong, run.cases), (0, 16));
-        assert_eq!(run.pattern, super::super::converters::EVEN_PARITY);
-        assert!(run.inverted.is_empty());
+        assert_eq!((run.wrong, run.cases), (16, 16));
     }
 
     #[test]
