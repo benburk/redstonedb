@@ -873,12 +873,19 @@ pub(super) fn cards(
 /// on a phone.
 const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_-_0.375rem)),1fr))] gap-3 sm:gap-5";
 
-/// The picture of `s`, at an address that changes with its file and with
-/// the viewer's `palette`.
+/// The picture of `s`, at an address that changes with its file, with
+/// the viewer's `palette`, and as it comes to be drawn in a theme's
+/// building blocks, once recognized, as a build marked as following the
+/// conventions later may be, its file the same.
 pub(super) fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
     let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
+    let themed = if s.evaluated() && s.verified() {
+        "-b"
+    } else {
+        ""
+    };
     format!(
-        "/schematics/{}/thumbnail.webp?v={}-{}{palette}",
+        "/schematics/{}/thumbnail.webp?v={}-{}{themed}{palette}",
         s.id,
         &s.sha256[..12.min(s.sha256.len())],
         crate::thumbnail::RENDERER

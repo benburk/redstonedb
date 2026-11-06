@@ -57,10 +57,13 @@ pub async fn thumbnail(
     };
     let painted = chosen.is_some();
     let palette = chosen.unwrap_or_default();
+    // Kept by what is drawn, so a build whose needs are kept later, its
+    // file the same, is drawn again in its theme's building blocks.
     let (data, key) = if s.conventional {
         let needs = palette::needs(&state.db, &id).await?;
-        let key = format!("{}-{}", import::sha256(&data), palette.key());
-        (palette::apply(&data, needs.as_ref(), &palette)?, key)
+        let painted = palette::apply(&data, needs.as_ref(), &palette)?;
+        let key = import::sha256(&painted);
+        (painted, key)
     } else {
         let data = crate::schem::lines::without(&data)?;
         let key = import::sha256(&data);
