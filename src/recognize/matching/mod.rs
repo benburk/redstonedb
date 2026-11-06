@@ -33,7 +33,7 @@ use crate::{
         Blocks, Pos,
         lines::{self, Role, Roles},
     },
-    simulate::{Value, mask},
+    simulate::{Value, alu_ops, mask},
 };
 
 pub mod buses;
@@ -287,7 +287,9 @@ impl Match {
 /// The file in `data`, made simulatable as probing makes it, matched as
 /// the category it comes closest to; `None` when its inputs and outputs
 /// break the conventions, or it can't be observed, or no category's slots
-/// fit its lines.
+/// fit its lines. A build whose control lines' signs name ALU operations
+/// is tested as an ALU as they name them, see [`signed_alu`], unless
+/// another category gets its every case right.
 pub fn recognize(data: &[u8]) -> Result<Option<Match>> {
     let simulated = probe::simulatable(&lines::without(data)?)?;
     let blocks = Blocks::read(&simulated)?;
@@ -295,7 +297,83 @@ pub fn recognize(data: &[u8]) -> Result<Option<Match>> {
     if report.faults().next().is_some() {
         return Ok(None);
     }
-    Ok(closest(&blocks, &report))
+    let found = closest(&blocks, &report);
+    let right = found
+        .as_ref()
+        .is_some_and(|found| found.kind != Kind::Alu && found.wrong == 0);
+    if right || !names_operations(&blocks, &report) {
+        return Ok(found);
+    }
+    Ok(signed_alu(&simulated, &report).or(found))
+}
+
+/// Whether a sign on any of `report`'s control lines, its lone levers and
+/// short runs, names an operation an ALU may offer, as `and nand sub`.
+fn names_operations(blocks: &Blocks, report: &inspect::Report) -> bool {
+    let signs = interface::line_signs(blocks);
+    report
+        .inputs
+        .iter()
+        .filter(|run| run.bits.len() <= 3)
+        .flat_map(|run| &run.bits)
+        .filter_map(|pos| signs.get(pos))
+        .flat_map(|lines| lines.iter())
+        .flat_map(|line| {
+            line.split(|c: char| c.is_whitespace() || c == ',')
+                .map(str::to_lowercase)
+                .collect::<Vec<_>>()
+        })
+        .any(|word| alu_ops::Op::named(&word).is_some())
+}
+
+/// The build in `data`, its lines as `report` finds them, tested as an ALU
+/// as its control lines' signs name its operations, by the ALU test: each
+/// operation a sign names checked on its every case, so one that gets a
+/// few wrong is a fault, not a setting meaning nothing, as without signs it
+/// would be, and a sign naming one its lines don't choose is a fault too.
+/// Signs are needed so for an ALU of more control lines than matching
+/// observes every setting of. `None` when its lines don't fit an ALU's.
+fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
+    let line = |name, role, bits: &[Pos]| {
+        (!bits.is_empty()).then(|| Line {
+            name,
+            role,
+            bits: bits.to_vec(),
+            inverted: false,
+        })
+    };
+    match probe::alu(data, report, Order::default()) {
+        Ok(probed) => Some(Match {
+            kind: Kind::Alu,
+            label: probed.run.pattern.clone(),
+            lines: [
+                line("A", Role::Operand(0), &probed.a),
+                line("B", Role::Operand(1), &probed.b),
+                line("operation", Role::Control, &probed.controls),
+                line("output", Role::Output(0), &probed.output),
+                line("status", Role::Status, &probed.status),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            cases: probed.run.cases,
+            wrong: 0,
+            cost: 0,
+            conventional: true,
+        }),
+        Err(probe::Fault::Wrong {
+            wrong, cases, said, ..
+        }) => Some(Match {
+            kind: Kind::Alu,
+            label: said,
+            lines: Vec::new(),
+            cases,
+            wrong,
+            cost: 0,
+            conventional: true,
+        }),
+        Err(_) => None,
+    }
 }
 
 /// Of every category whose slots `report`'s lines fill, the reading of the
