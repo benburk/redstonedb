@@ -513,6 +513,7 @@ pub(super) const TABLE: [Facts; 48] = [
         name: "parity",
         label: "Parity",
         noun: "parity circuit",
+        plural: Some("Parity Circuits"),
         section: Section::Logic,
         logic: Some(Logic::Stateless),
         flags: &[flag("even", "Even")],

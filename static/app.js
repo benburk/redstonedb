@@ -378,3 +378,65 @@ window.addEventListener("pageshow", () => {
     steps.hidden = true;
   }
 });
+
+// A form marked `data-step` is a step on the way to another page, as an
+// edit's is to the build's, so once it lands it takes its own page out of
+// the history, and going back skips it: it goes back to the page it came
+// from when it lands there, as an edit lands on the build it started
+// from, or else puts the page it lands on in its place. It sends itself
+// in the background to see where it lands; any answer but a redirect, as
+// a form sent back with what to fix, it sends again as forms go, to show.
+const REDRAW = "redraw";
+document.addEventListener("submit", async (event) => {
+  const form = event.target.closest("form[data-step]");
+  if (!form || event.defaultPrevented || form.dataset.sent) return;
+  event.preventDefault();
+  const submitter = event.submitter;
+  const asForms = () => {
+    form.dataset.sent = "yes";
+    form.requestSubmit(submitter);
+  };
+  let response;
+  try {
+    // Its attribute, as a field named `action` hides the property.
+    const action = new URL(form.getAttribute("action") ?? "", location.href);
+    response = await fetch(action, {
+      method: "post",
+      body: new FormData(form, submitter),
+    });
+  } catch {
+    return asForms();
+  }
+  if (!response.redirected) return asForms();
+  const landed = response.url;
+  if (landed === document.referrer && history.length > 1) {
+    // The page it goes back to shows what the step changed.
+    try {
+      sessionStorage.setItem(REDRAW, landed);
+    } catch {}
+    history.back();
+  } else {
+    location.replace(landed);
+  }
+});
+// A page gone back to after a step changed it is drawn again, should the
+// browser have kept it as it was.
+window.addEventListener("pageshow", (event) => {
+  let redraw = null;
+  try {
+    redraw = sessionStorage.getItem(REDRAW);
+    sessionStorage.removeItem(REDRAW);
+  } catch {}
+  if (event.persisted && redraw === location.href) location.reload();
+});
+
+// A link back to the listing a build was found in goes back through the
+// history when that is where the page came from, keeping its place.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("a[data-back]");
+  if (!link || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+  if (link.href === document.referrer && history.length > 1) {
+    event.preventDefault();
+    history.back();
+  }
+});

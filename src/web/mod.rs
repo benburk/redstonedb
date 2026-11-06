@@ -23,6 +23,7 @@ mod activity;
 pub mod analysis;
 pub mod app_state;
 mod auth;
+mod back;
 #[cfg(debug_assertions)]
 mod dev;
 pub mod error;
