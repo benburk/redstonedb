@@ -32,6 +32,7 @@ pub enum Kind {
     GreaterThan,
     CarryOut,
     AbsoluteValue,
+    Negator,
     Popcount,
     Threshold,
     Parity,

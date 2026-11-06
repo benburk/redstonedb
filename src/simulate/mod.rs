@@ -57,6 +57,7 @@ mod incrementer;
 mod inverter;
 mod monostable;
 mod multiplier;
+mod negator;
 mod register;
 mod rng;
 mod sequential;
@@ -123,6 +124,8 @@ pub enum Test {
     Buffer,
     /// A's magnitude, A taken as a signed number.
     AbsoluteValue,
+    /// −A in two's complement, or A until its control line turns on.
+    Negator,
     /// The carry out of A + B, and a carry in when there is one.
     CarryOut,
     /// Whether A is greater than B, both unsigned or both in two's
@@ -308,6 +311,14 @@ impl Test {
             Test::AbsoluteValue => (
                 Kind::AbsoluteValue,
                 Way::spec(|_, i| converters::absolute_value(i)),
+            ),
+            Test::Negator => (
+                Kind::Negator,
+                // Its lone control line is named for its role, negate.
+                Way::spec(|b, i| {
+                    interface::name_lines(Kind::Negator, b, i);
+                    negator::spec(i)
+                }),
             ),
             Test::CarryOut => (
                 Kind::CarryOut,

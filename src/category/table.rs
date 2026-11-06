@@ -242,7 +242,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 47] = [
+pub(super) const TABLE: [Facts; 48] = [
     Facts {
         kind: Kind::Adder,
         name: "adder",
@@ -458,6 +458,26 @@ pub(super) const TABLE: [Facts; 47] = [
         probe: one_operand(120, Line::Never),
         guess: Guess::Tried(210),
         behaviour: evaluated(Test::AbsoluteValue, Stacking::Never),
+        ..ROW
+    },
+    // After an absolute value, which a 1-bit one, a wire, also is.
+    Facts {
+        kind: Kind::Negator,
+        name: "negator",
+        label: "Negator",
+        noun: "negator",
+        section: Section::Arithmetic,
+        logic: Some(Logic::Stateless),
+        aliases: &["neg", "negate", "twos complement"],
+        listed_as: Some("negators"),
+        probe: one_operand(125, Line::Maybe),
+        guess: Guess::Tried(215),
+        role_words: &["negate", "neg"],
+        behaviour: lined(
+            Lines::Control("negate"),
+            Test::Negator,
+            Stacking::Never,
+        ),
         ..ROW
     },
     Facts {

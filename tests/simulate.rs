@@ -1026,6 +1026,26 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
     assert_eq!(simulate::guess(&blocks).unwrap().category, "absolute_value");
 }
 
+/// An 8-bit negator: −A in two's complement, in every one of its 256
+/// cases, 0 and the most negative giving themselves, and guessed as one.
+#[test]
+fn a_negator_gives_each_inputs_twos_complement() {
+    let raw = read_fixture("tests/fixtures/negator-8.schem").unwrap();
+    let data = import::prepare_for(
+        &raw,
+        import::Purpose::Standard { keep_paste: false },
+    )
+    .unwrap()
+    .data;
+    let blocks = Blocks::read(&data).unwrap();
+    let Report::Ran(run) = Test::Negator.run(&blocks) else {
+        panic!("the negator was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (256, 0));
+    assert_eq!(run.pattern, "−A");
+    assert_eq!(simulate::guess(&blocks).unwrap().category, "negator");
+}
+
 /// An 8-bit parity circuit: on when an odd number of A's bits are, in
 /// every one of its 256 cases, timed by its one output.
 #[test]

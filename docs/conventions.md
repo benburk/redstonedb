@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The How builds are recognized page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its author gives. A new version that is recognized moves it up.
+A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, negators, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its author gives. A new version that is recognized moves it up.
 
 ## Inputs
 
@@ -23,6 +23,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - A gate has two input lines of one width, A and B, both data inputs, and one output line as wide: an XOR, XNOR, AND, NAND, OR, or NOR gate, each a category of its own, so a gate whose output is inverted is the other gate of its pair.
 - An equality or greater-than comparator, or a carry out, has two input lines of one width, A and B, and one output bit; a carry out may also take a carry in, a lone lever.
 - An inverter has input A, one control line, its invert, and an output as wide as A; an absolute value has input A and one output line, its magnitude.
+- A negator has input A, an output as wide, and, if it has one, a control line, its negate: its output is −A, or with the line, A while it is off and −A while it is on.
 - An incrementer or decrementer has input A and, if it has one, a control line that adds or subtracts it; an inc/dec's line picks between adding and subtracting 1. Its output may be a bit wider, or have a lone carry out.
 - A barrel shifter has input A, an output as wide, and lines for its shift: the amount's signed with what each is worth, as `1`, `2`, and `4`.
 - A binary-to-hex converter has input A, of at most 4 bits, and one output block whose strength is A.
