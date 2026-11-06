@@ -168,7 +168,8 @@ const DISAGREEING: &[&str] = &[
 
 /// Every fixture probing recognizes as a kind matching knows is matched
 /// as that kind, every case right; and every fixture probing recognizes as
-/// nothing is matched as nothing with every case right.
+/// nothing is matched as nothing with every case right, or as a kind whose
+/// test, run by probing, finds cases wrong that matching's patterns miss.
 #[test]
 #[ignore = "probes every fixture"]
 fn matching_agrees_with_probing() {
@@ -198,10 +199,22 @@ fn matching_agrees_with_probing() {
             continue;
         }
         let found = recognize(&data).unwrap().filter(|found| found.wrong == 0);
-        assert_eq!(
-            found.as_ref().map(|found| found.kind),
-            probed,
-            "{name}: {}",
+        let matched = found.as_ref().map(|found| found.kind);
+        // Matching only identifies a build, on a few patterns; a bug they
+        // miss is its kind's full test's to find, as probing's test, run
+        // as that kind, finds it.
+        let buggy = |kind: Kind| {
+            probe::recognize_as(&data, Some(kind.name()))
+                .unwrap()
+                .problems
+                .iter()
+                .any(|problem| problem.contains(" cases wrong"))
+        };
+        let agrees =
+            matched == probed || probed.is_none() && matched.is_some_and(buggy);
+        assert!(
+            agrees,
+            "{name}: matched {}, probed {probed:?}",
             found.as_ref().map_or("none".to_owned(), Match::found)
         );
         compared += usize::from(probed.is_some());
