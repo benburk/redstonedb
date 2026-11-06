@@ -355,9 +355,7 @@ pub async fn publish(
     let refused = match published {
         Ok(id) => {
             tracing::info!(id, by = user.username, ip, "upload");
-            if let Err(err) = simulation::complete(&state.db, &id).await {
-                tracing::error!(id, "simulating a build: {err:#}");
-            }
+            simulation::complete_soon(&state.db, &id);
             similarity::refresh_soon(&state.db);
             return Ok(
                 Redirect::to(&format!("/schematics/{id}")).into_response()

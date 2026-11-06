@@ -168,9 +168,10 @@ pub async fn detail(
         .ok_or(AppError::NotFound)?;
     let simulation = simulation::current(db, &s).await?;
     let report = simulation.as_ref();
+    let simulating = simulation::completing(&id);
     let panel = panel.as_deref().filter(|_| fixi);
     if panel == Some("banner") {
-        return Ok(pages::build_banner(&s, report).into_response());
+        return Ok(pages::build_banner(&s, report, simulating).into_response());
     }
     let data = version::current_file(db, &id).await?.unwrap_or_default();
     let unrecognized = why_not_recognized(&s, &data).await;
@@ -237,6 +238,7 @@ pub async fn detail(
             similar: &similar,
             file: &file,
             simulation: &simulation,
+            simulating,
             versions: &versions,
             favorited,
             colours,

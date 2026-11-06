@@ -156,9 +156,7 @@ pub async fn save(
         tracing::info!(id, by = user.username, ip, "new version");
     }
     // A new file, category, or width may call for a test, or another.
-    if let Err(err) = simulation::complete(db, &id).await {
-        tracing::error!(id, "simulating a build: {err:#}");
-    }
+    simulation::complete_soon(db, &id);
     similarity::refresh_soon(db);
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }

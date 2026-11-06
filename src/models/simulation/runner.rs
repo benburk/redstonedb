@@ -1,10 +1,14 @@
 //! Running builds' tests and timings, and keeping what they found lately,
 //! off the async threads and a few at a time, as the server's cores allow.
 //! The queues, the evaluations started ahead of an upload being published,
-//! and the results kept for files previewed are each one per process, so
-//! they are statics: every caller, the site and `rsdb` alike, shares them.
+//! the results kept for files previewed, and the builds being completed in
+//! the background are each one per process, so they are statics: every
+//! caller, the site and `rsdb` alike, shares them.
 
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+};
 
 use anyhow::Result;
 use sqlx::SqlitePool;
@@ -186,12 +190,41 @@ pub async fn time(
 }
 
 /// Brings newly stored build `id` wholly up to date, as storing a build,
-/// a new version of one, or an edit does before it is done: its result,
-/// see `refresh`, its timing, see `refresh_timing`, and, once it passes,
-/// its unused blocks taken out, see `finish`. Nothing runs again later:
-/// a build's page shows what was stored here.
+/// a new version of one, or an edit starts it doing: its result, see
+/// `refresh`, its timing, see `refresh_timing`, and, once it passes, its
+/// unused blocks taken out, see `finish`. Nothing runs again later: a
+/// build's page shows what was stored here.
 pub async fn complete(db: &SqlitePool, id: &str) -> Result<()> {
     super::refresh(db, id, false).await?;
     super::refresh_timing(db, id, false).await?;
     super::finish(db, id).await
+}
+
+/// The builds being completed in the background.
+static COMPLETING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Completes newly stored build `id` in the background, see [`complete`],
+/// so storing it is done at once, its page showing it simulating until
+/// this is; nothing, when it is under way already.
+pub fn complete_soon(db: &SqlitePool, id: &str) {
+    if !COMPLETING
+        .lock()
+        .expect("the list is whole")
+        .insert(id.to_owned())
+    {
+        return;
+    }
+    let (db, id) = (db.clone(), id.to_owned());
+    tokio::spawn(async move {
+        if let Err(err) = complete(&db, &id).await {
+            tracing::error!(id, "simulating a build: {err:#}");
+        }
+        COMPLETING.lock().expect("the list is whole").remove(&id);
+    });
+}
+
+/// Whether build `id` is being completed in the background, see
+/// [`complete_soon`].
+pub fn completing(id: &str) -> bool {
+    COMPLETING.lock().expect("the list is whole").contains(id)
 }
