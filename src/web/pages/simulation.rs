@@ -27,6 +27,25 @@ pub fn simulation_results(simulate: &str, content: &Markup) -> Markup {
     }
 }
 
+/// A build's simulation section while storing it is still simulating it in
+/// the background, as just after it is published: it asks `poll` after it
+/// every few seconds, and takes what comes back once that is done.
+pub(super) fn cases_pending(poll: &str) -> Markup {
+    html! {
+        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm" {
+            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
+            div fx-action=(poll) fx-trigger="poll" data-every="3000"
+                fx-target="#simulation" class="mt-3" {
+                p class="flex items-center gap-2 text-muted" {
+                    (spinner())
+                    "Simulating every case and timing its outputs, which takes a few seconds…"
+                }
+                noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
+            }
+        }
+    }
+}
+
 /// A simulation result in a few words, such as `all 131,072 cases right`.
 pub(super) fn simulation_summary(report: &Report) -> String {
     match report {

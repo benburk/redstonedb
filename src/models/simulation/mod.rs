@@ -8,7 +8,9 @@ mod derive;
 mod runner;
 
 pub use derive::{EVEN, FALLING_EDGE, INVERTED, SIGNED};
-pub use runner::{complete, evaluate_ahead, run, run_at_once, time};
+pub use runner::{
+    complete, complete_soon, completing, evaluate_ahead, run, run_at_once, time,
+};
 
 use std::sync::{Arc, atomic::AtomicBool};
 
