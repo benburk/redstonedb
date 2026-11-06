@@ -518,8 +518,10 @@ pub fn blocks_in(
 /// carries say, in `palette`'s colour for the role, each keeping its kind,
 /// glass staying glass: A's, B's, a control line's, the first output bus's,
 /// and a status line's marks, and any other operand's or output bus's the
-/// site's colour for it. Every other block stays as it is. It takes a
-/// stacked file too, whose copies carry their roles.
+/// site's colour for it, a lamp a lever hangs on too, as it only holds
+/// the lever up and carries power as any solid block does. Every other
+/// block stays as it is. It takes a stacked file too, whose copies carry
+/// their roles.
 pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     let Some(roles) = &blocks.roles else {
@@ -529,7 +531,9 @@ pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
     for (&pos, &role) in &roles.0 {
         let state = blocks.get(pos);
         let name = schem::short(state);
-        if state == schem::AIR || crate::schem::block::is_component(name) {
+        let component =
+            crate::schem::block::is_component(name) && name != "redstone_lamp";
+        if state == schem::AIR || component {
             continue;
         }
         let site = crate::recognize::colour::shown(role);
