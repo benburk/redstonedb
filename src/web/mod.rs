@@ -40,6 +40,7 @@ mod session;
 mod settings;
 mod similar;
 mod simulation;
+pub mod trace;
 mod upload;
 mod users;
 mod versions;
@@ -324,6 +325,7 @@ pub fn router(state: AppState) -> Router<AppState> {
             post(versions::restore),
         )
         .route("/schematics/{id}/diff", get(versions::diff_page))
+        .route("/schematics/{id}/trace", get(trace::page))
         .route("/schematics/{id}/diff/{side}", get(versions::diff_file))
         .route("/upload", get(upload::form).post(upload::publish))
         .route("/similar", get(similar::form).post(similar::search))
