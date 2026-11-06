@@ -62,14 +62,40 @@ pub fn trace_page(
 fn analyzed(path: &str, a: &Analysis) -> Markup {
     let first = &a.runs[0];
     let raced = a.runs.iter().any(|run| !run.races.is_empty());
+    // Redpiler's runs are shown beside the block-by-block one where it
+    // orders a tie its own way, or comes out otherwise.
+    let shown: Vec<(usize, &Run)> = a
+        .runs
+        .iter()
+        .enumerate()
+        .filter(|(_, run)| {
+            raced
+                || a.world
+                    .as_ref()
+                    .is_none_or(|world| !same_outputs(a, world, run))
+        })
+        .collect();
     html! {
         (change_form(path, a))
-        @for (i, run) in a.runs.iter().enumerate() {
-            section aria-label={ "Run " (i + 1) } class="mt-8" {
+        @if let Some(world) = &a.world {
+            section aria-label="Block by block" class="mt-8" {
                 div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" {
-                    @if a.runs.len() > 1 {
-                        (figure(&format!("Run {}", i + 1), &html! { (went_first(a, run)) " first" }, false))
-                    }
+                    (figure("Run", &html! {
+                        span title="MCHPRS's world, block by block: ticks scheduled for one tick run by priority, then in the order they were scheduled, as the game's do" {
+                            "block by block"
+                        }
+                    }, false))
+                    (measures(a, world))
+                }
+                (chart(a, world, None))
+            }
+        }
+        @for (i, run) in shown {
+            section aria-label={ "Redpiler run " (i + 1) } class="mt-8" {
+                div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" {
+                    (figure(&format!("Redpiler {}", i + 1), &html! {
+                        @if run.races.is_empty() { "compiled" } @else { (went_first(a, run)) " first" }
+                    }, false))
                     (measures(a, run))
                 }
                 (chart(a, run, None))
@@ -78,7 +104,7 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
         (legend())
         @if raced {
             section aria-labelledby="races-heading" class="mt-10" {
-                h2 id="races-heading" class={ (SECTION_TITLE) " mb-2" } { "Races" }
+                h2 id="races-heading" class={ (SECTION_TITLE) " mb-2" } { "Undefined order" }
                 (races_table(a))
             }
         }
@@ -113,7 +139,18 @@ pub fn glitch_trace(path: &str, a: &Analysis, output: &str) -> Markup {
                 span class="tabular-nums text-muted" { (case_words(a, &a.case)) (switching(a)) }
                 a href=(link) { "Open in the logic analyzer" }
             }
-            div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" { (measures(a, run)) }
+            div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" {
+                (measures(a, run))
+                @if let Some(world) = &a.world {
+                    @let port = a.outputs.iter().position(|line| line.name == output);
+                    @let clean = port.is_some_and(|port| (0..a.outputs[port].width).all(|bit| world.trace.bit_changes(port, bit).len() < 2));
+                    @let settled = (0..a.outputs.len()).filter_map(|p| world.trace.output_steps(p).last().map(|&(t, _)| t)).max();
+                    (figure("Block by block", &html! {
+                        @match settled { Some(tick) => { "@" (tick) }, None => "—", }
+                        @if clean { " · no glitch" } @else { " · glitches" }
+                    }, !clean))
+                }
+            }
             (chart(a, run, way.as_ref()))
             (legend())
         }
@@ -237,12 +274,19 @@ fn measures(a: &Analysis, run: &Run) -> Markup {
                 (figure(&format!("{} glitches", line.name), &html! { (glitched.join(", ")) }, true))
             }
         }
-        (figure("Races", &html! { (run.races.len()) }, !run.races.is_empty()))
+        (figure("Undefined order", &html! { (run.races.len()) }, !run.races.is_empty()))
     }
 }
 
 fn label(a: &Analysis, node: usize) -> String {
     a.label(node)
+}
+
+/// Whether runs `x` and `y` gave every output the same values on the same
+/// ticks.
+fn same_outputs(a: &Analysis, x: &Run, y: &Run) -> bool {
+    (0..a.outputs.len())
+        .all(|port| x.trace.output_steps(port) == y.trace.output_steps(port))
 }
 
 /// What went first in `run`'s first race: the part, or its rivals.
@@ -307,8 +351,11 @@ fn races_table(a: &Analysis) -> Markup {
                         th scope="col" class=(TABLE_HEAD) { "Part" }
                         th scope="col" class=(TABLE_HEAD) { "Against" }
                         th scope="col" class=(TABLE_HEAD) { "First → it ends" }
+                        @if a.world.is_some() {
+                            th scope="col" class=(TABLE_HEAD) { "Block by block" }
+                        }
                         @for i in 0..a.runs.len() {
-                            th scope="col" class=(TABLE_HEAD) { "Run " (i + 1) }
+                            th scope="col" class=(TABLE_HEAD) { "Redpiler " (i + 1) }
                         }
                     }
                 }
@@ -333,7 +380,7 @@ fn races_table(a: &Analysis) -> Markup {
                                     }
                                 }
                             }
-                            @for run in &a.runs {
+                            @for run in a.world.iter().chain(&a.runs) {
                                 @let ran = run.races.iter().find(|r| r.tick == race.tick && r.node == race.node && r.rivals == race.rivals);
                                 td class=(TABLE_CELL) {
                                     @match ran {
