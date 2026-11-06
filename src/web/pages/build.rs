@@ -63,6 +63,9 @@ pub struct BuildPage<'a> {
     pub versions: &'a [Version],
     pub favorited: bool,
     pub colours: ColoursShown,
+    /// The listing the viewer came to it from, such as a search, which
+    /// its breadcrumbs link back to and deleting it returns to.
+    pub from: Option<&'a str>,
 }
 
 /// The colours a build's page shows it in, and which others it offers:
@@ -89,6 +92,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
         versions,
         favorited,
         colours,
+        from,
     } = *page;
     let report = simulation.as_ref();
     let name = s.name();
@@ -98,6 +102,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
         &name,
         &path,
         &html! {
+            (crumbs(s, from))
             div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
                 div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class=(PAGE_TITLE) { (name) }
@@ -124,12 +129,12 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                             (icon(icons::STAR, "size-5")) (s.favorites)
                         }
                     }
-                    (actions_menu(s, viewer, &path))
+                    (actions_menu(s, viewer, &path, from))
                 }
             }
             (beside_viewer_under(
                 &format!("{path}/download?preview=yes&colours={}", colours.chosen.name()),
-                &colours_switch(&path, colours),
+                &colours_switch(&path, colours, from),
                 &build_info(s, similar, file, report),
                 false,
             ))
@@ -801,13 +806,59 @@ fn stacking_found(s: &Schematic) -> bool {
             == category::Stacking::Inferred
 }
 
-/// What else the viewer may do with build `s`, at `path`, under one button:
-/// edit it, upload a new version, or delete it. Nothing for a viewer who
-/// may do none of them.
+/// Where build `s` sits, a trail from home through its category's builds,
+/// with a link back to `from`, the listing the viewer came from, when it
+/// is somewhere else, and a search of every build, so a build found
+/// leads back to the rest.
+fn crumbs(s: &Schematic, from: Option<&str>) -> Markup {
+    // A category off the list is among the other builds.
+    let (category, plural) = match s.kind() {
+        Some(kind) if s.category_label.is_some() => {
+            (format!("/?category={}", s.category), kind.plural())
+        }
+        _ => ("/?category=other".to_owned(), "Other builds".to_owned()),
+    };
+    let back = from.filter(|&from| from != "/" && from != category);
+    html! {
+        div class="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3" {
+            nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-4 text-meta text-muted" {
+                ol class="flex min-w-0 items-center gap-1" {
+                    li { a href="/" class="text-muted hover:text-ink" { "Home" } }
+                    li aria-hidden="true" class="flex" { (icon(icons::CHEVRON_RIGHT, "size-3.5")) }
+                    li class="truncate" { a href=(category) class="text-muted hover:text-ink" { (plural) } }
+                }
+                @if let Some(back) = back {
+                    a href=(back) data-back class="flex shrink-0 items-center gap-1.5 text-muted hover:text-ink" {
+                        (icon(icons::ARROW_LEFT, "size-3.5")) (crate::web::back::label(back))
+                    }
+                }
+            }
+            form action="/" method="get" role="search" class="w-full sm:w-72" {
+                label for="search" class="sr-only" { "Search builds" }
+                input id="search" type="search" name="q" placeholder="Search builds"
+                    autocomplete="off" class="input";
+            }
+        }
+    }
+}
+
 /// A choice of the colours the build at `path` shows in: the site's own,
 /// its author's when kept, and the viewer's theme when they have one;
-/// nothing when the site's are the only ones.
-fn colours_switch(path: &str, shown: ColoursShown) -> Markup {
+/// nothing when the site's are the only ones. Each keeps `from`, where the
+/// viewer came from, as the page it links to has the build's as its
+/// referrer.
+fn colours_switch(
+    path: &str,
+    shown: ColoursShown,
+    from: Option<&str>,
+) -> Markup {
+    let from = from.map_or(String::new(), |from| {
+        format!(
+            "&from={}",
+            form_urlencoded::byte_serialize(from.as_bytes())
+                .collect::<String>()
+        )
+    });
     let options = [
         (Colours::Default, "Default", true),
         (Colours::Original, "Original", shown.original),
@@ -820,7 +871,7 @@ fn colours_switch(path: &str, shown: ColoursShown) -> Markup {
                 div class=(SWITCHES) {
                     @for (colours, label, offered) in options {
                         @if offered {
-                            a href={ (path) "?colours=" (colours.name()) } class=(SWITCH)
+                            a href={ (path) "?colours=" (colours.name()) (from) } class=(SWITCH)
                                 aria-current=[(colours == shown.chosen).then_some("page")] { (label) }
                         }
                     }
@@ -861,7 +912,16 @@ pub fn favorite_button(path: &str, favorited: bool, count: i64) -> Markup {
     }
 }
 
-fn actions_menu(s: &Schematic, viewer: Option<&User>, path: &str) -> Markup {
+/// What else the viewer may do with build `s`, at `path`, under one button:
+/// edit it, upload a new version, or delete it, going back to `from`, the
+/// listing the viewer came from. Nothing for a viewer who may do none of
+/// them.
+fn actions_menu(
+    s: &Schematic,
+    viewer: Option<&User>,
+    path: &str,
+    from: Option<&str>,
+) -> Markup {
     let edits = viewer.is_some_and(|v| v.may_edit(s));
     let deletes = viewer.is_some_and(User::can_delete);
     let item = "flex min-h-9 w-full items-center gap-2.5 rounded-control px-2.5 text-left hover:bg-selection hover:no-underline";
@@ -886,18 +946,22 @@ fn actions_menu(s: &Schematic, viewer: Option<&User>, path: &str) -> Markup {
                 }
             }
             @if deletes {
-                (delete_dialog(s))
+                (delete_dialog(s, from))
             }
         }
     }
 }
 
-/// An admin's confirmation before deleting a build.
-fn delete_dialog(s: &Schematic) -> Markup {
+/// An admin's confirmation before deleting a build, which then goes back
+/// to `from`, the listing the viewer came from, else home.
+fn delete_dialog(s: &Schematic, from: Option<&str>) -> Markup {
     html! {
         dialog id="delete" aria-labelledby="delete-heading"
             class="dialog w-full max-w-form" {
-            form action={ "/schematics/" (s.id) "/delete" } method="post" class="flex flex-col gap-4" {
+            form action={ "/schematics/" (s.id) "/delete" } method="post" data-step class="flex flex-col gap-4" {
+                @if let Some(from) = from {
+                    input type="hidden" name="next" value=(from);
+                }
                 h2 id="delete-heading" class=(SECTION_TITLE) { "Delete " (s.name()) "?" }
                 p { "The build, its file, tags, and credits are removed for good." }
                 div class="flex items-center gap-4" {

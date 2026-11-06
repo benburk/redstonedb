@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::header,
+    http::{HeaderMap, header},
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
@@ -132,10 +132,13 @@ async fn similar_to(
 
 /// Which part of a build's page fixi asks for, to redraw it.
 #[derive(Deserialize)]
-pub struct Panel {
+pub struct Asked {
     panel: Option<String>,
     /// The colours the page shows the build in.
     colours: Option<Colours>,
+    /// The listing the page was come to from, as its colour switch carries
+    /// it, the page it links to then being the referrer.
+    from: Option<String>,
 }
 
 /// What build `s`'s page shows of its file, `data`, with `blocks`: as its
@@ -163,9 +166,15 @@ pub async fn detail(
     State(state): State<AppState>,
     user_opt: Option<User>,
     Fixi(fixi): Fixi,
-    Query(Panel { panel, colours }): Query<Panel>,
+    headers: HeaderMap,
+    Query(Asked {
+        panel,
+        colours,
+        from,
+    }): Query<Asked>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
+    let from = crate::web::back::came_from(&headers, from.as_deref());
     let s = schematic::get_visible(db, &id, user_opt.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
@@ -245,6 +254,7 @@ pub async fn detail(
             versions: &versions,
             favorited,
             colours,
+            from: from.as_deref(),
         },
     )
     .into_response())

@@ -201,16 +201,27 @@ async fn attached(
     })
 }
 
+/// Where a deleted build's page goes back to.
+#[derive(serde::Deserialize)]
+pub struct Deleting {
+    /// The listing its page was come to from, if any.
+    #[serde(default)]
+    next: String,
+}
+
 /// Deletes a build for good, with its tags, credits, and stacking; mods
-/// and admins only.
+/// and admins only. It goes back to the listing its page was come to
+/// from, else home.
 pub async fn delete(
     Path(id): Path<String>,
     State(state): State<AppState>,
     Moderator(by): Moderator,
+    axum::Form(deleting): axum::Form<Deleting>,
 ) -> Result<Response, AppError> {
     schematic::delete(&state.db, &id).await?;
     tracing::info!(id, by = by.username, "deleted a build");
-    Ok(Redirect::to("/").into_response())
+    let next = crate::web::back::listing(&deleting.next).unwrap_or("/");
+    Ok(Redirect::to(next).into_response())
 }
 
 /// Checks and stores `user`'s edit of build `s`, with the new version
