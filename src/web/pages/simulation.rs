@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};
+use crate::web::trace::shown_glitch;
 
 /// The details form's simulation result, a live panel the form redraws
 /// whenever its category or width changes: `content`, the section for the
@@ -114,8 +115,13 @@ pub enum Waiting<'a> {
 
 /// What simulating a build found: the cases tried and how many came out
 /// right, then, for a failure, which output bits were wrong and the first
-/// wrong cases, or, for a pass, its timing once measured.
-pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
+/// wrong cases, or, for a pass, its timing once measured, linking to its
+/// logic analyzer at `trace`, for a stored build.
+pub fn simulation_section(
+    report: &Report,
+    waiting: Waiting,
+    trace: Option<&str>,
+) -> Markup {
     let untimed = matches!(waiting, Waiting::Stored)
         && matches!(report, Report::Ran(run) if run.wrong == 0 && run.timing.is_none());
     html! {
@@ -153,7 +159,7 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                     @if run.wrong > 0 {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {
-                        (timing_section(timing))
+                        (timing_section(timing, trace))
                     } @else if let Waiting::Posted(url) = waiting {
                         div data-timing-pending fx-action=(url) fx-method="post" fx-trigger="load"
                             data-form="details-form" class="mt-6" {
@@ -248,8 +254,9 @@ fn timing_intro(timing: &Timing) -> Markup {
 }
 
 /// A synced build's timing, with nothing to say beyond its inputs and
-/// outputs, is hidden, and its section with it.
-pub fn timing_section(timing: &Timing) -> Markup {
+/// outputs, is hidden, and its section with it. A stored build's links to
+/// its logic analyzer at `trace`, each glitch to the change it came in.
+pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     let quiet =
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
@@ -269,16 +276,68 @@ pub fn timing_section(timing: &Timing) -> Markup {
                 dt class="text-muted" { "Changes tested" }
                 dd { (grouped(timing.changes)) }
             }
-            @for output in &timing.outputs {
-                @if let Some(glitch) = &output.glitch {
-                    (glitch_example(&output.name, glitch, &timing.inputs))
+            @if let Some(trace) = trace {
+                // A stored build's glitch is traced, its chart drawn once the
+                // page has loaded; any other output's glitch is a link.
+                @let shown = shown_glitch(timing).map(|o| o.name.as_str());
+                @if shown.is_some() {
+                    div fx-action={ (trace) "/glitch" } fx-trigger="load" role="status" class="mt-4" {
+                        p class="flex items-center gap-2 text-muted" { (spinner()) "Tracing its glitch…" }
+                    }
+                }
+                @for output in timing.outputs.iter().filter(|o| Some(o.name.as_str()) != shown) {
+                    @if let Some(glitch) = &output.glitch {
+                        p class="mt-4" {
+                            strong { "Glitch: " (output.name) ", all off → " (case_words(glitch, &timing.inputs)) }
+                            " " a href=(glitch_link(trace, glitch, &timing.inputs)) { "Trace it" }
+                        }
+                    }
+                }
+            } @else {
+                @for output in &timing.outputs {
+                    @if let Some(glitch) = &output.glitch {
+                        (glitch_example(&output.name, glitch, &timing.inputs))
+                    }
                 }
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
                 (bit_timing(output))
             }
+            @if let Some(trace) = trace {
+                p class="mt-4" {
+                    a href=(trace) { "Trace it tick by tick in the logic analyzer" }
+                    span class="text-muted" { ": each output's waveform, what set each change off, and its races." }
+                }
+            }
         }
     }
+}
+
+/// The inputs `glitch` changed to from all off, such as `A=0, B=1`.
+fn case_words(glitch: &Glitch, inputs: &[InputTiming]) -> String {
+    inputs
+        .iter()
+        .zip(&glitch.case)
+        .map(|(input, value)| format!("{}={value}", input.name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The logic analyzer at `trace` tracing `glitch`'s change, every input
+/// from 0, each switching on its tick, as the timing switched them.
+fn glitch_link(trace: &str, glitch: &Glitch, inputs: &[InputTiming]) -> String {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (input, value) in inputs.iter().zip(&glitch.case) {
+        pairs.push((format!("to.{}", input.name), value.to_string()));
+        if let Some(tick) = input.tick.filter(|&tick| tick != 0 && *value != 0)
+        {
+            pairs.push((format!("at.{}", input.name), tick.to_string()));
+        }
+    }
+    format!(
+        "{trace}?{}",
+        serde_urlencoded::to_string(pairs).unwrap_or_default()
+    )
 }
 
 /// The first change from all off in which `name` glitched: its value at
@@ -289,11 +348,6 @@ fn glitch_example(
     glitch: &Glitch,
     inputs: &[InputTiming],
 ) -> Markup {
-    let case: Vec<String> = inputs
-        .iter()
-        .zip(&glitch.case)
-        .map(|(input, value)| format!("{}={value}", input.name))
-        .collect();
     let first = glitch.steps.first().map_or(0, |&(at, _)| at);
     let last = glitch.steps.last().map_or(0, |&(at, _)| at).max(0);
     let settled = glitch
@@ -309,7 +363,7 @@ fn glitch_example(
             .map_or(glitch.before, |&(_, value)| value)
     };
     html! {
-        p class="mt-4 font-semibold" { "Glitch: " (name) ", all off → " (case.join(", ")) }
+        p class="mt-4 font-semibold" { "Glitch: " (name) ", all off → " (case_words(glitch, inputs)) }
         div class="relative mt-1 overflow-x-auto" {
             table class="border-collapse tabular-nums" {
                 caption class="sr-only" { "Glitch: " (name) ", tick by tick" }

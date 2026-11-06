@@ -56,7 +56,15 @@ pub async fn poll(
     let redraw = [("FX-Redraw", "build-banner build-info")];
     Ok(match report {
         Some(report) => {
-            (redraw, pages::simulation_section(&report, Waiting::Stored))
+            let trace = format!("/schematics/{id}/trace");
+            (
+                redraw,
+                pages::simulation_section(
+                    &report,
+                    Waiting::Stored,
+                    Some(&trace),
+                ),
+            )
                 .into_response()
         }
         None => (redraw, nothing()).into_response(),
@@ -295,7 +303,7 @@ async fn cases(
     };
     let timing = timing_url(&simulate);
     Ok(panel(
-        &pages::simulation_section(&report, Waiting::Posted(&timing)),
+        &pages::simulation_section(&report, Waiting::Posted(&timing), None),
         report.failed(),
     ))
 }
@@ -318,13 +326,13 @@ async fn timing(
     if let Ok(Some(report)) = stored_result(state, s, test).await
         && let Some(timing) = report.timing()
     {
-        return Ok(pages::timing_section(timing).into_response());
+        return Ok(pages::timing_section(timing, None).into_response());
     }
     // Measured for the form alone: saving the edit stores it.
     let cancel = Arc::new(AtomicBool::new(false));
     let _guard = CancelOnDrop(cancel.clone());
     Ok(match simulation::time(test, data, cancel).await {
-        Ok(timing) => pages::timing_section(&timing).into_response(),
+        Ok(timing) => pages::timing_section(&timing, None).into_response(),
         Err(err) => could_not(&err.to_string()).into_response(),
     })
 }

@@ -15,7 +15,7 @@ use mchprs_blocks::{
 };
 use mchprs_redpiler::{
     Compiler, CompilerInput, CompilerOptions, TaskMonitor,
-    compile_graph::{CompileGraph, LinkType, NodeType},
+    compile_graph::{CompileGraph, CompileNode, LinkType, NodeType},
     passes::{PassRegistry, build_pass_pipeline},
 };
 use mchprs_world::{World, testing::TestWorld};
@@ -111,6 +111,26 @@ const WOODEN_PRESS: u32 = 15;
 impl Circuit {
     /// Sets up `blocks`, whose interface is `interface`.
     pub fn new(blocks: &Blocks, interface: &Interface) -> Result<Self> {
+        Self::set_up(blocks, interface, true)
+    }
+
+    /// Sets up `blocks` to run in the world itself, block by block, as a
+    /// build with a signal-strength input runs: each block updating its
+    /// neighbours in the order the game's do, and the ticks scheduled for
+    /// one tick running in the order they were scheduled within each
+    /// priority, as the game runs them, where Redpiler runs them in the
+    /// order of its compiled links. Slower, so for tracing one change.
+    pub fn in_world(blocks: &Blocks, interface: &Interface) -> Result<Self> {
+        Self::set_up(blocks, interface, false)
+    }
+
+    /// Sets up `blocks`, compiled by Redpiler when `redpiler` says and it
+    /// takes no signal-strength input.
+    fn set_up(
+        blocks: &Blocks,
+        interface: &Interface,
+        redpiler: bool,
+    ) -> Result<Self> {
         let mut world = world(blocks)?;
         let digits = interface.inputs.iter().any(|port| port.signal_strength);
         let mut taken = HashSet::new();
@@ -164,7 +184,7 @@ impl Circuit {
                 ))
             })
             .collect::<Result<_>>()?;
-        let compiler = if digits {
+        let compiler = if digits || !redpiler {
             None
         } else {
             // Redpiler panics on a circuit it cannot compile, such as one
@@ -937,8 +957,10 @@ impl Compiled {
     }
 }
 
-/// The circuit of `blocks`; see [`Compiled`].
-pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
+/// The graph Redpiler compiles from `blocks`, settled with every lever off,
+/// before any optimization: each component a node, and each way one
+/// powers another, through dust or a block, a link.
+pub(super) fn compile_graph(blocks: &Blocks) -> Result<CompileGraph> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
     settle_world(&mut world, size)?;
@@ -949,7 +971,7 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
         ticks: &[],
     };
     let options = CompilerOptions::default();
-    let graph = std::panic::catch_unwind(AssertUnwindSafe(|| {
+    std::panic::catch_unwind(AssertUnwindSafe(|| {
         build_pass_pipeline(&PassRegistry::default(), &options).run_passes(
             &options,
             &input,
@@ -962,13 +984,21 @@ pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
             "The simulator could not compile it: {}.",
             panic_message(&*panic)
         )
-    })?;
+    })
+}
+
+/// Where a node of a compiled graph sits in the build: its first block.
+pub(super) fn node_place(node: &CompileNode) -> Option<Pos> {
     let origin = at([0, 0, 0]);
-    let pos = |node: &mchprs_redpiler::compile_graph::CompileNode| {
-        node.block
-            .first()
-            .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
-    };
+    node.block
+        .first()
+        .map(|&(p, _)| [p.x - origin.x, p.y - origin.y, p.z - origin.z])
+}
+
+/// The circuit of `blocks`; see [`Compiled`].
+pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
+    let graph = compile_graph(blocks)?;
+    let pos = node_place;
     let read: HashSet<Pos> = crate::recognize::interface::read(blocks)
         .outputs
         .iter()
