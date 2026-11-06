@@ -22,6 +22,7 @@ fn builds_are_matched_as_what_they_are() {
         ("cout-8", Kind::CarryOut, "carry of A + B"),
         ("decoder-4-inverted", Kind::Decoder, "bit A off"),
         ("inc-8", Kind::Incrementer, "A + increment"),
+        ("negator-8", Kind::Negator, "−A"),
         ("adder-8-date-signs", Kind::Adder, "A + B + carry in"),
     ] {
         let found = matched(name);
