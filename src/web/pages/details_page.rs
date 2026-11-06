@@ -172,7 +172,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             @let timing = super::super::simulation::timing_url(&simulate);
             (simulation_results(&simulate, &html! {
                 @if let File::Stored { simulation: Some(report), .. } = &page.file {
-                    (simulation_section(report, Waiting::Posted(&timing)))
+                    (simulation_section(report, Waiting::Posted(&timing), None))
                 }
             }))
             script defer src=(crate::web::FORM_JS.url()) {}

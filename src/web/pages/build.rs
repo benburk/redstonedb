@@ -145,7 +145,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             @if simulating {
                 (cases_pending(&format!("{path}/simulation")))
             } @else if let Some(report) = report.filter(|_| !skipped_off_list) {
-                (simulation_section(report, Waiting::Stored))
+                (simulation_section(report, Waiting::Stored, Some(&format!("{path}/trace"))))
             }
             @if let Ok(file) = file {
                 (stack_guide::stacking_section(s, &file.stacking, stacking_found(s), viewer.is_some()))

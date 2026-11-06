@@ -114,8 +114,13 @@ pub enum Waiting<'a> {
 
 /// What simulating a build found: the cases tried and how many came out
 /// right, then, for a failure, which output bits were wrong and the first
-/// wrong cases, or, for a pass, its timing once measured.
-pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
+/// wrong cases, or, for a pass, its timing once measured, linking to its
+/// logic analyzer at `trace`, for a stored build.
+pub fn simulation_section(
+    report: &Report,
+    waiting: Waiting,
+    trace: Option<&str>,
+) -> Markup {
     let untimed = matches!(waiting, Waiting::Stored)
         && matches!(report, Report::Ran(run) if run.wrong == 0 && run.timing.is_none());
     html! {
@@ -153,7 +158,7 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                     @if run.wrong > 0 {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {
-                        (timing_section(timing))
+                        (timing_section(timing, trace))
                     } @else if let Waiting::Posted(url) = waiting {
                         div data-timing-pending fx-action=(url) fx-method="post" fx-trigger="load"
                             data-form="details-form" class="mt-6" {
@@ -248,8 +253,9 @@ fn timing_intro(timing: &Timing) -> Markup {
 }
 
 /// A synced build's timing, with nothing to say beyond its inputs and
-/// outputs, is hidden, and its section with it.
-pub fn timing_section(timing: &Timing) -> Markup {
+/// outputs, is hidden, and its section with it. A stored build's links to
+/// its logic analyzer at `trace`, each glitch to the change it came in.
+pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     let quiet =
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
@@ -271,11 +277,17 @@ pub fn timing_section(timing: &Timing) -> Markup {
             }
             @for output in &timing.outputs {
                 @if let Some(glitch) = &output.glitch {
-                    (glitch_example(&output.name, glitch, &timing.inputs))
+                    (glitch_example(&output.name, glitch, &timing.inputs, trace))
                 }
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
                 (bit_timing(output))
+            }
+            @if let Some(trace) = trace {
+                p class="mt-4" {
+                    a href=(trace) { "Trace it tick by tick in the logic analyzer" }
+                    span class="text-muted" { ": each output's waveform, what set each change off, and its races." }
+                }
             }
         }
     }
@@ -288,6 +300,7 @@ fn glitch_example(
     name: &str,
     glitch: &Glitch,
     inputs: &[InputTiming],
+    trace: Option<&str>,
 ) -> Markup {
     let case: Vec<String> = inputs
         .iter()
@@ -308,8 +321,25 @@ fn glitch_example(
             .last()
             .map_or(glitch.before, |&(_, value)| value)
     };
+    // The change, every input from 0, in the logic analyzer's query.
+    let traced = trace.map(|trace| {
+        let pairs: Vec<(String, &Value)> = inputs
+            .iter()
+            .zip(&glitch.case)
+            .map(|(input, value)| (format!("to.{}", input.name), value))
+            .collect();
+        format!(
+            "{trace}?{}",
+            serde_urlencoded::to_string(pairs).unwrap_or_default()
+        )
+    });
     html! {
-        p class="mt-4 font-semibold" { "Glitch: " (name) ", all off → " (case.join(", ")) }
+        p class="mt-4 font-semibold" {
+            "Glitch: " (name) ", all off → " (case.join(", "))
+            @if let Some(traced) = traced {
+                " " a class="font-normal" href=(traced) { "Trace it" }
+            }
+        }
         div class="relative mt-1 overflow-x-auto" {
             table class="border-collapse tabular-nums" {
                 caption class="sr-only" { "Glitch: " (name) ", tick by tick" }

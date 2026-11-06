@@ -317,6 +317,36 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
     pos
 }
 
+/// The logic analyzer traces the change the query names, or with none the
+/// one its sweep found most worth seeing, and says what it cannot trace.
+#[tokio::test]
+async fn anyone_may_trace_a_build() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+
+    let page = site.get(&format!("/schematics/{id}/trace"), None).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let page = page.text().await.unwrap();
+    assert!(
+        page.contains("Logic analyzer") && page.contains("<svg"),
+        "{page}"
+    );
+    assert!(page.contains("What happened"), "{page}");
+
+    let traced = site
+        .get(&format!("/schematics/{id}/trace?to.A=1"), None)
+        .await;
+    let traced = traced.text().await.unwrap();
+    assert!(traced.contains("A=0, B=0, carry in=0 → A=1"), "{traced}");
+
+    let wrong = site
+        .get(&format!("/schematics/{id}/trace?to.Q=1"), None)
+        .await;
+    let wrong = wrong.text().await.unwrap();
+    assert!(wrong.contains("The build has no input named Q."), "{wrong}");
+}
+
 #[tokio::test]
 async fn anyone_may_see_a_diff_but_only_an_account_download_it() {
     let site = Site::start().await;

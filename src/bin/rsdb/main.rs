@@ -8,6 +8,7 @@ mod outputs;
 mod refresh;
 mod seed;
 mod stack_check;
+mod trace;
 mod versions;
 
 use std::{path::PathBuf, str::FromStr as _};
@@ -26,6 +27,7 @@ use categories::{define_tag, print_categories, print_tags};
 use inspect::{Inspect, inspect_command};
 use refresh::refresh;
 use seed::seed;
+use trace::{Trace, trace_command};
 use versions::{Standardizing, new_version};
 
 /// A database of Minecraft redstone schematics.
@@ -118,6 +120,14 @@ enum Command {
     /// outputs in buses and what probing finds with them, or with `--stack`
     /// how its copies stack. Reads the database only
     Inspect(Inspect),
+    /// Trace a .schem file or stored build tick by tick, as a logic
+    /// analyzer and as the site's logic analyzer page does: one change of its
+    /// inputs, or with none named the change a sweep finds most worth
+    /// seeing, with its races, where the order a tick runs its updates in
+    /// decides what a component does, each output bit and every component
+    /// that changed by tick, what set each change off, and how many changes
+    /// settled and glitched across the sweep. Reads the database only
+    Trace(Trace),
     /// List known tags by kind, or with `--define` create a new one, named
     /// in full words
     Tags {
@@ -157,7 +167,7 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    if let Command::Inspect(_) = cli.command {
+    if let Command::Inspect(_) | Command::Trace(_) = cli.command {
         // Measuring only, so nothing is written, not even a checkpoint.
         let db = connect_read_only().await?;
         let result = run(&db, cli.command).await;
@@ -208,6 +218,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             dry_run,
         } => refresh(db, &ids, all, prune, dry_run).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
+        Command::Trace(args) => trace_command(db, &args).await,
         Command::Tags {
             define,
             kind,
