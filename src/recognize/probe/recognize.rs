@@ -150,6 +150,9 @@ fn recognize_laid(
         trying(kind, i);
         let order = Order::default();
         match probe_by(kind, how, test, data, &blocks, &report, false, order)? {
+            Ok((_, file, _)) if leaves_digits(&report, &file) => {
+                faults.push((kind, Fault::Unfit(LEAVES_DIGITS.to_owned())));
+            }
             Ok((data_inputs, file, found)) => {
                 return Ok(accept(&data_inputs, file, found));
             }
@@ -191,6 +194,28 @@ fn recognize_laid(
         file: closest.to_vec(),
         ..unrecognized(problems)
     })
+}
+
+/// Why a reading that leaves a digit input out is none; see
+/// [`leaves_digits`].
+const LEAVES_DIGITS: &str = "Its digit inputs play no part in it.";
+
+/// Whether the roles `file` carries, a probe's reading, leave out a digit
+/// input `report` found: one that uses none of them, as a one-bit
+/// popcount reading a hex adder's carry lever as its input, is not what
+/// the build is.
+fn leaves_digits(report: &inspect::Report, file: &[u8]) -> bool {
+    let Ok(blocks) = Blocks::read(file) else {
+        return false;
+    };
+    let Some(roles) = blocks.roles.as_ref() else {
+        return false;
+    };
+    report
+        .digits
+        .iter()
+        .flat_map(|run| &run.bits)
+        .any(|&pos| roles.get(pos).is_none())
 }
 
 /// The build in `data`, with `blocks` and `report`, as matching finds it,

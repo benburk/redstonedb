@@ -284,3 +284,18 @@ async fn an_unaligned_build_is_kept_in_its_category() {
         assert_eq!(lines.unaligned(), unaligned, "{name}");
     }
 }
+
+/// A reading that leaves a build's digit inputs out is not what it is: a
+/// one-hexit adder whose carry in is broken was read as a one-bit
+/// popcount of its carry lever, and passed; now it is no build probing
+/// knows, nearest a hex adder with cases wrong.
+#[test]
+fn a_reading_that_leaves_out_digit_inputs_is_none() {
+    let raw = std::fs::read("tests/fixtures/hex-adder-4-carry-in-broken.schem")
+        .unwrap();
+    let bare = app::schem::lines::with(&raw, None).unwrap();
+    let recognition = app::recognize::probe::recognize(&bare).unwrap();
+    assert_eq!(recognition.found, None);
+    let problem = recognition.problems.last().unwrap();
+    assert!(problem.contains("cases wrong"), "{problem}");
+}
