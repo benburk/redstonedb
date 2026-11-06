@@ -34,7 +34,7 @@ use runner::{CASES, TIMING, evaluated, taken_ahead};
 /// Build `id`'s stored result, when it ran on the file whose hash is
 /// `sha256` under `test`; a result of another file or test, none. A change
 /// to a test leaves its stored results as they are until a build is
-/// simulated again, as `rsdb simulate` does.
+/// simulated again, as `rsdb refresh` does.
 pub async fn stored<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,

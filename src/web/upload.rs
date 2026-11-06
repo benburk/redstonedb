@@ -423,7 +423,7 @@ async fn chosen_instead(
 /// detail as its preview suggests, as `rsdb seed` fills a new database
 /// from the test fixtures, simulated and stored whole as an upload is, and
 /// returns its id, or says why it was refused.
-/// Its tests and timing are not run; `rsdb simulate` runs them.
+/// Its tests and timing are not run; `rsdb refresh` runs them.
 pub async fn publish_suggested(
     db: &sqlx::SqlitePool,
     user: &User,

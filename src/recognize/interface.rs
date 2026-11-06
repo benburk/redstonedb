@@ -646,8 +646,8 @@ pub fn takes_digits(blocks: &Blocks) -> bool {
 /// A build's lines: its inputs and outputs, by the rule for them, each
 /// grouped into ports by its role, as the file carries them or, carrying
 /// none, as its shapes give them; see [`roles`]. Inside
-/// [`crate::recognize::legacy::reading`], by the old rule, as only `rsdb
-/// convert` reads a build saved under it.
+/// [`crate::recognize::legacy::reading`], by the old rule, as only the
+/// migration from it read a build saved under it.
 pub fn read(blocks: &Blocks) -> Interface {
     if crate::recognize::legacy::old() {
         return crate::recognize::legacy::read(blocks);

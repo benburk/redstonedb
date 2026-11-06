@@ -13,7 +13,7 @@ use app::{
 };
 use sqlx::SqlitePool;
 
-use crate::simulate::AT_ONCE;
+use crate::refresh::AT_ONCE;
 
 /// Makes the admin account `debug`, as `/dev/login` does, and publishes
 /// every `.schem` file in `dir` as its upload, each with the details its

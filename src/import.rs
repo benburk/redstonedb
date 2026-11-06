@@ -1,5 +1,5 @@
 //! Turning a `.schem` file into a stored schematic, shared by
-//! `rsdb rebuild`, `rsdb reread`, the upload page, and new versions.
+//! `rsdb refresh`, `rsdb seed`, the upload page, and new versions.
 
 use std::fmt::Write as _;
 

@@ -54,7 +54,7 @@ A development build signs every request in as `DEV_USER`, the admin account `deb
 
 ```sh
 just rsdb users
-just rsdb role <discord username> admin
+just rsdb users --role <discord username> admin
 ```
 
 `database.sqlite3` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, each simulated and stored whole as it goes in, as an upload is; it refuses a database that has builds. `just setup live` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
@@ -94,20 +94,17 @@ The 1-bit slice matches `8 bit` because eight stacked copies of it make an 8-bit
 
 ```sh
 just rsdb show bb62
-just rsdb set bb62 --contributor Owenage_
-just rsdb tag bb62 pistonless
+just rsdb set bb62 --contributor Owenage_ --tag pistonless
 just rsdb export bb62 --out ~/.minecraft/config/worldedit/schematics
 just rsdb new-version bb62 fixed.schem --note "carry out reads through a repeater"
-just rsdb simulate $(just rsdb search --ids adder vertical)
-just rsdb evaluate --category adder
-just rsdb prune --dry-run
+just rsdb refresh $(just rsdb search --ids adder vertical)
+just rsdb refresh --all --prune --dry-run
+just rsdb inspect bb62 --stack west
 ```
 
-- `new-version` replaces a build's file with a fix, as the site's edit page does, keeping the old one.
-- `simulate` runs builds' tests and timing again, or every build's with `--all`. Nothing reruns on its own after the simulator changes.
-- `evaluate` works builds out from their files alone, trusting nothing stored, and lists each field that differs.
-- `prune` takes out blocks no part of a build's circuit uses, proving with Redpiler that the circuit is unchanged.
-- `outputs`, `convert`, and `stack-check` read a build's interface, port it to repeater outputs, and check how it stacks.
+- `refresh` brings what is worked out from builds' files up to date, or every build's with `--all`: it reads each file again, judges the build again as its category, runs its test and timing, and keeps what its building blocks must be, for themes. Nothing reruns on its own after the simulator changes. `--prune` also takes out blocks no part of a build's circuit uses, proving with Redpiler that the circuit is unchanged; `--dry-run` changes nothing, working builds out from their files alone and listing each field that differs from what is stored.
+- `set` changes a build's details and tags, and `new-version` replaces its file with a fix, as the site's edit page does, keeping the old one, or with `--in-place` fixes the file itself; each then refreshes the build, so nothing it leaves goes stale.
+- `inspect` checks a file or build by the rules for inputs and outputs, lists them in buses, and probes it with them; `--stack` checks how its copies stack.
 
 On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's user.
 
