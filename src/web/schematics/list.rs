@@ -93,9 +93,9 @@ async fn index(
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = Category::all();
     let viewing = super::super::viewing(&state.db, viewer).await?;
-    // A category's tile counts its verified builds, unaligned too, so a
-    // category none but unaligned builds fill still has one, and pictures
-    // the first on its board, where none unaligned rank.
+    // A category's tile counts its verified builds, unaligned too, as its
+    // listing shows them, and pictures the first on its board, where none
+    // unaligned rank.
     let verified: Vec<Schematic> =
         all.iter().filter(|s| s.verified()).cloned().collect();
     let index = pages::Index {
@@ -162,16 +162,6 @@ fn tiles<'a>(
     tiles
 }
 
-/// Whether `category` is one whose verified builds among `found` are all
-/// unaligned, as some category's builds may be before any keeps the
-/// conventions; never for no category.
-fn only_unaligned(found: &[Schematic], category: &str) -> bool {
-    !category.is_empty()
-        && !found
-            .iter()
-            .any(|s| s.verified() && !s.unaligned && in_category(s, category))
-}
-
 /// The builds added last, newest first, one of each name so an import of
 /// many alike takes one place, each with how many builds share its name.
 fn recent(all: &[Schematic]) -> Vec<(&Schematic, usize)> {
@@ -217,8 +207,9 @@ async fn listing(
                     || in_category(s, &query.category))
         })
         .count();
-    // Unaligned builds too, verified though they are, as they rank on no
-    // board.
+    // Unaligned builds list as any verified build does, though they rank
+    // on no board, unless the switch hides them; the listing says how many
+    // there are either way.
     let unaligned = found
         .iter()
         .filter(|s| {
@@ -231,18 +222,9 @@ async fn listing(
     if !query.unverified {
         found.retain(Schematic::verified);
     }
-    // Searched for by name, as `unaligned`, they show as asked for; and a
-    // category whose verified builds are all unaligned shows them, with no
-    // switch, as it has nothing else to show.
-    let named = query
-        .q
-        .split_whitespace()
-        .any(|word| word.eq_ignore_ascii_case(tag::UNALIGNED));
-    let only = unaligned > 0 && only_unaligned(&found, &query.category);
-    if !query.unaligned && !named && !only {
+    if query.hide_unaligned {
         found.retain(|s| !s.unaligned);
     }
-    let unaligned = if only { 0 } else { unaligned };
     let facets = facets(&categories, &found, &query.category);
     let mut shown: Vec<Schematic> = if query.category.is_empty() {
         found
@@ -381,16 +363,12 @@ mod tests {
     }
 
     /// A category none but unaligned builds fill has its tile all the
-    /// same, and opened, lists them, as it has nothing else to show; one
-    /// with a build that keeps the conventions hides them.
+    /// same, counting them.
     #[test]
-    fn a_category_of_unaligned_builds_has_a_tile_and_lists_them() {
+    fn a_category_of_unaligned_builds_has_a_tile() {
         let builds = [build("greater_than", true), build("adder", false)];
         let tiles = tiles(&Category::all(), &builds);
         let tile = tiles.iter().find(|t| t.category == "greater_than");
         assert_eq!(tile.map(|t| t.count), Some(1));
-        assert!(only_unaligned(&builds, "greater_than"));
-        assert!(!only_unaligned(&builds, "adder"));
-        assert!(!only_unaligned(&builds, ""));
     }
 }

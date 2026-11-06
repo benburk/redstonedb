@@ -42,7 +42,7 @@ How a build's numbers are written on its lines. A category that reads its orient
 
 ## Unaligned
 
-A tag worked out from a build's file, never given by hand: a bus of its, an operand or an output, whose bits aren't one evenly spaced line, or two alternating, as the conventions lay a bus, such as one whose top bits stand out of line, whose outputs are unevenly spaced, or whose levers climb a staircase. Such a build is recognized as its category when every case of its test comes out right, but ranks on no board; a listing shows it only when Show unaligned is ticked, or when the search asks for `unaligned`.
+A tag worked out from a build's file, never given by hand: a bus of its, an operand or an output, whose bits aren't one evenly spaced line, or two alternating, as the conventions lay a bus, such as one whose top bits stand out of line, whose outputs are unevenly spaced, or whose levers climb a staircase. Such a build is recognized as its category when every case of its test comes out right, and lists in its category as any verified build does, but ranks on no board; ticking Hide unaligned leaves such builds out of a listing.
 
 ## Stateless
 
