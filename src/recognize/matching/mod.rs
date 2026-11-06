@@ -365,7 +365,10 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
             wrong, cases, said, ..
         }) => Some(Match {
             kind: Kind::Alu,
-            label: said,
+            // What it says past its count, which `Match::found` gives.
+            label: said
+                .split_once("cases wrong: ")
+                .map_or(said.clone(), |(_, evidence)| evidence.to_owned()),
             lines: Vec::new(),
             cases,
             wrong,
