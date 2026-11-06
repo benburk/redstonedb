@@ -8,7 +8,7 @@ mod derive;
 mod runner;
 
 pub use derive::{EVEN, FALLING_EDGE, INVERTED, SIGNED};
-pub use runner::{evaluate_ahead, refresh_soon, run, run_at_once, time};
+pub use runner::{complete, evaluate_ahead, run, run_at_once, time};
 
 use std::sync::{Arc, atomic::AtomicBool};
 
@@ -162,7 +162,8 @@ pub fn test_for(s: &Schematic) -> Option<Test> {
 }
 
 /// Build `s`'s stored result, when it is for its file and the test its
-/// category and width call for now.
+/// category and width call for now, as storing it found, see
+/// [`complete`]; nothing is run to find out.
 pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
     match test_for(s) {
         Some(test) => stored(db, &s.id, &s.sha256, test).await,
@@ -676,34 +677,4 @@ pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
     .execute(db)
     .await?;
     Ok(())
-}
-
-/// Where build `s`'s simulation stands.
-pub enum Status {
-    /// Its category and width have no test.
-    Untested,
-    /// Its cases or timing are still to come; asking started them if
-    /// nothing was under way.
-    Pending(Option<Report>),
-    /// Everything there is to know.
-    Done(Report),
-}
-
-/// Where build `s`'s simulation stands, starting it in the background when
-/// something is missing and nothing is under way.
-pub async fn status(db: &SqlitePool, s: &Schematic) -> Result<Status> {
-    if test_for(s).is_none() {
-        return Ok(Status::Untested);
-    }
-    match current(db, s).await? {
-        // An off-list build is not timed.
-        Some(report) if stands_in(s).is_some() => Ok(Status::Done(report)),
-        Some(report) if !report.passed() || report.timing().is_some() => {
-            Ok(Status::Done(report))
-        }
-        report => {
-            refresh_soon(db, &s.id);
-            Ok(Status::Pending(report))
-        }
-    }
 }

@@ -57,7 +57,7 @@ just rsdb users
 just rsdb role <discord username> admin
 ```
 
-`database.sqlite3` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, and runs their tests and timing; it refuses a database that has builds. `just setup live` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
+`database.sqlite3` is not in git. The server and `rsdb` create it if it is missing and apply pending migrations from `migrations/` when they open it. `rsdb seed` fills a new one with every build in `tests/fixtures`, published as uploads with the details the upload page suggests, each simulated and stored whole as it goes in, as an upload is; it refuses a database that has builds. `just setup live` replaces it with a copy of the live database, backing up the local one to `backups/` first; it needs SSH access to the server. The copy leaves out live sign-ins and the Schemati sessions people gave.
 
 | Recipe            | What it does                                            |
 | ----------------- | ------------------------------------------------------- |

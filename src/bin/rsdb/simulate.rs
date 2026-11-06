@@ -14,7 +14,7 @@ use sqlx::SqlitePool;
 use super::{load, resolve};
 
 /// How many builds `simulate` runs at once.
-const AT_ONCE: usize = 4;
+pub(super) const AT_ONCE: usize = 4;
 
 /// Runs the tests of the builds `named`, or with `all` of every build with
 /// one, again, and stores what they find.

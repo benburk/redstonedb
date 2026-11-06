@@ -9,7 +9,6 @@ use crate::{
     import::{self, Analysis},
     models::{
         schematic::{Logic, Schematic, StackDirection},
-        simulation::Status,
         tag,
         user::User,
         version::Version,
@@ -25,7 +24,7 @@ use super::{
     icons::{self, icon},
     interface::{Inversions, interface_section},
     name_badges, percent, person_badge, plural, search_link,
-    simulation::{Waiting, cases_pending, simulation_section},
+    simulation::{Waiting, simulation_section},
     size, stack_guide, version,
 };
 
@@ -57,7 +56,7 @@ pub struct BuildPage<'a> {
     pub s: &'a Schematic,
     pub similar: &'a [(Schematic, u32)],
     pub file: &'a Result<FileRead, String>,
-    pub simulation: &'a Status,
+    pub simulation: &'a Option<Report>,
     pub versions: &'a [Version],
     pub favorited: bool,
     pub colours: ColoursShown,
@@ -87,11 +86,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
         favorited,
         colours,
     } = *page;
-    let report = match simulation {
-        Status::Done(report) | Status::Pending(Some(report)) => Some(report),
-        Status::Pending(None) | Status::Untested => None,
-    };
-    let simulating = matches!(simulation, Status::Pending(None));
+    let report = simulation.as_ref();
     let name = s.name();
     let path = format!("/schematics/{}", s.id);
     base_previewed(
@@ -105,7 +100,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                     @if !s.public {
                         (super::private_badge())
                     }
-                    (build_banner(s, report, simulating))
+                    (build_banner(s, report))
                 }
                 // On a phone, under the title, the download as wide as the
                 // page with the menu at its end; beside the title once
@@ -134,18 +129,12 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 &build_info(s, similar, file, report),
                 false,
             ))
-            @let poll = format!("{path}/simulation");
             // Unverified or off the list, a build the simulator can't run
             // says why under its reasons already.
             @let skipped_off_list = crate::models::simulation::stands_in(s).is_some()
                 && matches!(report, Some(Report::Skipped { .. }));
-            @match simulation {
-                Status::Done(_) | Status::Pending(Some(_)) if skipped_off_list => {}
-                Status::Done(report) | Status::Pending(Some(report)) => {
-                    (simulation_section(report, waiting(s, &poll)))
-                }
-                Status::Pending(None) => (cases_pending(&poll)),
-                Status::Untested => {}
+            @if let Some(report) = report.filter(|_| !skipped_off_list) {
+                (simulation_section(report, Waiting::Stored))
             }
             @if let Ok(file) = file {
                 (stack_guide::stacking_section(s, &file.stacking, stacking_found(s), viewer.is_some()))
@@ -206,25 +195,10 @@ fn not_recognized(
     }
 }
 
-/// How build `s`'s page waits on its timing, asked of `poll`: never, for
-/// one unverified or off the list, which is only tested.
-pub fn waiting<'a>(s: &Schematic, poll: &'a str) -> Waiting<'a> {
-    if crate::models::simulation::stands_in(s).is_some() {
-        Waiting::Untimed
-    } else {
-        Waiting::Polled(poll)
-    }
-}
-
 /// Beside a build's title, what its simulation says, as a badge, unless it
-/// passes: fails, still running, or not simulated, with the counts or the
-/// reason in a popup on hover or focus. A live panel, redrawn when its
-/// simulation comes in.
-pub fn build_banner(
-    s: &Schematic,
-    report: Option<&Report>,
-    simulating: bool,
-) -> Markup {
+/// passes: fails or not simulated, with the counts or the reason in a
+/// popup on hover or focus.
+pub fn build_banner(s: &Schematic, report: Option<&Report>) -> Markup {
     let verdict = match report {
         // An unverified build's reasons are a section of their own.
         _ if s.unverified.is_some() => None,
@@ -246,15 +220,12 @@ pub fn build_banner(
         Some(Report::Skipped { reason }) => {
             Some(("Untested", "bg-muted/12 text-muted", reason.clone()))
         }
-        None if simulating => Some((
-            "Simulating…",
-            "bg-muted/12 text-muted",
-            "Its cases are running; this updates when they finish.".to_owned(),
-        )),
         None => Some((
             "Untested",
             "bg-muted/12 text-muted",
-            "The simulator has no test for this category yet.".to_owned(),
+            "No simulation is stored for it: the simulator has no test for \
+             its category and width."
+                .to_owned(),
         )),
     };
     // Kept when empty, as the page redraws it when a simulation finishes.
