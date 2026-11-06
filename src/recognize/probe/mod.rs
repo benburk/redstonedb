@@ -652,24 +652,15 @@ pub fn adder(
     adder_from(data, blocks, report, false, Order::default())
 }
 
-/// As [`adder`], for a build kept as built, whose lines needn't keep the
-/// conventions: where no layout of its runs fits, A and B may each take
-/// one of the bits left over beside two runs as wide as each other, at the
-/// end nearer it, as a build whose top bits stand out of line does, and
-/// the sum may be every output however spaced, in order along the way
-/// they spread, as its test alone says which way round and which end is
-/// the carry out.
-pub fn adder_loosely(
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-) -> Result<Probed, Fault> {
-    adder_from(data, blocks, report, true, Order::default())
-}
-
-/// As [`adder`], its lines laid out loosely too when `loose`; see
-/// [`adder_loosely`]. Of A and B, which add either way round, A is as
-/// `order` prefers, each layout tried in that order first.
+/// As [`adder`], its lines laid out loosely too when `loose`, for a build
+/// kept as built, whose lines needn't keep the conventions: where no
+/// layout of its runs fits, A and B may each take one of the bits left
+/// over beside two runs as wide as each other, at the end nearer it, as a
+/// build whose top bits stand out of line does, and the sum may be every
+/// output however spaced, in order along the way they spread, as its test
+/// alone says which way round and which end is the carry out. Of A and B,
+/// which add either way round, A is as `order` prefers, each layout tried
+/// in that order first.
 pub(super) fn adder_from(
     data: &[u8],
     blocks: &Blocks,

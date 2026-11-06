@@ -229,11 +229,11 @@ pub struct Line {
 }
 
 /// What a build was matched as: its kind, the operation it computes, its
-/// lines, how many of the cases observed it got wrong, how far its reading
-/// strays from the conventions, and whether its lines keep them, every bus
+/// lines, how many of the cases observed it got wrong, and whether its
+/// lines keep the conventions, every bus
 /// a whole run, or a run but its top bit, rather than bent, as a build
-/// whose top bits stand out of line bends them: one that doesn't is of
-/// non-standard I/O.
+/// whose top bits stand out of line bends them: one that doesn't is
+/// unaligned.
 #[derive(Clone, Debug)]
 pub struct Match {
     pub kind: Kind,
@@ -241,7 +241,6 @@ pub struct Match {
     pub lines: Vec<Line>,
     pub cases: u64,
     pub wrong: u64,
-    pub cost: u32,
     pub conventional: bool,
 }
 
@@ -368,7 +367,6 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
             .collect(),
             cases: probed.run.cases,
             wrong: 0,
-            cost: 0,
             conventional: true,
         }),
         Err(probe::Fault::Wrong {
@@ -382,7 +380,6 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
             lines: Vec::new(),
             cases,
             wrong,
-            cost: 0,
             conventional: true,
         }),
         Err(_) => None,
@@ -531,7 +528,6 @@ fn judge(
                 lines: lines(slots, positions, &reading),
                 cases: reading.cases,
                 wrong: reading.wrong,
-                cost,
                 conventional: !filling.iter().flatten().any(|bus| bus.bent),
             };
             found = Some((score, closer));

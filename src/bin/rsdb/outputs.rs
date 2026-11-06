@@ -74,10 +74,8 @@ pub(super) fn place(pos: Pos) -> String {
 /// out east, on yellow concrete`.
 pub(super) fn describe(blocks: &Blocks, output: Output) -> String {
     let under = schem::short(blocks.get(output.block())).replace('_', " ");
-    let hint = repeater_outputs::colour_under(blocks, output)
-        .map_or(String::new(), |c| format!(", a {c} role colour"));
     format!(
-        "{} at {} facing {}, giving out {}, on {under}{hint}",
+        "{} at {} facing {}, giving out {}, on {under}",
         output.kind(),
         place(output.at),
         output.facing,

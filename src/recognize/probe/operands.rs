@@ -32,7 +32,7 @@ pub struct OperandsProbed {
 /// the same either way, so A is the one `order` prefers. With
 /// `loose`, for a build kept as built, A and B may each take one of the
 /// bits left over beside two runs as wide as each other, as
-/// [`super::adder_loosely`] reads them, where no other split fits. Or why
+/// [`super::adder_from`] reads them loosely, where no other split fits. Or why
 /// it isn't one.
 pub fn operands_probe(
     data: &[u8],

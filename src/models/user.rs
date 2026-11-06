@@ -484,65 +484,6 @@ impl User {
     }
 }
 
-impl User {
-    /// Every Minecraft name stored: credited, importing, or an account's.
-    pub async fn player_names(
-        db: &SqlitePool,
-    ) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar!(
-            r#"SELECT name as "name!: String" FROM credit
-             UNION SELECT imported_by FROM schematic
-                WHERE imported_by IS NOT NULL
-             UNION SELECT minecraft_name FROM user
-                WHERE minecraft_name IS NOT NULL"#
-        )
-        .fetch_all(db)
-        .await
-    }
-
-    /// Spells `name` as given wherever it is stored in other capitals, and
-    /// records `uuid` for an account with the name. Returns how many places
-    /// changed.
-    pub async fn respell_player(
-        db: &SqlitePool,
-        name: &str,
-        uuid: &str,
-    ) -> Result<u64, sqlx::Error> {
-        let mut tx = db.begin().await?;
-        // The columns compare without capitals, so a change in spelling
-        // alone shows only to a binary comparison.
-        let credits = sqlx::query!(
-            "UPDATE credit SET name = ?1
-             WHERE name = ?1 AND name <> ?1 COLLATE BINARY",
-            name
-        )
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        let imports = sqlx::query!(
-            "UPDATE schematic SET imported_by = ?1
-             WHERE imported_by = ?1 COLLATE NOCASE
-                AND imported_by <> ?1 COLLATE BINARY",
-            name
-        )
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        let accounts = sqlx::query!(
-            "UPDATE user SET minecraft_name = ?1, minecraft_uuid = ?2
-             WHERE minecraft_name = ?1 AND (minecraft_name <> ?1 COLLATE BINARY
-                OR minecraft_uuid IS NOT ?2)",
-            name,
-            uuid
-        )
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        tx.commit().await?;
-        Ok(credits + imports + accounts)
-    }
-}
-
 /// Respells the credits and importers that name account `id`'s confirmed
 /// Minecraft name, whatever their capitals, as the account spells it. An
 /// unconfirmed name changes nothing.
