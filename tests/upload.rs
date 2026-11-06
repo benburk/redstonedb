@@ -299,3 +299,20 @@ fn a_reading_that_leaves_out_digit_inputs_is_none() {
     let problem = recognition.problems.last().unwrap();
     assert!(problem.contains("cases wrong"), "{problem}");
 }
+
+/// One hex digit is four bits, a whole adder without a carry in, as one
+/// bit is not: a one-hexit adder with none is found as a hex adder, where
+/// it was refused as a one-bit adder lacking its carry in.
+#[test]
+fn a_one_hexit_adder_needs_no_carry_in() {
+    let raw =
+        std::fs::read("tests/fixtures/hex-adder-4-no-carry-in.schem").unwrap();
+    let bare = app::schem::lines::with(&raw, None).unwrap();
+    let recognition = app::recognize::probe::recognize(&bare).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a hex adder: all 256 cases right, A + B"),
+        "{:?}",
+        recognition.problems
+    );
+}

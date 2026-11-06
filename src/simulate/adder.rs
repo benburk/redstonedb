@@ -373,8 +373,10 @@ pub(super) fn adder_ports(
         (bits(&interface.inputs[a]), bits(&interface.inputs[b]));
     // One bit is a slice of a wider build, which its carry in chains;
     // without it, its one output bit is A xor B, an XOR gate's. Its carry
-    // out, as a wider build's, may be left out.
-    if a_bits == 1 && carry_in.is_none() {
+    // out, as a wider build's, may be left out. One hex digit is four bits,
+    // a whole adder without it.
+    let digits = interface.inputs[a].signal_strength;
+    if a_bits == 1 && !digits && carry_in.is_none() {
         let (line_in, line_out) = (op.line_in[0], op.line_out[0]);
         let lacks = if carry_out.is_none() {
             "without either it is an XOR gate".to_owned()
