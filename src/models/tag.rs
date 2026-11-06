@@ -66,6 +66,29 @@ pub fn is_pitch_stackable(name: &str) -> bool {
         .is_some_and(|pitch| pitch.ends_with('_'))
 }
 
+/// Whether the tag `name`, among a build's `tags`, says nothing another of
+/// them doesn't: `stackable` beside a tag saying how far apart its copies
+/// stack, or a looser pitch class than another the same way, which the
+/// tighter one counts in, as `4-wide_stackable` beside `2-wide_stackable`.
+/// Shown, a build's tags leave such a tag out; search and its boards still
+/// find it by it.
+pub fn implied(name: &str, tags: &[Tag]) -> bool {
+    // A pitch class's number and shape, as `2` and `wide`.
+    let class = |name: &str| -> Option<(i64, String)> {
+        let pitch = name.strip_suffix(STACKABLE)?.strip_suffix('_')?;
+        let (n, shape) = pitch.split_once('-')?;
+        Some((n.parse().ok()?, shape.to_owned()))
+    };
+    if name == STACKABLE {
+        return tags.iter().any(|tag| is_pitch_stackable(&tag.name));
+    }
+    class(name).is_some_and(|(n, shape)| {
+        tags.iter().any(|other| {
+            class(&other.name).is_some_and(|(m, other)| other == shape && m < n)
+        })
+    })
+}
+
 /// The tag a register carries whose copies across its bits add words on
 /// its shared data bus `step` apart, such as `3-wide`, the step west, or
 /// `4-high`, up: `3-wide_word_stackable`. It is not stored.
@@ -424,6 +447,28 @@ mod tests {
             token: None,
             kind,
         }
+    }
+
+    /// A tighter pitch class implies each looser one the same way, and any
+    /// pitch class implies stackable; another way's class implies nothing.
+    #[test]
+    fn a_tighter_pitch_class_implies_the_looser_ones() {
+        let tags: Vec<Tag> = [
+            STACKABLE,
+            "2-wide_stackable",
+            "4-wide_stackable",
+            "4-high_stackable",
+        ]
+        .into_iter()
+        .map(|name| tag(name, Kind::Feature))
+        .collect();
+        let shown: Vec<&str> = tags
+            .iter()
+            .filter(|tag| !implied(&tag.name, &tags))
+            .map(|tag| tag.name.as_str())
+            .collect();
+        assert_eq!(shown, ["2-wide_stackable", "4-high_stackable"]);
+        assert!(!implied(STACKABLE, &[tag(STACKABLE, Kind::Feature)]));
     }
 
     #[test]
