@@ -298,6 +298,35 @@ fn a_parity_circuit_is_read_whole_from_its_file() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
+/// A negator, standardized and coloured by probing as an upload is, is
+/// read whole from its file, its width A's and its orientation the way A
+/// runs, up; copies of one make no wider one, so it is never searched for
+/// stacking.
+#[test]
+fn a_negator_is_read_whole_from_its_file() {
+    let recognition =
+        app::recognize::probe::recognize(&uploaded("negator-8")).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a negator: all 256 cases right, −A"),
+        "{:?}",
+        recognition.problems
+    );
+    let e = evaluate(&recognition.file).unwrap();
+    assert_eq!(e.category, Some("negator"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    assert_eq!(e.orientation, Some(Orientation::Vertical));
+    assert!(e.flags.is_empty(), "{:?}", e.flags);
+    assert!(e.stacking.is_empty());
+    let Some(Report::Ran(run)) = &e.report else {
+        panic!("it ran");
+    };
+    assert!(run.stacking.is_none(), "it is never searched");
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
 /// A parity circuit whose output a torch inverts, on for an even number of
 /// A's bits on, is one too, flagged even; the owner's, on for an odd
 /// number, is not.

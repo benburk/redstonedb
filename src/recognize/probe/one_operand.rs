@@ -1,7 +1,7 @@
 //! Probing for a build of one operand, A: an inverter, an absolute value,
-//! an incrementer, a monostable, a converter, and the like, its control
-//! line, if it has one, tried among its levers and the rest A, each way
-//! given those roles and run through its test.
+//! a negator, an incrementer, a monostable, a converter, and the like, its
+//! control line, if it has one, tried among its levers and the rest A,
+//! each way given those roles and run through its test.
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
@@ -108,9 +108,10 @@ mod tests {
 
     /// Each build of one or two operands is found as what it is from its
     /// levers and outputs alone: an equality comparator, a carry out, an
-    /// inverter, an absolute value, an incrementer, a barrel shifter, a
-    /// buffer, a monostable, a threshold, a popcount, its count one
-    /// output's strength, a parity circuit, and a binary-to-hex converter.
+    /// inverter, an absolute value, a negator, an incrementer, a barrel
+    /// shifter, a buffer, a monostable, a threshold, a popcount, its count
+    /// one output's strength, a parity circuit, and a binary-to-hex
+    /// converter.
     #[test]
     fn comparisons_and_one_operand_builds_are_found() {
         for (name, kind) in [
@@ -118,6 +119,7 @@ mod tests {
             ("cout-8", "carry_out"),
             ("inverter-1", "inverter"),
             ("abs-8", "absolute_value"),
+            ("negator-8", "negator"),
             ("inc-8", "incrementer"),
             ("barrel-shifter-8", "barrel_shifter"),
             ("buffer-2-button", "buffer"),

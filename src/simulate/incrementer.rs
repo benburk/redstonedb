@@ -168,11 +168,11 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     Ok(Bench::new(inputs, outputs, "A"))
 }
 
-/// The values an incrementer too wide to try every one of is checked on:
-/// every value of each byte of A, the bits below it all clear and all set,
-/// so a carry or borrow runs into it, and the test patterns; each with its
-/// control line, if any, each way.
-fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
+/// The values an incrementer or a negator too wide to try every one of is
+/// checked on: every value of each byte of A, the bits below it all clear
+/// and all set, so a carry or borrow runs into it, and the test patterns;
+/// each with its control line, if any, each way.
+pub(super) fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     let lines: &[Value] = if widths.len() > 1 { &[0, 1] } else { &[0] };
     let mut cases = Distinct::default();
     for low in (0..widths[0]).step_by(8) {
