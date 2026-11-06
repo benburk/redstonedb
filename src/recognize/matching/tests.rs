@@ -6,6 +6,18 @@ fn fixture(name: &str) -> Vec<u8> {
     crate::schem::standardize::standardize(&raw).unwrap()
 }
 
+/// The fixture `name` with every sign taken out.
+fn unsigned(name: &str) -> Vec<u8> {
+    let data = fixture(name);
+    let blocks = Blocks::read(&data).unwrap();
+    let changes = blocks
+        .signs
+        .keys()
+        .map(|&pos| (pos, crate::schem::AIR.to_owned()))
+        .collect();
+    crate::schem::standardize::edit(&data, &changes).unwrap()
+}
+
 /// The fixture `name` matched.
 fn matched(name: &str) -> Match {
     recognize(&fixture(name))
@@ -50,9 +62,9 @@ fn a_tie_goes_to_the_kind_probing_tries_first() {
     );
 }
 
-/// An ALU's operations are found from what each setting of its control
-/// lines gives, its signs unread, and its carry in, if it has one, from
-/// the add it carries into, read inverted as it is.
+/// An ALU without signs has its operations found from what each setting
+/// of its control lines gives, and its carry in, if it has one, from the
+/// add it carries into, read inverted as it is.
 #[test]
 fn an_alus_operations_are_found_by_their_settings() {
     for (name, ops, carry) in [
@@ -70,7 +82,7 @@ fn an_alus_operations_are_found_by_their_settings() {
             false,
         ),
     ] {
-        let found = matched(name);
+        let found = recognize(&unsigned(name)).unwrap().unwrap();
         assert_eq!(
             (found.kind, found.wrong),
             (Kind::Alu, 0),
@@ -90,6 +102,32 @@ fn an_alus_operations_are_found_by_their_settings() {
         assert_eq!(carry_in.is_some(), carry, "{name}: {}", found.found());
         assert!(carry_in.is_none_or(|line| line.inverted), "{name}");
     }
+}
+
+/// An ALU whose control lines' signs name its operations is tested as they
+/// name them: one of more lines than matching observes every setting of is
+/// found, and one whose signed and and or are wrong in a few cases, or
+/// whose signs name operations its lines don't choose, has cases wrong.
+#[test]
+fn an_alu_is_tested_as_its_signs_name_its_operations() {
+    let found = matched("alu-8-ops-raw");
+    assert_eq!(
+        (found.kind, found.wrong),
+        (Kind::Alu, 0),
+        "{}",
+        found.found()
+    );
+    for op in ["add", "sub", "and", "shr", "asr"] {
+        assert!(found.label.contains(op), "no {op} in {}", found.label);
+    }
+    for name in ["alu-8-lines", "alu-8-extra-signs"] {
+        let found = matched(name);
+        assert_eq!(found.kind, Kind::Alu, "{name}: {}", found.found());
+        assert!(found.wrong > 0, "{name}: {}", found.found());
+    }
+    // Its signs taken out, it is more lines than are observed every way.
+    let unsigned = recognize(&unsigned("alu-8-ops-raw")).unwrap();
+    assert!(unsigned.is_none_or(|found| found.kind != Kind::Alu));
 }
 
 /// An adder whose carry out is normally on is an adder, its carry out
@@ -250,17 +288,6 @@ const DISAGREEING: &[&str] = &[
     // takes it for a parity circuit, reading the carry out as a status
     // line, which a parity's test doesn't check.
     "rca-1-repeater-c",
-    // Its signs name operations its lines don't choose, so probing, which
-    // reads them, finds it wrong; matching reads no sign.
-    "alu-8-extra-signs",
-    // Its and and or are wrong in a few cases, so probing, which its signs
-    // tell which settings are meant, finds it wrong; matching, told by
-    // nothing which are meant, can't tell those settings from ones that
-    // mean nothing, and takes it for an ALU that adds and xors.
-    "alu-8-lines",
-    // More control lines than matching observes every setting of.
-    "alu-8-ops-raw",
-    "alu-8-ops-inverted-carry",
     // Its outputs are unevenly spaced, so probing finds its lines don't
     // fit; matching reads them in order along the way they spread.
     "adder-8-lsb-top",
