@@ -2,7 +2,7 @@
 //! any capitals, but Mojang knows the one spelling the player chose, and a
 //! UUID that stays theirs through renames.
 
-use std::time::Duration;
+use std::{collections::HashMap, sync::LazyLock, time::Duration};
 
 use serde::Deserialize;
 
@@ -11,6 +11,15 @@ const LOOKUP: &str =
 
 /// The most names Mojang takes in one lookup.
 const BATCH: usize = 10;
+
+/// The one client every lookup goes through, so each needn't connect
+/// afresh. `None` if it could not be built.
+static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()
+});
 
 /// A player as Mojang knows them.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -24,10 +33,9 @@ pub struct Profile {
 /// is left out. `Err` says Mojang could not be asked.
 pub async fn profiles(names: &[String]) -> Result<Vec<Profile>, String> {
     let failed = |_| "Could not reach Mojang to check the name.".to_owned();
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(failed)?;
+    let client = CLIENT.as_ref().ok_or_else(|| {
+        "Could not reach Mojang to check the name.".to_owned()
+    })?;
     let mut found = Vec::new();
     for batch in names.chunks(BATCH) {
         let response = client
@@ -53,16 +61,28 @@ pub async fn profile(name: &str) -> Result<Option<Profile>, String> {
     Ok(profiles(&[name.to_owned()]).await?.into_iter().next())
 }
 
+/// What is known of each player asked about, by name in lowercase: the
+/// player, or `None` for a name no player has. A name missing from it was
+/// not asked about, as when Mojang cannot be reached.
+pub type Players = HashMap<String, Option<Profile>>;
+
 /// `names` as their players spell them, or a sentence naming those no
-/// player has, to be checked. When Mojang cannot be reached, the names as
-/// given, so an outage does not stop anyone crediting a build.
-pub async fn respell(names: &[String]) -> Result<Vec<String>, String> {
-    let Ok(found) = profiles(names).await else {
-        return Ok(names.to_vec());
-    };
-    let unknown = unknown(names, &found);
+/// player has, to be checked, by what `players` knows of them. A name it
+/// doesn't know stays as given, so an outage does not stop anyone
+/// crediting a build.
+pub fn respell(
+    names: &[String],
+    players: &Players,
+) -> Result<Vec<String>, String> {
+    let unknown = unknown(names, players);
     match unknown.as_slice() {
-        [] => Ok(spelled(names, &found)),
+        [] => Ok(names
+            .iter()
+            .map(|name| match players.get(&name.to_lowercase()) {
+                Some(Some(player)) => player.name.clone(),
+                _ => name.clone(),
+            })
+            .collect()),
         [one] => Err(format!(
             "No Minecraft player is named {one}. Check the spelling."
         )),
@@ -73,37 +93,12 @@ pub async fn respell(names: &[String]) -> Result<Vec<String>, String> {
     }
 }
 
-/// The names in `names` no player has, as given. None when Mojang cannot
-/// be reached, so an outage does not stop anyone naming a player.
-pub async fn unknown_names(names: &[String]) -> Vec<String> {
-    let Ok(found) = profiles(names).await else {
-        return Vec::new();
-    };
-    unknown(names, &found)
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-/// The names in `names` that none of `found` has.
-fn unknown<'a>(names: &'a [String], found: &[Profile]) -> Vec<&'a str> {
+/// The names in `names` that `players` says no player has, as given.
+pub fn unknown(names: &[String], players: &Players) -> Vec<String> {
     names
         .iter()
-        .filter(|name| !found.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
-        .map(String::as_str)
-        .collect()
-}
-
-/// `names` with each one `found` knows in its spelling.
-fn spelled(names: &[String], found: &[Profile]) -> Vec<String> {
-    names
-        .iter()
-        .map(|name| {
-            found
-                .iter()
-                .find(|p| p.name.eq_ignore_ascii_case(name))
-                .map_or_else(|| name.clone(), |p| p.name.clone())
-        })
+        .filter(|name| matches!(players.get(&name.to_lowercase()), Some(None)))
+        .cloned()
         .collect()
 }
 
@@ -111,25 +106,40 @@ fn spelled(names: &[String], found: &[Profile]) -> Vec<String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn names_no_player_has_are_named() {
-        let found = [Profile {
-            uuid: "1218d0e691294ce09d98fded20551c1c".to_owned(),
-            name: "_zebek".to_owned(),
-        }];
-        let names = ["_ZEBEK".to_owned(), "Zebek__".to_owned()];
-        assert_eq!(unknown(&names, &found), ["Zebek__"]);
+    fn players(known: &[(&str, Option<&str>)]) -> Players {
+        known
+            .iter()
+            .map(|&(name, spelling)| {
+                let player = spelling.map(|spelling| Profile {
+                    uuid: "1218d0e691294ce09d98fded20551c1c".to_owned(),
+                    name: spelling.to_owned(),
+                });
+                (name.to_owned(), player)
+            })
+            .collect()
     }
 
+    /// A name no player has is named, as given; one not asked about, as
+    /// when Mojang can't be reached, is not.
+    #[test]
+    fn names_no_player_has_are_named() {
+        let known = players(&[("_zebek", Some("_zebek")), ("zebek__", None)]);
+        let names = ["_ZEBEK".to_owned(), "Zebek__".to_owned(), "x".to_owned()];
+        assert_eq!(unknown(&names, &known), ["Zebek__"]);
+        assert_eq!(
+            respell(&names, &known).unwrap_err(),
+            "No Minecraft player is named Zebek__. Check the spelling."
+        );
+    }
+
+    /// A name a player has takes their spelling; one not asked about stays
+    /// as given.
     #[test]
     fn known_names_take_their_players_spelling() {
-        let found = [Profile {
-            uuid: "927c830fece6456182f9b2a3142b37b0".to_owned(),
-            name: "Pishleback".to_owned(),
-        }];
+        let known = players(&[("pishleback", Some("Pishleback"))]);
         let names = ["pishleback".to_owned(), "Someone_Renamed".to_owned()];
         assert_eq!(
-            spelled(&names, &found),
+            respell(&names, &known).unwrap(),
             ["Pishleback".to_owned(), "Someone_Renamed".to_owned()]
         );
     }
