@@ -1,10 +1,12 @@
-//! An upload's analysis, run in the background so choosing a file answers
-//! at once and its page shows how far it has got: recognizing a file
-//! probes it as each blessed category in turn, which takes seconds for a
+//! An upload's analysis, or a new version's check, run in the background
+//! so choosing a file answers at once and its page shows how far it has
+//! got: recognizing a file probes it as each blessed category in turn, and
+//! checking a version probes it as its build's, which takes seconds for a
 //! large build.
 
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -17,6 +19,7 @@ use crate::{
     models::{simulation, user::User},
     recognize::probe::{self, Recognition},
     simulate::{self, Guess},
+    version::Checked,
     web::app_state::AppState,
 };
 
@@ -30,17 +33,32 @@ const KEPT: Duration = Duration::from_hours(1);
 /// The most analyses kept at once; the oldest go first.
 const MOST: usize = 200;
 
-/// One upload's analysis: whose it is, how far it has got, and, once it
-/// is done, what it found or why the file could not be read.
+/// One upload's analysis, or one version's check: whose it is, how far it
+/// has got, and, once it is done, what it found.
 pub struct Analysis {
     user: Uuid,
     started: Instant,
     step: Step,
-    done: Option<Outcome>,
+    done: Option<Done>,
 }
 
-/// What an analysis found, or why the file could not be read.
+/// What an upload's analysis found, or why the file could not be read.
 pub type Outcome = Arc<Result<Analyzed, String>>;
+
+/// What an analysis ends with: an upload's, or a new version's check.
+#[derive(Clone)]
+pub enum Done {
+    Upload(Outcome),
+    Version(Arc<VersionChecked>),
+}
+
+/// A file checked as build `schematic`'s next version, or why it cannot be
+/// one, with the edit form as it was sent beside it, to show again.
+pub struct VersionChecked {
+    pub schematic: String,
+    pub checked: Result<Checked, String>,
+    pub pairs: Vec<(String, String)>,
+}
 
 /// How far an analysis has got.
 #[derive(Clone)]
@@ -51,13 +69,15 @@ pub enum Step {
     Testing { label: String, tried: usize },
     /// Reading it as built and as standardized, and guessing what it is.
     Preparing,
+    /// Checking a file as a build's next version.
+    Checking,
 }
 
 impl Step {
     /// Its place among the steps the page lists, after uploading the file.
     pub fn place(&self) -> usize {
         match self {
-            Step::Inspecting => 1,
+            Step::Inspecting | Step::Checking => 1,
             Step::Testing { .. } => 2,
             Step::Preparing => 3,
         }
@@ -69,14 +89,17 @@ impl Step {
 pub struct Analyzed {
     /// The file as its author made it, for the colours they gave it.
     pub raw: Vec<u8>,
+    /// The details form as sent, for a file chosen in another's place on
+    /// a preview, to keep what was filled in.
+    pub sent: Option<Vec<(String, String)>>,
     pub upload: Upload,
     pub guess: Option<Guess>,
     pub recognition: Recognition,
 }
 
-/// Starts analyzing `file` for `user`, naming each category it is probed as by
-/// its label, and returns the analysis's id.
-pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
+/// Keeps a new analysis for `user`, at `step`, the oldest and those long
+/// done making room, and returns its id.
+fn register(state: &AppState, user: &User, step: Step) -> Uuid {
     let id = Uuid::new_v4();
     {
         let mut all = state.analyses.lock().unwrap();
@@ -94,11 +117,55 @@ pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
             Analysis {
                 user: user.id,
                 started: Instant::now(),
-                step: Step::Inspecting,
+                step,
                 done: None,
             },
         );
     }
+    id
+}
+
+/// Keeps what analysis `id` ended with, if it is still kept.
+fn finish(analyses: &Analyses, id: Uuid, done: Done) {
+    if let Some(analysis) = analyses.lock().unwrap().get_mut(&id) {
+        analysis.done = Some(done);
+    }
+}
+
+/// Starts checking a file as build `schematic`'s next version for `user`,
+/// by `check`, keeping the edit form as sent, `pairs`, to show again with
+/// it, and returns the check's id.
+pub fn start_version(
+    state: &AppState,
+    user: &User,
+    schematic: String,
+    pairs: Vec<(String, String)>,
+    check: impl Future<Output = Result<Checked, String>> + Send + 'static,
+) -> Uuid {
+    let id = register(state, user, Step::Checking);
+    let analyses = Arc::clone(&state.analyses);
+    tokio::spawn(async move {
+        let checked = check.await;
+        let done = VersionChecked {
+            schematic,
+            checked,
+            pairs,
+        };
+        finish(&analyses, id, Done::Version(Arc::new(done)));
+    });
+    id
+}
+
+/// Starts analyzing `file` for `user`, naming each category it is probed as by
+/// its label, keeping `filled`, the details form as sent from a preview
+/// whose file it takes the place of, if any, and returns the analysis's id.
+pub fn start(
+    state: &AppState,
+    user: &User,
+    file: Vec<u8>,
+    filled: Option<Vec<(String, String)>>,
+) -> Uuid {
+    let id = register(state, user, Step::Inspecting);
     let analyses = Arc::clone(&state.analyses);
     // Probing simulates, so off the async threads.
     tokio::task::spawn_blocking(move || {
@@ -132,6 +199,7 @@ pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
         let analyzed = Upload::read(&recognition.file)
             .map(|upload| Analyzed {
                 raw: file.clone(),
+                sent: filled,
                 guess: simulate::guess(&upload.read_as().blocks),
                 upload,
                 recognition,
@@ -146,9 +214,7 @@ pub fn start(state: &AppState, user: &User, file: Vec<u8>) -> Uuid {
         {
             simulation::evaluate_ahead(kept.data, kept.sha256);
         }
-        if let Some(analysis) = analyses.lock().unwrap().get_mut(&id) {
-            analysis.done = Some(Arc::new(analyzed));
-        }
+        finish(&analyses, id, Done::Upload(Arc::new(analyzed)));
     });
     id
 }
@@ -159,7 +225,7 @@ pub fn get(
     state: &AppState,
     id: Uuid,
     user: &User,
-) -> Option<(Step, Option<Outcome>)> {
+) -> Option<(Step, Option<Done>)> {
     let all = state.analyses.lock().unwrap();
     let analysis = all.get(&id).filter(|a| a.user == user.id)?;
     Some((analysis.step.clone(), analysis.done.clone()))

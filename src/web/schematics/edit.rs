@@ -3,6 +3,7 @@
 
 use axum::{
     extract::{Multipart, Path, State},
+    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -22,6 +23,7 @@ use crate::{
     schem::Blocks,
     version::{Checked, check as check_version},
     web::{
+        analysis,
         app_state::AppState,
         error::AppError,
         extractors::{
@@ -33,7 +35,7 @@ use crate::{
 
 use super::super::{
     form::{self, Form},
-    pages::{File, Reply},
+    pages::{self, File, Reply},
     upload,
 };
 
@@ -102,25 +104,40 @@ pub async fn save(
             return show_edit(db, &user, &s, view).await;
         }
     };
+    // A file chosen is checked in the background, its page showing how far
+    // that has got, and then the edit page with it waiting.
     if posted.choosing() {
         let chosen = match posted.fetch_own(db, &user).await {
-            Ok(()) => chosen_version(db, &s, &posted).await,
+            Ok(()) => posted.chosen().await,
             Err(message) => Err(message),
         };
-        // A file that could not be read leaves the one waiting, if any.
-        let (checked, refused) = match &chosen {
-            Ok(chosen) => (Some(chosen), None),
-            Err(message) => (checked.as_ref(), Some(message.as_str())),
+        let file = match chosen {
+            Ok(chosen) => chosen.file.to_vec(),
+            // A file that could not be read leaves the one waiting, if any.
+            Err(message) => {
+                let view = EditView {
+                    sent: Some(&form),
+                    new_file: checked.as_ref().map(|checked| NewFile {
+                        checked,
+                        note: &note,
+                    }),
+                    reply: Reply::Choosing(Some(&message)),
+                };
+                return show_edit(db, &user, &s, view).await;
+            }
         };
-        let view = EditView {
-            sent: Some(&form),
-            new_file: checked.map(|checked| NewFile {
-                checked,
-                note: &note,
-            }),
-            reply: Reply::Choosing(refused),
-        };
-        return show_edit(db, &user, &s, view).await;
+        let (db, build) = (db.clone(), s.clone());
+        let check = analysis::start_version(
+            &state,
+            &user,
+            id.clone(),
+            posted.pairs,
+            async move { chosen_version(&db, &build, &file).await },
+        );
+        return Ok(Redirect::to(&format!(
+            "/schematics/{id}/versions/check/{check}"
+        ))
+        .into_response());
     }
     let (kept, refused) =
         save_details(db, &user, &s, &form, checked.as_ref()).await?;
@@ -161,22 +178,106 @@ pub async fn save(
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }
 
-/// The file newly chosen on build `s`'s edit page, checked as its next
+/// `file`, newly chosen on build `s`'s edit page, checked as its next
 /// version, or why it could not be read.
 async fn chosen_version(
     db: &SqlitePool,
     s: &Schematic,
-    posted: &upload::Posted,
+    file: &[u8],
 ) -> Result<Checked, String> {
-    let chosen = posted.chosen().await?;
     // A listed build that follows the conventions is kept standardized;
     // one unverified or off the list as built, until a version it is
     // recognized by moves it up.
     let listed = s.kind().is_some();
     let standardize = s.conventional && listed && s.unverified.is_none();
-    check_version(db, s, &chosen.file, standardize)
+    check_version(db, s, file, standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
+}
+
+/// The value of `key` among a form's `pairs`, as sent; empty when it was
+/// not.
+fn sent<'a>(pairs: &'a [(String, String)], key: &str) -> &'a str {
+    pairs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map_or("", |(_, value)| value.as_str())
+}
+
+/// Build `id`'s new version check `check`: how far it has got while it
+/// runs, then the edit page with the details as sent and the version
+/// waiting, or, for a file that can't be one, why, the one waiting before
+/// it, if any, waiting still. A check gone, or someone else's, goes back
+/// to choosing a file.
+pub async fn checked(
+    Path((id, check)): Path<(String, String)>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let db = &state.db;
+    let s = editable(db, &user, &id).await?;
+    let choose = || {
+        Ok(Redirect::to(&format!("/schematics/{id}/versions/new"))
+            .into_response())
+    };
+    let Some((_, done)) = check
+        .parse()
+        .ok()
+        .and_then(|check| analysis::get(&state, check, &user))
+    else {
+        return choose();
+    };
+    let Some(done) = done else {
+        return Ok(pages::checking_version(&user, &s, &check).into_response());
+    };
+    let analysis::Done::Version(done) = done else {
+        return choose();
+    };
+    if done.schematic != id {
+        return choose();
+    }
+    let pairs = &done.pairs;
+    let form = Form::read(pairs);
+    let note: String = sent(pairs, "note").trim().chars().take(500).collect();
+    let waiting = match &done.checked {
+        Ok(_) => None,
+        Err(_) => attached(db, &s, sent(pairs, "data")).await.ok().flatten(),
+    };
+    let (checked, refused) = match &done.checked {
+        Ok(checked) => (Some(checked), None),
+        Err(message) => (waiting.as_ref(), Some(message.as_str())),
+    };
+    let view = EditView {
+        sent: Some(&form),
+        new_file: checked.map(|checked| NewFile {
+            checked,
+            note: &note,
+        }),
+        reply: Reply::Choosing(refused),
+    };
+    show_edit(db, &user, &s, view).await
+}
+
+/// How far build `id`'s version check `check` has got, for its page to
+/// redraw as it polls; once it is done, or gone, an `FX-Redirect` to its
+/// page.
+pub async fn check_progress(
+    Path((id, check)): Path<(String, String)>,
+    State(state): State<AppState>,
+    SignedIn(user): SignedIn,
+) -> Result<Response, AppError> {
+    let running = check
+        .parse()
+        .ok()
+        .and_then(|check| analysis::get(&state, check, &user))
+        .is_some_and(|(_, done)| done.is_none());
+    if !running {
+        let page = format!("/schematics/{id}/versions/check/{check}");
+        return Ok(
+            (StatusCode::NO_CONTENT, [("FX-Redirect", page)]).into_response()
+        );
+    }
+    Ok(pages::version_steps().into_response())
 }
 
 /// The new version an edit page carried in `data`, base64, checked against

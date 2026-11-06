@@ -48,12 +48,18 @@ const LIVE = '[fx-trigger="redraw"]';
 const redraw = (panel) => panel?.dispatchEvent(new Event("redraw"));
 
 // Once the page is going elsewhere, nothing polls, so a later answer can't
-// start the going over again before the next page is in.
+// start the going over again before the next page is in. Going to this
+// page itself, as an analysis's page does once it is done, draws it again
+// in its own place, not as another step back.
 let leaving = false;
 const leave = (url) => {
   if (leaving) return;
   leaving = true;
-  location.assign(url);
+  if (new URL(url, location.href).href === location.href) {
+    location.replace(url);
+  } else {
+    location.assign(url);
+  }
 };
 
 // A live panel takes only an answer that is itself, so a stray page or
@@ -379,16 +385,45 @@ window.addEventListener("pageshow", () => {
   }
 });
 
-// A form marked `data-step` is a step on the way to another page, as an
-// edit's is to the build's, so once it lands it takes its own page out of
-// the history, and going back skips it: it goes back to the page it came
-// from when it lands there, as an edit lands on the build it started
-// from, or else puts the page it lands on in its place. It sends itself
-// in the background to see where it lands; any answer but a redirect, as
-// a form sent back with what to fix, it sends again as forms go, to show.
-// A button naming a choice, as Check it's `action=file` does, sends it on
-// to another turn of the same form, and goes as forms go.
+// A page marked `data-step-page` is a step on the way to another, as an
+// edit page is to the build's, or a new version's check, after its edit
+// page, is; a run of them, each come to from the one before, is kept, from
+// the page before the first. Once a form marked `data-step` lands, the
+// run is taken out of the history, and going back skips it: it goes back
+// to the page the run started from when it lands there, as an edit lands
+// on the build it started from, or else puts the page it lands on in the
+// last one's place; a form on a page that is no step, as a build's delete
+// is, takes out the page itself. It sends itself in the background to see where it lands; any
+// answer but a redirect, as a form sent back with what to fix, it sends
+// again as forms go, to show. A button naming a choice, as Check it's
+// `action=file` does, sends it on to another step, and goes as forms go.
+const STEPS = "steps";
 const REDRAW = "redraw";
+const steps = () => {
+  try {
+    return JSON.parse(sessionStorage.getItem(STEPS));
+  } catch {
+    return null;
+  }
+};
+const keepSteps = (run) => {
+  try {
+    if (run) sessionStorage.setItem(STEPS, JSON.stringify(run));
+    else sessionStorage.removeItem(STEPS);
+  } catch {}
+};
+if (document.querySelector("[data-step-page]")) {
+  const run = steps();
+  // A page drawn again, as on a reload or a check finishing, is the same
+  // step.
+  if (run?.last !== location.href) {
+    keepSteps(
+      run?.last === document.referrer
+        ? { ...run, depth: run.depth + 1, last: location.href }
+        : { from: document.referrer, depth: 1, last: location.href },
+    );
+  }
+}
 document.addEventListener("submit", async (event) => {
   const form = event.target.closest("form[data-step]");
   if (!form || event.defaultPrevented || form.dataset.sent) return;
@@ -412,12 +447,15 @@ document.addEventListener("submit", async (event) => {
   }
   if (!response.redirected) return asForms();
   const landed = response.url;
-  if (landed === document.referrer && history.length > 1) {
-    // The page it goes back to shows what the step changed.
+  const page = document.querySelector("[data-step-page]");
+  const run = (page && steps()) || { from: document.referrer, depth: 1 };
+  keepSteps(null);
+  if (landed === run.from && history.length > run.depth) {
+    // The page it goes back to shows what the steps changed.
     try {
       sessionStorage.setItem(REDRAW, landed);
     } catch {}
-    history.back();
+    history.go(-run.depth);
   } else {
     location.replace(landed);
   }
