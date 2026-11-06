@@ -1,4 +1,4 @@
-//! The moderation log, for mods and admins, where an edit's description
+//! The moderation log, for admins, where an edit's description
 //! or credits can be put back.
 
 use std::collections::HashMap;
@@ -16,9 +16,7 @@ use crate::{
         schematic,
         user::User,
     },
-    web::{
-        app_state::AppState, error::AppError, extractors::session::Moderator,
-    },
+    web::{app_state::AppState, error::AppError, extractors::session::Admin},
 };
 
 use super::pages;
@@ -46,7 +44,7 @@ impl Shown {
 /// is chosen.
 pub async fn show(
     State(state): State<AppState>,
-    Moderator(viewer): Moderator,
+    Admin(viewer): Admin,
     Query(shown): Query<Shown>,
 ) -> Result<Response, AppError> {
     render(&state, &viewer, &shown, "").await
@@ -66,7 +64,7 @@ pub struct Revert {
 pub async fn revert(
     Path(id): Path<i64>,
     State(state): State<AppState>,
-    Moderator(viewer): Moderator,
+    Admin(viewer): Admin,
     Form(form): Form<Revert>,
 ) -> Result<Response, AppError> {
     match activity::revert(&state.db, id, &form.detail, &viewer).await? {
