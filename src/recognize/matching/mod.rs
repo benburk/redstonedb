@@ -218,8 +218,8 @@ pub trait Category: Sync {
 }
 
 /// A line of a build as matching found it: the slot it fills, its bits,
-/// least significant first, and whether it reads inverted, powered
-/// meaning 0, as only a control line may.
+/// least significant first, and whether it reads inverted: a control line
+/// powered meaning 0, or a status line normally on.
 #[derive(Clone, Debug)]
 pub struct Line {
     pub name: &'static str,
@@ -229,8 +229,11 @@ pub struct Line {
 }
 
 /// What a build was matched as: its kind, the operation it computes, its
-/// lines, how many of the cases observed it got wrong, and how far its
-/// reading strays from the conventions.
+/// lines, how many of the cases observed it got wrong, how far its reading
+/// strays from the conventions, and whether its lines keep them, every bus
+/// a whole run, or a run but its top bit, rather than bent, as a build
+/// whose top bits stand out of line bends them: one that doesn't is of
+/// non-standard I/O.
 #[derive(Clone, Debug)]
 pub struct Match {
     pub kind: Kind,
@@ -239,6 +242,7 @@ pub struct Match {
     pub cases: u64,
     pub wrong: u64,
     pub cost: u32,
+    pub conventional: bool,
 }
 
 impl Match {
@@ -297,7 +301,7 @@ pub fn recognize(data: &[u8]) -> Result<Option<Match>> {
 /// Of every category whose slots `report`'s lines fill, the reading of the
 /// build in `blocks` that comes closest; see [`Score`]. Buses laid as the
 /// conventions lay them are tried first, and bent ones too only when no
-/// category's reading of those gets every case right.
+/// category's slots fit those at all.
 pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
     let observed = observe(blocks, report).ok()?;
     let mut best: Option<(Score, Match)> = None;
@@ -310,7 +314,7 @@ pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
                 best = Some((score, found));
             }
         }
-        if best.as_ref().is_some_and(|(_, found)| found.wrong == 0) {
+        if best.is_some() {
             break;
         }
     }
@@ -333,12 +337,17 @@ const MOST_INVERTIBLE: usize = 3;
 /// slots, tried for one shape.
 const MOST_FILLINGS: usize = 4096;
 
+/// The most pairs of ways of filling a category's input slots and its
+/// output slots read for one shape, so a build whose lines could be read
+/// too many ways is soon given up on, its category left to its author.
+const MOST_PAIRS: usize = 4096;
+
 /// The cases of each setting a way of filling a category's slots is first
 /// read on.
 const SAMPLE: usize = 8;
 
-/// The most ways of filling a category's slots read on every case beyond
-/// those that come closest on the sample.
+/// The most ways of filling a category's slots read on every case, those
+/// that come closest on the sample.
 const MOST_READ: usize = 8;
 
 /// The closest reading of the build `observed`, of `blocks`, as
@@ -365,8 +374,10 @@ fn judge(
         if ops.is_empty() {
             continue;
         }
-        let ins = fill(slots, &shape, false, &inputs, &conventional_in, bent);
+        let mut ins =
+            fill(slots, &shape, false, &inputs, &conventional_in, bent);
         let outs = fill(slots, &shape, true, &outputs, &conventional_out, bent);
+        ins.truncate(MOST_PAIRS / outs.len().max(1));
         // What each way of filling the output slots shows, case by case.
         let shown: Vec<Vec<Vec<Value>>> = outs
             .iter()
@@ -379,7 +390,7 @@ fn judge(
             })
             .collect();
         let mut expected: Option<(usize, Expected)> = None;
-        let kept = sample(slots, &shape, &ins, &shown, &ops, observed);
+        let kept = sample(slots, &shape, &ins, &outs, &shown, &ops, observed);
         for (i, o, sample) in kept {
             let (input, output, shown) = (&ins[i], &outs[o], &shown[o]);
             if expected.as_ref().is_none_or(|&(at, _)| at != i) {
@@ -426,10 +437,11 @@ fn judge(
             let closer = Match {
                 kind,
                 label: label(&reading, &ops, selects),
-                lines: lines(slots, positions, reading.inverted),
+                lines: lines(slots, positions, &reading),
                 cases: reading.cases,
                 wrong: reading.wrong,
                 cost,
+                conventional: !filling.iter().flatten().any(|bus| bus.bent),
             };
             found = Some((score, closer));
         }
@@ -438,56 +450,68 @@ fn judge(
 }
 
 /// Of each way `ins` fills the input slots of `slots`, sized by `shape`,
-/// with each way of filling its output slots, which showed `shown`, each
-/// read as `ops` on a sample of the cases `observed`: those that come
-/// closest on it, and up to [`MOST_READ`] more, each with its sample's
-/// reading, to read on every case.
+/// with each way `outs` fills its output slots, which showed `shown`, each
+/// read as `ops` on a sample of the cases `observed`: the [`MOST_READ`]
+/// that come closest on it, ranked as [`Reading::rank`] ranks them, the
+/// least bent first on a tie, each with its sample's reading, to read on
+/// every case.
 fn sample(
     slots: &[Slot],
     shape: &Shape,
     ins: &[Vec<Option<Bus>>],
+    outs: &[Vec<Option<Bus>>],
     shown: &[Vec<Vec<Value>>],
     ops: &[Op],
     observed: &Observation,
 ) -> Vec<(usize, usize, Reading)> {
-    let mut sampled: Vec<(u64, usize, usize, Reading)> = Vec::new();
+    let cost = |filling: &[Option<Bus>]| -> u32 {
+        filling.iter().flatten().map(|bus| bus.cost).sum()
+    };
+    let mut sampled: Vec<(usize, usize, Reading)> = Vec::new();
     for (i, input) in ins.iter().enumerate() {
         let expected = expect(slots, shape, input, ops, observed, true);
         for (o, shown) in shown.iter().enumerate() {
             if let Some(reading) = read(&expected, shown, None) {
-                sampled.push((reading.share(), i, o, reading));
+                sampled.push((i, o, reading));
             }
         }
     }
-    sampled.sort_unstable_by_key(|&(share, i, o, _)| (share, i, o));
-    let closest = sampled.first().map_or(0, |&(share, ..)| share);
-    let mut kept: Vec<(usize, usize, Reading)> = sampled
-        .into_iter()
-        .enumerate()
-        .take_while(|(k, (share, ..))| *share == closest || *k < MOST_READ)
-        .map(|(_, (_, i, o, reading))| (i, o, reading))
-        .collect();
-    kept.sort_unstable_by_key(|&(i, o, _)| (i, o));
-    kept
+    sampled.sort_by_cached_key(|(i, o, reading)| {
+        (reading.rank(), cost(&ins[*i]) + cost(&outs[*o]), *i, *o)
+    });
+    sampled.truncate(MOST_READ);
+    sampled.sort_unstable_by_key(|&(i, o, _)| (i, o));
+    sampled
 }
 
 /// The lines of `slots` filled, at `positions`, by slot, each lone control
-/// line read inverted as `inverted` has it, a bit each in the slots' order.
+/// line read inverted as `reading` has it, a bit each in the slots' order,
+/// and each status line normally on as it has it, a bit each output slot.
 fn lines(
     slots: &[Slot],
     positions: Vec<Option<Vec<Pos>>>,
-    inverted: u32,
+    reading: &Reading,
 ) -> Vec<Line> {
     let mut controls = 0;
+    let mut outputs = 0;
     slots
         .iter()
         .zip(positions)
         .filter_map(|(slot, bits)| {
+            let output = slot.output().then(|| {
+                outputs += 1;
+                outputs - 1
+            });
             let bits = bits?;
-            let inverted = invertible(slot, bits.len()) && {
-                controls += 1;
-                controls <= MOST_INVERTIBLE
-                    && inverted >> (controls - 1) & 1 == 1
+            let inverted = match output {
+                Some(o) => reading.flipped >> o & 1 == 1,
+                None => {
+                    invertible(slot, bits.len()) && {
+                        controls += 1;
+                        controls <= MOST_INVERTIBLE
+                            && reading.inverted >> (controls - 1) & 1 == 1
+                    }
+                }
             };
             Some(Line {
                 name: slot.name,
@@ -751,6 +775,9 @@ struct Reading {
     wrong: u64,
     /// The control lines read inverted, a bit each, in the slots' order.
     inverted: u32,
+    /// The status lines read normally on, a bit for each output slot, in
+    /// the slots' order.
+    flipped: u32,
     /// The output bits its operations decide, over every case.
     decided: u64,
     /// The operation each setting of its selector chooses, by its place
@@ -764,6 +791,8 @@ struct Reading {
 struct Expected {
     /// The output slots, each by its place and the bits of its width.
     outputs: Vec<(usize, Value)>,
+    /// Which of them are lone status lines, which may be normally on.
+    status: Vec<bool>,
     /// The cases of each setting of the selector, or every case at setting
     /// 0 for a build with none.
     settings: Vec<(Value, Vec<usize>)>,
@@ -810,11 +839,6 @@ fn expect(
     observed: &Observation,
     sample: bool,
 ) -> Expected {
-    let all: Vec<Vec<Value>> = observed
-        .cases
-        .iter()
-        .map(|(driven, _)| values(slots, input, false, driven))
-        .collect();
     let invertible: Vec<usize> = slots
         .iter()
         .zip(input)
@@ -836,11 +860,16 @@ fn expect(
         .iter()
         .zip(input)
         .position(|(slot, bus)| slot.selects() && bus.is_some());
+    // Each case by its selector's setting, the only slot's value needed
+    // before the cases are sampled.
+    let setting = |driven: &[Value]| {
+        selector
+            .and_then(|s| input[s].as_ref())
+            .map_or(0, |bus| bus.value(driven))
+    };
     let mut ids: BTreeMap<Value, Vec<usize>> = BTreeMap::new();
-    for (i, case) in all.iter().enumerate() {
-        ids.entry(selector.map_or(0, |s| case[s]))
-            .or_default()
-            .push(i);
+    for (i, (driven, _)) in observed.cases.iter().enumerate() {
+        ids.entry(setting(driven)).or_default().push(i);
     }
     // Spread over each setting's cases, as its other lines, such as a
     // carry in, change slower than its buses.
@@ -859,7 +888,7 @@ fn expect(
     for (setting, members) in ids {
         let at: Vec<usize> = (kept.len()..kept.len() + members.len()).collect();
         for &i in &members {
-            cases.push(all[i].clone());
+            cases.push(values(slots, input, false, &observed.cases[i].0));
         }
         kept.extend(members);
         settings.push((setting, at));
@@ -878,8 +907,13 @@ fn expect(
             }
         }
     }
+    let status = outputs
+        .iter()
+        .map(|&(slot, bits)| slots[slot].role == Role::Status && bits == 1)
+        .collect();
     Expected {
         outputs,
+        status,
         settings,
         selects: selector.is_some(),
         ops: ops.len(),
@@ -914,9 +948,10 @@ fn read(
         None => 0..expected.inversions(),
     };
     for inverted in inversions {
-        // How many of `members`' cases `op` gets wrong, and the output
-        // bits it decides.
-        let tally = |op: usize, members: &[usize]| {
+        // How many of `members`' cases `op` gets wrong, the output bits it
+        // decides, and the cases it decides any of, its status lines read
+        // as `flipped` has them, or with `core` left out.
+        let tally = |op: usize, members: &[usize], flipped: u32, core: bool| {
             members.iter().fold(
                 (0_u64, 0_u64, 0_u64),
                 |(wrong, decided, decisive), &case| {
@@ -925,12 +960,15 @@ fn read(
                     for (o, &(slot, bits)) in
                         expected.outputs.iter().enumerate()
                     {
+                        if core && expected.status[o] {
+                            continue;
+                        }
                         let want = expected.want(inverted, op, case, o);
                         let care = want.care & bits;
+                        let shown = shown[expected.ids[case]][slot]
+                            ^ Value::from(flipped >> o & 1 == 1);
                         decides += u64::from(care.count_ones());
-                        right &= (shown[expected.ids[case]][slot] ^ want.value)
-                            & care
-                            == 0;
+                        right &= (shown ^ want.value) & care == 0;
                     }
                     (
                         wrong + u64::from(!right),
@@ -940,15 +978,9 @@ fn read(
                 },
             )
         };
-        let mut reading = Reading {
-            cases: 0,
-            observed: expected.ids.len() as u64,
-            decisive: 0,
-            wrong: 0,
-            inverted: u32::try_from(inverted).unwrap_or(0),
-            decided: 0,
-            chosen: Vec::new(),
-        };
+        // Each setting's operation, chosen by what it gives on its
+        // outputs but its status lines, whose polarity is not yet known.
+        let mut chosen: Vec<(Value, usize, &[usize])> = Vec::new();
         for (setting, members) in &expected.settings {
             let counted = found.is_none_or(|found| {
                 found.chosen.iter().any(|(chosen, _)| chosen == setting)
@@ -956,8 +988,8 @@ fn read(
             if !counted {
                 continue;
             }
-            let Some((k, (wrong, decided, decisive))) = (0..expected.ops)
-                .map(|op| tally(op, members))
+            let Some((k, (wrong, ..))) = (0..expected.ops)
+                .map(|op| tally(op, members, 0, true))
                 .enumerate()
                 .min_by_key(|&(k, (wrong, decided, _))| {
                     (wrong, Reverse(decided), k)
@@ -965,15 +997,29 @@ fn read(
             else {
                 continue;
             };
-            let all = members.len() as u64;
             if expected.selects && wrong > 0 {
                 continue;
             }
-            reading.cases += all;
+            chosen.push((*setting, k, members));
+        }
+        let flipped = polarity(expected, shown, inverted, &chosen);
+        let mut reading = Reading {
+            cases: 0,
+            observed: expected.ids.len() as u64,
+            decisive: 0,
+            wrong: 0,
+            inverted: u32::try_from(inverted).unwrap_or(0),
+            flipped,
+            decided: 0,
+            chosen: Vec::new(),
+        };
+        for &(setting, k, members) in &chosen {
+            let (wrong, decided, decisive) = tally(k, members, flipped, false);
+            reading.cases += members.len() as u64;
             reading.wrong += wrong;
             reading.decided += decided;
             reading.decisive += decisive;
-            reading.chosen.push((*setting, k));
+            reading.chosen.push((setting, k));
         }
         let mut distinct: Vec<&str> = reading
             .chosen
@@ -990,6 +1036,41 @@ fn read(
         }
     }
     best
+}
+
+/// Which of the status lines of a build whose operations expect `expected`
+/// and whose outputs showed `shown` read normally on, a bit each output, its
+/// control lines read as `inverted` has them and each setting computing the
+/// operation `chosen` gives it: each where that gets fewer of its bits
+/// wrong, on its own.
+fn polarity(
+    expected: &Expected,
+    shown: &[Vec<Value>],
+    inverted: usize,
+    chosen: &[(Value, usize, &[usize])],
+) -> u32 {
+    let mut flipped = 0;
+    for (o, _) in expected.status.iter().enumerate().filter(|(_, s)| **s) {
+        let wrong = |flip: bool| -> usize {
+            chosen
+                .iter()
+                .flat_map(|&(_, k, members)| {
+                    members.iter().map(move |&case| (k, case))
+                })
+                .filter(|&(k, case)| {
+                    let want = expected.want(inverted, k, case, o);
+                    let shown = shown[expected.ids[case]]
+                        [expected.outputs[o].0]
+                        ^ Value::from(flip);
+                    (shown ^ want.value) & want.care & 1 != 0
+                })
+                .count()
+        };
+        if wrong(true) < wrong(false) {
+            flipped |= 1 << o;
+        }
+    }
+    flipped
 }
 
 impl Reading {
@@ -1010,13 +1091,13 @@ impl Reading {
     /// leaves an add with it on unexplained; then the more output bits it
     /// decides, as an add's carry in read the wrong way round leaves every
     /// other operation's cases with it on undecided; then the fewer lines
-    /// it reads inverted.
+    /// it reads inverted or normally on.
     fn rank(&self) -> (u64, Reverse<u64>, Reverse<u64>, u32) {
         (
             self.share(),
             Reverse(self.coverage()),
             Reverse(self.decided),
-            self.inverted.count_ones(),
+            self.inverted.count_ones() + self.flipped.count_ones(),
         )
     }
 }

@@ -92,18 +92,19 @@ fn an_alus_operations_are_found_by_their_settings() {
     }
 }
 
-/// A lever that turns an add into nothing an ALU offers chooses no second
-/// operation, so a build of two buses and it is no ALU.
+/// An adder whose carry out is normally on is an adder, its carry out
+/// read so, and no ALU that only adds, as its carry in chooses no second
+/// operation.
 #[test]
-fn one_operation_is_no_alu() {
-    let found = recognize(&fixture("vert-adder-8-stacks")).unwrap();
-    assert!(
-        found
-            .as_ref()
-            .is_none_or(|found| found.wrong > 0 && found.kind != Kind::Alu),
-        "{:?}",
-        found.map(|found| found.found())
+fn an_adder_with_a_normally_on_carry_out_is_no_alu() {
+    let found = matched("vert-adder-8-stacks");
+    assert_eq!(
+        (found.kind, found.wrong),
+        (Kind::Adder, 0),
+        "{}",
+        found.found()
     );
+    assert!(found.line("carry out").is_some_and(|line| line.inverted));
 }
 
 /// A 10-bit carry-cancel adder whose carry out of its low three bits never
@@ -141,6 +142,52 @@ fn a_broken_adder_is_matched_as_an_adder_with_cases_wrong() {
         run.wrong_bits.first().map(|(bit, _)| bit.as_str()),
         Some("output bit 3")
     );
+}
+
+/// A greater-than comparator whose operands' top bits stand out of line,
+/// side by side, read as a run of their own: no conventional reading fits
+/// its lines, so each top bit joins the run beside it, and it is found, its
+/// I/O non-standard.
+#[test]
+fn stray_top_bits_join_their_runs() {
+    let found = matched("gt-8");
+    assert_eq!(
+        (found.kind, found.wrong),
+        (Kind::GreaterThan, 0),
+        "{}",
+        found.found()
+    );
+    assert!(!found.conventional);
+    let a = &found.line("A").unwrap().bits;
+    assert_eq!(a.len(), 8);
+    assert_eq!(a[7][1] - a[6][1], 2, "the stray is A's top bit: {a:?}");
+    assert!(matched("eq-8").conventional);
+}
+
+/// A status line may be normally on: a 2-bit adder whose carry out is on
+/// unless it carries is read so, the line named inverted, every case right.
+#[test]
+fn a_status_line_may_be_normally_on() {
+    let blocks = Blocks::read(&fixture("xor-1")).unwrap();
+    let line = |x: i32, bits: i32| -> Vec<Pos> {
+        (0..bits).map(|y| [x, 2 * y, 0]).collect()
+    };
+    let mut cases = Vec::new();
+    for a in 0..4 {
+        for b in 0..4 {
+            let sum: Value = a + b;
+            cases.push((vec![a, b], vec![sum & 3, !(sum >> 2) & 1]));
+        }
+    }
+    let observed = Observation {
+        inputs: vec![line(0, 2), line(1, 2)],
+        outputs: vec![line(2, 2), vec![[3, 0, 0]]],
+        cases,
+    };
+    let (_, found) =
+        judge(&categories::Adder, &blocks, &observed, false).unwrap();
+    assert_eq!(found.wrong, 0, "{}", found.found());
+    assert!(found.line("carry out").is_some_and(|line| line.inverted));
 }
 
 /// A threshold's count shows only in values with that many bits on, so a
@@ -197,9 +244,14 @@ const DISAGREEING: &[&str] = &[
     // More control lines than matching observes every setting of.
     "alu-8-ops-raw",
     "alu-8-ops-inverted-carry",
-    // Its lone lever is no carry in: with it on, the sum is neither A + B
-    // nor A + B + 1, so matching takes it for nothing; probing takes it for
-    // an ALU that only adds, checking only the setting with the lever off.
+    // Its operands' top bits stand out of line, so probing finds its lines
+    // don't fit; matching joins each to the run beside it. The second is
+    // the first with its sign bits' levers saved on, which says nothing.
+    "gt-8",
+    "gt-8-signed",
+    // Its carry out is normally on, which matching reads, so it finds an
+    // adder; probing, reading no output inverted, takes it for an ALU that
+    // only adds, checking only the setting with its carry in off.
     "vert-adder-8-stacks",
 ];
 
