@@ -321,10 +321,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/upload/{id}", get(upload::analyzed))
         .route("/upload/{id}/progress", get(upload::progress))
         .route("/upload/simulation", post(simulation::upload))
-        .route(
-            "/schematics/{id}/simulation",
-            get(simulation::poll).post(simulation::stored),
-        )
+        .route("/schematics/{id}/simulation", post(simulation::stored))
         .route("/settings", get(settings::show))
         .route("/settings/minecraft", post(settings::set_minecraft_name))
         .route(

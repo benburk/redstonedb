@@ -157,10 +157,8 @@ async fn an_unverified_build_is_tested_as_its_category() {
     assert!(s.tags.iter().any(|t| t.name == tag::FAILING));
     assert_eq!(s.latency, Some(99), "its typed details stay");
     assert_eq!(s.width, Some(8));
-    assert!(matches!(
-        simulation::status(&db, &s).await.unwrap(),
-        simulation::Status::Done(_)
-    ));
+    let stored = simulation::current(&db, &s).await.unwrap();
+    assert!(stored.is_some_and(|report| report.failed()));
     let board = app::leaderboard::board(
         &[&s],
         &app::leaderboard::Wanted::default(),
@@ -188,10 +186,8 @@ async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.category, "8-bit_adder");
     assert_eq!(s.latency, Some(99), "its typed details stay");
-    assert!(matches!(
-        simulation::status(&db, &s).await.unwrap(),
-        simulation::Status::Done(_)
-    ));
+    let stored = simulation::current(&db, &s).await.unwrap();
+    assert!(stored.is_some_and(|report| report.failed()));
 }
 
 #[tokio::test]

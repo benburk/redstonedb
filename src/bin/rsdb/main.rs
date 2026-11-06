@@ -163,7 +163,8 @@ enum Command {
     Categories,
     /// Fill a new database for development: the admin account `debug`, as
     /// `/dev/login` makes, and every `.schem` file in `dir` published as its
-    /// upload with the details its preview suggests, tests and timing run
+    /// upload with the details its preview suggests, simulated and stored
+    /// whole as it goes in
     Seed {
         #[arg(default_value = "tests/fixtures")]
         dir: PathBuf,

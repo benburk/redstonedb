@@ -166,19 +166,11 @@ pub async fn detail(
     let s = schematic::get_visible(db, &id, user_opt.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
-    let simulation = simulation::status(db, &s).await?;
-    let report = match &simulation {
-        simulation::Status::Done(report)
-        | simulation::Status::Pending(Some(report)) => Some(report),
-        simulation::Status::Pending(None) | simulation::Status::Untested => {
-            None
-        }
-    };
+    let simulation = simulation::current(db, &s).await?;
+    let report = simulation.as_ref();
     let panel = panel.as_deref().filter(|_| fixi);
     if panel == Some("banner") {
-        let simulating =
-            matches!(simulation, simulation::Status::Pending(None));
-        return Ok(pages::build_banner(&s, report, simulating).into_response());
+        return Ok(pages::build_banner(&s, report).into_response());
     }
     let data = version::current_file(db, &id).await?.unwrap_or_default();
     let unrecognized = why_not_recognized(&s, &data).await;
