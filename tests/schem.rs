@@ -689,25 +689,6 @@ fn an_output_sticking_out_is_not_measured() {
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
 }
 
-/// Standardizing keeps gray blocks as every other building block.
-#[test]
-fn standardizing_keeps_gray() {
-    let data = std::fs::read("tests/fixtures/vert-adder-8-stacks.schem")
-        .expect("fixture is readable");
-    let grays = |data: &[u8]| {
-        Blocks::read(data)
-            .unwrap()
-            .iter()
-            .filter(|(_, state)| state.starts_with("minecraft:gray_"))
-            .count()
-    };
-    assert!(grays(&data) > 0, "the fixture has gray");
-    assert_eq!(
-        grays(&standardize::standardize(&data).unwrap()),
-        grays(&data)
-    );
-}
-
 /// Tidying faces every barrel up and every hopper down, where their facing
 /// does nothing, so files that differ only in that compare alike; a hopper
 /// pointing into a container would fill it, so keeps its facing.

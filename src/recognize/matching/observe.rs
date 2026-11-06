@@ -1,9 +1,11 @@
 //! Driving a build once, before anything is known of what its lines are
-//! for: each run of levers is driven through a few telling values of its
-//! width, every pairing of them, and what each run of outputs shows is
-//! kept. Which run is A and which way round is decided later, by reading
-//! the values kept, so a build is compiled and run once however many ways
-//! its lines could be read.
+//! for, and keeping what each run of outputs shows. A build of few levers
+//! is driven every way. Any other has its buses driven through a few
+//! telling values of their widths, every pairing of them, under each
+//! setting of its lone lines, which may choose an operation, as an ALU's
+//! control lines do. Which run is A and which way round is decided later,
+//! by reading the values kept, so a build is compiled and run once however
+//! many ways its lines could be read.
 
 use anyhow::{Result, bail};
 
@@ -26,18 +28,28 @@ pub struct Observation {
 }
 
 /// The most levers a build may have to be driven in every combination of
-/// them, rather than through telling values.
+/// them.
 const EXHAUSTIVE_BITS: usize = 12;
 
-/// The most cases a build is observed in: past it, the pairings are
-/// sampled evenly.
-const MOST_CASES: u128 = 1 << EXHAUSTIVE_BITS;
+/// The longest run of a build of more levers driven as lone lines, each
+/// setting of them, rather than as a bus.
+const SHORT_RUN: usize = 3;
 
-/// The build in `blocks` driven through every combination of `report`'s
-/// levers, when they are few, else every pairing of a few telling values
-/// of each run of them, a lone lever 0 and 1, as [`telling`] gives them,
-/// or an even sample of those past [`MOST_CASES`], with what its outputs
-/// showed; or why it couldn't be.
+/// The most lone lines driven in every setting of them; past it, each
+/// setting with at most [`MOST_ON`] of them on.
+pub(super) const EVERY_SETTING: usize = 6;
+
+/// The most lone lines on together in a setting, past [`EVERY_SETTING`].
+const MOST_ON: u32 = 3;
+
+/// The most cases a build is observed in: past it, the pairings of its
+/// buses' telling values are sampled evenly under each setting of its
+/// lone lines.
+const MOST_CASES: usize = 1 << 14;
+
+/// The build in `blocks` driven as [`plan`] plans for `report`'s levers,
+/// with what its outputs showed; or why it couldn't be, as for a build of
+/// buttons, which are pressed in time rather than held.
 pub fn observe(
     blocks: &Blocks,
     report: &inspect::Report,
@@ -89,33 +101,8 @@ pub fn observe(
         binary_outputs: false,
     };
     let mut circuit = Circuit::new(blocks, &interface)?;
-    // Few enough levers are driven every way, as a threshold's count
-    // shows only in values with that many bits on.
-    let every = inputs.iter().map(Vec::len).sum::<usize>() <= EXHAUSTIVE_BITS;
-    let choices: Vec<Vec<Value>> = inputs
-        .iter()
-        .map(|bits| match bits.len() {
-            width if every => (0..1 << width).collect(),
-            1 => vec![0, 1],
-            width => telling(width),
-        })
-        .collect();
-    let total: u128 =
-        choices.iter().map(|values| values.len() as u128).product();
-    let taken = total.min(MOST_CASES);
     let mut cases = Vec::new();
-    for i in 0..taken {
-        // The pairing at its place among them all, each run a digit.
-        let mut place = i * total / taken;
-        let driven: Vec<Value> = choices
-            .iter()
-            .map(|values| {
-                let len = values.len() as u128;
-                let value = values[usize::try_from(place % len).unwrap_or(0)];
-                place /= len;
-                value
-            })
-            .collect();
+    for driven in plan(&inputs) {
         for (port, &value) in driven.iter().enumerate() {
             circuit.set(port, value);
         }
@@ -128,4 +115,148 @@ pub fn observe(
         outputs,
         cases,
     })
+}
+
+/// The cases a build of runs of levers `inputs` is driven in, each the
+/// value of every run: every combination of its levers, when they number
+/// at most [`EXHAUSTIVE_BITS`]; else, under each setting of its lone
+/// lines, a run of at most [`SHORT_RUN`] counting as lone lines, every
+/// pairing of its buses' telling values, or an even sample of them past
+/// [`MOST_CASES`].
+fn plan(inputs: &[Vec<Pos>]) -> Vec<Vec<Value>> {
+    if inputs.iter().map(Vec::len).sum::<usize>() <= EXHAUSTIVE_BITS {
+        let every: Vec<Vec<Value>> = inputs
+            .iter()
+            .map(|bits| (0..1 << bits.len()).collect())
+            .collect();
+        return (0..pairings(&every)).map(|i| pairing(&every, i)).collect();
+    }
+    let lone = |bits: &Vec<Pos>| bits.len() <= SHORT_RUN;
+    // Each lone line, by its run and its place along it.
+    let lines: Vec<(usize, usize)> = inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, bits)| lone(bits))
+        .flat_map(|(run, bits)| (0..bits.len()).map(move |bit| (run, bit)))
+        .collect();
+    let settings: Vec<Value> = if lines.len() <= EVERY_SETTING {
+        (0..1 << lines.len()).collect()
+    } else {
+        few_on(lines.len())
+    };
+    let buses: Vec<usize> = (0..inputs.len())
+        .filter(|&run| !lone(&inputs[run]))
+        .collect();
+    let telling: Vec<Vec<Value>> = buses
+        .iter()
+        .map(|&run| telling(inputs[run].len()))
+        .collect();
+    let total = pairings(&telling);
+    let taken = total.min((MOST_CASES / settings.len()).max(1));
+    let mut cases = Vec::new();
+    for setting in settings {
+        for i in 0..taken {
+            let values = pairing(&telling, i * total / taken);
+            let mut driven = vec![0; inputs.len()];
+            for (&run, value) in buses.iter().zip(values) {
+                driven[run] = value;
+            }
+            for (k, &(run, bit)) in lines.iter().enumerate() {
+                driven[run] |= (setting >> k & 1) << bit;
+            }
+            cases.push(driven);
+        }
+    }
+    cases
+}
+
+/// Every setting of `lines` lone lines with at most [`MOST_ON`] of them on,
+/// a bit a line, the fewest on first.
+fn few_on(lines: usize) -> Vec<Value> {
+    let mut settings: Vec<Value> = vec![0];
+    for _ in 0..MOST_ON {
+        let more: Vec<Value> = settings
+            .iter()
+            .flat_map(|&setting| {
+                // Each line above the highest already on, so each setting
+                // comes once.
+                let from = Value::BITS - setting.leading_zeros();
+                (from as usize..lines).map(move |line| setting | 1 << line)
+            })
+            .filter(|setting| !settings.contains(setting))
+            .collect();
+        settings.extend(more);
+    }
+    settings.sort_by_key(|setting| (setting.count_ones(), *setting));
+    settings.dedup();
+    settings
+}
+
+/// How many pairings there are of `choices`, one value of each.
+fn pairings(choices: &[Vec<Value>]) -> usize {
+    choices.iter().map(Vec::len).product()
+}
+
+/// The pairing at place `i` among every pairing of `choices`, one value of
+/// each, the first changing fastest.
+fn pairing(choices: &[Vec<Value>], mut i: usize) -> Vec<Value> {
+    choices
+        .iter()
+        .map(|values| {
+            let value = values[i % values.len()];
+            i /= values.len();
+            value
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runs(lengths: &[usize]) -> Vec<Vec<Pos>> {
+        lengths
+            .iter()
+            .enumerate()
+            .map(|(run, &len)| {
+                (0..len)
+                    .map(|bit| {
+                        let at = |n: usize| i32::try_from(n).unwrap();
+                        [at(run), at(bit), 0]
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Few levers are driven every way.
+    #[test]
+    fn few_levers_are_driven_every_way() {
+        let cases = plan(&runs(&[4, 4, 1]));
+        assert_eq!(cases.len(), 512);
+        assert!(cases.contains(&vec![15, 0, 1]));
+    }
+
+    /// An ALU's buses take every pairing of their telling values under
+    /// each setting of its lone lines, a short run's bits lone lines too.
+    #[test]
+    fn buses_pair_under_each_setting_of_the_lone_lines() {
+        let cases = plan(&runs(&[8, 8, 2, 1, 1, 1]));
+        let telling = telling(8).len();
+        assert_eq!(cases.len(), telling * telling * 32);
+        assert!(cases.contains(&vec![0, 0, 0b11, 1, 0, 1]));
+    }
+
+    /// Past every setting of a few lone lines, each with at most three on,
+    /// the pairings sampled to stay within the cases a build gets.
+    #[test]
+    fn many_lone_lines_take_the_settings_with_few_on() {
+        let cases = plan(&runs(&[8, 8, 3, 2, 1, 1, 1, 1, 1]));
+        assert!(cases.len() <= MOST_CASES);
+        let on = |case: &Vec<Value>| {
+            case[2..].iter().map(|v| v.count_ones()).sum::<u32>()
+        };
+        assert!(cases.iter().all(|case| on(case) <= MOST_ON));
+        assert!(cases.iter().any(|case| on(case) == MOST_ON));
+    }
 }

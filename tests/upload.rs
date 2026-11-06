@@ -1,6 +1,5 @@
 //! Which file an upload keeps: standardized when the site recognizes it as
-//! the category it is given, with its gray blocks kept only when its copies
-//! stack with them left out; as its author made it, under a category off
+//! the category it is given; as its author made it, under a category off
 //! the list, when it does not; and a new version that is recognized moving
 //! a build off the list up.
 
