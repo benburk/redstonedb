@@ -1,14 +1,10 @@
 //! Running builds' tests and timings, and keeping what they found lately,
 //! off the async threads and a few at a time, as the server's cores allow.
 //! The queues, the evaluations started ahead of an upload being published,
-//! the results kept for files previewed, and the builds being brought up to
-//! date in the background are each one per process, so they are statics:
-//! every caller, the site and `rsdb` alike, shares them.
+//! and the results kept for files previewed are each one per process, so
+//! they are statics: every caller, the site and `rsdb` alike, shares them.
 
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, Mutex, atomic::AtomicBool},
-};
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 
 use anyhow::Result;
 use sqlx::SqlitePool;
@@ -189,28 +185,13 @@ pub async fn time(
     Ok(timing)
 }
 
-/// The builds being simulated in the background.
-static REFRESHING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-
-/// Brings build `id`'s result and timing up to date in the background, as
-/// the site does once a build is published or edited, unless that is
-/// already under way: see `refresh` and `refresh_timing`. Asking again is
-/// how one lost to a restart starts over.
-pub fn refresh_soon(db: &SqlitePool, id: &str) {
-    let mut running = REFRESHING.lock().expect("the list is whole");
-    if !running.insert(id.to_owned()) {
-        return;
-    }
-    let (db, id) = (db.clone(), id.to_owned());
-    tokio::spawn(async move {
-        let refreshed = async {
-            super::refresh(&db, &id, false).await?;
-            super::refresh_timing(&db, &id, false).await?;
-            super::finish(&db, &id).await
-        };
-        if let Err(err) = refreshed.await {
-            tracing::error!(id, "simulating a build: {err:#}");
-        }
-        REFRESHING.lock().expect("the list is whole").remove(&id);
-    });
+/// Brings newly stored build `id` wholly up to date, as storing a build,
+/// a new version of one, or an edit does before it is done: its result,
+/// see `refresh`, its timing, see `refresh_timing`, and, once it passes,
+/// its unused blocks taken out, see `finish`. Nothing runs again later:
+/// a build's page shows what was stored here.
+pub async fn complete(db: &SqlitePool, id: &str) -> Result<()> {
+    super::refresh(db, id, false).await?;
+    super::refresh_timing(db, id, false).await?;
+    super::finish(db, id).await
 }

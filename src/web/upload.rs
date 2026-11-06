@@ -355,7 +355,9 @@ pub async fn publish(
     let refused = match published {
         Ok(id) => {
             tracing::info!(id, by = user.username, ip, "upload");
-            simulation::refresh_soon(&state.db, &id);
+            if let Err(err) = simulation::complete(&state.db, &id).await {
+                tracing::error!(id, "simulating a build: {err:#}");
+            }
             similarity::refresh_soon(&state.db);
             return Ok(
                 Redirect::to(&format!("/schematics/{id}")).into_response()
@@ -421,7 +423,8 @@ async fn chosen_instead(
 
 /// Publishes the file `raw` as `user` uploading it and leaving every
 /// detail as its preview suggests, as `rsdb seed` fills a new database
-/// from the test fixtures, and returns its id, or says why it was refused.
+/// from the test fixtures, simulated and stored whole as an upload is, and
+/// returns its id, or says why it was refused.
 /// Its tests and timing are not run; `rsdb simulate` runs them.
 pub async fn publish_suggested(
     db: &sqlx::SqlitePool,
@@ -436,7 +439,11 @@ pub async fn publish_suggested(
         &upload.read_as().size,
     );
     match publish_checked(db, user, None, &upload, &form, raw).await {
-        Ok(published) => Ok(published),
+        Ok(Ok(id)) => {
+            simulation::complete(db, &id).await?;
+            Ok(Ok(id))
+        }
+        Ok(refused) => Ok(refused),
         Err(AppError::Internal(err)) => Err(err),
         Err(other) => Err(anyhow::anyhow!("{other:?}")),
     }

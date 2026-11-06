@@ -1,26 +1,27 @@
 //! A new database filled from the test fixtures, for a checkout with no
 //! copy of the live one.
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
 use app::{
     models::{
-        schematic,
+        schematic, simulation,
         user::{DiscordProfile, Role, User},
     },
     web::publish_suggested,
 };
 use sqlx::SqlitePool;
 
-use crate::simulate::run_tests;
+use crate::simulate::AT_ONCE;
 
 /// Makes the admin account `debug`, as `/dev/login` does, and publishes
 /// every `.schem` file in `dir` as its upload, each with the details its
-/// preview suggests, then runs their tests and timing. A file the preview
-/// suggests no category for is left out, and a build that fails its test
-/// kept as failing, as some fixtures are meant to. Refuses a database that
-/// has builds already, such as a pull of the live one.
+/// preview suggests, simulated and stored whole as it goes in, `AT_ONCE`
+/// at a time. A file the preview suggests no category for is left out,
+/// and a build that fails its test kept as failing, as some fixtures are
+/// meant to. Refuses a database that has builds already, such as a pull of
+/// the live one.
 pub(super) async fn seed(db: &SqlitePool, dir: &Path) -> Result<()> {
     ensure!(
         schematic::all(db).await?.is_empty(),
@@ -40,27 +41,32 @@ pub(super) async fn seed(db: &SqlitePool, dir: &Path) -> Result<()> {
         .collect::<Result<_, _>>()?;
     files.retain(|path| path.extension().is_some_and(|ext| ext == "schem"));
     files.sort();
-    let mut published = 0;
-    for path in &files {
-        let raw = std::fs::read(path)?;
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
-        match publish_suggested(db, &user, &raw).await? {
-            Ok(id) => {
-                println!("{}  {name}", &id[..8]);
-                published += 1;
-            }
-            Err(why) => println!("skipped   {name}: {why}"),
-        }
+    simulation::run_at_once(AT_ONCE);
+    let gate = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
+    let mut running = tokio::task::JoinSet::new();
+    for path in files.clone() {
+        let (db, user, gate) = (db.clone(), user.clone(), Arc::clone(&gate));
+        running.spawn(async move {
+            let _turn = gate.acquire_owned().await?;
+            let raw = std::fs::read(&path)?;
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let said = match publish_suggested(&db, &user, &raw).await? {
+                Ok(id) => {
+                    println!("{}  {name}", &id[..8]);
+                    true
+                }
+                Err(why) => {
+                    println!("skipped   {name}: {why}");
+                    false
+                }
+            };
+            anyhow::Ok(said)
+        });
     }
-    let ids = schematic::all(db)
-        .await?
-        .into_iter()
-        .map(|s| s.id)
-        .collect();
-    let failed = run_tests(db, ids, false).await?;
-    println!(
-        "{published} of {} files published, {failed} failing their tests",
-        files.len()
-    );
+    let mut published = 0;
+    while let Some(done) = running.join_next().await {
+        published += usize::from(done??);
+    }
+    println!("{published} of {} files published", files.len());
     Ok(())
 }

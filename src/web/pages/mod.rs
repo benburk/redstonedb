@@ -49,7 +49,7 @@ pub use about::{about, credits, recognized};
 pub use activity::{ActivityLog, activity, activity_href};
 pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
-    favorite_button, schematic_page, waiting,
+    favorite_button, schematic_page,
 };
 pub use description::mentions;
 pub use details_page::{

@@ -27,25 +27,6 @@ pub fn simulation_results(simulate: &str, content: &Markup) -> Markup {
     }
 }
 
-/// A build's simulation section while its cases run in the background,
-/// as just after it is published: it asks `poll` after it every few seconds,
-/// then reloads the page, since whether it fails shows above too.
-pub(super) fn cases_pending(poll: &str) -> Markup {
-    html! {
-        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm" {
-            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
-            div fx-action={ (poll) "?have=none" } fx-trigger="poll" data-every="3000"
-                fx-target="#simulation" class="mt-3" {
-                p class="flex items-center gap-2 text-muted" {
-                    (spinner())
-                    "Simulating every case, which takes a few seconds…"
-                }
-                noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
-            }
-        }
-    }
-}
-
 /// A simulation result in a few words, such as `all 131,072 cases right`.
 pub(super) fn simulation_summary(report: &Report) -> String {
     match report {
@@ -106,19 +87,17 @@ pub enum Waiting<'a> {
     /// On an upload or edit page: posted the details form to this address
     /// once on the page.
     Posted(&'a str),
-    /// On a build's page, measured in the background: asked of this
-    /// address every few seconds until it is ready.
-    Polled(&'a str),
-    /// Never measured, as for a build off the list, which is only tested
-    /// to show what keeps it from being recognized.
-    Untimed,
+    /// On a build's page, which shows what storing it measured and
+    /// measures nothing: none for a build off the list, which is only
+    /// tested to show what keeps it from being recognized.
+    Stored,
 }
 
 /// What simulating a build found: the cases tried and how many came out
 /// right, then, for a failure, which output bits were wrong and the first
 /// wrong cases, or, for a pass, its timing once measured.
 pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
-    let untimed = matches!(waiting, Waiting::Untimed)
+    let untimed = matches!(waiting, Waiting::Stored)
         && matches!(report, Report::Ran(run) if run.wrong == 0 && run.timing.is_none());
     html! {
         section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm has-[[data-timing][hidden]]:hidden"
@@ -156,19 +135,12 @@ pub fn simulation_section(report: &Report, waiting: Waiting) -> Markup {
                         (simulation_failures(run))
                     } @else if let Some(timing) = &run.timing {
                         (timing_section(timing))
-                    } @else if let Some((action, method, trigger, target, form)) = match waiting {
-                        Waiting::Posted(url) => Some((url.to_owned(), "post", "load", None, Some("details-form"))),
-                        Waiting::Polled(url) => Some((format!("{url}?have=cases"), "get", "poll", Some("#simulation"), None)),
-                        Waiting::Untimed => None,
-                    } {
-                        div data-timing-pending fx-action=(action) fx-method=(method) fx-trigger=(trigger)
-                            fx-target=[target] data-form=[form] data-every="3000" class="mt-6" {
+                    } @else if let Waiting::Posted(url) = waiting {
+                        div data-timing-pending fx-action=(url) fx-method="post" fx-trigger="load"
+                            data-form="details-form" class="mt-6" {
                             p class="flex items-center gap-2 text-muted" {
                                 (spinner())
                                 "Measuring when each output settles, which takes up to a minute…"
-                            }
-                            @if let Waiting::Polled(_) = waiting {
-                                noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
                             }
                         }
                     }

@@ -10,7 +10,6 @@ use std::sync::{
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -21,11 +20,7 @@ use crate::{
     category::{self, Category},
     details,
     import::Upload,
-    models::{
-        schematic,
-        simulation::{self, Status},
-        user::User,
-    },
+    models::{schematic, simulation, user::User},
     recognize::fault,
     simulate::{Report, Test},
     web::{app_state::AppState, error::AppError},
@@ -35,43 +30,6 @@ use super::{
     form::{self, Form},
     pages::{self, Waiting},
 };
-
-/// What a build's page already shows of its simulation, as it asks after
-/// the rest: `none` while its cases run, `cases` while its timing does.
-#[derive(Deserialize)]
-pub struct Have {
-    have: Option<String>,
-}
-
-/// Build `id`'s simulation, for its page to ask after while it runs in the
-/// background: its section once there is more than the page `have`s,
-/// naming the panels it changes for the page to redraw; 204 until then,
-/// starting what is missing if nothing is under way; and nothing in its
-/// place once it has no test.
-pub async fn poll(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-    viewer: Option<User>,
-    Query(Have { have }): Query<Have>,
-) -> Result<Response, AppError> {
-    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let report = match simulation::status(&state.db, &s).await? {
-        Status::Done(report) => report,
-        Status::Pending(Some(report)) if have.as_deref() == Some("none") => {
-            report
-        }
-        Status::Pending(_) => return Ok(StatusCode::NO_CONTENT.into_response()),
-        Status::Untested => return Ok(nothing()),
-    };
-    let poll = format!("/schematics/{id}/simulation");
-    Ok((
-        [("FX-Redraw", "build-banner build-info")],
-        pages::simulation_section(&report, pages::waiting(&s, &poll)),
-    )
-        .into_response())
-}
 
 /// Which part of a simulation the details form asks for: the cases, or,
 /// once they pass, the slower timing, as `?step=timing`.
@@ -330,21 +288,7 @@ async fn timing(
     {
         return Ok(pages::timing_section(timing).into_response());
     }
-    // The build's own test is measured and kept, as publishing would have.
-    if let Some(s) = s
-        && Test::of(&s.category, s.width) == Some(test)
-    {
-        let refreshed =
-            simulation::refresh_timing(&state.db, &s.id, false).await;
-        return Ok(match refreshed {
-            Ok(Some(report)) => match report.timing() {
-                Some(timing) => pages::timing_section(timing).into_response(),
-                None => nothing(),
-            },
-            Ok(None) => nothing(),
-            Err(err) => could_not(&err.to_string()).into_response(),
-        });
-    }
+    // Measured for the form alone: saving the edit stores it.
     let cancel = Arc::new(AtomicBool::new(false));
     let _guard = CancelOnDrop(cancel.clone());
     Ok(match simulation::time(test, data, cancel).await {
