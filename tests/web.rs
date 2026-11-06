@@ -318,7 +318,8 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
 }
 
 /// The logic analyzer traces the change the query names, or with none the
-/// one its sweep found most worth seeing, and says what it cannot trace.
+/// one its sweep found most worth seeing, and says what it cannot trace;
+/// a build its test ran on links to it, and shows its glitch traced.
 #[tokio::test]
 async fn anyone_may_trace_a_build() {
     let site = Site::start().await;
@@ -332,19 +333,52 @@ async fn anyone_may_trace_a_build() {
         page.contains("Logic analyzer") && page.contains("<svg"),
         "{page}"
     );
-    assert!(page.contains("What happened"), "{page}");
+    assert!(page.contains("changes-heading"), "{page}");
 
     let traced = site
         .get(&format!("/schematics/{id}/trace?to.A=1"), None)
         .await;
     let traced = traced.text().await.unwrap();
-    assert!(traced.contains("A=0, B=0, carry in=0 → A=1"), "{traced}");
+    assert!(traced.contains(r#"name="to.A" value="1""#), "{traced}");
 
     let wrong = site
         .get(&format!("/schematics/{id}/trace?to.Q=1"), None)
         .await;
     let wrong = wrong.text().await.unwrap();
     assert!(wrong.contains("The build has no input named Q."), "{wrong}");
+
+    // Once its test has run, its page has the button, and its glitch is
+    // traced in its Timing section.
+    let build = site.get(&format!("/schematics/{id}"), None).await;
+    assert!(
+        !build
+            .text()
+            .await
+            .unwrap()
+            .contains(&format!("{id}/trace\""))
+    );
+    app::models::simulation::complete(&site.db, &id)
+        .await
+        .unwrap();
+    let build = site.get(&format!("/schematics/{id}"), None).await;
+    let build = build.text().await.unwrap();
+    assert!(
+        build.contains(&format!(r#"href="/schematics/{id}/trace""#)),
+        "{build}"
+    );
+    assert!(
+        build
+            .contains(&format!(r#"fx-action="/schematics/{id}/trace/glitch""#)),
+        "{build}"
+    );
+    let glitch = site
+        .get(&format!("/schematics/{id}/trace/glitch"), None)
+        .await;
+    let glitch = glitch.text().await.unwrap();
+    assert!(
+        glitch.contains("Glitch · ") && glitch.contains("<svg"),
+        "{glitch}"
+    );
 }
 
 #[tokio::test]
