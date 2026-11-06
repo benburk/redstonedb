@@ -386,10 +386,13 @@ window.addEventListener("pageshow", () => {
 // from, or else puts the page it lands on in its place. It sends itself
 // in the background to see where it lands; any answer but a redirect, as
 // a form sent back with what to fix, it sends again as forms go, to show.
+// A button naming a choice, as Check it's `action=file` does, sends it on
+// to another turn of the same form, and goes as forms go.
 const REDRAW = "redraw";
 document.addEventListener("submit", async (event) => {
   const form = event.target.closest("form[data-step]");
   if (!form || event.defaultPrevented || form.dataset.sent) return;
+  if (event.submitter?.name) return;
   event.preventDefault();
   const submitter = event.submitter;
   const asForms = () => {
