@@ -69,6 +69,7 @@ fn ids_json(ids: &[&str]) -> String {
 /// The schematics `only` names, as a JSON array of ids, or every one for
 /// `None`, ordered by category, width, then insertion: each row with its
 /// tags, flags, stacking, credits, and its category's measures and aliases.
+#[allow(clippy::too_many_lines, reason = "a field for each column it reads")]
 async fn load(
     db: &SqlitePool,
     only: Option<String>,
@@ -104,12 +105,14 @@ async fn load(
     let mut stacking = stacking_by_schematic(db, only.as_deref()).await?;
     let mut widened = widened_by_schematic(db, only.as_deref()).await?;
     let mut credits = credits_by_schematic(db, only.as_deref()).await?;
-    let mut operands = operands_by_schematic(db, only.as_deref()).await?;
+    let mut layouts = layouts_by_schematic(db, only.as_deref()).await?;
     Ok(rows
         .into_iter()
         .map(|row| {
             let (authors, contributors) =
                 credits.remove(&row.id).unwrap_or_default();
+            let (operands, unaligned) =
+                layouts.remove(&row.id).unwrap_or_default();
             let facts = Kind::named(&row.category).map(Kind::facts);
             let (design_abbreviation, design_given_label) =
                 design_names(&row.category, row.design.as_deref());
@@ -166,20 +169,22 @@ async fn load(
                 favorites: row.favorites,
                 public: row.public,
                 unverified: row.unverified,
-                operands: operands.remove(&row.id).unwrap_or_default(),
+                operands,
+                unaligned,
                 id: row.id,
             }
         })
         .collect())
 }
 
-/// How the operands of the builds `only` names lie, by id, as each one's
-/// current file's kept roles place them, for those whose do not lie
-/// split; see `Kept::interleaved`.
-async fn operands_by_schematic(
+/// How the lines of the builds `only` names lie, by id, as each one's
+/// current file's kept roles place them, for those whose operands do not
+/// lie split, see `Kept::interleaved`, or whose buses are unaligned, see
+/// `Kept::unaligned`: how its operands lie, and whether it is unaligned.
+async fn layouts_by_schematic(
     db: &SqlitePool,
     only: Option<&str>,
-) -> Result<HashMap<String, Operands>, sqlx::Error> {
+) -> Result<HashMap<String, (Operands, bool)>, sqlx::Error> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT schematic_id, roles FROM current_file
          WHERE roles IS NOT NULL AND (?1 IS NULL
@@ -190,11 +195,17 @@ async fn operands_by_schematic(
     .await?;
     Ok(rows
         .into_iter()
-        .filter(|(_, roles)| {
-            serde_json::from_str::<Kept>(roles)
-                .is_ok_and(|kept| kept.interleaved())
+        .filter_map(|(id, roles)| {
+            let kept = serde_json::from_str::<Kept>(&roles).ok()?;
+            let operands = if kept.interleaved() {
+                Operands::Interleaved
+            } else {
+                Operands::Split
+            };
+            let unaligned = kept.unaligned();
+            (operands != Operands::Split || unaligned)
+                .then_some((id, (operands, unaligned)))
         })
-        .map(|(id, _)| (id, Operands::Interleaved))
         .collect())
 }
 

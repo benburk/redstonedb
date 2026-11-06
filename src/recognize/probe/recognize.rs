@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     category::{Kind, Probe, Probing},
-    recognize::inspect,
+    recognize::{inspect, matching},
     schem::{self, Blocks, Pos, lines, orient},
     simulate::{self, Test},
 };
@@ -173,6 +173,17 @@ fn recognize_laid(
             }
         }
     }
+    // Lines that bend the conventions, as top bits out of line or outputs
+    // unevenly spaced, may still read as the kind meant: matching finds
+    // them, the build's I/O unaligned.
+    // Meant as a kind never probed, it is none matching finds either.
+    if reorient
+        && meant != Some(None)
+        && let Some((found, file)) =
+            unaligned(data, &blocks, &report, meant.flatten())?
+    {
+        return Ok(accept(&found.data_inputs(), file, found.found()));
+    }
     problems.push(fault.map_or_else(String::new, ToString::to_string));
     // The file with the roles of the try whose fault is shown, when it ran.
     let closest = fault.and_then(Fault::file).unwrap_or(data);
@@ -180,6 +191,34 @@ fn recognize_laid(
         file: closest.to_vec(),
         ..unrecognized(problems)
     })
+}
+
+/// The build in `data`, with `blocks` and `report`, as matching finds it,
+/// as the kind `meant`, if one is, or else any kind, its lines read as the
+/// conventions don't lay them, every case right: what it found, and the
+/// file carrying the roles it found, less each sign naming only a role.
+/// `None` when it finds no such reading, or one that keeps the
+/// conventions, which probing would have found.
+fn unaligned(
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+    meant: Option<Kind>,
+) -> anyhow::Result<Option<(matching::Match, Vec<u8>)>> {
+    let probed_as = |kind: Kind| match kind.facts().probe {
+        Probing::As(other) => other,
+        _ => kind,
+    };
+    let Some(found) = matching::closest(blocks, report) else {
+        return Ok(None);
+    };
+    let fits = meant.is_none_or(|meant| meant == probed_as(found.kind));
+    if found.wrong > 0 || found.conventional || !fits {
+        return Ok(None);
+    }
+    let file = lines::with(data, Some(&found.roles()))?;
+    let file = unlabelled(found.kind, &file)?;
+    Ok(Some((found, file)))
 }
 
 /// What a probe found: the build's data inputs, its file carrying the

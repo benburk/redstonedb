@@ -497,6 +497,32 @@ impl Kept {
         turns > 1
     }
 
+    /// Whether any bus of its, an operand or an output, isn't laid as the
+    /// conventions lay one: its bits in one evenly spaced line, or in two
+    /// as long running side by side, alternating, as `inspect::runs`
+    /// groups them. Its top bits out of line, its bits unevenly spaced, or
+    /// a staircase of short runs make it unaligned.
+    pub fn unaligned(&self) -> bool {
+        self.inputs
+            .iter()
+            .chain(&self.outputs)
+            .filter(|line| {
+                matches!(line.role, Some(Role::Operand(_) | Role::Output(_)))
+            })
+            .any(|line| {
+                let bits: Vec<(Pos, ())> =
+                    line.bits.iter().map(|&pos| (pos, ())).collect();
+                match crate::recognize::inspect::runs(&bits).as_slice() {
+                    [] | [_] => false,
+                    [one, other] => {
+                        one.bits.len() != other.bits.len()
+                            || one.step != other.step
+                    }
+                    _ => true,
+                }
+            })
+    }
+
     /// The role of each bit's block, as a file carries them.
     pub fn roles(&self) -> Roles {
         let mut roles = Roles::default();

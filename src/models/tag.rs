@@ -109,6 +109,11 @@ pub fn is_word_stackable(name: &str) -> bool {
 /// `Kept::interleaved`. It is not stored.
 pub const INTERLEAVED_INPUTS: &str = "interleaved_inputs";
 
+/// The tag a build carries whose buses aren't laid as the conventions lay
+/// them, as when its top bits stand out of line; see `Kept::unaligned`.
+/// It is not stored, so no one can add or remove it.
+pub const UNALIGNED: &str = "unaligned";
+
 /// The tag a build carries whose outputs all settle on the same tick.
 pub const SYNCED: &str = "synced";
 
@@ -124,7 +129,7 @@ const TORCHLESS: &str = "torchless";
 const ALPHA: &str = "alpha";
 
 /// The tags worked out from a build rather than given by a person.
-pub const DERIVED: [&str; 4] = [FAILING, UNTESTED, TORCHLESS, ALPHA];
+pub const DERIVED: [&str; 5] = [FAILING, UNTESTED, TORCHLESS, ALPHA, UNALIGNED];
 
 impl Tag {
     pub(super) fn derived(name: &str, kind: Kind) -> Self {

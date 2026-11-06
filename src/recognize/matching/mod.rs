@@ -255,6 +255,16 @@ impl Match {
         roles
     }
 
+    /// Its data inputs: its operands' bits, as A's and B's, which a bus
+    /// drives, unlike a control line's.
+    pub fn data_inputs(&self) -> Vec<Pos> {
+        self.lines
+            .iter()
+            .filter(|line| matches!(line.role, Role::Operand(_)))
+            .flat_map(|line| line.bits.clone())
+            .collect()
+    }
+
     /// The line filling the slot `name`, if any.
     pub fn line(&self, name: &str) -> Option<&Line> {
         self.lines.iter().find(|line| line.name == name)
@@ -382,7 +392,7 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
 /// Of every category whose slots `report`'s lines fill, the reading of the
 /// build in `blocks` that comes closest; see [`Score`]. Buses laid as the
 /// conventions lay them are tried first, and bent ones too only when no
-/// category's slots fit those at all.
+/// category's reading of those gets every case right.
 pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
     let observed = observe(blocks, report).ok()?;
     let mut best: Option<(Score, Match)> = None;
@@ -395,7 +405,7 @@ pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
                 best = Some((score, found));
             }
         }
-        if best.is_some() {
+        if best.as_ref().is_some_and(|(_, found)| found.wrong == 0) {
             break;
         }
     }

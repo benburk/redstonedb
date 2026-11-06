@@ -561,7 +561,7 @@ fn split<'a>(
     let mut ranked: Vec<&Schematic> = category
         .iter()
         .copied()
-        .filter(|s| s.verified())
+        .filter(|s| s.ranks())
         .filter(|s| {
             !(cells && measures.contains(&Measure::Width) && s.width.is_none())
         })
@@ -1039,7 +1039,7 @@ pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
         BTreeMap::new();
     for &s in builds
         .iter()
-        .filter(|s| s.category_label.is_some() && s.verified())
+        .filter(|s| s.category_label.is_some() && s.ranks())
     {
         let Some(values) = ranked_values(s) else {
             continue;
@@ -1773,6 +1773,7 @@ mod tests {
             public: true,
             unverified: None,
             operands: crate::models::schematic::Operands::Split,
+            unaligned: false,
             tags: Vec::new(),
         }
     }

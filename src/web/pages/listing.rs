@@ -122,6 +122,8 @@ pub struct Listing<'a> {
     /// How many of the builds found are not verified as their category,
     /// shown or not.
     pub unverified: usize,
+    /// How many of the builds found are unaligned, verified, shown or not.
+    pub unaligned: usize,
     pub facets: &'a [Facet],
     pub viewing: &'a Viewing,
 }
@@ -186,11 +188,14 @@ pub struct HomeQuery {
     pub tags: Vec<String>,
     /// Whether builds not verified as their category are listed too.
     pub unverified: bool,
+    /// Whether unaligned builds, whose buses aren't laid as the
+    /// conventions lay them, are listed too.
+    pub unaligned: bool,
 }
 
 impl HomeQuery {
     /// The query string `raw`, without its `?`. Asking for the unverified
-    /// by their tag shows them.
+    /// or the unaligned by their tag shows them.
     pub fn parse(raw: &str) -> Self {
         let mut query = HomeQuery::default();
         for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
@@ -213,8 +218,13 @@ impl HomeQuery {
                     query.unverified = true;
                     query.tags.push(value);
                 }
+                "tag" if tag::name(&value) == tag::UNALIGNED => {
+                    query.unaligned = true;
+                    query.tags.push(value);
+                }
                 "tag" if !value.is_empty() => query.tags.push(value),
                 "unverified" => query.unverified = value == "show",
+                "unaligned" => query.unaligned = value == "show",
                 _ => {}
             }
         }
@@ -247,6 +257,9 @@ impl HomeQuery {
         }
         if self.unverified {
             params.append_pair("unverified", "show");
+        }
+        if self.unaligned {
+            params.append_pair("unaligned", "show");
         }
         if !self.q.is_empty() {
             params.append_pair("q", &self.q);
@@ -328,6 +341,7 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
         q: query,
         tags,
         unverified,
+        unaligned,
         ..
     } = query;
     html! {
@@ -341,6 +355,9 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
             }
             @if unverified {
                 input type="hidden" name="unverified" value="show";
+            }
+            @if unaligned {
+                input type="hidden" name="unaligned" value="show";
             }
             label for="search" class="sr-only" { "Search builds" }
             div class="relative" {
@@ -524,26 +541,38 @@ fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                 p class="mr-auto self-end pb-1 text-muted tabular-nums" {
                     (shown.len()) span class="sr-only" { " builds" }
                 }
-                (unverified_switch(listing.unverified, here))
+                (switch(
+                    listing.unaligned,
+                    here.unaligned,
+                    "Show unaligned",
+                    &HomeQuery { unaligned: !here.unaligned, ..here.clone() },
+                ))
+                (switch(
+                    listing.unverified,
+                    here.unverified,
+                    "Show failing and untested",
+                    &HomeQuery { unverified: !here.unverified, ..here.clone() },
+                ))
             }
     }
 }
 
-/// Whether the builds not verified as their category are listed, as a
-/// link that turns them on or off, with how many there are; nothing when
-/// there are none.
-fn unverified_switch(count: usize, here: &HomeQuery) -> Markup {
-    let shown = here.unverified;
+/// Whether some builds found, `count` of them, are listed, `shown`, as a
+/// link going to `other`, the listing with them turned the other way,
+/// saying `label` and how many there are; nothing when there are none.
+/// The builds not verified as their category are one such, and the
+/// unaligned another.
+fn switch(count: usize, shown: bool, label: &str, other: &HomeQuery) -> Markup {
     html! {
         @if count > 0 {
-            a href=(HomeQuery { unverified: !shown, ..here.clone() }.href())
+            a href=(other.href())
                 aria-pressed=(shown)
                 class="flex min-h-9 items-center gap-2 self-end text-meta text-muted hover:text-ink hover:no-underline" {
                 span class={ "flex size-4 items-center justify-center rounded-[4px] border "
                     (if shown { "border-brand bg-brand text-on-brand" } else { "border-boundary" }) } {
                     @if shown { (icon(icons::CHECK, "size-3")) }
                 }
-                span { "Show failing and untested (" span class="tabular-nums" { (count) } ")" }
+                span { (label) " (" span class="tabular-nums" { (count) } ")" }
             }
         }
     }
@@ -1035,6 +1064,13 @@ mod tests {
             let raw = href.split_once('?').map_or("", |(_, raw)| raw);
             assert_eq!(HomeQuery::parse(raw).href(), href);
         }
+        // Unaligned builds list when asked for, by the switch or by their
+        // tag.
+        let shown = HomeQuery::parse("category=adder&unaligned=show");
+        assert!(shown.unaligned);
+        assert_eq!(shown.href(), "/?category=adder&unaligned=show");
+        assert!(HomeQuery::parse("tag=unaligned").unaligned);
+        assert!(!HomeQuery::parse("category=adder").unaligned);
         let query = HomeQuery::parse("q=add&sort=bogus,-latency");
         assert_eq!(query.href(), "/?sort=-latency&q=add");
         assert!(!HomeQuery::parse("view=list").narrows());

@@ -288,14 +288,6 @@ const DISAGREEING: &[&str] = &[
     // takes it for a parity circuit, reading the carry out as a status
     // line, which a parity's test doesn't check.
     "rca-1-repeater-c",
-    // Its outputs are unevenly spaced, so probing finds its lines don't
-    // fit; matching reads them in order along the way they spread.
-    "adder-8-lsb-top",
-    // Its operands' top bits stand out of line, so probing finds its lines
-    // don't fit; matching joins each to the run beside it. The second is
-    // the first with its sign bits' levers saved on, which says nothing.
-    "gt-8",
-    "gt-8-signed",
     // Its carry out is normally on, which matching reads, so it finds an
     // adder; probing, reading no output inverted, takes it for an ALU that
     // only adds, checking only the setting with its carry in off.

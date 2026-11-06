@@ -459,6 +459,7 @@ pub(crate) mod tests {
             public: true,
             unverified: None,
             operands: crate::models::schematic::Operands::Split,
+            unaligned: false,
             tags: tags
                 .iter()
                 .map(|name| Tag {
