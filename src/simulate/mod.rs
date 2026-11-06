@@ -66,6 +66,7 @@ mod stacking;
 mod strength;
 mod throughput;
 mod timing;
+pub mod trace;
 mod value;
 
 pub use adder::Variant as AdderVariant;
@@ -615,6 +616,16 @@ impl Test {
             Way::Alu => alu::throughput(blocks, timing),
             Way::Shifter => shifter::throughput(blocks, timing),
             Way::Sequential(kind) => sequential::throughput(blocks, kind),
+        }
+    }
+
+    /// The lines of `blocks` named as its timing names them, such as an
+    /// adder's A, B, and carry in; for a test that names none, as
+    /// [`interface::read`] finds them.
+    pub fn lines(self, blocks: &Blocks) -> Result<Interface> {
+        match self.way() {
+            Way::Spec { spec, .. } => Ok(bench(spec, blocks)?.0),
+            _ => Ok(interface::read(blocks)),
         }
     }
 
