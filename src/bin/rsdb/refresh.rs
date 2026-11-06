@@ -335,10 +335,11 @@ fn right(cases: u64) -> String {
 }
 
 /// What stacking copies of a simulated build found, whose copies share
-/// any `controls` lines, each way with its pitch class where it has one.
+/// any `controls` lines, each way with its pitch class, in blocks a place,
+/// a bit or a digit, where it has one.
 fn print_stacking(stacking: &Stacking, controls: bool) {
-    let pitch = |step: Step, bits: usize| {
-        step.pitch(bits)
+    let pitch = |step: Step, places: usize| {
+        step.pitch(places)
             .map(|pitch| format!(", pitch {pitch}"))
             .unwrap_or_default()
     };
@@ -355,10 +356,11 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             copies,
             bits,
             cases,
+            place,
         } => println!(
             "        stacks: {copies} copies {} apart make {bits} bits{}, {}",
             step.describe(),
-            pitch(*step, bits / copies),
+            pitch(*step, bits / copies / place),
             right(*cases)
         ),
         Stacking::Registers {
@@ -381,15 +383,17 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             most,
             also,
             words,
+            place,
         } => {
             let each = bits / copies;
+            let places = each / place;
             for way in also {
                 println!(
                     "        stacks: {} copies {} apart make {} bits too{}, {}{}",
                     way.copies,
                     way.step.describe(),
                     each * way.copies,
-                    pitch(way.step, each),
+                    pitch(way.step, places),
                     right(way.cases),
                     limit(way.most)
                 );
@@ -407,7 +411,7 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
             println!(
                 "        stacks: {copies} copies {} apart make {bits} bits{}{}, {}{}",
                 step.describe(),
-                pitch(*step, each),
+                pitch(*step, places),
                 if controls {
                     ", sharing their control lines"
                 } else {

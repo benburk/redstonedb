@@ -298,6 +298,7 @@ fn words(found: &simulate::Stacking) -> String {
             copies,
             bits,
             cases,
+            ..
         } => format!(
             "stacks every {}: {copies} copies, {bits} bits, {cases} cases right",
             step(s)
