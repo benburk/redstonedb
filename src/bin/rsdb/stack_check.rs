@@ -25,7 +25,6 @@ use app::{
     },
     simulate::{self, Circuit, Step, Test},
 };
-use clap::Args;
 use sqlx::SqlitePool;
 
 use super::{
@@ -34,33 +33,27 @@ use super::{
     resolve,
 };
 
-#[derive(Args)]
-pub(super) struct StackCheck {
-    /// A .schem file, or a stored build's id or the start of one
-    file_or_id: String,
-    /// Copies in all, the original among them
-    #[arg(long, default_value_t = 3)]
-    copies: usize,
-    /// The ways to stack, of west, east, and up; a stored
-    /// build's own and their opposites by default, else west, east, and up
-    #[arg(long, value_delimiter = ',')]
-    dirs: Vec<String>,
-    /// Blocks between copies; a stored build's own along that axis by
-    /// default, else each of 1 to 4
-    #[arg(long)]
-    spacing: Option<i64>,
+/// A stacking check of a build, as `inspect --stack` asks for one.
+pub(super) struct StackCheck<'a> {
+    /// A .schem file, or a stored build's id or the start of one.
+    pub(super) file_or_id: &'a str,
+    /// Copies in all, the original among them.
+    pub(super) copies: usize,
+    /// The ways to stack, of west, east, and up; a stored build's own and
+    /// their opposites when empty, else west, east, and up.
+    pub(super) dirs: &'a [String],
+    /// Blocks between copies; a stored build's own along that axis when
+    /// none, else each of 1 to 4.
+    pub(super) spacing: Option<i64>,
     /// The build's category, to test the stack as; a stored build's own,
-    /// else what probing finds
-    #[arg(long)]
-    category: Option<String>,
+    /// else what probing finds.
+    pub(super) category: Option<&'a str>,
     /// A stored build whose category and stacking to use, for a file made
-    /// from it, such as one `convert` wrote
-    #[arg(long)]
-    like: Option<String>,
-    /// Run the one way and spacing given here, in this process, exiting 0
-    /// when it passes and 3 when not, as each stack is run apart
-    #[arg(long, hide = true)]
-    one: bool,
+    /// from it.
+    pub(super) like: Option<&'a str>,
+    /// Run the one way and spacing given, in this process, exiting 0 when
+    /// it passes and 3 when not, as each stack is run apart.
+    pub(super) one: bool,
 }
 
 /// The most memory one stack's run may take, in KiB: Redpiler can grow
@@ -97,10 +90,10 @@ struct Single {
 /// stack, and tests it as the site tests its kind's copies.
 pub(super) async fn stack_check_command(
     db: &SqlitePool,
-    args: &StackCheck,
+    args: &StackCheck<'_>,
 ) -> Result<()> {
-    let source = source(db, &args.file_or_id).await?;
-    let like = match &args.like {
+    let source = source(db, args.file_or_id).await?;
+    let like = match args.like {
         Some(id) => Some(load(db, &resolve(db, id).await?).await?),
         None => source.stored.clone(),
     };
@@ -113,7 +106,7 @@ pub(super) async fn stack_check_command(
     say(source.name.clone());
     let stored = stored_ways(like.as_ref());
     let dirs: Vec<String> = if !args.dirs.is_empty() {
-        args.dirs.clone()
+        args.dirs.to_vec()
     } else if stored.is_empty() {
         ["west", "east", "up"].map(str::to_owned).to_vec()
     } else {
@@ -134,7 +127,7 @@ pub(super) async fn stack_check_command(
             stored.iter().map(|(w, n)| format!("{w} {n}")).collect();
         say(format!("stored stacking: {}", ways.join(", ")));
     }
-    let meant = kind_of(args.category.as_deref(), like.as_ref());
+    let meant = kind_of(args.category, like.as_ref());
     let single = read_single(&source.data, meant, like.as_ref(), quiet)?;
     let test = single.kind.and_then(Kind::test);
     // The chained output, a carry out, and the way the rule predicts.
@@ -341,7 +334,7 @@ fn words(found: &simulate::Stacking) -> String {
 /// Runs one way and spacing of `args` in a process of its own, held to
 /// `STACK_MEMORY_KIB`, printing what it prints of that stack.
 fn run_apart(
-    args: &StackCheck,
+    args: &StackCheck<'_>,
     kind: Option<Kind>,
     dir: &str,
     spacing: i64,
@@ -354,15 +347,15 @@ fn run_apart(
             "ulimit -v {STACK_MEMORY_KIB} && exec \"$0\" \"$@\""
         ))
         .arg(exe)
-        .arg("stack-check")
-        .arg(&args.file_or_id)
-        .args(["--one", "--dirs", dir])
+        .arg("inspect")
+        .arg(args.file_or_id)
+        .args(["--one", "--stack", dir])
         .args(["--spacing", &spacing.to_string()])
         .args(["--copies", &args.copies.to_string()]);
     if let Some(kind) = kind {
         command.args(["--category", kind.name()]);
     }
-    if let Some(like) = &args.like {
+    if let Some(like) = args.like {
         command.args(["--like", like]);
     }
     let output = command.output()?;

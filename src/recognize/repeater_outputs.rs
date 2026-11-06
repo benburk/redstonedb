@@ -11,11 +11,11 @@
 //! there; these too are read by where they stand, not their colours.
 //!
 //! [`crate::recognize::inspect`] checks a build by this rule, and
-//! [`interface`] reads its lines' roles by their shapes. `rsdb convert`
-//! ports a build saved under the old rule, see
-//! [`crate::recognize::legacy`], to this one by [`tap`], promoting each
-//! output's driver, [`promotable`], or tapping it, and [`feed`], as the
-//! owner ports one by hand.
+//! [`interface`] reads its lines' roles by their shapes. A build saved
+//! under the old rule, see [`crate::recognize::legacy`], is ported to this
+//! one by [`tap`], promoting each output's driver, [`promotable`], or
+//! tapping it, and [`feed`], as the owner ports one by hand, and as the
+//! site's own migration to this rule did.
 
 use std::collections::{BTreeMap, HashMap};
 

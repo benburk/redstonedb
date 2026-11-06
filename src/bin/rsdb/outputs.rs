@@ -1,13 +1,10 @@
-//! What the rule for outputs, a repeater or comparator powering nothing,
-//! see [`repeater_outputs`], finds in a build, beside what the old rule,
-//! which read them by their colours, found, see [`legacy`]; `convert`
-//! ports a build saved under the old rule to it, and `stack_check` stacks
-//! copies of one. Nothing here writes to the database.
+//! What the rules for inputs and outputs, a lever or button, a comparator
+//! with air behind, and a repeater or comparator powering nothing, see
+//! [`repeater_outputs`], find in a build, and what probing finds with them,
+//! as `inspect` prints them; `stack_check` stacks copies of one. Nothing
+//! here writes to the database.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-};
+use std::{collections::BTreeMap, fs};
 
 use anyhow::{Context, Result, bail};
 use app::{
@@ -16,29 +13,15 @@ use app::{
     recognize::{
         inspect::{self, Run},
         interface::{self, Interface},
-        legacy, probe,
+        probe,
         repeater_outputs::{self, Output},
     },
     schem::{self, Blocks, Direction, Pos},
     simulate::{self, Circuit},
 };
-use clap::Args;
 use sqlx::SqlitePool;
 
 use super::{load, resolve};
-
-#[derive(Args)]
-pub(super) struct Outputs {
-    /// A .schem file, or a stored build's id or the start of one
-    file_or_id: String,
-    /// Probe only as this category, such as adder; a stored build's own
-    /// by default
-    #[arg(long)]
-    category: Option<String>,
-    /// List the outputs only, probing nothing
-    #[arg(long)]
-    no_probe: bool,
-}
 
 /// A build to measure: its name, its file, and its row when stored.
 pub(super) struct Source {
@@ -115,15 +98,15 @@ fn run_words(run: &Run) -> String {
     }
 }
 
-/// Prints the inputs and outputs of a build as the proposed rule reads
-/// them, beside today's outputs, and what probing finds with them.
-pub(super) async fn outputs_command(
-    db: &SqlitePool,
-    args: &Outputs,
+/// Prints the inputs and outputs of `source` as the rules for them read
+/// them, and unless `no_probe` what probing finds with them, as `category`
+/// or the stored build's own.
+pub(super) fn print_lines(
+    source: &Source,
+    category: Option<&str>,
+    no_probe: bool,
 ) -> Result<()> {
-    let source = source(db, &args.file_or_id).await?;
     let blocks = Blocks::read(&source.data)?;
-    println!("{}", source.name);
     let report = inspect::inspect(&blocks);
     println!("inputs: {}", report.inputs.len());
     let switches: BTreeMap<Pos, schem::Switch> = blocks
@@ -151,22 +134,17 @@ pub(super) async fn outputs_command(
     let found = repeater_outputs::find(&blocks);
     let by_at: BTreeMap<Pos, Output> =
         found.iter().map(|&o| (o.at, o)).collect();
-    println!("outputs by the proposed rule: {}", found.len());
+    println!("outputs: {}", found.len());
     for run in repeater_outputs::lines(&found) {
         println!("  {}:", run_words(&run));
         for at in &run.bits {
             println!("    {}", describe(&blocks, by_at[at]));
         }
     }
-    for problem in report.faults() {
-        println!("  problem: {}", problem.message);
-    }
-    let proposed: BTreeSet<Pos> = found.iter().map(|o| o.block()).collect();
-    print_today(&blocks, &proposed);
-    if args.no_probe {
+    if no_probe {
         return Ok(());
     }
-    let meant = kind_of(args.category.as_deref(), source.stored.as_ref());
+    let meant = kind_of(category, source.stored.as_ref());
     if !repeater_outputs::strength_inputs(&blocks).is_empty() {
         // The roles of a build with hex digits are the shapes', as the hex
         // adder's probe reads them.
@@ -204,20 +182,11 @@ pub(super) async fn outputs_command(
     Ok(())
 }
 
-/// Prints the signal-strength inputs the proposed rule finds in `blocks`,
-/// comparators with air behind, in buses, and those today's rule reads by
-/// their colour, input blocks with dust on top and no lever; and each
-/// comparator of the first that drives none of the second, by the dust
-/// it points into on one, which a build ported from today's rule keeps.
-pub(super) fn print_strength_inputs(blocks: &Blocks) {
+/// Prints the signal-strength inputs the rule for them finds in `blocks`,
+/// comparators with air behind, in buses.
+fn print_strength_inputs(blocks: &Blocks) {
     let found = repeater_outputs::strength_inputs(blocks);
-    let today = legacy::dust_inputs(blocks);
-    println!(
-        "signal-strength inputs by the proposed rule: {}; by today's \
-         colours: {}",
-        found.len(),
-        today.len()
-    );
+    println!("signal-strength inputs: {}", found.len());
     let by_at: BTreeMap<Pos, repeater_outputs::StrengthInput> =
         found.iter().map(|&i| (i.at, i)).collect();
     for run in repeater_outputs::strength_lines(&found) {
@@ -236,28 +205,6 @@ pub(super) fn print_strength_inputs(blocks: &Blocks) {
             })
             .collect();
         println!("  {}: {}", run_words(&run), bits.join("; "));
-    }
-    let driving: BTreeSet<Pos> = today
-        .keys()
-        .filter_map(|&pad| repeater_outputs::driving(blocks, pad))
-        .map(|input| input.at)
-        .collect();
-    let others: Vec<String> = found
-        .iter()
-        .filter(|input| !driving.contains(&input.at))
-        .map(|input| place(input.at))
-        .collect();
-    if !today.is_empty() || !others.is_empty() {
-        println!(
-            "  driving today's inputs: {}; not: {}{}",
-            driving.len(),
-            others.len(),
-            if others.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", others.join(", "))
-            }
-        );
     }
 }
 
@@ -285,56 +232,6 @@ fn lines_words(lines: &Interface) -> String {
     )
 }
 
-/// Prints the outputs today's rule finds in `blocks`, read in the site's
-/// colours and as an upload, and where they differ from `proposed`, the
-/// blocks under the proposed rule's outputs.
-fn print_today(blocks: &Blocks, proposed: &BTreeSet<Pos>) {
-    for (label, marks) in [
-        ("site colours", legacy::SITE),
-        ("as an upload", legacy::UPLOAD),
-    ] {
-        let today = legacy::inspect(blocks, marks);
-        let bits: BTreeSet<Pos> =
-            today.outputs.iter().flat_map(|r| r.bits.clone()).collect();
-        let runs: Vec<String> = today
-            .outputs
-            .iter()
-            .map(|r| r.bits.len().to_string())
-            .collect();
-        println!(
-            "today's rule, {label}: {} outputs, runs {}",
-            bits.len(),
-            if runs.is_empty() {
-                "none".to_owned()
-            } else {
-                runs.join(" ")
-            }
-        );
-        let words = |set: Vec<&Pos>| {
-            set.iter()
-                .map(|&&pos| {
-                    let top = schem::step(pos, Direction::Up);
-                    format!(
-                        "{} {} under {}",
-                        place(pos),
-                        schem::short(blocks.get(pos)).replace('_', " "),
-                        schem::short(blocks.get(top)).replace('_', " ")
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ")
-        };
-        let only_today: Vec<&Pos> = bits.difference(proposed).collect();
-        let only_proposed: Vec<&Pos> = proposed.difference(&bits).collect();
-        if !only_today.is_empty() {
-            println!("  only today's: {}", words(only_today));
-        }
-        if !only_proposed.is_empty() {
-            println!("  only the proposed rule's: {}", words(only_proposed));
-        }
-    }
-}
-
 /// The blocks and interface a probed build's cases run on: an adder's
 /// layout over the build as it is, or else the roles probing coloured in.
 fn probed_interface(
@@ -354,14 +251,11 @@ fn probed_interface(
 /// Each case's inputs and outputs, and for each output bit the weakest
 /// strength while on: arriving at the repeater or comparator on its block,
 /// and shown by what stands on it, as the site measures today.
-pub(super) struct Table {
-    pub(super) cases: Vec<(u64, Vec<simulate::Value>)>,
-    /// Each case's strength arriving at each output bit's repeater or
-    /// comparator, the outputs' bits one after another.
-    pub(super) arrivals: Vec<Vec<u8>>,
-    pub(super) arriving: Vec<Vec<u8>>,
-    pub(super) shown: Vec<Vec<u8>>,
-    pub(super) exhaustive: bool,
+struct Table {
+    cases: Vec<(u64, Vec<simulate::Value>)>,
+    arriving: Vec<Vec<u8>>,
+    shown: Vec<Vec<u8>>,
+    exhaustive: bool,
 }
 
 /// The most input bits every combination of which is run; more are
@@ -373,7 +267,7 @@ const SAMPLES: usize = 4096;
 /// its inputs, a signal-strength input's four bits a digit, or a fixed
 /// sample of them when there are many. A build with a button isn't run
 /// so.
-pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
+fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
     if interface.inputs.is_empty() || interface.outputs.is_empty() {
         bail!("no inputs or no outputs to run");
     }
@@ -420,7 +314,6 @@ pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
         .collect();
     let mut shown = arriving.clone();
     let mut cases = Vec::with_capacity(inputs.len());
-    let mut arrivals = Vec::with_capacity(inputs.len());
     let weaker = |kept: &mut u8, now: u8| {
         if now > 0 && (*kept == 0 || now < *kept) {
             *kept = now;
@@ -441,7 +334,6 @@ pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
         let got: Vec<simulate::Value> = (0..interface.outputs.len())
             .map(|p| circuit.get(p))
             .collect();
-        let mut arrived = Vec::new();
         for (port, out) in interface.outputs.iter().enumerate() {
             for (bit, strength) in
                 circuit.strengths(port).into_iter().enumerate()
@@ -450,17 +342,13 @@ pub(super) fn table(blocks: &Blocks, interface: &Interface) -> Result<Table> {
             }
             for (bit, b) in out.bits.iter().enumerate() {
                 let top = schem::step(b.pos, Direction::Up);
-                let strength = circuit.arriving(top);
-                weaker(&mut arriving[port][bit], strength);
-                arrived.push(strength);
+                weaker(&mut arriving[port][bit], circuit.arriving(top));
             }
         }
-        arrivals.push(arrived);
         cases.push((value, got));
     }
     Ok(Table {
         cases,
-        arrivals,
         arriving,
         shown,
         exhaustive,

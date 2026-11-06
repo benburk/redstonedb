@@ -87,7 +87,7 @@ pub fn paste(
     (grid, overwrites)
 }
 
-/// A way to stack, as `rsdb stack-check` names it.
+/// A way to stack, as `rsdb inspect --stack` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Way {
     West,

@@ -1,31 +1,52 @@
-//! Running builds' tests and timing again, and printing what a simulation
+//! Bringing what is worked out from builds' files up to date: each read
+//! again, judged again as its category, its test and timing run again, and
+//! what its building blocks must be kept, as after a change to the
+//! simulator or the rules; or, changing nothing, where what would be
+//! worked out differs from what is stored. Then printing what a simulation
 //! finds: whether its cases come out right, how its copies stack, and when
 //! its outputs settle.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use app::{
-    models::{schematic, simulation},
+    models::{schematic, simulation, version},
     simulate::{Action, Report, Stacking, Step, Timing},
 };
 use sqlx::SqlitePool;
 
-use super::{load, resolve};
+use super::{builds, load, resolve, versions};
 
-/// How many builds `simulate` runs at once.
+/// How many builds `refresh` brings up to date at once.
 pub(super) const AT_ONCE: usize = 4;
 
-/// Runs the tests of the builds `named`, or with `all` of every build with
-/// one, again, and stores what they find.
-pub(super) async fn simulate(
+/// What a refresh of one build does besides what it always does.
+#[derive(Clone, Copy)]
+pub(super) struct Refreshing {
+    /// Run its test and timing even when the stored result is of the same
+    /// file, as after a change to the simulator.
+    pub(super) again: bool,
+    /// Judge it again as its category, its stored reason for being
+    /// unverified, if any, cleared first.
+    pub(super) rejudge: bool,
+    /// Take out its unused blocks, as a new version.
+    pub(super) prune: bool,
+}
+
+/// Brings the builds `named`, or with `all` every build, up to date, as
+/// [`refresh_one`] does, taking out unused blocks with `prune`; or with
+/// `dry_run` says where what would be worked out differs from what is
+/// stored, changing nothing.
+pub(super) async fn refresh(
     db: &SqlitePool,
     named: &[String],
     all: bool,
+    prune: bool,
+    dry_run: bool,
 ) -> Result<()> {
     ensure!(
         all || !named.is_empty(),
-        "name the builds to simulate, as `rsdb search --ids` lists them, or \
+        "name the builds to refresh, as `rsdb search --ids` lists them, or \
          pass --all"
     );
     let ids = if all {
@@ -41,20 +62,29 @@ pub(super) async fn simulate(
         }
         ids
     };
-    let failed = run_tests(db, ids, !all).await?;
+    if dry_run {
+        return compare(db, &ids, all, prune).await;
+    }
+    let how = Refreshing {
+        again: true,
+        rejudge: true,
+        prune,
+    };
+    let failed = refresh_all(db, ids, !all, how).await?;
     if failed > 0 {
         bail!("{failed} builds fail their tests");
     }
     Ok(())
 }
 
-/// Runs the tests of the builds `ids` again, saying of each build with
-/// none so only when there is `one`, stores what they find, and returns
-/// how many fail.
-pub(super) async fn run_tests(
+/// Refreshes the builds `ids` as `how` says, `AT_ONCE` at a time, saying
+/// of each build with no test so only when there is `one`, and returns how
+/// many fail.
+async fn refresh_all(
     db: &SqlitePool,
     ids: Vec<String>,
     one: bool,
+    how: Refreshing,
 ) -> Result<usize> {
     let mut failed = 0;
     // Each build simulates on its own thread, `AT_ONCE` at a time, and
@@ -67,10 +97,7 @@ pub(super) async fn run_tests(
         running.spawn(async move {
             let _turn = gate.acquire_owned().await?;
             let start = std::time::Instant::now();
-            let report = match simulation::refresh(&db, &id, true).await? {
-                Some(_) => simulation::refresh_timing(&db, &id, true).await?,
-                None => None,
-            };
+            let report = refresh_one(&db, &id, how).await?;
             let name =
                 format!("{}  {}", &id[..8], load(&db, &id).await?.filename());
             anyhow::Ok((name, report, start.elapsed()))
@@ -92,6 +119,124 @@ pub(super) async fn run_tests(
         }
     }
     Ok(failed)
+}
+
+/// Brings build `id` up to date with its file, as after a change to the
+/// rules or the simulator, a new version, or new details: reads its file's
+/// facts again, judges it again as its category when `how` says to, runs
+/// its test and timing, keeps what its building blocks must be, for
+/// themes, and takes out its unused blocks when `how` says to. Returns its
+/// test's result; `None` when it has no test.
+pub(super) async fn refresh_one(
+    db: &SqlitePool,
+    id: &str,
+    how: Refreshing,
+) -> Result<Option<Report>> {
+    versions::reread(db, id).await?;
+    if how.rejudge {
+        builds::rejudge(db, id).await?;
+    }
+    let report = match simulation::refresh(db, id, how.again).await? {
+        Some(_) => simulation::refresh_timing(db, id, how.again).await?,
+        None => None,
+    };
+    simulation::keep_needs(db, id).await?;
+    if how.prune {
+        versions::prune(db, id, false).await?;
+    }
+    Ok(report)
+}
+
+/// Works out each of the builds `ids` from its file alone, and prints each
+/// field where that differs from what is stored, then how many builds
+/// differ in each; with `prune`, first what would be taken out of each.
+/// For `all`, only builds of a category whose every measured detail is
+/// worked out so.
+async fn compare(
+    db: &SqlitePool,
+    ids: &[String],
+    all: bool,
+    prune: bool,
+) -> Result<()> {
+    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut compared = 0;
+    for id in ids {
+        let s = load(db, id).await?;
+        if all && !app::category::behaviour(&s.category).evaluated {
+            continue;
+        }
+        compared += 1;
+        if prune {
+            versions::prune(db, id, true).await?;
+        }
+        let name = format!("{}  {}", &s.id[..8], s.filename());
+        let file = version::current_file(db, &s.id)
+            .await?
+            .context("schematic vanished")?;
+        // Its test and timing spread over every core already.
+        let e = match app::recognize::evaluate::evaluate(&file) {
+            Ok(e) => e,
+            Err(err) => {
+                println!("{name}: could not evaluate: {err}");
+                *tally.entry("could not evaluate").or_default() += 1;
+                continue;
+            }
+        };
+        let show = |v: &dyn std::fmt::Debug| format!("{v:?}");
+        let mut stored_flags: Vec<String> =
+            s.flags.iter().map(|f| f.name.to_owned()).collect();
+        stored_flags.sort();
+        let mut flags = e.flags.clone();
+        flags.sort();
+        let show_design =
+            |design: Option<&str>| design.unwrap_or("none").to_owned();
+        let design = e.design.as_ref().and_then(|d| d.given());
+        let fields: [(&str, String, String); 12] = [
+            (
+                "category",
+                s.category.clone(),
+                e.category.unwrap_or("none").to_owned(),
+            ),
+            ("passes", "true".to_owned(), e.passes().to_string()),
+            ("width", show(&s.width), show(&e.width)),
+            (
+                "orientation",
+                show(&Some(s.orientation)),
+                show(&e.orientation),
+            ),
+            ("encoding", show(&s.encoding), show(&e.encoding)),
+            ("flags", show(&stored_flags), show(&flags)),
+            ("stacking", show(&s.stacking), show(&e.stacking)),
+            ("latency", show(&s.latency), show(&e.latency)),
+            ("synchronized", show(&s.synchronized), show(&e.synchronized)),
+            ("throughput", show(&s.throughput), show(&e.throughput)),
+            (
+                "design",
+                show_design(s.design.as_deref()),
+                show_design(design),
+            ),
+            ("logic", show(&s.logic), show(&e.logic)),
+        ];
+        let differ: Vec<String> = fields
+            .iter()
+            .filter(|(_, stored, derived)| stored != derived)
+            .map(|(field, stored, derived)| {
+                *tally.entry(field).or_default() += 1;
+                format!("{field} {stored} -> {derived}")
+            })
+            .collect();
+        if !differ.is_empty() {
+            let signature = e.design.as_ref().map_or(String::new(), |d| {
+                format!(" [{} {} terms]", d.signature, d.products)
+            });
+            println!("{name}{signature}: {}", differ.join("; "));
+        }
+    }
+    println!("{compared} builds worked out");
+    for (field, n) in tally {
+        println!("  {n} differ in {field}");
+    }
+    Ok(())
 }
 
 /// One build's simulation result, on a line or a few.

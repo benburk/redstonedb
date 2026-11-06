@@ -358,8 +358,9 @@ pub enum Replacing<'a> {
         note: Option<&'a str>,
         restores: Option<i64>,
     },
-    /// In its current version's place, as `rsdb reread` and `rsdb replace`
-    /// fix a file: the same build, tidied, with no version added.
+    /// In its current version's place, as `rsdb refresh` and
+    /// `rsdb new-version --in-place` fix a file: the same build, tidied,
+    /// with no version added.
     InPlace,
 }
 

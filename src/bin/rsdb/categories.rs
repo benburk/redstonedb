@@ -6,6 +6,16 @@ use anyhow::{Result, bail};
 use app::{category::Kind, models::tag};
 use sqlx::SqlitePool;
 
+/// Prints every known tag with its kind and filename token.
+pub(super) async fn print_tags(db: &SqlitePool) -> Result<()> {
+    for tag in tag::all(db).await? {
+        let (kind, token) =
+            (tag.kind.name(), tag.token.as_deref().unwrap_or(""));
+        println!("{kind:<12} {token:<8} {}", tag.label());
+    }
+    Ok(())
+}
+
 /// Adds a tag, unless the build itself works it out, as it does torchless.
 pub(super) async fn define_tag(
     db: &SqlitePool,

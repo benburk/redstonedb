@@ -1,11 +1,8 @@
 //! Changing a stored build's file: as a new version, checked as the site
 //! checks one or with its unused blocks taken out, or in place as a fix to
-//! the file; reading every file again; and keeping an author's colours.
+//! the file; and reading a stored file's facts again.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use app::{
@@ -20,15 +17,11 @@ use app::{
 use clap::Args;
 use sqlx::SqlitePool;
 
-use super::{load, resolve, simulate::print_report};
-
-#[derive(Args)]
-pub(super) struct Replace {
-    id: String,
-    file: PathBuf,
-    #[command(flatten)]
-    standardizing: Standardizing,
-}
+use super::{
+    load,
+    refresh::{Refreshing, print_report, refresh_one},
+    resolve,
+};
 
 #[derive(Args)]
 pub(super) struct Standardizing {
@@ -47,23 +40,21 @@ impl Standardizing {
     }
 }
 
-/// Reads every stored file again as an upload's is prepared, and prints
-/// what changed; see [`refile`].
-pub(super) async fn reread(db: &SqlitePool) -> Result<()> {
-    for s in schematic::all(db).await? {
-        let stored = version::current_file(db, &s.id)
-            .await?
-            .context("schematic vanished")?;
-        refile(db, &s, &stored, false).await?;
-    }
-    Ok(())
+/// Reads build `id`'s stored file again as an upload's is prepared, and
+/// prints what changed; see [`refile`].
+pub(super) async fn reread(db: &SqlitePool, id: &str) -> Result<()> {
+    let s = load(db, id).await?;
+    let stored = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    refile(db, &s, &stored, false).await
 }
 
 /// Prepares `file` as build `s`'s file, standardized if asked, as an
 /// upload's is, keeping where it pastes if the build does: puts it in place
 /// of the current version if it, its facts, or its size differ from what
-/// is stored, saying what changed, and simulates it. No version is added
-/// and nothing is compared.
+/// is stored, saying what changed. No version is added and nothing is
+/// compared.
 async fn refile(
     db: &SqlitePool,
     s: &schematic::Schematic,
@@ -97,107 +88,72 @@ async fn refile(
         let (nx, ny, nz) = size;
         println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
     }
-    simulation::refresh(db, &s.id, false).await?;
-    simulation::refresh_timing(db, &s.id, false).await?;
-    simulation::keep_needs(db, &s.id).await?;
     Ok(())
 }
 
-/// Puts `args.file` in place of build `args.id`'s current file, as a fix
-/// to the file rather than a new version; see [`refile`].
-pub(super) async fn replace(db: &SqlitePool, args: &Replace) -> Result<()> {
-    let id = resolve(db, &args.id).await?;
-    let s = load(db, &id).await?;
-    let file = fs::read(&args.file)?;
-    refile(db, &s, &file, args.standardizing.asked()).await
-}
-
-/// Keeps the colours the author's copy at `file` gives build `id`, with
-/// the newest version it matches, or says where it comes closest to the
-/// current one.
-pub(super) async fn colours(
-    db: &SqlitePool,
-    id: &str,
-    file: &Path,
-) -> Result<()> {
-    let id = resolve(db, id).await?;
-    let original = fs::read(file)?;
-    let versions = sqlx::query_scalar!(
-        "SELECT version FROM schematic_version WHERE schematic_id = ?
-         ORDER BY version DESC",
-        id,
-    )
-    .fetch_all(db)
-    .await?;
-    let mut closest = None;
-    for version in versions {
-        let Some(data) = version::data(db, &id, version).await? else {
-            continue;
-        };
-        match app::recognize::colouring::read(&original, &data)? {
-            Ok(colours) => {
-                version::set_colours(db, &id, version, &colours).await?;
-                println!(
-                    "{}: kept {} blocks' colours with version {version}",
-                    &id[..8],
-                    colours.len()
-                );
-                return Ok(());
-            }
-            Err(faults) => {
-                closest.get_or_insert((version, faults));
-            }
-        }
-    }
-    let (version, faults) = closest.context("no stored versions")?;
-    bail!(
-        "{} doesn't match any version; closest to version {version}:\n  {}",
-        &id[..8],
-        faults.join("\n  ")
-    )
-}
-
 /// Replaces build `id`'s file with `file` as its next version, after the
-/// checks the site makes, then simulates it again. For the migration to
-/// the rule for outputs, `migration`, it may change more blocks than a
-/// new version may, every other check made.
+/// checks the site makes, or with `in_place` puts it in place of the
+/// current one as a fix to the file, no version added and nothing
+/// compared; then refreshes the build, as `rsdb refresh` does, saying how
+/// its test went.
 pub(super) async fn new_version(
     db: &SqlitePool,
     id: &str,
     file: &Path,
     note: Option<&str>,
-    migration: bool,
+    in_place: bool,
     standardizing: &Standardizing,
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
     let raw = fs::read(file)?;
+    let name = format!("{}  {}", &id[..8], s.filename());
+    if in_place {
+        refile(db, &s, &raw, standardizing.asked()).await?;
+    } else {
+        next_version(db, &s, &raw, file, note, standardizing).await?;
+    }
+    let how = Refreshing {
+        again: false,
+        rejudge: true,
+        prune: false,
+    };
+    if let Some(report) = refresh_one(db, &id, how).await? {
+        print_report(&name, &report);
+    }
+    Ok(())
+}
+
+/// Adds `raw`, read from `file`, as build `s`'s next version, after the
+/// checks the site makes, keeping the colours its author gave it, and
+/// moving the build up to the category it stands in for when the version
+/// is recognized as one, as on the site.
+async fn next_version(
+    db: &SqlitePool,
+    s: &schematic::Schematic,
+    raw: &[u8],
+    file: &Path,
+    note: Option<&str>,
+    standardizing: &Standardizing,
+) -> Result<()> {
+    let id = &s.id;
     let checked =
-        app::version::check(db, &s, &raw, standardizing.asked()).await?;
+        app::version::check(db, s, raw, standardizing.asked()).await?;
     let comparison = checked.comparison;
     println!(
         "changed {} of {} blocks",
         comparison.changed,
         comparison.changed + comparison.same
     );
-    let refusals: Vec<&str> = if migration {
-        checked.refusals_but_changes()
-    } else {
-        checked.refusals.iter().map(String::as_str).collect()
-    };
-    if !refusals.is_empty() {
-        for refusal in &refusals {
+    if !checked.refusals.is_empty() {
+        for refusal in &checked.refusals {
             println!("{refusal}");
         }
         bail!("{} cannot replace {}", file.display(), &id[..8]);
     }
-    if refusals.len() < checked.refusals.len() {
-        println!("changing more than a new version may, for the migration");
-    }
-    // A port to a new rule is the site's own doing; any other new version
-    // from here, an admin's.
+    // Any new version from here is an admin's.
     let how = Replacing::NextVersion {
-        added_by: migration.then_some(app::models::user::REDSTONEDB),
+        added_by: None,
         added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
         restores: None,
@@ -205,7 +161,7 @@ pub(super) async fn new_version(
     // Unverified or off the list, a version recognized as the category it
     // stands in for moves it up, as on the site.
     let categories = Category::all();
-    let moved = match simulation::stands_in(&s) {
+    let moved = match simulation::stands_in(s) {
         Some(meant) => {
             import::moved_up(
                 &categories,
@@ -218,13 +174,13 @@ pub(super) async fn new_version(
         None => None,
     };
     let kept = moved.as_ref().map_or(&checked.prepared, |(file, _)| file);
-    let number = version::replace(db, &id, kept, how).await?;
+    let number = version::replace(db, id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
     // The colours its author gave it, read off the file given.
-    match app::recognize::colouring::read(&raw, &kept.data)? {
+    match app::recognize::colouring::read(raw, &kept.data)? {
         Ok(colours) if !colours.is_empty() => {
-            version::set_colours(db, &id, number, &colours).await?;
+            version::set_colours(db, id, number, &colours).await?;
             println!("{name}: kept {} blocks' colours", colours.len());
         }
         Ok(_) => {}
@@ -237,96 +193,71 @@ pub(super) async fn new_version(
         let given = Details {
             category: to.name.clone(),
             unverified: None,
-            ..Details::of(&s)
+            ..Details::of(s)
         };
         match details::check(db, given, details::Build::of(file), true).await? {
             Ok(ready) => {
-                schematic::set_details(db, &id, &ready).await?;
+                schematic::set_details(db, id, &ready).await?;
                 println!("{name}: moved up as {}", to.name);
             }
             Err(why) => println!("{name}: not moved up: {why}"),
         }
     }
-    if simulation::refresh(db, &id, false).await?.is_some()
-        && let Some(report) = simulation::refresh_timing(db, &id, false).await?
-    {
-        print_report(&name, &report);
-    }
-    // As the site does once a version is in, without taking anything out,
-    // so a fix by hand is shown in each theme.
-    simulation::keep_needs(db, &id).await?;
     Ok(())
 }
 
-/// Takes the unused blocks out of build `id`, or of every build with a
-/// test, as `rsdb prune` says.
+/// Takes the blocks no part of build `id`'s circuit uses out of it, as a
+/// new version, only where the site's test passes and its timing comes out
+/// the same, then simulates it again; or with `dry_run` says what would be
+/// taken out, changing nothing. A build with no test is left as it is.
 pub(super) async fn prune(
     db: &SqlitePool,
-    id: Option<&str>,
+    id: &str,
     dry_run: bool,
 ) -> Result<()> {
-    let ids = match id {
-        Some(prefix) => vec![resolve(db, prefix).await?],
-        None => schematic::all(db)
-            .await?
-            .into_iter()
-            .map(|s| s.id)
-            .collect(),
-    };
-    let (mut builds, mut blocks) = (0, 0);
-    for id in &ids {
-        let s = load(db, id).await?;
-        let name = format!("{}  {}", &id[..8], s.filename());
-        if app::simulate::Test::of(&s.category, s.width).is_none() {
-            if ids.len() == 1 {
-                println!("{name}: no test for its category and width");
-            }
-            continue;
-        }
-        let data = version::current_file(db, id)
-            .await?
-            .context("schematic vanished")?;
-        let buses = app::schem::stack::Buses::of(s.kind(), s.orientation);
-        let pruned =
-            match app::recognize::roles::prune(&data, &s.stacking, buses) {
-                Ok(Some(pruned)) => pruned,
-                Ok(None) => continue,
-                Err(err) => {
-                    println!("skip    {name}: {err}");
-                    continue;
-                }
-            };
-        let checked = app::version::check(db, &s, &pruned.file, false).await?;
-        if let Some(refusal) = checked.refusals.first() {
-            println!("skip    {name}: {refusal}");
-            continue;
-        }
-        builds += 1;
-        blocks += pruned.gone.len();
-        let verb = if dry_run { "would" } else { "pruned" };
-        let n = pruned.gone.len();
-        let gone: Vec<String> = pruned
-            .gone
-            .iter()
-            .map(|[x, y, z]| format!("{x},{y},{z}"))
-            .collect();
-        println!("{verb} {name}: {n} blocks: {}", gone.join(" "));
-        if dry_run {
-            continue;
-        }
-        let how = Replacing::NextVersion {
-            added_by: Some(app::models::user::REDSTONEDB),
-            added_from: None,
-            note: Some("Unused blocks taken out"),
-            restores: None,
-        };
-        version::replace(db, id, &checked.prepared, how).await?;
-        if simulation::refresh(db, id, false).await?.is_some() {
-            simulation::refresh_timing(db, id, false).await?;
-        }
-        simulation::keep_needs(db, id).await?;
+    let s = load(db, id).await?;
+    let name = format!("{}  {}", &id[..8], s.filename());
+    if app::simulate::Test::of(&s.category, s.width).is_none() {
+        return Ok(());
     }
-    let verb = if dry_run { "would take" } else { "took" };
-    println!("{verb} {blocks} blocks out of {builds} builds");
+    let data = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    let buses = app::schem::stack::Buses::of(s.kind(), s.orientation);
+    let pruned = match app::recognize::roles::prune(&data, &s.stacking, buses) {
+        Ok(Some(pruned)) => pruned,
+        Ok(None) => return Ok(()),
+        Err(err) => {
+            println!("skip    {name}: {err}");
+            return Ok(());
+        }
+    };
+    let checked = app::version::check(db, &s, &pruned.file, false).await?;
+    if let Some(refusal) = checked.refusals.first() {
+        println!("skip    {name}: {refusal}");
+        return Ok(());
+    }
+    let verb = if dry_run { "would" } else { "pruned" };
+    let n = pruned.gone.len();
+    let gone: Vec<String> = pruned
+        .gone
+        .iter()
+        .map(|[x, y, z]| format!("{x},{y},{z}"))
+        .collect();
+    println!("{verb} {name}: {n} blocks: {}", gone.join(" "));
+    if dry_run {
+        return Ok(());
+    }
+    let how = Replacing::NextVersion {
+        added_by: Some(app::models::user::REDSTONEDB),
+        added_from: None,
+        note: Some("Unused blocks taken out"),
+        restores: None,
+    };
+    version::replace(db, id, &checked.prepared, how).await?;
+    if simulation::refresh(db, id, false).await?.is_some() {
+        simulation::refresh_timing(db, id, false).await?;
+    }
+    simulation::keep_needs(db, id).await?;
     Ok(())
 }

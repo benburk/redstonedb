@@ -17,7 +17,11 @@ use app::{
 use clap::Args;
 use sqlx::SqlitePool;
 
-use super::{load, resolve};
+use super::{
+    load,
+    refresh::{Refreshing, refresh_one},
+    resolve,
+};
 
 #[derive(Args)]
 pub(super) struct Set {
@@ -28,6 +32,12 @@ pub(super) struct Set {
     orientation: Option<Orientation>,
     #[command(flatten)]
     details: DetailArgs,
+    /// A tag to attach, named in full or by its filename token; repeatable
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    /// A tag to detach, named in full or by its filename token; repeatable
+    #[arg(long = "untag")]
+    untags: Vec<String>,
     /// Field to make unknown; repeatable
     #[arg(
         long,
@@ -87,14 +97,28 @@ struct DetailArgs {
     conventional: Option<bool>,
 }
 
-/// Prints the id and file name of each build matching `terms`.
+/// Prints the id and file name of each build matching `terms`, every build
+/// with none. A term that is the start of an id, such as `72e896eb`, finds
+/// the build whose id starts so, beside what the other terms find.
 pub(super) async fn search_command(
     db: &SqlitePool,
     terms: &[String],
     ids: bool,
 ) -> Result<()> {
-    let terms = search::parse(&terms.join(" "));
-    for s in search::matching(&terms, schematic::all(db).await?) {
+    let (prefixes, words): (Vec<&String>, Vec<&String>) =
+        terms.iter().partition(|term| id_prefix(term));
+    let words: Vec<&str> = words.iter().map(|word| word.as_str()).collect();
+    let terms = search::parse(&words.join(" "));
+    let builds = schematic::all(db).await?;
+    let builds = if prefixes.is_empty() {
+        builds
+    } else {
+        builds
+            .into_iter()
+            .filter(|s| prefixes.iter().any(|p| s.id.starts_with(p.as_str())))
+            .collect()
+    };
+    for s in search::matching(&terms, builds) {
         if ids {
             println!("{}", &s.id[..8]);
         } else {
@@ -102,6 +126,16 @@ pub(super) async fn search_command(
         }
     }
     Ok(())
+}
+
+/// Whether `term` reads as the start of a build's id: four or more hex
+/// digits, with a letter among them, or eight or more, as a width such as
+/// `1024` has neither.
+fn id_prefix(term: &str) -> bool {
+    let hex = term.len() >= 4 && term.chars().all(|c| c.is_ascii_hexdigit());
+    let lettered = term.chars().any(|c| c.is_ascii_alphabetic());
+    let digited = term.chars().any(|c| c.is_ascii_digit());
+    hex && digited && (lettered || term.len() >= 8)
 }
 
 /// Deletes build `id`.
@@ -113,14 +147,17 @@ pub(super) async fn remove(db: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Changes the fields `args` gives and forgets the ones it unsets, holding
-/// the details to the rules the edit page does.
+/// Changes the fields `args` gives, its tags too, and forgets the ones it
+/// unsets, holding the details to the rules the edit page does, then
+/// refreshes the build, as `rsdb refresh` does.
 pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let Set {
         id,
         category,
         orientation,
         details: given,
+        tags,
+        untags,
         unset,
     } = args;
     let id = resolve(db, &id).await?;
@@ -133,6 +170,16 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         details.orientation = orientation;
     }
     overlay(&mut details, &given, &unset);
+    for name in &tags {
+        let name = tag_name(db, name).await?;
+        if !details.tags.contains(&name) {
+            details.tags.push(name);
+        }
+    }
+    for name in &untags {
+        let name = tag_name(db, name).await?;
+        details.tags.retain(|kept| *kept != name);
+    }
     let conventional = given.conventional.unwrap_or(s.conventional);
     // Under its category, read as it was, it stays as verified as it was;
     // another category, or its file read another way, is recognized
@@ -174,11 +221,70 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     .await?;
     // A new category or width may bring a test or drop one; recognized
     // now, it keeps what its building blocks must be, for themes, as an
-    // upload does.
-    simulation::refresh(db, &id, false).await?;
-    simulation::refresh_timing(db, &id, false).await?;
-    simulation::keep_needs(db, &id).await?;
+    // upload does. It was judged as its category just now.
+    let how = Refreshing {
+        again: false,
+        rejudge: false,
+        prune: false,
+    };
+    refresh_one(db, &id, how).await?;
     println!("{}", load(db, &id).await?.filename());
+    Ok(())
+}
+
+/// The full name of the tag `given` names, in full or by its filename
+/// token, which must be known; see `rsdb tags`.
+async fn tag_name(db: &SqlitePool, given: &str) -> Result<String> {
+    let name = tag::name(given);
+    let found = tag::all(db)
+        .await?
+        .into_iter()
+        .find(|t| t.name == name || t.token.as_deref() == Some(&name))
+        .with_context(|| {
+            format!(
+                "unknown tag {given}; see `rsdb tags`, or `rsdb tags --define`"
+            )
+        })?;
+    Ok(found.name)
+}
+
+/// Judges build `id` again as a build of its category, as `set` does when
+/// its category or conventions change: its stored reason for being
+/// unverified cleared, its details held to the rules again, which tests
+/// it, and stored only when the verdict differs, so a build is not marked
+/// edited by being judged the same. Details the rules refuse, as a name
+/// Mojang no longer knows, leave it as it was, saying why.
+pub(super) async fn rejudge(db: &SqlitePool, id: &str) -> Result<()> {
+    let s = load(db, id).await?;
+    let data = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    let details = Details {
+        unverified: None,
+        ..Details::of(&s)
+    };
+    let build = details::Build {
+        data: &data,
+        conventional: s.conventional,
+        passes: false,
+    };
+    match details::check(db, details, build, true).await? {
+        Ok(ready) if ready.details.unverified != s.unverified => {
+            schematic::set_details(db, id, &ready).await?;
+            let now = ready.details.unverified.as_deref();
+            println!(
+                "{}  {}",
+                &id[..8],
+                now.map_or("verified".to_owned(), |why| format!(
+                    "unverified: {why}"
+                ))
+            );
+        }
+        Ok(_) => {}
+        Err(message) => {
+            println!("{}  not judged again: {message}", &id[..8]);
+        }
+    }
     Ok(())
 }
 
@@ -300,27 +406,6 @@ fn copy_counts(
             Ok((name.trim().to_owned(), count.trim().parse()?))
         })
         .collect()
-}
-
-/// Prints the schematics with `category`, if given, and every one of `tags`,
-/// each named in full or by its filename token.
-pub(super) async fn list(
-    db: &SqlitePool,
-    category: Option<&str>,
-    tags: &[String],
-) -> Result<()> {
-    for s in schematic::all(db).await? {
-        let has_tags = tags.iter().all(|t| {
-            let name = tag::name(t);
-            s.tags
-                .iter()
-                .any(|tag| tag.name == name || tag.token() == t)
-        });
-        if category.is_none_or(|f| f == s.category) && has_tags {
-            println!("{}  {}", &s.id[..8], s.filename());
-        }
-    }
-    Ok(())
 }
 
 /// Draws each of `app::recognize::guide`'s examples into `dir`, as the page

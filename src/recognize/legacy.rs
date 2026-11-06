@@ -1,6 +1,6 @@
 //! The rule the site read inputs and outputs by before it read them by
-//! the blocks themselves, kept only to port builds saved under it, as
-//! `rsdb convert` and `rsdb outputs` do: an output was a lone block of a
+//! the blocks themselves, kept only to read builds saved under it, as the
+//! site's migration from it ported them: an output was a lone block of a
 //! kind marking outputs, read through the dust, repeater, or comparator on
 //! it, and a signal-strength input a block of an input colour with dust on
 //! top. Nothing that recognizes a build reads by it; see
@@ -32,7 +32,7 @@ thread_local! {
 
 /// What `run` gives with every read of a build's lines,
 /// [`interface::read`] and [`interface::feeds`], by the old rule, as
-/// [`read`] reads them: how `rsdb convert` tests a build saved under it,
+/// [`read`] reads them: how the migration tested a build saved under it,
 /// and its port with its taps coloured as its outputs were, by the
 /// category's own test.
 pub fn reading<T>(run: impl FnOnce() -> T) -> T {
@@ -285,7 +285,7 @@ fn mark(state: &str) -> Option<Role> {
 /// input's comparator by its input colour, and each block under an output
 /// by its output colour. `None` for a file the site never coloured, none
 /// of its signal-strength inputs or outputs on a block of a role colour.
-/// How `rsdb convert` carries an old build's roles to its port.
+/// How the migration carried an old build's roles to its port.
 pub fn colour_roles(blocks: &Blocks) -> Option<Roles> {
     let held = |at: Pos| at[1] > 0;
     let digits: Vec<Pos> = repeater_outputs::strength_inputs(blocks)
