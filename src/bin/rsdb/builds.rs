@@ -172,9 +172,12 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         conventional,
     )
     .await?;
-    // A new category or width may bring a test or drop one.
+    // A new category or width may bring a test or drop one; recognized
+    // now, it keeps what its building blocks must be, for themes, as an
+    // upload does.
     simulation::refresh(db, &id, false).await?;
     simulation::refresh_timing(db, &id, false).await?;
+    simulation::keep_needs(db, &id).await?;
     println!("{}", load(db, &id).await?.filename());
     Ok(())
 }
