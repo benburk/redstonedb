@@ -59,6 +59,10 @@ named_values! {
 /// A stored schematic's metadata. Its file stays in the database until
 /// [`super::version::current_file`] fetches it.
 #[derive(Debug, Clone)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a row of facts, each yes or no on its own"
+)]
 pub struct Schematic {
     pub id: String,
     pub category: String,
@@ -163,6 +167,10 @@ pub struct Schematic {
     /// How its current file's operands' bits lie, as its kept roles place
     /// them.
     pub operands: Operands,
+    /// Whether a bus of its current file's, as its kept roles place it,
+    /// isn't laid as the conventions lay one; see `Kept::unaligned`. Such
+    /// a build is recognized all the same, but ranks on no board.
+    pub unaligned: bool,
     /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `failing` if it is not recognized as its
     /// category or simulating its file got some cases wrong, see
@@ -201,10 +209,17 @@ pub fn file_stem(name: &str) -> String {
 impl Schematic {
     /// Whether it is verified as its category: recognized as one, if its
     /// category is one the site recognizes, and passing its test, if it
-    /// has one. Only a verified build ranks, and lists unless the unverified
-    /// are asked for.
+    /// has one. Only a verified build lists unless the unverified are asked
+    /// for.
     pub fn verified(&self) -> bool {
         self.unverified.is_none() && !self.tags.iter().any(Tag::is_unverified)
+    }
+
+    /// Whether it ranks on its category's boards: verified, its buses laid
+    /// as the conventions lay them, as an unaligned build's are not, which
+    /// lists only when asked for.
+    pub fn ranks(&self) -> bool {
+        self.verified() && !self.unaligned
     }
 
     /// Whether it is untested, unverified only because its inputs,
@@ -348,6 +363,11 @@ impl Schematic {
                 });
             }
         }
+        let unaligned = self.unaligned.then(|| Tag {
+            name: tag::UNALIGNED.to_owned(),
+            token: None,
+            kind: found(tag::Kind::Feature, true),
+        });
         let interleaved = self.interleaved_inputs().then(|| Tag {
             name: tag::INTERLEAVED_INPUTS.to_owned(),
             token: None,
@@ -371,6 +391,7 @@ impl Schematic {
             .chain(pitches)
             .chain(self.word_tags(found(tag::Kind::Feature, true)))
             .chain(interleaved)
+            .chain(unaligned)
             .chain(synced)
             .chain(rest.into_iter().cloned())
             .collect()
@@ -674,6 +695,7 @@ mod tests {
             public: true,
             unverified: None,
             operands: Operands::Split,
+            unaligned: false,
             tags: vec![Tag {
                 name: "alpha".to_owned(),
                 token: None,
@@ -724,6 +746,18 @@ mod tests {
         let given: Vec<&str> =
             s.every_tag()[1..4].iter().map(Tag::class).collect();
         assert_eq!(given, ["badge-other", "badge-other", "badge-other"]);
+    }
+
+    /// An unaligned build is verified, and tagged so, but ranks on no
+    /// board.
+    #[test]
+    fn an_unaligned_build_is_verified_but_does_not_rank() {
+        let mut s = cla();
+        assert!(s.verified() && s.ranks());
+        assert!(!s.every_tag().iter().any(|t| t.name == tag::UNALIGNED));
+        s.unaligned = true;
+        assert!(s.verified() && !s.ranks());
+        assert!(s.every_tag().iter().any(|t| t.name == tag::UNALIGNED));
     }
 
     #[test]

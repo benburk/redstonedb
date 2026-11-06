@@ -155,7 +155,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                 (rule(
                     "buses",
                     "Buses",
-                    "need to be evenly spaced lines, straight or diagonal, or two lines with their bits alternating.",
+                    "need to be evenly spaced lines, straight or diagonal, or two lines with their bits alternating. A build whose buses aren't, such as one whose top bits stand out of line, is still recognized when every case comes out right, tagged unaligned: it goes in its category, listed when you tick Show unaligned, but ranks on no board.",
                     &["bus-straight", "bus-diagonal", "bus-alternating", "bus-uneven"],
                 ))
                 div class="max-w-prose" {

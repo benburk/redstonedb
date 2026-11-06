@@ -37,6 +37,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 ## Buses
 
 - Each bus is a line of bits, evenly spaced: straight, or rising one block per block across. A bus may also be two such lines, its bits alternating.
+- A build whose buses aren't so laid, such as one whose top bits stand out of line, whose outputs are unevenly spaced, or whose levers climb a staircase, is recognized all the same when its test passes on the lines the check by function reads: it goes in its category, tagged `unaligned`, but ranks on no board.
 - A bus's least significant bit is nearest the box's south-east-bottom corner, counting along the axis its bits spread furthest. Standardizing mirrors an upload east for west when that reads right. An `lsb` or `msb` sign on a bus end turns its count round.
 
 ## What the site does

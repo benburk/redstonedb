@@ -40,6 +40,10 @@ How a build's numbers are written on its lines. A category that reads its orient
 | `bin` | binary                  |
 | `hex` | signal-strength encoded |
 
+## Unaligned
+
+A tag worked out from a build's file, never given by hand: a bus of its, an operand or an output, whose bits aren't one evenly spaced line, or two alternating, as the conventions lay a bus, such as one whose top bits stand out of line, whose outputs are unevenly spaced, or whose levers climb a staircase. Such a build is recognized as its category when every case of its test comes out right, but ranks on no board; a listing shows it only when Show unaligned is ticked, or when the search asks for `unaligned`.
+
 ## Stateless
 
 A field: whether, once a build's inputs stop changing, its outputs depend only on them. An adder is stateless; a register, which remembers what was written, is stateful. A pipelined build is stateless too, holding values only on their way through. Each standard category gives its builds' usual value, and a build gives its own only when it departs from that, such as a stateful multiplier (`--logic stateless` or `--logic stateful` on `rsdb set`, and `--unset logic` to follow the category again). Bussing, Display, Line Drawer, and categories off the list have no usual value. The field was called logic, combinational or sequential; search finds it by either name.

@@ -17,7 +17,8 @@ pub type BitAt = (usize, usize);
 /// A bus a slot takes, its bits least significant first, and how far it
 /// strays from the conventions: 1 for counted the other way round from the
 /// site's count, and for a run but its top bit; 2 for any other run it is
-/// not the whole of, but for a lone line taken from a row of them.
+/// not the whole of, but for a lone line taken from a row of them, and for
+/// two lines' bits alternating.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bus {
     pub bits: Vec<BitAt>,
@@ -123,10 +124,11 @@ impl Pool {
     /// Every bus of `width` bits that can be taken from the pool, each
     /// with the pool left after, and each either way round, the way
     /// `conventional` says the site counts costing nothing more: a whole
-    /// stretch, a lone line from one, or either end of one a bit longer;
-    /// and when `bent`, either end of a longer one, the alternate bits of
-    /// one twice as long, the bits of two stretches half as long,
-    /// alternating, a whole run a bit shorter and a bit beside one of its
+    /// stretch, a lone line from one, either end of one a bit longer, a
+    /// half or the alternate bits of one twice as long, or the bits of two
+    /// stretches half as long, alternating, as the conventions lay a bus;
+    /// and when `bent`, either end of a longer one, a whole run a bit
+    /// shorter and a bit beside one of its
     /// ends, joined there, as when a build's top bits stand out of line, or
     /// every bit left, when they are `width` bits, in order along the way
     /// they spread furthest, no two level on it, as a staircase of short
@@ -137,38 +139,46 @@ impl Pool {
         conventional: Conventional,
         bent: bool,
     ) -> Vec<(Bus, Pool)> {
-        let mut found: Vec<(Vec<BitAt>, u32, Pool)> = Vec::new();
+        // Each bus, its cost, whether it bends the conventions, and the
+        // pool left after.
+        let mut found: Vec<(Vec<BitAt>, u32, bool, Pool)> = Vec::new();
         for (i, stretch) in self.stretches.iter().enumerate() {
             let len = stretch.len();
             if len == width {
                 found.push((
                     stretch.clone(),
                     0,
+                    false,
                     self.without(&[i], Vec::new()),
                 ));
             }
-            // A lone line from a row is as plain as any, and a carry out
-            // above a sum nearly so.
-            if len > width && (bent || width == 1 || len == width + 1) {
-                let bent = match () {
-                    () if width == 1 => 0,
-                    () if len == width + 1 => 1,
-                    () => BENT,
+            // A lone line from a row is as plain as any, a carry out above
+            // a sum nearly so, and a run of two operands, halved, keeps the
+            // conventions too, as a bus of two lines does.
+            let halved = len == 2 * width;
+            if len > width && (bent || width == 1 || len == width + 1 || halved)
+            {
+                let (cost, bends) = match () {
+                    () if width == 1 => (0, false),
+                    () if len == width + 1 => (1, false),
+                    () => (BENT, !halved),
                 };
                 let (low, high) = stretch.split_at(width);
                 found.push((
                     low.to_vec(),
-                    bent,
+                    cost,
+                    bends,
                     self.without(&[i], vec![high.to_vec()]),
                 ));
                 let (low, high) = stretch.split_at(len - width);
                 found.push((
                     high.to_vec(),
-                    bent,
+                    cost,
+                    bends,
                     self.without(&[i], vec![low.to_vec()]),
                 ));
             }
-            if bent && width > 1 && len == 2 * width {
+            if width > 1 && halved {
                 let even: Vec<BitAt> =
                     stretch.iter().step_by(2).copied().collect();
                 let odd: Vec<BitAt> =
@@ -176,12 +186,15 @@ impl Pool {
                 found.push((
                     even.clone(),
                     BENT,
+                    false,
                     self.without(&[i], vec![odd.clone()]),
                 ));
-                found.push((odd, BENT, self.without(&[i], vec![even])));
+                found.push((odd, BENT, false, self.without(&[i], vec![even])));
             }
         }
-        if bent && width > 1 && width.is_multiple_of(2) {
+        // A bus of two parallel lines, its bits alternating, keeps the
+        // conventions.
+        if width > 1 && width.is_multiple_of(2) {
             for (i, x) in self.stretches.iter().enumerate() {
                 for (j, y) in self.stretches.iter().enumerate() {
                     if i == j || x.len() != width / 2 || y.len() != width / 2 {
@@ -189,16 +202,18 @@ impl Pool {
                     }
                     let bits =
                         x.iter().zip(y).flat_map(|(a, b)| [*a, *b]).collect();
-                    found.push((bits, BENT, self.without(&[i, j], Vec::new())));
+                    let rest = self.without(&[i, j], Vec::new());
+                    found.push((bits, BENT, false, rest));
                 }
             }
         }
         if bent && width > 1 {
-            found.extend(self.strays(width));
-            found.extend(self.spread(width));
+            let bends = |(bits, cost, rest)| (bits, cost, true, rest);
+            found.extend(self.strays(width).into_iter().map(bends));
+            found.extend(self.spread(width).into_iter().map(bends));
         }
         let mut buses: Vec<(Bus, Pool)> = Vec::new();
-        for (bits, cost, rest) in found {
+        for (bits, cost, bends, rest) in found {
             let mut back = bits.clone();
             back.reverse();
             let ways = if width == 1 {
@@ -209,7 +224,7 @@ impl Pool {
             for bits in ways {
                 let bus = Bus {
                     cost: cost + u32::from(!conventional(&bits)),
-                    bent: cost >= BENT,
+                    bent: bends,
                     bits,
                 };
                 if !buses.iter().any(|(b, _)| b.bits == bus.bits) {

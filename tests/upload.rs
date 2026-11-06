@@ -247,3 +247,40 @@ async fn a_file_published_as_suggested_goes_up_as_what_it_is() {
     let again = app::web::publish_suggested(&db, &user, &raw).await.unwrap();
     assert!(again.is_err());
 }
+
+/// A build whose buses bend the conventions, its top bits out of line, its
+/// outputs unevenly spaced, or its levers climbing a staircase, is found
+/// by matching where probing finds none, kept standardized in its
+/// category, and unaligned; a build whose buses keep them is not.
+#[tokio::test]
+#[ignore = "measures whole builds: just test-full"]
+async fn an_unaligned_build_is_kept_in_its_category() {
+    let categories = Category::all();
+    for (name, category, unaligned) in [
+        ("gt-8", "greater_than", true),
+        ("adder-8-lsb-top", "adder", true),
+        ("negator-8-staircase", "negator", true),
+        ("cca-16-raw", "adder", false),
+    ] {
+        let raw =
+            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+        let recognized = app::recognize::probe::recognize(&raw).unwrap();
+        assert!(
+            recognized.found.is_some(),
+            "{name}: {:?}",
+            recognized.problems
+        );
+        let upload = Upload::read(&recognized.file).unwrap();
+        let Ok(Kept::Standard {
+            file,
+            category: kept,
+        }) = import::kept(&categories, category, &upload).await.unwrap()
+        else {
+            panic!("{name} is not kept as a {category}");
+        };
+        assert_eq!(kept, category);
+        let lines =
+            app::recognize::interface::Kept::read(&file.blocks).unwrap();
+        assert_eq!(lines.unaligned(), unaligned, "{name}");
+    }
+}

@@ -93,9 +93,10 @@ async fn index(
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = Category::all();
     let viewing = super::super::viewing(&state.db, viewer).await?;
-    // A category's tile counts and pictures its verified builds.
+    // A category's tile counts and pictures the builds that rank on its
+    // boards: verified, and none unaligned.
     let verified: Vec<Schematic> =
-        all.iter().filter(|s| s.verified()).cloned().collect();
+        all.iter().filter(|s| s.ranks()).cloned().collect();
     let index = pages::Index {
         tiles: &tiles(&categories, &verified),
         recent: &recent(&all),
@@ -205,8 +206,27 @@ async fn listing(
                     || in_category(s, &query.category))
         })
         .count();
+    // Unaligned builds too, verified though they are, as they rank on no
+    // board.
+    let unaligned = found
+        .iter()
+        .filter(|s| {
+            s.verified()
+                && s.unaligned
+                && (query.category.is_empty()
+                    || in_category(s, &query.category))
+        })
+        .count();
     if !query.unverified {
         found.retain(Schematic::verified);
+    }
+    // Searched for by name, as `unaligned`, they show as asked for.
+    let named = query
+        .q
+        .split_whitespace()
+        .any(|word| word.eq_ignore_ascii_case(tag::UNALIGNED));
+    if !query.unaligned && !named {
+        found.retain(|s| !s.unaligned);
     }
     let facets = facets(&categories, &found, &query.category);
     let mut shown: Vec<Schematic> = if query.category.is_empty() {
@@ -225,6 +245,7 @@ async fn listing(
         query: &query,
         terms: &terms,
         unverified,
+        unaligned,
         facets: &facets,
         viewing: &viewing,
     };
