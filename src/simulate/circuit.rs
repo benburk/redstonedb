@@ -589,15 +589,19 @@ impl Circuit {
     /// shows that much later than it arrives: a repeater its delay, from 1
     /// to 4, and a comparator 1, whether its bit is read as on or off or as
     /// a strength; dust, which an output saved under the old rule is read
-    /// through, none.
+    /// through, none. One fed from a side, a repeater a side may lock or a
+    /// comparator a side may subtract from or compare against, does the
+    /// build's own work, as a latch holding its bit does, so carries it out
+    /// in no ticks: its own count in the build's.
     pub fn carried(&self) -> Carried {
-        let delay = |pos: BlockPos| match self
-            .world
-            .get_block(pos.offset(BlockFace::Top))
-        {
-            Block::Repeater(repeater) => i32::from(repeater.delay),
-            Block::Comparator(_) => 1,
-            _ => 0,
+        let delay = |pos: BlockPos| {
+            let top = pos.offset(BlockFace::Top);
+            match self.world.get_block(top) {
+                _ if self.fed_from_a_side(top) => 0,
+                Block::Repeater(repeater) => i32::from(repeater.delay),
+                Block::Comparator(_) => 1,
+                _ => 0,
+            }
         };
         Carried(
             self.outputs
@@ -612,6 +616,30 @@ impl Circuit {
                 .collect(),
         )
     }
+
+    /// Whether the repeater or comparator at `pos` has a side something may
+    /// power, as the simulator reads its sides: a repeater or comparator
+    /// giving out into it, which locks a repeater, and for a comparator
+    /// also dust or a block of redstone beside it. Whether that side is on
+    /// is no matter: a latch's lock is off as often as on.
+    fn fed_from_a_side(&self, pos: BlockPos) -> bool {
+        let (facing, comparator) = match self.world.get_block(pos) {
+            Block::Repeater(repeater) => (repeater.facing, false),
+            Block::Comparator(c) => (c.facing, true),
+            _ => return false,
+        };
+        [facing.rotate(), facing.rotate_ccw()]
+            .into_iter()
+            .any(|side| {
+                match self.world.get_block(pos.offset(side.block_face())) {
+                    // A diode gives out away from the way it faces.
+                    Block::Repeater(r) => r.facing == side,
+                    Block::Comparator(c) => c.facing == side,
+                    Block::RedstoneWire(_) | Block::RedstoneBlock => comparator,
+                    _ => false,
+                }
+            })
+    }
 }
 
 /// The ticks each output bit's repeater or comparator takes to carry it out
@@ -620,9 +648,9 @@ impl Circuit {
 /// signal arrives at its repeater or comparator, which is the build's own
 /// work, and not as that gives it out, so a tick a tester's repeater would
 /// take counts for nothing. Moving each change back by its own bit's delay
-/// is exact, a locked repeater or a comparator's side included: each
-/// changes what it gives out only its delay after what arrives at its
-/// back or sides does.
+/// is exact: each changes what it gives out only its delay after what
+/// arrives at its back does. One fed from a side is the build's work, a
+/// latch's or a subtraction's, so is moved back by none.
 #[derive(Debug, Clone, Default)]
 pub struct Carried(Vec<Vec<i32>>);
 
