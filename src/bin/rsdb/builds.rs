@@ -134,6 +134,12 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     }
     overlay(&mut details, &given, &unset);
     let conventional = given.conventional.unwrap_or(s.conventional);
+    // Under its category, read as it was, it stays as verified as it was;
+    // another category, or its file read another way, is recognized
+    // afresh, as the edit page does.
+    if details.category != s.category || conventional != s.conventional {
+        details.unverified = None;
+    }
     let data = version::current_file(db, &id)
         .await?
         .context("schematic vanished")?;

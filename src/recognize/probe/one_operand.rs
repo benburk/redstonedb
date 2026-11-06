@@ -110,8 +110,8 @@ mod tests {
     /// levers and outputs alone: an equality comparator, a carry out, an
     /// inverter, an absolute value, a negator, an incrementer, a barrel
     /// shifter, a buffer, a monostable, a threshold, a popcount, its count
-    /// one output's strength, a parity circuit, and a binary-to-hex
-    /// converter.
+    /// one output's strength, a parity circuit, one vertical on levers on
+    /// lamps too, and a binary-to-hex converter.
     #[test]
     fn comparisons_and_one_operand_builds_are_found() {
         for (name, kind) in [
@@ -127,6 +127,7 @@ mod tests {
             ("threshold-3-raw", "threshold"),
             ("popcount-8-strength", "popcount"),
             ("parity-8", "parity"),
+            ("parity-8-vertical", "parity"),
             ("bin-hex-4", "binary_to_hex"),
         ] {
             let raw =
