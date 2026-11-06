@@ -13,7 +13,7 @@ use crate::{
         user::User,
         version::Version,
     },
-    recognize::interface::Interface,
+    recognize::{fault, interface::Interface},
     simulate::{Report, Timing},
     web::schematics::Colours,
 };
@@ -153,7 +153,8 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
 
 /// Why build `s`, unverified or filed off the list as one of category
 /// `meant`, isn't one, one reason to a line: why it was found unverified,
-/// then each fault the check by function finds on its file.
+/// then each fault the check by function finds on its file, every one that
+/// gives cases wrong said once, as the simulation shows which.
 fn not_recognized(
     s: &Schematic,
     meant: &str,
@@ -183,6 +184,12 @@ fn not_recognized(
         if !reasons.iter().any(|said| bare(said) == bare(reason)) {
             reasons.push(bare(reason));
         }
+    }
+    // Every reason that gives cases wrong as one, as the simulation below
+    // shows which, rather than a case or two from each test that found it.
+    if let Some(first) = reasons.iter().position(|r| fault::wrong_outputs(r)) {
+        reasons.retain(|reason| !fault::wrong_outputs(reason));
+        reasons.insert(first, crate::details::WRONG_OUTPUTS.to_owned());
     }
     if reasons.is_empty() {
         reasons.push(format!("Fails {label} test or conventions"));
