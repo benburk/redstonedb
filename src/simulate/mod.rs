@@ -70,6 +70,10 @@ mod value;
 
 pub use adder::Variant as AdderVariant;
 pub use alu::{flags as alu_flags, op as alu_op};
+/// An ALU's operations and status lines, as its test reads them.
+pub mod alu_ops {
+    pub use super::alu::{Op, carry_out, overflow, shift_out, zero};
+}
 pub use bench::{mask, telling};
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};

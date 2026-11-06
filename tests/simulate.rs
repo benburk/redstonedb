@@ -184,7 +184,7 @@ fn an_adders_lone_lines_need_no_signs() {
 }
 
 /// An 8-bit adder that repeats every 16 blocks up, its carry in and the
-/// gray logic under its least significant bit inside the slice: a stack is
+/// logic under its least significant bit inside the slice: a stack is
 /// the slice's box, unchanged, so every copy would keep them, and it does
 /// not stack.
 #[test]
@@ -724,7 +724,8 @@ fn a_register_file_stacks_west_until_its_bus_runs_too_far() {
 #[test]
 fn a_register_cell_with_its_driver_inside_its_box_stacks_without_it() {
     let data =
-        read_fixture("tests/fixtures/register-1-gray-driver.schem").unwrap();
+        read_fixture("tests/fixtures/register-1-driver-inside-box.schem")
+            .unwrap();
     let Some(Stacking::Wider { step, most, .. }) =
         Test::Register.stacking(&data)
     else {
@@ -740,7 +741,8 @@ fn a_register_cell_with_its_driver_inside_its_box_stacks_without_it() {
 #[test]
 fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
     let data =
-        read_fixture("tests/fixtures/register-1-gray-driver.schem").unwrap();
+        read_fixture("tests/fixtures/register-1-driver-inside-box.schem")
+            .unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
@@ -766,19 +768,6 @@ fn a_register_cell_written_by_a_button_is_timed_from_its_release() {
     assert_eq!(timing.takes, Takes::Closing);
     assert_eq!((timing.write, timing.data), (Some(3), Some(4)));
     assert_eq!(timing.latency(), Some(4));
-}
-
-/// The same cell standardized, its driver's block whitened, stacks the
-/// same way: gray marks nothing, the box found by testing does.
-#[test]
-fn a_register_cell_whose_driver_is_white_stacks_the_same() {
-    let (data, _) = register("register-1-gray-driver");
-    let Some(Stacking::Wider { step, .. }) = Test::Register.stacking(&data)
-    else {
-        panic!("it does not stack");
-    };
-    assert_eq!(step.describe(), "2 west");
-    assert!(step.faces.is_some());
 }
 
 /// The same register with barrels of 1 signal strength where its read

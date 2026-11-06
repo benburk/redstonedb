@@ -68,7 +68,7 @@ pub enum Op {
 
 impl Op {
     /// Every operation, in the order a result lists them.
-    const ALL: [Op; 13] = [
+    pub const ALL: [Op; 13] = [
         Op::Add,
         Op::Sub,
         Op::Nadd,
@@ -117,13 +117,19 @@ impl Op {
     }
 
     /// Whether it takes the carry in: an add, its result inverted or not.
-    fn takes_carry(self) -> bool {
+    pub fn takes_carry(self) -> bool {
         matches!(self, Op::Add | Op::Nadd)
     }
 
     /// What it gives for A and B of `width` bits, with `carry` into an
     /// add, before it is cut to `width` bits.
-    fn apply(self, a: Value, b: Value, carry: Value, width: usize) -> Value {
+    pub fn apply(
+        self,
+        a: Value,
+        b: Value,
+        carry: Value,
+        width: usize,
+    ) -> Value {
         let top = 1 << (width - 1);
         match self {
             Op::Add => a + b + carry,
@@ -702,7 +708,13 @@ fn check_one(
 /// Whether the adder carries out of `width` bits: an add of A, B, and
 /// `carry`, or a subtract, A + ~B + 1, which carries when A is at least B,
 /// borrowing nothing.
-fn carry_out(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
+pub fn carry_out(
+    op: Op,
+    a: Value,
+    b: Value,
+    carry: Value,
+    width: usize,
+) -> bool {
     if op == Op::Sub {
         return a >= b;
     }
@@ -712,7 +724,13 @@ fn carry_out(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
 /// Whether `op` on A and B overflows, as signed numbers of `width` bits.
 /// Only an add or subtract does; the overflow line is checked for no
 /// other.
-fn overflow(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
+pub fn overflow(
+    op: Op,
+    a: Value,
+    b: Value,
+    carry: Value,
+    width: usize,
+) -> bool {
     let top = 1 << (width - 1);
     let result = op.apply(a, b, carry, width);
     let (sa, sb, sr) = (a & top != 0, b & top != 0, result & top != 0);
@@ -734,12 +752,12 @@ fn overflow(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
 }
 
 /// Whether a shift right of A drops a 1: A's lowest bit.
-fn shift_out(_: Op, a: Value, _: Value, _: Value, _: usize) -> bool {
+pub fn shift_out(_: Op, a: Value, _: Value, _: Value, _: usize) -> bool {
     a & 1 == 1
 }
 
 /// Whether `op`'s result is 0.
-fn zero(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
+pub fn zero(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
     op.apply(a, b, carry, width) & mask(width) == 0
 }
 

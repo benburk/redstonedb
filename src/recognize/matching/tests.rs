@@ -50,6 +50,62 @@ fn a_tie_goes_to_the_kind_probing_tries_first() {
     );
 }
 
+/// An ALU's operations are found from what each setting of its control
+/// lines gives, its signs unread, and its carry in, if it has one, from
+/// the add it carries into, read inverted as it is.
+#[test]
+fn an_alus_operations_are_found_by_their_settings() {
+    for (name, ops, carry) in [
+        (
+            "alu-8-and-xor",
+            &["add", "and", "or", "xor", "xnor"][..],
+            true,
+        ),
+        (
+            "alu-8-nadd-nsub",
+            &[
+                "add", "sub", "nadd", "nsub", "and", "or", "xor", "nand",
+                "nor", "xnor",
+            ][..],
+            false,
+        ),
+    ] {
+        let found = matched(name);
+        assert_eq!(
+            (found.kind, found.wrong),
+            (Kind::Alu, 0),
+            "{name}: {}",
+            found.found()
+        );
+        let named: Vec<&str> = found
+            .label
+            .split(", ")
+            .filter_map(|part| part.split(' ').next())
+            .filter(|word| !word.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        for op in ops {
+            assert!(named.contains(op), "{name}: no {op} in {}", found.label);
+        }
+        let carry_in = found.line("carry in");
+        assert_eq!(carry_in.is_some(), carry, "{name}: {}", found.found());
+        assert!(carry_in.is_none_or(|line| line.inverted), "{name}");
+    }
+}
+
+/// A lever that turns an add into nothing an ALU offers chooses no second
+/// operation, so a build of two buses and it is no ALU.
+#[test]
+fn one_operation_is_no_alu() {
+    let found = recognize(&fixture("vert-adder-8-stacks")).unwrap();
+    assert!(
+        found
+            .as_ref()
+            .is_none_or(|found| found.wrong > 0 && found.kind != Kind::Alu),
+        "{:?}",
+        found.map(|found| found.found())
+    );
+}
+
 /// A threshold's count shows only in values with that many bits on, so a
 /// build of few levers is driven every way.
 #[test]
@@ -93,6 +149,21 @@ const DISAGREEING: &[&str] = &[
     // takes it for a parity circuit, reading the carry out as a status
     // line, which a parity's test doesn't check.
     "rca-1-repeater-c",
+    // Its signs name operations its lines don't choose, so probing, which
+    // reads them, finds it wrong; matching reads no sign.
+    "alu-8-extra-signs",
+    // Its and and or are wrong in a few cases, so probing, which its signs
+    // tell which settings are meant, finds it wrong; matching, told by
+    // nothing which are meant, can't tell those settings from ones that
+    // mean nothing, and takes it for an ALU that adds and xors.
+    "alu-8-lines",
+    // More control lines than matching observes every setting of.
+    "alu-8-ops-raw",
+    "alu-8-ops-inverted-carry",
+    // Its lone lever is no carry in: with it on, the sum is neither A + B
+    // nor A + B + 1, so matching takes it for nothing; probing takes it for
+    // an ALU that only adds, checking only the setting with the lever off.
+    "vert-adder-8-stacks",
 ];
 
 /// Every fixture probing recognizes as a kind matching knows is matched

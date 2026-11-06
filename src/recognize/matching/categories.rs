@@ -5,7 +5,11 @@
 //! judged.
 
 use super::{Category, Op, Shape, Slot, Want, Width};
-use crate::{category::Kind, schem::lines::Role, simulate::mask};
+use crate::{
+    category::Kind,
+    schem::lines::Role,
+    simulate::{alu_ops, mask},
+};
 
 use Width::{Bit, N, NPlus1, Pow2};
 
@@ -22,6 +26,7 @@ pub static CATEGORIES: &[&dyn Category] = &[
     &GreaterThan,
     &CarryOut,
     &Adder,
+    &Alu,
     &Incrementer,
     &Inverter,
     &AbsoluteValue,
@@ -232,6 +237,81 @@ impl Category for Adder {
             })
             .kind(Kind::Subtractor),
         ]
+    }
+}
+
+/// An ALU: A and B, a carry in, if it has one, and control lines whose
+/// settings each choose one of the operations an ALU may offer, into its
+/// output and whichever status lines it has. A status line is decided
+/// where its meaning is plain: a carry out and an overflow for an add or a
+/// subtract, a shift out for a shift right, and a zero for every
+/// operation. Only an add takes the carry in; any other is read ignoring
+/// it, or, where the carry in disturbs it, only with it off.
+pub struct Alu;
+
+impl Category for Alu {
+    fn kind(&self) -> Kind {
+        Kind::Alu
+    }
+
+    fn slots(&self) -> &'static [Slot] {
+        const {
+            &[
+                A,
+                B,
+                Slot::new("carry in", Role::Control, &[Bit]).optional(),
+                Slot::selector("operation"),
+                OUTPUT,
+                Slot::new("carry out", Role::Status, &[Bit]).optional(),
+                Slot::new("overflow", Role::Status, &[Bit]).optional(),
+                Slot::new("shift out", Role::Status, &[Bit]).optional(),
+                Slot::new("zero", Role::Status, &[Bit]).optional(),
+            ]
+        }
+    }
+
+    fn ops(&self, shape: &Shape) -> Vec<Op> {
+        use alu_ops::Op as AluOp;
+        let n = shape.n;
+        // Each operation but an add twice: ignoring the carry in, decided
+        // with it on too, as most an ALU's are; and with it held off, as an
+        // ALU whose other operations it disturbs is read.
+        AluOp::ALL
+            .into_iter()
+            .flat_map(|op| {
+                let holds: &[bool] = if op.takes_carry() {
+                    &[false]
+                } else {
+                    &[false, true]
+                };
+                holds.iter().map(move |&held| {
+                    Op::new(op.name(), move |v| {
+                        let (a, b) = (v[0], v[1]);
+                        let carry = if op.takes_carry() { v[2] } else { 0 };
+                        if held && v[2] == 1 {
+                            return vec![Want::ANY; 5];
+                        }
+                        let arithmetic = matches!(op, AluOp::Add | AluOp::Sub);
+                        let shifts = matches!(op, AluOp::Shr | AluOp::Asr);
+                        let status =
+                            |decided: bool, f: fn(_, _, _, _, _) -> bool| {
+                                if decided {
+                                    f(op, a, b, carry, n).into()
+                                } else {
+                                    Want::ANY
+                                }
+                            };
+                        vec![
+                            op.apply(a, b, carry, n).into(),
+                            status(arithmetic, alu_ops::carry_out),
+                            status(arithmetic, alu_ops::overflow),
+                            status(shifts, alu_ops::shift_out),
+                            status(true, alu_ops::zero),
+                        ]
+                    })
+                })
+            })
+            .collect()
     }
 }
 

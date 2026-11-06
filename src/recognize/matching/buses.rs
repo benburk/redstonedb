@@ -40,6 +40,8 @@ impl Bus {
 #[derive(Clone, Debug, Default)]
 pub struct Pool {
     stretches: Vec<Vec<BitAt>>,
+    /// How many bits each run has, whatever is left of it.
+    runs: Vec<usize>,
 }
 
 /// Whether bits, least significant first, are counted the way the site
@@ -60,6 +62,7 @@ impl Pool {
                     (0..bits.len()).map(|bit| (run, bit)).collect()
                 })
                 .collect(),
+            runs: runs.iter().map(Vec::len).collect(),
         }
     }
 
@@ -78,19 +81,46 @@ impl Pool {
             .map(|(_, stretch)| stretch.clone())
             .collect();
         stretches.extend(left.into_iter().filter(|s| !s.is_empty()));
-        Pool { stretches }
+        Pool {
+            stretches,
+            runs: self.runs.clone(),
+        }
+    }
+
+    /// Every bit left, as one bus, in the pool's order, and the pool
+    /// emptied: a selector's lines, whose order nothing depends on. Only
+    /// whole runs narrower than `n` bits may be one, so no operand's bits
+    /// are taken for control lines; `None` when any other is left.
+    pub fn rest(&self, n: usize) -> Option<(Bus, Pool)> {
+        let whole = self.stretches.iter().all(|stretch| {
+            stretch.len() == self.runs[stretch[0].0] && stretch.len() < n
+        });
+        let bus = Bus {
+            bits: self.stretches.concat(),
+            cost: 0,
+        };
+        whole.then(|| {
+            (
+                bus,
+                Pool {
+                    stretches: Vec::new(),
+                    runs: self.runs.clone(),
+                },
+            )
+        })
     }
 
     /// Every bus of `width` bits that can be taken from the pool, each
     /// with the pool left after, and each either way round, the way
     /// `conventional` says the site counts costing nothing more: a whole
-    /// stretch; either end of a longer one; the alternate bits of one
-    /// twice as long; or the bits of two stretches half as long,
-    /// alternating.
+    /// stretch, or a lone line from one; and when `bent`, either end of a
+    /// longer one, the alternate bits of one twice as long, or the bits of
+    /// two stretches half as long, alternating.
     pub fn take(
         &self,
         width: usize,
         conventional: Conventional,
+        bent: bool,
     ) -> Vec<(Bus, Pool)> {
         let mut found: Vec<(Vec<BitAt>, u32, Pool)> = Vec::new();
         for (i, stretch) in self.stretches.iter().enumerate() {
@@ -102,8 +132,8 @@ impl Pool {
                     self.without(&[i], Vec::new()),
                 ));
             }
-            if len > width {
-                // A lone line from a row is as plain as any.
+            // A lone line from a row is as plain as any.
+            if len > width && (bent || width == 1) {
                 let bent = if width == 1 { 0 } else { BENT };
                 let (low, high) = stretch.split_at(width);
                 found.push((
@@ -118,7 +148,7 @@ impl Pool {
                     self.without(&[i], vec![low.to_vec()]),
                 ));
             }
-            if width > 1 && len == 2 * width {
+            if bent && width > 1 && len == 2 * width {
                 let even: Vec<BitAt> =
                     stretch.iter().step_by(2).copied().collect();
                 let odd: Vec<BitAt> =
@@ -131,7 +161,7 @@ impl Pool {
                 found.push((odd, BENT, self.without(&[i], vec![even])));
             }
         }
-        if width > 1 && width.is_multiple_of(2) {
+        if bent && width > 1 && width.is_multiple_of(2) {
             for (i, x) in self.stretches.iter().enumerate() {
                 for (j, y) in self.stretches.iter().enumerate() {
                     if i == j || x.len() != width / 2 || y.len() != width / 2 {
@@ -169,7 +199,7 @@ mod tests {
     use super::*;
 
     fn widths(pool: &Pool, width: usize) -> Vec<(Vec<BitAt>, u32)> {
-        pool.take(width, &|bits| bits.first().is_none_or(|b| b.1 == 0))
+        pool.take(width, &|bits| bits.first().is_none_or(|b| b.1 == 0), true)
             .into_iter()
             .map(|(bus, _)| (bus.bits, bus.cost))
             .collect()
@@ -194,7 +224,7 @@ mod tests {
     #[test]
     fn a_longer_run_gives_up_an_end() {
         let pool = Pool::of(&[vec![(); 3]]);
-        let found = pool.take(2, &|_| true);
+        let found = pool.take(2, &|_| true, true);
         let bits: Vec<Vec<BitAt>> =
             found.iter().map(|(bus, _)| bus.bits.clone()).collect();
         assert!(bits.contains(&vec![(0, 0), (0, 1)]));
@@ -211,7 +241,7 @@ mod tests {
     fn two_runs_interleave() {
         let pool = Pool::of(&[vec![(); 2], vec![(); 2]]);
         let bits: Vec<Vec<BitAt>> = pool
-            .take(4, &|_| true)
+            .take(4, &|_| true, true)
             .into_iter()
             .map(|(bus, _)| bus.bits)
             .collect();
