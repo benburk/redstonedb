@@ -790,6 +790,10 @@ pub enum Reading {
     Incrementer { counts: Counts },
     /// Whether a register's reads show its cells inverted.
     Register { inverted: bool },
+    /// A reading a report kept that no test reads builds by any more, as
+    /// whether a parity circuit was even once was: as good as none.
+    #[serde(other)]
+    Retired,
 }
 
 impl Run {
@@ -1074,6 +1078,19 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A report kept with a reading no test gives any more, as a parity
+    /// circuit's evenness, still reads, its reading as good as none.
+    #[test]
+    fn a_retired_reading_still_reads() {
+        let reading: Reading =
+            serde_json::from_str(r#"{"of":"parity","even":false}"#).unwrap();
+        assert_eq!(reading, Reading::Retired);
+        let kept: Reading =
+            serde_json::from_str(r#"{"of":"register","inverted":true}"#)
+                .unwrap();
+        assert_eq!(kept, Reading::Register { inverted: true });
+    }
 
     #[test]
     fn builds_up_to_64_bits_are_tested() {
