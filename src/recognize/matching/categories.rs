@@ -25,6 +25,7 @@ pub static CATEGORIES: &[&dyn Category] = &[
     &Incrementer,
     &Inverter,
     &AbsoluteValue,
+    &Negator,
     &Parity,
     &Threshold,
     &Decoder,
@@ -319,6 +320,35 @@ impl Category for AbsoluteValue {
         let n = shape.n;
         vec![Op::new("|A|", move |v| {
             vec![(signed(v[0], n).unsigned_abs()).into()]
+        })]
+    }
+}
+
+/// A negator: −A in two's complement, or A until its control line, if it
+/// has one, turns on.
+pub struct Negator;
+
+impl Category for Negator {
+    fn kind(&self) -> Kind {
+        Kind::Negator
+    }
+
+    fn slots(&self) -> &'static [Slot] {
+        const {
+            &[
+                A,
+                Slot::new("negate", Role::Control, &[Bit]).optional(),
+                OUTPUT,
+            ]
+        }
+    }
+
+    fn ops(&self, shape: &Shape) -> Vec<Op> {
+        if !shape.has(1) {
+            return vec![Op::new("−A", |v| vec![v[0].wrapping_neg().into()])];
+        }
+        vec![Op::new("A, or −A with negate on", |v| {
+            vec![if v[1] == 1 { v[0].wrapping_neg() } else { v[0] }.into()]
         })]
     }
 }
