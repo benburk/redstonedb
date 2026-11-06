@@ -7,7 +7,7 @@
 mod derive;
 mod runner;
 
-pub use derive::{EVEN, FALLING_EDGE, INVERTED, SIGNED};
+pub use derive::{FALLING_EDGE, INVERTED, SIGNED};
 pub use runner::{
     complete, complete_soon, completing, evaluate_ahead, run, run_at_once, time,
 };

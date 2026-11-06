@@ -20,10 +20,6 @@ pub const SIGNED: &str = "signed";
 /// The flag of a monostable that pulses as A turns off, not on.
 pub const FALLING_EDGE: &str = "falling_edge";
 
-/// The flag of a parity circuit whose output is on for an even number of
-/// A's bits on, not an odd number.
-pub const EVEN: &str = "even";
-
 /// The details worked out from a build's file and its simulation, over
 /// what was typed, as they stand or are to be.
 #[derive(PartialEq)]
@@ -143,16 +139,6 @@ impl Derived {
             self.flags.retain(|flag| flag != SIGNED);
             if run.signed() {
                 self.flags.push(SIGNED.to_owned());
-            }
-        }
-        // A parity circuit's cases say whether it is on for an even number.
-        if let Report::Ran(run) = report
-            && run.wrong == 0
-            && category::behaviour(&s.category).test == Some(Test::Parity)
-        {
-            self.flags.retain(|flag| flag != EVEN);
-            if run.even() {
-                self.flags.push(EVEN.to_owned());
             }
         }
         // A threshold's cases say how many of A's bits turn it on.

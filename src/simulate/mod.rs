@@ -790,9 +790,6 @@ pub enum Reading {
     Incrementer { counts: Counts },
     /// Whether a register's reads show its cells inverted.
     Register { inverted: bool },
-    /// Whether a parity circuit is on for an even number of A's bits, not
-    /// an odd number.
-    Parity { even: bool },
 }
 
 impl Run {
@@ -891,15 +888,6 @@ impl Run {
             _ => stored::reads_inverted(&self.pattern),
         }
     }
-
-    /// Whether a parity circuit's cases are on for an even number of A's
-    /// bits.
-    pub fn even(&self) -> bool {
-        match self.reading {
-            Some(Reading::Parity { even }) => even,
-            _ => stored::even(&self.pattern),
-        }
-    }
 }
 
 /// Reading a report stored before `Run::reading` was kept, whose reading
@@ -937,12 +925,6 @@ mod stored {
     /// inverted.
     pub fn reads_inverted(pattern: &str) -> bool {
         pattern.ends_with(" inverted")
-    }
-
-    /// Whether a parity circuit whose cases are named `pattern` is on for
-    /// an even number of A's bits.
-    pub fn even(pattern: &str) -> bool {
-        pattern == super::converters::EVEN_PARITY
     }
 }
 
