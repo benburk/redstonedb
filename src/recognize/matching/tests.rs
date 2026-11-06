@@ -106,6 +106,43 @@ fn one_operation_is_no_alu() {
     );
 }
 
+/// A 10-bit carry-cancel adder whose carry out of its low three bits never
+/// reaches bit 3 is matched as the adder it is closest to, its lines read
+/// whole, its sum holding its carry, and its cases wrong, so it is not
+/// recognized; its full test finds bit 3 wrong, and the bits above only
+/// through it.
+#[test]
+fn a_broken_adder_is_matched_as_an_adder_with_cases_wrong() {
+    let found = matched("cca-10-bit-3-carry-lost");
+    assert_eq!(found.kind, Kind::Adder, "{}", found.found());
+    assert!(found.wrong > 0, "{}", found.found());
+    let width = |name: &str| found.line(name).map_or(0, |line| line.bits.len());
+    assert_eq!(
+        (width("A"), width("B"), width("carry in"), width("output")),
+        (10, 10, 1, 11)
+    );
+    let simulated = probe::simulatable(
+        &lines::without(&fixture("cca-10-bit-3-carry-lost")).unwrap(),
+    )
+    .unwrap();
+    let blocks = Blocks::read(&simulated).unwrap();
+    let line = |name: &str| found.line(name).map(|line| line.bits.clone());
+    let layout = probe::Layout {
+        a: line("A").unwrap(),
+        b: line("B").unwrap(),
+        carry_in: line("carry in").map(|bits| bits[0]),
+        sum: line("output").unwrap(),
+        carry_out: None,
+    };
+    let run = crate::simulate::Test::Adder
+        .check_with(&blocks, layout.interface(&blocks), false)
+        .unwrap();
+    assert_eq!(
+        run.wrong_bits.first().map(|(bit, _)| bit.as_str()),
+        Some("output bit 3")
+    );
+}
+
 /// A threshold's count shows only in values with that many bits on, so a
 /// build of few levers is driven every way.
 #[test]
