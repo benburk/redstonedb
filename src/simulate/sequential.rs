@@ -24,6 +24,7 @@ use super::{
     Broken, Run, Signal, Value, Wrong,
     bench::{mask, patterns},
     circuit::{Circuit, MAX_TICKS},
+    stacking::{self, Stacker, Step},
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
 use crate::{category, recognize::interface, schem::Blocks};
@@ -489,6 +490,72 @@ fn counter<'a>(
         wrong: tally.wrong,
         examples: tally.examples,
     })
+}
+
+/// How copies of the T flip-flop in `data`, whose own cases came out
+/// right, stack beside each other, each a cell of its own: each copy's
+/// toggle, pulsed alone, toggles one bit of the stack's and no other, a
+/// bit no other copy's toggles, and pulsed again toggles it back. `None`
+/// when it is no T flip-flop.
+pub fn toggle_stacker(data: &[u8]) -> Option<Stacker<'_>> {
+    let blocks = Blocks::read(data).ok()?;
+    check(&blocks, Kind::TFlipFlop)
+        .ok()
+        .filter(|run| run.wrong == 0)?;
+    let works = move |step: Step, copies: usize, buses| {
+        stacking::run_stacked(data, (step, copies), buses, |blocks| {
+            let fault = |err: anyhow::Error| err.to_string();
+            let (interface, lines) =
+                lines(blocks, Kind::TFlipFlop).map_err(fault)?;
+            if lines.controls.len() != copies || lines.width != copies {
+                return Err(format!(
+                    "{copies} copies don't each keep a toggle and a bit of \
+                     their own."
+                ));
+            }
+            let fresh = || -> Result<Machine> {
+                let mut circuit = Circuit::new(blocks, &interface)?;
+                circuit.settle()?;
+                Ok(Machine {
+                    circuit,
+                    lines: &lines,
+                })
+            };
+            let (mut toggled, mut cases) = (0, 0);
+            for copy in 0..copies {
+                let way = Way {
+                    pulse: copy,
+                    held: None,
+                };
+                let mut machine = fresh().map_err(fault)?;
+                let before = machine.read();
+                machine.apply(way, 0).map_err(fault)?;
+                let flipped = machine.read() ^ before;
+                machine.apply(way, 0).map_err(fault)?;
+                cases += 2;
+                if flipped.count_ones() != 1
+                    || flipped & toggled != 0
+                    || machine.read() != before
+                {
+                    return Err(format!(
+                        "{copies} copies don't each toggle a bit of their own."
+                    ));
+                }
+                toggled |= flipped;
+            }
+            Ok(cases)
+        })
+    };
+    let ways = (1, stacking::bit_ways(&interface::read(&blocks), 1));
+    let not = "No pitch west or up makes copies that each toggle a bit of \
+               their own.";
+    Some(Stacker::new(
+        data,
+        category::Kind::TFlipFlop,
+        ways,
+        works,
+        not,
+    ))
 }
 
 /// How a T flip-flop, of `lines`, makes its one operation, and its cases:

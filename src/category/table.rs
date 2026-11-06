@@ -831,8 +831,12 @@ pub(super) const TABLE: [Facts; 48] = [
         guess: Guess::Tried(300),
         role_words: &["toggle", "t", "clock", "clk", "q"],
         // Its lone control line needs no sign: it toggles the bit held.
+        // Its copies add bits, each a cell with its own toggle and bit.
         behaviour: Behaviour {
             lines: Lines::Control("toggle"),
+            copies: Copies::OwnOutputs,
+            group: Group::Cells,
+            stacking: Stacking::Inferred,
             ..held(Test::TFlipFlop)
         },
         ..ROW

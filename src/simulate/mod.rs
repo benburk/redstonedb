@@ -539,8 +539,8 @@ impl Test {
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind, tried at each pitch
     /// class as its category's group asks: an adder's, an incrementer's,
-    /// and a carry out's copies must chain; a gate's and a monostable's
-    /// each work alone beside the others; an inverter's, a register's, and
+    /// and a carry out's copies must chain; a gate's, a monostable's, and a
+    /// T flip-flop's each work alone beside the others; an inverter's, a register's, and
     /// a buffer's share lines, as many copies as work counted, and a
     /// register's copies may also add words on its shared bus. `None` for
     /// any other, and for a category whose builds never stack, as a
@@ -565,6 +565,9 @@ impl Test {
             Way::Spec { stacks, .. } => stacks.and_then(|stacks| stacks(data)),
             Way::Register(kind) => register::stacker(data, kind),
             Way::Monostable { dual } => monostable::stacker(data, dual),
+            Way::Sequential(sequential::Kind::TFlipFlop) => {
+                sequential::toggle_stacker(data)
+            }
             Way::Alu | Way::Shifter | Way::Sequential(_) => None,
         }
     }
