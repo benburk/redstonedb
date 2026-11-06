@@ -9,6 +9,7 @@ use crate::{
     external::mojang,
     import::Prepared,
     models::{
+        player,
         schematic::{
             self, Encoding, Logic, Orientation, Schematic, StackDirection,
         },
@@ -260,17 +261,26 @@ async fn ready(
         stack::check(build.data, &details.stacking, buses)?;
     }
 
-    // Asked last, as it goes to Mojang, which is slow.
-    details.authors = mojang::respell(&details.authors).await?;
-    details.contributors = mojang::respell(&details.contributors).await?;
-    // A player the description names with `@name` must be one, as a
-    // author must; the description keeps the names as written.
+    // Asked last, as it may go to Mojang, which is slow, once for every
+    // name not known lately. A player the description names with `@name`
+    // must be one, as an author must; the description keeps the names as
+    // written.
     let named = details
         .description
         .as_deref()
         .map(crate::web::mentions)
         .unwrap_or_default();
-    if let Some(message) = unnamed(&mojang::unknown_names(&named).await) {
+    let asked: Vec<String> = details
+        .authors
+        .iter()
+        .chain(&details.contributors)
+        .chain(&named)
+        .cloned()
+        .collect();
+    let players = player::look_up(db, &asked).await?;
+    details.authors = mojang::respell(&details.authors, &players)?;
+    details.contributors = mojang::respell(&details.contributors, &players)?;
+    if let Some(message) = unnamed(&mojang::unknown(&named, &players)) {
         return Err(message.into());
     }
     let evaluated = build.conventional

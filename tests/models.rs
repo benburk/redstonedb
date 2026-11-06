@@ -293,3 +293,24 @@ async fn schemati_answers_mark_the_session_expired_or_working() {
     assert!(!link.expired);
     assert_eq!(link.player.as_deref(), Some("Other"));
 }
+
+/// A player looked up lately answers from what was kept, not Mojang: a
+/// name no player has, kept as one that some player has, comes back as
+/// kept, which Mojang would not say, beside one kept as no player's.
+#[tokio::test]
+async fn a_player_looked_up_lately_is_not_asked_about_again() {
+    use app::{external::mojang::Profile, models::player};
+    let db = common::database().await;
+    let kept = Profile {
+        uuid: "0123456789abcdef0123456789abcdef".to_owned(),
+        name: "Not_A_Real_Player_Q".to_owned(),
+    };
+    player::remember(&db, "not_a_real_player_q", Some(&kept))
+        .await
+        .unwrap();
+    player::remember(&db, "nobody_here_q", None).await.unwrap();
+    let names = ["NOT_A_REAL_PLAYER_Q".to_owned(), "Nobody_Here_Q".to_owned()];
+    let players = player::look_up(&db, &names).await.unwrap();
+    assert_eq!(players["not_a_real_player_q"], Some(kept));
+    assert_eq!(players["nobody_here_q"], None);
+}
