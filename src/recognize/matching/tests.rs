@@ -164,6 +164,23 @@ fn stray_top_bits_join_their_runs() {
     assert!(matched("eq-8").conventional);
 }
 
+/// A negator whose levers climb a staircase, two to a step, is read as
+/// one A, in order up the stairs, its I/O non-standard.
+#[test]
+fn a_staircase_of_levers_is_one_operand() {
+    let found = matched("negator-8-staircase");
+    assert_eq!(
+        (found.kind, found.wrong),
+        (Kind::Negator, 0),
+        "{}",
+        found.found()
+    );
+    assert!(!found.conventional);
+    let a = &found.line("A").unwrap().bits;
+    assert!(a.windows(2).all(|w| w[0][1] < w[1][1]), "{a:?}");
+    assert!(matched("negator-8").conventional);
+}
+
 /// A status line may be normally on: a 2-bit adder whose carry out is on
 /// unless it carries is read so, the line named inverted, every case right.
 #[test]
@@ -244,6 +261,9 @@ const DISAGREEING: &[&str] = &[
     // More control lines than matching observes every setting of.
     "alu-8-ops-raw",
     "alu-8-ops-inverted-carry",
+    // Its outputs are unevenly spaced, so probing finds its lines don't
+    // fit; matching reads them in order along the way they spread.
+    "adder-8-lsb-top",
     // Its operands' top bits stand out of line, so probing finds its lines
     // don't fit; matching joins each to the run beside it. The second is
     // the first with its sign bits' levers saved on, which says nothing.

@@ -1,8 +1,9 @@
 //! The buses a slot may take from a build's lines: whole runs, as the
 //! conventions lay a bus, or a run but its top bit, a carry out above a
 //! sum; or, at a cost, a run's end, a run's alternate bits, two parallel
-//! runs' bits alternating, or a run and a stray bit beside its end, as
-//! builds that bend them lay them. A bus's bits are always in order along their runs, one way or
+//! runs' bits alternating, a run and a stray bit beside its end, or every
+//! bit left, in order along the way they spread, as builds that bend them
+//! lay them, as a staircase of short runs. A bus's bits are always in order along their runs, one way or
 //! the other, never shuffled, so a run of `n` bits is read only two ways.
 //! Each bus costs more the further it strays from the conventions, and the
 //! cheapest reading that holds wins a tie.
@@ -125,9 +126,11 @@ impl Pool {
     /// stretch, a lone line from one, or either end of one a bit longer;
     /// and when `bent`, either end of a longer one, the alternate bits of
     /// one twice as long, the bits of two stretches half as long,
-    /// alternating, or a whole run a bit shorter and a bit beside one of
-    /// its ends, joined there, as when a build's top bits stand out of
-    /// line.
+    /// alternating, a whole run a bit shorter and a bit beside one of its
+    /// ends, joined there, as when a build's top bits stand out of line, or
+    /// every bit left, when they are `width` bits, in order along the way
+    /// they spread furthest, no two level on it, as a staircase of short
+    /// runs lays one bus.
     pub fn take(
         &self,
         width: usize,
@@ -192,6 +195,7 @@ impl Pool {
         }
         if bent && width > 1 {
             found.extend(self.strays(width));
+            found.extend(self.spread(width));
         }
         let mut buses: Vec<(Bus, Pool)> = Vec::new();
         for (bits, cost, rest) in found {
@@ -221,6 +225,33 @@ impl Pool {
     /// Where bit `at` is.
     fn at(&self, (run, bit): BitAt) -> Pos {
         self.runs[run][bit]
+    }
+
+    /// Every bit left as one bus of `width` bits, in order along the axis
+    /// they spread furthest, the pool emptied; none when they are more or
+    /// fewer, already one stretch, or two are level on that axis.
+    fn spread(&self, width: usize) -> Option<(Vec<BitAt>, u32, Pool)> {
+        if self.stretches.len() < 2 || self.bits() != width {
+            return None;
+        }
+        let mut bits = self.stretches.concat();
+        let extent = |axis: usize| {
+            let along = bits.iter().map(|&bit| self.at(bit)[axis]);
+            along.clone().max().unwrap_or(0) - along.min().unwrap_or(0)
+        };
+        let axis = (0..3).max_by_key(|&axis| extent(axis))?;
+        bits.sort_by_key(|&bit| self.at(bit)[axis]);
+        if bits
+            .windows(2)
+            .any(|w| self.at(w[0])[axis] == self.at(w[1])[axis])
+        {
+            return None;
+        }
+        let rest = Pool {
+            stretches: Vec::new(),
+            runs: self.runs.clone(),
+        };
+        Some((bits, BENT, rest))
     }
 
     /// Each bus of `width` bits that is a whole run one shorter and a bit
@@ -352,6 +383,31 @@ mod tests {
                 .all(|bits| !bits.contains(&(2, 1)) || bits.contains(&(1, 0)))
         );
         assert!(pool.take(8, &|_| true, false).is_empty());
+    }
+
+    /// A staircase of short runs, each a step up and over from the one
+    /// before, is one bus, in order up the stairs.
+    #[test]
+    fn a_staircase_of_short_runs_is_one_bus() {
+        let pool = Pool::of(&[
+            vec![[2, 1, 0], [4, 3, 0]],
+            vec![[5, 6, 1], [5, 8, 1]],
+            vec![[7, 10, 1], [7, 12, 1]],
+        ]);
+        let bits: Vec<Vec<BitAt>> = pool
+            .take(6, &|_| true, true)
+            .into_iter()
+            .map(|(bus, _)| bus.bits)
+            .collect();
+        assert!(bits.contains(&vec![
+            (0, 0),
+            (0, 1),
+            (1, 0),
+            (1, 1),
+            (2, 0),
+            (2, 1)
+        ]));
+        assert!(pool.take(6, &|_| true, false).is_empty());
     }
 
     /// Two parallel runs make one bus, their bits alternating.
