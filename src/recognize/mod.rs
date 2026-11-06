@@ -10,6 +10,7 @@ pub mod guide;
 pub mod inspect;
 pub mod interface;
 pub mod legacy;
+pub mod matching;
 pub mod palette;
 pub mod probe;
 pub mod repeater_outputs;

@@ -4,14 +4,14 @@
 //! tried with the adder's test, and the one that adds is kept. The roles
 //! found go with the file, see [`crate::schem::lines`], as the site's tests
 //! read them; no block changes colour.
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 use crate::{
     recognize::{
         inspect::{self, Run},
-        interface::{Bit, Interface, Port},
+        interface::{self, Bit, Interface, Port},
     },
-    schem::{self, Blocks, Direction, Pos, Switch, lines},
+    schem::{Blocks, Pos, lines},
     simulate::{self, Test},
 };
 
@@ -178,29 +178,9 @@ impl Layout {
     /// The interface the adder's test reads, its ports labelled as their
     /// roles name them.
     pub fn interface(&self, blocks: &Blocks) -> Interface {
-        let switches: HashMap<Pos, Switch> = blocks
-            .switches()
-            .into_iter()
-            .map(|switch| (switch.block, switch))
-            .collect();
-        let input = |pos: Pos| {
-            let switch = &switches[&pos];
-            Bit {
-                pos,
-                entry: Some(switch.side),
-                hard: Direction::ALL.iter().any(|&side| {
-                    schem::id(blocks.get(schem::step(pos, side)))
-                        == "minecraft:redstone_wire"
-                }),
-                inverted: switch.on,
-            }
-        };
-        let output = |pos: Pos| Bit {
-            pos,
-            entry: None,
-            hard: false,
-            inverted: false,
-        };
+        let switches = interface::switches(blocks);
+        let input = |pos: Pos| Bit::input(blocks, &switches, pos);
+        let output = Bit::at;
         let port = |name: &str, role: Role, bits: Vec<Bit>| Port {
             name: name.to_owned(),
             role: Some(role),
@@ -820,6 +800,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::schem;
 
     /// The fixture `name` with its input colours, lime, light blue, and
     /// magenta, turned white, as a build without colour conventions is.
