@@ -808,9 +808,9 @@ fn stacking_found(s: &Schematic) -> bool {
 }
 
 /// Where build `s` sits, a trail from home through its category's builds,
-/// with a link back to `from`, the listing the viewer came from, when it
-/// is somewhere else, and a search of every build, so a build found
-/// leads back to the rest.
+/// after a link back to `from`, the listing the viewer came from, when it
+/// is somewhere else, and a search of every build, so a build found leads
+/// back to the rest.
 fn crumbs(s: &Schematic, from: Option<&str>) -> Markup {
     // A category off the list is among the other builds.
     let (category, plural) = match s.kind() {
@@ -822,16 +822,19 @@ fn crumbs(s: &Schematic, from: Option<&str>) -> Markup {
     let back = from.filter(|&from| from != "/" && from != category);
     html! {
         div class="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3" {
-            nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-4 text-meta text-muted" {
-                ol class="flex min-w-0 items-center gap-1" {
+            // The way back first, pointing back, apart from the trail.
+            nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-3 text-meta text-muted" {
+                @if let Some(back) = back {
+                    a href=(back) data-back class="flex min-w-0 items-center gap-1.5 text-muted hover:text-ink" {
+                        (icon(icons::ARROW_LEFT, "size-3.5 shrink-0"))
+                        span class="truncate" { (crate::web::back::label(back)) }
+                    }
+                    span aria-hidden="true" class="h-4 shrink-0 border-l border-boundary" {}
+                }
+                ol class="flex shrink-0 items-center gap-1" {
                     li { a href="/" class="text-muted hover:text-ink" { "Home" } }
                     li aria-hidden="true" class="flex" { (icon(icons::CHEVRON_RIGHT, "size-3.5")) }
-                    li class="truncate" { a href=(category) class="text-muted hover:text-ink" { (plural) } }
-                }
-                @if let Some(back) = back {
-                    a href=(back) data-back class="flex shrink-0 items-center gap-1.5 text-muted hover:text-ink" {
-                        (icon(icons::ARROW_LEFT, "size-3.5")) (crate::web::back::label(back))
-                    }
+                    li { a href=(category) class="text-muted hover:text-ink" { (plural) } }
                 }
             }
             form action="/" method="get" role="search" class="w-full sm:w-72" {
