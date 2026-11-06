@@ -41,19 +41,24 @@ pub fn came_from(headers: &HeaderMap, given: Option<&str>) -> Option<String> {
     listing(path).map(str::to_owned)
 }
 
-/// What a link back to `from`, a listing, says it goes back to.
-pub fn label(from: &str) -> &'static str {
-    let path = from.split(['?', '#']).next().unwrap_or_default();
-    if path == "/builds" {
-        "Back to recent builds"
-    } else if path.starts_with("/leaderboards") {
-        "Back to the leaderboard"
-    } else if path.starts_with("/players/") || path.starts_with("/users/") {
-        "Back to their builds"
-    } else if path == "/log" {
-        "Back to the log"
-    } else {
-        "Back to results"
+/// What a link back to `from`, a listing, says it goes back to: a search
+/// by what was searched for.
+pub fn label(from: &str) -> String {
+    let (path, query) = from.split_once('?').unwrap_or((from, ""));
+    let searched = form_urlencoded::parse(query.as_bytes())
+        .find(|(key, value)| key == "q" && !value.trim().is_empty())
+        .map(|(_, value)| value.trim().to_owned());
+    match searched {
+        Some(q) if path == "/" => format!("Back to “{q}”"),
+        _ if path == "/builds" => "Back to recent builds".to_owned(),
+        _ if path.starts_with("/leaderboards") => {
+            "Back to the leaderboard".to_owned()
+        }
+        _ if path.starts_with("/players/") || path.starts_with("/users/") => {
+            "Back to their builds".to_owned()
+        }
+        _ if path == "/log" => "Back to the log".to_owned(),
+        _ => "Back to results".to_owned(),
     }
 }
 
@@ -87,6 +92,19 @@ mod tests {
         ] {
             assert_eq!(listing(from), None, "{from}");
         }
+    }
+
+    /// A link back names a search by what was searched for, and any other
+    /// listing by what it lists.
+    #[test]
+    fn a_link_back_names_what_it_goes_back_to() {
+        assert_eq!(label("/?q=8b+adder&sort=-latency"), "Back to “8b adder”");
+        assert_eq!(label("/?category=adder&tag=torchless"), "Back to results");
+        assert_eq!(label("/builds"), "Back to recent builds");
+        assert_eq!(
+            label("/leaderboards/adder?width=8"),
+            "Back to the leaderboard"
+        );
     }
 
     /// A page's own `from` comes first, else the referrer, only when it is
