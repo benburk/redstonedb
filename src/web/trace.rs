@@ -9,14 +9,15 @@ use axum::{
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
 };
+use maud::html;
 
 use crate::{
     category::Kind,
-    models::{schematic, user::User, version},
+    models::{schematic, simulation, user::User, version},
     recognize::{inspect::place, interface::Interface},
     schem::{self, Blocks, Direction, Pos},
     simulate::{
-        Value,
+        Glitch, OutputTiming, Timing, Value,
         trace::{self, Case, Change, Graph, Part, Race, Sweep, Trace, Tracer},
     },
     web::{app_state::AppState, error::AppError},
@@ -74,8 +75,9 @@ pub struct Analysis {
     /// The change as run, then, when its first race went the other way in
     /// another compile, that run too.
     pub runs: Vec<Run>,
-    pub sweep: Sweep,
-    /// How many changes the sweep ran at random.
+    /// The sweep of many changes, for the analyzer's page, and how many of
+    /// them it ran at random.
+    pub sweep: Option<Sweep>,
     pub random: usize,
 }
 
@@ -131,6 +133,61 @@ pub async fn page(
     )
 }
 
+/// A build set up to be traced: its blocks, its kind, and its lines, as the
+/// page names and draws them.
+struct Setup {
+    blocks: Blocks,
+    kind: Option<Kind>,
+    inputs: Vec<Line>,
+    outputs: Vec<Line>,
+    levers: Vec<(Pos, usize, usize)>,
+    readers: Vec<(Pos, usize, usize)>,
+}
+
+impl Setup {
+    /// The build in `data`, carrying its roles, of `kind`.
+    fn new(data: &[u8], kind: Option<Kind>) -> Result<Setup, String> {
+        let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
+        let interface = lines(&blocks, kind).map_err(|err| err.to_string())?;
+        Ok(Setup {
+            inputs: described(&interface, true),
+            outputs: described(&interface, false),
+            levers: levers(&interface),
+            readers: readers(&interface),
+            blocks,
+            kind,
+        })
+    }
+
+    /// The build compiled afresh, which may run its races its own way.
+    fn tracer(&self) -> Result<Tracer, String> {
+        let interface =
+            lines(&self.blocks, self.kind).map_err(|err| err.to_string())?;
+        Tracer::new(&self.blocks, interface).map_err(|err| err.to_string())
+    }
+
+    fn analysis(
+        self,
+        graph: Graph,
+        (case, at): (Case, Vec<i32>),
+        runs: Vec<Run>,
+        sweep: Option<Sweep>,
+    ) -> Analysis {
+        Analysis {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            graph,
+            levers: self.levers,
+            readers: self.readers,
+            case,
+            at,
+            runs,
+            sweep,
+            random: RANDOM,
+        }
+    }
+}
+
 /// The build in `data`, carrying its roles, of `kind`, traced through the
 /// change `pairs` names, as `from.A=3`, `to.B=1`, and `at.A=1`, or, when
 /// they name none, the change its sweep found most worth seeing; or why it
@@ -140,19 +197,13 @@ pub fn analyze(
     kind: Option<Kind>,
     pairs: &[(String, String)],
 ) -> Result<Analysis, String> {
-    let blocks = Blocks::read(data).map_err(|err| err.to_string())?;
-    let interface = lines(&blocks, kind).map_err(|err| err.to_string())?;
-    let inputs = described(&interface, true);
-    let outputs = described(&interface, false);
-    let levers = levers(&interface);
-    let readers = readers(&interface);
-    let mut tracer =
-        Tracer::new(&blocks, interface).map_err(|err| err.to_string())?;
+    let setup = Setup::new(data, kind)?;
+    let mut tracer = setup.tracer()?;
     let widths = tracer.input_widths();
     let cases = trace::cases(&widths, RANDOM);
     let sweep = trace::sweep(&mut tracer, &cases, Some(Instant::now() + SWEEP))
         .map_err(|err| err.to_string())?;
-    let (case, at) = match chosen(&inputs, pairs)? {
+    let (case, at) = match chosen(&setup.inputs, pairs)? {
         Some(chosen) => chosen,
         None => (worth_seeing(&sweep, &widths), vec![0; widths.len()]),
     };
@@ -164,29 +215,117 @@ pub fn analyze(
     // The first race may go the other way in a compile of its own.
     if let Some(seen) = seen {
         for _ in 0..TRIES {
-            let mut again = Tracer::new(
-                &blocks,
-                lines(&blocks, kind).map_err(|e| e.to_string())?,
-            )
-            .map_err(|err| err.to_string())?;
-            let other = run(&mut again, &case, &at)?;
+            let other = run(&mut setup.tracer()?, &case, &at)?;
             if goes(&other).is_some_and(|went| went != seen) {
                 runs.push(other);
                 break;
             }
         }
     }
-    Ok(Analysis {
-        inputs,
-        outputs,
-        graph: tracer.graph,
-        levers,
-        readers,
-        case,
-        at,
-        runs,
-        sweep,
-        random: RANDOM,
+    Ok(setup.analysis(tracer.graph, (case, at), runs, Some(sweep)))
+}
+
+/// The output whose glitch a build's timing shows traced: its first data
+/// output to glitch, else its first status line to.
+pub fn shown_glitch(timing: &Timing) -> Option<&OutputTiming> {
+    let glitched = || timing.outputs.iter().filter(|o| o.glitch.is_some());
+    glitched().find(|o| !o.status).or_else(|| glitched().next())
+}
+
+/// The change `glitch`, of the build in `data`, carrying its roles, of
+/// `kind`, each input switching on its tick of `timing`, as the timing
+/// that found it switched them: run on fresh compiles until output
+/// `output` glitches as it did, or, if it never does, as first run.
+pub fn glitch(
+    data: &[u8],
+    kind: Option<Kind>,
+    timing: &Timing,
+    output: &str,
+    glitch: &Glitch,
+) -> Result<Analysis, String> {
+    let setup = Setup::new(data, kind)?;
+    let port = setup
+        .outputs
+        .iter()
+        .position(|line| line.name == output)
+        .ok_or_else(|| format!("The build has no output named {output}."))?;
+    let by_name = |line: &Line| {
+        timing
+            .inputs
+            .iter()
+            .position(|input| input.name == line.name)
+    };
+    let found: Vec<Option<usize>> = setup.inputs.iter().map(by_name).collect();
+    let to: Vec<Value> = found
+        .iter()
+        .map(|&i| i.and_then(|i| glitch.case.get(i).copied()).unwrap_or(0))
+        .collect();
+    let at: Vec<i32> = found
+        .iter()
+        .map(|&i| i.and_then(|i| timing.inputs[i].tick).unwrap_or(0))
+        .collect();
+    let case = Case {
+        from: vec![0; to.len()],
+        to,
+    };
+    let glitched = |run: &Run| {
+        (0..setup.outputs[port].width)
+            .any(|bit| run.trace.bit_changes(port, bit).len() > 1)
+    };
+    let mut tracer = setup.tracer()?;
+    let mut shown = run(&mut tracer, &case, &at)?;
+    for _ in 0..TRIES {
+        if glitched(&shown) {
+            break;
+        }
+        let mut again = setup.tracer()?;
+        let other = run(&mut again, &case, &at)?;
+        if glitched(&other) {
+            shown = other;
+            tracer = again;
+        }
+    }
+    Ok(setup.analysis(tracer.graph, (case, at), vec![shown], None))
+}
+
+/// The traced glitch of build `id`'s timing, to show in its Timing
+/// section; nothing for a build whose timing has none.
+pub async fn glitch_fragment(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    viewer: Option<User>,
+) -> Result<Response, AppError> {
+    let db = &state.db;
+    let s = schematic::get_visible(db, &id, viewer.as_ref())
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let report = simulation::current(db, &s).await?;
+    let Some(timing) = report.as_ref().and_then(|r| r.timing()).cloned() else {
+        return Ok(html! {}.into_response());
+    };
+    let Some(output) = shown_glitch(&timing).map(|o| o.name.clone()) else {
+        return Ok(html! {}.into_response());
+    };
+    let data = version::current_file(db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let kind = Kind::named(&s.category);
+    let name = output.clone();
+    let analysis = tokio::task::spawn_blocking(move || {
+        let output = shown_glitch(&timing).expect("found above");
+        let glitch = output.glitch.as_ref().expect("found above");
+        self::glitch(&data, kind, &timing, &name, glitch)
+    })
+    .await
+    .map_err(anyhow::Error::from)?;
+    let path = format!("/schematics/{id}");
+    Ok(match analysis {
+        Ok(analysis) => super::pages::glitch_trace(&path, &analysis, &output)
+            .into_response(),
+        Err(why) => html! {
+            p class="mt-4 text-muted" { "Could not trace its glitch: " (why) }
+        }
+        .into_response(),
     })
 }
 

@@ -1,10 +1,11 @@
 //! The logic analyzer's page: a change of a build's inputs traced, as a
-//! chart of every line's waveform and every component that changed, each
-//! race marked and put in words, each way it may go when another compile
-//! ran it the other way; what set each change off; and how a sweep of many
-//! changes settled and glitched.
+//! chart of every line and every component that changed, tick by tick,
+//! each lane's edges and last change measured, the tick its outputs settle
+//! by and each race marked, and each way a race may go when another compile
+//! ran it the other way; a table of the races, and of each change with what
+//! set it off; and how a sweep of many changes settled and glitched.
 
-use std::fmt::Write as _;
+use std::{collections::BTreeSet, fmt::Write as _};
 
 use maud::{Markup, html};
 
@@ -13,17 +14,19 @@ use crate::{
     recognize::inspect::place,
     simulate::{
         Value,
-        trace::{Case, Change, Part, Race, Trace},
+        trace::{Case, Change, Part, Race, Sweep, Trace},
     },
-    web::trace::{Analysis, Line, Run, becomes, case_words, verb},
+    web::trace::{Analysis, Line, Run, case_words, state},
 };
 
 use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, grouped};
 
-/// The chart's label column, a tick's width, and the height of a lane, a
-/// section's heading, and the tick numbers along its top.
+/// The chart's label column, a tick's width, the two measure columns, and
+/// the height of a lane, a section's heading, and the tick numbers along
+/// its top.
 const LABEL: f64 = 290.0;
 const CELL: f64 = 52.0;
+const MEASURE: f64 = 48.0;
 const LANE: f64 = 26.0;
 const HEADING: f64 = 24.0;
 const TOP: f64 = 22.0;
@@ -47,16 +50,9 @@ pub fn trace_page(
         &format!("{path}/trace"),
         &html! {
             p class="mb-1 text-meta" { a href=(path) { "← " (name) } }
-            h1 class={ (PAGE_TITLE) " mb-2" } { "Logic analyzer" }
-            p class="mb-6 max-w-calm text-muted" {
-                "One change of the build's inputs, run tick by tick as the simulator runs it: "
-                "each output bit's waveform, and every torch, repeater, and comparator that changed, "
-                "with what set it off. Ticks are redstone ticks from the first input switching, "
-                "and outputs are drawn as they arrive at their blocks, as the build's timing counts them. "
-                "Places are (x, y, z) in the build as the site stores it, from its lowest north-west corner."
-            }
+            h1 class={ (PAGE_TITLE) " mb-4" } { "Logic analyzer" }
             @match analysis {
-                Err(why) => p class="text-danger" { "Could not trace it: " (why) },
+                Err(why) => p class="text-danger" { (why) },
                 Ok(analysis) => (analyzed(&path, analysis)),
             }
         },
@@ -65,144 +61,183 @@ pub fn trace_page(
 
 fn analyzed(path: &str, a: &Analysis) -> Markup {
     let first = &a.runs[0];
+    let raced = a.runs.iter().any(|run| !run.races.is_empty());
     html! {
         (change_form(path, a))
-        section aria-labelledby="change-heading" class="mt-10" {
-            h2 id="change-heading" class={ (SECTION_TITLE) " mb-1" } { (case_words(a, &a.case)) }
-            p class="mb-4 text-meta text-muted" { (switching(a)) }
-            @if !first.races.is_empty() {
-                (races(a, first))
-            }
-            @for run in &a.runs {
-                @if a.runs.len() > 1 {
-                    h3 class="mt-8 mb-1 font-semibold" { (order_title(a, run)) }
+        @for (i, run) in a.runs.iter().enumerate() {
+            section aria-label={ "Run " (i + 1) } class="mt-8" {
+                div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" {
+                    @if a.runs.len() > 1 {
+                        (figure(&format!("Run {}", i + 1), &html! { (went_first(a, run)) " first" }, false))
+                    }
+                    (measures(a, run))
                 }
-                (outcome(a, &run.trace))
-                (chart(a, run))
+                (chart(a, run, None))
             }
         }
-        section aria-labelledby="timeline-heading" class="mt-12" {
-            h2 id="timeline-heading" class={ (SECTION_TITLE) " mb-1" } { "What happened" }
-            p class="mb-3 text-meta text-muted" {
-                "Each change, by tick, and the changes of what powers it that set it off"
-                @if a.runs.len() > 1 { ", as the first run above went" }
-                "."
+        (legend())
+        @if raced {
+            section aria-labelledby="races-heading" class="mt-10" {
+                h2 id="races-heading" class={ (SECTION_TITLE) " mb-2" } { "Races" }
+                (races_table(a))
+            }
+        }
+        section aria-labelledby="changes-heading" class="mt-10" {
+            h2 id="changes-heading" class={ (SECTION_TITLE) " mb-2" } {
+                "Changes" @if a.runs.len() > 1 { span class="font-normal text-muted" { " · run 1" } }
             }
             (timeline(a, first))
         }
-        (sweep_section(path, a))
+        @if let Some(sweep) = &a.sweep {
+            (sweep_section(path, a, sweep))
+        }
     }
+}
+
+/// The glitch of output `output` of the build at `path`, as `a` ran it:
+/// its change, its measures, and a chart of its lines and the parts on the
+/// glitch's way, linking to the logic analyzer.
+pub fn glitch_trace(path: &str, a: &Analysis, output: &str) -> Markup {
+    let run = &a.runs[0];
+    let way = a
+        .outputs
+        .iter()
+        .position(|line| line.name == output)
+        .map(|port| glitch_way(a, run, port))
+        .filter(|way| !way.is_empty());
+    let link = format!("{path}/trace?{}", case_query(a, &a.case, Some(&a.at)));
+    html! {
+        div class="mt-4" {
+            div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1" {
+                strong { "Glitch · " (output) }
+                span class="tabular-nums text-muted" { (case_words(a, &a.case)) (switching(a)) }
+                a href=(link) { "Open in the logic analyzer" }
+            }
+            div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" { (measures(a, run)) }
+            (chart(a, run, way.as_ref()))
+            (legend())
+        }
+    }
+}
+
+/// The parts on the way to output `port`'s glitched bits in `run`: what
+/// reads each, and every change that set off one of its changes, back to
+/// the inputs; and each race's part and rivals.
+fn glitch_way(a: &Analysis, run: &Run, port: usize) -> BTreeSet<usize> {
+    let trace = &run.trace;
+    let changes = trace.changes();
+    let mut stack: Vec<Change> = Vec::new();
+    for bit in 0..a.outputs[port].width {
+        if trace.bit_changes(port, bit).len() < 2 {
+            continue;
+        }
+        let reader = a
+            .readers
+            .iter()
+            .find(|&&(_, p, b)| p == port && b == bit)
+            .and_then(|&(at, ..)| a.graph.find(at));
+        stack.extend(changes.iter().filter(|c| Some(c.node) == reader));
+    }
+    let mut seen = BTreeSet::new();
+    while let Some(change) = stack.pop() {
+        if seen.insert((change.tick, change.node)) {
+            stack.extend(trace.causes(&a.graph, &change));
+        }
+    }
+    let mut way: BTreeSet<usize> =
+        seen.into_iter().map(|(_, node)| node).collect();
+    for race in &run.races {
+        way.insert(race.node);
+        way.extend(&race.rivals);
+    }
+    way
 }
 
 /// The form choosing the change: each input's value before and after, and
 /// the tick it switches on.
 fn change_form(path: &str, a: &Analysis) -> Markup {
     html! {
-        form method="get" action={ (path) "/trace" } class="max-w-calm" {
-            div class="overflow-x-auto" {
-                table class="border-collapse tabular-nums" {
-                    caption class="sr-only" { "The change to trace" }
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "Input" }
-                            th scope="col" class=(TABLE_HEAD) { "From" }
-                            th scope="col" class=(TABLE_HEAD) { "To" }
-                            th scope="col" class=(TABLE_HEAD) { "Switches on tick" }
-                        }
+        form method="get" action={ (path) "/trace" } class="flex flex-wrap items-end gap-x-6 gap-y-3" {
+            @for (port, line) in a.inputs.iter().enumerate() {
+                fieldset class="flex items-end gap-1.5 tabular-nums" {
+                    legend class="mb-1 text-meta text-muted" {
+                        (line.name) " · " (line.width)
                     }
-                    tbody {
-                        @for (port, line) in a.inputs.iter().enumerate() {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    (line.name)
-                                    span class="text-muted" { " · " (line.width) (if line.width == 1 { " bit" } else { " bits" }) }
-                                }
-                                td class=(TABLE_CELL) {
-                                    input type="text" inputmode="numeric" name={ "from." (line.name) }
-                                        value=(a.case.from[port]) class="input w-28" aria-label={ (line.name) " before" };
-                                }
-                                td class=(TABLE_CELL) {
-                                    input type="text" inputmode="numeric" name={ "to." (line.name) }
-                                        value=(a.case.to[port]) class="input w-28" aria-label={ (line.name) " after" };
-                                }
-                                td class=(TABLE_CELL) {
-                                    input type="number" min="0" max="100" name={ "at." (line.name) }
-                                        value=(a.at[port]) class="input w-20" aria-label={ (line.name) " switches on tick" };
-                                }
-                            }
-                        }
-                    }
+                    input type="text" inputmode="numeric" name={ "from." (line.name) }
+                        value=(a.case.from[port]) class="input w-24" aria-label={ (line.name) " from" } title="From";
+                    span class="pb-2 text-muted" aria-hidden="true" { "→" }
+                    input type="text" inputmode="numeric" name={ "to." (line.name) }
+                        value=(a.case.to[port]) class="input w-24" aria-label={ (line.name) " to" } title="To";
+                    span class="pb-2 text-muted" aria-hidden="true" { "@" }
+                    input type="number" min="0" max="100" name={ "at." (line.name) }
+                        value=(a.at[port]) class="input w-16" aria-label={ (line.name) " switches on tick" } title="Switches on tick";
                 }
             }
-            div class="mt-3 flex flex-wrap items-center gap-3" {
-                button type="submit" class="btn btn-primary" { "Trace" }
-                span class="text-meta text-muted" { "Values in decimal, or hex after 0x, or binary after 0b." }
-            }
+            button type="submit" class="btn btn-primary" { "Trace" }
         }
     }
 }
 
-/// When each input switches.
+/// Each input changing after tick 0, such as ` · A @1`.
 fn switching(a: &Analysis) -> String {
-    if a.at.iter().all(|&at| at == 0) {
-        return "Every input switches at tick 0.".to_owned();
-    }
-    let each: Vec<String> = a
-        .inputs
-        .iter()
-        .zip(&a.at)
-        .map(|(line, at)| format!("{} at {at}", line.name))
-        .collect();
-    format!("Switching {}.", each.join(", "))
-}
-
-/// The query tracing `case`, every input switching at tick 0.
-fn case_query(a: &Analysis, case: &Case) -> String {
-    let pairs: Vec<(String, String)> = a
-        .inputs
+    a.inputs
         .iter()
         .enumerate()
-        .flat_map(|(port, line)| {
-            [
-                (format!("from.{}", line.name), case.from[port].to_string()),
-                (format!("to.{}", line.name), case.to[port].to_string()),
-            ]
+        .filter(|&(port, _)| {
+            a.at[port] != 0 && a.case.from[port] != a.case.to[port]
         })
-        .collect();
+        .fold(String::new(), |mut said, (port, line)| {
+            let _ = write!(said, " · {} @{}", line.name, a.at[port]);
+            said
+        })
+}
+
+/// The query tracing `case`, each input switching on its tick of `at`, or
+/// at 0 with none given.
+fn case_query(a: &Analysis, case: &Case, at: Option<&[i32]>) -> String {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (port, line) in a.inputs.iter().enumerate() {
+        pairs
+            .push((format!("from.{}", line.name), case.from[port].to_string()));
+        pairs.push((format!("to.{}", line.name), case.to[port].to_string()));
+        if let Some(&tick) = at.and_then(|at| at.get(port))
+            && tick != 0
+        {
+            pairs.push((format!("at.{}", line.name), tick.to_string()));
+        }
+    }
     serde_urlencoded::to_string(pairs).unwrap_or_default()
 }
 
-/// Each output's values over the run, and the bits that glitched.
-fn outcome(a: &Analysis, trace: &Trace) -> Markup {
+/// A measure: its name small over its value.
+fn figure(name: &str, value: &Markup, danger: bool) -> Markup {
     html! {
-        ul class="mb-4 flex flex-col gap-1 tabular-nums" {
-            @for (port, line) in a.outputs.iter().enumerate() {
-                @let steps = trace.output_steps(port);
-                @let glitched: Vec<usize> = (0..line.width)
-                    .filter(|&bit| trace.bit_changes(port, bit).len() > 1)
-                    .collect();
-                li {
-                    strong { (line.name) } ": " (trace.output(port, -1))
-                    @if steps.is_empty() {
-                        span class="text-muted" { ", unchanged" }
-                    }
-                    @for (tick, value) in &steps {
-                        ", " (value) span class="text-muted" { " on tick " (tick) }
-                    }
-                    @if let Some(&(last, _)) = steps.last() {
-                        ". Settled by tick " (last) "."
-                    }
-                    @if !glitched.is_empty() {
-                        " "
-                        strong class="text-danger" {
-                            "Glitched in "
-                            (glitched.iter().map(|&b| line.bit_name(b)).collect::<Vec<_>>().join(", "))
-                            "."
-                        }
-                    }
-                }
+        div class="flex flex-col" {
+            span class="text-meta text-muted" { (name) }
+            span class={ "font-semibold tabular-nums" (if danger { " text-danger" } else { "" }) } { (value) }
+        }
+    }
+}
+
+/// The tick each output settled by, its glitched bits, and the races of
+/// `run`.
+fn measures(a: &Analysis, run: &Run) -> Markup {
+    let trace = &run.trace;
+    html! {
+        @for (port, line) in a.outputs.iter().enumerate() {
+            @let settled = trace.output_steps(port).last().map(|&(tick, _)| tick);
+            @let glitched: Vec<String> = (0..line.width)
+                .filter(|&bit| trace.bit_changes(port, bit).len() > 1)
+                .map(|bit| if line.width == 1 { line.name.clone() } else { format!("bit {bit}") })
+                .collect();
+            (figure(&format!("{} settles", line.name), &html! {
+                @match settled { Some(tick) => { "@" (tick) }, None => "—", }
+            }, false))
+            @if !glitched.is_empty() {
+                (figure(&format!("{} glitches", line.name), &html! { (glitched.join(", ")) }, true))
             }
         }
+        (figure("Races", &html! { (run.races.len()) }, !run.races.is_empty()))
     }
 }
 
@@ -210,28 +245,103 @@ fn label(a: &Analysis, node: usize) -> String {
     a.label(node)
 }
 
-/// The races of `run`, each in words, the first set apart as the one the
-/// rest likely follow from.
-fn races(a: &Analysis, run: &Run) -> Markup {
-    let first = run.races[0].tick;
+/// What went first in `run`'s first race: the part, or its rivals.
+fn went_first(a: &Analysis, run: &Run) -> String {
+    let Some(race) = run.races.first() else {
+        return "—".to_owned();
+    };
+    let went = race
+        .outcomes
+        .iter()
+        .find(|(_, outcome)| *outcome == race.ran)
+        .map(|(ahead, _)| ahead.clone())
+        .unwrap_or_default();
+    if went.is_empty() {
+        label(a, race.node)
+    } else {
+        names(a, &went)
+    }
+}
+
+fn names(a: &Analysis, nodes: &[usize]) -> String {
+    nodes
+        .iter()
+        .map(|&n| label(a, n))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What a race's part comes to, `outcome`: its state, or for a pulse,
+/// whether it gives one.
+fn result(race: &Race, part: Part, outcome: u8) -> String {
+    if race.pulse {
+        if outcome > 0 { "pulse" } else { "none" }.to_owned()
+    } else {
+        state(part, outcome)
+    }
+}
+
+/// Every race of every run, once: its tick, part, and rivals, what the part
+/// comes to with each going first, and what it came to in each run.
+fn races_table(a: &Analysis) -> Markup {
+    let mut rows: Vec<&Race> = Vec::new();
+    for run in &a.runs {
+        for race in &run.races {
+            let same = |r: &&Race| {
+                r.tick == race.tick
+                    && r.node == race.node
+                    && r.rivals == race.rivals
+            };
+            if !rows.iter().any(same) {
+                rows.push(race);
+            }
+        }
+    }
+    rows.sort_by_key(|race| race.tick);
     html! {
-        div class="mb-6 rounded-overlay border border-danger/40 bg-danger/5 p-4" {
-            p class="mb-2 font-semibold text-danger" {
-                (run.races.len()) (if run.races.len() == 1 { " race" } else { " races" })
-            }
-            p class="mb-3 text-meta text-muted" {
-                "A race is a component running its tick on the same tick as an input of its own changes, "
-                "both at the same priority, so which goes first decides what it does. "
-                "The game runs them in the order they were scheduled, which comes of the order it updates blocks in, "
-                "so of where the build stands and which way it faces: a build may work in one place and glitch in another. "
-                "To fix one, have the signals meet a tick apart, or hand a line over with an overlap rather than a gap."
-            }
-            ul class="flex flex-col gap-3" {
-                @for race in &run.races {
-                    li {
-                        (race_words(a, run, race))
-                        @if race.tick > first {
-                            span class="text-meta text-muted" { " Likely the doing of a race before it." }
+        div class="overflow-x-auto" {
+            table class="border-collapse tabular-nums" {
+                thead {
+                    tr {
+                        th scope="col" class=(TABLE_HEAD) { "Tick" }
+                        th scope="col" class=(TABLE_HEAD) { "Part" }
+                        th scope="col" class=(TABLE_HEAD) { "Against" }
+                        th scope="col" class=(TABLE_HEAD) { "First → it ends" }
+                        @for i in 0..a.runs.len() {
+                            th scope="col" class=(TABLE_HEAD) { "Run " (i + 1) }
+                        }
+                    }
+                }
+                tbody {
+                    @for race in rows {
+                        @let part = a.graph.nodes[race.node].part;
+                        tr {
+                            td class=(TABLE_CELL) { (race.tick) }
+                            td class={ (TABLE_CELL) " text-danger" } { (label(a, race.node)) }
+                            td class=(TABLE_CELL) { (names(a, &race.rivals)) }
+                            td class=(TABLE_CELL) {
+                                @for (ahead, outcome) in &race.outcomes {
+                                    div {
+                                        @if race.pulse {
+                                            (if ahead.is_empty() { "none of them".to_owned() } else { names(a, ahead) })
+                                        } @else if ahead.is_empty() {
+                                            "the " (part.name())
+                                        } @else {
+                                            (names(a, ahead))
+                                        }
+                                        " → " strong { (result(race, part, *outcome)) }
+                                    }
+                                }
+                            }
+                            @for run in &a.runs {
+                                @let ran = run.races.iter().find(|r| r.tick == race.tick && r.node == race.node && r.rivals == race.rivals);
+                                td class=(TABLE_CELL) {
+                                    @match ran {
+                                        Some(ran) => (result(ran, part, ran.ran)),
+                                        None => span class="text-muted" { "—" },
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -240,76 +350,25 @@ fn races(a: &Analysis, run: &Run) -> Markup {
     }
 }
 
-fn race_words(a: &Analysis, run: &Run, race: &Race) -> Markup {
-    let part = a.graph.nodes[race.node].part;
-    let node = label(a, race.node);
-    let rivals: Vec<String> =
-        race.rivals.iter().map(|&r| label(a, r)).collect();
-    let rivals = rivals.join(" and ");
-    let was = run.trace.strength(race.node, race.tick - 1);
-    let who = |ahead: &[usize]| {
-        if ahead.is_empty() {
-            format!("the {}", part.name())
-        } else {
-            ahead
-                .iter()
-                .map(|&r| label(a, r))
-                .collect::<Vec<_>>()
-                .join(" and ")
-        }
-    };
+/// What the chart's marks mean.
+fn legend() -> Markup {
     html! {
-        strong { "Tick " (race.tick) ", " (node) ". " }
-        @if race.pulse {
-            "It is off, and its inputs " (rivals) " change on this tick at the same priority. "
-            "In one order one of them powers it for an instant, setting it off to turn on "
-            (part.delay()) (if part.delay() == 1 { " tick" } else { " ticks" }) " later, a pulse; in another it never is. "
-            "This run, it " (if race.ran > 0 { "pulsed." } else { "stayed off." })
-        } @else {
-            "It runs its tick on the same tick as " (rivals) ", which "
-            (if race.rivals.len() == 1 { "powers" } else { "power" })
-            " it, changes, at the same priority. "
-            @for (i, (ahead, outcome)) in race.outcomes.iter().enumerate() {
-                @if i > 0 { "; if " } @else { "If " }
-                (who(ahead)) " goes first, it " (becomes(part, was, *outcome))
+        div class="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-meta text-muted" {
+            span class="flex items-center gap-1.5" {
+                svg width="18" height="10" aria-hidden="true" { line x1="9" x2="9" y1="0" y2="10" class="stroke-danger" stroke-width="1.5" stroke-dasharray="3 2" {} }
+                "race"
             }
-            ". This run, "
-            (race.outcomes.iter().find(|(_, o)| *o == race.ran).map_or_else(|| "it".to_owned(), |(ahead, _)| who(ahead)))
-            " went first."
+            span class="flex items-center gap-1.5" {
+                svg width="18" height="10" aria-hidden="true" { line x1="9" x2="9" y1="0" y2="10" class="stroke-brand" stroke-width="2" {} }
+                "settled"
+            }
+            span class="flex items-center gap-1.5" {
+                svg width="18" height="10" aria-hidden="true" { rect x="1" y="1" width="16" height="8" class="fill-danger/15 stroke-danger" {} }
+                "wrong value"
+            }
+            span { "ticks: redstone · places: (x, y, z) · outputs as they reach their blocks" }
         }
     }
-}
-
-/// Which way the first race went in `run`, as a heading.
-fn order_title(a: &Analysis, run: &Run) -> String {
-    let Some(race) = run.races.first() else {
-        return "Another run".to_owned();
-    };
-    let part = a.graph.nodes[race.node].part;
-    let went = race
-        .outcomes
-        .iter()
-        .find(|(_, outcome)| *outcome == race.ran)
-        .map(|(ahead, _)| ahead.clone())
-        .unwrap_or_default();
-    let first = if went.is_empty() {
-        label(a, race.node)
-    } else {
-        went.iter()
-            .map(|&r| label(a, r))
-            .collect::<Vec<_>>()
-            .join(" and ")
-    };
-    let was = run.trace.strength(race.node, race.tick - 1);
-    let it = if went.is_empty() {
-        "it".to_owned()
-    } else {
-        label(a, race.node)
-    };
-    format!(
-        "When {first} goes first, {it} {}",
-        becomes(part, was, race.ran)
-    )
 }
 
 /// What a lane of the chart draws.
@@ -335,53 +394,33 @@ struct Lane {
 /// The chart of `run`: its inputs and outputs, each output's changed bits,
 /// then every part that changed, each race marked down the chart at its
 /// tick.
-fn chart(a: &Analysis, run: &Run) -> Markup {
+fn chart(a: &Analysis, run: &Run, only: Option<&BTreeSet<usize>>) -> Markup {
     // A column before the change, then one for each tick.
     let columns = usize::try_from(run.trace.ticks() + 1).unwrap_or(1);
     let sections = [
         ("Inputs", input_lanes(a, &run.trace)),
         ("Outputs", output_lanes(a, &run.trace)),
-        ("Components that changed", part_lanes(a, run)),
+        (
+            if only.is_some() {
+                "On the glitch's way"
+            } else {
+                "Components that changed"
+            },
+            part_lanes(a, run, only),
+        ),
     ];
     let count = |n: usize| f64::from(u32::try_from(n).unwrap_or(0));
-    let width = LABEL + CELL * count(columns) + 8.0;
+    let width = LABEL + CELL * count(columns) + 8.0 + 2.0 * MEASURE;
     let lanes: usize = sections.iter().map(|(_, lanes)| lanes.len()).sum();
     let height =
         TOP + HEADING * count(sections.len()) + LANE * count(lanes) + 6.0;
     let x = |column: usize| LABEL + CELL * count(column);
-    let mut svg = String::new();
-    for column in 0..=columns {
-        let _ = write!(
-            svg,
-            r#"<line x1="{0:.1}" x2="{0:.1}" y1="{1:.1}" y2="{2:.1}" class="stroke-line" stroke-width="1"/>"#,
-            x(column),
-            TOP - 4.0,
-            height
-        );
-    }
-    for column in 0..columns {
-        let text = if column == 0 {
-            "before".to_owned()
-        } else {
-            (column - 1).to_string()
-        };
-        let _ = write!(
-            svg,
-            r#"<text x="{:.1}" y="14" text-anchor="middle" class="fill-muted" font-size="11">{text}</text>"#,
-            x(column) + CELL / 2.0
-        );
-    }
-    for race in &run.races {
-        let column = usize::try_from(race.tick + 1).unwrap_or(0);
-        let _ = write!(
-            svg,
-            r#"<line x1="{0:.1}" x2="{0:.1}" y1="{1:.1}" y2="{2:.1}" class="stroke-danger" stroke-width="1.5" stroke-dasharray="4 3"><title>Race on tick {3}</title></line>"#,
-            x(column),
-            TOP - 4.0,
-            height,
-            race.tick
-        );
-    }
+    let measured = x(columns) + 8.0;
+    // The tick by which every output has settled.
+    let settled = (0..a.outputs.len())
+        .filter_map(|port| run.trace.output_steps(port).last().map(|&(t, _)| t))
+        .max();
+    let mut svg = axes(columns, height, settled, &run.races);
     let mut y = TOP;
     for (title, lanes) in &sections {
         let _ = write!(
@@ -392,7 +431,7 @@ fn chart(a: &Analysis, run: &Run) -> Markup {
         );
         y += HEADING;
         for lane in lanes {
-            lane_svg(&mut svg, lane, y, &x);
+            lane_svg(&mut svg, lane, y, &x, measured);
             y += LANE;
         }
     }
@@ -474,7 +513,11 @@ fn output_lanes(a: &Analysis, trace: &Trace) -> Vec<Lane> {
 /// Each part that changed, by the tick it first did, then each race's part
 /// that never did, the order having gone its way; a race's part and its
 /// rivals marked.
-fn part_lanes(a: &Analysis, run: &Run) -> Vec<Lane> {
+fn part_lanes(
+    a: &Analysis,
+    run: &Run,
+    only: Option<&BTreeSet<usize>>,
+) -> Vec<Lane> {
     let trace = &run.trace;
     let ticks = trace.ticks();
     let racing: Vec<usize> = run.races.iter().map(|r| r.node).collect();
@@ -482,6 +525,7 @@ fn part_lanes(a: &Analysis, run: &Run) -> Vec<Lane> {
         run.races.iter().flat_map(|r| r.rivals.clone()).collect();
     let mut changed: Vec<(i32, usize)> = (0..a.graph.nodes.len())
         .filter(|&node| a.graph.nodes[node].part.ticks())
+        .filter(|node| only.is_none_or(|only| only.contains(node)))
         .filter_map(|node| {
             (0..ticks)
                 .find(|&t| trace.changed(node, t))
@@ -518,6 +562,91 @@ fn part_lanes(a: &Analysis, run: &Run) -> Vec<Lane> {
         .collect()
 }
 
+/// The chart's frame, `columns` wide and `height` high: each tick's column,
+/// lit while pointed at, its grid and numbers, the measures' headings, and
+/// down it the tick every output settled by, `settled`, and each of
+/// `races`'.
+fn axes(
+    columns: usize,
+    height: f64,
+    settled: Option<i32>,
+    races: &[Race],
+) -> String {
+    let count = |n: usize| f64::from(u32::try_from(n).unwrap_or(0));
+    let x = |column: usize| LABEL + CELL * count(column);
+    let measured = x(columns) + 8.0;
+    let mut svg = String::new();
+    // Under everything, each tick's column, lit while pointed at.
+    for column in 1..columns {
+        let _ = write!(
+            svg,
+            r#"<rect x="{:.1}" y="{:.1}" width="{CELL:.1}" height="{:.1}" class="fill-transparent hover:fill-selection"><title>tick {}</title></rect>"#,
+            x(column),
+            TOP - 4.0,
+            height - TOP + 4.0,
+            column - 1
+        );
+    }
+    for column in 0..=columns {
+        let _ = write!(
+            svg,
+            r#"<line x1="{0:.1}" x2="{0:.1}" y1="{1:.1}" y2="{2:.1}" class="stroke-line" stroke-width="1"/>"#,
+            x(column),
+            TOP - 4.0,
+            height
+        );
+    }
+    for column in 0..columns {
+        let text = if column == 0 {
+            "before".to_owned()
+        } else {
+            (column - 1).to_string()
+        };
+        let settles = settled
+            .is_some_and(|t| usize::try_from(t + 1).ok() == Some(column));
+        let (class, weight) = if settles {
+            ("fill-brand", "700")
+        } else {
+            ("fill-muted", "400")
+        };
+        let _ = write!(
+            svg,
+            r#"<text x="{:.1}" y="14" text-anchor="middle" class="{class}" font-size="11" font-weight="{weight}">{text}</text>"#,
+            x(column) + CELL / 2.0
+        );
+    }
+    for (offset, name) in [(0.5, "edges"), (1.5, "last")] {
+        let _ = write!(
+            svg,
+            r#"<text x="{:.1}" y="14" text-anchor="middle" class="fill-muted" font-size="11">{name}</text>"#,
+            measured + MEASURE * offset
+        );
+    }
+    if let Some(tick) = settled {
+        let column = usize::try_from(tick + 1).unwrap_or(0);
+        let _ = write!(
+            svg,
+            r#"<line x1="{0:.1}" x2="{0:.1}" y1="{1:.1}" y2="{2:.1}" class="stroke-brand" stroke-width="2"><title>Settled by tick {3}</title></line>"#,
+            x(column),
+            TOP - 4.0,
+            height,
+            tick
+        );
+    }
+    for race in races {
+        let column = usize::try_from(race.tick + 1).unwrap_or(0);
+        let _ = write!(
+            svg,
+            r#"<line x1="{0:.1}" x2="{0:.1}" y1="{1:.1}" y2="{2:.1}" class="stroke-danger" stroke-width="1.5" stroke-dasharray="4 3"><title>Race on tick {3}</title></line>"#,
+            x(column),
+            TOP - 4.0,
+            height,
+            race.tick
+        );
+    }
+    svg
+}
+
 /// An output bit's lane label, such as `bit 3 at (7, 8, 8)`.
 fn bit_label(line: &Line, bit: usize) -> String {
     format!("bit {bit} at {}", place(line.blocks[bit]))
@@ -530,12 +659,13 @@ fn levels(top: f64) -> (f64, f64, f64) {
 }
 
 /// Draws `lane` into `svg` with its top at `top`, column `c` starting at
-/// `x(c)`.
+/// `x(c)`, and its edges and last change from `measured` on.
 fn lane_svg(
     svg: &mut String,
     lane: &Lane,
     top: f64,
     x: &impl Fn(usize) -> f64,
+    measured: f64,
 ) {
     let label = match lane.note {
         Some(note) => format!("{} · {note}", lane.label),
@@ -560,6 +690,24 @@ fn lane_svg(
         }
     }
     let (_, mid, _) = levels(top);
+    let (edges, last) = match &lane.draw {
+        Draw::Bus(values) => edges(values),
+        Draw::Wave { strengths, .. } => edges(strengths),
+    };
+    let last = last.map_or_else(|| "—".to_owned(), |tick| format!("@{tick}"));
+    let class = if lane.danger {
+        "fill-danger"
+    } else {
+        "fill-ink"
+    };
+    for (offset, text) in [(0.5, edges.to_string()), (1.5, last)] {
+        let _ = write!(
+            svg,
+            r#"<text x="{:.1}" y="{:.1}" text-anchor="middle" class="{class}" font-size="12">{text}</text>"#,
+            measured + MEASURE * offset,
+            mid + 4.0
+        );
+    }
     for &tick in &lane.marks {
         let column = usize::try_from(tick + 1).unwrap_or(0);
         let _ = write!(
@@ -687,6 +835,19 @@ fn wave_svg(
     );
 }
 
+/// How many times `values`, a column each from before the change, changed,
+/// and the tick of the last.
+fn edges<T: PartialEq>(values: &[T]) -> (usize, Option<i32>) {
+    let flips: Vec<usize> = (1..values.len())
+        .filter(|&column| values[column] != values[column - 1])
+        .collect();
+    let last = flips
+        .last()
+        .and_then(|&column| i32::try_from(column).ok())
+        .map(|column| column - 1);
+    (flips.len(), last)
+}
+
 fn truncate(text: &str, most: usize) -> String {
     if text.chars().count() <= most {
         return text.to_owned();
@@ -712,11 +873,11 @@ fn timeline(a: &Analysis, run: &Run) -> Markup {
     html! {
         div class="overflow-x-auto" {
             table class="border-collapse tabular-nums" {
-                caption class="sr-only" { "What happened, tick by tick" }
                 thead {
                     tr {
                         th scope="col" class=(TABLE_HEAD) { "Tick" }
-                        th scope="col" class=(TABLE_HEAD) { "What changed" }
+                        th scope="col" class=(TABLE_HEAD) { "Part" }
+                        th scope="col" class=(TABLE_HEAD) { "Change" }
                         th scope="col" class=(TABLE_HEAD) { "Set off by" }
                     }
                 }
@@ -726,21 +887,19 @@ fn timeline(a: &Analysis, run: &Run) -> Markup {
                         @let causes = run.trace.causes(&a.graph, change);
                         tr class=[racing(change).then_some("text-danger")] {
                             td class=(TABLE_CELL) { (change.tick) }
+                            td class=(TABLE_CELL) { (label(a, change.node)) }
                             td class=(TABLE_CELL) {
-                                (label(a, change.node)) " " (verb(part, change, false))
-                                @if racing(change) { strong { " · race" } }
+                                (state(part, change.was)) " → " (state(part, change.now))
+                                @if racing(change) { strong { " race" } }
                             }
                             td class={ (TABLE_CELL) " text-muted" } {
                                 @if matches!(part, Part::Switch { .. }) {
-                                    "the change"
+                                    "input"
                                 } @else if causes.is_empty() {
                                     "—"
                                 } @else {
-                                    @for (i, cause) in causes.iter().enumerate() {
-                                        @if i > 0 { ", " }
-                                        (label(a, cause.node)) " "
-                                        (verb(a.graph.nodes[cause.node].part, cause, true))
-                                        " on tick " (cause.tick)
+                                    @for cause in &causes {
+                                        div { (label(a, cause.node)) " @" (cause.tick) }
                                     }
                                 }
                             }
@@ -750,94 +909,106 @@ fn timeline(a: &Analysis, run: &Run) -> Markup {
             }
         }
         @if changes.len() > LISTED {
-            p class="mt-2 text-meta text-muted" { "And " (grouped(u64::try_from(changes.len() - LISTED).unwrap_or(0))) " more." }
+            p class="mt-2 text-meta text-muted" { "+" (grouped(u64::try_from(changes.len() - LISTED).unwrap_or(0))) }
         }
     }
 }
 
-/// How the sweep's changes settled, where they glitched, and its races,
-/// each with a link to trace it.
-fn sweep_section(path: &str, a: &Analysis) -> Markup {
-    let sweep = &a.sweep;
-    let trace = |case: &Case| format!("{path}/trace?{}", case_query(a, case));
+/// How the sweep's changes settled, a bar a tick, where they glitched, and
+/// its races, each with a link to trace it.
+fn sweep_section(path: &str, a: &Analysis, sweep: &Sweep) -> Markup {
+    let trace =
+        |case: &Case| format!("{path}/trace?{}", case_query(a, case, None));
+    let count = |n: usize| grouped(u64::try_from(n).unwrap_or(0));
     html! {
-        section aria-labelledby="sweep-heading" class="mt-12 max-w-calm" {
-            h2 id="sweep-heading" class={ (SECTION_TITLE) " mb-1" } {
-                "Across " (grouped(u64::try_from(sweep.cases).unwrap_or(0))) " changes"
+        section aria-labelledby="sweep-heading" class="mt-12" {
+            h2 id="sweep-heading" class={ (SECTION_TITLE) " mb-3" } {
+                "Sweep " span class="font-normal text-muted tabular-nums" {
+                    "· " (count(sweep.cases)) " changes, all @0: each input alone, " (count(a.random)) " random"
+                }
             }
-            p class="mb-4 text-meta text-muted" {
-                "Every input switching at tick 0: each input alone from all off to each of its values, "
-                "and " (grouped(u64::try_from(a.random).unwrap_or(0))) " changes at random. "
-                "The sweep is one compile, so each race goes one way in it, and only the races that come first in a change are listed."
-            }
-            @for (port, line) in a.outputs.iter().enumerate() {
-                @let settling = &sweep.outputs[port];
-                div class="mb-4" {
-                    p {
-                        strong { (line.name) } " settles by "
-                        @for (i, (tick, count)) in settling.settled.iter().enumerate() {
-                            @if i > 0 { ", " }
-                            "tick " (tick) " in " (grouped(u64::try_from(*count).unwrap_or(0)))
+            div class="flex flex-wrap gap-x-12 gap-y-6" {
+                @for (port, line) in a.outputs.iter().enumerate() {
+                    @let settling = &sweep.outputs[port];
+                    @let most = settling.settled.values().copied().max().unwrap_or(1).max(1);
+                    div {
+                        p class="mb-1 font-semibold" { (line.name) " settles" }
+                        table class="border-collapse tabular-nums" {
+                            tbody {
+                                @for (tick, n) in &settling.settled {
+                                    @let slowest = settling.slowest.as_ref().filter(|(t, _)| t == tick);
+                                    tr {
+                                        td class="pr-2 text-right text-muted" { "@" (tick) }
+                                        td class="w-48 py-0.5" {
+                                            div class="h-3 rounded-sm bg-brand/70"
+                                                style={ "width: " ((100 * n / most).max(1)) "%" } {}
+                                        }
+                                        td class="pl-2" { (count(*n)) }
+                                        td class="pl-3" {
+                                            @if let Some((_, case)) = slowest {
+                                                a href=(trace(case)) title=(case_words(a, case)) { "slowest" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        @if settling.settled.is_empty() { "—, never changing" }
-                        "."
-                        @if let Some((tick, case)) = &settling.slowest {
-                            " Slowest, tick " (tick) ": "
-                            a href=(trace(case)) { (case_words(a, case)) }
-                            "."
+                        @if settling.settled.is_empty() {
+                            p class="text-muted" { "—" }
                         }
-                    }
-                    @if !settling.glitches.is_empty() {
-                        ul class="mt-1 flex flex-col gap-0.5 text-danger" {
-                            @for (bit, (count, case)) in &settling.glitches {
-                                li {
-                                    (line.bit_name(*bit)) " glitched in " (grouped(u64::try_from(*count).unwrap_or(0)))
-                                    (if *count == 1 { " change" } else { " changes" }) ", as "
-                                    a href=(trace(case)) { (case_words(a, case)) }
+                        @if !settling.glitches.is_empty() {
+                            table class="mt-2 border-collapse tabular-nums" {
+                                thead {
+                                    tr {
+                                        th scope="col" class=(TABLE_HEAD) { "Glitch" }
+                                        th scope="col" class=(TABLE_HEAD) { "Changes" }
+                                        th scope="col" class=(TABLE_HEAD) { "First" }
+                                    }
+                                }
+                                tbody {
+                                    @for (bit, (n, case)) in &settling.glitches {
+                                        tr class="text-danger" {
+                                            td class=(TABLE_CELL) { (line.bit_name(*bit)) }
+                                            td class=(TABLE_CELL) { (count(*n)) }
+                                            td class=(TABLE_CELL) { a href=(trace(case)) { (case_words(a, case)) } }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            @if sweep.races.is_empty() {
-                p class="text-muted" { "No races." }
-            } @else {
-                div class="overflow-x-auto" {
+            @if !sweep.races.is_empty() {
+                div class="mt-6 overflow-x-auto" {
                     table class="border-collapse tabular-nums" {
-                        caption class="sr-only" { "Races" }
                         thead {
                             tr {
                                 th scope="col" class=(TABLE_HEAD) { "Race" }
                                 th scope="col" class=(TABLE_HEAD) { "Against" }
-                                th scope="col" class=(TABLE_HEAD) { "In changes" }
+                                th scope="col" class=(TABLE_HEAD) { "Changes" }
+                                th scope="col" class=(TABLE_HEAD) { "Tick" }
                                 th scope="col" class=(TABLE_HEAD) { "First" }
                             }
                         }
                         tbody {
                             @for seen in sweep.races.iter().take(RACES_LISTED) {
                                 tr {
-                                    td class=(TABLE_CELL) {
+                                    td class={ (TABLE_CELL) " text-danger" } {
                                         (label(a, seen.race.node))
-                                        @if seen.race.pulse { span class="text-muted" { ", a pulse" } }
+                                        @if seen.race.pulse { span class="text-muted" { " · pulse" } }
                                     }
-                                    td class=(TABLE_CELL) {
-                                        (seen.race.rivals.iter().map(|&r| label(a, r)).collect::<Vec<_>>().join(", "))
-                                    }
-                                    td class=(TABLE_CELL) { (grouped(u64::try_from(seen.count).unwrap_or(0))) }
-                                    td class=(TABLE_CELL) {
-                                        a href=(trace(&seen.case)) { (case_words(a, &seen.case)) }
-                                        span class="text-muted" { ", tick " (seen.race.tick) }
-                                    }
+                                    td class=(TABLE_CELL) { (names(a, &seen.race.rivals)) }
+                                    td class=(TABLE_CELL) { (count(seen.count)) }
+                                    td class=(TABLE_CELL) { "@" (seen.race.tick) }
+                                    td class=(TABLE_CELL) { a href=(trace(&seen.case)) { (case_words(a, &seen.case)) } }
                                 }
                             }
                         }
                     }
                 }
                 @if sweep.races.len() > RACES_LISTED {
-                    p class="mt-2 text-meta text-muted" {
-                        "And " (sweep.races.len() - RACES_LISTED) " more, each in as few changes or fewer."
-                    }
+                    p class="mt-2 text-meta text-muted" { "+" (sweep.races.len() - RACES_LISTED) " in fewer changes" }
                 }
             }
         }
