@@ -260,7 +260,7 @@ pub fn probe_as(
 /// The roles of the lines of the build in `data`, kept as built and meant
 /// as a `kind`, as probing as that kind finds them: its inputs and outputs
 /// read whatever faults the conventions find in them, and its lines laid
-/// out loosely, as [`super::adder_loosely`] lays an adder's, as only its
+/// out loosely, as [`super::adder_from`] lays an adder's loosely, as only its
 /// test says which is which; of a try that got cases wrong, the closest.
 /// Of two operands its test passes either way round, A is as `order`
 /// prefers. `None` when no try's test ran, as for a kind never probed.

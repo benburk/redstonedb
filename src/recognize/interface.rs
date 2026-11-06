@@ -631,9 +631,6 @@ pub fn shaped_roles(blocks: &Blocks) -> Roles {
 
 /// Every input block, with what feeds it, as [`read`] takes them.
 pub fn feeds(blocks: &Blocks) -> HashMap<Pos, Feed> {
-    if crate::recognize::legacy::old() {
-        return crate::recognize::legacy::feeds(blocks);
-    }
     found(blocks, &roles(blocks)).feeds
 }
 
@@ -645,13 +642,8 @@ pub fn takes_digits(blocks: &Blocks) -> bool {
 
 /// A build's lines: its inputs and outputs, by the rule for them, each
 /// grouped into ports by its role, as the file carries them or, carrying
-/// none, as its shapes give them; see [`roles`]. Inside
-/// [`crate::recognize::legacy::reading`], by the old rule, as only the
-/// migration from it read a build saved under it.
+/// none, as its shapes give them; see [`roles`].
 pub fn read(blocks: &Blocks) -> Interface {
-    if crate::recognize::legacy::old() {
-        return crate::recognize::legacy::read(blocks);
-    }
     read_with(blocks, &roles(blocks))
 }
 
@@ -700,13 +692,9 @@ pub fn roles_of(interface: &Interface) -> Roles {
 /// The signs naming a build's lines, each by the block it names: any sign
 /// on an input block, and an output's sign under its front, see
 /// [`repeater_outputs::signs`], as any other sign on an output's block
-/// names nothing. Inside [`crate::recognize::legacy::reading`], every sign
-/// by the block it is on, as the old rule read them.
+/// names nothing.
 pub fn line_signs(blocks: &Blocks) -> HashMap<Pos, &[String]> {
     let mut signs = blocks.sign_texts();
-    if crate::recognize::legacy::old() {
-        return signs;
-    }
     for output in repeater_outputs::find(blocks) {
         signs.remove(&output.block());
     }

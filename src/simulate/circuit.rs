@@ -142,17 +142,15 @@ impl Circuit {
                             world.get_block(at(bit.pos).offset(BlockFace::Top));
                         let read = matches!(
                             above,
-                            Block::RedstoneWire(_)
-                                | Block::Repeater(_)
-                                | Block::Comparator(_)
+                            Block::Repeater(_) | Block::Comparator(_)
                         );
                         // A build so wired breaks the conventions, so it
                         // fails rather than going untested.
                         if !read {
                             broken!(
-                                "Output {} has a block with no dust, \
-                                 repeater, or comparator on it, which is how \
-                                 an output is read.",
+                                "Output {} has a block with no repeater or \
+                                 comparator on it, which is how an output is \
+                                 read.",
                                 port.name
                             );
                         }
@@ -588,8 +586,7 @@ impl Circuit {
     /// each bit's block takes to carry it out of the build, which the bit
     /// shows that much later than it arrives: a repeater its delay, from 1
     /// to 4, and a comparator 1, whether its bit is read as on or off or as
-    /// a strength; dust, which an output saved under the old rule is read
-    /// through, none. One fed from a side, a repeater a side may lock or a
+    /// a strength. One fed from a side, a repeater a side may lock or a
     /// comparator a side may subtract from or compare against, does the
     /// build's own work, as a latch holding its bit does, so carries it out
     /// in no ticks: its own count in the build's.
@@ -767,100 +764,35 @@ fn container(strength: u8) -> BlockEntity {
 
 /// A driver for each digit of signal-strength input `port`: a barrel
 /// behind the build's own comparator for it, the one with nothing behind
-/// it that the rule for inputs reads, see [`repeater_outputs::driving`];
-/// or with none, as a build saved under the old rule has, a comparator
-/// beside its dust, pointing into it, and a barrel behind, where both are
-/// air and
-/// nothing runs into the comparator's sides, which would change what it
-/// puts out, the side the dust is open to first. `taken` holds the places
-/// drivers have already used.
+/// it that the rule for inputs reads, see [`repeater_outputs::driving`].
+/// `taken` holds the places drivers have already used.
 fn drivers(
     blocks: &Blocks,
     world: &mut TestWorld,
     port: &Port,
     taken: &mut HashSet<Pos>,
 ) -> Result<Vec<Driver>> {
-    let air = |world: &TestWorld, pos: Pos| {
-        matches!(world.get_block(at(pos)), Block::Air)
-    };
-    let quiet = |world: &TestWorld, pos: Pos| {
-        !matches!(
-            world.get_block(at(pos)),
-            Block::RedstoneWire { .. }
-                | Block::Repeater { .. }
-                | Block::Comparator { .. }
-                | Block::RedstoneTorch { .. }
-                | Block::RedstoneWallTorch { .. }
-        )
-    };
     port.bits
         .iter()
         .map(|bit| {
-            if let Some(input) = repeater_outputs::driving(blocks, bit.pos)
-                && !taken.contains(&input.behind())
-            {
-                let barrel = input.behind();
-                taken.insert(barrel);
-                world.set_block(
-                    at(barrel),
-                    block("minecraft:barrel[facing=up,open=false]")?,
-                );
-                world.set_block_entity(at(barrel), container(0));
-                return Ok(Driver {
-                    comparator: at(input.at),
-                    barrel: at(barrel),
-                    value: 0,
-                });
-            }
-            let dust = schem::step(bit.pos, Direction::Up);
-            let mut sides: Vec<Direction> = bit.entry.into_iter().collect();
-            sides.extend(
-                Direction::SIDES.into_iter().filter(|&s| Some(s) != bit.entry),
-            );
-            let side = sides
-                .into_iter()
-                .find(|&side| {
-                    let comparator = schem::step(dust, side);
-                    let barrel = schem::step(comparator, side);
-                    let across = if side.north_south() {
-                        [Direction::East, Direction::West]
-                    } else {
-                        [Direction::North, Direction::South]
-                    };
-                    [comparator, barrel].iter().all(|&pos| {
-                        air(world, pos) && !taken.contains(&pos)
-                    }) && across.into_iter().all(|way| {
-                        let beside = schem::step(comparator, way);
-                        quiet(world, beside) && !taken.contains(&beside)
-                    })
-                })
+            let input = repeater_outputs::driving(blocks, bit.pos)
+                .filter(|input| !taken.contains(&input.behind()))
                 .with_context(|| {
                     format!(
-                        "A digit of input {} has no room beside its dust for \
-                         the simulator to drive it.",
+                        "A digit of input {} has no comparator of its own, \
+                         with nothing behind it, for the simulator to drive.",
                         port.name
                     )
                 })?;
-            let comparator = schem::step(dust, side);
-            let barrel = schem::step(comparator, side);
-            taken.extend([comparator, barrel]);
-            world.set_block(
-                at(comparator),
-                block(&format!(
-                    "minecraft:comparator[facing={side},mode=compare,powered=false]"
-                ))?,
-            );
-            world.set_block_entity(
-                at(comparator),
-                BlockEntity::Comparator { output_strength: 0 },
-            );
+            let barrel = input.behind();
+            taken.insert(barrel);
             world.set_block(
                 at(barrel),
                 block("minecraft:barrel[facing=up,open=false]")?,
             );
             world.set_block_entity(at(barrel), container(0));
             Ok(Driver {
-                comparator: at(comparator),
+                comparator: at(input.at),
                 barrel: at(barrel),
                 value: 0,
             })

@@ -54,24 +54,14 @@ fn a_ripple_carry_adder_gets_every_sum_right() {
 }
 
 /// Its carry out as first built is a bare block, powered by dust run into
-/// its side: read by the old rule, by its colour, it has nothing standing
-/// on it for an output to be read by, so it fails; by the rule now, which
-/// reads only a repeater or comparator facing air, it is no output at all,
-/// nor is its sum's dust.
+/// its side: by the rule for outputs, which reads only a repeater or
+/// comparator facing air, it is no output at all, nor is its sum's dust.
 #[test]
-fn an_output_with_nothing_on_its_block_fails() {
+fn a_bare_block_is_no_output() {
     let data =
         read_fixture("tests/fixtures/old/alpha-rca-slice.schem").unwrap();
-    let old = Blocks::read(&data).unwrap();
-    let report = app::recognize::legacy::reading(|| Test::Adder.run(&old));
-    let Report::Broken { reason } = report else {
-        panic!("it did not fail: {report:?}");
-    };
-    assert!(
-        reason.starts_with("Output carry out has a block with no dust"),
-        "{reason}"
-    );
-    assert!(app::recognize::inspect::inspect(&old).outputs.is_empty());
+    let blocks = Blocks::read(&data).unwrap();
+    assert!(app::recognize::inspect::inspect(&blocks).outputs.is_empty());
 }
 
 /// The game agrees: mc-tick, a vanilla-accurate engine, lights bit 7 for
@@ -501,23 +491,6 @@ fn an_adders_timing_does_not_depend_on_which_operand_is_a() {
         assert_eq!(found.0, Some(latency), "{name}");
         assert_eq!(timed(&swapped), found, "{name}");
     }
-}
-
-/// Its sum leaves by dust on each yellow block. For 2 + 2 + 1, its carry in
-/// reading inverted, the carry reaches bit 2 at strength 1, which powers
-/// the block beside it but leaves the dust on top dark, so the bit is off,
-/// as in-game.
-#[test]
-fn an_output_is_read_from_the_dust_on_its_block() {
-    let Report::Ran(run) = Test::Adder.run(&blocks("cca-8-dust-out")) else {
-        panic!("the adder was not simulated");
-    };
-    assert!(run.wrong > 0);
-    let wrong = &run.examples[0];
-    assert_eq!(
-        (wrong.inputs.as_slice(), wrong.got[0], wrong.expected[0]),
-        ([2, 2, 0].as_slice(), 1, 5)
-    );
 }
 
 /// A 10-bit BCD input, from 0 to 255, into eight output bits.
