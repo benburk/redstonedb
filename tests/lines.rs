@@ -143,6 +143,39 @@ fn a_theme_colours_the_roles_not_the_blocks() {
     }
 }
 
+/// A lamp a lever hangs on is an input's block like any other, so a theme
+/// colours it as its role, rather than keeping it a lamp: here every input
+/// block a lamp.
+#[test]
+fn a_theme_colours_an_input_lamp_as_its_role() {
+    let data = common::fixture("alpha-rca");
+    let blocks = Blocks::read(&data).unwrap();
+    let roles = blocks.roles.clone().unwrap();
+    let inputs: Vec<_> = roles
+        .0
+        .iter()
+        .filter(|(_, role)| matches!(role, Role::Operand(_) | Role::Control))
+        .collect();
+    assert!(!inputs.is_empty());
+    let lamps = inputs
+        .iter()
+        .map(|&(&pos, _)| {
+            (pos, "minecraft:redstone_lamp[lit=false]".to_owned())
+        })
+        .collect();
+    let built = standardize::edit(&data, &lamps).unwrap();
+    let shown = palette::apply(&built, None, &Palette::default()).unwrap();
+    let shown = Blocks::read(&shown).unwrap();
+    for (&pos, &role) in inputs {
+        let colour = app::recognize::colour::shown(role);
+        assert_eq!(
+            shown.get(pos),
+            format!("minecraft:{colour}_concrete"),
+            "{role:?} at {pos:?}"
+        );
+    }
+}
+
 /// A stored build's roles, first found by probing, name A the operand its
 /// old colours mark A where its test adds either way round: the port of an
 /// 8-bit carry-cancel adder whose author put A in lime at x = 3 and B in
