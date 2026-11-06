@@ -213,10 +213,8 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     (link("/about", icons::INFO, "About", current("/about")))
                     (link("/about/recognized", icons::CHECK, "Build Analysis", current("/about/recognized")))
                     (link("/about/credits", icons::HEART, "Credits", current("/about/credits")))
-                    @if viewer.is_some_and(User::can_delete) {
-                        (link("/log", icons::ACTIVITY, "Moderation log", current("/log")))
-                    }
                     @if viewer.is_some_and(User::is_admin) {
+                        (link("/log", icons::ACTIVITY, "Moderation log", current("/log")))
                         (link("/users", icons::USERS, "Users", current("/users")))
                     }
                 }

@@ -12,7 +12,7 @@ use app::{
     models::{
         schematic::{self, Orientation},
         session::{Session, now_micros},
-        user::User,
+        user::{Role, User},
     },
     thumbnail::{Assets, Renderer},
     web::{self, app_state::AppState},
@@ -217,6 +217,42 @@ async fn only_a_builds_uploader_may_edit_it() {
         .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+}
+
+/// Only an admin sees the moderation log, its link in the sidebar, or
+/// puts back an edit from it; a mod is refused as anyone else is.
+#[tokio::test]
+async fn only_an_admin_sees_the_moderation_log() {
+    let site = Site::start().await;
+    for (id, name, role, allowed) in [
+        ("1", "steve", Role::User, false),
+        ("2", "alex", Role::Mod, false),
+        ("3", "herobrine", Role::Admin, true),
+    ] {
+        let user = common::sign_in(&site.db, id, name).await;
+        User::set_role(&site.db, user.id, role).await.unwrap();
+        let cookie = site.session(&user).await;
+
+        let response = site.get("/log", Some(&cookie)).await;
+        let wanted = if allowed {
+            StatusCode::OK
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(response.status(), wanted, "{name}");
+        let home = site.get("/", Some(&cookie)).await.text().await.unwrap();
+        assert_eq!(home.contains("href=\"/log\""), allowed, "{name}");
+        if !allowed {
+            let response = site
+                .ask(
+                    reqwest::Method::POST,
+                    "/log/edits/1/revert",
+                    Some(&cookie),
+                )
+                .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{name}");
+        }
+    }
 }
 
 #[tokio::test]
