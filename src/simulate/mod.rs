@@ -74,7 +74,7 @@ pub use alu::{flags as alu_flags, op as alu_op};
 pub mod alu_ops {
     pub use super::alu::{Op, carry_out, overflow, shift_out, zero};
 }
-pub use bench::{mask, telling};
+pub use bench::mask;
 pub(crate) use circuit::panic_message;
 pub use circuit::{Circuit, Compiled, Link, compiled, settled};
 pub use design::{Design, Terms, adder_design, design_of, groups};

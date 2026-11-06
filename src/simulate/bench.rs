@@ -379,7 +379,7 @@ pub(super) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
 /// About a dozen values of `width` bits that tell functions apart: none,
 /// one, and all set; alternate bits and pairs of bits, each way; the top
 /// bit alone; the low half set; and two with no pattern.
-pub fn telling(width: usize) -> Vec<Value> {
+fn telling(width: usize) -> Vec<Value> {
     let all = mask(width);
     let mut values: Vec<Value> = [
         0,

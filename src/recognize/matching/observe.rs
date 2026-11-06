@@ -1,9 +1,9 @@
 //! Driving a build once, before anything is known of what its lines are
 //! for, and keeping what each run of outputs shows. A build of few levers
 //! is driven every way. Any other has its buses driven through a few
-//! telling values of their widths, every pairing of them, under each
-//! setting of its lone lines, which may choose an operation, as an ALU's
-//! control lines do. Which run is A and which way round is decided later,
+//! patterns of their widths, see [`patterns`], every pairing of them, under
+//! each setting of its lone lines, which may choose an operation, as an
+//! ALU's control lines do, and carry in. Which run is A and which way round is decided later,
 //! by reading the values kept, so a build is compiled and run once however
 //! many ways its lines could be read.
 
@@ -15,7 +15,7 @@ use crate::{
         interface::{self, Bit, Interface, Port},
     },
     schem::{Blocks, Pos},
-    simulate::{Circuit, Value, telling},
+    simulate::{Circuit, Value, mask},
 };
 
 /// What a build did: its runs of inputs and of outputs, each run's bits in
@@ -43,8 +43,8 @@ pub(super) const EVERY_SETTING: usize = 6;
 const MOST_ON: u32 = 3;
 
 /// The most cases a build is observed in: past it, the pairings of its
-/// buses' telling values are sampled evenly under each setting of its
-/// lone lines.
+/// buses' patterns are sampled evenly under each setting of its lone
+/// lines.
 const MOST_CASES: usize = 1 << 14;
 
 /// The build in `blocks` driven as [`plan`] plans for `report`'s levers,
@@ -121,7 +121,7 @@ pub fn observe(
 /// value of every run: every combination of its levers, when they number
 /// at most [`EXHAUSTIVE_BITS`]; else, under each setting of its lone
 /// lines, a run of at most [`SHORT_RUN`] counting as lone lines, every
-/// pairing of its buses' telling values, or an even sample of them past
+/// pairing of its buses' patterns, or an even sample of them past
 /// [`MOST_CASES`].
 fn plan(inputs: &[Vec<Pos>]) -> Vec<Vec<Value>> {
     if inputs.iter().map(Vec::len).sum::<usize>() <= EXHAUSTIVE_BITS {
@@ -147,16 +147,16 @@ fn plan(inputs: &[Vec<Pos>]) -> Vec<Vec<Value>> {
     let buses: Vec<usize> = (0..inputs.len())
         .filter(|&run| !lone(&inputs[run]))
         .collect();
-    let telling: Vec<Vec<Value>> = buses
+    let patterns: Vec<Vec<Value>> = buses
         .iter()
-        .map(|&run| telling(inputs[run].len()))
+        .map(|&run| patterns(inputs[run].len()))
         .collect();
-    let total = pairings(&telling);
+    let total = pairings(&patterns);
     let taken = total.min((MOST_CASES / settings.len()).max(1));
     let mut cases = Vec::new();
     for setting in settings {
         for i in 0..taken {
-            let values = pairing(&telling, i * total / taken);
+            let values = pairing(&patterns, i * total / taken);
             let mut driven = vec![0; inputs.len()];
             for (&run, value) in buses.iter().zip(values) {
                 driven[run] = value;
@@ -168,6 +168,29 @@ fn plan(inputs: &[Vec<Pos>]) -> Vec<Vec<Value>> {
         }
     }
     cases
+}
+
+/// The values of `width` bits a bus is driven through: none set; each bit's
+/// place written in binary down the bits, `1010…`, `1100…`, `11110000…`,
+/// each place's bit `k` a pattern of runs `2^k` long; and each of those
+/// inverted. Every bit reads its own column across them, its place and
+/// its place inverted, so whichever order a bus's bits are in shows, and
+/// together with a carry in, all of them set and a carry ripple the bus's
+/// length.
+pub fn patterns(width: usize) -> Vec<Value> {
+    let all = mask(width);
+    let mut values = vec![0, all];
+    let mut run = 1;
+    while run < width {
+        let pattern = (0..width)
+            .filter(|bit| bit / run % 2 == 1)
+            .fold(0, |value, bit| value | 1 << bit);
+        values.extend([pattern, !pattern & all]);
+        run *= 2;
+    }
+    values.sort_unstable();
+    values.dedup();
+    values
 }
 
 /// Every setting of `lines` lone lines with at most [`MOST_ON`] of them on,
@@ -229,6 +252,26 @@ mod tests {
             .collect()
     }
 
+    /// A bus's patterns: none set, each bit's place down the bits, and
+    /// each inverted, so no two bits read alike across them.
+    #[test]
+    fn each_bit_reads_its_own_column() {
+        assert_eq!(
+            patterns(8),
+            [0x00, 0x0F, 0x33, 0x55, 0xAA, 0xCC, 0xF0, 0xFF]
+        );
+        assert_eq!(patterns(1), [0, 1]);
+        let wide = patterns(16);
+        let column = |bit: usize| -> Vec<bool> {
+            wide.iter().map(|v| v >> bit & 1 == 1).collect()
+        };
+        for x in 0..16 {
+            for y in x + 1..16 {
+                assert_ne!(column(x), column(y), "bits {x} and {y}");
+            }
+        }
+    }
+
     /// Few levers are driven every way.
     #[test]
     fn few_levers_are_driven_every_way() {
@@ -237,13 +280,13 @@ mod tests {
         assert!(cases.contains(&vec![15, 0, 1]));
     }
 
-    /// An ALU's buses take every pairing of their telling values under
+    /// An ALU's buses take every pairing of their patterns under
     /// each setting of its lone lines, a short run's bits lone lines too.
     #[test]
     fn buses_pair_under_each_setting_of_the_lone_lines() {
         let cases = plan(&runs(&[8, 8, 2, 1, 1, 1]));
-        let telling = telling(8).len();
-        assert_eq!(cases.len(), telling * telling * 32);
+        let patterns = patterns(8).len();
+        assert_eq!(cases.len(), patterns * patterns * 32);
         assert!(cases.contains(&vec![0, 0, 0b11, 1, 0, 1]));
     }
 

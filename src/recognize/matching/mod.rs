@@ -1,5 +1,5 @@
 //! Recognizing a build by matching what it does against what each category
-//! computes. Its levers are driven once through a few telling values and
+//! computes. Its levers are driven once through a few patterns and
 //! what each output shows is kept, see [`observe`]. Then each category's
 //! slots, see [`Category`], are filled from the build's lines every way
 //! they fit, see [`buses`], and each way is judged against the category's
