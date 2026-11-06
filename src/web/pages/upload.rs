@@ -5,7 +5,10 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::user::{SchematiLink, User},
+    models::{
+        schematic::Schematic,
+        user::{SchematiLink, User},
+    },
     web::analysis::{self, Step},
 };
 
@@ -127,6 +130,50 @@ pub fn analyzing(user: &User, id: &str, step: &Step) -> Markup {
             }
         },
     )
+}
+
+/// The page for checking a file as build `s`'s next version, check
+/// `id`, how far it has got, until it is done and the edit page shows it.
+pub fn checking_version(user: &User, s: &Schematic, id: &str) -> Markup {
+    base(
+        Some(user),
+        &format!("Edit {}", s.name()),
+        &format!("/schematics/{}/edit", s.id),
+        &html! {
+            div class="max-w-form" {
+                h1 class={ (PAGE_TITLE) " mb-6" } { "Upload a new version" }
+                // A step on the way to the build's page, as its edit page is.
+                div fx-action={ "/schematics/" (s.id) "/versions/check/" (id) "/progress" }
+                    fx-trigger="poll" data-every="250" fx-swap="innerHTML" data-step-page
+                    role="status" aria-live="polite" {
+                    (version_steps())
+                }
+            }
+        },
+    )
+}
+
+/// The steps of checking a new version: the file uploaded, and the check
+/// under way.
+pub fn version_steps() -> Markup {
+    const STEPS: [&str; 2] =
+        ["Uploading the file", "Checking it against this version"];
+    html! {
+        ol class="flex flex-col" {
+            @for (i, label) in STEPS.iter().enumerate() {
+                li class="flex min-h-row-rich items-start gap-3 py-1.5" {
+                    span class="flex h-6 w-5 shrink-0 items-center justify-center" {
+                        @if i == 0 {
+                            (icon(icons::CHECK, "size-5 text-brand"))
+                        } @else {
+                            span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" {}
+                        }
+                    }
+                    span class="leading-6" { (label) }
+                }
+            }
+        }
+    }
 }
 
 /// The steps of analyzing an upload, those before `place` done and the

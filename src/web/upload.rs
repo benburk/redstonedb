@@ -214,7 +214,7 @@ pub async fn preview(
         Ok(sent) => sent,
         Err(message) => return upload_page(&state, &user, &message).await,
     };
-    let id = analysis::start(&state, &user, file.to_vec());
+    let id = analysis::start(&state, &user, file.to_vec(), None);
     Ok(Redirect::to(&format!("/upload/{id}")).into_response())
 }
 
@@ -236,17 +236,25 @@ pub async fn analyzed(
     let Some(done) = done else {
         return Ok(pages::analyzing(&user, &id, &step).into_response());
     };
+    let analysis::Done::Upload(done) = done else {
+        return Ok(Redirect::to("/upload").into_response());
+    };
     let analyzed = match &*done {
         Ok(analyzed) => analyzed,
         Err(message) => return upload_page(&state, &user, message).await,
     };
     let upload = &analyzed.upload;
-    // What it seems to be starts the category and design.
-    let form = Form::suggested(
+    // What it seems to be starts the category and design, under what was
+    // filled in for a file it took the place of.
+    let suggested = Form::suggested(
         analyzed.guess.as_ref(),
         &interface::read(&upload.read_as().blocks),
         &upload.read_as().size,
     );
+    let form = match &analyzed.sent {
+        Some(sent) => Form::read(sent).keeping_sent(suggested),
+        None => suggested,
+    };
     let raw = STANDARD.encode(&analyzed.raw);
     let said = Said {
         recognition: Some(&analyzed.recognition),
@@ -371,10 +379,10 @@ pub async fn publish(
     show_preview(&state, &user, &upload, &form, said).await
 }
 
-/// The preview of the file newly chosen on the preview page, in place of
-/// `current`, with the details sent in `form` kept and only the empty ones
-/// filled from the new file; or `current` again, with the details as sent
-/// and why the new one could not be read.
+/// A file chosen on a preview in place of `current`, with the details as
+/// sent, `form`: analyzed in the background as a new upload is, its page
+/// showing how far that has got, then its preview keeping what was filled
+/// in; or the preview again saying why it could not be read.
 async fn chosen_instead(
     state: &AppState,
     user: &User,
@@ -386,44 +394,28 @@ async fn chosen_instead(
         Ok(()) => posted.chosen().await,
         Err(message) => Err(message),
     };
-    let read = match chosen {
-        Ok(chosen) => Upload::read(&recognized(&chosen.file).await)
-            .map(|upload| (upload, chosen.file))
-            .map_err(|err| format!("Could not read that file: {err:#}.")),
-        Err(message) => Err(message),
-    };
-    let kept = posted.get("original").to_owned();
-    let (upload, raw) = match read {
-        Ok(read) => read,
+    match chosen {
+        Ok(chosen) => {
+            let sent = Some(posted.pairs.clone());
+            let id = analysis::start(state, user, chosen.file.to_vec(), sent);
+            Ok(Redirect::to(&format!("/upload/{id}")).into_response())
+        }
         Err(message) => {
+            let kept = posted.get("original").to_owned();
             let said = Said {
                 reply: Reply::Choosing(Some(&message)),
                 original: &kept,
                 ..Said::default()
             };
-            return show_preview(state, user, &current, &form, said).await;
+            show_preview(state, user, &current, &form, said).await
         }
-    };
-    let raw = STANDARD.encode(raw);
-    let guess = guessed(&upload.read_as().data).await;
-    let suggested = Form::suggested(
-        guess.as_ref(),
-        &interface::read(&upload.read_as().blocks),
-        &upload.read_as().size,
-    );
-    let form = form.keeping_sent(suggested);
-    let said = Said {
-        original: &raw,
-        ..Said::default()
-    };
-    show_preview(state, user, &upload, &form, said).await
+    }
 }
 
 /// Publishes the file `raw` as `user` uploading it and leaving every
 /// detail as its preview suggests, as `rsdb seed` fills a new database
 /// from the test fixtures, simulated and stored whole as an upload is, and
 /// returns its id, or says why it was refused.
-/// Its tests and timing are not run; `rsdb refresh` runs them.
 pub async fn publish_suggested(
     db: &sqlx::SqlitePool,
     user: &User,

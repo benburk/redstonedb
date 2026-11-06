@@ -77,7 +77,9 @@ pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,
 };
-pub use upload::{analysis_steps, analyzing, upload};
+pub use upload::{
+    analysis_steps, analyzing, checking_version, upload, version_steps,
+};
 pub use users::{ProfileBuilds, ProfileList, login, profile, user_row, users};
 /// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.

@@ -307,6 +307,14 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/schematics/{id}/favorite", post(schematics::favorite))
         .route("/schematics/{id}/versions/new", get(versions::form))
         .route(
+            "/schematics/{id}/versions/check/{check}",
+            get(schematics::checked),
+        )
+        .route(
+            "/schematics/{id}/versions/check/{check}/progress",
+            get(schematics::check_progress),
+        )
+        .route(
             "/schematics/{id}/versions/{version}/download",
             get(versions::download),
         )
