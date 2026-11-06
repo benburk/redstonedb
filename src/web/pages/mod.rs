@@ -78,7 +78,7 @@ pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{
     Waiting, simulation_results, simulation_section, timing_section,
 };
-pub use trace::trace_page;
+pub use trace::{glitch_trace, trace_page};
 pub use upload::{
     analysis_steps, analyzing, checking_version, upload, version_steps,
 };

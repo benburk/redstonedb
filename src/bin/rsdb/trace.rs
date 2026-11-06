@@ -332,7 +332,9 @@ fn print_timeline(a: &Analysis) {
 }
 
 fn print_sweep(file_or_id: &str, a: &Analysis) {
-    let sweep = &a.sweep;
+    let Some(sweep) = &a.sweep else {
+        return;
+    };
     println!(
         "across {} changes, every input switching at tick 0: each input alone \
          from all off, and {} at random",

@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};
+use crate::web::trace::shown_glitch;
 
 /// The details form's simulation result, a live panel the form redraws
 /// whenever its category or width changes: `content`, the section for the
@@ -279,9 +280,28 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
                 dt class="text-muted" { "Changes tested" }
                 dd { (grouped(timing.changes)) }
             }
-            @for output in &timing.outputs {
-                @if let Some(glitch) = &output.glitch {
-                    (glitch_example(&output.name, glitch, &timing.inputs, trace))
+            @if let Some(trace) = trace {
+                // A stored build's glitch is traced, its chart drawn once the
+                // page has loaded; any other output's glitch is a link.
+                @let shown = shown_glitch(timing).map(|o| o.name.as_str());
+                @if shown.is_some() {
+                    div fx-action={ (trace) "/glitch" } fx-trigger="load" role="status" class="mt-4" {
+                        p class="flex items-center gap-2 text-muted" { (spinner()) "Tracing its glitch…" }
+                    }
+                }
+                @for output in timing.outputs.iter().filter(|o| Some(o.name.as_str()) != shown) {
+                    @if let Some(glitch) = &output.glitch {
+                        p class="mt-4" {
+                            strong { "Glitch: " (output.name) ", all off → " (case_words(glitch, &timing.inputs)) }
+                            " " a href=(glitch_link(trace, glitch, &timing.inputs)) { "Trace it" }
+                        }
+                    }
+                }
+            } @else {
+                @for output in &timing.outputs {
+                    @if let Some(glitch) = &output.glitch {
+                        (glitch_example(&output.name, glitch, &timing.inputs))
+                    }
                 }
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
@@ -297,6 +317,33 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     }
 }
 
+/// The inputs `glitch` changed to from all off, such as `A=0, B=1`.
+fn case_words(glitch: &Glitch, inputs: &[InputTiming]) -> String {
+    inputs
+        .iter()
+        .zip(&glitch.case)
+        .map(|(input, value)| format!("{}={value}", input.name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The logic analyzer at `trace` tracing `glitch`'s change, every input
+/// from 0, each switching on its tick, as the timing switched them.
+fn glitch_link(trace: &str, glitch: &Glitch, inputs: &[InputTiming]) -> String {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (input, value) in inputs.iter().zip(&glitch.case) {
+        pairs.push((format!("to.{}", input.name), value.to_string()));
+        if let Some(tick) = input.tick.filter(|&tick| tick != 0 && *value != 0)
+        {
+            pairs.push((format!("at.{}", input.name), tick.to_string()));
+        }
+    }
+    format!(
+        "{trace}?{}",
+        serde_urlencoded::to_string(pairs).unwrap_or_default()
+    )
+}
+
 /// The first change from all off in which `name` glitched: its value at
 /// each tick from t = 0 until it settles, the ticks it is wrong
 /// marked, and what it should hold.
@@ -304,13 +351,7 @@ fn glitch_example(
     name: &str,
     glitch: &Glitch,
     inputs: &[InputTiming],
-    trace: Option<&str>,
 ) -> Markup {
-    let case: Vec<String> = inputs
-        .iter()
-        .zip(&glitch.case)
-        .map(|(input, value)| format!("{}={value}", input.name))
-        .collect();
     let first = glitch.steps.first().map_or(0, |&(at, _)| at);
     let last = glitch.steps.last().map_or(0, |&(at, _)| at).max(0);
     let settled = glitch
@@ -325,25 +366,8 @@ fn glitch_example(
             .last()
             .map_or(glitch.before, |&(_, value)| value)
     };
-    // The change, every input from 0, in the logic analyzer's query.
-    let traced = trace.map(|trace| {
-        let pairs: Vec<(String, &Value)> = inputs
-            .iter()
-            .zip(&glitch.case)
-            .map(|(input, value)| (format!("to.{}", input.name), value))
-            .collect();
-        format!(
-            "{trace}?{}",
-            serde_urlencoded::to_string(pairs).unwrap_or_default()
-        )
-    });
     html! {
-        p class="mt-4 font-semibold" {
-            "Glitch: " (name) ", all off → " (case.join(", "))
-            @if let Some(traced) = traced {
-                " " a class="font-normal" href=(traced) { "Trace it" }
-            }
-        }
+        p class="mt-4 font-semibold" { "Glitch: " (name) ", all off → " (case_words(glitch, inputs)) }
         div class="relative mt-1 overflow-x-auto" {
             table class="border-collapse tabular-nums" {
                 caption class="sr-only" { "Glitch: " (name) ", tick by tick" }
