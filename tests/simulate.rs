@@ -413,6 +413,41 @@ fn an_output_is_timed_where_it_reaches_its_repeaters() {
     assert_eq!(timing.latency(), Some(3));
 }
 
+/// A repeater or comparator on an output that a side feeds works out its
+/// bit, so its tick counts in the latency, where one carrying the bit out
+/// of the build is left out: this 8-bit incrementer's comparators each
+/// subtract a side, 3 ticks, not 2.
+#[test]
+fn an_output_fed_from_a_side_counts_its_tick() {
+    side_fed("inc-8-comparator-out", Test::Incrementer, "incrementer", 3);
+}
+
+/// Likewise for this 8×8 multiplier, whose outputs are the repeaters its
+/// latches lock: the same 22 ticks as when a dust and a repeater followed
+/// each.
+#[test]
+#[ignore = "measures whole builds: just test-full"]
+fn a_latched_output_counts_its_tick() {
+    side_fed(
+        "multiplier-8-latched-out",
+        Test::Multiplier,
+        "multiplier",
+        22,
+    );
+}
+
+/// Times fixture `name` as a build of `category` by `test`, its outputs
+/// each fed from a side, and checks none is carried out and its latency
+/// is `latency`.
+fn side_fed(name: &str, test: Test, category: &str, latency: i32) {
+    let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+    let blocks =
+        Blocks::read(&import::with_roles(&raw, category).unwrap()).unwrap();
+    let timing = test.time(&blocks, &AtomicBool::new(false)).unwrap();
+    assert!(timing.outputs.iter().all(|output| output.carried == 0));
+    assert_eq!(timing.latency(), Some(latency));
+}
+
 /// An adder times the same whichever operand is named A: its latency, and
 /// the tick each line may switch by, are from t = 0, as the inputs each
 /// output waits longest on switch, not from A's switching. The port of an
