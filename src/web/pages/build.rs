@@ -461,11 +461,13 @@ pub fn build_info(
                 (not_recognized(s, meant, file))
             }
             // A failing build says so beside its title, not among its tags;
-            // its design, orientation, and flags are among them.
-            @let tags: Vec<_> = s.every_tag().into_iter().filter(|tag| !tag.is_unverified()).collect();
+            // its design, orientation, and flags are among them, but not one
+            // another implies, as 4-wide stackable beside 2-wide stackable.
+            @let every = s.every_tag();
+            @let tags: Vec<_> = every.iter().filter(|tag| !tag.is_unverified() && !tag::implied(&tag.name, &every)).collect();
             @if !tags.is_empty() {
                 ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
-                    @for tag in &tags {
+                    @for tag in tags {
                         li { (super::badge(tag, s)) }
                     }
                 }
