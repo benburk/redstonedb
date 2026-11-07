@@ -354,3 +354,28 @@ fn a_hex_adders_one_run_of_digits_is_both_operands() {
         recognition.problems
     );
 }
+
+/// A sum is as wide as its operands, and an output bit beyond them is the
+/// carry out: zPippo's 10-bit carry-cancel adder, its eleven outputs one
+/// bus, gives a 10-bit sum and a carry out line, where its carry was read
+/// as an eleventh bit of the sum.
+#[test]
+fn an_adders_output_bit_past_its_operands_is_its_carry_out() {
+    use app::schem::lines::Role;
+    let raw =
+        std::fs::read("tests/fixtures/cca-10-carry-on-top.schem").unwrap();
+    let bare = app::schem::lines::with(&raw, None).unwrap();
+    let recognition = app::recognize::probe::recognize(&bare).unwrap();
+    assert!(recognition.found.is_some(), "{:?}", recognition.problems);
+    let blocks = app::schem::Blocks::read(&recognition.file).unwrap();
+    let outputs: Vec<(Option<Role>, usize)> =
+        app::recognize::interface::read(&blocks)
+            .outputs
+            .iter()
+            .map(|port| (port.role, port.bits.len()))
+            .collect();
+    assert_eq!(
+        outputs,
+        [(Some(Role::Output(0)), 10), (Some(Role::Status), 1)]
+    );
+}
