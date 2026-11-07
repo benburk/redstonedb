@@ -316,3 +316,41 @@ fn a_one_hexit_adder_needs_no_carry_in() {
         recognition.problems
     );
 }
+
+/// An adder whose sum reads inverted is an inverted adder, a category of
+/// its own: zPippo's 3-tick carry-cancel adder, every case its sum the
+/// inverse of A + B + carry in.
+#[test]
+fn an_adder_whose_sum_reads_inverted_is_an_inverted_adder() {
+    let raw =
+        std::fs::read("tests/fixtures/inverted-adder-8-cca.schem").unwrap();
+    let bare = app::schem::lines::with(&raw, None).unwrap();
+    let recognition = app::recognize::probe::recognize(&bare).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some(
+            "an inverted adder: all 131072 cases right, not (A + B + carry \
+             in)"
+        ),
+        "{:?}",
+        recognition.problems
+    );
+}
+
+/// A hex adder's two digit inputs one above the other, one run, are A and
+/// B, a digit each, where the run was read as A alone, of two digits.
+#[test]
+fn a_hex_adders_one_run_of_digits_is_both_operands() {
+    let raw = std::fs::read(
+        "tests/fixtures/hex-adder-4-operands-in-one-column.schem",
+    )
+    .unwrap();
+    let bare = app::schem::lines::with(&raw, None).unwrap();
+    let recognition = app::recognize::probe::recognize(&bare).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some("a hex adder: all 256 cases right, A + B"),
+        "{:?}",
+        recognition.problems
+    );
+}

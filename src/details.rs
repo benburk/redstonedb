@@ -455,13 +455,22 @@ pub async fn unrecognized(
         .map_err(|err| format!("It could not be simulated: {err}."))?;
     match &report {
         // An adder adds and a subtractor subtracts, each its own category.
+        // An adder's sum reads as it is and an inverted adder's inverted.
         Report::Ran(run) if report.passed() => {
-            let subtracts = run.adder_variant().subtract;
+            let variant = run.adder_variant();
             match kind {
-                Kind::Adder | Kind::HexAdder if subtracts => {
+                Kind::Adder | Kind::HexAdder | Kind::Subtractor
+                    if variant.sum =>
+                {
+                    off(INVERTS_SUM.to_owned())
+                }
+                Kind::InvertedAdder if !variant.sum => {
+                    off(KEEPS_SUM.to_owned())
+                }
+                Kind::Adder | Kind::HexAdder if variant.subtract => {
                     off(SUBTRACTS.to_owned())
                 }
-                Kind::Subtractor if !subtracts => off(ADDS.to_owned()),
+                Kind::Subtractor if !variant.subtract => off(ADDS.to_owned()),
                 _ => Ok(None),
             }
         }
@@ -483,6 +492,12 @@ pub const SUBTRACTS: &str = "It subtracts";
 
 /// Why an adder that adds is not verified as a subtractor.
 pub const ADDS: &str = "It adds";
+
+/// Why an inverted adder is not verified as an adder.
+pub const INVERTS_SUM: &str = "Its sum reads inverted, as an inverted adder's";
+
+/// Why an adder is not verified as an inverted adder.
+pub const KEEPS_SUM: &str = "Its sum reads as it is, as an adder's";
 
 /// Why a build its test finds broken is not verified, and a build that got
 /// some cases of its test wrong was, before each said which.

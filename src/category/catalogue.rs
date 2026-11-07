@@ -251,6 +251,9 @@ impl Flag {
     /// The flag of an adder or subtractor whose carry in reads inverted,
     /// powered meaning 0, which says only how one line is read.
     pub const INVERTED_CARRY_IN: &str = "inverted_carry_in";
+    /// The flag of an inverted adder whose carry out reads inverted, as its
+    /// sum does.
+    pub const INVERTED_CARRY_OUT: &str = "inverted_carry_out";
 }
 
 /// The flags of the category named `category` among `names`, in its

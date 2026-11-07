@@ -36,7 +36,10 @@ pub(super) enum Inverts {
 pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
     Some(match (Kind::named(category)?, flag) {
         (
-            Kind::Adder | Kind::HexAdder | Kind::Subtractor,
+            Kind::Adder
+            | Kind::HexAdder
+            | Kind::Subtractor
+            | Kind::InvertedAdder,
             Flag::INVERTED_CARRY_IN,
         ) => Inverts::Input(Role::Control),
         (

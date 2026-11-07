@@ -757,7 +757,7 @@ fn stacked(
     // Loading it settles it, so one that never settles stops here.
     Circuit::new(&blocks, &interface).map_err(|err| err.to_string())?;
     let seams = seam_cases(bits, width, widths.len() == 3);
-    let sum = |case: &Case| variant.apply(case);
+    let sum = |case: &Case| variant.apply(case, bits);
     let seam = sweep(&blocks, &interface, &bench, &seams, None, sum)
         .map_err(|err| err.to_string())?;
     if let Some(wrong) = seam.examples.first() {

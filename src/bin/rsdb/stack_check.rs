@@ -261,7 +261,9 @@ fn read_single(
         }
     };
     let buses = match kind {
-        Some(Kind::Adder | Kind::Subtractor) | None => stack::Buses::own(),
+        Some(Kind::Adder | Kind::Subtractor | Kind::InvertedAdder) | None => {
+            stack::Buses::own()
+        }
         Some(kind) => stack::Buses::of(
             kind,
             like.map_or(Orientation::Horizontal, |s| s.orientation),

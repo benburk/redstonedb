@@ -856,11 +856,15 @@ impl Run {
         }
     }
 
-    /// The category of a build the adder's test ran as this: a subtractor
-    /// when it subtracts B, else a hex adder when its inputs take `hex`
-    /// digits, else an adder.
+    /// The category of a build the adder's test ran as this: an inverted
+    /// adder when its sum reads inverted, a subtractor when it subtracts
+    /// B, else a hex adder when its inputs take `hex` digits, else an
+    /// adder.
     pub fn adder_category(&self, hex: bool) -> Kind {
-        if self.adder_variant().subtract {
+        let variant = self.adder_variant();
+        if variant.sum {
+            Kind::InvertedAdder
+        } else if variant.subtract {
             Kind::Subtractor
         } else if hex {
             Kind::HexAdder
@@ -902,10 +906,13 @@ mod stored {
 
     /// The way an adder whose cases are named `pattern` reads.
     pub fn adder_variant(pattern: &str) -> AdderVariant {
+        let sum = pattern.starts_with("not (");
+        let add = pattern.trim_start_matches("not (");
         AdderVariant {
-            subtract: pattern.starts_with("A − "),
-            carry_in: pattern.contains("B + not ")
-                || pattern.contains("B − not "),
+            subtract: add.starts_with("A − "),
+            carry_in: add.contains("B + not ") || add.contains("B − not "),
+            sum,
+            carry_out: sum && pattern.ends_with("carry out inverted"),
         }
     }
 
@@ -1107,16 +1114,36 @@ mod tests {
     /// name, so the name each reading gives must read back as it.
     #[test]
     fn a_stored_pattern_reads_as_the_reading_that_named_it() {
-        for subtract in [false, true] {
-            for carry_in in [false, true] {
-                let variant = AdderVariant { subtract, carry_in };
-                for line in [None, Some("carry in"), Some("cin")] {
-                    let pattern = variant.name(line);
-                    let read = stored::adder_variant(&pattern);
-                    // With no carry in, there is none to read inverted.
-                    let carry_in = carry_in && line.is_some();
-                    assert_eq!(read, AdderVariant { subtract, carry_in });
-                }
+        let ways = [false, true];
+        for (subtract, carry_in, sum, carry_out) in
+            ways.into_iter().flat_map(|a| {
+                ways.into_iter().flat_map(move |b| {
+                    ways.into_iter().flat_map(move |c| {
+                        ways.into_iter().map(move |d| (a, b, c, d))
+                    })
+                })
+            })
+        {
+            // Only an inverted adder's carry out reads inverted.
+            let carry_out = carry_out && sum;
+            let variant = AdderVariant {
+                subtract,
+                carry_in,
+                sum,
+                carry_out,
+            };
+            for line in [None, Some("carry in"), Some("cin")] {
+                let pattern = variant.name(line);
+                let read = stored::adder_variant(&pattern);
+                // With no carry in, there is none to read inverted.
+                let carry_in = carry_in && line.is_some();
+                assert_eq!(
+                    read,
+                    AdderVariant {
+                        carry_in,
+                        ..variant
+                    }
+                );
             }
         }
         assert!(stored::signed(adder::SIGNED_GREATER_THAN));
