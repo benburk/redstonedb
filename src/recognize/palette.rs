@@ -351,9 +351,12 @@ impl Default for Palette {
 }
 
 impl Palette {
-    /// Whether every choice is one a palette may make.
+    /// Whether every choice is one a palette may make: any block it may
+    /// build or mark with, as roles are read by their shapes, never their
+    /// colours, so a role marked as a block the theme builds with, or two
+    /// marked alike, only look alike.
     pub fn valid(&self) -> bool {
-        self.known() && self.clash().is_none()
+        self.known()
     }
 
     /// Whether each of its blocks is one a palette may build or mark with.
@@ -372,52 +375,6 @@ impl Palette {
                 ROLES.iter().any(|(k, ..)| k == key)
                     && (mark == NONE || among(marks(), mark))
             })
-    }
-
-    /// Why its roles couldn't be told from its plain blocks or each other,
-    /// if they couldn't: a role marked with the solid, hard-powered, or
-    /// soft-powered block, two roles marked alike, or an output's glass the
-    /// palette's own glass. An output is a block no block of its kind
-    /// touches, so one of the blocks around it is no output.
-    pub fn clash(&self) -> Option<String> {
-        let marked: Vec<(&str, &str, String)> = ROLES
-            .iter()
-            .filter_map(|&(key, name, _)| {
-                let name = name.split(',').next().unwrap_or(name);
-                Some((key, name, self.mark(key)?))
-            })
-            .collect();
-        let plain = [Some(&self.solid), self.hard.as_ref(), self.soft.as_ref()];
-        for (i, (_, name, block)) in marked.iter().enumerate() {
-            if plain.iter().flatten().any(|plain| *plain == block) {
-                return Some(format!(
-                    "{name} can't be {}, a block the theme builds with.",
-                    label(block)
-                ));
-            }
-            if let Some((_, other, _)) =
-                marked[..i].iter().find(|(.., other)| other == block)
-            {
-                return Some(format!(
-                    "{other} and {name} can't both be {}.",
-                    label(block)
-                ));
-            }
-        }
-        for (key, name, block) in &marked {
-            let site = ROLES.iter().find(|(k, ..)| k == key).map(|r| r.2);
-            let glass = site
-                .map(|site| role_glass(site, Some(block), &self.transparent));
-            if matches!(*key, "output" | "status")
-                && glass.as_deref() == Some(self.transparent.as_str())
-            {
-                return Some(format!(
-                    "{name} in glass would be {}, the theme's own glass.",
-                    label(&self.transparent)
-                ));
-            }
-        }
-        None
     }
 
     /// A short name for it, for a picture's address, so each palette's
@@ -654,29 +611,6 @@ mod tests {
     }
 
     #[test]
-    fn a_role_must_differ_from_the_blocks_around_it() {
-        // The site builds with white concrete, so an output of it touches
-        // its own kind.
-        assert_eq!(
-            marking("output", "white_concrete").clash().as_deref(),
-            Some(
-                "Outputs can't be white concrete, a block the theme builds with."
-            )
-        );
-        let mut powered = marking("a", "gray_wool");
-        powered.hard = Some("gray_wool".to_owned());
-        assert!(powered.clash().is_some());
-        assert_eq!(
-            marking("b", "lime_concrete").clash().as_deref(),
-            Some("A and B can't both be lime concrete.")
-        );
-        // An output's glass the theme's own glass.
-        let mut glass = marking("output", "orange_wool");
-        glass.transparent = "orange_stained_glass".to_owned();
-        assert!(glass.clash().is_some());
-    }
-
-    #[test]
     fn a_white_role_keeps_its_own_glass() {
         // White glass reads as no output, so the role's glass stays the
         // site's, where any other colour's glass is its own.
@@ -695,7 +629,7 @@ mod tests {
     #[test]
     fn every_preset_is_a_palette_that_may_be_kept() {
         for (key, _, preset) in presets() {
-            assert!(preset.valid(), "{key}: {:?}", preset.clash());
+            assert!(preset.valid(), "{key}");
         }
         assert!(Palette::default().valid());
     }
