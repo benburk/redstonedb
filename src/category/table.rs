@@ -213,6 +213,8 @@ const CARRY_IN_FLAG: Flag = flag(Flag::CARRY_IN, "Carry in");
 const CARRY_OUT_FLAG: Flag = flag(Flag::CARRY_OUT, "Carry out");
 const INVERTED_CARRY_IN_FLAG: Flag =
     flag(Flag::INVERTED_CARRY_IN, "Inverted carry in");
+const INVERTED_CARRY_OUT_FLAG: Flag =
+    flag(Flag::INVERTED_CARRY_OUT, "Inverted carry out");
 
 /// An adder's and a hex adder's flags.
 const ADDER_FLAGS: &[Flag] = &[
@@ -220,6 +222,7 @@ const ADDER_FLAGS: &[Flag] = &[
     CARRY_OUT_FLAG,
     flag("subtract", "Subtract"),
     INVERTED_CARRY_IN_FLAG,
+    INVERTED_CARRY_OUT_FLAG,
 ];
 
 /// An ALU's flags: the operations it offers beyond adding and subtracting,
@@ -307,7 +310,7 @@ pub(super) const TABLE: [Facts; 49] = [
             CARRY_IN_FLAG,
             CARRY_OUT_FLAG,
             INVERTED_CARRY_IN_FLAG,
-            flag(Flag::INVERTED_CARRY_OUT, "Inverted carry out"),
+            INVERTED_CARRY_OUT_FLAG,
         ],
         listed_as: Some("inverted adders"),
         probe: Probing::As(Kind::Adder),

@@ -69,31 +69,40 @@ pub struct Variant {
     /// Whether its sum reads inverted, as an inverted adder's does.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sum: bool,
-    /// Whether, its sum inverted, its carry out reads inverted too.
+    /// Whether its carry out reads inverted, as a carry-cancel adder's
+    /// may, a tick sooner than inverting it again, or an inverted adder's
+    /// with its sum.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub carry_out: bool,
 }
 
 impl Variant {
     /// Every way an adder with a carry in, if it has one, may read, the
-    /// plain add first, then, its sum inverted, an inverted adder's add,
-    /// its carry out, if it has one, either way.
+    /// plain add first, its carry out, if it has one, either way; then a
+    /// subtract; then, its sum inverted, an inverted adder's add, its carry
+    /// out either way too.
     fn all(carry_in: bool, carry_out: bool) -> Vec<Variant> {
         let ins = [false, true].into_iter().take(1 + usize::from(carry_in));
+        let outs = [false, true].into_iter().take(1 + usize::from(carry_out));
         let mut all = Vec::new();
-        for subtract in [false, true] {
-            for carry_in in ins.clone() {
+        for carry_in in ins.clone() {
+            for out in outs.clone() {
                 all.push(Variant {
-                    subtract,
                     carry_in,
+                    carry_out: out,
                     ..Variant::default()
                 });
             }
         }
+        for carry_in in ins.clone() {
+            all.push(Variant {
+                subtract: true,
+                carry_in,
+                ..Variant::default()
+            });
+        }
         for carry_in in ins {
-            for out in
-                [false, true].into_iter().take(1 + usize::from(carry_out))
-            {
+            for out in outs.clone() {
                 all.push(Variant {
                     carry_in,
                     sum: true,
@@ -121,12 +130,15 @@ impl Variant {
             let not = if self.carry_in { "not " } else { "" };
             format!(" {sign} {not}{name}")
         });
-        match (self.sum, self.carry_out) {
-            (false, _) => format!("A {sign} B{carry}"),
-            (true, false) => format!("not (A {sign} B{carry})"),
-            (true, true) => {
-                format!("not (A {sign} B{carry}), carry out inverted")
-            }
+        let added = if self.sum {
+            format!("not (A {sign} B{carry})")
+        } else {
+            format!("A {sign} B{carry}")
+        };
+        if self.carry_out {
+            format!("{added}, carry out inverted")
+        } else {
+            added
         }
     }
 
@@ -142,11 +154,13 @@ impl Variant {
         } else {
             a + b + carry
         };
-        if !self.sum {
-            return total;
-        }
-        let sum = !total & super::mask(width);
-        let carried = (total >> width & 1) ^ Value::from(self.carry_out);
+        let sum = total & super::mask(width);
+        let sum = if self.sum {
+            !sum & super::mask(width)
+        } else {
+            sum
+        };
+        let carried = (total >> width) ^ Value::from(self.carry_out);
         sum | carried << width
     }
 
@@ -572,6 +586,27 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
 mod tests {
     use super::*;
     use crate::recognize::interface;
+
+    /// An adder's carry out may read inverted, its sum as it is, as a
+    /// carry-cancel adder's gives it a tick sooner; an inverted adder's
+    /// sum reads inverted, its carry out either way.
+    #[test]
+    fn a_carry_out_may_read_inverted() {
+        let add = |carry_out, sum| Variant {
+            sum,
+            carry_out,
+            ..Variant::default()
+        };
+        // 200 + 100 is 300: 44 and a carry, 256, in 8 bits; 44 inverted
+        // is 211.
+        let case: Case = [200, 100, 0];
+        assert_eq!(add(false, false).apply(&case, 8), 300);
+        assert_eq!(add(true, false).apply(&case, 8), 44);
+        assert_eq!(add(false, true).apply(&case, 8), 467);
+        assert_eq!(add(true, true).apply(&case, 8), 211);
+        assert!(Variant::all(false, true).contains(&add(true, false)));
+        assert!(!Variant::all(false, false).contains(&add(true, false)));
+    }
 
     /// A sign may name a line inverted, as `!cin` does, and still name it.
     #[test]

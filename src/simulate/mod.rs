@@ -912,7 +912,7 @@ mod stored {
             subtract: add.starts_with("A − "),
             carry_in: add.contains("B + not ") || add.contains("B − not "),
             sum,
-            carry_out: sum && pattern.ends_with("carry out inverted"),
+            carry_out: pattern.ends_with("carry out inverted"),
         }
     }
 
@@ -1124,8 +1124,6 @@ mod tests {
                 })
             })
         {
-            // Only an inverted adder's carry out reads inverted.
-            let carry_out = carry_out && sum;
             let variant = AdderVariant {
                 subtract,
                 carry_in,
