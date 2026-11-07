@@ -152,9 +152,10 @@ async fn next_version(
         }
         bail!("{} cannot replace {}", file.display(), &id[..8]);
     }
-    // Any new version from here is an admin's.
+    // Any new version from here is the site's own, as its pruning's is, so
+    // its log names RedstoneDB rather than no account.
     let how = Replacing::NextVersion {
-        added_by: None,
+        added_by: Some(app::models::user::REDSTONEDB),
         added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
         restores: None,
