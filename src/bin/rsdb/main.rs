@@ -104,6 +104,11 @@ enum Command {
         /// passes and its timing comes out the same
         #[arg(long)]
         prune: bool,
+        /// Also find its lines' roles again, probing it as its category, as
+        /// an upload is, for a build whose stored roles a change to probing
+        /// would read otherwise
+        #[arg(long)]
+        probe: bool,
         /// Change nothing: work each build out from its file alone and list
         /// where that differs from what is stored, and with `--prune` what
         /// would be taken out; with `--all`, the builds of each category
@@ -205,8 +210,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             ids,
             all,
             prune,
+            probe,
             dry_run,
-        } => refresh(db, &ids, all, prune, dry_run).await,
+        } => refresh(db, &ids, all, (prune, probe), dry_run).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
         Command::Tags {
             define,

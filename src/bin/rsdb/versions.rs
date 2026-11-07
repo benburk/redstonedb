@@ -117,6 +117,7 @@ pub(super) async fn new_version(
         again: false,
         rejudge: true,
         prune: false,
+        probe: false,
     };
     if let Some(report) = refresh_one(db, &id, how).await? {
         print_report(&name, &report);
