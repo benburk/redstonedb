@@ -13,7 +13,7 @@ use super::{
 use crate::{
     category::{Kind, Probe, Probing},
     recognize::{inspect, matching},
-    schem::{self, Blocks, Pos, lines, orient},
+    schem::{self, Blocks, Pos, lines, lines::Role, orient},
     simulate::{self, Test},
 };
 
@@ -126,7 +126,8 @@ fn recognize_laid(
     }
     // What a probe found, unless a data input it found has a block behind
     // its lever, which only a control line's may.
-    let accept = |data_inputs: &[Pos], file: Vec<u8>, found: String| {
+    let accept = |kind: Kind, data_inputs: &[Pos], file: Vec<u8>, found| {
+        let file = carry_on_top(kind, &file).unwrap_or(file);
         let faults = report.data_faults(data_inputs);
         if faults.is_empty() {
             Recognition {
@@ -154,7 +155,7 @@ fn recognize_laid(
                 faults.push((kind, Fault::Unfit(LEAVES_DIGITS.to_owned())));
             }
             Ok((data_inputs, file, found)) => {
-                return Ok(accept(&data_inputs, file, found));
+                return Ok(accept(kind, &data_inputs, file, found));
             }
             Err(fault) => faults.push((kind, fault)),
         }
@@ -185,7 +186,8 @@ fn recognize_laid(
         && let Some((found, file)) =
             unaligned(data, &blocks, &report, meant.flatten())?
     {
-        return Ok(accept(&found.data_inputs(), file, found.found()));
+        let kind = found.kind;
+        return Ok(accept(kind, &found.data_inputs(), file, found.found()));
     }
     problems.push(fault.map_or_else(String::new, ToString::to_string));
     // The file with the roles of the try whose fault is shown, when it ran.
@@ -194,6 +196,46 @@ fn recognize_laid(
         file: closest.to_vec(),
         ..unrecognized(problems)
     })
+}
+
+/// `file`, a reading of a build of `kind`, with the top bit of an adder's
+/// output marked its carry out where the output is one bit wider than A
+/// and it has no carry out line: a sum is as wide as its operands, and the
+/// bit beyond them the carry, as a 10-bit adder's eleventh output is.
+fn carry_on_top(kind: Kind, file: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let adds = matches!(
+        kind,
+        Kind::Adder | Kind::HexAdder | Kind::Subtractor | Kind::InvertedAdder
+    );
+    let blocks = Blocks::read(file)?;
+    let (true, Some(roles)) = (adds, blocks.roles.as_ref()) else {
+        return Ok(file.to_vec());
+    };
+    let found = crate::recognize::interface::read(&blocks);
+    let role = |port: &&crate::recognize::interface::Port, role| {
+        port.role == Some(role)
+    };
+    let a = found.inputs.iter().find(|p| role(p, Role::Operand(0)));
+    let sums: Vec<_> = found
+        .outputs
+        .iter()
+        .filter(|p| role(p, Role::Output(0)))
+        .collect();
+    let status = found.outputs.iter().any(|p| role(&p, Role::Status));
+    match (a, sums.as_slice()) {
+        (Some(a), [sum])
+            if !status
+                && !a.signal_strength
+                && sum.bits.len() == a.bits.len() + 1 =>
+        {
+            let mut roles = roles.clone();
+            if let Some(top) = sum.bits.last() {
+                roles.mark(Role::Status, [&top.pos]);
+            }
+            lines::with(file, Some(&roles))
+        }
+        _ => Ok(file.to_vec()),
+    }
 }
 
 /// Why a reading that leaves a digit input out is none; see

@@ -475,12 +475,34 @@ fn adder_line(
         return Ok(None);
     };
     let port = &mut ports[line];
-    if !port.labelled {
+    // A sign may name it inverted, as `!cin` does, which the test reads it
+    // either way round to find; it goes by its role's first name.
+    let plain = unnegated(&port.name);
+    if !port.labelled || names.contains(&plain) && plain != port.name {
         names[0].clone_into(&mut port.name);
-    } else if !names.contains(&port.name.as_str()) {
-        broken!("{role}, but this one is signed {}.", port.name);
+    } else if !names.contains(&plain) {
+        let either = names
+            .iter()
+            .map(|name| format!("\"{name}\""))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        broken!(
+            "{role}, so its sign should read {either}, but it reads \"{}\".",
+            port.name
+        );
     }
     Ok(Some(line))
+}
+
+/// A line's name `name` without what says it reads inverted, as a sign
+/// writes it: a leading `!`, `~`, `/`, or `not `, or a trailing `'`.
+fn unnegated(name: &str) -> &str {
+    let name = name.trim();
+    ["!", "~", "/", "not "]
+        .iter()
+        .find_map(|not| name.strip_prefix(not))
+        .or_else(|| name.strip_suffix('\''))
+        .map_or(name, str::trim)
 }
 
 /// `built`, such as `An adder`, as an owner: `An adder's`.
@@ -550,6 +572,15 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
 mod tests {
     use super::*;
     use crate::recognize::interface;
+
+    /// A sign may name a line inverted, as `!cin` does, and still name it.
+    #[test]
+    fn a_sign_may_name_a_line_inverted() {
+        for sign in ["!cin", "~cin", "/cin", "not cin", "cin'", "cin"] {
+            assert_eq!(unnegated(sign), "cin", "{sign}");
+        }
+        assert_eq!(unnegated("carry in"), "carry in");
+    }
 
     #[test]
     fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {
