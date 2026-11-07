@@ -226,6 +226,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         again: false,
         rejudge: false,
         prune: false,
+        probe: false,
     };
     refresh_one(db, &id, how).await?;
     println!("{}", load(db, &id).await?.filename());

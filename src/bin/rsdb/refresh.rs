@@ -22,6 +22,10 @@ pub(super) const AT_ONCE: usize = 4;
 
 /// What a refresh of one build does besides what it always does.
 #[derive(Clone, Copy)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each a step of refreshing, taken or not"
+)]
 pub(super) struct Refreshing {
     /// Run its test and timing even when the stored result is of the same
     /// file, as after a change to the simulator.
@@ -31,17 +35,20 @@ pub(super) struct Refreshing {
     pub(super) rejudge: bool,
     /// Take out its unused blocks, as a new version.
     pub(super) prune: bool,
+    /// Find its lines' roles again by probing it as its category.
+    pub(super) probe: bool,
 }
 
 /// Brings the builds `named`, or with `all` every build, up to date, as
-/// [`refresh_one`] does, taking out unused blocks with `prune`; or with
+/// [`refresh_one`] does, taking out unused blocks with `prune` and finding
+/// their roles again with `probe`; or with
 /// `dry_run` says where what would be worked out differs from what is
 /// stored, changing nothing.
 pub(super) async fn refresh(
     db: &SqlitePool,
     named: &[String],
     all: bool,
-    prune: bool,
+    (prune, probe): (bool, bool),
     dry_run: bool,
 ) -> Result<()> {
     ensure!(
@@ -69,6 +76,7 @@ pub(super) async fn refresh(
         again: true,
         rejudge: true,
         prune,
+        probe,
     };
     let failed = refresh_all(db, ids, !all, how).await?;
     if failed > 0 {
@@ -133,6 +141,9 @@ pub(super) async fn refresh_one(
     how: Refreshing,
 ) -> Result<Option<Report>> {
     versions::reread(db, id).await?;
+    if how.probe {
+        reprobe(db, id).await?;
+    }
     if how.rejudge {
         builds::rejudge(db, id).await?;
     }
@@ -145,6 +156,31 @@ pub(super) async fn refresh_one(
         versions::prune(db, id, false).await?;
     }
     Ok(report)
+}
+
+/// Finds build `id`'s lines' roles again, probing its current file as its
+/// category, as an upload's are found, and keeps them when probing finds
+/// it one; says when it doesn't, its roles kept as they were.
+async fn reprobe(db: &SqlitePool, id: &str) -> Result<()> {
+    let s = load(db, id).await?;
+    let data = version::current_file(db, id)
+        .await?
+        .context("schematic vanished")?;
+    let category = s.category.clone();
+    let found = tokio::task::spawn_blocking(move || {
+        app::recognize::probe::recognize_as(&data, Some(&category))
+    })
+    .await??;
+    if found.found.is_some() {
+        version::set_current_roles(db, id, &found.file).await?;
+    } else {
+        println!(
+            "{}  {}: not found as its category, its roles kept",
+            &id[..8],
+            s.filename()
+        );
+    }
+    Ok(())
 }
 
 /// Works out each of the builds `ids` from its file alone, and prints each
