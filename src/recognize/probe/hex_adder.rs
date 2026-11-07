@@ -83,14 +83,33 @@ pub fn hex_adder(
         }
         roles
     };
-    let (file, run) = match try_roles(data, &given(&operands), test, true)? {
-        Ok(found) => found,
-        Err(fault) if operands.len() >= 2 => {
-            operands.swap(0, 1);
-            try_roles(data, &given(&operands), test, true)?
-                .map_err(|other| fault.nearer(other))?
+    let tries = splits(operands);
+    let mut nearest: Option<Fault> = None;
+    let mut found = None;
+    'tries: for mut operands in tries {
+        // A and B either way round.
+        for _ in 0..2.min(operands.len()) {
+            match try_roles(data, &given(&operands), test, true)? {
+                Ok(read) => {
+                    found = Some(read);
+                    break 'tries;
+                }
+                Err(fault) => {
+                    nearest = Some(match nearest {
+                        Some(near) => near.nearer(fault),
+                        None => fault,
+                    });
+                }
+            }
+            if operands.len() >= 2 {
+                operands.swap(0, 1);
+            }
         }
-        Err(fault) => return Err(fault),
+    }
+    let Some((file, run)) = found else {
+        return Err(nearest.unwrap_or_else(|| {
+            Fault::Unfit("Inputs: no digits to add".to_owned())
+        }));
     };
     Ok(HexAdderProbed {
         digits: report
@@ -101,4 +120,22 @@ pub fn hex_adder(
         file,
         run,
     })
+}
+
+/// The ways to try `operands`, each a hex adder's operand runs: as found,
+/// or, for one run of digits of even length, both operands laid along it,
+/// one after the other or alternating, as two digit inputs one above the
+/// other are.
+fn splits(operands: Vec<Vec<Pos>>) -> Vec<Vec<Vec<Pos>>> {
+    let [run] = operands.as_slice() else {
+        return vec![operands];
+    };
+    if run.len() < 2 || run.len() % 2 == 1 {
+        return vec![operands];
+    }
+    let (low, high) = run.split_at(run.len() / 2);
+    let every = |first: usize| -> Vec<Pos> {
+        run.iter().skip(first).step_by(2).copied().collect()
+    };
+    vec![vec![low.to_vec(), high.to_vec()], vec![every(0), every(1)]]
 }

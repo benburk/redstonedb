@@ -242,7 +242,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 48] = [
+pub(super) const TABLE: [Facts; 49] = [
     Facts {
         kind: Kind::Adder,
         name: "adder",
@@ -290,6 +290,29 @@ pub(super) const TABLE: [Facts; 48] = [
         listed_as: Some("subtractors"),
         probe: Probing::As(Kind::Adder),
         guess: Guess::ByRunOf(Kind::Adder),
+        behaviour: ADDER,
+        ..ROW
+    },
+    // An adder whose sum reads inverted, as fits a data loop that wants it
+    // so, its own category, as it is used apart from an adder.
+    Facts {
+        kind: Kind::InvertedAdder,
+        name: "inverted_adder",
+        label: "Inverted Adder",
+        noun: "inverted adder",
+        section: Section::Arithmetic,
+        logic: Some(Logic::Stateless),
+        designs: ADDER_DESIGNS,
+        flags: &[
+            CARRY_IN_FLAG,
+            CARRY_OUT_FLAG,
+            INVERTED_CARRY_IN_FLAG,
+            flag(Flag::INVERTED_CARRY_OUT, "Inverted carry out"),
+        ],
+        listed_as: Some("inverted adders"),
+        probe: Probing::As(Kind::Adder),
+        guess: Guess::ByRunOf(Kind::Adder),
+        role_words: ADDER_WORDS,
         behaviour: ADDER,
         ..ROW
     },

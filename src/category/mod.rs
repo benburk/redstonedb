@@ -23,6 +23,7 @@ pub enum Kind {
     Adder,
     HexAdder,
     Subtractor,
+    InvertedAdder,
     Alu,
     Multiplier,
     Incrementer,

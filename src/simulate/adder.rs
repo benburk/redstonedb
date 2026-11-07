@@ -54,25 +54,52 @@ const CARRY_OR_BORROW_OUT: [&str; 4] = [
 /// carries borrows, a subtract, A − B less its borrow in; and with its
 /// carry in inverted, as a torch on that line gives. Inverting a line does
 /// not change what a build is, so a subtractor is an adder, its B
-/// inverted. Its output and carry out, its answer, never read inverted.
+/// inverted. An adder's sum inverted is an inverted adder, a category of
+/// its own, whose carry out may read either way.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each a line read one way or the other"
 )]
 pub struct Variant {
     pub subtract: bool,
     pub carry_in: bool,
+    /// Whether its sum reads inverted, as an inverted adder's does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sum: bool,
+    /// Whether, its sum inverted, its carry out reads inverted too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub carry_out: bool,
 }
 
 impl Variant {
     /// Every way an adder with a carry in, if it has one, may read, the
-    /// plain add first.
-    fn all(carry_in: bool) -> Vec<Variant> {
+    /// plain add first, then, its sum inverted, an inverted adder's add,
+    /// its carry out, if it has one, either way.
+    fn all(carry_in: bool, carry_out: bool) -> Vec<Variant> {
+        let ins = [false, true].into_iter().take(1 + usize::from(carry_in));
         let mut all = Vec::new();
         for subtract in [false, true] {
-            for carry_in in
-                [false, true].into_iter().take(1 + usize::from(carry_in))
+            for carry_in in ins.clone() {
+                all.push(Variant {
+                    subtract,
+                    carry_in,
+                    ..Variant::default()
+                });
+            }
+        }
+        for carry_in in ins {
+            for out in
+                [false, true].into_iter().take(1 + usize::from(carry_out))
             {
-                all.push(Variant { subtract, carry_in });
+                all.push(Variant {
+                    carry_in,
+                    sum: true,
+                    carry_out: out,
+                    ..Variant::default()
+                });
             }
         }
         all
@@ -94,20 +121,33 @@ impl Variant {
             let not = if self.carry_in { "not " } else { "" };
             format!(" {sign} {not}{name}")
         });
-        format!("A {sign} B{carry}")
+        match (self.sum, self.carry_out) {
+            (false, _) => format!("A {sign} B{carry}"),
+            (true, false) => format!("not (A {sign} B{carry})"),
+            (true, true) => {
+                format!("not (A {sign} B{carry}), carry out inverted")
+            }
+        }
     }
 
-    /// What it gives for a case of A, B, and the carry in, as an output
-    /// that may hold the carry as its top bit, and a carry out above it if
-    /// it has one.
-    pub(super) fn apply(self, case: &Case) -> Value {
+    /// What it gives for a case of A, B, and the carry in, A and B of
+    /// `width` bits, as an output that may hold the carry as its top bit,
+    /// and a carry out above it if it has one; its sum's bits inverted for
+    /// an inverted adder, and its carry with them if it reads so.
+    pub(super) fn apply(self, case: &Case, width: usize) -> Value {
         let (a, b) = (case[0], case[1]);
         let carry = case[2] ^ Value::from(self.carry_in);
-        if self.subtract {
+        let total = if self.subtract {
             a.wrapping_sub(b).wrapping_sub(carry)
         } else {
             a + b + carry
+        };
+        if !self.sum {
+            return total;
         }
+        let sum = !total & super::mask(width);
+        let carried = (total >> width & 1) ^ Value::from(self.carry_out);
+        sum | carried << width
     }
 
     /// The lines of `run`, an adder's, that it reads inverted, by name: its
@@ -122,11 +162,13 @@ impl Variant {
             .collect()
     }
 
-    /// Its flags, by name: `subtract`, and `inverted_carry_in`.
+    /// Its flags, by name: `subtract`, `inverted_carry_in`, and
+    /// `inverted_carry_out`.
     pub fn flags(self) -> Vec<&'static str> {
         [
             ("subtract", self.subtract),
             ("inverted_carry_in", self.carry_in),
+            ("inverted_carry_out", self.carry_out),
         ]
         .into_iter()
         .filter(|&(_, on)| on)
@@ -162,11 +204,11 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let piece = if hex { 4 } else { 8 };
-    let kinds = Variant::all(carry_in)
+    let kinds = Variant::all(carry_in, ports.carry_out.is_some())
         .into_iter()
         .map(|variant| {
             Kind::new(&variant.name(line.as_deref()), move |case| {
-                variant.apply(case)
+                variant.apply(case, width)
             })
             .reading(Reading::Adder(variant))
         })
