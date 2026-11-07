@@ -121,9 +121,6 @@ impl Download {
                 "A custom colour isn't a block a theme may use.".to_owned(),
             ));
         }
-        if let Some(why) = custom.clash() {
-            return Err(AppError::BadRequest(why));
-        }
         Ok(Some(custom))
     }
 
