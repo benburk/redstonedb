@@ -25,6 +25,8 @@ use super::{
 pub(super) enum Inverts {
     /// The inputs of this role.
     Input(Role),
+    /// The outputs of this role.
+    Output(Role),
     /// Every output.
     Outputs,
 }
@@ -43,6 +45,10 @@ pub(super) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
             Flag::INVERTED_CARRY_IN,
         ) => Inverts::Input(Role::Control),
         (
+            Kind::Adder | Kind::HexAdder | Kind::InvertedAdder,
+            Flag::INVERTED_CARRY_OUT,
+        ) => Inverts::Output(Role::Status),
+        (
             Kind::Register | Kind::Monostable | Kind::DualEdgeMonostable,
             "inverted",
         ) => Inverts::Outputs,
@@ -60,6 +66,7 @@ fn inverted_by<'f>(
     flags.iter().map(String::as_str).find(|flag| {
         match inverts(category, flag) {
             Some(Inverts::Input(role)) => input && port.role == Some(role),
+            Some(Inverts::Output(role)) => !input && port.role == Some(role),
             Some(Inverts::Outputs) => !input,
             None => false,
         }
