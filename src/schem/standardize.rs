@@ -32,7 +32,11 @@ use crate::{
     schem::{self, AIR, Blocks, Direction, Pos, block},
 };
 
-const GLASS: &str = "minecraft:glass";
+/// Whether `state` is glass of any kind, plain, stained, or tinted, as a
+/// corner marker may be.
+fn is_glass(state: &str) -> bool {
+    schem::id(state).ends_with("glass")
+}
 
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
     let swapped = barrels(data, &[])?;
@@ -500,7 +504,8 @@ fn rebox_with<G: std::hash::BuildHasher, S: std::hash::BuildHasher>(
     schem::encode(nbt)
 }
 
-/// Plain glass that is no part of the build: old corner markers. A group
+/// Glass that is no part of the build, of any colour: old corner markers,
+/// or `WorldEdit`'s, as a player places them in whatever glass. A group
 /// of glass is loose when it touches nothing but air and levers and signs
 /// hanging on other blocks; glass touching anything else may carry dust, so
 /// it stays. With `on_edges`, only groups lying wholly on the box's edges
@@ -516,7 +521,7 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
     };
     let glass: HashSet<Pos> = blocks
         .iter()
-        .filter(|&(_, state)| state == GLASS)
+        .filter(|&(_, state)| is_glass(state))
         .map(|(pos, _)| pos)
         .collect();
     // The blocks a lever or sign hangs on, which must stay.

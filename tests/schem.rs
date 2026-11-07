@@ -61,6 +61,28 @@ fn tidying_takes_out_the_markers_and_fits_the_box() {
     assert_eq!(again, slice("alpha-cla"));
 }
 
+/// Corner markers of stained glass are markers too: a hex adder's two of
+/// light blue glass go, its box shrinking to the build, and the glass behind
+/// one of its comparators, touching it, stays.
+#[test]
+fn tidying_takes_out_markers_of_any_glass() {
+    let raw = std::fs::read(
+        "tests/fixtures/hex-adder-4-operands-in-one-column.schem",
+    )
+    .unwrap();
+    let stained = |blocks: &Blocks| {
+        blocks
+            .iter()
+            .filter(|(_, state)| state.ends_with("stained_glass"))
+            .count()
+    };
+    let before = Blocks::read(&raw).unwrap();
+    let after = Blocks::read(&standardize::tidy(&raw).unwrap()).unwrap();
+    assert_eq!((stained(&before), stained(&after)), (3, 1));
+    assert!((0..3).all(|axis| after.size[axis] <= before.size[axis]));
+    assert!(after.size != before.size);
+}
+
 /// A 1-bit adder stacking 2 west, its carry in on its east face, which
 /// only the first copy keeps: the glass goes at two opposite corners of
 /// the rest, where nothing was, and nothing else changes.
