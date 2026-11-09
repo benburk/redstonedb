@@ -108,11 +108,13 @@ fn facets(
     all: &[Schematic],
     current: &str,
 ) -> Vec<pages::Facet> {
-    // A build missing a measure of its category competes on no board.
+    // A build missing a measure of its category competes on no board, nor
+    // does one that doesn't rank, unverified or unaligned, though it lists.
     let ranked = |name: &str| {
         all.iter()
             .filter(|s| {
                 s.category == name
+                    && s.ranks()
                     && !s.measures.is_empty()
                     && s.measures.iter().all(|m| m.of(s).is_some())
             })
@@ -128,4 +130,44 @@ fn facets(
         })
         .filter(|f| f.count > 0 || f.name == current)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::schematic::Orientation;
+
+    fn build(category: &str, unaligned: bool) -> Schematic {
+        Schematic {
+            unaligned,
+            ..crate::search::tests::schematic(
+                category,
+                Orientation::Horizontal,
+                &[],
+            )
+        }
+    }
+
+    /// The menu counts only the builds a board ranks: an unaligned build
+    /// lists but ranks on no board, so a category none but unaligned
+    /// builds fill, as the greater-than's lone build left it, has none to
+    /// rank, rather than one its board doesn't show.
+    #[test]
+    fn the_menu_counts_no_unaligned_build() {
+        let builds = [
+            build("greater_than", true),
+            build("adder", false),
+            build("adder", true),
+        ];
+        let count = |current: &str, name: &str| {
+            facets(&Category::all(), &builds, current)
+                .into_iter()
+                .find(|f| f.name == name)
+                .map(|f| f.count)
+        };
+        assert_eq!(count("", "adder"), Some(1));
+        assert_eq!(count("", "greater_than"), None);
+        // Its own board keeps it in the menu, with none to rank.
+        assert_eq!(count("greater_than", "greater_than"), Some(0));
+    }
 }
