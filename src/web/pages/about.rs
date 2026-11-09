@@ -30,7 +30,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     li { "throughput: how often it can take a new input" }
                     li { "whether its outputs change in sync" }
                     li { "orientation: horizontal, vertical, or diagonal" }
-                    li { "stackability, and how it ranks stacked to 8, 16, and 32 bits" }
+                    li { "stackability, and how it ranks stacked to 8, 16, 32, and 64 bits" }
                     li { "the weakest signal strength its inputs need, and the weakest its outputs give" }
                     li { "the oldest Minecraft version it works in" }
                     li { "and more" }
@@ -167,7 +167,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Adders, incrementers, and other builds whose data crosses bits must chain into one wider build. Gates and monostables must still work copy by copy, without disturbing their neighbours; copies with air between can't meet, so one narrower than a pitch is stackable at it without testing, as a 3-wide gate is 4-wide stackable. Inverters, registers, and buffers share lines, so the site counts how many copies still work. A register's copies can also add words on its shared bus, at any spacing, as in 3-wide word stackable, up to as many copies as its shared lines reach." }
                         li { "If the whole box doesn't work, it tries smaller ones, leaving out as few blocks as it can." }
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
-                        li { "Stackable builds whose data crosses bits also compete on the leaderboards at 8, 16, and 32 bits." }
+                        li { "Stackable builds whose data crosses bits also compete on the leaderboards at 8, 16, 32, and 64 bits, timed at each: copies that work stacked are taken to work at any width." }
                     }
                     h2 id="records" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Records" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {

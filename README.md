@@ -10,7 +10,7 @@ Depending on the circuit, RedstoneDB tests every build automatically for:
 - throughput: how often it can take a new input
 - whether its outputs change in sync
 - orientation: horizontal, vertical, or diagonal
-- stackability, and how it ranks stacked to 8, 16, and 32 bits
+- stackability, and how it ranks stacked to 8, 16, 32, and 64 bits
 - the weakest signal strength its inputs need, and the weakest its outputs give
 - the oldest Minecraft version it works in
 

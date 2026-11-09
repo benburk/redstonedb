@@ -66,7 +66,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - The box is the slice less the layers that only the first copy needs, on the face its stack starts from: the east for a stack west, the bottom for one up, the south for one north. What only the first copy keeps, such as a carry in and its lever, goes there.
 - Where the box's copies don't work, the site searches smaller boxes, the fewest blocks left out first, shrinking only off a face whose outer layer holds a control line's switch, and keeps the first whose copies work.
 - A download of one copy can mark the box of one direction with glass at two opposite corners, to select it by in game and then break.
-- A stackable build competes on the leaderboards at 8, 16, and 32 bits too, its copies stacked to each width, tested, and timed.
+- A stackable build competes on the leaderboards at 8, 16, 32, and 64 bits too, its copies stacked to each width and timed: copies that work stacked are taken to work at any width.
 
 ## Blocks
 

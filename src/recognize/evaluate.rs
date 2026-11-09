@@ -25,7 +25,7 @@ use crate::{
 
 /// The widths a stackable build's copies are stacked to, above its own, to
 /// compete at.
-pub const STANDARD_WIDTHS: [i64; 3] = [8, 16, 32];
+pub const STANDARD_WIDTHS: [i64; 4] = [8, 16, 32, 64];
 
 /// Everything worked out from a build's file.
 pub struct Evaluation {
@@ -176,10 +176,12 @@ impl Evaluation {
 
     /// Stacks its copies, along the way its bits run, into each of
     /// `STANDARD_WIDTHS` above its own that a whole number of them make
-    /// and its most copies allow, and tests and times each, its throughput
-    /// no fewer than `burnout` ticks, as for the build itself. The first
-    /// width whose copies get a case wrong, or can't be stacked or
-    /// measured, ends them.
+    /// and its most copies allow, and times each, its throughput no fewer
+    /// than `burnout` ticks, as for the build itself. Their cases aren't
+    /// run again: copies its stacking found to work, in a stack longer
+    /// than dust carries a signal, are taken to stack any number of times.
+    /// The first width whose copies can't be stacked or measured ends
+    /// them.
     fn widen(&mut self, category: &str, burnout: i64) {
         let (Some(width), Some(orientation)) = (self.width, self.orientation)
         else {
@@ -208,9 +210,6 @@ impl Evaluation {
                     stack::Buses::of(Kind::named(category), orientation),
                 )?;
                 let blocks = Blocks::read(&data)?;
-                if !test.run(&blocks).passed() {
-                    return Ok(None);
-                }
                 let timing = test.time(&blocks, &AtomicBool::new(false))?;
                 let throughput = test
                     .throughput(&blocks, &data, &timing)?
