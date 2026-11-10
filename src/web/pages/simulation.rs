@@ -266,6 +266,10 @@ pub fn timing_section(timing: &Timing) -> Markup {
                     dt class="text-muted" { "Bits apart, " (output.name) }
                     dd class="text-danger" { (grouped(output.staggered)) " changes" }
                 }
+                @if let Some(every) = timing.free_running {
+                    dt class="text-muted" { "Counts while its clock is held" }
+                    dd { "every " (every) " ticks" }
+                }
                 dt class="text-muted" { "Changes tested" }
                 dd { (grouped(timing.changes)) }
             }

@@ -106,13 +106,10 @@ pub fn time(
         .iter()
         .all(|bus| bus.glitches == 0 && bus.staggered == 0);
     let (median, p99, slowest, slowest_value) = spread(&settled);
+    let (opens, start) = opened(kind);
     Ok(Timing {
         inputs: vec![InputTiming {
-            name: match kind {
-                Kind::Register => "read",
-                Kind::Buffer => "write",
-            }
-            .to_owned(),
+            name: opens.to_owned(),
             tick: Some(0),
             earliest: None,
         }],
@@ -130,15 +127,22 @@ pub fn time(
         slowest_case: vec![slowest_value],
         changes: settled.len() as u64,
         patterns: !exhaustive,
-        start: match kind {
-            Kind::Register => Start::Read,
-            Kind::Buffer => Start::Write,
-        },
+        start,
         write: Some(write_ticks),
         data: data_ticks,
         takes,
         pulse: None,
+        free_running: None,
     })
+}
+
+/// The line a `kind`'s timing starts from, by name, and its start: a
+/// register's read, a buffer's write.
+fn opened(kind: Kind) -> (&'static str, Start) {
+    match kind {
+        Kind::Register => ("read", Start::Read),
+        Kind::Buffer => ("write", Start::Write),
+    }
 }
 
 /// How far either side of the data changing a control's offset is
@@ -449,6 +453,7 @@ fn aligned(
         data: Some(found.latency),
         takes: Takes::Open,
         pulse: None,
+        free_running: None,
     })
 }
 

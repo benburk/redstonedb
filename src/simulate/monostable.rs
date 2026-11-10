@@ -533,6 +533,7 @@ pub fn time(
             inverted: found.inverted,
             edge,
         }),
+        free_running: None,
     })
 }
 

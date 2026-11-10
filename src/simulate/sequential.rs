@@ -147,6 +147,13 @@ const PULSE: u32 = 2;
 /// The longest gap a counter's pulses are tried at for its throughput.
 const SLOWEST_PULSES: u32 = 40;
 
+/// The ticks a counter's clock is held on to see whether it keeps counting.
+const HELD: u32 = 60;
+
+/// The counts a counter makes while its clock is held [`HELD`] ticks that
+/// show it keeps counting, rather than counting once for the pulse.
+const FREE_RUNNING: Value = 4;
+
 /// A counter's clock: its place among the control lines, and whether it
 /// reads inverted, pulsing while its lever is off and resting while on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -394,6 +401,36 @@ impl Machine<'_> {
         Ok(())
     }
 
+    /// The ticks from one count to the next while clock line `clock` is held
+    /// on, for a counter that keeps counting so by `op`: held [`HELD`]
+    /// ticks, it counts [`FREE_RUNNING`] times or more. `None` for one that
+    /// counts once a pulse, or too narrow to tell, its count wrapping.
+    fn free_running(&mut self, clock: usize, op: Op) -> Result<Option<i32>> {
+        let width = self.lines.width;
+        if mask(width) < Value::from(HELD) {
+            return Ok(None);
+        }
+        let before = self.read();
+        self.set(clock, true);
+        for _ in 0..HELD {
+            self.circuit.tick();
+        }
+        self.set(clock, false);
+        self.circuit.settle()?;
+        let after = self.read();
+        let counts = match op {
+            Op::Up => after.wrapping_sub(before) & mask(width),
+            Op::Down => before.wrapping_sub(after) & mask(width),
+            _ => 0,
+        };
+        if counts < FREE_RUNNING {
+            return Ok(None);
+        }
+        // The ticks a count, to the nearest.
+        let every = (Value::from(HELD) + counts / 2) / counts;
+        Ok(i32::try_from(every).ok())
+    }
+
     /// Pulses the clock `count` times, each pulse `every` ticks after the
     /// last began, as fast as a player's clock might, then lets it settle.
     fn clocked(&mut self, line: usize, count: Value, every: u32) -> Result<()> {
@@ -631,6 +668,20 @@ fn counts<'a>(
     let mut tally = Tally::default();
     for &(way, op) in &ways {
         tally.check(fresh, lines, setter, way, op)?;
+    }
+    // A counter's value changes only on a clock pulse: its write enable,
+    // switched on and off alone, loads nothing.
+    let alone = Way {
+        pulse: enable,
+        held: None,
+    };
+    let mut machine = fresh()?;
+    for salt in 0..4 {
+        let data = telling(lines.width, salt);
+        let before = machine.read();
+        machine.apply(alone, data)?;
+        let what = "write enable alone, no clock pulse, keeps it";
+        tally.note(before, data, before, machine.read(), what);
     }
     Ok(Found {
         ways,
@@ -1048,7 +1099,11 @@ pub fn time(
         let ticks = carried.arrived(lines.state, &machine.watch(way)?);
         clocked.add(&ticks);
     }
-    Ok(clocked.timing(&lines, way, carried.port(lines.state)))
+    let mut timing = clocked.timing(&lines, way, carried.port(lines.state));
+    if kind == Kind::Counter {
+        timing.free_running = fresh()?.free_running(way.pulse, op)?;
+    }
+    Ok(timing)
 }
 
 /// The changes of the value held, each pulse's, as they are timed.
@@ -1158,6 +1213,7 @@ impl Clocked {
             data: None,
             takes: Takes::Open,
             pulse: None,
+            free_running: None,
         }
     }
 }

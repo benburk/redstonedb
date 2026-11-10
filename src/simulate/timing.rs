@@ -93,6 +93,10 @@ pub struct Timing {
     /// For a monostable, the pulse it gives as A turns on.
     #[serde(default)]
     pub pulse: Option<Pulse>,
+    /// For a counter that keeps counting while its clock is held on, the
+    /// ticks from one count to the next then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_running: Option<i32>,
 }
 
 /// The pulse a monostable gives as input A changes on its edge.
@@ -496,6 +500,7 @@ fn measured(
         write: None,
         data: None,
         pulse: None,
+        free_running: None,
     })
 }
 
@@ -767,6 +772,7 @@ fn pressed_timing(
         write: None,
         data: None,
         pulse: None,
+        free_running: None,
     }
 }
 

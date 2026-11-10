@@ -77,25 +77,20 @@ pub fn sequential(
 mod tests {
     use crate::recognize::probe::{recognize, recognize_as, tests::uncoloured};
 
-    /// Counters whose clock lever, pulsed for 2 ticks, counts and loads A
-    /// with their write enable lever on, one's clock read inverted, and a
-    /// shift register that loads A and shifts either way, found by what
-    /// their lines do.
+    /// A shift register that loads A and shifts either way, found by what
+    /// its lines do.
     #[test]
-    fn counters_and_a_shift_register_are_found_from_their_lines() {
-        for (name, kind) in [
-            ("counter-8-lever-clock", "a counter"),
-            ("counter-8-inverted-clock", "a counter"),
-            ("shift-register-8", "a shift register"),
-        ] {
-            let found = recognize(&uncoloured(name)).unwrap();
-            assert!(
-                found.found.as_deref().is_some_and(|f| f.starts_with(kind)),
-                "{name}: {:?} {:?}",
-                found.found,
-                found.problems
-            );
-        }
+    fn a_shift_register_is_found_from_its_lines() {
+        let found = recognize(&uncoloured("shift-register-8")).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a shift register")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     /// A T flip-flop, one input and one output, is found by each pulse of

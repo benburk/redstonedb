@@ -43,19 +43,41 @@ fn a_ripple_adder_slice_is_read_whole_from_its_file() {
 }
 
 /// A counter's clock is a lever pulsed for 2 ticks, read as it is or
-/// inverted, counting while its lever is off and resting while it is on, as
-/// the first two counters built to the standard are: each counts through
-/// every value, loads every value of A, and may be clocked every 3 ticks.
+/// inverted, counting while its lever is off and resting while it is on, and
+/// its value changes only on a pulse. The first two counters built to the
+/// standard count through every value and load every value of A with their
+/// clock, but load A as their write enable turns off alone, which fails
+/// them; one, its clock inverted, counts every 2 ticks while its clock is
+/// held.
 #[test]
 #[ignore = "measures whole builds: just test-full"]
-fn a_counter_is_clocked_by_a_lever_pulsed_for_2_ticks() {
-    for name in ["counter-8-lever-clock", "counter-8-inverted-clock"] {
+fn a_counters_value_changes_only_on_a_clock_pulse() {
+    use std::sync::atomic::AtomicBool;
+    for (name, free_running) in [
+        ("counter-8-lever-clock", None),
+        ("counter-8-inverted-clock", Some(2)),
+    ] {
         let raw =
             std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-        let e = evaluate(&raw).unwrap();
-        assert_eq!(e.category, Some("counter"), "{name}");
-        assert!(e.passes(), "{name}");
-        assert_eq!(e.throughput, Some(3), "{name}");
+        let blocks =
+            Blocks::read(&import::with_roles(&raw, "counter").unwrap())
+                .unwrap();
+        let Report::Ran(run) = app::simulate::Test::Counter.run(&blocks) else {
+            panic!("{name} ran");
+        };
+        assert!(run.wrong > 0, "{name}");
+        assert!(
+            run.examples.iter().all(|wrong| wrong
+                .op
+                .as_deref()
+                .is_some_and(|op| op.starts_with("write enable alone"))),
+            "{name}: {:?}",
+            run.examples
+        );
+        let timing = app::simulate::Test::Counter
+            .time(&blocks, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(timing.free_running, free_running, "{name}");
     }
 }
 
