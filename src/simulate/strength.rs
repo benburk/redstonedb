@@ -41,8 +41,8 @@ struct Look {
 
 /// How weakly `blocks`' data inputs may be driven, `bench` having got
 /// every one of `cases` right, as `got`, with them at 15. `None` for a
-/// bench with no data input, presses, or a signal-strength input, which
-/// runs block by block, where no strength can be set.
+/// bench with no data input, presses, or a signal-strength input, whose
+/// strength is its value.
 pub(super) fn measure(
     blocks: &Blocks,
     interface: &Interface,

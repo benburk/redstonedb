@@ -37,21 +37,21 @@ pub(super) const MAX_TICKS: u32 = 1000;
 /// signal-strength input takes each digit's strength, and an output of a
 /// build with one shows a digit per block, its strength.
 ///
-/// A build driven by levers alone is compiled by Redpiler, whose
-/// optimizations stay off: they keep only what drives a lamp or another
+/// A build is compiled by Redpiler, whose optimizations stay off: they keep only what drives a lamp or another
 /// component it can read back, and an output block is neither. A lamp in
 /// its place reads differently, lighting from a torch beside it or a
 /// powered block beside it, which do not power the block. So every
 /// component's state is written back to the world after each change, and
 /// each output block's power is worked out from its neighbours.
 ///
-/// Redpiler reads a container's strength once, when it compiles, so a
-/// build with a signal-strength input runs in the world itself, block by
-/// block, as the game would: a comparator beside each digit's dust, with a
-/// barrel behind it holding the digit, drives it.
+/// A signal-strength input's digits are each driven by the comparator the
+/// build has beside its dust, with an analog lever behind it set to the
+/// digit, which the comparator reads as it would a barrel holding it:
+/// Redpiler reads a container's strength only as it compiles, but sets a
+/// lever's at any time.
 pub struct Circuit {
     world: TestWorld,
-    /// Redpiler's circuit, for a build driven by levers alone.
+    /// Redpiler's circuit.
     compiler: Option<Compiler>,
     /// How each input port is driven, in the order of `Interface::inputs`.
     inputs: Vec<Drive>,
@@ -63,8 +63,8 @@ pub struct Circuit {
     held: Vec<(BlockPos, u32)>,
 }
 
-/// How an input port is driven: by a lever per bit, or by a barrel and
-/// comparator per digit.
+/// How an input port is driven: by a lever per bit, or by an analog lever
+/// behind a comparator per digit.
 enum Drive {
     Levers(Vec<Lever>),
     Strengths(Vec<Driver>),
@@ -83,11 +83,10 @@ struct Lever {
     power: u8,
 }
 
-/// A comparator pointing into a digit's dust, reading the barrel behind it,
-/// which holds the digit.
+/// What drives a digit: an analog lever behind the comparator pointing into
+/// its dust, at the digit's strength.
 struct Driver {
-    comparator: BlockPos,
-    barrel: BlockPos,
+    lever: BlockPos,
     value: u8,
 }
 
@@ -177,9 +176,7 @@ impl Circuit {
                 ))
             })
             .collect::<Result<_>>()?;
-        let compiler = if digits {
-            None
-        } else {
+        let compiler = {
             // Redpiler panics on a circuit it cannot compile, such as one
             // whose line takes more than 255 inputs, as copies stacked too
             // close may make; that is a build it cannot run.
@@ -249,15 +246,10 @@ impl Circuit {
                 for (i, driver) in drivers.iter_mut().enumerate() {
                     #[allow(clippy::cast_possible_truncation)]
                     let digit = (value >> (4 * i) & 15) as u8;
-                    if driver.value != digit {
-                        self.world
-                            .set_block_entity(driver.barrel, container(digit));
-                        let block = self.world.get_block(driver.comparator);
-                        mchprs_redstone::update(
-                            block,
-                            &mut self.world,
-                            driver.comparator,
-                        );
+                    if driver.value != digit
+                        && let Some(compiler) = &mut self.compiler
+                    {
+                        compiler.set_power(driver.lever, digit);
                         driver.value = digit;
                     }
                 }
@@ -267,8 +259,8 @@ impl Circuit {
 
     /// Drives input `port`'s levers at `power` from now on, as a comparator
     /// pointing into each block would, each on now set so at once. Only
-    /// Redpiler sets a strength, so a build running block by block, as one
-    /// with a signal-strength input does, can't be driven so.
+    /// Redpiler sets a strength, so a build it couldn't compile can't be
+    /// driven so.
     pub fn drive_at(&mut self, port: usize, power: u8) -> Result<()> {
         let Some(compiler) = &mut self.compiler else {
             bail!("A build running block by block can't be driven weakly.");
@@ -766,16 +758,7 @@ pub(super) fn output_bits(interface: &Interface, port: &Port) -> usize {
     port.bits.len() * if digits { 4 } else { 1 }
 }
 
-/// A barrel's block entity giving a comparator `strength`.
-fn container(strength: u8) -> BlockEntity {
-    BlockEntity::Container {
-        comparator_override: strength,
-        inventory: Vec::new(),
-        ty: ContainerType::Barrel,
-    }
-}
-
-/// A driver for each digit of signal-strength input `port`: a barrel
+/// A driver for each digit of signal-strength input `port`: an analog lever
 /// behind the build's own comparator for it, the one with nothing behind
 /// it that the rule for inputs reads, see [`repeater_outputs::driving`].
 /// `taken` holds the places drivers have already used.
@@ -797,16 +780,26 @@ fn drivers(
                         port.name
                     )
                 })?;
-            let barrel = input.behind();
-            taken.insert(barrel);
+            let behind = input.behind();
+            taken.insert(behind);
+            // An analog lever, hung on the comparator so it powers no block
+            // of the build, gives the comparator the digit as a barrel of
+            // that strength would, and Redpiler can set it.
+            let away = match [behind[0] - input.at[0], behind[2] - input.at[2]]
+            {
+                [1, _] => "east",
+                [-1, _] => "west",
+                [_, 1] => "south",
+                _ => "north",
+            };
             world.set_block(
-                at(barrel),
-                block("minecraft:barrel[facing=up,open=false]")?,
+                at(behind),
+                block(&format!(
+                    "minecraft:lever[face=wall,facing={away},powered=false]"
+                ))?,
             );
-            world.set_block_entity(at(barrel), container(0));
             Ok(Driver {
-                comparator: at(input.at),
-                barrel: at(barrel),
+                lever: at(behind),
                 value: 0,
             })
         })
