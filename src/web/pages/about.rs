@@ -28,7 +28,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                     li { "correctness, across every input case, or every case of each byte for wide builds" }
                     li { "latency, in ticks" }
                     li { "throughput: how often it can take a new input" }
-                    li { "whether its outputs change in sync" }
+                    li { "whether its outputs change in sync: every data output bit on the same tick, without glitches, a status line like carry out on a tick of its own" }
                     li { "orientation: horizontal, vertical, or diagonal" }
                     li { "stackability, and how it ranks stacked to 8, 16, 32, and 64 bits" }
                     li { "the weakest signal strength its inputs need, and the weakest its outputs give" }

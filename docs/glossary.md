@@ -53,7 +53,7 @@ A field: whether, once a build's inputs stop changing, its outputs depend only o
 | `stateless` | stateless | `comb`, `combinational` |
 | `stateful`  | stateful  | `seq`, `sequential`     |
 
-Whether every output bit settles on the same tick is another field, `synchronized`, which is yes, no, or unknown. Search finds it with `sync` or `unsync`.
+Whether a build is synced is another field, `synchronized`, which is yes, no, or unknown: every output changes cleanly, without glitches, and every data output bit settles on the same tick, whatever its data and control lines change from and to. A status line, such as carry out, may settle on a tick of its own, and a control line, such as a barrel shifter's amount, may switch before the data. Search finds it with `sync` or `unsync`.
 
 ## Throughput
 

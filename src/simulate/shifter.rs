@@ -438,27 +438,31 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
     )
 }
 
-/// Measures each setting of its lines, every shift at every amount, and
-/// returns the slowest's timing, synced only when every setting's is.
+/// Measures A to the output, its shift and amount lines driven as a
+/// control group, switched together to each setting, as a CPU's decoder
+/// would: synced only when its output changes cleanly, all its bits on one
+/// tick, whatever A and the setting change from and to.
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let interface = crate::recognize::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
-    let timings = settings(&shifter, &found)
+    // An off shift's output never changes, so it has nothing to time.
+    let settings: Vec<Vec<(usize, Value)>> = settings(&shifter, &found)
         .into_iter()
-        // An off shift's output never changes, so it has nothing to time.
         .filter(|setting| found[setting.shift].shift != Shift::Off)
-        .map(|Setting { held, .. }| {
-            timing::measure(
-                blocks,
-                &interface,
-                &[shifter.a],
-                &held,
-                None,
-                cancel,
-            )
-        });
-    timing::slowest(timings, |timing| timing.synced, "no shift to time")
+        .map(|setting| setting.held)
+        .collect();
+    if settings.is_empty() {
+        broken!("It has no shift to time.");
+    }
+    timing::measure_controlled(
+        blocks,
+        &interface,
+        &[shifter.a],
+        &settings,
+        &[],
+        cancel,
+    )
 }
 
 /// How often the barrel shifter in `blocks`, timed as `timing`, takes a new

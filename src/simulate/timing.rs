@@ -1,16 +1,21 @@
 //! When a combinational build's outputs settle, and whether they settle
 //! cleanly.
 //!
-//! Every time is told from t = 0, as the inputs every output waits longest
-//! on change, so no input is taken as the one others are timed against and
-//! a build times the same whichever operand is named A. Each input's timing
+//! Every time is told from t = 0, as the data inputs every output waits
+//! longest on change, so no operand is taken as the one others are timed
+//! against and a build times the same whichever is named A. Each input's timing
 //! is the latest tick at which it may change without delaying any output:
 //! an output it reaches in fewer ticks than the input it waits longest on
 //! lets it arrive that much later, and an input that is the slowest for
 //! some output changes at t = 0. Each output's latency is the last tick it
 //! settles by, from its slowest inputs changing, as from every input
-//! changing at once, and the build is synced when every output
-//! changes only once, with all its bits on the same tick. Each output bit
+//! changing at once. The build is synced when every output changes
+//! cleanly, each bit at most once, and every data output's bits, across
+//! them all, settle on the same tick; a status line, such as carry out,
+//! may settle on a tick of its own. Latency is data in to data out: a
+//! control line, such as a carry in, a decrement line, or a barrel
+//! shifter's amount, slower than the data is switched before t = 0, as
+//! early as it needs. Each output bit
 //! is timed as its signal arrives at the repeater or comparator carrying it
 //! out of the build, leaving out that one's own delay, as every timing
 //! does, [`Carried`]. An output whose bit changes more than once glitches:
@@ -40,9 +45,10 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Broken, Value,
+    Value,
     bench::{self, EXHAUSTIVE_BITS},
     circuit::{Carried, Circuit, MAX_TICKS, input_bits, output_bits},
+    rng::Rng,
     value,
 };
 use crate::{recognize::interface::Interface, schem::Blocks};
@@ -303,38 +309,155 @@ pub(super) fn measure(
         .map(|&port| input_bits(&interface.inputs[port]))
         .collect();
     let (values, patterns) = chosen.unwrap_or_else(|| values_to_try(&widths));
+    measured(
+        blocks,
+        interface,
+        (inputs, None),
+        held,
+        (values, patterns),
+        cancel,
+    )
+}
+
+/// The changes a control group, such as an ALU's operation lines or a
+/// barrel shifter's shift and amount, is timed through, beside the most
+/// data inputs it is tried against every value of.
+const STREAMED: u64 = 8192;
+
+/// The states each control line is toggled alone from, for its timing.
+const SAMPLED: u64 = 512;
+
+/// The most cases, data values by control settings, tried with every data
+/// value; past it the data takes the test patterns.
+const CONTROLLED_CASES: u64 = 4096;
+
+/// [`measure`] for a build with control lines, such as an ALU's operation
+/// or a barrel shifter's shift and amount, driven as a CPU drives them:
+/// moved together to each of `settings`, every line's value in each, as its
+/// decoder would, with its data `inputs`, each line on a tick of its own.
+/// Latency is data in to data out, so t = 0 is when the data inputs the
+/// outputs wait longest on change, and each control line, timed alone,
+/// switches before 0 when it is slower than them. Besides each input alone
+/// and all
+/// together, data and control are streamed, each change from one case
+/// straight to another, as instructions follow one another; every output
+/// must change cleanly, the data on one tick, through each.
+pub(super) fn measure_controlled(
+    blocks: &Blocks,
+    interface: &Interface,
+    inputs: &[usize],
+    settings: &[Vec<(usize, Value)>],
+    held: &[(usize, Value)],
+    cancel: &AtomicBool,
+) -> Result<Timing> {
+    let widths: Vec<usize> = inputs
+        .iter()
+        .map(|&port| input_bits(&interface.inputs[port]))
+        .collect();
+    let every: u64 = widths.iter().map(|&w| 1u64 << w.min(32)).product();
+    let patterns =
+        every.saturating_mul(settings.len() as u64) > CONTROLLED_CASES;
+    let mut values: Vec<Vec<Value>> = widths
+        .iter()
+        .map(|&width| {
+            if patterns {
+                bench::patterns(width)
+            } else {
+                (0..1 << width).collect()
+            }
+        })
+        .collect();
+    values.push((0..settings.len() as Value).collect());
+    measured(
+        blocks,
+        interface,
+        (inputs, Some(settings)),
+        held,
+        (values, patterns),
+        cancel,
+    )
+}
+
+/// A control group's settings, each every line's value, switched together.
+type Settings<'a> = &'a [Vec<(usize, Value)>];
+
+/// [`measure`] and [`measure_controlled`]: `inputs` and the control group,
+/// if any, taking `values`, the group's last, by setting.
+fn measured(
+    blocks: &Blocks,
+    interface: &Interface,
+    (inputs, controls): (&[usize], Option<Settings>),
+    held: &[(usize, Value)],
+    (values, patterns): (Vec<Vec<Value>>, bool),
+    cancel: &AtomicBool,
+) -> Result<Timing> {
     let outputs: Vec<usize> = interface
         .outputs
         .iter()
         .map(|port| output_bits(interface, port))
+        .collect();
+    let status: Vec<bool> = interface
+        .outputs
+        .iter()
+        .map(crate::recognize::interface::Port::status)
         .collect();
     let carried = Circuit::new(blocks, interface)?.carried();
     let rig = Rig {
         blocks,
         interface,
         inputs,
+        controls,
         held,
         values: &values,
         outputs: &outputs,
+        status: &status,
         cancel,
     };
 
-    // Each input alone, times from its own change.
+    // Each data input alone, and each control line, times from its own
+    // change: the data inputs' and the lines' timings, each line's its own.
+    let lines = rig.lines();
     let mut alone = Vec::new();
     for input in 0..inputs.len() {
         alone.push(rig.parallel(|circuit, part, parts| {
-            rig.alone(circuit, input, part, parts)
+            rig.alone(circuit, input, None, part, parts)
         })?);
     }
-    let ticks = delays(&alone, outputs.len());
+    for line in 0..lines.len() {
+        alone.push(rig.parallel(|circuit, part, parts| {
+            rig.line_alone(circuit, line, part, parts)
+        })?);
+    }
+    // A control line, such as a carry in or a decrement line, is timed
+    // against the data, as the group's lines are.
+    let data: Vec<bool> = (0..alone.len())
+        .map(|i| {
+            inputs
+                .get(i)
+                .is_some_and(|&port| !interface.inputs[port].control())
+        })
+        .collect();
+    let ticks = delays(&alone, outputs.len(), &data);
 
     // Every input together, each at its timing, times from t = 0.
     let offsets: Vec<i32> = ticks.iter().map(|t| t.unwrap_or(0)).collect();
     let mut together = rig.parallel(|circuit, part, parts| {
         rig.together(circuit, &offsets, part, parts)
     })?;
-    for (stats, offset) in alone.iter().zip(&offsets) {
+    for (stats, offset) in alone[..inputs.len()].iter().zip(&offsets) {
         together.merge(stats, *offset);
+    }
+    // A line toggled alone may make a setting the group never takes, so
+    // only its changes between settings, each line on its own tick, count.
+    if controls.is_some() {
+        let settings = rig.parallel(|circuit, part, parts| {
+            rig.alone(circuit, inputs.len(), Some(&offsets), part, parts)
+        })?;
+        together.merge(&settings, 0);
+        let streamed = rig.parallel(|circuit, part, parts| {
+            rig.stream(circuit, &offsets, part, parts)
+        })?;
+        together.merge(&streamed, 0);
     }
 
     // The tick by which `percent` of the changes from all off settled.
@@ -352,6 +475,7 @@ pub(super) fn measure(
     Ok(Timing {
         inputs: inputs
             .iter()
+            .chain(&lines)
             .zip(&ticks)
             .map(|(&port, &tick)| InputTiming {
                 name: interface.inputs[port].name.clone(),
@@ -360,10 +484,7 @@ pub(super) fn measure(
             })
             .collect(),
         outputs: output_timings(interface, &together, &carried),
-        synced: together
-            .outputs
-            .iter()
-            .all(|stats| stats.glitches == 0 && stats.staggered == 0),
+        synced: together.synced(),
         median: percentile(50),
         p99: percentile(99),
         slowest: together.slowest.0,
@@ -380,15 +501,24 @@ pub(super) fn measure(
 
 /// Each input's timing from what it did `alone`: the most ticks it may
 /// change after t = 0 without any output it reaches settling later than
-/// that output's slowest input, changing at t = 0, settles it. Every
-/// output waits longest on some input, which changes at t = 0, so the
-/// timing is the same whichever input is named A; an input no output
-/// follows has none.
-fn delays(alone: &[Stats], outputs: usize) -> Vec<Option<i32>> {
+/// that output's slowest data input, changing at t = 0, settles it. Every
+/// output waits longest on some data input, which changes at t = 0, so the
+/// timing is the same whichever is named A; a control line, not `data`,
+/// slower than them changes before t = 0; an input no output follows has
+/// none. An output only control lines reach waits on them as on data.
+fn delays(alone: &[Stats], outputs: usize, data: &[bool]) -> Vec<Option<i32>> {
     let latency =
         |stats: &Stats, output: usize| stats.outputs[output].latency();
+    let slowest_of = |o: usize, only_data: bool| {
+        alone
+            .iter()
+            .zip(data)
+            .filter(|&(_, &is_data)| is_data || !only_data)
+            .filter_map(|(stats, _)| latency(stats, o))
+            .max()
+    };
     let slowest: Vec<Option<i32>> = (0..outputs)
-        .map(|o| alone.iter().filter_map(|stats| latency(stats, o)).max())
+        .map(|o| slowest_of(o, true).or_else(|| slowest_of(o, false)))
         .collect();
     alone
         .iter()
@@ -398,32 +528,6 @@ fn delays(alone: &[Stats], outputs: usize) -> Vec<Option<i32>> {
                 .min()
         })
         .collect()
-}
-
-/// The slowest of `timings`, one for each way a build's lines can be set,
-/// as an ALU's operations: the one with the most latency, the first on a
-/// tie, synced only when `synced` says each is. Fails as broken, saying
-/// `none`, when there are none; any timing that fails fails it.
-pub(super) fn slowest(
-    timings: impl IntoIterator<Item = Result<Timing>>,
-    synced: impl Fn(&Timing) -> bool,
-    none: &str,
-) -> Result<Timing> {
-    let mut slowest: Option<Timing> = None;
-    let mut all_synced = true;
-    for timing in timings {
-        let timing = timing?;
-        all_synced &= synced(&timing);
-        if slowest
-            .as_ref()
-            .is_none_or(|s| timing.latency() > s.latency())
-        {
-            slowest = Some(timing);
-        }
-    }
-    let mut timing = slowest.ok_or_else(|| Broken(none.to_owned()))?;
-    timing.synced = all_synced;
-    Ok(timing)
 }
 
 /// The most ticks before or after its operands a sequential build's
@@ -649,7 +753,8 @@ fn pressed_timing(
     slowest_case.push(1);
     Timing {
         inputs,
-        synced: outputs.iter().all(|o| o.glitches == 0 && o.staggered == 0),
+        synced: outputs.iter().all(|o| o.glitches == 0 && o.staggered == 0)
+            && !runs.iter().any(|r| apart(r)),
         outputs,
         median: at(50),
         p99: at(99),
@@ -663,6 +768,17 @@ fn pressed_timing(
         data: None,
         pulse: None,
     }
+}
+
+/// Whether the outputs one run of a press changed, each bit's change
+/// ticks by output, settled on different ticks.
+fn apart(run: &[Vec<Vec<i32>>]) -> bool {
+    let settled: Vec<i32> = run
+        .iter()
+        .filter_map(|bits| bits.iter().filter_map(|t| t.last()).max())
+        .copied()
+        .collect();
+    settled.windows(2).any(|w| w[0] != w[1])
 }
 
 /// Output `o`'s timing among `runs`, named `name`, carried out of the
@@ -767,13 +883,19 @@ fn values_to_try(widths: &[usize]) -> (Vec<Vec<Value>>, bool) {
 struct Rig<'a> {
     blocks: &'a Blocks,
     interface: &'a Interface,
+    /// The data inputs, each a port.
     inputs: &'a [usize],
+    /// The control group, if any, an input after the data inputs: every
+    /// line's value in each of its settings, switched together.
+    controls: Option<Settings<'a>>,
     /// Inputs set before anything is measured and left alone.
     held: &'a [(usize, Value)],
     /// The values each input takes, 0 among them.
     values: &'a [Vec<Value>],
     /// Each output port's width.
     outputs: &'a [usize],
+    /// Whether each output port is a status line, such as carry out.
+    status: &'a [bool],
     cancel: &'a AtomicBool,
 }
 
@@ -805,11 +927,87 @@ impl Rig<'_> {
                 .map(|thread| thread.join().expect("a timing thread panicked"))
                 .collect()
         });
-        let mut merged = Stats::new(self.outputs);
+        let mut merged = Stats::new(self.outputs, self.status);
         for stats in found {
             merged.merge(&stats?, 0);
         }
         Ok(merged)
+    }
+
+    /// How many inputs it drives: its data inputs, and its control group as
+    /// one.
+    fn count(&self) -> usize {
+        self.inputs.len() + usize::from(self.controls.is_some())
+    }
+
+    /// The ports input `input` sets for `value`: its own, or every control
+    /// line's for the setting `value` numbers, 0 its first.
+    fn sets(&self, input: usize, value: Value) -> Vec<(usize, Value)> {
+        match (self.inputs.get(input), self.controls) {
+            (Some(&port), _) => vec![(port, value)],
+            (None, Some(settings)) => {
+                settings[usize::try_from(value).unwrap_or(0)].clone()
+            }
+            (None, None) => Vec::new(),
+        }
+    }
+
+    /// Sets input `input` to `value` at once.
+    fn set(&self, circuit: &mut Circuit, input: usize, value: Value) {
+        for (port, value) in self.sets(input, value) {
+            circuit.set(port, value);
+        }
+    }
+
+    /// The changes setting input `input` to `value`, each port at its
+    /// `offsets` tick, a data input's by its place and a control line's
+    /// after them, by its place among [`Rig::lines`]; all at 0 without.
+    fn changes(
+        &self,
+        input: usize,
+        value: Value,
+        offsets: Option<&[i32]>,
+    ) -> Vec<(i32, usize, Value)> {
+        let lines = self.lines();
+        let tick = |port: usize| {
+            let Some(offsets) = offsets else { return 0 };
+            match lines.iter().position(|&line| line == port) {
+                Some(line) if input >= self.inputs.len() => {
+                    offsets[self.inputs.len() + line]
+                }
+                _ => offsets[input],
+            }
+        };
+        self.sets(input, value)
+            .into_iter()
+            .map(|(port, value)| (tick(port), port, value))
+            .collect()
+    }
+
+    /// The control group's lines, in the order its settings give them.
+    fn lines(&self) -> Vec<usize> {
+        let mut lines: Vec<usize> = Vec::new();
+        let first = self.controls.and_then(|settings| settings.first());
+        for &(port, _) in first.into_iter().flatten() {
+            if !lines.contains(&port) {
+                lines.push(port);
+            }
+        }
+        lines
+    }
+
+    /// Input values as `Timing::inputs` gives them: the data inputs', then
+    /// each control line's in the group's setting.
+    fn shown(&self, values: &[Value]) -> Vec<Value> {
+        let mut shown = values[..self.inputs.len()].to_vec();
+        if let Some(&setting) = values.get(self.inputs.len()) {
+            shown.extend(
+                self.sets(self.inputs.len(), setting)
+                    .into_iter()
+                    .map(|(_, value)| value),
+            );
+        }
+        shown
     }
 
     /// Input `input` alone from 0 to each of its values and back, with the
@@ -819,13 +1017,13 @@ impl Rig<'_> {
         &self,
         circuit: &mut Circuit,
         input: usize,
+        offsets: Option<&[i32]>,
         part: u64,
         parts: u64,
     ) -> Result<Stats> {
-        let mut stats = Stats::new(self.outputs);
-        let driven = self.inputs[input];
+        let mut stats = Stats::new(self.outputs, self.status);
         let others: Vec<usize> =
-            (0..self.inputs.len()).filter(|&i| i != input).collect();
+            (0..self.count()).filter(|&i| i != input).collect();
         let combinations: u64 = others
             .iter()
             .map(|&i| self.values[i].len() as u64)
@@ -833,13 +1031,15 @@ impl Rig<'_> {
         for rest in (part..combinations).step_by(usize::try_from(parts)?) {
             self.check_cancel()?;
             for (&other, value) in others.iter().zip(self.pick(&others, rest)) {
-                circuit.set(self.inputs[other], value);
+                self.set(circuit, other, value);
             }
-            circuit.set(driven, 0);
+            self.set(circuit, input, 0);
             circuit.settle()?;
             for &value in self.values[input].iter().filter(|&&v| v != 0) {
-                transition(circuit, &[(0, driven, value)], None, &mut stats)?;
-                transition(circuit, &[(0, driven, 0)], None, &mut stats)?;
+                let on = self.changes(input, value, offsets);
+                transition(circuit, &on, None, &mut stats)?;
+                let off = self.changes(input, 0, offsets);
+                transition(circuit, &off, None, &mut stats)?;
             }
         }
         Ok(stats)
@@ -854,12 +1054,12 @@ impl Rig<'_> {
         part: u64,
         parts: u64,
     ) -> Result<Stats> {
-        let mut stats = Stats::new(self.outputs);
-        for &port in self.inputs {
-            circuit.set(port, 0);
+        let mut stats = Stats::new(self.outputs, self.status);
+        for input in 0..self.count() {
+            self.set(circuit, input, 0);
         }
         circuit.settle()?;
-        let every: Vec<usize> = (0..self.inputs.len()).collect();
+        let every: Vec<usize> = (0..self.count()).collect();
         let combinations: u64 =
             self.values.iter().map(|v| v.len() as u64).product();
         for case in (part..combinations).step_by(usize::try_from(parts)?) {
@@ -872,28 +1072,104 @@ impl Rig<'_> {
                     .iter()
                     .enumerate()
                     .filter(|&(_, &value)| value != 0)
-                    .map(|(i, &value)| {
-                        (
-                            offsets[i],
-                            self.inputs[i],
-                            if off { 0 } else { value },
-                        )
+                    .flat_map(|(i, &value)| {
+                        let value = if off { 0 } else { value };
+                        self.changes(i, value, Some(offsets))
                     })
                     .collect()
             };
+            let shown = self.shown(&values);
             let up = transition(
                 circuit,
                 &changes(false),
-                Some((case, &values)),
+                Some((case, &shown)),
                 &mut stats,
             )?;
             if let Some(tick) = up {
                 *stats.settled.entry(tick).or_default() += 1;
                 if tick > stats.slowest.0 || stats.slowest.1.is_empty() {
-                    stats.slowest = (tick, values.clone());
+                    stats.slowest = (tick, shown);
                 }
             }
             transition(circuit, &changes(true), None, &mut stats)?;
+        }
+        Ok(stats)
+    }
+
+    /// Control line `line` of [`Rig::lines`] toggled alone and back, from
+    /// each of [`SAMPLED`] states drawn at random, the data at a value and
+    /// the group at a setting: the `part`th of `parts` shares of them. Only
+    /// its timing counts, as a line toggled alone may make a setting the
+    /// group never takes.
+    fn line_alone(
+        &self,
+        circuit: &mut Circuit,
+        line: usize,
+        part: u64,
+        parts: u64,
+    ) -> Result<Stats> {
+        let mut stats = Stats::new(self.outputs, self.status);
+        let toggled = self.lines()[line];
+        let mut rng = Rng::default();
+        for _ in 0..=part {
+            rng.draw();
+        }
+        for sample in (part..SAMPLED).step_by(usize::try_from(parts)?) {
+            if sample % 64 == 0 {
+                self.check_cancel()?;
+            }
+            let mut held = 0;
+            for (input, choices) in self.values.iter().enumerate() {
+                let value = choices[rng.below(choices.len())];
+                for (set, value) in self.sets(input, value) {
+                    circuit.set(set, value);
+                    if set == toggled {
+                        held = value;
+                    }
+                }
+            }
+            circuit.settle()?;
+            transition(circuit, &[(0, toggled, held ^ 1)], None, &mut stats)?;
+            transition(circuit, &[(0, toggled, held)], None, &mut stats)?;
+        }
+        Ok(stats)
+    }
+
+    /// Data and control together, each at its `offsets` tick, from one case
+    /// straight to another drawn at random, as instructions follow one
+    /// another: the `part`th of `parts` shares of [`STREAMED`] changes.
+    fn stream(
+        &self,
+        circuit: &mut Circuit,
+        offsets: &[i32],
+        part: u64,
+        parts: u64,
+    ) -> Result<Stats> {
+        let mut stats = Stats::new(self.outputs, self.status);
+        for input in 0..self.count() {
+            self.set(circuit, input, 0);
+        }
+        circuit.settle()?;
+        let mut rng = Rng::default();
+        for _ in 0..=part {
+            rng.draw();
+        }
+        let mut now = vec![0; self.count()];
+        for change in (part..STREAMED).step_by(usize::try_from(parts)?) {
+            if change % 256 == 0 {
+                self.check_cancel()?;
+            }
+            let next: Vec<Value> = self
+                .values
+                .iter()
+                .map(|choices| choices[rng.below(choices.len())])
+                .collect();
+            let changes: Vec<(i32, usize, Value)> = (0..self.count())
+                .filter(|&i| next[i] != now[i])
+                .flat_map(|i| self.changes(i, next[i], Some(offsets)))
+                .collect();
+            transition(circuit, &changes, None, &mut stats)?;
+            now = next;
         }
         Ok(stats)
     }
@@ -999,6 +1275,8 @@ fn transition(
     }
     stats.changes += 1;
     let mut settled = None;
+    // The tick each data output moved settled by, which must agree.
+    let mut data_settled = Vec::new();
     for (o, (output, bits)) in stats.outputs.iter_mut().zip(&seen).enumerate() {
         let moved: Vec<&(u32, i32, i32)> =
             bits.iter().filter(|b| b.0 > 0).collect();
@@ -1026,7 +1304,13 @@ fn transition(
         } else if moved.iter().any(|b| b.2 != last) {
             output.staggered += 1;
         }
+        if !stats.status[o] {
+            data_settled.push(last);
+        }
         settled = settled.max(Some(last));
+    }
+    if data_settled.windows(2).any(|w| w[0] != w[1]) {
+        stats.apart += 1;
     }
     Ok(settled)
 }
@@ -1034,6 +1318,11 @@ fn transition(
 /// What a set of changes did to the outputs.
 struct Stats {
     outputs: Vec<OutputStats>,
+    /// Whether each output is a status line, such as carry out, which may
+    /// settle on a tick of its own.
+    status: Vec<bool>,
+    /// How many changes its data outputs settled on different ticks in.
+    apart: u64,
     /// How many changes settled the whole result by each tick.
     settled: BTreeMap<i32, u64>,
     /// The slowest change's tick and input values.
@@ -1075,8 +1364,10 @@ impl OutputStats {
 }
 
 impl Stats {
-    fn new(widths: &[usize]) -> Self {
+    fn new(widths: &[usize], status: &[bool]) -> Self {
         Stats {
+            status: status.to_vec(),
+            apart: 0,
             outputs: widths
                 .iter()
                 .map(|&width| OutputStats {
@@ -1092,8 +1383,19 @@ impl Stats {
         }
     }
 
+    /// Whether every output changed cleanly, each bit at most once, and
+    /// every data output's bits, across them all, settled on one tick; a
+    /// status line, such as carry out, may settle on a tick of its own.
+    fn synced(&self) -> bool {
+        self.apart == 0
+            && self.outputs.iter().zip(&self.status).all(|(o, &status)| {
+                o.glitches == 0 && (status || o.staggered == 0)
+            })
+    }
+
     /// Adds `other`'s findings, its ticks moved later by `offset`.
     fn merge(&mut self, other: &Stats, offset: i32) {
+        self.apart += other.apart;
         for (mine, theirs) in self.outputs.iter_mut().zip(&other.outputs) {
             for (bit, their) in mine.bits.iter_mut().zip(&theirs.bits) {
                 if let (Some(first), Some(last)) = (their.first, their.last) {
@@ -1123,5 +1425,54 @@ impl Stats {
             self.slowest = (other.slowest.0 + offset, other.slowest.1.clone());
         }
         self.changes += other.changes;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What changing one input alone did: its one output's one bit settled
+    /// `latency` ticks after it.
+    fn alone(latency: i32) -> Stats {
+        let mut stats = Stats::new(&[1], &[false]);
+        stats.outputs[0].bits[0].record(latency, latency, false);
+        stats
+    }
+
+    /// Latency is data in to data out: the slowest data input changes at
+    /// t = 0, a faster one later, and a control line slower than the data,
+    /// as a barrel shifter's amount, before it.
+    #[test]
+    fn a_slow_control_line_switches_before_the_data() {
+        let inputs = [alone(5), alone(4), alone(8), alone(3)];
+        let data = [true, true, false, false];
+        assert_eq!(
+            delays(&inputs, 1, &data),
+            [Some(0), Some(1), Some(-3), Some(2)]
+        );
+        // An output only control lines reach waits on them as on data.
+        assert_eq!(delays(&[alone(8)], 1, &[false]), [Some(0)]);
+    }
+
+    /// A build is synced when every output changes cleanly and its data
+    /// outputs settle on one tick, all together; a status line, such as
+    /// carry out, may settle on a tick of its own, but must not glitch.
+    #[test]
+    fn a_status_line_may_settle_on_a_tick_of_its_own() {
+        let clean = || Stats::new(&[4, 1], &[false, true]);
+        assert!(clean().synced());
+        let mut stats = clean();
+        stats.outputs[1].staggered = 1;
+        assert!(stats.synced(), "a status line's own tick");
+        let mut stats = clean();
+        stats.outputs[1].glitches = 1;
+        assert!(!stats.synced(), "a status line glitching");
+        let mut stats = clean();
+        stats.outputs[0].staggered = 1;
+        assert!(!stats.synced(), "a data output's bits apart");
+        let mut stats = clean();
+        stats.apart = 1;
+        assert!(!stats.synced(), "two data outputs apart");
     }
 }

@@ -761,36 +761,36 @@ pub fn zero(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
     op.apply(a, b, carry, width) & mask(width) == 0
 }
 
-/// Measures each operation's timing, and returns the slowest's, synced
-/// only when every operation's result is.
+/// Measures A and B, and its carry in, to its outputs, its operation lines
+/// driven as a control group, switched together to each operation, as a
+/// CPU's decoder would: synced only when every output changes cleanly, its
+/// data bits on one tick, whatever its operands and operation change from
+/// and to; a status line, such as a carry out, may settle on its own tick.
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
     let interface = crate::recognize::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
-    let timings =
+    let mut inputs = vec![alu.a, alu.b];
+    inputs.extend(alu.carry_in);
+    let settings: Vec<Vec<(usize, Value)>> =
         selections(blocks, &interface, &alu)?
             .into_iter()
             .map(|selection| {
-                let mut inputs = vec![alu.a, alu.b];
                 let mut held = selection.held;
-                if selection.op.takes_carry()
-                    && let Some(port) = alu.carry_in
-                {
-                    inputs.push(port);
-                    held.retain(|&(p, _)| p != port);
-                }
-                timing::measure(
-                    blocks, &interface, &inputs, &held, None, cancel,
-                )
-            });
-    // Its status lines, such as a carry out, may settle in steps.
-    let synced = |timing: &Timing| {
-        timing
-            .outputs
-            .iter()
-            .filter(|output| !output.status)
-            .all(|output| output.glitches == 0 && output.staggered == 0)
-    };
-    timing::slowest(timings, synced, "no operation to time")
+                held.retain(|&(port, _)| Some(port) != alu.carry_in);
+                held
+            })
+            .collect();
+    if settings.is_empty() {
+        broken!("It has no operation to time.");
+    }
+    timing::measure_controlled(
+        blocks,
+        &interface,
+        &inputs,
+        &settings,
+        &[],
+        cancel,
+    )
 }
 
 /// The flags the ALU in `blocks` shows: each operation its test checks but

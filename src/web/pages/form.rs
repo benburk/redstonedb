@@ -155,7 +155,7 @@ pub(super) fn fields(
                     checked[f.synchronized == Some(true)]
                     data-unknown[f.synchronized.is_none()]
                     class="size-4 appearance-auto";
-                "Every output bit settles on the same tick"
+                "Every data output bit settles on the same tick, without glitches"
             }
             @if f.synchronized.is_none() {
                 input type="hidden" name="synchronized_unknown" value="yes";
