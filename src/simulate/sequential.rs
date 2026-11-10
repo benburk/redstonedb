@@ -4,8 +4,10 @@
 //! loading input A into it, clearing it, or toggling it.
 //!
 //! A counter has one way to be driven: input A, as wide as its value, a
-//! clock button, which counts it up or down, and a write enable lever, with
-//! which the clock loads A instead. A T flip-flop has one too: one bit,
+//! clock lever, whose every 2-tick pulse counts it up or down, and a write
+//! enable lever, held on through a pulse to load A instead. Its clock may
+//! read inverted, counting while its lever is off and resting while it is
+//! on, as its test finds. A T flip-flop has one too: one bit,
 //! toggled by each pulse of its one control line. A shift register's lines
 //! are found by trying each, pulsed alone or with one of its other levers
 //! held on, from a value no two operations agree on; one must shift.
@@ -14,7 +16,9 @@
 //! a load of every value of A, and a clear or a shift from many values.
 //!
 //! A pulse is a button's press, or a lever turned on and off, each run
-//! until nothing changes. Status lines, such as a shift out, are left out.
+//! until nothing changes, but for a counter's clock, which is on for
+//! exactly [`PULSE`] ticks. Status lines, such as a shift out or a
+//! counter's carry out, are left out.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -136,8 +140,25 @@ struct Way {
     held: Option<usize>,
 }
 
+/// The ticks a counter's clock is on for a pulse: every counter counts
+/// once for each 2-tick pulse.
+const PULSE: u32 = 2;
+
+/// The longest gap a counter's pulses are tried at for its throughput.
+const SLOWEST_PULSES: u32 = 40;
+
+/// A counter's clock: its place among the control lines, and whether it
+/// reads inverted, pulsing while its lever is off and resting while on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Clock {
+    line: usize,
+    inverted: bool,
+}
+
 /// A build's lines, by their ports: input A, if it has one, its control
-/// lines, each one bit, and the output showing the value it holds.
+/// lines, each one bit, and the output showing the value it holds; and a
+/// counter's clock, once its test finds it.
+#[derive(Clone)]
 struct Lines {
     data: Option<usize>,
     controls: Vec<usize>,
@@ -146,6 +167,7 @@ struct Lines {
     names: Vec<String>,
     state_name: String,
     data_name: Option<(String, usize)>,
+    clock: Option<Clock>,
 }
 
 /// The lines of the build in `blocks`, as its colours mark them.
@@ -214,8 +236,27 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
         controls,
         state,
         width,
+        clock: None,
     };
     Ok((interface, lines))
+}
+
+/// The build in `blocks` running fresh, read through `interface` as
+/// `lines`, its clock resting: a lever read inverted on.
+fn machine<'a>(
+    blocks: &Blocks,
+    interface: &interface::Interface,
+    lines: &'a Lines,
+) -> Result<Machine<'a>> {
+    let held: Vec<(usize, Value)> = lines
+        .clock
+        .filter(|clock| clock.inverted)
+        .map(|clock| (lines.controls[clock.line], 1))
+        .into_iter()
+        .collect();
+    let mut circuit = Circuit::resting(blocks, interface, &held)?;
+    circuit.settle()?;
+    Ok(Machine { circuit, lines })
 }
 
 /// The build running, with its lines.
@@ -235,6 +276,22 @@ impl Machine<'_> {
         self.circuit.is_button(self.lines.controls[line], 0)
     }
 
+    /// Whether control line `line` is a counter's clock.
+    fn clock(&self, line: usize) -> bool {
+        self.lines.clock.is_some_and(|clock| clock.line == line)
+    }
+
+    /// Turns control line `line` on or off, as it reads: a clock read
+    /// inverted is on with its lever off.
+    fn set(&mut self, line: usize, on: bool) {
+        let inverted = self
+            .lines
+            .clock
+            .is_some_and(|clock| clock.line == line && clock.inverted);
+        let port = self.lines.controls[line];
+        self.circuit.set(port, Value::from(on != inverted));
+    }
+
     /// Makes `way` with `data` on A, running until nothing changes.
     fn apply(&mut self, way: Way, data: Value) -> Result<()> {
         if let Some(port) = self.lines.data {
@@ -242,12 +299,12 @@ impl Machine<'_> {
             self.circuit.settle()?;
         }
         if let Some(held) = way.held {
-            self.circuit.set(self.lines.controls[held], 1);
+            self.set(held, true);
             self.circuit.settle()?;
         }
         self.pulse(way.pulse)?;
         if let Some(held) = way.held {
-            self.circuit.set(self.lines.controls[held], 0);
+            self.set(held, false);
             self.circuit.settle()?;
         }
         Ok(())
@@ -273,21 +330,27 @@ impl Machine<'_> {
     fn watch(&mut self, way: Way) -> Result<Vec<Vec<i32>>> {
         let width = self.lines.width;
         if let Some(held) = way.held {
-            self.circuit.set(self.lines.controls[held], 1);
+            self.set(held, true);
             self.circuit.settle()?;
         }
         let port = self.lines.controls[way.pulse];
         let button = self.button(way.pulse);
+        let clock = self.clock(way.pulse);
         if button {
             self.circuit.press(port, 0);
         } else {
-            self.circuit.set(port, 1);
+            self.set(way.pulse, true);
         }
         let mut ticks: Vec<Vec<i32>> = vec![Vec::new(); width];
         let mut last = self.read();
         let mut tick = 0;
-        while self.circuit.step() {
+        // A clock is let off after its pulse, whatever is changing.
+        while clock && tick < PULSE.cast_signed() || self.circuit.pending() {
+            self.circuit.tick();
             tick += 1;
+            if clock && tick == PULSE.cast_signed() {
+                self.set(way.pulse, false);
+            }
             if tick > MAX_TICKS.cast_signed() {
                 bail!("It was still changing {MAX_TICKS} ticks after a pulse.");
             }
@@ -299,27 +362,49 @@ impl Machine<'_> {
             }
             last = now;
         }
-        if !button {
-            self.circuit.set(port, 0);
+        if !button && !clock {
+            self.set(way.pulse, false);
             self.circuit.settle()?;
         }
         if let Some(held) = way.held {
-            self.circuit.set(self.lines.controls[held], 0);
+            self.set(held, false);
             self.circuit.settle()?;
         }
         Ok(ticks)
     }
 
-    /// Pulses control line `line`: presses its button, or turns its lever
-    /// on and off.
+    /// Pulses control line `line`: presses its button, turns its lever on
+    /// and off, or turns a clock on for [`PULSE`] ticks.
     fn pulse(&mut self, line: usize) -> Result<()> {
         let port = self.lines.controls[line];
         if self.button(line) {
             self.circuit.press(port, 0);
+        } else if self.clock(line) {
+            self.set(line, true);
+            for _ in 0..PULSE {
+                self.circuit.tick();
+            }
+            self.set(line, false);
         } else {
-            self.circuit.set(port, 1);
+            self.set(line, true);
             self.circuit.settle()?;
-            self.circuit.set(port, 0);
+            self.set(line, false);
+        }
+        self.circuit.settle()?;
+        Ok(())
+    }
+
+    /// Pulses the clock `count` times, each pulse `every` ticks after the
+    /// last began, as fast as a player's clock might, then lets it settle.
+    fn clocked(&mut self, line: usize, count: Value, every: u32) -> Result<()> {
+        for _ in 0..count {
+            self.set(line, true);
+            for tick in 0..every {
+                if tick == PULSE {
+                    self.set(line, false);
+                }
+                self.circuit.tick();
+            }
         }
         self.circuit.settle()?;
         Ok(())
@@ -381,28 +466,35 @@ fn ways(machine: &Machine) -> Vec<Way> {
 /// Runs the counter or shift register in `blocks` through its cases.
 pub fn check(blocks: &Blocks, kind: Kind) -> Result<Run> {
     let (interface, lines) = lines(blocks, kind)?;
-    let fresh = || -> Result<Machine> {
-        let mut circuit = Circuit::new(blocks, &interface)?;
-        circuit.settle()?;
-        Ok(Machine {
-            circuit,
-            lines: &lines,
-        })
-    };
-    let found = find(&fresh, &lines, kind)?;
+    let (lines, found) = found(blocks, &interface, lines, kind)?;
     Ok(run(&lines, found))
 }
 
-/// The ways `lines`' build makes each operation, and its cases.
+/// The ways `lines`' build in `blocks` makes each operation, and its
+/// cases, with its lines as the test found them: a counter's clock and
+/// write enable told apart.
+fn found(
+    blocks: &Blocks,
+    interface: &interface::Interface,
+    lines: Lines,
+    kind: Kind,
+) -> Result<(Lines, Found)> {
+    if kind == Kind::Counter {
+        return counter(blocks, interface, &lines);
+    }
+    let found = find(&|| machine(blocks, interface, &lines), &lines, kind)?;
+    Ok((lines, found))
+}
+
+/// The ways `lines`' build makes each operation, and its cases, for a
+/// shift register or a T flip-flop.
 fn find<'a>(
     fresh: &dyn Fn() -> Result<Machine<'a>>,
     lines: &Lines,
     kind: Kind,
 ) -> Result<Found> {
-    match kind {
-        Kind::Counter => return counter(fresh, lines),
-        Kind::TFlipFlop => return toggle(fresh, lines),
-        Kind::ShiftRegister => {}
+    if kind == Kind::TFlipFlop {
+        return toggle(fresh, lines);
     }
     let all_ways = ways(&fresh()?);
     let setter = setter(fresh, &all_ways, lines.width, kind)?;
@@ -424,23 +516,22 @@ fn find<'a>(
     })
 }
 
-/// How a counter, of `lines`, makes its operations, and its cases: its
-/// clock, pressed, counts up or down, and pressed with its write enable on
-/// loads A.
-fn counter<'a>(
-    fresh: &dyn Fn() -> Result<Machine<'a>>,
+/// How the counter in `blocks`, of `lines`, makes its operations, and its
+/// cases, with its clock and write enable named: its two levers each tried
+/// as its clock, read as it is and inverted, until a 2-tick pulse of one
+/// counts up or down and, held on through a pulse, the other loads A.
+fn counter(
+    blocks: &Blocks,
+    interface: &interface::Interface,
     lines: &Lines,
-) -> Result<Found> {
-    let at = |name: &str| lines.names.iter().position(|line| line == name);
-    let (Some(clock), Some(enable), 2, Some(width)) = (
-        at("clock"),
-        at("write enable"),
+) -> Result<(Lines, Found)> {
+    let (2, Some(width)) = (
         lines.controls.len(),
-        lines.data_name.as_ref().map(|&(_, bits)| bits),
+        lines.data_name.as_ref().map(|&(_, b)| b),
     ) else {
         broken!(
-            "A counter has input A, a clock button, and a write enable \
-             lever, but this has {}.",
+            "A counter has input A, a clock lever, and a write enable lever, \
+             but this has {}.",
             lines
                 .data_name
                 .iter()
@@ -457,6 +548,60 @@ fn counter<'a>(
             lines.width
         );
     }
+    if lines.controls.iter().any(|&port| {
+        interface.inputs[port]
+            .bits
+            .iter()
+            .any(|bit| button(blocks, bit))
+    }) {
+        broken!(
+            "A counter's clock and write enable are levers, its clock \
+             pulsed for {PULSE} ticks, which a button's press is too long \
+             for."
+        );
+    }
+    let mut why = None;
+    for line in 0..2 {
+        for inverted in [false, true] {
+            let names = (0..2)
+                .map(|i| if i == line { "clock" } else { "write enable" })
+                .map(str::to_owned)
+                .collect();
+            let tried = Lines {
+                clock: Some(Clock { line, inverted }),
+                names,
+                ..lines.clone()
+            };
+            match counts(&|| machine(blocks, interface, &tried), &tried) {
+                Ok(found) => return Ok((tried, found)),
+                Err(err) => {
+                    why.get_or_insert(err);
+                }
+            }
+        }
+    }
+    Err(why.unwrap_or_else(|| anyhow::anyhow!("It never counted.")))
+}
+
+/// Whether input bit `bit` of `blocks` is pressed by a button.
+fn button(blocks: &Blocks, bit: &interface::Bit) -> bool {
+    bit.entry.is_some_and(|side| {
+        crate::schem::id(blocks.get(crate::schem::step(bit.pos, side)))
+            .ends_with("_button")
+    })
+}
+
+/// How a counter, of `lines`, its clock and write enable named, makes its
+/// operations, and its cases: its clock, pulsed, counts up or down, and
+/// pulsed with its write enable on loads A.
+fn counts<'a>(
+    fresh: &dyn Fn() -> Result<Machine<'a>>,
+    lines: &Lines,
+) -> Result<Found> {
+    let at = |name: &str| lines.names.iter().position(|line| line == name);
+    let (Some(clock), Some(enable)) = (at("clock"), at("write enable")) else {
+        broken!("A counter has a clock lever and a write enable lever.");
+    };
     let load = Way {
         pulse: clock,
         held: Some(enable),
@@ -469,14 +614,17 @@ fn counter<'a>(
     let mut machine = fresh()?;
     machine.apply(load, first)?;
     if machine.read() != first {
-        broken!("Its clock, with write enable on, doesn't load A.");
+        broken!("Its clock, pulsed with write enable on, doesn't load A.");
     }
     machine.apply(clock, 0)?;
     let got = machine.read();
     let Some(count @ (Op::Up | Op::Down)) =
         classify(first, 0, got, lines.width).filter(|_| got != first)
     else {
-        broken!("Its clock doesn't count: from {first} it gave {got}.");
+        broken!(
+            "Its clock, pulsed for {PULSE} ticks, doesn't count: from \
+             {first} it gave {got}."
+        );
     };
     let setter = (load, Op::Load);
     let ways = vec![(clock, count), (load, Op::Load)];
@@ -490,6 +638,37 @@ fn counter<'a>(
         wrong: tally.wrong,
         examples: tally.examples,
     })
+}
+
+/// How often the counter in `blocks` may be clocked: the fewest ticks from
+/// one pulse's start to the next's at which a count through every value,
+/// pulse after pulse without waiting to settle, ends where it should.
+/// `None` for a shift register or a T flip-flop, not measured yet, or a
+/// counter none of whose tries ends right.
+pub fn throughput(blocks: &Blocks, kind: Kind) -> Result<Option<i32>> {
+    if kind != Kind::Counter {
+        return Ok(None);
+    }
+    let (interface, lines) = lines(blocks, kind)?;
+    let (lines, found) = counter(blocks, &interface, &lines)?;
+    let Some(&(way, op)) = found.ways.iter().find(|&&(_, op)| op.counts())
+    else {
+        return Ok(None);
+    };
+    let pulses = (mask(lines.width) + 2).min(MOST_COUNTS);
+    for every in PULSE + 1..=SLOWEST_PULSES {
+        let mut machine = machine(blocks, &interface, &lines)?;
+        let start = machine.read();
+        if machine.clocked(way.pulse, pulses, every).is_err() {
+            continue;
+        }
+        let expected =
+            (0..pulses).fold(start, |value, _| op.apply(value, 0, lines.width));
+        if machine.read() == expected {
+            return Ok(Some(every.cast_signed()));
+        }
+    }
+    Ok(None)
 }
 
 /// How copies of the T flip-flop in `data`, whose own cases came out
@@ -837,15 +1016,8 @@ pub fn time(
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let (interface, lines) = lines(blocks, kind)?;
-    let fresh = || -> Result<Machine> {
-        let mut circuit = Circuit::new(blocks, &interface)?;
-        circuit.settle()?;
-        Ok(Machine {
-            circuit,
-            lines: &lines,
-        })
-    };
-    let found = find(&fresh, &lines, kind)?;
+    let (lines, found) = found(blocks, &interface, lines, kind)?;
+    let fresh = || machine(blocks, &interface, &lines);
     let Some(&(way, op)) = found
         .ways
         .iter()

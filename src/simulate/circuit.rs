@@ -111,10 +111,22 @@ const WOODEN_PRESS: u32 = 15;
 impl Circuit {
     /// Sets up `blocks`, whose interface is `interface`.
     pub fn new(blocks: &Blocks, interface: &Interface) -> Result<Self> {
+        Self::resting(blocks, interface, &[])
+    }
+
+    /// Sets up `blocks`, whose interface is `interface`, with each input
+    /// port of `held` set to its value before the build first comes to
+    /// rest, as a line read inverted rests on: a counter whose clock counts
+    /// while its lever is off never rests with it off.
+    pub fn resting(
+        blocks: &Blocks,
+        interface: &Interface,
+        held: &[(usize, Value)],
+    ) -> Result<Self> {
         let mut world = world(blocks)?;
         let digits = interface.inputs.iter().any(|port| port.signal_strength);
         let mut taken = HashSet::new();
-        let inputs = interface
+        let mut inputs = interface
             .inputs
             .iter()
             .map(|port| {
@@ -125,7 +137,8 @@ impl Circuit {
                     levers(blocks, port).map(Drive::Levers)
                 }
             })
-            .collect::<Result<_>>()?;
+            .collect::<Result<Vec<_>>>()?;
+        hold(&mut world, &mut inputs, held);
         settle_world(&mut world, world_size(blocks))?;
         let outputs: Vec<(Vec<BlockPos>, bool)> = interface
             .outputs
@@ -937,11 +950,14 @@ impl Compiled {
     }
 }
 
-/// The circuit of `blocks`; see [`Compiled`].
+/// The circuit of `blocks`; see [`Compiled`]. Only how its components
+/// link matters, so one that never rests with every lever off, as a
+/// counter whose clock reads inverted, is compiled as it stands once the
+/// world has tried.
 pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
-    settle_world(&mut world, size)?;
+    let _restless = settle_world(&mut world, size);
     let [x, y, z] = size;
     let input = CompilerInput {
         world: &world,
@@ -1134,6 +1150,27 @@ fn set_properties(state: &str, properties: &[(&str, String)]) -> String {
         })
         .collect();
     format!("{id}[{}]", fields.join(","))
+}
+
+/// Turns on, in `world` as it was saved, the levers of each input port of
+/// `held` its value sets, as `inputs` drive them.
+fn hold(world: &mut TestWorld, inputs: &mut [Drive], held: &[(usize, Value)]) {
+    for &(port, value) in held {
+        let Some(Drive::Levers(levers)) = inputs.get_mut(port) else {
+            continue;
+        };
+        for (i, lever) in levers.iter_mut().enumerate() {
+            if value >> i & 1 == 0 || lever.button {
+                continue;
+            }
+            let mut block = world.get_block(lever.pos);
+            if let Block::Lever { powered, .. } = &mut block {
+                *powered = true;
+            }
+            world.set_block(lever.pos, block);
+            lever.on = true;
+        }
+    }
 }
 
 /// The world's size: the build's, with `MARGIN` on each side across.

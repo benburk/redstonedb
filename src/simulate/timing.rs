@@ -158,8 +158,8 @@ pub enum Start {
     /// A buffer's write, its button pressed or lever turned on, or for one
     /// that takes its data as its write closes, it closing.
     Write,
-    /// A counter's or shift register's clock, its button pressed or lever
-    /// turned on.
+    /// A counter's or shift register's clock, its button pressed, or its
+    /// lever turned on, for a counter's 2 ticks.
     Clock,
 }
 

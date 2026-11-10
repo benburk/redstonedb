@@ -176,7 +176,7 @@ pub fn name_lines(
             return name_register(blocks, interface, false);
         }
         Lines::Buffer => return name_register(blocks, interface, true),
-        Lines::Counter => return name_counter(blocks, interface),
+        Lines::Counter => return name_counter(interface),
         Lines::Result(name) => {
             if let [out] = interface.outputs.as_mut_slice()
                 && !out.labelled
@@ -267,39 +267,32 @@ fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
     interface.inputs = split;
 }
 
-/// `name_lines` for a counter: each bit of its control lines, signed or
-/// not, a line of its own, its clock when a button drives it and its write
-/// enable when a lever does, numbered in order when there are more.
-fn name_counter(blocks: &Blocks, interface: &mut Interface) {
-    let mut split = Vec::new();
-    let mut controls = Vec::new();
-    for port in std::mem::take(&mut interface.inputs) {
-        if port.control() {
-            controls.push(port);
-        } else {
-            split.push(port);
-        }
-    }
-    let bits: Vec<(Bit, &Port)> = controls
+/// `name_lines` for a counter: each bit of its control lines a line of
+/// its own, its clock and its write enable, two levers alike until its
+/// test tells which pulses and which loads, so each unsigned one is named
+/// for its place, numbered when there are more.
+fn name_counter(interface: &mut Interface) {
+    let (controls, mut split): (Vec<Port>, Vec<Port>) =
+        std::mem::take(&mut interface.inputs)
+            .into_iter()
+            .partition(Port::control);
+    let count: usize = controls.iter().map(|port| port.bits.len()).sum();
+    let bits = controls
         .iter()
-        .flat_map(|port| port.bits.iter().map(move |bit| (bit.clone(), port)))
-        .collect();
-    let (clocks, enables): (Vec<_>, Vec<_>) =
-        bits.into_iter().partition(|(bit, _)| button(blocks, bit));
-    for (bits, word) in [(clocks, "clock"), (enables, "write enable")] {
-        let count = bits.len();
-        for (i, (bit, port)) in bits.into_iter().enumerate() {
-            let name = if count > 1 {
-                format!("{word} {}", i + 1)
-            } else {
-                word.to_owned()
-            };
-            split.push(Port {
-                name,
-                bits: vec![bit],
-                ..port.clone()
-            });
-        }
+        .flat_map(|port| port.bits.iter().map(move |bit| (bit.clone(), port)));
+    for (i, (bit, port)) in bits.enumerate() {
+        let name = if port.labelled && port.bits.len() == 1 {
+            port.name.clone()
+        } else if count > 1 {
+            format!("control {}", i + 1)
+        } else {
+            "control".to_owned()
+        };
+        split.push(Port {
+            name,
+            bits: vec![bit],
+            ..port.clone()
+        });
     }
     interface.inputs = split;
 }

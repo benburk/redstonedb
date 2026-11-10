@@ -42,6 +42,23 @@ fn a_ripple_adder_slice_is_read_whole_from_its_file() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
+/// A counter's clock is a lever pulsed for 2 ticks, read as it is or
+/// inverted, counting while its lever is off and resting while it is on, as
+/// the first two counters built to the standard are: each counts through
+/// every value, loads every value of A, and may be clocked every 3 ticks.
+#[test]
+#[ignore = "measures whole builds: just test-full"]
+fn a_counter_is_clocked_by_a_lever_pulsed_for_2_ticks() {
+    for name in ["counter-8-lever-clock", "counter-8-inverted-clock"] {
+        let raw =
+            std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
+        let e = evaluate(&raw).unwrap();
+        assert_eq!(e.category, Some("counter"), "{name}");
+        assert!(e.passes(), "{name}");
+        assert_eq!(e.throughput, Some(3), "{name}");
+    }
+}
+
 #[test]
 fn a_build_failing_its_test_has_no_timing() {
     let e = evaluate(&stored("cca-8-dust-out")).unwrap();

@@ -185,7 +185,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "Some builds have optional control lines and data inputs, like an adder's carry in or an incrementer's increment line." }
                         li { "Gates take A and B and give one output as wide. Each gate is its own category: an XOR gate with a torch on its output is an XNOR gate." }
                         li { "Multipliers take A and B, and at most one calculate button. No reset. A third input can be an addend, for A × B + C." }
-                        li { "Counters take A, one clock button, and one write enable lever." }
+                        li { "Counters take A, a clock lever, and a write enable lever. Each 2-tick pulse of the clock counts up or down, and a pulse with write enable on loads A. The clock may be inverted, counting while its lever is off. How fast it can be clocked is its throughput." }
                         li { "Subtractors are adders that take B away: A − B, less a borrow in. They rank apart from adders." }
                         li { "T flip-flops take one input, a button or a lever, and give one output, which each press toggles." }
                         li { "Hex adders take A and B a hex digit each, a comparator with air behind it, in place of levers, and hex-to-binary converters take A so, giving its bits. Every other category takes levers." }

@@ -614,8 +614,7 @@ impl Test {
             Way::Monostable { .. } => monostable::throughput(blocks, timing),
             Way::Alu => alu::throughput(blocks, timing),
             Way::Shifter => shifter::throughput(blocks, timing),
-            // How fast one may be clocked isn't measured yet.
-            Way::Sequential(_) => Ok(None),
+            Way::Sequential(kind) => sequential::throughput(blocks, kind),
         }
     }
 

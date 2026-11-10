@@ -30,7 +30,7 @@ A build is on the list only when probing recognizes it as a blessed category: ad
 - A hex-to-binary converter has input A, a hex digit a block, each a comparator with air behind, and outputs giving A's bits, four a digit; a lone output beside a bus is its lowest bit or its highest, which the test finds.
 - A popcount has input A and outputs wide enough for its count, or one output block whose strength is the count; a threshold has input A and one output, on when at least some number of A's bits are, which the test finds.
 - A monostable has input A and a lone output, its pulse. A buffer is read as a register is.
-- A counter has input A, one button, its clock, and one lever, its write enable: pressing the clock counts up or down, and pressing it with write enable on loads A.
+- A counter has input A and two levers, its clock and its write enable: each 2-tick pulse of the clock counts up or down, and a pulse with write enable on loads A. The clock may read inverted, counting while its lever is off and resting while it is on; the test finds which lever is which. Its throughput is the fewest ticks between pulses at which it still counts every value right. An extra lone output, such as a carry out, is left out.
 - A shift register's every other lever or button is a control line, and what each does, shifting, loading, or clearing, alone or with another lever held on, is found by trying it.
 - A T flip-flop has one input, a button or a lever, and one output bit, which each press, or each turn of the lever on and off, toggles.
 

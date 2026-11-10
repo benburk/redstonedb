@@ -384,8 +384,8 @@ pub enum Lines {
     /// when none has a button, as it has no reads; a lone one needs no
     /// sign.
     Buffer,
-    /// A counter's: each control line its clock, driven by a button, or its
-    /// write enable, by a lever, whatever its sign says.
+    /// A counter's: each control line a lever of its own, its clock or its
+    /// write enable, which its test tells apart, a sign naming it.
     Counter,
 }
 
