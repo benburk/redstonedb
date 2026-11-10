@@ -26,7 +26,7 @@ use categories::{define_tag, print_categories, print_tags};
 use inspect::{Inspect, inspect_command};
 use refresh::refresh;
 use seed::seed;
-use versions::{Standardizing, new_version};
+use versions::{Standardizing, merge, new_version};
 
 /// A database of Minecraft redstone schematics.
 #[derive(Parser)]
@@ -84,6 +84,17 @@ enum Command {
         in_place: bool,
         #[command(flatten)]
         standardizing: Standardizing,
+    },
+    /// Merge a build into another, as the site's Merge into another build
+    /// does: its current file becomes that build's next version, if it may
+    /// be one, and it is deleted; then refresh that build, as `refresh`
+    /// does
+    Merge {
+        id: String,
+        into: String,
+        /// What it fixes; by default, which build it was merged from
+        #[arg(long)]
+        note: Option<String>,
     },
     /// Delete a schematic
     Remove { id: String },
@@ -204,6 +215,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
         } => {
             let note = note.as_deref();
             new_version(db, &id, &file, note, in_place, &standardizing).await
+        }
+        Command::Merge { id, into, note } => {
+            merge(db, &id, &into, note.as_deref()).await
         }
         Command::Remove { id } => remove(db, &id).await,
         Command::Refresh {

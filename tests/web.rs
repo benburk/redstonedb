@@ -417,3 +417,98 @@ async fn a_new_account_keeps_when_it_joined() {
     let again = common::sign_in(&site.db, "1", "steve").await;
     assert_eq!(again.created_at, at);
 }
+
+/// A mod merges a build uploaded on its own into the one it fixes: its file
+/// becomes that build's next version, noted as merged from it, and it is
+/// gone. Its uploader, no mod, is refused, and a build isn't merged into
+/// itself.
+#[tokio::test]
+async fn a_mod_merges_a_build_into_the_one_it_fixes() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let moderator = common::sign_in(&site.db, "2", "alex").await;
+    User::set_role(&site.db, moderator.id, Role::Mod)
+        .await
+        .unwrap();
+    let into = site.adder(&owner).await;
+    // The same build, a block changed, uploaded on its own.
+    let given = Details {
+        category: "adder".to_owned(),
+        orientation: Orientation::Horizontal,
+        ..Details::default()
+    };
+    let from = common::store(&site.db, "alpha-cla", given, Some(&owner)).await;
+    let first = app::models::version::data(&site.db, &into, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    let blocks = app::schem::Blocks::read(&first).unwrap();
+    // A solid block nothing is hung on, so glass breaks no convention.
+    let bare = |[x, y, z]: [i32; 3]| {
+        [
+            [1, 0, 0],
+            [-1, 0, 0],
+            [0, 1, 0],
+            [0, -1, 0],
+            [0, 0, 1],
+            [0, 0, -1],
+        ]
+        .iter()
+        .all(|[dx, dy, dz]| {
+            let near = blocks.get([x + dx, y + dy, z + dz]);
+            !near.contains("lever") && !near.contains("button")
+        })
+    };
+    let (pos, _) = blocks
+        .iter()
+        .find(|&(pos, state)| app::schem::block::solid(state) && bare(pos))
+        .unwrap();
+    let glass = std::collections::BTreeMap::from([(
+        pos,
+        "minecraft:white_stained_glass".to_owned(),
+    )]);
+    let fixed = app::schem::standardize::edit(&first, &glass).unwrap();
+    let fixed = app::import::prepare_for(&fixed, common::IN_PLACE).unwrap();
+    let how = app::models::version::Replacing::NextVersion {
+        added_by: None,
+        added_from: None,
+        note: None,
+        restores: None,
+    };
+    app::models::version::replace(&site.db, &from, &fixed, how)
+        .await
+        .unwrap();
+    let merge = |cookie: String, target: String| {
+        site.client
+            .post(format!("{}/schematics/{from}/merge", site.base))
+            .header(header::COOKIE, cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!("into={target}&note="))
+            .send()
+    };
+    let link = format!("https://redstonedb.com/schematics/{into}");
+
+    let refused = merge(site.session(&owner).await, link.clone())
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let mods = site.session(&moderator).await;
+    let itself = merge(mods.clone(), from.clone()).await.unwrap();
+    assert_eq!(itself.status(), StatusCode::BAD_REQUEST);
+
+    let response = merge(mods, link).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(location(&response), format!("/schematics/{into}"));
+    let versions = app::models::version::list(&site.db, &into).await.unwrap();
+    assert_eq!(versions[0].version, 2);
+    assert_eq!(versions[0].added_by.as_deref(), Some("alex"));
+    assert!(
+        versions[0]
+            .note
+            .as_deref()
+            .is_some_and(|n| n.starts_with("Merged from")),
+        "{:?}",
+        versions[0].note
+    );
+    assert!(schematic::get(&site.db, &from).await.unwrap().is_none());
+}

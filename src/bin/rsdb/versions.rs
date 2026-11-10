@@ -125,6 +125,50 @@ pub(super) async fn new_version(
     Ok(())
 }
 
+/// Merges build `id` into build `into`, as the site does: its current file
+/// becomes `into`'s next version, added as the site's own, if it may be one,
+/// and `id` is deleted; then `into` is refreshed.
+pub(super) async fn merge(
+    db: &SqlitePool,
+    id: &str,
+    into: &str,
+    note: Option<&str>,
+) -> Result<()> {
+    let from = load(db, &resolve(db, id).await?).await?;
+    let into = load(db, &resolve(db, into).await?).await?;
+    let note = match note.map(str::trim) {
+        Some(note) if !note.is_empty() => note.to_owned(),
+        _ => format!("Merged from {}, {}", from.name(), &from.id[..8]),
+    };
+    let by = Some(app::models::user::REDSTONEDB);
+    match app::version::merge(db, &from, &into, by, &note).await? {
+        Ok(number) => println!(
+            "merged {}  {} into {}  {}: version {number}",
+            &from.id[..8],
+            from.filename(),
+            &into.id[..8],
+            into.filename()
+        ),
+        Err(refusals) => {
+            for refusal in &refusals {
+                println!("{refusal}");
+            }
+            bail!("{} cannot be merged into {}", &from.id[..8], &into.id[..8]);
+        }
+    }
+    let how = Refreshing {
+        again: false,
+        rejudge: true,
+        prune: false,
+        probe: false,
+    };
+    let name = format!("{}  {}", &into.id[..8], into.filename());
+    if let Some(report) = refresh_one(db, &into.id, how).await? {
+        print_report(&name, &report);
+    }
+    Ok(())
+}
+
 /// Adds `raw`, read from `file`, as build `s`'s next version, after the
 /// checks the site makes, keeping the colours its author gave it, and
 /// moving the build up to the category it stands in for when the version

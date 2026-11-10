@@ -942,6 +942,10 @@ fn actions_menu(
                         a href={ (path) "/versions/new" } class={ (item) " text-ink" } { (icon(icons::UPLOAD, "size-4 text-muted")) "Upload a new version" }
                     }
                     @if deletes {
+                        button type="button" commandfor="merge" command="show-modal"
+                            class={ (item) " cursor-pointer text-ink" } {
+                            (icon(icons::MERGE, "size-4 text-muted")) "Merge into another build"
+                        }
                         button type="button" commandfor="delete" command="show-modal"
                             class={ (item) " cursor-pointer text-danger" } {
                             (icon(icons::TRASH, "size-4")) "Delete"
@@ -950,7 +954,35 @@ fn actions_menu(
                 }
             }
             @if deletes {
+                (merge_dialog(s))
                 (delete_dialog(s, from))
+            }
+        }
+    }
+}
+
+/// A mod's form for merging a build into another, as a fix uploaded as a
+/// build of its own is: its file becomes that build's next version, if it
+/// may, and it is deleted.
+fn merge_dialog(s: &Schematic) -> Markup {
+    html! {
+        dialog id="merge" aria-labelledby="merge-heading"
+            class="dialog w-full max-w-form" {
+            form action={ "/schematics/" (s.id) "/merge" } method="post" data-step class="flex flex-col gap-4" {
+                h2 id="merge-heading" class=(SECTION_TITLE) { "Merge " (s.name()) " into another build" }
+                p { "Its file becomes the other build's next version, if it keeps 90% of that build's blocks, and this build is deleted." }
+                label class="flex flex-col gap-1" {
+                    span { "Build to merge into" }
+                    input type="text" name="into" required placeholder="Its link or id" class="input";
+                }
+                label class="flex flex-col gap-1" {
+                    span { "Note " span class="text-muted" { "(optional)" } }
+                    input type="text" name="note" placeholder={ "Merged from " (s.name()) } class="input";
+                }
+                div class="flex items-center gap-4" {
+                    button type="submit" class="btn btn-primary" { "Merge" }
+                    button type="button" commandfor="merge" command="close" class="btn btn-quiet" { "Cancel" }
+                }
             }
         }
     }

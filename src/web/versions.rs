@@ -23,7 +23,10 @@ use crate::{
     web::{
         app_state::AppState,
         error::AppError,
-        extractors::{client_ip::ClientIp, session::SignedIn},
+        extractors::{
+            client_ip::ClientIp,
+            session::{Moderator, SignedIn},
+        },
     },
 };
 
@@ -113,6 +116,64 @@ pub async fn restore(
     simulation::complete_soon(db, &id);
     similarity::refresh_soon(db);
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
+}
+
+/// What merging a build into another names.
+#[derive(Deserialize)]
+pub struct Merging {
+    /// The build to merge into, by its link or id.
+    into: String,
+    #[serde(default)]
+    note: String,
+}
+
+/// Merges build `id` into the one `merging` names, by a mod: its current
+/// file goes to that build as a new version, if it may, and it is deleted,
+/// as a fix uploaded as a build of its own is folded into the one it fixes.
+/// Goes to the build it went into.
+pub async fn merge(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Moderator(by): Moderator,
+    axum::Form(merging): axum::Form<Merging>,
+) -> Result<Response, AppError> {
+    let db = &state.db;
+    let into = merging
+        .into
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .find(|part| part.len() == 32)
+        .map(str::to_ascii_lowercase)
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "Give the build to merge into by its link or id.".to_owned(),
+            )
+        })?;
+    let from = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let Some(into) = schematic::get(db, &into).await? else {
+        return Err(AppError::BadRequest(
+            "There is no build to merge into at that link.".to_owned(),
+        ));
+    };
+    let note = match merging.note.trim() {
+        "" => format!("Merged from {}, {}", from.name(), &from.id[..8]),
+        note => note.to_owned(),
+    };
+    match crate::version::merge(db, &from, &into, Some(by.id), &note).await? {
+        Ok(number) => {
+            tracing::info!(
+                from = id,
+                into = into.id,
+                by = by.username,
+                number,
+                "merged a build"
+            );
+            simulation::complete_soon(db, &into.id);
+            similarity::refresh_soon(db);
+            Ok(Redirect::to(&format!("/schematics/{}", into.id))
+                .into_response())
+        }
+        Err(refusals) => Err(AppError::BadRequest(refusals.join(" "))),
+    }
 }
 
 /// Fills in what each of `versions`, newest first, changed from the one

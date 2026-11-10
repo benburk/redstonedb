@@ -303,6 +303,7 @@ pub fn router(state: AppState) -> Router<AppState> {
             get(schematics::edit).post(schematics::save),
         )
         .route("/schematics/{id}/delete", post(schematics::delete))
+        .route("/schematics/{id}/merge", post(versions::merge))
         .route("/schematics/{id}/schemati", post(schemati::send))
         .route("/schematics/{id}/favorite", post(schematics::favorite))
         .route("/schematics/{id}/versions/new", get(versions::form))

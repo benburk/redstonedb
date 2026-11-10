@@ -190,6 +190,18 @@ pub async fn check(
     file: &[u8],
     standardize: bool,
 ) -> anyhow::Result<Checked> {
+    checked(db, s, file, standardize, None).await
+}
+
+/// [`check`], but for a file build `leaving` holds, which a merge moves
+/// into `s` and so may be on the site already.
+async fn checked(
+    db: &SqlitePool,
+    s: &Schematic,
+    file: &[u8],
+    standardize: bool,
+    leaving: Option<&str>,
+) -> anyhow::Result<Checked> {
     // An adder's or register's inputs are its levers and buttons, given
     // their roles by probing before standardizing, as an upload's are.
     let coloured = if standardize {
@@ -251,6 +263,7 @@ pub async fn check(
         Some((other, number)) if other == s.id => {
             refusals.push(format!("It is the same file as version {number}."));
         }
+        Some((other, _)) if leaving == Some(other.as_str()) => {}
         Some(_) => refusals.push(
             "This exact file is already on the site as another build."
                 .to_owned(),
@@ -272,6 +285,54 @@ pub async fn check(
         comparison,
         refusals,
     })
+}
+
+/// Moves build `from`'s current file into build `into` as its next version,
+/// added by `by`, with `note`, its colours kept, and deletes `from`, as a
+/// build uploaded on its own is folded into the one it fixes: the file is
+/// checked as any new version of `into` is, but for `from` holding it.
+/// Returns the version's number, or why it can't be one.
+pub async fn merge(
+    db: &SqlitePool,
+    from: &Schematic,
+    into: &Schematic,
+    by: Option<uuid::Uuid>,
+    note: &str,
+) -> anyhow::Result<Result<i64, Vec<String>>> {
+    if from.id == into.id {
+        return Ok(Err(vec![
+            "A build can't be merged into itself.".to_owned(),
+        ]));
+    }
+    let Some(number) = version::list(db, &from.id)
+        .await?
+        .first()
+        .map(|v| v.version)
+    else {
+        return Ok(Err(vec!["It has no file to merge.".to_owned()]));
+    };
+    let file = version::file(db, &from.id, number)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("its version {number} has no file"))?;
+    let checked = checked(db, into, &file, false, Some(&from.id)).await?;
+    if !checked.refusals.is_empty() {
+        return Ok(Err(checked.refusals));
+    }
+    let colours = version::colours_of(db, &from.id, number).await?;
+    // A file is held by one version at most, so `from` goes first, its file
+    // and colours read already and every check passed.
+    crate::models::schematic::delete(db, &from.id).await?;
+    let how = version::Replacing::NextVersion {
+        added_by: by,
+        added_from: None,
+        note: Some(note),
+        restores: None,
+    };
+    let added = version::replace(db, &into.id, &checked.prepared, how).await?;
+    if let Some(colours) = colours {
+        version::set_colours(db, &into.id, added, &colours).await?;
+    }
+    Ok(Ok(added))
 }
 
 #[cfg(test)]
