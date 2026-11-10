@@ -646,6 +646,10 @@ impl Test {
         match self.way() {
             Way::Spec { spec, .. } => {
                 let (interface, spec) = bench(spec, blocks)?;
+                // An adder's slowest changes are its longest carries, which
+                // the test patterns drive: timed by them, every live adder
+                // times as it did trying every case, in half the time.
+                let patterned = patterned || self == Test::Adder;
                 spec.time(blocks, &interface, patterned, cancel)
             }
             Way::Alu => alu::time(blocks, cancel),
