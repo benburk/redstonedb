@@ -458,16 +458,17 @@ fn side_fed(name: &str, test: Test, category: &str, latency: i32) {
 }
 
 /// An adder times the same whichever operand is named A: its latency, and
-/// the tick each line may switch by, are from t = 0, as the inputs each
+/// the tick each line may switch by, are from t = 0, as the operands each
 /// output waits longest on switch, not from A's switching. The port of an
 /// 8-bit carry-cancel adder adds through its x = 0 bus a tick slower than
 /// through its x = 3 one, so it read 6 ticks named one way and 5 the
-/// other; an 8-bit adder whose carry in is a tick slower than both its
-/// operands read a tick fast, from A.
+/// other; an 8-bit adder whose carry in, a control line, is a tick slower
+/// than both its operands is timed from them, 4 ticks, its carry in
+/// switching a tick before.
 #[test]
 fn an_adders_timing_does_not_depend_on_which_operand_is_a() {
     use app::schem::lines::Role;
-    for (name, latency) in [("cca-8-b-slower", 6), ("xor-pair-adder-8", 5)] {
+    for (name, latency) in [("cca-8-b-slower", 6), ("xor-pair-adder-8", 4)] {
         // Its roles as probing finds them.
         let probed = || {
             let raw =
