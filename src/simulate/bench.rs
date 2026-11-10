@@ -222,11 +222,12 @@ impl Spec {
 
     /// Measures when the outputs settle, on every core, stopping early once
     /// `cancel` is set; an input that takes only some values takes only
-    /// those.
+    /// those, and with `patterned` each other takes the test patterns.
     pub fn time(
         self,
         blocks: &Blocks,
         interface: &Interface,
+        patterned: bool,
         cancel: &AtomicBool,
     ) -> Result<Timing> {
         self.bench.fits(interface)?;
@@ -252,6 +253,14 @@ impl Spec {
                 let (valid, every) = values(false);
                 Some((vec![valid], !every))
             }
+            Cases::Combinations(_) if patterned => Some((
+                self.bench
+                    .inputs
+                    .iter()
+                    .map(|&port| patterns(input_bits(&interface.inputs[port])))
+                    .collect(),
+                true,
+            )),
             Cases::Combinations(_) => None,
         };
         timing::measure(

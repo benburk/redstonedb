@@ -622,10 +622,31 @@ impl Test {
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
+        self.timed(blocks, false, cancel)
+    }
+
+    /// [`Test::time`], its inputs taking the test patterns whatever their
+    /// width, as a stack of copies is timed: fewer cases, which still make
+    /// its carries run furthest.
+    pub fn time_by_patterns(
+        self,
+        blocks: &Blocks,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        self.timed(blocks, true, cancel)
+    }
+
+    /// [`Test::time`], by the test patterns when `patterned`.
+    fn timed(
+        self,
+        blocks: &Blocks,
+        patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
         match self.way() {
             Way::Spec { spec, .. } => {
                 let (interface, spec) = bench(spec, blocks)?;
-                spec.time(blocks, &interface, cancel)
+                spec.time(blocks, &interface, patterned, cancel)
             }
             Way::Alu => alu::time(blocks, cancel),
             Way::Shifter => shifter::time(blocks, cancel),
