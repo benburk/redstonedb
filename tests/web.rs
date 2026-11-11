@@ -333,7 +333,9 @@ async fn anyone_may_trace_a_build() {
         page.contains("Logic analyzer") && page.contains("<svg"),
         "{page}"
     );
-    assert!(page.contains("changes-heading"), "{page}");
+    // Parts are named only by their places, which say nothing a reader
+    // can find them by, so no list of their changes is shown.
+    assert!(!page.contains("changes-heading"), "{page}");
 
     let traced = site
         .get(&format!("/schematics/{id}/trace?to.A=1"), None)

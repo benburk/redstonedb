@@ -13,9 +13,9 @@ use crate::{
     models::{schematic::Schematic, user::User},
     simulate::{
         Value,
-        trace::{Case, Change, Part, Race, Sweep, Trace},
+        trace::{Case, Race, Sweep, Trace},
     },
-    web::trace::{Analysis, Run, case_words, state},
+    web::trace::{Analysis, Run, case_words},
 };
 
 use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, grouped};
@@ -30,8 +30,7 @@ const LANE: f64 = 26.0;
 const HEADING: f64 = 24.0;
 const TOP: f64 = 22.0;
 
-/// The most changes the timeline lists, and races the sweep's table does.
-const LISTED: usize = 400;
+/// The most changes with an undefined order the sweep lists.
 const RACES_LISTED: usize = 12;
 
 /// The logic analyzer for build `s`: what `analysis` found, or why it
@@ -59,7 +58,6 @@ pub fn trace_page(
 }
 
 fn analyzed(path: &str, a: &Analysis) -> Markup {
-    let first = &a.runs[0];
     let raced = a.runs.iter().any(|run| !run.races.is_empty());
     // Redpiler's runs are shown beside the block-by-block one where it
     // orders a tie its own way, or comes out otherwise.
@@ -89,10 +87,10 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
                 (chart(a, world))
             }
         }
-        @for (i, run) in shown {
+        @for (i, run) in &shown {
             section aria-label={ "Redpiler run " (i + 1) } class="mt-8" {
                 div class="mb-3 flex flex-wrap items-end gap-x-8 gap-y-2" {
-                    (figure(&format!("Redpiler {}", i + 1), &html! {
+                    (figure(&format!("Redpiler {}", *i + 1), &html! {
                         @if run.races.is_empty() { "compiled" } @else { (went_first(a, run)) " first" }
                     }, false))
                     (measures(a, run))
@@ -101,17 +99,15 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
             }
         }
         (legend())
+        // Which parts race says nothing a reader can find them by, so it is
+        // said in a sentence, and both ways it may go are drawn above.
         @if raced {
-            section aria-labelledby="races-heading" class="mt-10" {
-                h2 id="races-heading" class={ (SECTION_TITLE) " mb-2" } { "Undefined order" }
-                (races_table(a))
+            p class="mt-6 rounded-md bg-restriction px-3 py-2 text-on-restriction" {
+                strong { "Undefined order. " }
+                "In this change a part updates on the same tick as one of its inputs, so which goes first "
+                "depends on where the blocks stand. In game it may go either way; "
+                @if shown.len() > 1 { "each way is drawn above." } @else { "the way the simulator ran it is drawn above." }
             }
-        }
-        section aria-labelledby="changes-heading" class="mt-10" {
-            h2 id="changes-heading" class={ (SECTION_TITLE) " mb-2" } {
-                "Changes" @if a.runs.len() > 1 { span class="font-normal text-muted" { " · run 1" } }
-            }
-            (timeline(a, first))
         }
         @if let Some(sweep) = &a.sweep {
             (sweep_section(path, a, sweep))
@@ -278,88 +274,6 @@ fn names(a: &Analysis, nodes: &[usize]) -> String {
         .map(|&n| label(a, n))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// What a race's part comes to, `outcome`: its state, or for a pulse,
-/// whether it gives one.
-fn result(race: &Race, part: Part, outcome: u8) -> String {
-    if race.pulse {
-        if outcome > 0 { "pulse" } else { "none" }.to_owned()
-    } else {
-        state(part, outcome)
-    }
-}
-
-/// Every race of every run, once: its tick, part, and rivals, what the part
-/// comes to with each going first, and what it came to in each run.
-fn races_table(a: &Analysis) -> Markup {
-    let mut rows: Vec<&Race> = Vec::new();
-    for run in &a.runs {
-        for race in &run.races {
-            let same = |r: &&Race| {
-                r.tick == race.tick
-                    && r.node == race.node
-                    && r.rivals == race.rivals
-            };
-            if !rows.iter().any(same) {
-                rows.push(race);
-            }
-        }
-    }
-    rows.sort_by_key(|race| race.tick);
-    html! {
-        div class="overflow-x-auto" {
-            table class="border-collapse tabular-nums" {
-                thead {
-                    tr {
-                        th scope="col" class=(TABLE_HEAD) { "Tick" }
-                        th scope="col" class=(TABLE_HEAD) { "Part" }
-                        th scope="col" class=(TABLE_HEAD) { "Against" }
-                        th scope="col" class=(TABLE_HEAD) { "First → it ends" }
-                        @if a.world.is_some() {
-                            th scope="col" class=(TABLE_HEAD) { "Block by block" }
-                        }
-                        @for i in 0..a.runs.len() {
-                            th scope="col" class=(TABLE_HEAD) { "Redpiler " (i + 1) }
-                        }
-                    }
-                }
-                tbody {
-                    @for race in rows {
-                        @let part = a.graph.nodes[race.node].part;
-                        tr {
-                            td class=(TABLE_CELL) { (race.tick) }
-                            td class={ (TABLE_CELL) " text-danger" } { (label(a, race.node)) }
-                            td class=(TABLE_CELL) { (names(a, &race.rivals)) }
-                            td class=(TABLE_CELL) {
-                                @for (ahead, outcome) in &race.outcomes {
-                                    div {
-                                        @if race.pulse {
-                                            (if ahead.is_empty() { "none of them".to_owned() } else { names(a, ahead) })
-                                        } @else if ahead.is_empty() {
-                                            "the " (part.name())
-                                        } @else {
-                                            (names(a, ahead))
-                                        }
-                                        " → " strong { (result(race, part, *outcome)) }
-                                    }
-                                }
-                            }
-                            @for run in a.world.iter().chain(&a.runs) {
-                                @let ran = run.races.iter().find(|r| r.tick == race.tick && r.node == race.node && r.rivals == race.rivals);
-                                td class=(TABLE_CELL) {
-                                    @match ran {
-                                        Some(ran) => (result(ran, part, ran.ran)),
-                                        None => span class="text-muted" { "—" },
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// What the chart's marks mean.
@@ -815,58 +729,6 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// Each change of `run`, by tick, with what set it off.
-fn timeline(a: &Analysis, run: &Run) -> Markup {
-    let changes = run.trace.changes();
-    let racing = |change: &Change| {
-        run.races
-            .iter()
-            .any(|r| r.node == change.node && r.tick == change.tick)
-    };
-    html! {
-        div class="overflow-x-auto" {
-            table class="border-collapse tabular-nums" {
-                thead {
-                    tr {
-                        th scope="col" class=(TABLE_HEAD) { "Tick" }
-                        th scope="col" class=(TABLE_HEAD) { "Part" }
-                        th scope="col" class=(TABLE_HEAD) { "Change" }
-                        th scope="col" class=(TABLE_HEAD) { "Set off by" }
-                    }
-                }
-                tbody {
-                    @for change in changes.iter().take(LISTED) {
-                        @let part = a.graph.nodes[change.node].part;
-                        @let causes = run.trace.causes(&a.graph, change);
-                        tr class=[racing(change).then_some("text-danger")] {
-                            td class=(TABLE_CELL) { (change.tick) }
-                            td class=(TABLE_CELL) { (label(a, change.node)) }
-                            td class=(TABLE_CELL) {
-                                (state(part, change.was)) " → " (state(part, change.now))
-                                @if racing(change) { strong { " race" } }
-                            }
-                            td class={ (TABLE_CELL) " text-muted" } {
-                                @if matches!(part, Part::Switch { .. }) {
-                                    "input"
-                                } @else if causes.is_empty() {
-                                    "—"
-                                } @else {
-                                    @for cause in &causes {
-                                        div { (label(a, cause.node)) " @" (cause.tick) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        @if changes.len() > LISTED {
-            p class="mt-2 text-meta text-muted" { "+" (grouped(u64::try_from(changes.len() - LISTED).unwrap_or(0))) }
-        }
-    }
-}
-
 /// How the sweep's changes settled, a bar a tick, where they glitched, and
 /// its races, each with a link to trace it.
 fn sweep_section(path: &str, a: &Analysis, sweep: &Sweep) -> Markup {
@@ -932,36 +794,17 @@ fn sweep_section(path: &str, a: &Analysis, sweep: &Sweep) -> Markup {
                     }
                 }
             }
+            // Each change that came on an undefined order, to trace, its
+            // parts unnamed as the analyzer's are.
             @if !sweep.races.is_empty() {
-                div class="mt-6 overflow-x-auto" {
-                    table class="border-collapse tabular-nums" {
-                        thead {
-                            tr {
-                                th scope="col" class=(TABLE_HEAD) { "Race" }
-                                th scope="col" class=(TABLE_HEAD) { "Against" }
-                                th scope="col" class=(TABLE_HEAD) { "Changes" }
-                                th scope="col" class=(TABLE_HEAD) { "Tick" }
-                                th scope="col" class=(TABLE_HEAD) { "First" }
-                            }
-                        }
-                        tbody {
-                            @for seen in sweep.races.iter().take(RACES_LISTED) {
-                                tr {
-                                    td class={ (TABLE_CELL) " text-danger" } {
-                                        (label(a, seen.race.node))
-                                        @if seen.race.pulse { span class="text-muted" { " · pulse" } }
-                                    }
-                                    td class=(TABLE_CELL) { (names(a, &seen.race.rivals)) }
-                                    td class=(TABLE_CELL) { (count(seen.count)) }
-                                    td class=(TABLE_CELL) { "@" (seen.race.tick) }
-                                    td class=(TABLE_CELL) { a href=(trace(&seen.case)) { (case_words(a, &seen.case)) } }
-                                }
-                            }
-                        }
-                    }
+                p class="mt-6" {
+                    strong { "Undefined order" }
+                    span class="text-muted" { " in " (count(sweep.races.iter().map(|seen| seen.count).sum())) ", such as:" }
                 }
-                @if sweep.races.len() > RACES_LISTED {
-                    p class="mt-2 text-meta text-muted" { "+" (sweep.races.len() - RACES_LISTED) " in fewer changes" }
+                ul class="mt-1 flex flex-col gap-1" {
+                    @for seen in sweep.races.iter().take(RACES_LISTED) {
+                        li { a href=(trace(&seen.case)) { (case_words(a, &seen.case)) } }
+                    }
                 }
             }
         }
