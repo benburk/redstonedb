@@ -255,23 +255,6 @@ pub enum Unverified {
     Untested,
 }
 
-/// Whether a build that `fails_simulation`, or is unverified for `reason`,
-/// isn't verified, and why: wrong outputs, as a failing test or the reason
-/// says, leave it failing, and any other reason untested.
-pub fn unverified(
-    fails_simulation: bool,
-    reason: Option<&str>,
-) -> Option<Unverified> {
-    match reason {
-        _ if fails_simulation => Some(Unverified::Failing),
-        Some(reason) if crate::recognize::fault::wrong_outputs(reason) => {
-            Some(Unverified::Failing)
-        }
-        Some(_) => Some(Unverified::Untested),
-        None => None,
-    }
-}
-
 /// A build's stored `tags`, led by `failing` or `untested`
 /// when it is `unverified`, with `torchless` among its restrictions when
 /// its file has no torches, and `alpha` when it works from Alpha.

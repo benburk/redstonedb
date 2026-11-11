@@ -1,9 +1,10 @@
 //! Whether a new file is the same build, fixed, so it may replace the old
 //! one as a new version rather than be uploaded as a build of its own.
 //!
-//! A new version keeps at least 90% of the build's blocks, or changes at
-//! most 10, so a small build can be fixed too; its inputs and outputs may
-//! move, and its size change, within that. A block other than a redstone
+//! A new version that keeps less than 90% of the build's blocks, and
+//! changes more than 10, is warned of as maybe another build, but may
+//! replace it all the same; its inputs and outputs may move, and its size
+//! change, unwarned. A block other than a redstone
 //! component, sign, or container counts only as solid or see-through, so
 //! recolouring one changes nothing. So compared, different builds of one
 //! category share at most 68% of their blocks, and every stored version

@@ -1,7 +1,7 @@
 //! Recognizing a build by probing: the file made simulatable, inspected,
 //! and probed as each blessed category in turn until one holds, each
-//! category's probe named by its kind, the signs naming only a role it
-//! found taken out; and, when none holds, the fault to show and the file
+//! category's probe named by its kind, its signs taken out but those its
+//! test reads; and, when none holds, the fault to show and the file
 //! carrying the closest try's roles.
 
 use std::collections::BTreeMap;
@@ -296,7 +296,7 @@ fn leaves_digits(report: &inspect::Report, file: &[u8]) -> bool {
 /// The build in `data`, with `blocks` and `report`, as matching finds it,
 /// as the kind `meant`, if one is, or else any kind, its lines read as the
 /// conventions don't lay them, every case right: what it found, and the
-/// file carrying the roles it found, less each sign naming only a role.
+/// file carrying the roles it found, its signs taken out as probing's are.
 /// `None` when it finds no such reading, or one that keeps the
 /// conventions, which probing would have found.
 fn unaligned(
