@@ -447,7 +447,10 @@ pub fn build_info(
             (specs(s, &sources, report))
             (credits(s))
             @match file {
-                _ if !s.conventional => {
+                // Kept as built and never tested, its lines were never read.
+                _ if !s.conventional
+                    && !matches!(s.status, Status::Passing | Status::Failing) =>
+                {
                     p class="text-meta text-muted" {
                         "Kept as built, so its inputs and outputs are not read."
                     }

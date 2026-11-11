@@ -121,7 +121,9 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "outputs, then searches through the ways they could fit each type's truth table, trying "
                     "lines in different roles and orders until one fits. You don't need any particular "
                     "colours or signs: once RedstoneDB knows what each line does, it keeps that with the build "
-                    "and shows each line in its colour, whatever blocks you built with."
+                    "and shows each line in its colour, whatever blocks you built with. It takes your signs out, "
+                    "as it names each line itself, but keeps those on control lines that say what a line does: "
+                    "an ALU's operations, a barrel shifter's amounts, and a register's reads and writes."
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(
