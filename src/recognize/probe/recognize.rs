@@ -433,25 +433,29 @@ fn probe_by(
     })
 }
 
-/// The file in `data`, found to be a `kind`, less each sign that only
-/// names a role probing found, such as `carry in`; a sign saying anything
-/// more, such as a strength, stays.
+/// The file in `data`, carrying the roles probing found, found to be a
+/// `kind`, less its signs: the site names its lines itself. A sign on a
+/// control line stays where its kind's test reads what it says, as an
+/// ALU's names the operations a line chooses, a barrel shifter's the
+/// amount a line shifts by, and a register's or buffer's whether a line
+/// reads or writes.
 fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let words = kind.facts().role_words;
+    let reads_signs = matches!(
+        kind,
+        Kind::Alu | Kind::BarrelShifter | Kind::Register | Kind::Buffer
+    );
     let blocks = Blocks::read(data)?;
+    let on_control = |pos: Pos| {
+        blocks.sign_block(pos).is_some_and(|block| {
+            blocks.roles.as_ref().and_then(|roles| roles.get(block))
+                == Some(Role::Control)
+        })
+    };
     let changes: BTreeMap<Pos, String> = blocks
         .signs
-        .iter()
-        .filter(|(_, lines)| {
-            let said: Vec<String> = lines
-                .iter()
-                .map(|line| line.trim().to_lowercase())
-                .filter(|line| !line.is_empty())
-                .collect();
-            !said.is_empty()
-                && said.iter().all(|line| words.contains(&line.as_str()))
-        })
-        .map(|(&pos, _)| (pos, schem::AIR.to_owned()))
+        .keys()
+        .filter(|&&pos| !(reads_signs && on_control(pos)))
+        .map(|&pos| (pos, schem::AIR.to_owned()))
         .collect();
     if changes.is_empty() {
         return Ok(data.to_vec());
@@ -612,27 +616,33 @@ mod tests {
         assert_eq!(width.unwrap(), Some(8));
     }
 
-    /// A sign that only names a role probing finds, such as `carry in`, is
-    /// taken out; one that says more, such as a carry out's strength,
-    /// stays.
+    /// A recognized build's signs are all taken out, the site naming its
+    /// lines itself: one naming a role, as `carry in` does, and one saying
+    /// more, as a carry out's strength.
     #[test]
-    fn signs_naming_only_a_role_are_taken_out() {
+    fn a_recognized_builds_signs_are_taken_out() {
         let found = recognize(&uncoloured("diag-3t-cca")).unwrap();
         assert!(found.found.is_some(), "{:?}", found.problems);
         let blocks = Blocks::read(&found.file).unwrap();
-        let mut said: Vec<String> = blocks
-            .signs
-            .values()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .map(|line| line.trim())
-                    .filter(|line| !line.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .collect();
-        said.sort();
-        assert_eq!(said, ["carry out 1ss"]);
+        assert!(blocks.signs.is_empty(), "{:?}", blocks.signs);
+    }
+
+    /// An ALU keeps the signs on its control lines, which name the
+    /// operations each chooses, and loses the rest.
+    #[test]
+    fn an_alu_keeps_the_signs_on_its_control_lines() {
+        let found = recognize(&uncoloured("alu-8-and-xor")).unwrap();
+        assert!(found.found.is_some(), "{:?}", found.problems);
+        let blocks = Blocks::read(&found.file).unwrap();
+        assert!(!blocks.signs.is_empty(), "its operations stay named");
+        let roles = blocks.roles.as_ref().unwrap();
+        for &pos in blocks.signs.keys() {
+            let block = blocks.sign_block(pos);
+            assert_eq!(
+                block.and_then(|b| roles.get(b)),
+                Some(Role::Control),
+                "a sign off a control line stays at {pos:?}"
+            );
+        }
     }
 }
