@@ -520,12 +520,20 @@ fn layouts(
     report: &inspect::Report,
     loose: bool,
 ) -> Result<(Vec<Operands>, Vec<Results>), Fault> {
-    let pairs = match operands(&report.inputs) {
+    let mut pairs = match operands(&report.inputs) {
         Err(_) if loose && !stray_operands(&report.inputs).is_empty() => {
             stray_operands(&report.inputs)
         }
+        Err(_) if loose && !split_operands(&report.inputs).is_empty() => {
+            Vec::new()
+        }
         found => found?,
     };
+    // Four runs read as two interleaved operands may be two laid end to
+    // end instead, which only their test tells apart.
+    if loose {
+        pairs.extend(split_operands(&report.inputs));
+    }
     let width = pairs.first().map_or(0, |(a, _, _)| a.len());
     if Test::of(
         crate::category::Kind::Adder.name(),
@@ -608,6 +616,66 @@ fn stray_operands(runs: &[Run]) -> Vec<Operands> {
         }
     }
     pairs
+}
+
+/// Each way four runs as wide as each other could be A and B, each
+/// operand two of them in one line, end to end, however far apart, as two
+/// adders built one beyond the other leave their operands; and at most
+/// one lone lever, the carry in. None when the runs are otherwise.
+fn split_operands(runs: &[Run]) -> Vec<Operands> {
+    let (buses, lones) = split(runs);
+    let (&[first, ref rest @ ..], ..=1) = (buses.as_slice(), lones.len())
+    else {
+        return Vec::new();
+    };
+    if rest.len() != 3 || rest.iter().any(|r| r.bits.len() != first.bits.len())
+    {
+        return Vec::new();
+    }
+    let carry = lones.first().copied();
+    let mut pairs = Vec::new();
+    // Each way of pairing the four into two operands, the first run with
+    // each of the others.
+    for partner in 0..3 {
+        let others: Vec<&Run> =
+            (0..3).filter(|&i| i != partner).map(|i| rest[i]).collect();
+        let (Some(one), Some(other)) =
+            (in_line(first, rest[partner]), in_line(others[0], others[1]))
+        else {
+            continue;
+        };
+        for (a, b) in [(&one, &other), (&other, &one)] {
+            for a in both(a) {
+                for b in both(b) {
+                    pairs.push((a.clone(), b, carry));
+                }
+            }
+        }
+    }
+    pairs
+}
+
+/// Two runs stepping the same way along one line as one bus, the nearer
+/// end first; `None` when they don't share a line.
+fn in_line(x: &Run, y: &Run) -> Option<Vec<Pos>> {
+    let step = |run: &Run| run.step.map(i32::abs);
+    if step(x) != step(y) {
+        return None;
+    }
+    let axis = (0..3).find(|&i| x.step[i] != 0)?;
+    let off_axis =
+        |pos: &Pos| [0, 1, 2].map(|i| if i == axis { 0 } else { pos[i] });
+    let line = off_axis(&x.bits[0]);
+    if x.bits
+        .iter()
+        .chain(&y.bits)
+        .any(|pos| off_axis(pos) != line)
+    {
+        return None;
+    }
+    let mut bits: Vec<Pos> = x.bits.iter().chain(&y.bits).copied().collect();
+    bits.sort_by_key(|pos| pos[axis]);
+    Some(bits)
 }
 
 /// Each way every output could be an adder's sum of `width` bits and a

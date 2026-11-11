@@ -177,6 +177,14 @@ fn recognize_laid(
             }
         }
     }
+    // Meant as a kind never probed, it is no adder either.
+    if reorient
+        && meant != Some(None)
+        && let Some((kind, (data_inputs, file, found))) =
+            loose_adder(meant.flatten(), data, &blocks, &report)?
+    {
+        return Ok(accept(kind, &data_inputs, file, found));
+    }
     // Lines that bend the conventions, as top bits out of line or outputs
     // unevenly spaced, may still read as the kind meant: matching finds
     // them, the build's I/O unaligned.
@@ -196,6 +204,31 @@ fn recognize_laid(
         file: closest.to_vec(),
         ..unrecognized(problems)
     })
+}
+
+/// The build in `data`, with `blocks` and `report`, as an adder whose
+/// lines bend the conventions, as operands split in two or outputs
+/// unevenly spaced, laid out loosely, every case right: its I/O unaligned.
+/// Only as the kind `meant`, when one is; `None` when no loose layout
+/// adds.
+fn loose_adder(
+    meant: Option<Kind>,
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+) -> anyhow::Result<Option<(Kind, Found)>> {
+    for &(kind, how, test) in &Kind::probed() {
+        if how != Probe::Adder || meant.is_some_and(|meant| meant != kind) {
+            continue;
+        }
+        let order = Order::default();
+        if let Ok(found) =
+            probe_by(kind, how, test, data, blocks, report, true, order)?
+        {
+            return Ok(Some((kind, found)));
+        }
+    }
+    Ok(None)
 }
 
 /// `file`, a reading of a build of `kind`, with the top bit of an adder's
