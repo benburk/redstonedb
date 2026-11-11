@@ -479,6 +479,7 @@ pub(in crate::web) async fn show_edit(
             data: &encoded,
             comparison: new.checked.comparison,
             refusals: &new.checked.refusals,
+            warnings: &new.checked.warnings,
             version: versions.first().map_or(1, |v| v.version) + 1,
             note: new.note,
         };

@@ -770,6 +770,12 @@ pub struct Run {
     pub wrong_bits: Vec<(String, u64)>,
     /// The first few wrong cases.
     pub examples: Vec<Wrong>,
+    /// For a run with cases wrong, each result bit, lowest first, with how
+    /// often it came out on and was expected on, so a bit stuck off, stuck
+    /// on, or inverted shows as such. Empty for a pass, and for a report
+    /// stored before they were counted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bit_counts: Vec<BitCount>,
     /// What would make every case right, when one change does, such as
     /// flipping carry in.
     pub hint: Option<String>,
@@ -1028,6 +1034,36 @@ impl Action {
 pub struct Signal {
     pub name: String,
     pub bits: usize,
+}
+
+/// One result bit over every case a run tried: its name, as `wrong_bits`
+/// gives it, how many cases it was wrong in, and how many it came out on
+/// and was expected on.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct BitCount {
+    pub name: String,
+    pub wrong: u64,
+    pub got_on: u64,
+    pub expected_on: u64,
+}
+
+impl BitCount {
+    /// What the bit did, as a few words, when its cases show a pattern:
+    /// `never on`, `always on`, or `inverted`; `None` when it is right, or
+    /// wrong only sometimes.
+    pub fn pattern(&self, cases: u64) -> Option<&'static str> {
+        if self.wrong == 0 {
+            None
+        } else if self.wrong == cases {
+            Some("inverted")
+        } else if self.got_on == 0 {
+            Some("never on")
+        } else if self.got_on == cases {
+            Some("always on")
+        } else {
+            None
+        }
+    }
 }
 
 /// One case a build got wrong: each input's value, and each output's

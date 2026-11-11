@@ -431,12 +431,36 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
       event.target.replaceChildren(note);
     }
   });
+  // The checks' Timing stage, measured after the page loaded, says how it
+  // came out once it has: passing when synced, else a warning, opened.
+  const timed = () => {
+    const timing = results().querySelector("#check-timing [data-timing]");
+    const stage = results().querySelector("#check-timing");
+    const pill = results().querySelector('[data-stage="timing"]');
+    if (!timing || !stage || !pill) return;
+    const synced = timing.dataset.synced === "true";
+    const [state, mark, tone] = synced
+      ? ["pass", "✓", "bg-success/12 text-success"]
+      : ["warn", "!", "bg-restriction text-on-restriction"];
+    pill.dataset.state = state;
+    pill.className = pill.className.replace(/bg-muted\/12 text-muted/, tone);
+    pill.querySelector("span").textContent = mark;
+    const summary = stage.querySelector("summary");
+    const icon = summary.querySelector("span");
+    icon.textContent = mark;
+    icon.className = icon.className.replace(/bg-muted\/12 text-muted/, tone);
+    summary.lastElementChild.textContent = timing.dataset.summary ?? "";
+    stage.open = !synced;
+  };
   // A swap replaces its target, so fixi tells the document, with the
   // target it replaced.
   document.addEventListener("fx:swapped", (event) => {
     const { cfg } = event.detail;
     if (cfg.target.id === "simulation-results") settled();
-    else if (cfg.target.matches?.("[data-timing-pending]")) measured();
+    else if (cfg.target.matches?.("[data-timing-pending]")) {
+      measured();
+      timed();
+    }
   });
 
   const ask = () => {

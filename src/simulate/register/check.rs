@@ -769,6 +769,7 @@ impl Tally {
                 .filter(|&(_, count)| count > 0)
                 .collect(),
             examples: self.examples,
+            bit_counts: Vec::new(),
             hint: None,
             // A read that reads with its lever off reads inverted.
             inverted: {

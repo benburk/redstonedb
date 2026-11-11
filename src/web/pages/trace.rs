@@ -5,18 +5,17 @@
 //! ran it the other way; a table of the races, and of each change with what
 //! set it off; and how a sweep of many changes settled and glitched.
 
-use std::{collections::BTreeSet, fmt::Write as _};
+use std::fmt::Write as _;
 
 use maud::{Markup, html};
 
 use crate::{
     models::{schematic::Schematic, user::User},
-    recognize::inspect::place,
     simulate::{
         Value,
         trace::{Case, Change, Part, Race, Sweep, Trace},
     },
-    web::trace::{Analysis, Line, Run, case_words, state},
+    web::trace::{Analysis, Run, case_words, state},
 };
 
 use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base, grouped};
@@ -87,7 +86,7 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
                     }, false))
                     (measures(a, world))
                 }
-                (chart(a, world, None))
+                (chart(a, world))
             }
         }
         @for (i, run) in shown {
@@ -98,7 +97,7 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
                     }, false))
                     (measures(a, run))
                 }
-                (chart(a, run, None))
+                (chart(a, run))
             }
         }
         (legend())
@@ -123,19 +122,18 @@ fn analyzed(path: &str, a: &Analysis) -> Markup {
 /// The glitch of output `output` of the build at `path`, as `a` ran it:
 /// its change, its measures, and a chart of its lines and the parts on the
 /// glitch's way, linking to the logic analyzer.
-pub fn glitch_trace(path: &str, a: &Analysis, output: &str) -> Markup {
+pub fn glitch_trace(
+    path: &str,
+    a: &Analysis,
+    output: &str,
+    title: &str,
+) -> Markup {
     let run = &a.runs[0];
-    let way = a
-        .outputs
-        .iter()
-        .position(|line| line.name == output)
-        .map(|port| glitch_way(a, run, port))
-        .filter(|way| !way.is_empty());
     let link = format!("{path}/trace?{}", case_query(a, &a.case, Some(&a.at)));
     html! {
         div class="mt-4" {
             div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1" {
-                strong { "Glitch · " (output) }
+                strong { (title) " · " (output) }
                 span class="tabular-nums text-muted" { (case_words(a, &a.case)) (switching(a)) }
                 a href=(link) { "Open in the logic analyzer" }
             }
@@ -151,43 +149,10 @@ pub fn glitch_trace(path: &str, a: &Analysis, output: &str) -> Markup {
                     }, !clean))
                 }
             }
-            (chart(a, run, way.as_ref()))
+            (chart(a, run))
             (legend())
         }
     }
-}
-
-/// The parts on the way to output `port`'s glitched bits in `run`: what
-/// reads each, and every change that set off one of its changes, back to
-/// the inputs; and each race's part and rivals.
-fn glitch_way(a: &Analysis, run: &Run, port: usize) -> BTreeSet<usize> {
-    let trace = &run.trace;
-    let changes = trace.changes();
-    let mut stack: Vec<Change> = Vec::new();
-    for bit in 0..a.outputs[port].width {
-        if trace.bit_changes(port, bit).len() < 2 {
-            continue;
-        }
-        let reader = a
-            .readers
-            .iter()
-            .find(|&&(_, p, b)| p == port && b == bit)
-            .and_then(|&(at, ..)| a.graph.find(at));
-        stack.extend(changes.iter().filter(|c| Some(c.node) == reader));
-    }
-    let mut seen = BTreeSet::new();
-    while let Some(change) = stack.pop() {
-        if seen.insert((change.tick, change.node)) {
-            stack.extend(trace.causes(&a.graph, &change));
-        }
-    }
-    let mut way: BTreeSet<usize> =
-        seen.into_iter().map(|(_, node)| node).collect();
-    for race in &run.races {
-        way.insert(race.node);
-        way.extend(&race.rivals);
-    }
-    way
 }
 
 /// The form choosing the change: each input's value before and after, and
@@ -438,23 +403,16 @@ struct Lane {
     marks: Vec<i32>,
 }
 
-/// The chart of `run`: its inputs and outputs, each output's changed bits,
-/// then every part that changed, each race marked down the chart at its
-/// tick.
-fn chart(a: &Analysis, run: &Run, only: Option<&BTreeSet<usize>>) -> Markup {
+/// The chart of `run`: its inputs and outputs, and each output's changed
+/// bits, each race marked down the chart at its tick. The parts inside the
+/// build are left out, as a part's place says nothing a reader can find it
+/// by.
+fn chart(a: &Analysis, run: &Run) -> Markup {
     // A column before the change, then one for each tick.
     let columns = usize::try_from(run.trace.ticks() + 1).unwrap_or(1);
     let sections = [
         ("Inputs", input_lanes(a, &run.trace)),
         ("Outputs", output_lanes(a, &run.trace)),
-        (
-            if only.is_some() {
-                "On the glitch's way"
-            } else {
-                "Components that changed"
-            },
-            part_lanes(a, run, only),
-        ),
     ];
     let count = |n: usize| f64::from(u32::try_from(n).unwrap_or(0));
     let width = LABEL + CELL * count(columns) + 8.0 + 2.0 * MEASURE;
@@ -545,7 +503,7 @@ fn output_lanes(a: &Analysis, trace: &Trace) -> Vec<Lane> {
                 danger: changes > 1,
                 note: (changes > 1).then_some("glitch"),
                 ..plain(
-                    format!("  {}", bit_label(line, bit)),
+                    format!("  {}", bit_label(bit)),
                     Draw::Wave {
                         strengths,
                         analog: false,
@@ -555,58 +513,6 @@ fn output_lanes(a: &Analysis, trace: &Trace) -> Vec<Lane> {
         }
     }
     lanes
-}
-
-/// Each part that changed, by the tick it first did, then each race's part
-/// that never did, the order having gone its way; a race's part and its
-/// rivals marked.
-fn part_lanes(
-    a: &Analysis,
-    run: &Run,
-    only: Option<&BTreeSet<usize>>,
-) -> Vec<Lane> {
-    let trace = &run.trace;
-    let ticks = trace.ticks();
-    let racing: Vec<usize> = run.races.iter().map(|r| r.node).collect();
-    let rivals: Vec<usize> =
-        run.races.iter().flat_map(|r| r.rivals.clone()).collect();
-    let mut changed: Vec<(i32, usize)> = (0..a.graph.nodes.len())
-        .filter(|&node| a.graph.nodes[node].part.ticks())
-        .filter(|node| only.is_none_or(|only| only.contains(node)))
-        .filter_map(|node| {
-            (0..ticks)
-                .find(|&t| trace.changed(node, t))
-                .or_else(|| racing.contains(&node).then_some(ticks))
-                .map(|t| (t, node))
-        })
-        .collect();
-    changed.sort_unstable();
-    changed
-        .into_iter()
-        .map(|(_, node)| {
-            let part = a.graph.nodes[node].part;
-            let strengths =
-                (-1..ticks).map(|t| trace.strength(node, t)).collect();
-            let analog = matches!(part, Part::Comparator { .. });
-            Lane {
-                danger: racing.contains(&node),
-                note: if racing.contains(&node) {
-                    Some("race")
-                } else if rivals.contains(&node) {
-                    Some("rival")
-                } else {
-                    None
-                },
-                marks: run
-                    .races
-                    .iter()
-                    .filter(|r| r.node == node)
-                    .map(|r| r.tick)
-                    .collect(),
-                ..plain(label(a, node), Draw::Wave { strengths, analog })
-            }
-        })
-        .collect()
 }
 
 /// The chart's frame, `columns` wide and `height` high: each tick's column,
@@ -694,9 +600,9 @@ fn axes(
     svg
 }
 
-/// An output bit's lane label, such as `bit 3 at (7, 8, 8)`.
-fn bit_label(line: &Line, bit: usize) -> String {
-    format!("bit {bit} at {}", place(line.blocks[bit]))
+/// An output bit's lane label, such as `bit 3`.
+fn bit_label(bit: usize) -> String {
+    format!("bit {bit}")
 }
 
 /// The top, middle, and bottom of a lane's drawing, its top at `top`.

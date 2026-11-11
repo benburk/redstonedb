@@ -8,23 +8,25 @@ use crate::{
     category::{self, Measure},
     import::{self, Analysis},
     models::{
-        schematic::{Logic, Schematic, StackDirection},
+        schematic::{Logic, Schematic, StackDirection, Status},
         tag,
         user::User,
         version::Version,
     },
-    recognize::{fault, interface::Interface},
+    recognize::interface::Interface,
     simulate::{Report, Timing},
     web::schematics::Colours,
 };
 
 use super::{
     CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, base_previewed,
-    beside_viewer_under, field, grouped,
+    beside_viewer_under,
+    checks::{Known, Subject, checks_section},
+    field, grouped,
     icons::{self, icon},
     interface::{Inversions, interface_section},
     name_badges, percent, person_badge, plural, search_link,
-    simulation::{Waiting, cases_pending, simulation_section},
+    simulation::cases_pending,
     size, stack_guide, version,
 };
 
@@ -109,7 +111,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                     @if !s.public {
                         (super::private_badge())
                     }
-                    (build_banner(s, report, simulating))
+                    (build_banner(s, simulating))
                 }
                 // On a phone, under the title, the download as wide as the
                 // page with the menu at its end; beside the title once
@@ -142,14 +144,16 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 &build_info(s, similar, file, report),
                 false,
             ))
-            // Unverified or off the list, a build the simulator can't run
-            // says why under its reasons already.
-            @let skipped_off_list = crate::models::simulation::stands_in(s).is_some()
-                && matches!(report, Some(Report::Skipped { .. }));
+            // Its checks as stages, each opening onto what it found; while
+            // storing it is still simulating, the cases to come.
             @if simulating {
                 (cases_pending(&format!("{path}/simulation")))
-            } @else if let Some(report) = report.filter(|_| !skipped_off_list) {
-                (simulation_section(report, Waiting::Stored, Some(&format!("{path}/trace"))))
+            } @else {
+                (checks_section(&Known {
+                    s: Subject::of(s), file, report,
+                    trace: Some(&format!("{path}/trace")),
+                    timing: None,
+                }))
             }
             @if let Ok(file) = file {
                 (stack_guide::stacking_section(s, &file.stacking, stacking_found(s), viewer.is_some()))
@@ -160,123 +164,87 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
     )
 }
 
-/// Why build `s`, unverified or filed off the list as one of category
-/// `meant`, isn't one, one reason to a line: why it was found unverified,
-/// then each fault the check by function finds on its file, every one that
-/// gives cases wrong said once, as the simulation shows which.
-fn not_recognized(
-    s: &Schematic,
-    meant: &str,
-    file: &Result<FileRead, String>,
-) -> Markup {
-    let label = meant.replace('_', " ");
-    // Only a kind that takes digits may take a signal strength.
-    let strength = file.as_ref().is_ok_and(|file| file.strength_inputs)
-        && !category::Kind::named(meant)
-            .is_some_and(category::Kind::digit_inputs);
-    let faults = file
-        .as_ref()
-        .map(|file| file.unrecognized.as_slice())
-        .unwrap_or_default();
-    let mut reasons: Vec<String> = s.unverified.iter().cloned().collect();
-    let strength = strength.then(|| crate::details::WITHOUT_LEVERS.to_owned());
-    // Each said once, whichever says it first, however it is put.
-    let bare = |reason: &str| {
-        let reason = reason.trim();
-        reason
-            .strip_prefix("Test couldn't run: ")
-            .unwrap_or(reason)
-            .trim_end_matches('.')
-            .to_owned()
-    };
-    for reason in strength.iter().chain(faults) {
-        if !reasons.iter().any(|said| bare(said) == bare(reason)) {
-            reasons.push(bare(reason));
-        }
-    }
-    // Every reason that gives cases wrong as one, as the simulation below
-    // shows which, rather than a case or two from each test that found it.
-    if let Some(first) = reasons.iter().position(|r| fault::wrong_outputs(r)) {
-        reasons.retain(|reason| !fault::wrong_outputs(reason));
-        reasons.insert(first, crate::details::WRONG_OUTPUTS.to_owned());
-    }
-    if reasons.is_empty() {
-        reasons.push(format!("Fails {label} test or conventions"));
-    }
+/// Beside a build's title, while storing it is still simulating it, as
+/// just after it is stored, a badge saying so; once it is done, whether it
+/// works is among its tags, see [`verdict_tags`]. A live panel, redrawn
+/// when its simulation comes in.
+pub fn build_banner(s: &Schematic, simulating: bool) -> Markup {
     html! {
-        section id="unverified" aria-labelledby="unrecognized-heading" class="scroll-mt-4" {
-            h2 id="unrecognized-heading" class={ (SECTION_TITLE) " mb-2" } {
-                (if s.untested() { "Why it's untested" } else { "Why it's failing" })
-            }
-            ul class="flex list-disc flex-col gap-3 pl-5" {
-                @for reason in &reasons {
-                    (super::reason_item(reason))
-                }
+        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw"
+            class="flex flex-wrap items-center gap-1.5" {
+            @if simulating {
+                @let pill = html! {
+                    span class="inline-block rounded-full bg-muted/12 px-2.5 text-meta leading-6 font-semibold text-muted" { "Simulating…" }
+                };
+                (hover_note("verdict-note", &pill, "Its cases and timing are running; this updates when they finish."))
             }
         }
     }
 }
 
-/// Beside a build's title, what its simulation says, as a badge, unless it
-/// passes: fails, still simulating, as just after it is stored, or not
-/// simulated, with the counts or the reason in a popup on hover or focus.
-/// A live panel, redrawn when its simulation comes in.
-pub fn build_banner(
-    s: &Schematic,
-    report: Option<&Report>,
-    simulating: bool,
-) -> Markup {
-    let verdict = match report {
-        _ if simulating => Some((
-            "Simulating…",
-            "bg-muted/12 text-muted",
-            "Its cases and timing are running; this updates when they finish."
-                .to_owned(),
-        )),
-        // An unverified build's reasons are a section of their own.
-        _ if s.unverified.is_some() => None,
-        // A pass needs no badge: it is what puts a build on the list.
-        Some(Report::Ran(run)) if run.wrong == 0 => None,
-        Some(Report::Ran(run)) => Some((
-            "Failing",
-            "bg-danger/12 text-danger",
-            format!(
-                "{} of {} cases of {} wrong; see which below.",
+/// The tag a tag-like badge is drawn as: its label, its tone, and what it
+/// says more on hover or focus.
+type Verdict = (&'static str, &'static str, String);
+
+/// Whether build `s` works, as the first of its tags: passing, failing,
+/// not tested, or of a category with no test; and when it is unranked
+/// though it works, why. Each links to its checks.
+fn verdicts(s: &Schematic, report: Option<&Report>) -> Vec<Verdict> {
+    const MUTED: &str = "bg-muted/12 text-muted";
+    let status = {
+        let note = match (s.status, report) {
+            (Status::Passing, Some(Report::Ran(run))) => format!(
+                "All {} cases of {} right.",
+                grouped(run.cases),
+                run.pattern
+            ),
+            (Status::Failing, Some(Report::Ran(run))) => format!(
+                "{} of {} cases of {} wrong; see which in its checks.",
                 grouped(run.wrong),
                 grouped(run.cases),
                 run.pattern
             ),
-        )),
-        Some(Report::Broken { reason }) => {
-            Some(("Failing", "bg-danger/12 text-danger", reason.clone()))
-        }
-        Some(Report::Skipped { reason }) => {
-            Some(("Untested", "bg-muted/12 text-muted", reason.clone()))
-        }
-        None => Some((
-            "Untested",
-            "bg-muted/12 text-muted",
-            "No simulation is stored for it: the simulator has no test for \
-             its category and width."
-                .to_owned(),
-        )),
-    };
-    // Kept when empty, as the page redraws it when a simulation finishes.
-    html! {
-        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw" {
-            @if s.unverified.is_some() {
-                @let label = if s.untested() { "Untested" } else { "Failing" };
-                @let tone = "bg-danger/12 text-danger";
-                a href="#unverified"
-                    class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold hover:no-underline " (tone) } {
-                    (label)
-                }
+            (
+                _,
+                Some(Report::Broken { reason } | Report::Skipped { reason }),
+            ) => reason.clone(),
+            (Status::NoTest, _) => {
+                "The site has no test for its category and width yet."
+                    .to_owned()
             }
-            @if let Some((label, tone, note)) = verdict {
+            _ => s.unverified.clone().unwrap_or_default(),
+        };
+        let (label, tone) = match s.status {
+            Status::Passing => ("passing", "bg-success/12 text-success"),
+            Status::Failing => ("failing", "bg-danger/12 text-danger"),
+            Status::NotTested => ("not tested", MUTED),
+            Status::NoTest => ("no test", MUTED),
+        };
+        (label, tone, note)
+    };
+    let mut verdicts = vec![status];
+    // A working build that ranks says nothing more, ranking being the
+    // rule; one that doesn't says why.
+    if let Some(why) = s.unranked().filter(|_| s.status != Status::NoTest) {
+        verdicts.push((
+            "unranked",
+            "bg-restriction text-on-restriction",
+            format!("Listed, but on no leaderboard: {why}."),
+        ));
+    }
+    verdicts
+}
+
+/// Build `s`'s verdicts as tags, see [`verdicts`], each linking to its
+/// checks.
+fn verdict_tags(s: &Schematic, report: Option<&Report>) -> Markup {
+    html! {
+        @for (i, (label, tone, note)) in verdicts(s, report).into_iter().enumerate() {
+            li {
                 @let pill = html! {
-                    span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (tone) } { (label) }
+                    a href="#checks" class={ "badge hover:no-underline " (tone) } { (label) }
                 };
-                (hover_note("verdict-note", &pill, &note))
+                (hover_note(&format!("verdict-note-{i}"), &pill, &note))
             }
         }
     }
@@ -465,20 +433,15 @@ pub fn build_info(
         div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
             (facts(s, &sources))
-            // Why it isn't verified comes first, as it qualifies the rest.
-            @if let Some(meant) = crate::models::simulation::stands_in(s) {
-                (not_recognized(s, meant, file))
-            }
-            // A failing build says so beside its title, not among its tags;
-            // its design, orientation, and flags are among them, but not one
-            // another implies, as 4-wide stackable beside 2-wide stackable.
+            // Whether it works leads its tags, then its design, orientation,
+            // and flags, but not one another implies, as 4-wide stackable
+            // beside 2-wide stackable.
             @let every = s.every_tag();
             @let tags: Vec<_> = every.iter().filter(|tag| !tag.is_unverified() && !tag::implied(&tag.name, &every)).collect();
-            @if !tags.is_empty() {
-                ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
-                    @for tag in tags {
-                        li { (super::badge(tag, s)) }
-                    }
+            ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
+                (verdict_tags(s, report))
+                @for tag in tags {
+                    li { (super::badge(tag, s)) }
                 }
             }
             (specs(s, &sources, report))
@@ -974,7 +937,7 @@ fn merge_dialog(s: &Schematic) -> Markup {
             class="dialog w-full max-w-form" {
             form action={ "/schematics/" (s.id) "/merge" } method="post" data-step class="flex flex-col gap-4" {
                 h2 id="merge-heading" class=(SECTION_TITLE) { "Merge " (s.name()) " into another build" }
-                p { "Its file becomes the other build's next version, if it keeps 90% of that build's blocks, and this build is deleted." }
+                p { "Its file becomes the other build's next version, and this build is deleted." }
                 label class="flex flex-col gap-1" {
                     span { "Build to merge into" }
                     input type="text" name="into" required placeholder="Its link or id" class="input";

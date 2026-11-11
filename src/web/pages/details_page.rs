@@ -21,7 +21,7 @@ use super::{
     form::{fields, tag_picker},
     grouped,
     interface::{Inversions, interface_section},
-    simulation::{Waiting, simulation_results, simulation_section},
+    simulation::simulation_results,
     upload::file_fields,
 };
 
@@ -31,6 +31,14 @@ pub enum File<'a> {
     Upload {
         /// The prepared file, base64.
         data: &'a str,
+        /// The file as the site will keep it, recognized, its signs and
+        /// unused blocks out, in the site's theme, base64, which the viewer
+        /// shows; `None` for a build the site can't read.
+        shown: Option<&'a str>,
+        /// How many of its signs, and unused blocks, the
+        /// site takes out.
+        signs_out: usize,
+        pruned_out: usize,
         /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
@@ -53,8 +61,6 @@ pub enum File<'a> {
         recognized: Option<&'a str>,
         /// What only its author can put right, by that check.
         problems: &'a [String],
-        /// Its inputs and outputs as that check found them, in short.
-        lines: &'a str,
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
@@ -69,6 +75,8 @@ pub enum File<'a> {
         comparison: Comparison,
         /// Why it cannot replace the build; empty when it can.
         refusals: &'a [String],
+        /// What to warn of though it may, as changing much of it.
+        warnings: &'a [String],
         /// The number it would have.
         version: i64,
         note: &'a str,
@@ -128,6 +136,9 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
     let viewer = match &page.file {
         // A file not yet stored is shown from a data address, as the
         // viewer should be given it.
+        File::Upload {
+            shown: Some(shown), ..
+        } => format!("data:application/octet-stream;base64,{shown}"),
         File::Upload { data, .. } | File::Version { data, .. } => {
             let shown = STANDARD
                 .decode(data)
@@ -163,18 +174,11 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (file_chooser(page))
                 (details_form(user, page))
             }, true))
-            @let (_, reasons) = verdict(page);
-            @let lines = match &page.file { File::Upload { lines, .. } => *lines, _ => "" };
             div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, None, &Inversions { category: "", flags: &[], found: &[] })) }
-            (reasons_section(&reasons, lines))
-            // Redrawn as the category and width call for a test.
+            // Its checks, as a build's page shows them, redrawn as the
+            // category and width change: asked for once the page loads.
             @let simulate = simulate_url(page);
-            @let timing = super::super::simulation::timing_url(&simulate);
-            (simulation_results(&simulate, &html! {
-                @if let File::Stored { simulation: Some(report), .. } = &page.file {
-                    (simulation_section(report, Waiting::Posted(&timing), None))
-                }
-            }))
+            (simulation_results(&simulate, &html! {}))
             script defer src=(crate::web::FORM_JS.url()) {}
         },
     )
@@ -307,6 +311,20 @@ fn checks(page: &DetailsPage) -> Markup {
                 "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
             }))
         }
+        @if let File::Upload { signs_out, pruned_out, .. } = &page.file {
+            @if *signs_out > 0 {
+                (check("signs", State::Warn, &html! {
+                    (signs_out) @if *signs_out == 1 { " sign" } @else { " signs" }
+                    " taken out; the site names its lines itself."
+                }))
+            }
+            @if *pruned_out > 0 {
+                (check("pruned", State::Warn, &html! {
+                    (pruned_out) @if *pruned_out == 1 { " block" } @else { " blocks" }
+                    " no part of its circuit uses taken out, as the viewer shows it."
+                }))
+            }
+        }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
             (check("similar", State::Warn, &html! {
                 "Nearly the same as "
@@ -317,7 +335,7 @@ fn checks(page: &DetailsPage) -> Markup {
                 " instead; if it builds on it, say so in the description."
             }))
         }
-        @if let File::Version { comparison, refusals, .. } = &page.file {
+        @if let File::Version { comparison, refusals, warnings, .. } = &page.file {
             @let permille = comparison.same_permille();
             @let same = html! {
                 "Changes " (grouped(comparison.changed as u64)) " of "
@@ -325,16 +343,21 @@ fn checks(page: &DetailsPage) -> Markup {
                 (permille / 10) "." (permille % 10) "%. "
                 a href="#file-chooser" data-open-chooser { "Choose a different file" }
             };
-            @if refusals.is_empty() {
-                (check("same", State::Pass, &same))
-            } @else {
-                (check("same", State::Fail, &html! {
-                    (same)
+            @let (state, said) = if !refusals.is_empty() {
+                (State::Fail, *refusals)
+            } else if !warnings.is_empty() {
+                (State::Warn, *warnings)
+            } else {
+                (State::Pass, &[][..])
+            };
+            (check("same", state, &html! {
+                (same)
+                @if !said.is_empty() {
                     ul class="mt-1 flex list-disc flex-col gap-1 pl-5" {
-                        @for refusal in *refusals { li { (refusal) } }
+                        @for line in said { li { (line) } }
                     }
-                }))
-            }
+                }
+            }))
         }
         (swap_checks(page))
     };
@@ -398,35 +421,10 @@ pub fn failing_or_untested(reasons: &[&str]) -> &'static str {
     }
 }
 
-/// The heading over why a build isn't verified, for its `verdict`.
-fn reasons_heading(verdict: &str) -> &'static str {
-    if verdict == "fail" {
-        "Why it's failing"
-    } else {
-        "Why it's untested"
-    }
-}
-
 /// Why a build isn't verified, each reason with how to fix it, as list
 /// items, for the section under the form that says so.
 pub fn reason_items(reasons: &[&str]) -> Markup {
     html! { @for reason in reasons { (super::reason_item(reason)) } }
-}
-
-/// Why the build is untested or failing, under the form, each reason with how to
-/// fix it, and its inputs and outputs as `lines` gives them, in short;
-/// hidden with no reasons. `form.js` fills it from the simulation's.
-fn reasons_section(reasons: &[&str], lines: &str) -> Markup {
-    html! {
-        section id="reasons" aria-labelledby="reasons-heading" data-reasons
-            hidden[reasons.is_empty()] class="mt-12 max-w-calm" {
-            h2 id="reasons-heading" class={ (SECTION_TITLE) " mb-2" } data-reasons-heading {
-                (reasons_heading(failing_or_untested(reasons)))
-            }
-            ul class="flex list-disc flex-col gap-2 pl-5" data-reason-list { (reason_items(reasons)) }
-            @if !lines.is_empty() { p class="mt-2 text-meta text-muted" { (lines) } }
-        }
-    }
 }
 
 /// The fields for choosing another file, the same on every details page:
@@ -455,8 +453,8 @@ fn file_chooser(page: &DetailsPage) -> Markup {
                         }
                         _ => {
                             "For fixing the build: the new file replaces this one, keeping its details, credits, and downloads, "
-                            "and the old one stays listed under it. It must keep at least " (MIN_SAME_PERCENT) "% of its blocks, "
-                            "or change at most " (MAX_CHANGED) "; within that, its inputs and outputs may move. "
+                            "and the old one stays listed under it. A fix most often keeps at least " (MIN_SAME_PERCENT) "% of its blocks, "
+                            "or changes at most " (MAX_CHANGED) ", and one that changes more is warned of; its inputs and outputs may move. "
                             "The details you have changed below stay."
                         }
                     }
@@ -493,13 +491,6 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
             Some(format!("/schematics/{}", s.id)),
         ),
     };
-    let stored_result = matches!(
-        &page.file,
-        File::Stored {
-            simulation: Some(_),
-            ..
-        }
-    );
     let blocked = blocked(page);
     // An unverified build's specs are typed; form.js shows their fields,
     // and marks an upload so once its checks say it goes up unverified.
@@ -510,7 +501,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
     html! {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
             data-step data-step-page data-simulate=(simulate) data-listed-kinds=(crate::category::Kind::listed())
-            data-simulated[stored_result] data-unverified[unverified]
+            data-unverified[unverified]
             data-verdict=(verdict(page).0) class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {

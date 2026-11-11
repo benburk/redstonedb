@@ -26,11 +26,11 @@ use crate::{
     },
 };
 
-/// The share of blocks, in percent, a new version keeps at least, unless
-/// it changes no more than `MAX_CHANGED`.
+/// The share of blocks, in percent, a new version keeps at least before it
+/// is warned of, unless it changes no more than `MAX_CHANGED`.
 pub const MIN_SAME_PERCENT: usize = 90;
 
-/// How many blocks a new version may change whatever its share.
+/// How many blocks a new version may change, whatever its share, unwarned.
 pub const MAX_CHANGED: usize = 10;
 
 /// The number of build `s`'s version laid block for block as `blocks`,
@@ -155,19 +155,20 @@ pub fn compared(state: &str) -> String {
     }
 }
 
-/// Why a file whose blocks compare with the current version's as
-/// `comparison` cannot replace it as a new version, as a sentence; empty
-/// when it can. Its inputs and outputs may move, and its size change, as
-/// long as it keeps enough of the build's blocks.
-pub fn refusals(comparison: Comparison) -> Vec<String> {
+/// What to warn of a file whose blocks compare with the current version's
+/// as `comparison`, taken as a new version: changing so much of it that it
+/// may be another build. It may replace it all the same, as its uploader
+/// knows whether it fixes the build. Its inputs and outputs may move, and
+/// its size change, unwarned.
+pub fn warnings(comparison: Comparison) -> Vec<String> {
     if comparison.close_enough() {
         return Vec::new();
     }
     let permille = comparison.same_permille();
     vec![format!(
-        "It changes {} blocks, keeping {}.{}% of them; a new version keeps at \
-         least {MIN_SAME_PERCENT}%, or changes at most {MAX_CHANGED}. Upload \
-         it as a build of its own instead.",
+        "It changes {} blocks, keeping {}.{}% of them, where a fix most often \
+         keeps at least {MIN_SAME_PERCENT}%. If it is another build rather \
+         than this one fixed, upload it as a build of its own instead.",
         comparison.changed,
         permille / 10,
         permille % 10
@@ -175,11 +176,13 @@ pub fn refusals(comparison: Comparison) -> Vec<String> {
 }
 
 /// A file prepared as the build's next version, how it compares with the
-/// current one, and why it cannot replace it.
+/// current one, why it cannot replace it, and what to warn of when it
+/// may.
 pub struct Checked {
     pub prepared: Prepared,
     pub comparison: Comparison,
     pub refusals: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 /// Prepares `file`, standardized if asked, as build `s`'s next version and
@@ -232,7 +235,8 @@ async fn checked(
         }
     }
     let (prepared, comparison) = best.expect("it was compared at least once");
-    let mut refusals = refusals(comparison);
+    let warnings = warnings(comparison);
+    let mut refusals = Vec::new();
     // Only problems the current version doesn't have count against it, so
     // a build from before a rule can still be fixed. They are the check by
     // function's, as an upload's, colour playing no part: inputs are its
@@ -284,6 +288,7 @@ async fn checked(
         prepared,
         comparison,
         refusals,
+        warnings,
     })
 }
 

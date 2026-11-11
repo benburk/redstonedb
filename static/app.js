@@ -32,6 +32,8 @@
 //   as soon as it sends, and `data-progress="url"` redraws an upload's
 //   steps from that address until it answers `X-Analysis: done`, then
 //   loads the page again.
+// - A `<details>` whose id the address names opens, as a build's check its
+//   stage's link goes to.
 
 const notice = document.getElementById("notice");
 
@@ -481,3 +483,13 @@ document.addEventListener("click", (event) => {
     history.back();
   }
 });
+
+// A `<details>` the address points to, as a build's check a stage's link or
+// a form's answer names, opens, so the place gone to shows what is there.
+const openTarget = () => {
+  const target = location.hash && document.getElementById(location.hash.slice(1));
+  if (target instanceof HTMLDetailsElement) target.open = true;
+};
+window.addEventListener("hashchange", openTarget);
+openTarget();
+

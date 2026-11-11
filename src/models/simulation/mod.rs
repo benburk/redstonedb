@@ -91,6 +91,14 @@ async fn set<'e, E: SqliteExecutor<'e>>(
 
 /// How build `s`'s copies stacked share its buses, as its category and the
 /// way its bits run say.
+/// Whether the file `data` carries its lines' roles, as one the site
+/// reads, or whose lines its author marked, does.
+pub fn carries_roles(data: &[u8]) -> bool {
+    crate::schem::Blocks::read(data).is_ok_and(|blocks| {
+        blocks.roles.is_some_and(|roles| !roles.0.is_empty())
+    })
+}
+
 fn buses(s: &Schematic) -> stack::Buses {
     stack::Buses::of(s.kind(), s.orientation)
 }
@@ -147,10 +155,9 @@ pub fn meant_by(category: &str) -> Option<&str> {
 /// the one an off-list name stands in for, as [`meant_by`] reads it.
 /// `None` for any other build, held to its category's test as it is.
 pub fn stands_in(s: &Schematic) -> Option<&str> {
-    if s.unverified.is_some() {
-        return Some(&s.category);
-    }
+    // An off-list name stands in for its category whether it works or not.
     meant_by(&s.category)
+        .or_else(|| (!s.verified()).then_some(s.category.as_str()))
 }
 
 /// The test build `s` is held to: its category's at its width, or for one
@@ -563,17 +570,18 @@ async fn timed(
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
     };
-    // `refresh` timed it already, with everything else; an off-list build
-    // is only tested, to show what is wrong with it.
-    if s.evaluated() || stands_in(&s).is_some() {
+    // `refresh` timed it already, with everything else.
+    if s.evaluated() {
         return Ok(Some(report));
     }
+    // Any build its test ran on is timed, passing or not: when its outputs
+    // settle and how they glitch on the way needs no right answer, and is
+    // most use to one that gets cases wrong.
     let mut measured = None;
     if let Report::Ran(run) = &mut report
-        && run.wrong == 0
         && (again || run.timing.is_none())
     {
-        let test = Test::of(&s.category, s.width).context("no test")?;
+        let test = test_for(&s).context("no test")?;
         let data = current_file(db, &s).await?;
         let cancel = Arc::new(AtomicBool::new(false));
         let key = roles::circuit_key(&data, &s.stacking, buses(&s)).ok();
@@ -599,11 +607,12 @@ async fn timed(
 /// left as it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
-    if !s.evaluated() {
-        return Ok(());
-    }
-    if !current(db, &s).await?.is_some_and(|report| report.passed()) {
-        return Ok(());
+    // Any build the site reads is shown in a theme, passing or not; only
+    // one that passes, kept to the conventions, has its unused blocks out.
+    if !s.evaluated()
+        || !current(db, &s).await?.is_some_and(|report| report.passed())
+    {
+        return keep_needs(db, id).await;
     }
     let data = current_file(db, &s).await?;
     // When taking them out would change its circuit, which the proof by
@@ -620,13 +629,10 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     if let Some(pruned) = pruned {
         let checked =
             crate::version::check(db, &s, &pruned.file, false).await?;
+        // In the version's own place, as its uploader saw it before
+        // publishing, rather than as a version after it.
         if checked.refusals.is_empty() {
-            let how = version::Replacing::NextVersion {
-                added_by: Some(crate::models::user::REDSTONEDB),
-                added_from: None,
-                note: Some("Unused blocks taken out"),
-                restores: None,
-            };
+            let how = version::Replacing::InPlace;
             version::replace(db, id, &checked.prepared, how).await?;
             // The same circuit, so its result carries over unsimulated.
             refresh(db, id, false).await?;
@@ -635,37 +641,20 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     keep_needs(db, id).await
 }
 
-/// For a recognized build whose test passes, what each of its current
-/// file's building blocks must be, solid, transparent, or either, and
-/// which carry hard or soft power, kept with its version, for block
-/// themes, with nothing taken out; whatever made the version, so a fix by
-/// hand is shown in a theme too. Any other build is left as it came.
+/// For a build whose current file carries its lines' roles, as one the
+/// site reads does, passing or not, what each of its building blocks must
+/// be, solid, transparent, or either, and which carry hard or soft power,
+/// kept with its version, for block themes, with nothing taken out;
+/// whatever made the version, so a fix by hand is shown in a theme too. A
+/// build the site can't read is left as it came.
 pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
     let s = schematic::get(db, id).await?.context("no such schematic")?;
-    if !s.evaluated() {
-        return Ok(());
-    }
-    if !current(db, &s).await?.is_some_and(|report| report.passed()) {
-        return Ok(());
-    }
     let data = current_file(db, &s).await?;
-    let mut needs: std::collections::BTreeMap<&str, Vec<[i32; 3]>> =
-        std::collections::BTreeMap::new();
-    for (pos, role) in roles::roles(&data, &s.stacking, buses(&s))? {
-        if role.need != roles::Need::Unused {
-            needs.entry(role.need.name()).or_default().push(pos);
-        }
-        // Which solid blocks carry power, hard or soft, so a block theme can
-        // show them apart; a block that would carry it were it solid but
-        // must not is transparent, and carries none.
-        if role.need == roles::Need::Solid {
-            if role.uses.contains(&roles::Use::HardPower) {
-                needs.entry("hard_power").or_default().push(pos);
-            } else if role.uses.contains(&roles::Use::SoftPower) {
-                needs.entry("soft_power").or_default().push(pos);
-            }
-        }
+    if !carries_roles(&data) {
+        return Ok(());
     }
+    let needs =
+        crate::recognize::palette::needs_of(&data, &s.stacking, buses(&s))?;
     let needs = serde_json::to_string(&needs)?;
     sqlx::query!(
         "UPDATE schematic_version SET needs = ?

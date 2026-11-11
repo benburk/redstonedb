@@ -1048,6 +1048,7 @@ fn run(lines: &Lines, found: Found) -> Run {
         }],
         wrong_bits: Vec::new(),
         examples: found.examples,
+        bit_counts: Vec::new(),
         hint: None,
         inverted: Vec::new(),
         reading: None,

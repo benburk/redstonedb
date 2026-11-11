@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT schematic.id, schematic.category, width, orientation\n            as \"orientation: Orientation\", encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            bytes, torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            public as \"public: bool\", unverified,\n            schematic.logic as \"own_logic: Logic\",\n            conventional as \"conventional: bool\", description, given_name,\n            design, user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username) as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation WHERE simulation.failed\n                AND simulation.schematic_id = schematic.id\n                AND simulation.sha256 = file.sha256) as \"fails_simulation!: bool\",\n            (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)\n                as \"favorites!: i64\"\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))\n         ORDER BY schematic.category, width, added_at",
+  "query": "SELECT schematic.id, schematic.category, width, orientation\n            as \"orientation: Orientation\", encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            bytes, torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            public as \"public: bool\", unverified,\n            schematic.logic as \"own_logic: Logic\",\n            conventional as \"conventional: bool\", description, given_name,\n            design, user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username) as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation WHERE simulation.failed\n                AND simulation.schematic_id = schematic.id\n                AND simulation.sha256 = file.sha256) as \"fails_simulation!: bool\",\n            (SELECT json_extract(simulation.report, '$.outcome') FROM simulation\n                WHERE simulation.schematic_id = schematic.id\n                AND simulation.sha256 = file.sha256) as \"outcome?: String\",\n            (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)\n                as \"favorites!: i64\"\n         FROM schematic\n         JOIN current_file AS file ON file.schematic_id = schematic.id\n         LEFT JOIN user ON user.id = schematic.uploaded_by\n         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))\n         ORDER BY schematic.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -174,8 +174,13 @@
         "type_info": "Integer"
       },
       {
-        "name": "favorites!: i64",
+        "name": "outcome?: String",
         "ordinal": 34,
+        "type_info": "Null"
+      },
+      {
+        "name": "favorites!: i64",
+        "ordinal": 35,
         "type_info": "Integer"
       }
     ],
@@ -217,8 +222,9 @@
       true,
       true,
       false,
+      true,
       false
     ]
   },
-  "hash": "30f3a2d3c2e7c3cd6a86a60f2a2b53f72855bba4ea7e8150c5248aa820bd23fd"
+  "hash": "90161552968e854dba8cc1da3df8fe26a4683c1cdd2d7d4310d995fb5dbadcdf"
 }

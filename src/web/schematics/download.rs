@@ -202,8 +202,10 @@ pub(in crate::web) async fn export(
         .ok_or(AppError::NotFound)?;
     // In its author's colours, as stored, with any kept from before the
     // site kept them, which go on its blocks before any stacking; and so
-    // always for a build kept as built, whose roles no test settled.
-    if asked.colours == Some(Colours::Original) || !s.conventional {
+    // always for a build the site can't read, its file carrying no roles.
+    if asked.colours == Some(Colours::Original)
+        || !crate::models::simulation::carries_roles(&data)
+    {
         let data = match version::colours(db, id).await? {
             Some(colours) => {
                 crate::recognize::colouring::apply(&data, &colours)?

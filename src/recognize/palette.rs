@@ -425,6 +425,58 @@ pub fn apply(
     crate::schem::lines::without(&colour(&data, palette)?)
 }
 
+/// What each building block of the file in `data`, carrying its roles,
+/// must be, solid, transparent, or either, and which solid ones carry hard
+/// or soft power, as its circuit uses them stacked each of `ways` with its
+/// buses as `buses` says: what a theme recolours by. A block nothing uses
+/// is left out.
+pub fn needs_of(
+    data: &[u8],
+    ways: &[crate::models::schematic::StackDirection],
+    buses: crate::schem::stack::Buses,
+) -> Result<Needs> {
+    use crate::recognize::roles::{Need, Use, roles};
+    let mut needs = Needs::new();
+    for (pos, role) in roles(data, ways, buses)? {
+        if role.need != Need::Unused {
+            needs
+                .entry(role.need.name().to_owned())
+                .or_default()
+                .push(pos);
+        }
+        // A block that would carry power were it solid but must not is
+        // transparent, and carries none.
+        if role.need == Need::Solid {
+            if role.uses.contains(&Use::HardPower) {
+                needs.entry("hard_power".to_owned()).or_default().push(pos);
+            } else if role.uses.contains(&Use::SoftPower) {
+                needs.entry("soft_power".to_owned()).or_default().push(pos);
+            }
+        }
+    }
+    Ok(needs)
+}
+
+/// The file in `data`, carrying its roles, in `palette`: its building
+/// blocks by what [`needs_of`] says each must be, and its lines in their
+/// roles' colours, as a build the site reads is shown. A file carrying no
+/// roles, which the site can't read, is left in its author's colours.
+pub fn themed(
+    data: &[u8],
+    ways: &[crate::models::schematic::StackDirection],
+    buses: crate::schem::stack::Buses,
+    palette: &Palette,
+) -> Result<Vec<u8>> {
+    if Blocks::read(data)?
+        .roles
+        .is_none_or(|roles| roles.0.is_empty())
+    {
+        return Ok(data.to_vec());
+    }
+    let needs = needs_of(data, ways, buses)?;
+    colour(&blocks_in(data, &needs, palette)?, palette)
+}
+
 /// The file in `data` with its building blocks `palette`'s, by what
 /// `needs` says each must be, whatever its author made them. Its
 /// positions are its own, so a stacked copy takes it before stacking.

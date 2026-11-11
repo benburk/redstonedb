@@ -545,9 +545,10 @@ fn a_bcd_converter_is_timed_on_valid_values() {
         .unwrap();
     assert!(timing.latency().is_some_and(|t| t > 0));
     // A alone from 0 to each of its 255 other values and back, then all
-    // inputs together from all off to each of the 256 and back: every 10-bit
-    // value would make some four thousand.
-    assert_eq!(timing.changes, 510 + 512);
+    // inputs together from all off to each of the 256 and back, then a
+    // thousand changes from one valid value to another at random: every
+    // 10-bit value would make some four thousand.
+    assert_eq!(timing.changes, 510 + 512 + 1000);
     let timing = Test::BinaryToBcd
         .time(&blocks("bin2bcd-8"), &cancel)
         .unwrap();

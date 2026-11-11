@@ -183,7 +183,7 @@ pub async fn detail(
     let simulating = simulation::completing(&id);
     let panel = panel.as_deref().filter(|_| fixi);
     if panel == Some("banner") {
-        return Ok(pages::build_banner(&s, report, simulating).into_response());
+        return Ok(pages::build_banner(&s, simulating).into_response());
     }
     let data = version::current_file(db, &id).await?.unwrap_or_default();
     let unrecognized = why_not_recognized(&s, &data).await;
@@ -232,7 +232,7 @@ pub async fn detail(
     // Its stored blocks, its author's, differ from the site's colours
     // once a theme colours its roles, as for a build that follows the
     // conventions; one kept as built shows only as built.
-    let original = s.conventional;
+    let original = crate::models::simulation::carries_roles(&data);
     let colours = pages::ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,
