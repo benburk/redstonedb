@@ -289,7 +289,12 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         designs: ADDER_DESIGNS,
-        flags: &[CARRY_IN_FLAG, CARRY_OUT_FLAG, INVERTED_CARRY_IN_FLAG],
+        flags: &[
+            CARRY_IN_FLAG,
+            CARRY_OUT_FLAG,
+            INVERTED_CARRY_IN_FLAG,
+            INVERTED_CARRY_OUT_FLAG,
+        ],
         listed_as: Some("subtractors"),
         probe: Probing::As(Kind::Adder),
         guess: Guess::ByRunOf(Kind::Adder),

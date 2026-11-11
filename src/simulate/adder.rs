@@ -79,8 +79,8 @@ pub struct Variant {
 impl Variant {
     /// Every way an adder with a carry in, if it has one, may read, the
     /// plain add first, its carry out, if it has one, either way; then a
-    /// subtract; then, its sum inverted, an inverted adder's add, its carry
-    /// out either way too.
+    /// subtract, its borrow out either way too; then, its sum inverted, an
+    /// inverted adder's add, its carry out either way too.
     fn all(carry_in: bool, carry_out: bool) -> Vec<Variant> {
         let ins = [false, true].into_iter().take(1 + usize::from(carry_in));
         let outs = [false, true].into_iter().take(1 + usize::from(carry_out));
@@ -95,11 +95,14 @@ impl Variant {
             }
         }
         for carry_in in ins.clone() {
-            all.push(Variant {
-                subtract: true,
-                carry_in,
-                ..Variant::default()
-            });
+            for out in outs.clone() {
+                all.push(Variant {
+                    subtract: true,
+                    carry_in,
+                    carry_out: out,
+                    ..Variant::default()
+                });
+            }
         }
         for carry_in in ins {
             for out in outs.clone() {
@@ -590,6 +593,29 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
 mod tests {
     use super::*;
     use crate::recognize::interface;
+
+    /// A subtractor's borrow out may read inverted too, as an adder's carry
+    /// out may: each subtract is tried with it either way.
+    #[test]
+    fn a_borrow_out_may_read_inverted() {
+        let subtracts: Vec<(bool, bool)> = Variant::all(true, true)
+            .into_iter()
+            .filter(|v| v.subtract)
+            .map(|v| (v.carry_in, v.carry_out))
+            .collect();
+        assert_eq!(
+            subtracts,
+            [(false, false), (false, true), (true, false), (true, true)]
+        );
+        let inverted = Variant {
+            subtract: true,
+            carry_out: true,
+            ..Variant::default()
+        };
+        // 3 − 5 borrows, so its borrow out, inverted, reads off.
+        assert_eq!(inverted.apply(&[3, 5, 0], 4) >> 4 & 1, 0);
+        assert_eq!(inverted.name(None), "A − B, carry out inverted");
+    }
 
     /// An adder's carry out may read inverted, its sum as it is, as a
     /// carry-cancel adder's gives it a tick sooner; an inverted adder's
