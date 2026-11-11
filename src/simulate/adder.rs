@@ -218,7 +218,11 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     let carry_in = ports.carry_in.is_some();
     let hex = interface.inputs.iter().any(|port| port.signal_strength);
     let piece = if hex { 4 } else { 8 };
-    let kinds = Variant::all(carry_in, ports.carry_out.is_some())
+    // Its carry out may be a line of its own or its sum's bit past A's
+    // width, and reads either way as either.
+    let carries = ports.carry_out.is_some()
+        || interface.outputs[ports.sum].bits.len() > width;
+    let kinds = Variant::all(carry_in, carries)
         .into_iter()
         .map(|variant| {
             Kind::new(&variant.name(line.as_deref()), move |case| {
