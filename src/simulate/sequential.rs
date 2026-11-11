@@ -1019,13 +1019,16 @@ fn run(lines: &Lines, found: Found) -> Run {
         .map(|&(way, op)| format!("{} {}", way_words(lines, way), op.words()))
         .collect::<Vec<_>>()
         .join("; ");
-    let mut inputs: Vec<Signal> = lines
-        .data_name
-        .iter()
-        .map(|(name, bits)| Signal {
+    // Each case starts from the value held, then A, as a wrong one shows.
+    let held = Signal {
+        name: "held".to_owned(),
+        bits: lines.width,
+    };
+    let mut inputs: Vec<Signal> = std::iter::once(held)
+        .chain(lines.data_name.iter().map(|(name, bits)| Signal {
             name: name.clone(),
             bits: *bits,
-        })
+        }))
         .collect();
     inputs.extend(lines.names.iter().map(|name| Signal {
         name: name.clone(),
