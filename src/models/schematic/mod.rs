@@ -164,6 +164,10 @@ pub struct Schematic {
     /// recognized as one, as `details::unrecognized` says; `None` for one
     /// that is, or any other build. Such a build is kept as built.
     pub unverified: Option<String>,
+    /// How it stands against its category's test, from its current file's
+    /// stored result when it has one, so a reason stored before the test
+    /// last ran says nothing against it; see [`Status::of`].
+    pub status: Status,
     /// How its current file's operands' bits lie, as its kept roles place
     /// them.
     pub operands: Operands,
@@ -177,6 +181,70 @@ pub struct Schematic {
     /// `models::simulation`; `torchless` when its file has
     /// no torches, and `alpha` when it works from Alpha.
     pub tags: Vec<Tag>,
+}
+
+/// How a build stands against its category's test, which says whether it
+/// works: passing, failing, not tested though its category has a test, or
+/// of a category with none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Status {
+    /// Its test got every case right.
+    Passing,
+    /// Its test ran and got cases wrong.
+    Failing,
+    /// Its test couldn't run on it, as when its inputs and outputs don't
+    /// fit its category's, or never has; `unverified` says why.
+    NotTested,
+    /// Its category has no test, so nothing says it doesn't work.
+    #[default]
+    NoTest,
+}
+
+impl Status {
+    /// How a build stands whose current file's stored result is `outcome`,
+    /// as a report's `outcome` names it, `failed` or not, and which is
+    /// stored as unverified for `reason`: its result, when it ran or broke,
+    /// whatever reason was stored before; else the reason, wrong outputs
+    /// failing and any other not tested; else no test. A result skipped
+    /// says no more than the reason, as one off the list is only tested
+    /// to say what keeps it from being recognized.
+    pub fn of(
+        outcome: Option<&str>,
+        failed: bool,
+        reason: Option<&str>,
+    ) -> Status {
+        match (outcome, reason) {
+            (Some("ran"), _) if failed => Status::Failing,
+            (Some("ran"), _) => Status::Passing,
+            (Some("broken"), _) => Status::NotTested,
+            (_, Some(reason))
+                if crate::recognize::fault::wrong_outputs(reason) =>
+            {
+                Status::Failing
+            }
+            (_, Some(_)) => Status::NotTested,
+            (_, None) => Status::NoTest,
+        }
+    }
+
+    /// Its tag, if it isn't verified.
+    pub fn unverified(self) -> Option<tag::Unverified> {
+        match self {
+            Status::Failing => Some(tag::Unverified::Failing),
+            Status::NotTested => Some(tag::Unverified::Untested),
+            Status::Passing | Status::NoTest => None,
+        }
+    }
+
+    /// Its badge, such as `Passing`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Passing => "Passing",
+            Status::Failing => "Failing",
+            Status::NotTested => "Not tested",
+            Status::NoTest => "No test",
+        }
+    }
 }
 
 /// How a build's operands' bits lie, A's and B's.
@@ -207,26 +275,41 @@ pub fn file_stem(name: &str) -> String {
 }
 
 impl Schematic {
-    /// Whether it is verified as its category: recognized as one, if its
-    /// category is one the site recognizes, and passing its test, if it
-    /// has one. Only a verified build lists unless the unverified are asked
-    /// for.
+    /// Whether it works as far as anyone can tell: passing its category's
+    /// test, or of a category with none. Only such a build lists unless
+    /// the rest are asked for.
     pub fn verified(&self) -> bool {
-        self.unverified.is_none() && !self.tags.iter().any(Tag::is_unverified)
+        matches!(self.status, Status::Passing | Status::NoTest)
+            && !self.tags.iter().any(Tag::is_unverified)
     }
 
-    /// Whether it ranks on its category's boards: verified, its buses laid
-    /// as the conventions lay them, as an unaligned build's are not, which
-    /// lists all the same.
+    /// Whether it ranks on its category's boards: working, kept to the
+    /// conventions, and with nothing stored against it; see
+    /// [`Schematic::unranked`].
     pub fn ranks(&self) -> bool {
-        self.verified() && !self.unaligned
+        self.verified() && self.unranked().is_none()
     }
 
-    /// Whether it is untested, unverified only because its inputs,
-    /// outputs, or parts don't fit its category's, rather than failing,
-    /// for wrong outputs.
+    /// Why a working build ranks on no board, though it lists: its buses
+    /// not laid as the conventions lay them, it kept as built, or a reason
+    /// stored against it, such as a convention it bends; `None` when it
+    /// ranks, or doesn't work.
+    pub fn unranked(&self) -> Option<String> {
+        if !self.verified() {
+            None
+        } else if self.unaligned {
+            Some("unaligned buses".to_owned())
+        } else if !self.conventional {
+            Some("kept as built".to_owned())
+        } else {
+            self.unverified.clone()
+        }
+    }
+
+    /// Whether it is untested, its test unable to run on it, as its inputs,
+    /// outputs, or parts don't fit its category's, rather than failing.
     pub fn untested(&self) -> bool {
-        self.tags.iter().any(|t| t.kind == tag::Kind::Untested)
+        self.status == Status::NotTested
     }
 
     /// Its category, when that is a standard one; `None` for one off the
@@ -694,6 +777,7 @@ mod tests {
             favorites: 0,
             public: true,
             unverified: None,
+            status: Status::default(),
             operands: Operands::Split,
             unaligned: false,
             tags: vec![Tag {
@@ -746,6 +830,44 @@ mod tests {
         let given: Vec<&str> =
             s.every_tag()[1..4].iter().map(Tag::class).collect();
         assert_eq!(given, ["badge-other", "badge-other", "badge-other"]);
+    }
+
+    /// A build stands by its current file's stored result whatever reason
+    /// was stored before it: a pass is passing, a stale reason or not; a
+    /// broken run is not tested, not failing; and with no result, the
+    /// reason decides, wrong outputs failing.
+    #[test]
+    fn a_build_stands_by_its_stored_result() {
+        let stale = Some("Couldn't read its inputs and outputs");
+        assert_eq!(Status::of(Some("ran"), false, stale), Status::Passing);
+        assert_eq!(Status::of(Some("ran"), true, None), Status::Failing);
+        assert_eq!(Status::of(Some("broken"), true, None), Status::NotTested);
+        assert_eq!(Status::of(None, false, stale), Status::NotTested);
+        assert_eq!(
+            Status::of(
+                None,
+                false,
+                Some("Gives wrong outputs for some inputs")
+            ),
+            Status::Failing
+        );
+        assert_eq!(Status::of(None, false, None), Status::NoTest);
+        // A skip says no more than the reason, as one off the list is only
+        // tested to say what keeps it from being recognized.
+        assert_eq!(Status::of(Some("skipped"), false, None), Status::NoTest);
+    }
+
+    /// A passing build kept as built, or with a reason stored against it,
+    /// lists but ranks on no board, saying why.
+    #[test]
+    fn a_passing_build_kept_as_built_lists_but_does_not_rank() {
+        let mut s = cla();
+        s.status = Status::Passing;
+        s.conventional = false;
+        s.unverified = Some("Couldn't read its inputs and outputs".to_owned());
+        assert!(s.verified());
+        assert!(!s.ranks());
+        assert_eq!(s.unranked().as_deref(), Some("kept as built"));
     }
 
     /// An unaligned build is verified, and tagged so, but ranks on no

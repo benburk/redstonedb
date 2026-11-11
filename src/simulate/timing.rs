@@ -28,7 +28,11 @@
 //!   inputs held at every combination of theirs, which gives each input's
 //!   timing;
 //! - every input together, each at its timing, from all off to every
-//!   combination and back.
+//!   combination and back;
+//! - every input together, each at its timing, from one set of values
+//!   straight to another drawn at random over every value each may take,
+//!   as the logic analyzer's sweep draws them, the same each time: a race
+//!   between two values neither of them all off shows only so.
 //!
 //! A build with too many input bits to try every value takes the test
 //! patterns instead, such as all ones or alternate bits set, which make an
@@ -263,8 +267,15 @@ pub struct OutputTiming {
 /// One change in which an output glitched, to try in-game.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Glitch {
-    /// The inputs it changed to from all off, in the order of
-    /// `Timing::inputs`.
+    /// The inputs it changed from, in the order of `Timing::inputs`; empty
+    /// for all off, as every glitch was before others were measured.
+    #[serde(
+        default,
+        with = "value::many",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub from: Vec<Value>,
+    /// The inputs it changed to, in the order of `Timing::inputs`.
     #[serde(with = "value::many")]
     pub case: Vec<Value>,
     /// The output's value before the change.
@@ -299,13 +310,16 @@ pub struct BitTiming {
 /// left alone, such as the control lines choosing an ALU's operation. Each
 /// input takes the values `chosen` gives, 0 first, with whether they are a
 /// selection rather than every one, as for an input in BCD; else every
-/// value, or the test patterns when that would be too many.
+/// value, or the test patterns when that would be too many. Changes drawn
+/// at random take any value of each input's width when `any`, as an
+/// adder's operands may, else only the values `chosen` gives, as only
+/// valid BCD may drive a converter from it.
 pub(super) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
     held: &[(usize, Value)],
-    chosen: Option<(Vec<Vec<Value>>, bool)>,
+    (chosen, any): (Chosen, bool),
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
@@ -318,15 +332,27 @@ pub(super) fn measure(
         interface,
         (inputs, None),
         held,
-        (values, patterns),
+        (values, patterns, any),
         cancel,
     )
 }
+
+/// The values each input takes, with whether they are a selection rather
+/// than every one; `None` for every value, or the test patterns.
+pub(super) type Chosen = Option<(Vec<Vec<Value>>, bool)>;
 
 /// The changes a control group, such as an ALU's operation lines or a
 /// barrel shifter's shift and amount, is timed through, beside the most
 /// data inputs it is tried against every value of.
 const STREAMED: u64 = 8192;
+
+/// How many changes from one set of values straight to another at random
+/// a build is timed by, as many as the logic analyzer's sweep traces.
+const WANDERED: u64 = 1000;
+
+/// What a random change's number starts from, so a glitch from all off,
+/// numbered by its combination, is the one kept as an example first.
+const WANDERED_FROM: u64 = u64::MAX / 2;
 
 /// The states each control line is toggled alone from, for its timing.
 const SAMPLED: u64 = 512;
@@ -377,7 +403,7 @@ pub(super) fn measure_controlled(
         interface,
         (inputs, Some(settings)),
         held,
-        (values, patterns),
+        (values, patterns, true),
         cancel,
     )
 }
@@ -386,13 +412,14 @@ pub(super) fn measure_controlled(
 type Settings<'a> = &'a [Vec<(usize, Value)>];
 
 /// [`measure`] and [`measure_controlled`]: `inputs` and the control group,
-/// if any, taking `values`, the group's last, by setting.
+/// if any, taking `values`, the group's last, by setting, and at random
+/// any value of their widths when `any`.
 fn measured(
     blocks: &Blocks,
     interface: &Interface,
     (inputs, controls): (&[usize], Option<Settings>),
     held: &[(usize, Value)],
-    (values, patterns): (Vec<Vec<Value>>, bool),
+    (values, patterns, any): (Vec<Vec<Value>>, bool, bool),
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let outputs: Vec<usize> = interface
@@ -413,6 +440,7 @@ fn measured(
         controls,
         held,
         values: &values,
+        any,
         outputs: &outputs,
         status: &status,
         cancel,
@@ -451,6 +479,8 @@ fn measured(
     for (stats, offset) in alone[..inputs.len()].iter().zip(&offsets) {
         together.merge(stats, *offset);
     }
+    // From one set of values straight to another, at random.
+    together.merge(&rig.parallel(|c, p, n| rig.wander(c, &offsets, p, n))?, 0);
     // A line toggled alone may make a setting the group never takes, so
     // only its changes between settings, each line on its own tick, count.
     if controls.is_some() {
@@ -902,6 +932,9 @@ struct Rig<'a> {
     outputs: &'a [usize],
     /// Whether each output port is a status line, such as carry out.
     status: &'a [bool],
+    /// Whether a change drawn at random may take any value of each data
+    /// input's width, rather than only those in `values`.
+    any: bool,
     cancel: &'a AtomicBool,
 }
 
@@ -1088,7 +1121,7 @@ impl Rig<'_> {
             let up = transition(
                 circuit,
                 &changes(false),
-                Some((case, &shown)),
+                Some((case, &[], &shown)),
                 &mut stats,
             )?;
             if let Some(tick) = up {
@@ -1180,6 +1213,72 @@ impl Rig<'_> {
         Ok(stats)
     }
 
+    /// Every input together, each at its `offsets` tick, from one set of
+    /// values straight to another, each data input's drawn at random over
+    /// every value of its width and the control group's among its settings,
+    /// the same each time however many shares there are: the `part`th of
+    /// `parts` shares of [`WANDERED`] changes. Each is numbered after every
+    /// change from all off, so a glitch kept as an example is one from all
+    /// off when there is one.
+    fn wander(
+        &self,
+        circuit: &mut Circuit,
+        offsets: &[i32],
+        part: u64,
+        parts: u64,
+    ) -> Result<Stats> {
+        let mut stats = Stats::new(self.outputs, self.status);
+        let widths: Vec<usize> = self
+            .inputs
+            .iter()
+            .map(|&port| input_bits(&self.interface.inputs[port]))
+            .collect();
+        // Every state drawn first, the same whatever the share: change `k`
+        // goes from state `k` to state `k + 1`.
+        let mut rng = Rng::default();
+        let walk: Vec<Vec<Value>> = (0..=WANDERED)
+            .map(|_| {
+                (0..self.count())
+                    .map(|input| {
+                        if let Some(&width) =
+                            widths.get(input).filter(|_| self.any)
+                        {
+                            let value = Value::from(rng.draw()) << 64
+                                | Value::from(rng.draw());
+                            value & bench::mask(width)
+                        } else {
+                            let settings = &self.values[input];
+                            settings[rng.below(settings.len())]
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        for change in (part..WANDERED).step_by(usize::try_from(parts)?) {
+            if change % 64 == 0 {
+                self.check_cancel()?;
+            }
+            let k = usize::try_from(change)?;
+            let (now, next) = (&walk[k], &walk[k + 1]);
+            for (input, &value) in now.iter().enumerate() {
+                self.set(circuit, input, value);
+            }
+            circuit.settle()?;
+            let changes: Vec<(i32, usize, Value)> = (0..self.count())
+                .filter(|&i| next[i] != now[i])
+                .flat_map(|i| self.changes(i, next[i], Some(offsets)))
+                .collect();
+            let (from, to) = (self.shown(now), self.shown(next));
+            transition(
+                circuit,
+                &changes,
+                Some((WANDERED_FROM + change, &from, &to)),
+                &mut stats,
+            )?;
+        }
+        Ok(stats)
+    }
+
     /// The values of `inputs` in their `index`th combination, the first
     /// changing fastest.
     fn pick(&self, inputs: &[usize], mut index: u64) -> Vec<Value> {
@@ -1214,7 +1313,7 @@ impl Rig<'_> {
 fn transition(
     circuit: &mut Circuit,
     changes: &[(i32, usize, Value)],
-    case: Option<(u64, &[Value])>,
+    case: Option<(u64, &[Value], &[Value])>,
     stats: &mut Stats,
 ) -> Result<Option<i32>> {
     let lead = circuit.lead();
@@ -1297,10 +1396,11 @@ fn transition(
         let last = moved.iter().map(|b| b.2).max().unwrap_or(0);
         if moved.iter().any(|b| b.0 > 1) {
             output.glitches += 1;
-            if let Some((number, values)) = case
+            if let Some((number, from, values)) = case
                 && output.glitch.as_ref().is_none_or(|(n, _)| number < *n)
             {
                 let glitch = Glitch {
+                    from: from.to_vec(),
                     case: values.to_vec(),
                     before: before[o],
                     steps: carried.arrived_steps(o, before[o], &steps[o]),

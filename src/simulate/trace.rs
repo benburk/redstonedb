@@ -868,13 +868,14 @@ pub fn cases(widths: &[usize], random: usize) -> Vec<Case> {
     cases
 }
 
-/// Traces each of `cases` through `tracer`, every input switching at tick
-/// 0, until `until` passes, and gathers how each output settles and the
+/// Traces each of `cases` through `tracer`, each input switching on its
+/// tick of `at`, as a build's timing switches them, until `until` passes, and gathers how each output settles and the
 /// races that come first in each change: a later one, of a node a race
 /// before set changing, is likely its doing.
 pub fn sweep(
     tracer: &mut Tracer,
     cases: &[Case],
+    at: &[i32],
     until: Option<Instant>,
 ) -> Result<Sweep> {
     let widths = tracer.output_widths();
@@ -889,8 +890,7 @@ pub fn sweep(
             break;
         }
         sweep.cases += 1;
-        let at = vec![0; case.to.len()];
-        let trace = tracer.run(&case.from, &case.to, &at)?;
+        let trace = tracer.run(&case.from, &case.to, at)?;
         for (port, &width) in widths.iter().enumerate() {
             let settling = &mut sweep.outputs[port];
             let Some(&(settled, _)) = trace.output_steps(port).last() else {

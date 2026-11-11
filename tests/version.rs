@@ -6,7 +6,7 @@ mod common;
 
 use app::{
     schem::{self, Blocks, standardize},
-    version::{compare, refusals},
+    version::{compare, warnings},
 };
 
 /// A fixture as the site stores it.
@@ -30,10 +30,10 @@ fn edited(data: &[u8], pos: [i32; 3], state: &str) -> Vec<u8> {
     schem::encode(nbt).unwrap()
 }
 
-/// Why `new` cannot replace `old`, both as stored.
-fn refused(old: &[u8], new: &[u8]) -> Vec<String> {
+/// What replacing `old` with `new`, both as stored, is warned of.
+fn warned(old: &[u8], new: &[u8]) -> Vec<String> {
     let (old, new) = (Blocks::read(old).unwrap(), Blocks::read(new).unwrap());
-    refusals(compare(&old, &new))
+    warnings(compare(&old, &new))
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn a_one_block_fix_is_a_new_version() {
     let new = edited(&old, pos, "minecraft:air");
     let comparison = compare(&blocks, &Blocks::read(&new).unwrap());
     assert_eq!(comparison.changed, 1);
-    assert!(refused(&old, &new).is_empty());
+    assert!(warned(&old, &new).is_empty());
 }
 
 /// A block recoloured, such as marked or turned gray, or turned from solid
@@ -72,10 +72,12 @@ fn a_recoloured_block_is_unchanged() {
     }
 }
 
+/// Another adder may replace one, as its uploader may mean it as a fix,
+/// but is warned of, changing so much it may be another build.
 #[test]
-fn a_different_adder_is_not_a_new_version() {
-    let refusals = refused(&stored("alpha-rca"), &stored("alpha-cla"));
-    assert!(refusals.iter().any(|r| r.contains("keeps at least 90%")));
+fn a_different_adder_is_warned_of() {
+    let warnings = warned(&stored("alpha-rca"), &stored("alpha-cla"));
+    assert!(warnings.iter().any(|w| w.contains("keeps at least 90%")));
 }
 
 /// A block more to the east makes it wider, which no longer stops it being
@@ -96,7 +98,7 @@ fn a_new_version_may_change_its_size() {
     nbt.write_blocks([0, 0, 0], [x + 1, y, z], &grid, entities)
         .unwrap();
     let new = schem::encode(nbt).unwrap();
-    assert_eq!(refused(&old, &new), Vec::<String>::new());
+    assert_eq!(warned(&old, &new), Vec::<String>::new());
 }
 
 /// An adder's carry lines need no signs, so taking them off keeps it the
@@ -115,7 +117,7 @@ fn an_adders_signs_may_come_off() {
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, Vec::new())
         .unwrap();
     let new = schem::encode(nbt).unwrap();
-    assert_eq!(refused(&old, &new), Vec::<String>::new());
+    assert_eq!(warned(&old, &new), Vec::<String>::new());
 }
 
 #[test]

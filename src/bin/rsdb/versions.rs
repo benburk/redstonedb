@@ -190,6 +190,9 @@ async fn next_version(
         comparison.changed,
         comparison.changed + comparison.same
     );
+    for warning in &checked.warnings {
+        println!("warning: {warning}");
+    }
     if !checked.refusals.is_empty() {
         for refusal in &checked.refusals {
             println!("{refusal}");

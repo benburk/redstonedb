@@ -70,9 +70,9 @@ enum Command {
     /// refresh it, as `refresh` does
     Set(Set),
     /// Replace a stored build's file with a new version that fixes it, as
-    /// the site's New version page does: keeping 90% of its blocks or
-    /// changing at most 10, its inputs and outputs free to move; then
-    /// refresh it, as `refresh` does
+    /// the site's New version page does, warning when it keeps less than
+    /// 90% of its blocks and changes more than 10, its inputs and outputs
+    /// free to move; then refresh it, as `refresh` does
     NewVersion {
         id: String,
         file: PathBuf,

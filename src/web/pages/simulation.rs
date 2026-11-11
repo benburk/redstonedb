@@ -101,86 +101,10 @@ pub(super) fn timing_summary(timing: &Timing) -> String {
     format!("{synced}; {}.", outputs.join(", "))
 }
 
-/// How a section's timing arrives while it is measured.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Waiting<'a> {
-    /// On an upload or edit page: posted the details form to this address
-    /// once on the page.
-    Posted(&'a str),
-    /// On a build's page, which shows what storing it measured and
-    /// measures nothing: none for a build off the list, which is only
-    /// tested to show what keeps it from being recognized.
-    Stored,
-}
-
-/// What simulating a build found: the cases tried and how many came out
-/// right, then, for a failure, which output bits were wrong and the first
-/// wrong cases, or, for a pass, its timing once measured, linking to its
-/// logic analyzer at `trace`, for a stored build.
-pub fn simulation_section(
-    report: &Report,
-    waiting: Waiting,
-    trace: Option<&str>,
-) -> Markup {
-    let untimed = matches!(waiting, Waiting::Stored)
-        && matches!(report, Report::Ran(run) if run.wrong == 0 && run.timing.is_none());
-    html! {
-        section id="simulation" aria-labelledby="simulation-heading" class="mt-12 max-w-calm has-[[data-timing][hidden]]:hidden"
-            hidden[untimed]
-            data-measures-timing[report.passed()]
-            data-skipped[matches!(report, Report::Skipped { .. })]
-            data-state=(if report.failed() { "fail" } else { "pass" })
-            data-summary=(simulation_summary(report))
-            data-stack=[found_stack(report)] {
-            // Timing is measured only on a pass, and says it was simulated.
-            h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-2" } {
-                @if report.passed() { "Timing" } @else { "Simulation" }
-            }
-            @match report {
-                Report::Skipped { reason } => p class="text-muted" { "Untested: " (reason) },
-                Report::Broken { reason } => p class="text-danger" { strong { "Broken: " } (reason) },
-                Report::Ran(run) => {
-                    // A pass is the build's badge; a failure says how badly
-                    // over the cases it got wrong.
-                    @if run.wrong > 0 {
-                        p class="text-danger" {
-                            span aria-hidden="true" { "✗ " }
-                            strong { (grouped(run.wrong)) " of " (grouped(run.cases)) " cases wrong" }
-                        }
-                        p class="text-meta text-muted" {
-                            (run.pattern) ", "
-                            @if run.exhaustive { "every combination" } @else {
-                                "every case of each " @if run.by_digit { "hex digit" } @else { "byte" }
-                                " and " (grouped(run.patterns)) " pairings of test patterns"
-                            }
-                            "."
-                        }
-                    }
-                    @if run.wrong > 0 {
-                        (simulation_failures(run))
-                    } @else if let Some(timing) = &run.timing {
-                        (timing_section(timing, trace))
-                    } @else if let Waiting::Posted(url) = waiting {
-                        div data-timing-pending fx-action=(url) fx-method="post" fx-trigger="load"
-                            data-form="details-form" class="mt-6" {
-                            p class="flex items-center gap-2 text-muted" {
-                                (spinner())
-                                "Measuring when each output settles, which takes up to a minute…"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Whether copies of a passing adder stack into a wider one, or of a
-/// register into a bigger register file.
 /// How copies stack, as stacking them found, such as `2 west per copy,
 /// any number of copies`, for the details form to show in place of the
 /// typed stacking; `None` when no copies were stacked.
-fn found_stack(report: &Report) -> Option<String> {
+pub(super) fn found_stack(report: &Report) -> Option<String> {
     let Report::Ran(run) = report else {
         return None;
     };
@@ -254,14 +178,15 @@ fn timing_intro(timing: &Timing) -> Markup {
 }
 
 /// A synced build's timing, with nothing to say beyond its inputs and
-/// outputs, is hidden, and its section with it. A stored build's links to
-/// its logic analyzer at `trace`, each glitch to the change it came in.
+/// outputs, is hidden, and its section with it, but on a stored build's
+/// page, `trace` its logic analyzer, which draws its glitch or else its
+/// slowest change, and links each glitch to the change it came in.
 pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     let quiet =
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
         div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
-            data-summary=(timing_summary(timing)) hidden[quiet]
+            data-summary=(timing_summary(timing)) hidden[quiet && trace.is_none()]
             data-latency=[timing.latency()] data-synced=(timing.synced) {
             (timing_intro(timing))
             dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 tabular-nums" {
@@ -284,9 +209,12 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
                 // A stored build's glitch is traced, its chart drawn once the
                 // page has loaded; any other output's glitch is a link.
                 @let shown = shown_glitch(timing).map(|o| o.name.as_str());
-                @if shown.is_some() {
-                    div fx-action={ (trace) "/glitch" } fx-trigger="load" role="status" class="mt-4" {
-                        p class="flex items-center gap-2 text-muted" { (spinner()) "Tracing its glitch…" }
+                // Its glitch, or with none its slowest change, drawn as it
+                // runs once the page has loaded.
+                div fx-action={ (trace) "/glitch" } fx-trigger="load" role="status" class="mt-4" {
+                    p class="flex items-center gap-2 text-muted" {
+                        (spinner())
+                        @if shown.is_some() { "Tracing its glitch…" } @else { "Tracing its slowest change…" }
                     }
                 }
                 @for output in timing.outputs.iter().filter(|o| Some(o.name.as_str()) != shown) {
@@ -445,67 +373,11 @@ fn tick(tick: i32) -> String {
     }
 }
 
-/// Which bits a failing build got wrong, and its first wrong cases, a
-/// column for each input and output.
-fn simulation_failures(run: &Run) -> Markup {
-    let ops = run.examples.iter().any(|wrong| wrong.op.is_some());
-    html! {
-        @if let Some(hint) = &run.hint {
-            p class="mt-4" { strong { "Likely cause: " } (hint) }
-        }
-        @if !run.faults.is_empty() {
-            (cell_faults(run))
-        }
-        // Every wrong bit of a wide build is a long list, so it starts
-        // folded away; the cases below say more.
-        details class="mt-6" {
-            summary class="cursor-pointer font-semibold" { "Wrong bits (" (run.wrong_bits.len()) ")" }
-            ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-meta" {
-                @for (bit, count) in &run.wrong_bits {
-                    li class="tabular-nums" { (bit) ", in " (grouped(*count)) " cases" }
-                }
-            }
-        }
-        h3 class="mt-6 mb-2 font-semibold" { "First wrong cases" }
-        // One case to a block, each value on its own line, so a wide build's
-        // cases wrap on a phone rather than overflow a table.
-        ol class="flex flex-col" {
-            @for wrong in &run.examples {
-                li class="border-b border-line py-3 first:pt-0" {
-                    dl class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1" {
-                        // A build of several operations, such as an ALU,
-                        // says which each case was on.
-                        @if ops {
-                            dt class="text-muted" { "Operation" }
-                            dd { (wrong.op.as_deref().unwrap_or("")) }
-                        }
-                        @for (signal, &value) in run.inputs.iter().zip(&wrong.inputs) {
-                            dt class="text-muted" { (signal.name) }
-                            dd class="break-all" { (shown(value, value, signal.bits)) }
-                        }
-                        @for ((signal, &got), &expected) in run.outputs.iter().zip(&wrong.got).zip(&wrong.expected) {
-                            @if got == expected {
-                                dt class="text-muted" { (signal.name) }
-                                dd class="break-all" { (shown(got, expected, signal.bits)) }
-                            } @else {
-                                dt class="text-muted" { "Expected " (signal.name) }
-                                dd class="break-all" { (shown(expected, expected, signal.bits)) }
-                                dt class="text-muted" { "Got " (signal.name) }
-                                dd class="break-all" { (shown(got, expected, signal.bits)) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// `value`, a signal of `bits` bits, as a wrong case shows it, the digits
 /// that differ from `expected` marked: in binary, with its decimal beside
 /// it, up to a byte; wider, in hex, as a wide build's binary would run off
 /// a phone's screen.
-fn shown(value: Value, expected: Value, bits: usize) -> Markup {
+pub(super) fn shown(value: Value, expected: Value, bits: usize) -> Markup {
     if bits <= 8 {
         return value_bits(value, expected, bits);
     }
@@ -534,7 +406,7 @@ fn marked_hex(value: Value, expected: Value, digits: usize) -> Markup {
 /// A failing register's cells, by the blocks their controls are on, and
 /// the steps that show each fault, from the build as saved, each read's
 /// wrong bits marked.
-fn cell_faults(run: &Run) -> Markup {
+pub(super) fn cell_faults(run: &Run) -> Markup {
     let width = run.inputs.first().map_or(1, |signal| signal.bits);
     let at = |[x, y, z]: Pos| format!("({x}, {y}, {z})");
     let buses = run.outputs.len() > 1;

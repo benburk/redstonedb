@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::atomic::AtomicBool};
 use anyhow::{Context, Result, bail};
 
 use super::{
-    Reading, Run, Signal, Timing, Value, Wrong,
+    BitCount, Reading, Run, Signal, Timing, Value, Wrong,
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
@@ -263,12 +263,16 @@ impl Spec {
             )),
             Cases::Combinations(_) => None,
         };
+        // Only the values a selection of cases gives may drive it at random,
+        // as only valid BCD drives a converter from it; test patterns stand
+        // for every value.
+        let any = !matches!(self.cases, Cases::Only(_));
         timing::measure(
             blocks,
             interface,
             &self.bench.inputs,
             &self.bench.held,
-            values,
+            (values, any),
             cancel,
         )
     }
@@ -735,6 +739,12 @@ pub(super) fn judge(
             })
         })
         .collect();
+    // Counted only once cases are wrong, so a pass costs nothing more.
+    let bit_counts = if wrong == 0 {
+        Vec::new()
+    } else {
+        count_bits(bench, cases, got, &expected, &wrong_by_bit, &labels)
+    };
     let wrong_bits = wrong_by_bit
         .into_iter()
         .zip(labels)
@@ -769,6 +779,7 @@ pub(super) fn judge(
         outputs: signals(&bench.outputs, true),
         wrong_bits,
         examples,
+        bit_counts,
         hint: None,
         inverted: Vec::new(),
         reading: None,
@@ -780,6 +791,37 @@ pub(super) fn judge(
         design: None,
         by_digit: false,
     }
+}
+
+/// Each result bit, named by `labels` and wrong as often as `wrong_by_bit`
+/// says, with how often it came out on in `got` and was expected on over
+/// `cases`.
+fn count_bits(
+    bench: &Bench,
+    cases: &[Case],
+    got: &[Value],
+    expected: impl Fn(&Case) -> Value,
+    wrong_by_bit: &[u64],
+    labels: &[String],
+) -> Vec<BitCount> {
+    let mut on = vec![(0, 0); labels.len()];
+    for (case, &got) in cases.iter().zip(got) {
+        let want = expected(case) & bench.care | got & !bench.care;
+        for (bit, (got_on, want_on)) in on.iter_mut().enumerate() {
+            *got_on += u64::from(got >> bit & 1 == 1);
+            *want_on += u64::from(want >> bit & 1 == 1);
+        }
+    }
+    on.iter()
+        .zip(wrong_by_bit)
+        .zip(labels)
+        .map(|((&(got_on, expected_on), &wrong), name)| BitCount {
+            name: name.clone(),
+            wrong,
+            got_on,
+            expected_on,
+        })
+        .collect()
 }
 
 #[cfg(test)]

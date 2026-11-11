@@ -126,10 +126,16 @@ pub async fn page(
         .await?
         .ok_or(AppError::NotFound)?;
     let kind = Kind::named(&s.category);
-    let analysis =
-        tokio::task::spawn_blocking(move || analyze(&data, kind, &pairs))
-            .await
-            .map_err(anyhow::Error::from)?;
+    // Each input switches on the tick its timing found, as the timing that
+    // says whether it glitches switched it, unless the change says when.
+    let timing = simulation::current(db, &s)
+        .await?
+        .and_then(|report| report.timing().cloned());
+    let analysis = tokio::task::spawn_blocking(move || {
+        analyze(&data, kind, timing.as_ref(), &pairs)
+    })
+    .await
+    .map_err(anyhow::Error::from)?;
     Ok(
         super::pages::trace_page(viewer.as_ref(), &s, analysis.as_ref())
             .into_response(),
@@ -204,21 +210,36 @@ impl Setup {
 /// The build in `data`, carrying its roles, of `kind`, traced through the
 /// change `pairs` names, as `from.A=3`, `to.B=1`, and `at.A=1`, or, when
 /// they name none, the change its sweep found most worth seeing; or why it
-/// could not be.
+/// could not be. Each input switches on the tick `timing` found for it, as
+/// the timing switched it, unless `pairs` says otherwise, so the analyzer
+/// glitches where the timing does; at tick 0 for a build not timed.
 pub fn analyze(
     data: &[u8],
     kind: Option<Kind>,
+    timing: Option<&Timing>,
     pairs: &[(String, String)],
 ) -> Result<Analysis, String> {
     let setup = Setup::new(data, kind)?;
     let mut tracer = setup.tracer()?;
     let widths = tracer.input_widths();
+    let ticks: Vec<i32> = setup
+        .inputs
+        .iter()
+        .map(|line| {
+            timing
+                .and_then(|t| t.inputs.iter().find(|i| i.name == line.name))
+                .and_then(|i| i.tick)
+                .unwrap_or(0)
+                .max(0)
+        })
+        .collect();
     let cases = trace::cases(&widths, RANDOM);
-    let sweep = trace::sweep(&mut tracer, &cases, Some(Instant::now() + SWEEP))
-        .map_err(|err| err.to_string())?;
-    let (case, at) = match chosen(&setup.inputs, pairs)? {
+    let sweep =
+        trace::sweep(&mut tracer, &cases, &ticks, Some(Instant::now() + SWEEP))
+            .map_err(|err| err.to_string())?;
+    let (case, at) = match chosen(&setup.inputs, pairs, &ticks)? {
         Some(chosen) => chosen,
-        None => (worth_seeing(&sweep, &widths), vec![0; widths.len()]),
+        None => (worth_seeing(&sweep, &widths), ticks),
     };
     let mut runs = Vec::new();
     let first = run(&mut tracer, &case, &at)?;
@@ -269,25 +290,28 @@ pub fn glitch(
             .position(|input| input.name == line.name)
     };
     let found: Vec<Option<usize>> = setup.inputs.iter().map(by_name).collect();
-    let to: Vec<Value> = found
-        .iter()
-        .map(|&i| i.and_then(|i| glitch.case.get(i).copied()).unwrap_or(0))
-        .collect();
+    let value = |values: &[Value], i: Option<usize>| {
+        i.and_then(|i| values.get(i).copied()).unwrap_or(0)
+    };
+    let to: Vec<Value> =
+        found.iter().map(|&i| value(&glitch.case, i)).collect();
+    // From all off, unless it came from other values.
+    let from: Vec<Value> =
+        found.iter().map(|&i| value(&glitch.from, i)).collect();
     let at: Vec<i32> = found
         .iter()
         .map(|&i| i.and_then(|i| timing.inputs[i].tick).unwrap_or(0))
         .collect();
-    let case = Case {
-        from: vec![0; to.len()],
-        to,
-    };
+    let case = Case { from, to };
     let glitched = |run: &Run| {
         (0..setup.outputs[port].width)
             .any(|bit| run.trace.bit_changes(port, bit).len() > 1)
     };
     let mut tracer = setup.tracer()?;
     let mut shown = run(&mut tracer, &case, &at)?;
-    for _ in 0..TRIES {
+    // A change kept for no glitch, as the slowest, is shown as first run.
+    let tries = if glitch.steps.is_empty() { 0 } else { TRIES };
+    for _ in 0..tries {
         if glitched(&shown) {
             break;
         }
@@ -316,8 +340,30 @@ pub async fn glitch_fragment(
     let Some(timing) = report.as_ref().and_then(|r| r.timing()).cloned() else {
         return Ok(html! {}.into_response());
     };
-    let Some(output) = shown_glitch(&timing).map(|o| o.name.clone()) else {
-        return Ok(html! {}.into_response());
+    // Its glitch when it has one; else its slowest change from all off,
+    // so its timing always shows a change as it runs.
+    let (title, output, shown) = if let Some(output) = shown_glitch(&timing) {
+        (
+            "Glitch",
+            output.name.clone(),
+            output.glitch.clone().expect("a shown glitch"),
+        )
+    } else {
+        let Some(output) = timing
+            .outputs
+            .iter()
+            .find(|o| !o.status)
+            .or(timing.outputs.first())
+        else {
+            return Ok(html! {}.into_response());
+        };
+        let slowest = Glitch {
+            from: Vec::new(),
+            case: timing.slowest_case.clone(),
+            before: 0,
+            steps: Vec::new(),
+        };
+        ("Slowest change", output.name.clone(), slowest)
     };
     let data = version::current_file(db, &id)
         .await?
@@ -325,16 +371,16 @@ pub async fn glitch_fragment(
     let kind = Kind::named(&s.category);
     let name = output.clone();
     let analysis = tokio::task::spawn_blocking(move || {
-        let output = shown_glitch(&timing).expect("found above");
-        let glitch = output.glitch.as_ref().expect("found above");
-        self::glitch(&data, kind, &timing, &name, glitch)
+        self::glitch(&data, kind, &timing, &name, &shown)
     })
     .await
     .map_err(anyhow::Error::from)?;
     let path = format!("/schematics/{id}");
     Ok(match analysis {
-        Ok(analysis) => super::pages::glitch_trace(&path, &analysis, &output)
-            .into_response(),
+        Ok(analysis) => {
+            super::pages::glitch_trace(&path, &analysis, &output, title)
+                .into_response()
+        }
         Err(why) => html! {
             p class="mt-4 text-muted" { "Could not trace its glitch: " (why) }
         }
@@ -414,11 +460,12 @@ fn readers(interface: &Interface) -> Vec<(Pos, usize, usize)> {
 fn chosen(
     inputs: &[Line],
     pairs: &[(String, String)],
+    ticks: &[i32],
 ) -> Result<Option<(Case, Vec<i32>)>, String> {
     let n = inputs.len();
     let mut from: Vec<Option<Value>> = vec![None; n];
     let mut to: Vec<Option<Value>> = vec![None; n];
-    let mut at = vec![0; n];
+    let mut at = ticks.to_vec();
     let mut any = false;
     for (key, value) in pairs {
         let Some((side, name)) = key.split_once('.') else {

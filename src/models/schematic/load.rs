@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{
-    Encoding, Logic, Operands, Orientation, Schematic, StackDirection, Widened,
+    Encoding, Logic, Operands, Orientation, Schematic, StackDirection, Status,
+    Widened,
 };
 use crate::{
     category::{self, Design, Flag, Kind},
@@ -89,6 +90,9 @@ async fn load(
             EXISTS (SELECT 1 FROM simulation WHERE simulation.failed
                 AND simulation.schematic_id = schematic.id
                 AND simulation.sha256 = file.sha256) as "fails_simulation!: bool",
+            (SELECT json_extract(simulation.report, '$.outcome') FROM simulation
+                WHERE simulation.schematic_id = schematic.id
+                AND simulation.sha256 = file.sha256) as "outcome?: String",
             (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)
                 as "favorites!: i64"
          FROM schematic
@@ -116,15 +120,17 @@ async fn load(
             let facts = Kind::named(&row.category).map(Kind::facts);
             let (design_abbreviation, design_given_label) =
                 design_names(&row.category, row.design.as_deref());
+            let status = Status::of(
+                row.outcome.as_deref(),
+                row.fails_simulation,
+                row.unverified.as_deref(),
+            );
             Schematic {
                 measures: facts.map_or_else(Vec::new, |f| f.measures.to_vec()),
                 aliases: category::aliases(&row.category),
                 tags: tag::with_derived(
                     tags.remove(&row.id).unwrap_or_default(),
-                    tag::unverified(
-                        row.fails_simulation,
-                        row.unverified.as_deref(),
-                    ),
+                    status.unverified(),
                     row.torches,
                     row.works_from.as_deref(),
                 ),
@@ -169,6 +175,7 @@ async fn load(
                 favorites: row.favorites,
                 public: row.public,
                 unverified: row.unverified,
+                status,
                 operands,
                 unaligned,
                 id: row.id,

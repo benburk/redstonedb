@@ -72,9 +72,10 @@ pub(super) async fn trace_command(db: &SqlitePool, args: &Trace) -> Result<()> {
             pairs.push((format!("{side}.{name}"), value.trim().to_owned()));
         }
     }
-    let a = tokio::task::spawn_blocking(move || analyze(&data, kind, &pairs))
-        .await?
-        .map_err(anyhow::Error::msg)?;
+    let a =
+        tokio::task::spawn_blocking(move || analyze(&data, kind, None, &pairs))
+            .await?
+            .map_err(anyhow::Error::msg)?;
     let what = kind.map_or_else(|| "a build".to_owned(), Kind::a);
     println!("{} as {what}: {}", source.name, case_words(&a, &a.case));
     if a.at.iter().any(|&at| at != 0) {

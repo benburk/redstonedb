@@ -26,6 +26,7 @@ const SWITCHES: &str =
 mod about;
 mod activity;
 mod build;
+mod checks;
 mod description;
 mod details_page;
 mod diff;
@@ -52,6 +53,7 @@ pub use build::{
     BuildPage, ColoursShown, FileRead, build_banner, build_info,
     favorite_button, schematic_page,
 };
+pub use checks::{Known, Subject, form_checks};
 pub use description::mentions;
 pub use details_page::{
     DetailsPage, File, Reply, details_page, failing_or_untested, reason_items,
@@ -75,9 +77,7 @@ pub use settings::{
     settings, welcome,
 };
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
-pub use simulation::{
-    Waiting, simulation_results, simulation_section, timing_section,
-};
+pub use simulation::{simulation_results, timing_section};
 pub use trace::{glitch_trace, trace_page};
 pub use upload::{
     analysis_steps, analyzing, checking_version, upload, version_steps,

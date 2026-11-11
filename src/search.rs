@@ -458,6 +458,7 @@ pub(crate) mod tests {
             favorites: 0,
             public: true,
             unverified: None,
+            status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,
             unaligned: false,
             tags: tags

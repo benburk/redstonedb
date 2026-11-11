@@ -107,14 +107,15 @@ fn an_input_switches_on_its_tick() {
 fn a_sweep_finds_the_races() {
     let mut racing = tracer("cca-10-bit-3-carry-lost");
     let cases = trace::cases(&racing.input_widths(), 200);
-    let sweep = trace::sweep(&mut racing, &cases, None).unwrap();
+    let ticks = vec![0; cases[0].to.len()];
+    let sweep = trace::sweep(&mut racing, &cases, &ticks, None).unwrap();
     assert_eq!(sweep.cases, cases.len());
     assert_eq!(at(&racing, sweep.races[0].race.node), [9, 3, 4]);
     assert!(sweep.outputs[0].settled.keys().all(|&tick| tick <= 4));
 
     let mut clean = tracer("adder-8-lsb-top");
     let cases = trace::cases(&clean.input_widths(), 200);
-    let sweep = trace::sweep(&mut clean, &cases, None).unwrap();
+    let sweep = trace::sweep(&mut clean, &cases, &ticks, None).unwrap();
     assert!(sweep.races.is_empty());
     assert!(sweep.outputs[0].glitches.is_empty());
 }

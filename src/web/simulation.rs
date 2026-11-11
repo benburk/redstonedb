@@ -29,46 +29,25 @@ use crate::{
 
 use super::{
     form::{self, Form},
-    pages::{self, Waiting},
+    pages,
 };
 
 /// Build `id`'s simulation, for its page to ask after while storing it
-/// simulates it in the background: 204 until that is done, then its
-/// section, naming the panels it changes for the page to redraw, or
-/// nothing in its place when none is stored to show.
+/// simulates it in the background: 204 until that is done, then the page
+/// again, its checks drawn from what was stored.
 pub async fn poll(
     Path(id): Path<String>,
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
+    schematic::get_visible(&state.db, &id, viewer.as_ref())
         .await?
         .ok_or(AppError::NotFound)?;
     if simulation::completing(&id) {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
-    // Off the list, a build the simulator can't run says why under its
-    // reasons already.
-    let report = simulation::current(&state.db, &s).await?.filter(|report| {
-        simulation::stands_in(&s).is_none()
-            || !matches!(report, Report::Skipped { .. })
-    });
-    let redraw = [("FX-Redraw", "build-banner build-info")];
-    Ok(match report {
-        Some(report) => {
-            let trace = format!("/schematics/{id}/trace");
-            (
-                redraw,
-                pages::simulation_section(
-                    &report,
-                    Waiting::Stored,
-                    Some(&trace),
-                ),
-            )
-                .into_response()
-        }
-        None => (redraw, nothing()).into_response(),
-    })
+    let page = format!("/schematics/{id}#checks");
+    Ok((StatusCode::NO_CONTENT, [("FX-Redirect", page)]).into_response())
 }
 
 /// Which part of a simulation the details form asks for: the cases, or,
@@ -270,9 +249,9 @@ async fn stored_result(
     Ok(simulation::stored(&state.db, &s.id, &s.sha256, test).await?)
 }
 
-/// The details form's simulation panel: the section for the cases, with
-/// the timing to follow when they pass; empty for a category and width
-/// with no test.
+/// The details form's checks: the same stages a build's page shows, its
+/// file read, its lines found, its cases run under the form's category and
+/// width, and its timing measured once the page has loaded.
 async fn cases(
     state: &AppState,
     pairs: &[(String, String)],
@@ -289,23 +268,84 @@ async fn cases(
         let content = html! { (note.unwrap_or_default()) (content) };
         pages::simulation_results(&simulate, &content).into_response()
     };
-    let Some(test) = test(pairs, &data)? else {
-        return Ok(panel(&html! {}, false));
-    };
-    let report = match stored_result(state, s, test).await? {
-        Some(report) => report,
-        None => match simulation::run(test, data).await {
-            Ok(report) => report,
-            Err(err) => {
-                return Ok(panel(&could_not(&err.to_string()), false));
-            }
+    let report = match test(pairs, &data)? {
+        None => None,
+        Some(test) => match stored_result(state, s, test).await? {
+            Some(report) => Some(report),
+            None => match simulation::run(test, data.clone()).await {
+                Ok(report) => Some(report),
+                Err(err) => {
+                    return Ok(panel(&could_not(&err.to_string()), false));
+                }
+            },
         },
     };
+    let categories = Category::all();
+    let category = details::meant(&categories, &Form::read(pairs).category)
+        .map_or_else(String::new, |c| c.name.clone());
+    let file = read_file(&data, &category).await;
+    let why = match &filing {
+        Some(Filing::Unverified(why)) => Some(why.as_str()),
+        _ => None,
+    };
+    let subject = if let Some(s) = s {
+        pages::Subject::of(s)
+    } else {
+        let size = crate::schem::Blocks::read(&data)
+            .map_or([0; 3], |blocks| blocks.size);
+        pages::Subject {
+            size: (size[0].into(), size[1].into(), size[2].into()),
+            category: &category,
+            unranked: None,
+            unaligned: false,
+            conventional: true,
+            unverified: why,
+        }
+    };
+    let trace = s.map(|s| format!("/schematics/{}/trace", s.id));
     let timing = timing_url(&simulate);
+    let known = pages::Known {
+        s: subject,
+        file: &file,
+        report: report.as_ref(),
+        trace: trace.as_deref(),
+        timing: Some(&timing),
+    };
     Ok(panel(
-        &pages::simulation_section(&report, Waiting::Posted(&timing), None),
-        report.failed(),
+        &pages::form_checks(&known),
+        report.as_ref().is_some_and(Report::failed),
     ))
+}
+
+/// The file `data` as the checks read it, as a build of `category`: its
+/// lines, its blocks, and, for a category the site recognizes, what keeps
+/// it from being one, as a stored build's page re-reads it.
+async fn read_file(
+    data: &[u8],
+    category: &str,
+) -> Result<pages::FileRead, String> {
+    let blocks =
+        crate::schem::Blocks::read(data).map_err(|err| err.to_string())?;
+    // Probing doesn't read hex inputs, so a hex adder's faults are its
+    // test's.
+    let problems = if category::blessed(category) && category != "hex_adder" {
+        let (data, meant) = (data.to_vec(), category.to_owned());
+        tokio::task::spawn_blocking(move || {
+            crate::recognize::probe::recognize_as(&data, Some(&meant))
+        })
+        .await
+        .map_err(|err| err.to_string())?
+        .map_or_else(|err| vec![err.to_string()], |r| r.problems)
+    } else {
+        Vec::new()
+    };
+    Ok(pages::FileRead {
+        analysis: crate::import::Analysis::of(&blocks, category),
+        block_counts: crate::schem::standardize::block_counts(&blocks),
+        unrecognized: problems,
+        strength_inputs: crate::recognize::interface::takes_digits(&blocks),
+        stacking: Vec::new(),
+    })
 }
 
 /// What takes the timing's place when there is none to show: nothing.
