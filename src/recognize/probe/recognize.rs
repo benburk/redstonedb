@@ -435,8 +435,9 @@ fn probe_by(
 
 /// The file in `data`, carrying the roles probing found, found to be a
 /// `kind`, less its signs: the site names its lines itself. A sign on a
-/// control line stays where its kind's test reads what it says, as an
-/// ALU's names the operations a line chooses, a barrel shifter's the
+/// control or status line stays where its kind's test reads what it says,
+/// as an ALU's names the operations a line chooses and which status line
+/// is its carry out, overflow, shift out, or zero, a barrel shifter's the
 /// amount a line shifts by, and a register's or buffer's whether a line
 /// reads or writes.
 fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
@@ -445,16 +446,20 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
         Kind::Alu | Kind::BarrelShifter | Kind::Register | Kind::Buffer
     );
     let blocks = Blocks::read(data)?;
-    let on_control = |pos: Pos| {
+    // A status line's sign hangs on the block holding its output up, which
+    // carries its role, as a control line's does on its lever's block.
+    let on_line = |pos: Pos| {
         blocks.sign_block(pos).is_some_and(|block| {
-            blocks.roles.as_ref().and_then(|roles| roles.get(block))
-                == Some(Role::Control)
+            matches!(
+                blocks.roles.as_ref().and_then(|roles| roles.get(block)),
+                Some(Role::Control | Role::Status)
+            )
         })
     };
     let changes: BTreeMap<Pos, String> = blocks
         .signs
         .keys()
-        .filter(|&&pos| !(reads_signs && on_control(pos)))
+        .filter(|&&pos| !(reads_signs && on_line(pos)))
         .map(|&pos| (pos, schem::AIR.to_owned()))
         .collect();
     if changes.is_empty() {
@@ -637,12 +642,23 @@ mod tests {
         assert!(!blocks.signs.is_empty(), "its operations stay named");
         let roles = blocks.roles.as_ref().unwrap();
         for &pos in blocks.signs.keys() {
-            let block = blocks.sign_block(pos);
-            assert_eq!(
-                block.and_then(|b| roles.get(b)),
-                Some(Role::Control),
-                "a sign off a control line stays at {pos:?}"
+            let role = blocks.sign_block(pos).and_then(|b| roles.get(b));
+            assert!(
+                matches!(role, Some(Role::Control | Role::Status)),
+                "a sign off a control or status line stays at {pos:?}"
             );
         }
+        // Its status lines keep their names, which its test finds them by.
+        let interface = crate::recognize::interface::read(&blocks);
+        let statuses: Vec<&str> = interface
+            .outputs
+            .iter()
+            .filter(|port| port.role == Some(Role::Status))
+            .map(|port| port.name.as_str())
+            .collect();
+        assert!(
+            statuses.iter().all(|name| !name.starts_with("unnamed")),
+            "{statuses:?}"
+        );
     }
 }
