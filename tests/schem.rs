@@ -7,9 +7,9 @@ use app::{
     import,
     ingest::standardize,
     interface::{self, Orientation},
-    models::schematic::StackDirection,
     schem::{self, Blocks, Direction, lines::Role},
-    simulate, stack,
+    simulate,
+    stack::{self, StackDirection},
 };
 
 fn raw(name: &str) -> Vec<u8> {
@@ -231,7 +231,7 @@ fn a_register_stacks_two_ways() {
     let (data, size) = stack::stack(
         &slice("alpha-register"),
         &plan,
-        stack::Buses::of(Kind::Register, Orientation::Horizontal),
+        stack::Buses::of(Kind::Register.copies(), Orientation::Horizontal),
     )
     .unwrap();
     // Seven 2-wide copies, and the first copy's feed for the control lines,

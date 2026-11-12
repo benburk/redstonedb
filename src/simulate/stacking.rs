@@ -66,9 +66,8 @@ use crate::{
     category::{Group, Kind},
     import,
     interface::{self, Interface, Orientation},
-    models::schematic::{Faces, PITCHES, StackDirection},
     schem::Blocks,
-    stack,
+    stack::{self, Faces, PITCHES, StackDirection},
 };
 
 /// The farthest dust carries a signal, which a stack tested must reach
@@ -450,7 +449,7 @@ impl<'a> Stacker<'a> {
 
     /// What copies stacked `way` do with the build's buses and lines.
     fn buses(&self, way: Way) -> stack::Buses {
-        stack::Buses::of(self.kind, way.orientation())
+        stack::Buses::of(self.kind.copies(), way.orientation())
     }
 
     /// The bits each copy adds.

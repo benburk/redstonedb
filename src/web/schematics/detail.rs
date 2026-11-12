@@ -197,12 +197,7 @@ pub async fn detail(
                 .stacking
                 .iter()
                 .filter_map(|&direction| {
-                    stack::review(
-                        &data,
-                        direction,
-                        stack::Buses::of(s.kind(), s.specs.orientation),
-                    )
-                    .ok()
+                    stack::review(&data, direction, s.buses()).ok()
                 })
                 .collect(),
         })

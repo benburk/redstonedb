@@ -10,9 +10,10 @@ use std::collections::BTreeMap;
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::{Build, StackDirection},
+    models::schematic::Build,
     recognize::fault,
     simulate::{BitCount, Report, Run, Stacking},
+    stack::StackDirection,
 };
 
 use super::{

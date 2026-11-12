@@ -552,7 +552,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_stack_answers_to_the_widths_its_copies_reach() {
-        use crate::models::schematic::StackDirection;
+        use crate::stack::StackDirection;
         let stacks = |width, west, up, max_copies| {
             let mut s = schematic("adder", Orientation::Horizontal, &[]);
             s.specs.width = Some(width);

@@ -5,12 +5,12 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::StackDirection,
     schem::Pos,
     simulate::{
         Action, Edge, Glitch, InputTiming, OutputTiming, Report, Run, Stacking,
         Start, Takes, Timing, Value,
     },
+    stack::StackDirection,
 };
 
 use super::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner};

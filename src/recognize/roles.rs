@@ -26,10 +26,9 @@ use anyhow::Result;
 
 use crate::{
     interface,
-    models::schematic::StackDirection,
     schem::{self, Blocks, Direction, Pos},
     simulate::{Compiled, Link, compiled},
-    stack,
+    stack::{self, StackDirection},
 };
 
 /// What a block must be.

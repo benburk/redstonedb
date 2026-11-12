@@ -432,7 +432,7 @@ pub fn apply(
 /// is left out.
 pub fn needs_of(
     data: &[u8],
-    ways: &[crate::models::schematic::StackDirection],
+    ways: &[crate::stack::StackDirection],
     buses: crate::stack::Buses,
 ) -> Result<Needs> {
     use crate::recognize::roles::{Need, Use, roles};
@@ -463,7 +463,7 @@ pub fn needs_of(
 /// roles, which the site can't read, is left in its author's colours.
 pub fn themed(
     data: &[u8],
-    ways: &[crate::models::schematic::StackDirection],
+    ways: &[crate::stack::StackDirection],
     buses: crate::stack::Buses,
     palette: &Palette,
 ) -> Result<Vec<u8>> {

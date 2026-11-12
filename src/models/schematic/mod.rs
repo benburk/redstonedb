@@ -9,11 +9,12 @@ mod write;
 // still reached through here, as they were.
 pub use crate::{
     build::{
-        Build, Credits, Entry, Faces, File, Operands, PITCHES, Specs,
-        StackDirection, Status, Widened, classes, file_stem,
+        Build, Credits, Entry, File, Operands, Specs, Status, Widened,
+        file_stem,
     },
     category::Logic,
     interface::{Encoding, Orientation},
+    stack::{Faces, PITCHES, StackDirection, classes},
 };
 pub use load::{
     all, all_people, get, get_many, get_many_with_deleted, ids_with_prefix,

@@ -183,7 +183,7 @@ fn words(
 /// lines: their data buses, which run across the way they stack.
 fn word_buses(kind: Kind, step: Step) -> stack::Buses {
     let across = Way::of(step).map_or(Way::Up, Way::across);
-    stack::Buses::of(kind.category(), across.orientation())
+    stack::Buses::of(kind.category().copies(), across.orientation())
 }
 
 /// The cases `copies` of the register in `data`, one copy shaped `single`,
@@ -245,7 +245,7 @@ pub fn stacks_at(
     {
         let buses = if bits {
             let way = Way::of(step).unwrap_or(Way::West);
-            stack::Buses::of(kind.category(), way.orientation())
+            stack::Buses::of(kind.category().copies(), way.orientation())
         } else {
             word_buses(kind, step)
         };

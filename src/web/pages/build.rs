@@ -9,12 +9,13 @@ use crate::{
     import::{self, Analysis},
     interface::Interface,
     models::{
-        schematic::{Build, StackDirection, Status},
+        schematic::{Build, Status},
         tag,
         user::User,
         version::Version,
     },
     simulate::{Report, Timing},
+    stack::StackDirection,
     web::schematics::Colours,
 };
 

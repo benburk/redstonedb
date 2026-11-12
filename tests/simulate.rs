@@ -1663,7 +1663,7 @@ fn a_2_wide_gate_is_tested_at_2_and_not_at_4() {
         panic!("it does not stack 4 west: {:?}", at(4));
     };
     assert_eq!((step.pitch(1), cases), (Some(4), 0));
-    assert!(app::models::schematic::classes(2).any(|class| class == 4));
+    assert!(app::stack::classes(2).any(|class| class == 4));
 }
 
 /// Cells narrower than a step stack there untested, as copies with air
@@ -1708,7 +1708,7 @@ fn an_adder_stacks_end_to_end_at_its_own_width() {
     assert_eq!(step.faces, None, "not the box rule's box: {step:?}");
     let directions = stacking.directions();
     assert_eq!(directions[0].pitch, Some(5), "{directions:?}");
-    let classes: Vec<i64> = app::models::schematic::classes(5).collect();
+    let classes: Vec<i64> = app::stack::classes(5).collect();
     assert_eq!(classes, [5]);
     let apart = Test::Adder.stacks_at(&data, Step::new(10, 0), 3);
     assert!(
