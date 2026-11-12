@@ -23,7 +23,6 @@ mod activity;
 pub mod analysis;
 pub mod app_state;
 mod auth;
-mod back;
 #[cfg(debug_assertions)]
 mod dev;
 pub mod error;
@@ -344,7 +343,6 @@ pub fn router(state: AppState) -> Router<AppState> {
             get(settings::palette_editor).post(settings::set_palette),
         )
         .route("/palette/custom", get(settings::custom_colours))
-        .route("/welcome", get(settings::welcome))
         .route("/schemati/session", post(schemati::connect))
         .route("/schemati/session/delete", post(schemati::disconnect))
         .route("/schemati/picker", get(schemati::picker))

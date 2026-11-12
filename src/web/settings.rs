@@ -134,7 +134,6 @@ pub struct PaletteForm {
     fields: PaletteFields,
     #[serde(flatten)]
     reset: Reset,
-    next: Option<String>,
 }
 
 /// Whether to go back to the site's palette.
@@ -168,14 +167,11 @@ pub async fn set_palette(
     }
     // A preset or the site's own shows itself on the form; saving goes on.
     let next = if preset || reset {
-        form.next.as_deref().filter(|n| *n != "/").map_or_else(
-            || "/welcome?step=3".to_owned(),
-            |n| onward(Some(n), "/settings"),
-        )
+        "/settings/palette"
     } else {
-        onward(form.next.as_deref(), "/settings")
+        "/settings"
     };
-    Ok(Redirect::to(&next).into_response())
+    Ok(Redirect::to(next).into_response())
 }
 
 /// The block theme's editor, as the viewer has it: through fixi, its
@@ -221,52 +217,6 @@ pub async fn custom_colours(
 #[derive(Deserialize)]
 pub struct MinecraftName {
     minecraft_name: Option<String>,
-    next: Option<String>,
-}
-
-/// Where a form goes once saved: `next`, if it is one of the site's
-/// settings or welcome pages or its home, else `fallback`, so a form can't
-/// be made to send anyone elsewhere.
-pub(super) fn onward(next: Option<&str>, fallback: &str) -> String {
-    match next {
-        Some(next)
-            if next == "/"
-                || next.starts_with("/settings")
-                || next.starts_with("/welcome?") =>
-        {
-            next.to_owned()
-        }
-        _ => fallback.to_owned(),
-    }
-}
-
-#[derive(Deserialize)]
-pub struct WelcomeStep {
-    step: Option<u8>,
-}
-
-/// A welcome step, as a new account sees at its first login.
-pub async fn welcome(
-    State(state): State<AppState>,
-    SignedIn(user): SignedIn,
-    axum::extract::Query(at): axum::extract::Query<WelcomeStep>,
-) -> Result<Response, AppError> {
-    welcome_page(&state, &user, at.step.unwrap_or(1), "").await
-}
-
-/// Welcome step `step` for `user`, saying `message`, why their last try
-/// at it was refused.
-pub(super) async fn welcome_page(
-    state: &AppState,
-    user: &User,
-    step: u8,
-    message: &str,
-) -> Result<Response, AppError> {
-    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
-    Ok(
-        pages::welcome(user, step.clamp(1, 3), message, &chosen)
-            .into_response(),
-    )
 }
 
 /// Sets or clears the viewer's Minecraft name, as Mojang spells it.
@@ -285,12 +235,8 @@ pub async fn set_minecraft_name(
             Err(message) => Err(message),
         }
     };
-    let next = form.next.as_deref();
     match saved {
-        Ok(()) => Ok(Redirect::to(&onward(next, "/settings")).into_response()),
-        Err(refused) if next.is_some_and(|n| n.starts_with("/welcome")) => {
-            welcome_page(&state, &user, 1, &refused).await
-        }
+        Ok(()) => Ok(Redirect::to("/settings").into_response()),
         Err(refused) => {
             let said = Said {
                 minecraft: &refused,

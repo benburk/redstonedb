@@ -123,7 +123,6 @@ fn minecraft_row(user: &User, message: &str) -> Markup {
     };
     let form = html! {
         form action="/settings/minecraft" method="post" class="flex items-center gap-2" {
-            input type="hidden" name="next" value="/settings";
             input name="minecraft_name" value=(name) aria-label="Minecraft username"
                 pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
                 aria-invalid=[(!message.is_empty()).then_some("true")]
@@ -188,14 +187,13 @@ fn schemati_row(link: Option<&SchematiLink>, message: &str) -> Markup {
     };
     let form = html! {
         form action="/schemati/session" method="post" class="flex items-center gap-2" {
-            input type="hidden" name="next" value="/settings";
             input name="session" required autocomplete="off" spellcheck="false"
                 aria-label="Schemati session ID" placeholder=(placeholder)
                 class="inline-input font-mono";
             button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
             button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
         }
-        (session_steps("mt-2 flex list-decimal flex-col gap-0.5 pl-5 text-meta text-muted"))
+        (session_steps())
     };
     row(
         &html! { "Schemati session ID" },
@@ -211,11 +209,11 @@ fn schemati_row(link: Option<&SchematiLink>, message: &str) -> Markup {
     )
 }
 
-/// How to find a Schemati session ID, as steps in a list of `class`: on
-/// the welcome page, and under the field that takes one in Settings.
-fn session_steps(class: &str) -> Markup {
+/// How to find a Schemati session ID, as steps under the field that takes
+/// one.
+fn session_steps() -> Markup {
     html! {
-        ol class=(class) {
+        ol class="mt-2 flex list-decimal flex-col gap-0.5 pl-5 text-meta text-muted" {
             li { "Log in at " a href="https://schemati.openredstone.org/login" target="_blank" rel="noopener" { "schemati.openredstone.org" } "." }
             li { "Press F12, open Storage (Firefox) or Application (Chrome), then Cookies." }
             li { "Copy " code { "sessionId" } " and paste it here." }
@@ -260,7 +258,7 @@ pub fn block_theme(chosen: &Palette) -> Markup {
                 // Its choices save as they change; done shows them.
                 a href="/settings" class="btn btn-quiet" { "Done" }
             }
-            (palette_form(chosen, "/settings", ""))
+            (palette_form(chosen))
         }
     }
 }
@@ -277,7 +275,7 @@ pub fn block_theme_page(user: &User, chosen: &Palette) -> Markup {
             div class="max-w-calm" {
                 h1 class={ (PAGE_TITLE) " mb-2" } { "Block theme" }
                 p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in." }
-                (palette_form(chosen, "/settings", ""))
+                (palette_form(chosen))
                 button type="submit" form="palette-form" class="btn btn-primary mt-4" { "Save" }
             }
         },
@@ -308,19 +306,13 @@ fn appearance_row() -> Markup {
 
 /// The palette's form, as `chosen`: its fields, as [`palette_fields`]
 /// gives them, its presets saved as chosen. Through fixi it saves itself
-/// as each changes, the answer the fields as saved; `save`, if not empty,
-/// names a button going on to `next`.
-pub(super) fn palette_form(chosen: &Palette, next: &str, save: &str) -> Markup {
+/// as each changes, the answer the fields as saved.
+fn palette_form(chosen: &Palette) -> Markup {
     html! {
         form id="palette-form" action="/settings/palette" method="post"
             fx-action="/settings/palette" fx-method="post" fx-trigger="change" fx-target="#palette-fields"
             class="flex max-w-form flex-col gap-4" {
-            input type="hidden" name="next" value=(next);
             (palette_fields(chosen, Presets::Saved))
-            // It saves itself as it changes; this goes on from it.
-            @if !save.is_empty() {
-                div { a href=(next) class="btn btn-primary" { (save) } }
-            }
         }
     }
 }
@@ -520,69 +512,6 @@ fn picker(
             }
         }
     }
-}
-
-/// The welcome steps a new account sees once: `step` 1, its Minecraft
-/// name; 2, its Schemati session; 3, its palette, as `chosen`. `message`
-/// says why the last try at a step was refused.
-pub fn welcome(
-    user: &User,
-    step: u8,
-    message: &str,
-    chosen: &Palette,
-) -> Markup {
-    let next = |step: u8| format!("/welcome?step={step}");
-    let skip =
-        |to: &str| html! { a href=(to) class="btn btn-quiet" { "Skip" } };
-    base(
-        Some(user),
-        "Welcome",
-        "/welcome",
-        &html! {
-            div class="max-w-calm" {
-                p class="mb-1 text-meta text-muted" { "Step " (step) " of 3" }
-                @match step {
-                    1 => {
-                        h1 class={ (PAGE_TITLE) " mb-2" } { "Your Minecraft name" }
-                        p class="mb-4 text-muted" { "Links you to the builds credited to it." }
-                        form action="/settings/minecraft" method="post" class="flex max-w-form flex-col gap-3" {
-                            input type="hidden" name="next" value=(next(2));
-                            input name="minecraft_name" aria-label="Your Minecraft name"
-                                value=(user.minecraft_name.as_deref().unwrap_or_default())
-                                pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
-                                placeholder="Your in-game name" class="input";
-                            @if !message.is_empty() { p role="alert" class="text-meta text-danger" { (message) } }
-                            div class="flex gap-2" {
-                                button type="submit" class="btn btn-primary" { "Next" }
-                                (skip(&next(2)))
-                            }
-                        }
-                    }
-                    2 => {
-                        h1 class={ (PAGE_TITLE) " mb-2" } { "Connect Schemati" }
-                        p class="mb-4 text-muted" { "Upload builds straight from your Schemati folder, and send builds to it." }
-                        (session_steps("mb-4 flex list-decimal flex-col gap-1 pl-5"))
-                        form action="/schemati/session" method="post" class="flex max-w-form flex-col gap-3" {
-                            input type="hidden" name="next" value=(next(3));
-                            input name="session" required autocomplete="off" spellcheck="false"
-                                aria-label="Schemati session" placeholder="Paste your sessionId"
-                                class="input font-mono";
-                            @if !message.is_empty() { p role="alert" class="text-meta text-danger" { (message) } }
-                            div class="flex gap-2" {
-                                button type="submit" class="btn btn-primary" { "Test and save" }
-                                (skip(&next(3)))
-                            }
-                        }
-                    }
-                    _ => {
-                        h1 class={ (PAGE_TITLE) " mb-2" } { "Block theme" }
-                        p class="mb-4 text-muted" { "The blocks builds are shown and downloaded in." }
-                        (palette_form(chosen, "/", "Finish"))
-                    }
-                }
-            }
-        },
-    )
 }
 
 #[cfg(test)]
