@@ -1,14 +1,15 @@
-//! Recognizing a build by probing: the file made simulatable, inspected,
-//! and probed as each standard category in turn until one holds, each
-//! category's probe named by its kind, its signs taken out but those its
-//! test reads; and, when none holds, the fault to show and the file
-//! carrying the closest try's roles.
+//! Recognizing a build: the file made simulatable, inspected, and tried
+//! as each standard category in turn until one holds, by matching where
+//! matching reads the kind and by its probe where not, each judged by the
+//! kind's own test, its signs taken out but those the test reads; and,
+//! when none holds, the fault to show and the file carrying the closest
+//! try's roles.
 
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, Order, Roles, adder_from, alu, decoder, hex_adder, hex_to_binary,
-    multiplier, one_operand, operands_probe, register, sequential, shifter,
+    Fault, Order, Roles, alu, hex_adder, hex_to_binary, multiplier,
+    one_operand, register, sequential, shifter,
 };
 use crate::{
     category::{Kind, Probe, Probing, Test},
@@ -102,6 +103,86 @@ pub fn recognize_watched(
     recognize_laid(data, meant, trying, true)
 }
 
+/// A build being probed: its file, made simulatable, its blocks, what
+/// inspecting them found, and, when levers alone drive it, what it did
+/// driven once, which matching reads every kind from.
+struct Subject {
+    data: Vec<u8>,
+    blocks: Blocks,
+    report: inspect::Report,
+    observed: Option<matching::Observation>,
+}
+
+impl Subject {
+    /// The build in `data`, whatever roles it came with left out: its
+    /// roles are what probing finds.
+    fn of(data: &[u8]) -> anyhow::Result<Subject> {
+        let data = simulatable(&lines::without(data)?)?;
+        let blocks = Blocks::read(&data)?;
+        let report = inspect::inspect(&blocks);
+        let observed = matching::observe(&blocks, &report).ok();
+        Ok(Subject {
+            data,
+            blocks,
+            report,
+            observed,
+        })
+    }
+
+    /// What is wrong with its inputs and outputs, which keeps it from
+    /// being probed at all.
+    fn problems(&self) -> anyhow::Result<Vec<String>> {
+        let mut problems: Vec<String> =
+            self.report.faults().map(|p| p.message.clone()).collect();
+        if problems.is_empty() {
+            problems.extend(not_bus_drivable(&self.data)?.into_iter().map(
+                |lever| {
+                    format!(
+                        "Lever at {}: not bus-drivable",
+                        inspect::place(lever)
+                    )
+                },
+            ));
+        }
+        Ok(problems)
+    }
+
+    /// It recognized as nothing, for `problems`, its file as it is.
+    fn unrecognized(&self, problems: Vec<String>) -> Recognition {
+        Recognition {
+            file: self.data.clone(),
+            found: None,
+            problems,
+            lines: self.report.summary(),
+        }
+    }
+
+    /// It recognized as a `kind`, as `found` has it, unless a data input
+    /// found has a block behind its lever, which only a control line's
+    /// may.
+    fn accept(&self, kind: Kind, found: Found) -> Recognition {
+        let (data_inputs, file, found) = found;
+        let file = carry_on_top(kind, &file).unwrap_or(file);
+        let faults = self.report.data_faults(&data_inputs);
+        if !faults.is_empty() {
+            return self.unrecognized(faults);
+        }
+        Recognition {
+            file,
+            found: Some(found),
+            problems: Vec::new(),
+            lines: self.report.summary(),
+        }
+    }
+}
+
+/// The kind a build meant as the category named `meant` is probed as: its
+/// own, or another's, as a subtractor is the adder it is, its B
+/// subtracted; `None` for one never probed, a category off the list.
+fn probed_kind(meant: &str) -> Option<Kind> {
+    Kind::named(meant).map(Kind::probed_as)
+}
+
 /// As [`recognize_watched`]. With `reorient`, a build whose closest try
 /// got cases wrong is probed as that kind again laid the standard way, as
 /// [`orient::orient`] lays it for publishing and the guess and the
@@ -113,84 +194,40 @@ fn recognize_laid(
     trying: &mut dyn FnMut(Kind, usize),
     reorient: bool,
 ) -> anyhow::Result<Recognition> {
-    // Each meant as another, as a subtractor is the adder it is, its B
-    // subtracted, is probed as that one; one never probed, a category off
-    // the list, is probed as nothing.
-    let meant: Option<Option<Kind>> = meant.map(|meant| {
-        let kind = Kind::named(meant)?;
-        match kind.facts().probe {
-            Probing::As(other) => Some(other),
-            Probing::Tried { .. } => Some(kind),
-        }
-    });
-    // An upload's roles are what probing finds, never what it came with.
-    let simulated = simulatable(&lines::without(data)?)?;
-    let data = simulated.as_slice();
-    let blocks = Blocks::read(data)?;
-    let report = inspect::inspect(&blocks);
-    let mut problems: Vec<String> =
-        report.faults().map(|p| p.message.clone()).collect();
-    if problems.is_empty() {
-        problems.extend(not_bus_drivable(data)?.into_iter().map(|lever| {
-            format!("Lever at {}: not bus-drivable", inspect::place(lever))
-        }));
-    }
-    let lines = report.summary();
-    let unrecognized = |problems| Recognition {
-        file: data.to_vec(),
-        found: None,
-        problems,
-        lines: lines.clone(),
-    };
+    let meant: Option<Option<Kind>> = meant.map(probed_kind);
+    let subject = Subject::of(data)?;
+    let mut problems = subject.problems()?;
     if !problems.is_empty() {
-        return Ok(unrecognized(problems));
+        return Ok(subject.unrecognized(problems));
     }
-    // What a probe found, unless a data input it found has a block behind
-    // its lever, which only a control line's may.
-    let accept = |kind: Kind, data_inputs: &[Pos], file: Vec<u8>, found| {
-        let file = carry_on_top(kind, &file).unwrap_or(file);
-        let faults = report.data_faults(data_inputs);
-        if faults.is_empty() {
-            Recognition {
-                file,
-                found: Some(found),
-                problems: Vec::new(),
-                lines: lines.clone(),
-            }
-        } else {
-            unrecognized(faults)
-        }
-    };
     // Each kind probing tries in turn, or only the one meant, its fault
     // kept when it isn't one.
-    let probed = Kind::probed();
     let mut faults: Vec<(Kind, Fault)> = Vec::new();
-    for (i, &(kind, how, test)) in probed.iter().enumerate() {
+    for (i, &(kind, how, test)) in Kind::probed().iter().enumerate() {
         if meant.is_some_and(|meant| meant != Some(kind)) {
             continue;
         }
         trying(kind, i);
-        let order = Order::default();
-        match probe_by(kind, how, test, data, &blocks, &report, false, order)? {
-            Ok((_, file, _)) if leaves_digits(&report, &file) => {
+        match subject.probe(kind, how, test, false, Order::default())? {
+            Ok((_, file, _)) if leaves_digits(&subject.report, &file) => {
                 faults.push((kind, Fault::Unfit(LEAVES_DIGITS.to_owned())));
             }
-            Ok((data_inputs, file, found)) => {
-                return Ok(accept(kind, &data_inputs, file, found));
-            }
+            Ok(found) => return Ok(subject.accept(kind, found)),
             Err(fault) => faults.push((kind, fault)),
         }
     }
-    // Meant as a kind never probed, it is no adder either.
+    // Meant as a kind never probed, it is none read loosely either.
+    let any = meant != Some(None);
     if reorient
-        && meant != Some(None)
-        && let Some((kind, (data_inputs, file, found))) =
-            loose(meant.flatten(), data, &blocks, &report, &mut faults)?
+        && any
+        && let Some((kind, found)) =
+            subject.loose(meant.flatten(), &mut faults)?
     {
-        return Ok(accept(kind, &data_inputs, file, found));
+        return Ok(subject.accept(kind, found));
     }
     // Meant as a kind never probed, nothing was, so there is no fault.
-    let fault = fault_of(&blocks, &report, meant.flatten(), &faults);
+    let fault =
+        fault_of(&subject.blocks, &subject.report, meant.flatten(), &faults);
     // Laid as the roles of the try that came nearest have it read.
     let nearest = faults
         .iter()
@@ -206,81 +243,58 @@ fn recognize_laid(
             }
         }
     }
-    // Lines that bend the conventions, as top bits out of line or outputs
-    // unevenly spaced, may still read as the kind meant: matching finds
-    // them, the build's I/O unaligned.
-    // Meant as a kind never probed, it is none matching finds either.
     if reorient
-        && meant != Some(None)
-        && let Some((found, file)) =
-            unaligned(data, &blocks, &report, meant.flatten())?
+        && any
+        && let Some((found, file)) = subject.unaligned(meant.flatten())?
     {
-        let kind = found.kind;
-        return Ok(accept(kind, &found.data_inputs(), file, found.found()));
+        let reading = (found.data_inputs(), file, found.found());
+        return Ok(subject.accept(found.kind, reading));
     }
     problems.push(fault.map_or_else(String::new, ToString::to_string));
     // The file with the roles of the try whose fault is shown, when it ran.
-    let closest = fault.and_then(Fault::file).unwrap_or(data);
+    let closest = fault.and_then(Fault::file).unwrap_or(&subject.data);
     Ok(Recognition {
         file: closest.to_vec(),
-        ..unrecognized(problems)
+        ..subject.unrecognized(problems)
     })
 }
 
-/// The build in `data`, with `blocks` and `report`, as an adder whose
-/// lines bend the conventions, as operands split in two or outputs
-/// unevenly spaced, laid out loosely, every case right: what it found, its
-/// I/O unaligned. Its test run and cases wrong, a failing one, its fault
-/// takes the place among `faults` of a strict reading's that couldn't run,
-/// so it is shown as the adder it is.
-fn loose(
-    meant: Option<Kind>,
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-    faults: &mut Vec<(Kind, Fault)>,
-) -> anyhow::Result<Option<(Kind, Found)>> {
-    match loose_adder(meant, data, blocks, report)? {
-        Some((kind, Ok(found))) => return Ok(Some((kind, found))),
-        Some((kind, Err(fault))) => {
+impl Subject {
+    /// It read as a kind matching reads, its buses bent too, as operands
+    /// split in two or outputs unevenly spaced, every case right: the
+    /// first such kind, of those probing tries, or only the kind `meant`,
+    /// and what was found, its I/O unaligned. A reading whose test ran and
+    /// got cases wrong, a failing one, has its fault take the place among
+    /// `faults` of a strict reading's that couldn't run, so it is shown
+    /// as the kind it is.
+    fn loose(
+        &self,
+        meant: Option<Kind>,
+        faults: &mut Vec<(Kind, Fault)>,
+    ) -> anyhow::Result<Option<(Kind, Found)>> {
+        let mut wrong = None;
+        for &(kind, how, test) in &Kind::probed() {
+            if how != Probe::Matched || meant.is_some_and(|meant| meant != kind)
+            {
+                continue;
+            }
+            match self.probe(kind, how, test, true, Order::default())? {
+                Ok(found) => return Ok(Some((kind, found))),
+                Err(fault) if fault.ran() && wrong.is_none() => {
+                    wrong = Some((kind, fault));
+                }
+                Err(_) => {}
+            }
+        }
+        if let Some((kind, fault)) = wrong {
             match faults.iter().position(|(k, _)| *k == kind) {
                 Some(i) if !faults[i].1.ran() => faults[i].1 = fault,
                 Some(_) => {}
                 None => faults.push((kind, fault)),
             }
         }
-        None => {}
+        Ok(None)
     }
-    Ok(None)
-}
-
-/// The build in `data`, with `blocks` and `report`, as an adder whose
-/// lines bend the conventions, as operands split in two or outputs
-/// unevenly spaced, laid out loosely: what it found, every case right, its
-/// I/O unaligned; or the fault of a layout whose test ran and got cases
-/// wrong, carrying that layout's lines. Only as the kind `meant`, when one
-/// is; `None` when no loose layout's test runs.
-fn loose_adder(
-    meant: Option<Kind>,
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-) -> anyhow::Result<Option<(Kind, Result<Found, Fault>)>> {
-    let mut wrong = None;
-    for &(kind, how, test) in &Kind::probed() {
-        if how != Probe::Adder || meant.is_some_and(|meant| meant != kind) {
-            continue;
-        }
-        let order = Order::default();
-        match probe_by(kind, how, test, data, blocks, report, true, order)? {
-            Ok(found) => return Ok(Some((kind, Ok(found)))),
-            Err(fault) if fault.ran() && wrong.is_none() => {
-                wrong = Some((kind, Err(fault)));
-            }
-            Err(_) => {}
-        }
-    }
-    Ok(wrong)
 }
 
 /// `file`, a reading of a build of `kind`, with the top bit of an adder's
@@ -343,29 +357,41 @@ fn leaves_digits(report: &inspect::Report, file: &[u8]) -> bool {
         .any(|&pos| roles.get(pos).is_none())
 }
 
-/// The build in `data`, with `blocks` and `report`, as matching finds it,
-/// as the kind `meant`, if one is, or else any kind, its lines read as the
-/// conventions don't lay them, every case right: what it found, and the
-/// file carrying the roles it found, its signs taken out as probing's are.
-/// `None` when it finds no such reading, or one that keeps the
-/// conventions, which probing would have found.
-fn unaligned(
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-    meant: Option<Kind>,
-) -> anyhow::Result<Option<(matching::Match, Vec<u8>)>> {
-    let probed_as = Kind::probed_as;
-    let Some(found) = matching::closest(blocks, report) else {
-        return Ok(None);
-    };
-    let fits = meant.is_none_or(|meant| meant == probed_as(found.kind));
-    if found.wrong > 0 || found.conventional || !fits {
-        return Ok(None);
+impl Subject {
+    /// It as matching reads it where no kind's own test judges that
+    /// reading, as an ALU's, whose test reads its operations from signs:
+    /// as the kind `meant`, if one is, or else any, its lines read as the
+    /// conventions don't lay them, every case observed right; what it
+    /// found, and the file carrying its roles, its signs taken out as
+    /// probing's are. `None` when there is no such reading, or it keeps
+    /// the conventions, which probing would have found, or it is of a
+    /// kind matching is probed by, which [`Subject::loose`] has judged.
+    fn unaligned(
+        &self,
+        meant: Option<Kind>,
+    ) -> anyhow::Result<Option<(matching::Match, Vec<u8>)>> {
+        let Some(found) = self.observed.as_ref().and_then(|observed| {
+            let order = Order::default();
+            matching::read_as(None, &self.blocks, observed, true, order)
+        }) else {
+            return Ok(None);
+        };
+        let kind = found.kind.probed_as();
+        let judged = matches!(
+            kind.facts().probe,
+            Probing::Tried {
+                how: Probe::Matched,
+                ..
+            }
+        );
+        let fits = meant.is_none_or(|meant| meant == kind);
+        if found.wrong > 0 || found.conventional || !fits || judged {
+            return Ok(None);
+        }
+        let file = lines::with(&self.data, Some(&found.roles()))?;
+        let file = unlabelled(found.kind, &file)?;
+        Ok(Some((found, file)))
     }
-    let file = lines::with(data, Some(&found.roles()))?;
-    let file = unlabelled(found.kind, &file)?;
-    Ok(Some((found, file)))
 }
 
 /// What a probe found: the build's data inputs, its file carrying the
@@ -375,29 +401,22 @@ pub type Found = (Vec<Pos>, Vec<u8>, String);
 /// The roles of the lines of the build in `data`, kept as built and meant
 /// as a `kind`, as probing as that kind finds them: its inputs and outputs
 /// read whatever faults the conventions find in them, and its lines laid
-/// out loosely, as [`super::adder_from`] lays an adder's loosely, as only its
-/// test says which is which; of a try that got cases wrong, the closest.
-/// Of two operands its test passes either way round, A is as `order`
-/// prefers. `None` when no try's test ran, as for a kind never probed.
+/// out loosely, as only its test says which is which; of a try that got
+/// cases wrong, the closest. Of two operands its test passes either way
+/// round, A is as `order` prefers. `None` when no try's test ran, as for a
+/// kind never probed.
 pub fn kept_roles(
     data: &[u8],
     kind: Kind,
     order: Order,
 ) -> anyhow::Result<Option<Roles>> {
-    let kind = match kind.facts().probe {
-        Probing::As(other) => other,
-        Probing::Tried { .. } => kind,
-    };
+    let kind = kind.probed_as();
     let probed = Kind::probed();
     let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)
     else {
         return Ok(None);
     };
-    let simulated = simulatable(&lines::without(data)?)?;
-    let blocks = Blocks::read(&simulated)?;
-    let report = inspect::inspect(&blocks);
-    let probed =
-        probe_by(kind, how, test, &simulated, &blocks, &report, true, order)?;
+    let probed = Subject::of(data)?.probe(kind, how, test, true, order)?;
     let file = match probed {
         Ok((_, file, _)) => file,
         Err(fault) => match fault.file() {
@@ -408,43 +427,47 @@ pub fn kept_roles(
     lines::of(&file)
 }
 
-/// As [`probe_as`], `kind` probed `how` its row says, by its `test`, its
-/// lines laid out loosely with `loose`, its operands in `order`; see
-/// [`kept_roles`].
-#[allow(clippy::too_many_arguments)]
-fn probe_by(
-    kind: Kind,
-    how: Probe,
-    test: Test,
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-    loose: bool,
-    order: Order,
-) -> anyhow::Result<Result<Found, Fault>> {
-    let found = |run: &simulate::Run| {
+/// What a probe found before it is put in words: the build's data inputs,
+/// its file carrying the roles found, and its test's run.
+type Probed = (Vec<Pos>, Vec<u8>, simulate::Run);
+
+impl Subject {
+    /// It probed as a `kind`, `how` its row says, by its `test`: what was
+    /// found, its signs taken out but those its test reads, or why it is
+    /// not one. With `loose`, its lines may bend the conventions; of two
+    /// operands its test passes either way round, A is as `order`
+    /// prefers.
+    fn probe(
+        &self,
+        kind: Kind,
+        how: Probe,
+        test: Test,
+        loose: bool,
+        order: Order,
+    ) -> anyhow::Result<Result<Found, Fault>> {
+        let probed = match how {
+            Probe::Matched => self.matched(kind, test, loose, order),
+            _ => self.probed(how, test, order),
+        };
+        let (inputs, file, run) = match probed {
+            Ok(probed) => probed,
+            Err(fault) => return Ok(Err(fault)),
+        };
         // An adder is one or a subtractor, and a hex adder adds or
         // subtracts digits.
-        let kind = match kind {
+        let named = match kind {
             Kind::Adder => run.adder_category(false),
             Kind::HexAdder => run.adder_category(true),
             _ => kind,
         };
-        format!(
+        let found = format!(
             "{}: all {} cases right, {}",
-            kind.a(),
+            named.a(),
             run.cases,
             run.pattern
-        )
-    };
-    let probed =
-        probed_as(how, test, data, blocks, report, found, loose, order)?;
-    Ok(match probed {
-        Ok((inputs, file, found)) => {
-            Ok((inputs, unlabelled(kind, &file)?, found))
-        }
-        Err(why) => Err(why),
-    })
+        );
+        Ok(Ok((inputs, unlabelled(kind, &file)?, found)))
+    }
 }
 
 /// The file in `data`, carrying the roles probing found, found to be a
@@ -491,77 +514,139 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     crate::schem::edit(data, &changes)
 }
 
-/// As `probe_as`, the file carrying the roles probing found, its signs as
-/// they were; laid out loosely with `loose`, as [`kept_roles`] reads a
-/// build kept as built; its operands in `order`.
-#[allow(clippy::too_many_arguments)]
-fn probed_as(
-    how: Probe,
-    test: Test,
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-    found: impl Fn(&simulate::Run) -> String,
-    loose: bool,
-    order: Order,
-) -> anyhow::Result<Result<Found, Fault>> {
-    Ok(match how {
-        Probe::Adder => match adder_from(data, blocks, report, loose, order) {
-            Ok(probed) => Ok((
-                [probed.layout.a.clone(), probed.layout.b.clone()].concat(),
-                super::with_layout(data, &probed.layout)?,
-                found(&probed.run),
-            )),
-            Err(why) => Err(why),
-        },
-        Probe::HexAdder => {
-            hex_adder(data, blocks, report, test, order).map(|probed| {
-                let found = found(&probed.run);
-                (probed.digits, probed.file, found)
-            })
+impl Subject {
+    /// It read as a `kind` the way matching reads it from what it was
+    /// observed doing, bent buses too with `loose`, and judged by the
+    /// kind's `test`. Where no reading's test runs, it is read plainly,
+    /// see [`plain_roles`], so its test says what is wrong with its lines
+    /// in its own words.
+    fn matched(
+        &self,
+        kind: Kind,
+        test: Test,
+        loose: bool,
+        order: Order,
+    ) -> Result<Probed, Fault> {
+        let found = self.observed.as_ref().and_then(|observed| {
+            matching::read_as(Some(kind), &self.blocks, observed, loose, order)
+        });
+        let read = match &found {
+            Some(found) => self
+                .judged(test, found)?
+                .map(|(file, run)| (found.data_inputs(), file, run)),
+            None => Err(Fault::Unfit(String::new())),
+        };
+        match read {
+            Ok(found) => Ok(found),
+            Err(fault) if fault.ran() => Err(fault),
+            Err(fault) => {
+                let (roles, operands) = plain_roles(kind, &self.report, order);
+                match super::try_roles(&self.data, &roles, test, false)? {
+                    Ok((file, run)) => Ok((operands, file, run)),
+                    Err(plain) => Err(fault.nearer(plain)),
+                }
+            }
         }
-        Probe::HexToBinary => {
-            hex_to_binary(data, blocks, report, test).map(|probed| {
-                let found = found(&probed.run);
-                (probed.digits, probed.file, found)
-            })
-        }
-        Probe::Register => register(data, report, test).map(|probed| {
-            let found = found(&probed.run);
-            (probed.data_in, probed.file, found)
-        }),
-        Probe::Shifter => shifter(data, report).map(|probed| {
-            let found = found(&probed.run);
-            (probed.a, probed.file, found)
-        }),
-        Probe::Alu => alu(data, report, order).map(|probed| {
-            let found = found(&probed.run);
-            ([probed.a, probed.b].concat(), probed.file, found)
-        }),
-        Probe::Decoder => decoder(data, report).map(|probed| {
-            let found = found(&probed.run);
-            (probed.a, probed.file, found)
-        }),
-        Probe::Multiplier => multiplier(data, report, order).map(|probed| {
-            let found = found(&probed.run);
-            ([probed.a, probed.b, probed.c].concat(), probed.file, found)
-        }),
-        Probe::Operands => operands_probe(data, report, test, loose, order)
-            .map(|probed| {
-                let found = found(&probed.run);
-                (probed.inputs, probed.file, found)
+    }
+
+    /// What `test` makes of it read as `found` reads it, each bus in the
+    /// order matching found it in: the file carrying its roles and the
+    /// run, every case right; else the test's fault. A file that can't be
+    /// given its roles fails the outer result.
+    fn judged(
+        &self,
+        test: Test,
+        found: &matching::Match,
+    ) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
+        let file = lines::with(&self.data, Some(&found.roles()))
+            .map_err(|err| Fault::Unfit(err.to_string()))?;
+        let interface = found.interface(&self.blocks);
+        Ok(match test.check_with(&self.blocks, interface, false) {
+            Ok(run) if run.wrong == 0 => Ok((file, run)),
+            Ok(run) => Err(Fault::wrong(&run, &file)),
+            Err(err) => Err(Fault::NotRun(err.to_string())),
+        })
+    }
+
+    /// It probed `how` a kind matching does not read is probed, by its
+    /// `test`, its operands in `order`.
+    fn probed(
+        &self,
+        how: Probe,
+        test: Test,
+        order: Order,
+    ) -> Result<Probed, Fault> {
+        let (data, blocks, report) = (&self.data, &self.blocks, &self.report);
+        match how {
+            Probe::Matched => unreachable!("see `Subject::matched`"),
+            Probe::HexAdder => hex_adder(data, blocks, report, test, order)
+                .map(|probed| (probed.digits, probed.file, probed.run)),
+            Probe::HexToBinary => hex_to_binary(data, blocks, report, test)
+                .map(|probed| (probed.digits, probed.file, probed.run)),
+            Probe::Register => register(data, report, test)
+                .map(|probed| (probed.data_in, probed.file, probed.run)),
+            Probe::Shifter => shifter(data, report)
+                .map(|probed| (probed.a, probed.file, probed.run)),
+            Probe::Alu => alu(data, report, order).map(|probed| {
+                ([probed.a, probed.b].concat(), probed.file, probed.run)
             }),
-        Probe::OneOperand(line) => {
-            one_operand(data, report, test, line).map(|probed| {
-                let found = found(&probed.run);
-                (probed.a, probed.file, found)
-            })
+            Probe::Multiplier => {
+                multiplier(data, report, order).map(|probed| {
+                    let inputs = [probed.a, probed.b, probed.c].concat();
+                    (inputs, probed.file, probed.run)
+                })
+            }
+            Probe::OneOperand(line) => one_operand(data, report, test, line)
+                .map(|probed| (probed.a, probed.file, probed.run)),
+            Probe::Sequential => sequential(data, report, test)
+                .map(|probed| (probed.data, probed.file, probed.run)),
         }
-        Probe::Sequential => sequential(data, report, test).map(|probed| {
-            let found = found(&probed.run);
-            (probed.data, probed.file, found)
-        }),
-    })
+    }
+}
+
+/// The roles of `report`'s lines read plainly as a `kind`, with its data
+/// inputs: as many of its widest runs of levers as the kind takes operands
+/// its operands, A as `order` prefers, and every other lever a control
+/// line; its widest run of outputs its output, and every other a status
+/// line.
+fn plain_roles(
+    kind: Kind,
+    report: &inspect::Report,
+    order: Order,
+) -> (Roles, Vec<Pos>) {
+    let widest = |runs: &[inspect::Run]| {
+        let mut runs: Vec<inspect::Run> = runs.to_vec();
+        runs.sort_by_key(|run| std::cmp::Reverse(run.bits.len()));
+        runs
+    };
+    let inputs = widest(&report.inputs);
+    let takes = matching::operands(kind).min(inputs.len());
+    let (operands, controls) = inputs.split_at(takes);
+    let mut roles = Roles::default();
+    match operands {
+        [a, b] => {
+            let (a, b) = order.of(&a.bits, &b.bits);
+            roles.mark(Role::Operand(0), a);
+            roles.mark(Role::Operand(1), b);
+        }
+        _ => {
+            for (n, run) in (0..).zip(operands) {
+                roles.mark(Role::Operand(n), &run.bits);
+            }
+        }
+    }
+    for run in controls {
+        roles.mark(Role::Control, &run.bits);
+    }
+    let outputs = widest(&report.outputs);
+    if let Some((output, status)) = outputs.split_first() {
+        roles.mark(Role::Output(0), &output.bits);
+        for run in status {
+            roles.mark(Role::Status, &run.bits);
+        }
+    }
+    let data = operands.iter().flat_map(|run| run.bits.clone()).collect();
+    (roles, data)
 }
 
 /// Of the `faults` probing found as each kind it tried, the one to show:
@@ -642,6 +727,45 @@ mod tests {
             &found.file,
         );
         assert_eq!(width.unwrap(), Some(8));
+    }
+
+    /// A 1-bit XNOR of wool, one input carried up through dust on its block,
+    /// and a lone block holding up a repeater that powers a block: the dust
+    /// is wiring, as on any input, and the block under the repeater no
+    /// output, so its one output is read and it is found an XNOR.
+    #[test]
+    fn dust_on_an_input_and_a_repeater_powering_a_block_are_wiring() {
+        let data = std::fs::read("tests/fixtures/xnor-1-wool.schem").unwrap();
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.contains("A xnor B")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
+    }
+
+    /// A 1-bit XOR gate, its two levers side by side read as one run, is
+    /// found as a gate, not as a 1-bit adder without a carry.
+    #[test]
+    fn an_xor_gate_is_found_as_a_gate() {
+        // Raw, with blocks the simulator doesn't model until they are
+        // standardized.
+        let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
+        let standard = crate::standard::standardize::standardize(&raw).unwrap();
+        let found = recognize(&standard).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("an XOR gate")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 
     /// A recognized build's signs are all taken out, the site naming its

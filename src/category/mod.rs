@@ -163,8 +163,9 @@ pub enum Probing {
 /// How probing finds a kind's roles; each runs the kind's test on them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Probe {
-    /// An adder's operands, carry in, sum, and carry out.
-    Adder,
+    /// A stateless build's lines, driven by levers: each read as matching
+    /// reads them, see [`crate::recognize::matching`].
+    Matched,
     /// A hex adder's digit inputs, carry in, sum, and carry out, each by
     /// its shape.
     HexAdder,
@@ -175,10 +176,7 @@ pub enum Probe {
     Register,
     Shifter,
     Alu,
-    Decoder,
     Multiplier,
-    /// Two operands of one width, A and B, as a gate's or comparison's.
-    Operands,
     /// One operand, A, with a control line as `Line` says.
     OneOperand(Line),
     /// A counter's, shift register's, or T flip-flop's held value and

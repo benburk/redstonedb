@@ -199,12 +199,10 @@ fn an_adder_with_its_carry_in_inside_its_box_does_not_stack() {
 #[test]
 fn an_adder_stacks_by_its_box() {
     let raw = read_fixture("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
-    let data = app::recognize::probe::simulatable(&raw).unwrap();
-    let blocks = Blocks::read(&data).unwrap();
-    let report = app::interface::inspect::inspect(&blocks);
-    let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
-    let coloured =
-        app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
+    let found =
+        app::recognize::probe::recognize_as(&raw, Some("adder")).unwrap();
+    assert!(found.found.is_some(), "{:?}", found.problems);
+    let coloured = found.file;
     let standard = prepare::prepare_for(
         &coloured,
         Purpose::Standard { keep_paste: false },
@@ -228,12 +226,10 @@ fn an_adder_stacks_by_its_box() {
 fn an_adder_stacks_by_a_box_found_by_testing() {
     let raw =
         read_fixture("tests/fixtures/vert-adder-8-barrel-north.schem").unwrap();
-    let data = app::recognize::probe::simulatable(&raw).unwrap();
-    let blocks = Blocks::read(&data).unwrap();
-    let report = app::interface::inspect::inspect(&blocks);
-    let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
-    let coloured =
-        app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
+    let found =
+        app::recognize::probe::recognize_as(&raw, Some("adder")).unwrap();
+    assert!(found.found.is_some(), "{:?}", found.problems);
+    let coloured = found.file;
     let standard = prepare::prepare_for(
         &coloured,
         Purpose::Standard { keep_paste: false },
