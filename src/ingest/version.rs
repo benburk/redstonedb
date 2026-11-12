@@ -113,7 +113,7 @@ async fn checked(
         // Dust on top of an input is a fault only on a data input, which
         // probing a recognized build checks.
         let current = inspect::inspect(&current);
-        let had: Vec<&str> =
+        let had: Vec<inspect::Rule> =
             current.faults().map(|problem| problem.rule).collect();
         let found = inspect::inspect(&prepared.blocks);
         let broken: Vec<&str> = found

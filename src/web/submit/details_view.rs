@@ -12,6 +12,7 @@ use crate::{
     build::Build,
     compare::blocks::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
     ingest::read::Analysis,
+    interface::problem::{Problem, Rule},
     recognize::fault::wrong_outputs,
     simulate::Report,
     web::{
@@ -65,7 +66,7 @@ pub enum File<'a> {
         /// inputs and outputs are, if it did.
         recognized: Option<&'a str>,
         /// What only its author can put right, by that check.
-        problems: &'a [String],
+        problems: &'a [Problem],
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
@@ -368,12 +369,11 @@ fn verdict(page: &DetailsPage) -> &'static str {
             problems,
             ..
         } => {
-            let problems: Vec<&str> =
-                problems.iter().map(String::as_str).collect();
-            failing_or_untested(&problems)
+            let wrong = problems.iter().any(|p| p.rule == Rule::WrongCases);
+            failing_or_untested(wrong)
         }
         File::Stored { s, simulation } => match &s.unverified {
-            Some(why) => failing_or_untested(&[why]),
+            Some(why) => failing_or_untested(wrong_outputs(why)),
             None if simulation.is_some_and(Report::failed) => "fail",
             None if simulation.is_some_and(Report::passed) => "pass",
             None => "",
@@ -382,15 +382,10 @@ fn verdict(page: &DetailsPage) -> &'static str {
     }
 }
 
-/// The verdict of a build that isn't verified for `reasons`: `fail` when
-/// its test ran and got cases wrong, else `warn`, as its test couldn't
-/// run.
-pub fn failing_or_untested(reasons: &[&str]) -> &'static str {
-    if reasons.iter().any(|reason| wrong_outputs(reason)) {
-        "fail"
-    } else {
-        "warn"
-    }
+/// The verdict of a build that isn't verified: `fail` when its test ran
+/// and got cases `wrong`, else `warn`, as its test couldn't run.
+pub fn failing_or_untested(wrong: bool) -> &'static str {
+    if wrong { "fail" } else { "warn" }
 }
 
 /// The fields for choosing another file, the same on every details page:

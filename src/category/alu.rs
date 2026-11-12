@@ -582,7 +582,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     }
     let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
     let mut merged = Run::merged(runs, &labels)
-        .ok_or_else(|| Broken("no operation to check".to_owned()))?;
+        .ok_or_else(|| Broken::new("no operation to check"))?;
     merged.inverted = alu.inverted_lines(&interface);
     Ok(merged)
 }

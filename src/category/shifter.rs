@@ -369,7 +369,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     }
     let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
     Run::merged(runs, &labels)
-        .ok_or_else(|| Broken("no shift to check".to_owned()).into())
+        .ok_or_else(|| Broken::new("no shift to check").into())
 }
 
 /// The flags the barrel shifter in `blocks` shows: `bidirectional` when it

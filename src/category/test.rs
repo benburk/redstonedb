@@ -401,7 +401,7 @@ impl Test {
 
     /// The test's cases run on `blocks`, or with `quick` a few telling
     /// ones, quick enough for a guess at what a build is.
-    pub(super) fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
+    pub(crate) fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
         self.runs().check(blocks, quick)
     }
 

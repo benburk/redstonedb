@@ -5,6 +5,7 @@
 //! run through the adder's test, which reads each digit as four bits.
 
 use super::{Fault, Order, Role, Roles, try_roles};
+use crate::interface::problem::Rule;
 use crate::{
     category::Test,
     interface::{inspect, repeater_outputs},
@@ -34,7 +35,8 @@ pub fn hex_adder(
     order: Order,
 ) -> Result<HexAdderProbed, Fault> {
     if report.digits.is_empty() {
-        return Err(Fault::Unfit(
+        return Err(Fault::Breaks(
+            Rule::HexLines,
             "Inputs: no comparator with air behind to take a hex digit"
                 .to_owned(),
         ));
@@ -51,10 +53,13 @@ pub fn hex_adder(
         }
     }
     if operands.len() > 3 {
-        return Err(Fault::Unfit(format!(
-            "Inputs: {} buses, a hex adder takes A and B",
-            lines.inputs.iter().filter(|p| p.bits.len() > 1).count()
-        )));
+        return Err(Fault::Breaks(
+            Rule::HexLines,
+            format!(
+                "Inputs: {} buses, a hex adder takes A and B",
+                lines.inputs.iter().filter(|p| p.bits.len() > 1).count()
+            ),
+        ));
     }
     if let [a, b, ..] = operands.as_mut_slice()
         && !order.keeps(a, b)
@@ -68,7 +73,7 @@ pub fn hex_adder(
             Role::Status
         } else {
             places.next().map(Role::Output).ok_or_else(|| {
-                Fault::Unfit(format!(
+                Fault::Breaks(Rule::HexLines, format!(
                     "Outputs: {} lines, a hex adder gives a sum and a carry \
                      out",
                     lines.outputs.len()

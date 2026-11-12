@@ -32,8 +32,8 @@ impl Report {
         match run {
             Ok(run) => Report::Ran(Box::new(run)),
             Err(err) => match err.downcast_ref::<Broken>() {
-                Some(Broken(reason)) => Report::Broken {
-                    reason: reason.clone(),
+                Some(broken) => Report::Broken {
+                    reason: broken.reason.clone(),
                 },
                 None => Report::Skipped {
                     reason: err.to_string(),

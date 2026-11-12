@@ -8,7 +8,7 @@ use crate::{
     interface::{Interface, Port, colour},
     schem::lines::Role,
     simulate::{
-        Broken, Reading, Run, Value,
+        Reading, Run, Value,
         bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
@@ -713,9 +713,9 @@ mod tests {
     #[test]
     fn an_adder_whose_operands_and_output_differ_in_width_is_broken() {
         let broken = |mut interface: Interface| {
-            adder_ports(&mut interface, &ADD)
-                .err()
-                .is_some_and(|err| err.downcast_ref::<Broken>().is_some())
+            adder_ports(&mut interface, &ADD).err().is_some_and(|err| {
+                err.downcast_ref::<crate::simulate::Broken>().is_some()
+            })
         };
         assert!(!broken(adder(8, 8, 8, true)));
         assert!(broken(adder(8, 7, 8, true)));

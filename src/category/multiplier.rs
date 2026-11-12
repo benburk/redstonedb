@@ -2,13 +2,13 @@
 //! stateless, or sequential with one control line, its calculate, pressed
 //! once its operands are set.
 
-use anyhow::{Result, bail};
+use crate::simulate::{Rule, untested};
+use anyhow::Result;
 
 use crate::{
     category::test::BySpec,
     interface::{self, Interface},
     simulate::{
-        Broken,
         bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
@@ -26,7 +26,8 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let calculate = match lines.as_slice() {
         [] => None,
         [line] if interface.inputs[*line].bits.len() == 1 => Some(*line),
-        _ => bail!(
+        _ => untested!(
+            Rule::TooManyControlLines;
             "Too many control lines: {} (a multiplier takes one, \
              calculate).",
             lines

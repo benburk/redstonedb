@@ -240,7 +240,7 @@ fn a_reading_that_leaves_out_digit_inputs_is_none() {
     let recognition = app::recognize::probe::recognize(&bare).unwrap();
     assert_eq!(recognition.found, None);
     let problem = recognition.problems.last().unwrap();
-    assert!(problem.contains("cases wrong"), "{problem}");
+    assert!(problem.message.contains("cases wrong"), "{problem:?}");
 }
 
 /// One hex digit is four bits, a whole adder without a carry in, as one

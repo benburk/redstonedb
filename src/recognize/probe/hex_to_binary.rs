@@ -5,6 +5,7 @@
 //! whichever holds; given those roles and run through its test.
 
 use super::{Fault, Role, Roles, try_roles};
+use crate::interface::problem::Rule;
 use crate::{
     category::Test,
     interface::{inspect, repeater_outputs},
@@ -32,7 +33,8 @@ pub fn hex_to_binary(
     test: Test,
 ) -> Result<HexToBinaryProbed, Fault> {
     if report.digits.is_empty() {
-        return Err(Fault::Unfit(
+        return Err(Fault::Breaks(
+            Rule::HexLines,
             "Inputs: no comparator with air behind to take a hex digit"
                 .to_owned(),
         ));

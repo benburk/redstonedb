@@ -23,6 +23,7 @@
 pub mod colour;
 mod facts;
 pub mod inspect;
+pub mod problem;
 pub mod repeater_outputs;
 
 pub use facts::{Encoding, Orientation, orientation, suggested};

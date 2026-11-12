@@ -10,7 +10,7 @@ use crate::{
     category::{Test, adder::adder_cases, test::BySpec},
     interface::Interface,
     simulate::{
-        Broken, Stacker, Value,
+        Stacker, Value,
         bench::{Bench, Case, Kind, Spec, mask},
         broken,
     },

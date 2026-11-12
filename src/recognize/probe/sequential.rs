@@ -114,7 +114,10 @@ mod tests {
             recognize_as(&uncoloured("counter-8"), Some("counter")).unwrap();
         assert!(found.found.is_none(), "{:?}", found.found);
         assert!(
-            found.problems.iter().any(|p| p.contains("are levers")),
+            found
+                .problems
+                .iter()
+                .any(|p| p.message.contains("are levers")),
             "{:?}",
             found.problems
         );

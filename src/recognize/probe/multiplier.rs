@@ -156,10 +156,8 @@ mod tests {
         let found = recognize_as(&standard, Some("multiplier")).unwrap();
         assert!(found.found.is_none(), "{:?}", found.found);
         assert!(
-            found
-                .problems
-                .iter()
-                .any(|p| p.contains("Too many control lines")),
+            found.problems.iter().any(|p| p.rule
+                == crate::interface::problem::Rule::TooManyControlLines),
             "{:?}",
             found.problems
         );

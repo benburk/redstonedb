@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
-    interface::inspect::{Report, free_behind, inspect, place, problem, short},
+    interface::inspect::{Report, Rule, free_behind, inspect, problem, short},
     schem::{self, Blocks, Direction, Pos, Switch},
     simulate,
 };
@@ -20,14 +20,15 @@ pub fn inspect_file(data: &[u8]) -> Result<Report> {
     if !report
         .errors
         .iter()
-        .any(|p| p.rule == "no room for a repeater")
+        .any(|p| p.rule == Rule::NoRoomForRepeater)
     {
         for lever in not_bus_drivable(data)? {
             problem(
                 &mut report,
-                "lever not bus-drivable",
+                Rule::NotBusDrivable,
                 vec![lever],
-                format!("Lever at {}: not bus-drivable", place(lever)),
+                "Lever at {}: not bus-drivable",
+                &[lever],
             );
         }
     }

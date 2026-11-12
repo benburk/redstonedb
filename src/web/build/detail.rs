@@ -22,6 +22,7 @@ use crate::{
         read::Analysis,
         results, similar,
     },
+    interface::problem::{Problem, Rule},
     recognize::palette,
     schem::{self, Blocks},
     stack,
@@ -272,7 +273,7 @@ pub async fn detail(
 /// builds of, what keeps it from being recognized as one by the check by
 /// function on its file `data`: one line for each fault. Empty for any
 /// other build.
-async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<String> {
+async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<Problem> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
     if s.verified()
@@ -290,8 +291,8 @@ async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<String> {
     .await;
     match recognized {
         Ok(Ok(recognition)) => recognition.problems,
-        Ok(Err(err)) => vec![err.to_string()],
-        Err(err) => vec![err.to_string()],
+        Ok(Err(err)) => vec![Problem::said(Rule::Other, err.to_string())],
+        Err(err) => vec![Problem::said(Rule::Other, err.to_string())],
     }
 }
 

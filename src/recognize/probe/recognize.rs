@@ -5,6 +5,7 @@
 //! when none holds, the fault to show and the file carrying the closest
 //! try's roles.
 
+use crate::interface::problem::{Problem, Rule};
 use std::collections::BTreeMap;
 
 use super::{
@@ -31,7 +32,7 @@ use crate::{
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
-    pub problems: Vec<String>,
+    pub problems: Vec<Problem>,
     /// Its inputs and outputs as the check found them, in short; see
     /// [`inspect::Report::summary`].
     pub lines: String,
@@ -131,15 +132,17 @@ impl Subject {
 
     /// What is wrong with its inputs and outputs, which keeps it from
     /// being probed at all.
-    fn problems(&self) -> anyhow::Result<Vec<String>> {
-        let mut problems: Vec<String> =
-            self.report.faults().map(|p| p.message.clone()).collect();
+    fn problems(&self) -> anyhow::Result<Vec<Problem>> {
+        let mut problems: Vec<Problem> =
+            self.report.faults().cloned().collect();
         if problems.is_empty() {
             problems.extend(not_bus_drivable(&self.data)?.into_iter().map(
                 |lever| {
-                    format!(
+                    Problem::new(
+                        Rule::NotBusDrivable,
+                        vec![lever],
                         "Lever at {}: not bus-drivable",
-                        inspect::place(lever)
+                        &[lever],
                     )
                 },
             ));
@@ -148,7 +151,7 @@ impl Subject {
     }
 
     /// It recognized as nothing, for `problems`, its file as it is.
-    fn unrecognized(&self, problems: Vec<String>) -> Recognition {
+    fn unrecognized(&self, problems: Vec<Problem>) -> Recognition {
         Recognition {
             file: self.data.clone(),
             found: None,
@@ -250,7 +253,12 @@ fn recognize_laid(
         let reading = (found.data_inputs(), file, found.found());
         return Ok(subject.accept(found.kind, reading));
     }
-    problems.push(fault.map_or_else(String::new, ToString::to_string));
+    // A try that never got as far as a reason has nothing to say.
+    problems.extend(
+        fault
+            .map(Fault::problem)
+            .filter(|problem| !problem.message.is_empty()),
+    );
     // The file with the roles of the try whose fault is shown, when it ran.
     let closest = fault.and_then(Fault::file).unwrap_or(&subject.data);
     Ok(Recognition {
@@ -564,7 +572,7 @@ impl Subject {
         Ok(match test.check_with(&self.blocks, interface, false) {
             Ok(run) if run.wrong == 0 => Ok((file, run)),
             Ok(run) => Err(Fault::wrong(&run, &file)),
-            Err(err) => Err(Fault::NotRun(err.to_string())),
+            Err(err) => Err(Fault::not_run(&err)),
         })
     }
 
@@ -718,8 +726,11 @@ mod tests {
         assert_eq!(found.found, None);
         assert_eq!(
             found.problems,
-            ["29 of 121 cases wrong: A=128 B=0 → output=0b11111111, \
-              expected 0b00000000"]
+            [Problem::said(
+                Rule::WrongCases,
+                "29 of 121 cases wrong: A=128 B=0 → output=0b11111111, \
+                 expected 0b00000000"
+            )]
         );
         let width = crate::ingest::results::derived_width(
             "multiplier",

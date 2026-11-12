@@ -8,6 +8,7 @@ use crate::{
     account::User,
     build::{Build, Status},
     ingest::read::Analysis,
+    interface::problem::Problem,
     simulate::Report,
     store::versions::Version,
     web::{
@@ -41,7 +42,7 @@ pub struct FileRead {
     pub block_counts: Vec<(&'static str, usize)>,
     /// For a build not verified as its category, one the check by
     /// function recognizes, each fault that keeps it from being one.
-    pub unrecognized: Vec<String>,
+    pub unrecognized: Vec<Problem>,
     /// Whether it takes a signal strength as an input, which keeps it
     /// from being recognized.
     pub strength_inputs: bool,
