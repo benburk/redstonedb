@@ -18,7 +18,7 @@ pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use status::{Operands, Status};
 
 use crate::{
-    category::{Flag, Measure},
+    category::{Design, Flag, Kind, Measure},
     models::tag::Tag,
 };
 
@@ -32,9 +32,6 @@ use crate::{
 pub struct Build {
     pub id: String,
     pub category: String,
-    /// The standard category's label, such as `RAM`; `None` for a category
-    /// off the list.
-    pub category_label: Option<String>,
     pub width: Option<i64>,
     pub orientation: Orientation,
     /// `None` for a category off the list, such as a piston door.
@@ -42,10 +39,8 @@ pub struct Build {
     pub latency: Option<i64>,
     /// Whether every output bit settles on the same tick.
     pub synchronized: Option<bool>,
-    /// The build's own logic, else its category's usual logic.
-    pub logic: Option<Logic>,
     /// The build's own logic, where it says so; `None` follows its
-    /// category's.
+    /// category's, see [`Build::logic`].
     pub own_logic: Option<Logic>,
     /// The fewest ticks from one input to the next that still gives right
     /// outputs; for a serial build, from one bit to the next.
@@ -54,11 +49,6 @@ pub struct Build {
     pub at_least: Option<i64>,
     /// For a monostable, the ticks its pulse lasts.
     pub pulse: Option<i64>,
-    /// The numbers its category's builds are named and ranked by, in
-    /// order; none for a category off the list.
-    pub measures: Vec<Measure>,
-    /// Other words its category is searched by, such as `connect4`.
-    pub aliases: Vec<String>,
     /// How many redstone torches its file has; `None` until counted.
     pub torches: Option<i64>,
     /// The oldest Minecraft release it works in, such as `1.5`; `None`
@@ -91,11 +81,6 @@ pub struct Build {
     /// The design within its category, such as `carry_lookahead`; `None`
     /// for none.
     pub design: Option<String>,
-    /// The design's usual short name, such as `CLA`.
-    pub design_abbreviation: Option<String>,
-    /// How people read the design when that is not just its name's words,
-    /// such as `LFSR`.
-    pub design_given_label: Option<String>,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,
@@ -192,8 +177,27 @@ impl Build {
 
     /// Its category, when that is a standard one; `None` for one off the
     /// list.
-    pub fn kind(&self) -> Option<crate::category::Kind> {
-        crate::category::Kind::named(&self.category)
+    pub fn kind(&self) -> Option<Kind> {
+        Kind::named(&self.category)
+    }
+
+    /// The numbers its category's builds are named and ranked by, in
+    /// order; none for a category off the list.
+    pub fn measures(&self) -> &'static [Measure] {
+        self.kind().map_or(&[], |kind| kind.facts().measures)
+    }
+
+    /// Whether it holds state: as it says itself, else as its category's
+    /// builds usually do; `None` where neither says.
+    pub fn logic(&self) -> Option<Logic> {
+        self.own_logic
+            .or_else(|| self.kind().and_then(|kind| kind.facts().logic))
+    }
+
+    /// Its design as its category lists it, with its short name and label;
+    /// `None` for no design, or one its category doesn't list.
+    pub fn listed_design(&self) -> Option<&'static Design> {
+        Design::of(&self.category, self.design.as_deref()?)
     }
 
     /// Whether `evaluate` works out its every measured detail: a
@@ -214,7 +218,7 @@ impl Build {
 
     /// Whether its category is named and ranked by `measure`.
     pub fn has(&self, measure: Measure) -> bool {
-        self.measures.contains(&measure)
+        self.measures().contains(&measure)
     }
 
     /// `yes`, `no`, or `unknown`.
@@ -230,7 +234,7 @@ impl Build {
     /// a stateless, synchronized build whose throughput is below its
     /// latency.
     pub fn pipelined(&self) -> bool {
-        self.logic == Some(Logic::Stateless)
+        self.logic() == Some(Logic::Stateless)
             && self.synchronized == Some(true)
             && matches!((self.throughput, self.latency), (Some(t), Some(l)) if t < l)
     }

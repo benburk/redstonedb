@@ -32,7 +32,7 @@ pub enum State {
 
 impl State {
     fn of(s: &Build) -> Self {
-        s.logic.map_or(State::Unknown, State::Known)
+        s.logic().map_or(State::Unknown, State::Known)
     }
 
     /// As a leaderboard's address writes it, such as `stateless`.
@@ -148,12 +148,12 @@ pub fn split_by(measures: &[Measure], group: Group) -> Vec<Measure> {
 fn ranked_values(s: &Build) -> Option<Vec<(Measure, i64)>> {
     let group = group_of(&s.category);
     let unknown_width = as_cells(group)
-        && s.measures.contains(&Measure::Width)
+        && s.measures().contains(&Measure::Width)
         && s.width.is_none();
-    if s.measures.is_empty() || unknown_width {
+    if s.measures().is_empty() || unknown_width {
         return None;
     }
-    split_by(&s.measures, group)
+    split_by(s.measures(), group)
         .into_iter()
         .map(|m| Some((m, m.of(s)?)))
         .collect()
@@ -487,8 +487,9 @@ pub fn board<'a>(
     // By the short name people say, such as CCA, where there is one.
     let designs = choices(&ranked, |s| {
         let label = s
-            .design_abbreviation
-            .clone()
+            .listed_design()
+            .and_then(|listed| listed.abbreviation)
+            .map(str::to_owned)
             .or_else(|| s.design_label())
             .unwrap_or_else(|| "Other".to_owned());
         (s.design.as_deref().unwrap_or(NO_DESIGN).to_owned(), label)
@@ -1030,10 +1031,7 @@ pub fn records<'a>(builds: &[&'a Build]) -> Vec<Record<'a>> {
     type Base<'a> = (&'a str, Vec<i64>, State);
     let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Build>)> =
         BTreeMap::new();
-    for &s in builds
-        .iter()
-        .filter(|s| s.category_label.is_some() && s.ranks())
-    {
+    for &s in builds.iter().filter(|s| s.kind().is_some() && s.ranks()) {
         let Some(values) = ranked_values(s) else {
             continue;
         };
@@ -1427,7 +1425,6 @@ mod tests {
     ) -> Build {
         Build {
             category: "xor_gate".to_owned(),
-            category_label: Some("XOR Gate".to_owned()),
             size,
             stacking: ways
                 .iter()
@@ -1576,7 +1573,7 @@ mod tests {
         ];
         assert_eq!(
             names(&adders),
-            ["Smallest 1-bit adder", "Smallest 1-bit ripple carry adder",]
+            ["Smallest 1-bit adder", "Smallest 1-bit RCA adder",]
         );
         let adders = [
             build("x", 1, None, Some(4), 50),
@@ -1598,8 +1595,7 @@ mod tests {
     fn cells_on_shared_lines_rank_a_bit() {
         let register = |id: &str, bits: i64, size: (i64, i64, i64)| Build {
             category: "register".to_owned(),
-            category_label: Some("Register".to_owned()),
-            logic: Some(Logic::Stateful),
+            own_logic: Some(Logic::Stateful),
             size,
             ..build(id, bits, None, Some(4), 0)
         };
@@ -1723,19 +1719,15 @@ mod tests {
         Build {
             id: id.to_owned(),
             category: "adder".to_owned(),
-            category_label: Some("Adder".to_owned()),
             width: Some(width),
             orientation: Orientation::Horizontal,
             encoding: Some(Encoding::Binary),
             latency,
             synchronized: None,
-            logic: None,
             own_logic: None,
             throughput: None,
             at_least: None,
             pulse: None,
-            measures: vec![Measure::Width],
-            aliases: Vec::new(),
             torches: None,
             works_from: None,
             works_from_by: None,
@@ -1751,8 +1743,6 @@ mod tests {
             conventional: true,
             keeps_paste: false,
             design: design.map(str::to_owned),
-            design_abbreviation: None,
-            design_given_label: None,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -1793,9 +1783,9 @@ mod tests {
     fn stateful_and_stateless_builds_never_share_a_board() {
         let mut adders = adders();
         for s in &mut adders {
-            s.logic = Some(Logic::Stateless);
+            s.own_logic = Some(Logic::Stateless);
         }
-        adders[0].logic = Some(Logic::Stateful);
+        adders[0].own_logic = Some(Logic::Stateful);
         let stateful_id = adders[0].id.clone();
         let all: Vec<&Build> = adders.iter().collect();
         let stateless = board(&all, &Wanted::default(), &[Measure::Width]);
@@ -1948,8 +1938,8 @@ mod tests {
             [
                 ("Smallest 8-bit adder".to_owned(), vec!["a"]),
                 ("Smallest 4-tick 8-bit adder".to_owned(), vec!["b"]),
-                ("Smallest 8-bit carry lookahead adder".to_owned(), vec!["e"]),
-                ("Fastest 8-bit carry lookahead adder".to_owned(), vec!["d"]),
+                ("Smallest 8-bit CLA adder".to_owned(), vec!["e"]),
+                ("Fastest 8-bit CLA adder".to_owned(), vec!["d"]),
             ]
         );
         let counts: Vec<(String, usize)> = most_records(&records)

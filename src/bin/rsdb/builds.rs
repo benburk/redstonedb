@@ -471,7 +471,7 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("synchronized {}", s.synchronized_label());
     println!(
         "state        {}{}",
-        s.logic.map_or("unknown", Logic::name),
+        s.logic().map_or("unknown", Logic::name),
         if s.pipelined() { ", pipelined" } else { "" }
     );
     let from = s.works_from.as_deref().unwrap_or("unknown");

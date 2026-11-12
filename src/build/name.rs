@@ -31,9 +31,10 @@ impl Build {
 
     /// The category as people read it, such as `RAM` or `Line Drawer`.
     pub fn category_label(&self) -> String {
-        self.category_label
-            .clone()
-            .unwrap_or_else(|| category::words(&self.category))
+        match self.kind() {
+            Some(kind) => kind.label().to_owned(),
+            None => category::words(&self.category),
+        }
     }
 
     /// What the build is: its given name, or else its category.
@@ -54,12 +55,14 @@ impl Build {
     /// `32-byte`, or `2-tick`; an unknown one is left out. A multiplier's
     /// width is its shape, as `8x8=16`, keeping the upper half of its
     /// product, or `8x8=8`, and `8x8+8=16` for a fused multiply-add.
-    fn measures(&self) -> impl Iterator<Item = String> {
+    fn leading(&self) -> impl Iterator<Item = String> {
         let shape = self.product_shape();
-        self.measures.iter().filter_map(move |m| match (m, &shape) {
-            (Measure::Width, Some(shape)) => Some(shape.clone()),
-            _ => m.of(self).map(|n| m.lead(n)),
-        })
+        self.measures()
+            .iter()
+            .filter_map(move |m| match (m, &shape) {
+                (Measure::Width, Some(shape)) => Some(shape.clone()),
+                _ => m.of(self).map(|n| m.lead(n)),
+            })
     }
 
     /// A multiplier's operands and product, as `8x8=16`; `None` for any
@@ -86,7 +89,7 @@ impl Build {
     /// Adder`, for views that show the tags beside it. A build with a given
     /// name, such as `8-bit Bus Crossing`, uses it for the category.
     pub fn name(&self) -> String {
-        self.measures()
+        self.leading()
             .chain(self.ending())
             .collect::<Vec<_>>()
             .join(" ")
@@ -101,7 +104,7 @@ impl Build {
     /// A readable name from the most identifying facts, such as
     /// `8-bit alpha Carry Lookahead Adder`.
     pub fn title(&self) -> String {
-        self.measures()
+        self.leading()
             .chain(self.tags_in(tag::Kind::Restriction).map(Tag::label))
             .chain(self.tags_in(tag::Kind::Other).map(Tag::label))
             .chain(self.ending())
@@ -113,9 +116,10 @@ impl Build {
     /// design.
     pub fn design_label(&self) -> Option<String> {
         self.design.as_ref().map(|design| {
-            self.design_given_label
-                .clone()
-                .unwrap_or_else(|| category::words(design))
+            match self.listed_design().and_then(|listed| listed.label) {
+                Some(label) => label.to_owned(),
+                None => category::words(design),
+            }
         })
     }
 

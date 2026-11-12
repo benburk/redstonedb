@@ -63,7 +63,10 @@ impl Build {
         };
         let design = self.design.as_ref().map(|design| Tag {
             name: design.clone(),
-            token: self.design_abbreviation.clone(),
+            token: self
+                .listed_design()
+                .and_then(|listed| listed.abbreviation)
+                .map(str::to_owned),
             kind: found(tag::Kind::Design, behaviour.evaluated),
         });
         let orientation = Tag {

@@ -1092,7 +1092,6 @@ mod tests {
             tags,
         );
         s.design = design.map(str::to_owned);
-        s.design_abbreviation = Some("CCA".to_owned());
         s.flags = flags
             .iter()
             .map(|&name| Flag { name, label: name })
@@ -1124,7 +1123,6 @@ mod tests {
         assert_eq!(names(&s), ["2-wide_stackable", "pistons"]);
         let mut gate = adder(None, &[], &[]);
         gate.category = "xnor_gate".to_owned();
-        gate.category_label = Some("XNOR Gate".to_owned());
         assert!(gate.name().contains("XNOR"), "{}", gate.name());
         assert!(names(&gate).is_empty());
     }

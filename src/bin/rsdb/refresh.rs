@@ -258,7 +258,7 @@ async fn compare(
                 show_design(s.design.as_deref()),
                 show_design(design),
             ),
-            ("logic", show(&s.logic), show(&e.logic)),
+            ("logic", show(&s.logic()), show(&e.logic)),
         ];
         let differ: Vec<String> = fields
             .iter()

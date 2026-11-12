@@ -11,7 +11,7 @@ use super::{
     Widened,
 };
 use crate::{
-    category::{self, Design, Flag, Kind},
+    category::{self, Flag},
     models::tag::{self, Tag},
     recognize::interface::Kept,
 };
@@ -134,17 +134,12 @@ async fn load(
                 credits.remove(&row.id).unwrap_or_default();
             let (operands, unaligned) =
                 layouts.remove(&row.id).unwrap_or_default();
-            let facts = Kind::named(&row.category).map(Kind::facts);
-            let (design_abbreviation, design_given_label) =
-                design_names(&row.category, row.design.as_deref());
             let status = Status::of(
                 row.outcome.as_deref(),
                 row.fails_simulation,
                 row.unverified.as_deref(),
             );
             Build {
-                measures: facts.map_or_else(Vec::new, |f| f.measures.to_vec()),
-                aliases: category::aliases(&row.category),
                 tags: tag::with_derived(
                     tags.remove(&row.id).unwrap_or_default(),
                     status.unverified(),
@@ -157,14 +152,12 @@ async fn load(
                 stacked_from: None,
                 authors,
                 contributors,
-                category_label: facts.map(|f| f.label.to_owned()),
                 category: row.category,
                 width: row.width,
                 orientation: row.orientation,
                 encoding: row.encoding,
                 latency: row.latency,
                 synchronized: row.synchronized,
-                logic: row.own_logic.or(facts.and_then(|f| f.logic)),
                 own_logic: row.own_logic,
                 throughput: row.throughput,
                 at_least: row.at_least,
@@ -179,8 +172,6 @@ async fn load(
                 conventional: row.conventional,
                 keeps_paste: row.keeps_paste,
                 design: row.design,
-                design_abbreviation,
-                design_given_label,
                 description: row.description,
                 given_name: row.given_name,
                 uploader: row.uploader,
@@ -232,20 +223,6 @@ async fn layouts_by_schematic(
                 .then_some((id, (operands, unaligned)))
         })
         .collect())
-}
-
-/// The usual short name and the label of the design named `design` of the
-/// category named `category`, where it has them.
-fn design_names(
-    category: &str,
-    design: Option<&str>,
-) -> (Option<String>, Option<String>) {
-    let design = design.and_then(|design| Design::of(category, design));
-    let owned = |name: Option<&str>| name.map(str::to_owned);
-    (
-        owned(design.and_then(|d| d.abbreviation)),
-        owned(design.and_then(|d| d.label)),
-    )
 }
 
 /// The stored tags of the builds `only` names, as `load` takes it, by id,
