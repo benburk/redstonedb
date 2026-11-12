@@ -6,12 +6,15 @@
 //! never by width, as an 8-bit XOR gate is eight XOR gates, but by how
 //! closely their copies stack and how small each cell is.
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    str::FromStr,
+};
 
 use crate::{
     category::{self, Flag, Group, Measure, NO_DESIGN},
     models::{
-        schematic::{Logic, Orientation, Schematic},
+        schematic::{Logic, Orientation, PITCHES, Schematic},
         tag::{self, Kind, Tag},
     },
 };
@@ -136,6 +139,23 @@ pub fn split_by(measures: &[Measure], group: Group) -> Vec<Measure> {
         .iter()
         .copied()
         .filter(|&m| !(as_cells(group) && m == Measure::Width))
+        .collect()
+}
+
+/// The value of each measure a board of `s`'s category splits by, in its
+/// order; `None` where one is unknown, a cell's width among them, as its
+/// blocks are counted a bit, or where its category has no measures.
+fn ranked_values(s: &Schematic) -> Option<Vec<(Measure, i64)>> {
+    let group = group_of(&s.category);
+    let unknown_width = as_cells(group)
+        && s.measures.contains(&Measure::Width)
+        && s.width.is_none();
+    if s.measures.is_empty() || unknown_width {
+        return None;
+    }
+    split_by(&s.measures, group)
+        .into_iter()
+        .map(|m| Some((m, m.of(s)?)))
         .collect()
 }
 
@@ -861,10 +881,24 @@ pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
     }))
 }
 
+/// Authors by records held: each record a build of theirs holds, see
+/// [`records`], a tie giving every holder's authors one.
+pub fn most_records(records: &[Record]) -> Vec<Standing> {
+    tally(records.iter().flat_map(|record| {
+        let mut names: Vec<(String, Option<String>)> = Vec::new();
+        for (name, account) in record.holders.iter().flat_map(|s| credited(s)) {
+            if !names.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                names.push((name, account));
+            }
+        }
+        names
+    }))
+}
+
 /// The tags of a build a board may narrow to: those the site finds, such
 /// as its design, orientation, `synced`, `torchless`, a pitch class, as
 /// `2-wide_stackable`, or `interleaved_inputs`, but for the flags that only
-/// say which lines it has, as a carry in, which never narrow a
+/// say which lines it has, as a carry in, which never narrow a record's
 /// board, and how far apart a register's copies add words, as
 /// `3-wide_word_stackable`, shown on its page alone. Of a build that ranks
 /// as a cell, `stackable` is left out too, its pitch class saying more.
@@ -880,6 +914,78 @@ pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
                 && (!cells || tag.name != tag::STACKABLE)
         })
         .collect()
+}
+
+/// How a board ranks its builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rank {
+    /// Quickest first, a tie going to the smaller.
+    Fastest,
+    /// Smallest first, a tie going to the quicker.
+    Smallest,
+}
+
+impl Rank {
+    pub fn label(self) -> &'static str {
+        match self {
+            Rank::Fastest => "Fastest",
+            Rank::Smallest => "Smallest",
+        }
+    }
+}
+
+/// One thing a record's board narrows to beyond its category, measures,
+/// and state: a latency, or a tag the site finds, by its name.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Trait {
+    Ticks(i64),
+    Tag(String),
+}
+
+/// The most traits a record's board narrows to.
+const MOST_TRAITS: usize = 3;
+
+/// First place on a board: a standard category's verified builds of one
+/// value of each of its measures and one state, narrowed to a latency and
+/// tags the site finds, ranked fastest or smallest.
+#[derive(Debug)]
+pub struct Record<'a> {
+    pub category: &'a str,
+    /// A value of each of the category's measures, such as a width of 8.
+    pub measures: Vec<(Measure, i64)>,
+    pub logic: State,
+    /// Whether the category has builds of another state at these measures,
+    /// so the record's name says which.
+    pub logic_named: bool,
+    pub ticks: Option<i64>,
+    /// The tags its board narrows to, in the order a build lists them.
+    pub tags: Vec<Tag>,
+    pub rank: Rank,
+    /// How its board measures its builds' size.
+    pub ruler: Ruler,
+    /// The builds it ranks.
+    pub field: Vec<&'a Schematic>,
+    /// The builds in first place, more than one on a tie.
+    pub holders: Vec<&'a Schematic>,
+    /// How many people built the field, whatever the case of their names.
+    pub authors: usize,
+}
+
+impl Record<'_> {
+    /// Such as `Smallest 3-tick 8-bit synced CCA adder`.
+    pub fn name(&self) -> String {
+        let (designs, tags): (Vec<&Tag>, Vec<&Tag>) =
+            self.tags.iter().partition(|tag| tag.kind == Kind::Design);
+        [self.rank.label().to_owned()]
+            .into_iter()
+            .chain(self.ticks.map(|t| format!("{t}-tick")))
+            .chain(self.measures.iter().map(|(m, n)| m.lead(*n)))
+            .chain(self.logic_named.then(|| self.logic.name().to_owned()))
+            .chain(tags.into_iter().chain(designs).map(Tag::label))
+            .chain([in_sentence(&self.holders[0].category_label())])
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// A category's name as a sentence carries it, such as `ripple adders`,
@@ -900,6 +1006,338 @@ pub fn in_sentence(name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Every record `builds` hold, the most contested first: by most authors,
+/// then most builds. A board is one of a category's measures and state,
+/// narrowed to up to [`MOST_TRAITS`] traits: a latency, and tags the site
+/// finds, such as `synced`, a design, an orientation, or a pitch class, as
+/// `2-wide_stackable`. Builds that rank as cells have no width among their
+/// measures, a board of theirs narrows to one pitch class at most, and
+/// they are measured as its [`Ruler`] says. An interleaved build competes
+/// only on a board narrowed to `interleaved_inputs`, and only one is. Its
+/// first place is a record when the board ranks two or more builds, and
+///
+/// - its traits each change who is first, so no board with one fewer has
+///   the same first place: a design nearly every fast build has makes no
+///   fastest board of its own;
+/// - as fastest, speed decides it: when builds tie on the fewest ticks,
+///   the record is the smallest at that latency, a board of its own;
+/// - as fastest, it narrows to no latency, which would rank by size;
+/// - of a looser stacking, such as `4-wide_stackable`, or `stackable`
+///   alone, whose board takes a tighter one's builds too, its first place
+///   is not a tighter one's record, as `2-wide_stackable`'s, its other
+///   traits the same: a build first on both holds the tighter one alone.
+///
+/// Boards of the same builds with the same first place are one record,
+/// named by the one that says the most of them: a pitch class, then a
+/// design, then a latency, so `Smallest 2-wide stackable 1-bit adder`
+/// over `Smallest 6-tick 1-bit adder`.
+pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
+    type Base<'a> = (&'a str, Vec<i64>, State);
+    let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Schematic>)> =
+        BTreeMap::new();
+    for &s in builds
+        .iter()
+        .filter(|s| s.category_label.is_some() && s.ranks())
+    {
+        let Some(values) = ranked_values(s) else {
+            continue;
+        };
+        let (measures, values): (Vec<Measure>, Vec<i64>) =
+            values.into_iter().unzip();
+        bases
+            .entry((&s.category, values, State::of(s)))
+            .or_insert_with(|| (measures, Vec::new()))
+            .1
+            .push(s);
+    }
+    let mut records = Vec::new();
+    for ((category, values, logic), (measures, base)) in &bases {
+        let logic_named = bases
+            .keys()
+            .any(|(c, v, l)| c == category && v == values && l != logic);
+        records.extend(records_of(base).into_iter().map(|found| {
+            Record {
+                category,
+                measures: measures
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+                logic: *logic,
+                logic_named,
+                ticks: found.ticks,
+                tags: found.tags,
+                rank: found.rank,
+                ruler: found.ruler,
+                authors: tally(found.field.iter().flat_map(|s| credited(s)))
+                    .len(),
+                field: found.field,
+                holders: found.holders,
+            }
+        }));
+    }
+    records.sort_by(|a, b| {
+        (b.authors, b.field.len()).cmp(&(a.authors, a.field.len()))
+    });
+    records
+}
+
+/// A record as one category's builds at one value of each of its measures
+/// and one state find it, before it is named by them; see [`Record`].
+struct Found<'a> {
+    /// The traits its board narrows to.
+    wanted: BTreeSet<Trait>,
+    ticks: Option<i64>,
+    tags: Vec<Tag>,
+    rank: Rank,
+    ruler: Ruler,
+    field: Vec<&'a Schematic>,
+    holders: Vec<&'a Schematic>,
+}
+
+/// Adds to `boards` each set of at most [`MOST_TRAITS`] of `own`, the empty
+/// set among them, that includes `chosen` and otherwise draws only on
+/// `own[from..]`.
+fn boards_of(
+    own: &[&Trait],
+    from: usize,
+    chosen: &mut Vec<Trait>,
+    boards: &mut BTreeSet<BTreeSet<Trait>>,
+) {
+    boards.insert(chosen.iter().cloned().collect());
+    if chosen.len() == MOST_TRAITS {
+        return;
+    }
+    for i in from..own.len() {
+        chosen.push(own[i].clone());
+        boards_of(own, i + 1, chosen, boards);
+        chosen.pop();
+    }
+}
+
+/// Each board builds of `group` with `traits` make, by the traits it
+/// narrows to: a cell's narrows to one pitch class at most, as it is
+/// measured by it.
+fn boards(
+    traits: &[BTreeSet<Trait>],
+    group: Group,
+) -> BTreeSet<BTreeSet<Trait>> {
+    let mut boards = BTreeSet::new();
+    for own in traits {
+        let own: Vec<&Trait> = own.iter().collect();
+        boards_of(&own, 0, &mut Vec::new(), &mut boards);
+    }
+    if as_cells(group) {
+        boards.retain(|wanted| classes_in(wanted).count() <= 1);
+    }
+    boards
+}
+
+/// The pitch classes, as `2-wide_stackable`, that the traits `wanted`
+/// narrow to.
+fn classes_in(wanted: &BTreeSet<Trait>) -> impl Iterator<Item = &str> {
+    wanted.iter().filter_map(|t| match t {
+        Trait::Tag(name) if pitch_class(name).is_some() => Some(name.as_str()),
+        _ => None,
+    })
+}
+
+/// Whether the tag `tight` names a tighter stacking than `loose` does,
+/// whose builds the board of `loose` takes too: a pitch class tighter than
+/// another of the same way, as `2-wide_stackable` is than
+/// `4-wide_stackable`, or any pitch class than `stackable` alone.
+fn tighter(tight: &str, loose: &str) -> bool {
+    match (pitch_class(tight), pitch_class(loose)) {
+        (Some(_), None) => loose == tag::STACKABLE,
+        (Some((tight, way)), Some((loose, loose_way))) => {
+            way == loose_way
+                && tight < loose
+                && PITCHES.contains(&tight)
+                && PITCHES.contains(&loose)
+        }
+        _ => false,
+    }
+}
+
+/// The records of `base`, one category's builds of one value of each of
+/// its measures and one state; see [`records`].
+fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
+    let Some(first) = base.first() else {
+        return Vec::new();
+    };
+    let group = group_of(&first.category);
+    let interleaved = Trait::Tag(tag::INTERLEAVED_INPUTS.to_owned());
+    let tags: Vec<Vec<Tag>> = base.iter().map(|s| ranked_tags(s)).collect();
+    let traits: Vec<BTreeSet<Trait>> = base
+        .iter()
+        .zip(&tags)
+        .map(|(s, tags)| {
+            tags.iter()
+                .map(|tag| Trait::Tag(tag.name.clone()))
+                .chain(s.latency.map(Trait::Ticks))
+                .collect()
+        })
+        .collect();
+    let boards = boards(&traits, group);
+    let ruler = |wanted: &BTreeSet<Trait>| Ruler::of(group, classes_in(wanted));
+    // The builds a board of `wanted` ranks `rank`, by their place in base:
+    // interleaved builds only where it narrows to them.
+    let field = |wanted: &BTreeSet<Trait>, rank: Rank| -> Vec<usize> {
+        let interleaving = wanted.contains(&interleaved);
+        (0..base.len())
+            .filter(|&i| wanted.is_subset(&traits[i]))
+            .filter(|&i| base[i].interleaved_inputs() == interleaving)
+            .filter(|&i| rank == Rank::Smallest || base[i].latency.is_some())
+            .collect()
+    };
+    // Ticks, then size, for the fastest; size, then ticks, the smallest.
+    let key = |i: usize, rank: Rank, ruler: Ruler| {
+        let (s, ticks) = (base[i], base[i].latency.unwrap_or(i64::MAX));
+        match rank {
+            Rank::Fastest => (ticks, ruler.size(s), 0),
+            Rank::Smallest => (0, ruler.size(s), ticks),
+        }
+    };
+    // The first places of the board of `wanted` ranking `field`.
+    let firsts =
+        |wanted: &BTreeSet<Trait>, field: &[usize], rank: Rank| -> Vec<usize> {
+            let ruler = ruler(wanted);
+            let best = field.iter().map(|&i| key(i, rank, ruler)).min();
+            field
+                .iter()
+                .copied()
+                .filter(|&i| Some(key(i, rank, ruler)) == best)
+                .collect()
+        };
+    let mut found = Vec::new();
+    for wanted in &boards {
+        let ticks = wanted.iter().find_map(|t| match t {
+            Trait::Ticks(n) => Some(*n),
+            Trait::Tag(_) => None,
+        });
+        for rank in [Rank::Smallest, Rank::Fastest] {
+            if rank == Rank::Fastest && ticks.is_some() {
+                continue;
+            }
+            let ranked = field(wanted, rank);
+            if ranked.len() < 2 {
+                continue;
+            }
+            let first = firsts(wanted, &ranked, rank);
+            if rank == Rank::Fastest {
+                let fewest = base[first[0]].latency;
+                if ranked
+                    .iter()
+                    .filter(|&&i| base[i].latency == fewest)
+                    .count()
+                    > 1
+                {
+                    continue;
+                }
+            }
+            let changes = wanted.iter().all(|t| {
+                let mut fewer = wanted.clone();
+                fewer.remove(t);
+                firsts(&fewer, &field(&fewer, rank), rank) != first
+            });
+            if !changes {
+                continue;
+            }
+            let named = tags[first[0]]
+                .iter()
+                .filter(|tag| wanted.contains(&Trait::Tag(tag.name.clone())))
+                .cloned()
+                .collect();
+            found.push(Found {
+                wanted: wanted.clone(),
+                ticks,
+                tags: named,
+                rank,
+                ruler: ruler(wanted),
+                field: ranked.iter().map(|&i| base[i]).collect(),
+                holders: first.iter().map(|&i| base[i]).collect(),
+            });
+        }
+    }
+    shown_once(named_once(found))
+}
+
+/// `found` but one record of each set of boards of the same builds with
+/// the same first place, where the first of them stood, named by the one
+/// whose name says the most of them, as [`says`] weighs it, the first of
+/// those that say as much.
+fn named_once(found: Vec<Found>) -> Vec<Found> {
+    let ids = |builds: &[&Schematic]| -> Vec<String> {
+        builds.iter().map(|s| s.id.clone()).collect()
+    };
+    let mut kept: Vec<Found> = Vec::new();
+    for record in found {
+        let same = kept.iter().position(|other| {
+            ids(&other.field) == ids(&record.field)
+                && ids(&other.holders) == ids(&record.holders)
+        });
+        match same {
+            Some(at) if says(&record) > says(&kept[at]) => kept[at] = record,
+            Some(_) => {}
+            None => kept.push(record),
+        }
+    }
+    kept
+}
+
+/// How much a record's name says of its builds, to choose which of the
+/// boards of the same builds with the same first place names it: a pitch
+/// class, as `2-wide_stackable`, then a design, then a latency, each
+/// before the board without it; boards that say as much keep the first.
+fn says(record: &Found) -> (bool, bool, bool) {
+    (
+        record
+            .tags
+            .iter()
+            .any(|tag| pitch_class(&tag.name).is_some()),
+        record.tags.iter().any(|tag| tag.kind == Kind::Design),
+        record.ticks.is_some(),
+    )
+}
+
+/// `found` but each record of a looser stacking whose first place is a
+/// tighter one's record too, its other traits the same, as that of
+/// `4-wide_stackable` held by the record of `2-wide_stackable`: a build
+/// first on both holds the tightest alone.
+fn shown_once(found: Vec<Found>) -> Vec<Found> {
+    let redundant: Vec<bool> = found
+        .iter()
+        .map(|record| {
+            found.iter().any(|other| {
+                let only = |a: &BTreeSet<Trait>, b: &BTreeSet<Trait>| {
+                    let mut left = a.difference(b);
+                    match (left.next(), left.next()) {
+                        (Some(Trait::Tag(name)), None) => Some(name.clone()),
+                        _ => None,
+                    }
+                };
+                let swapped = only(&record.wanted, &other.wanted)
+                    .zip(only(&other.wanted, &record.wanted));
+                other.rank == record.rank
+                    && swapped
+                        .is_some_and(|(loose, tight)| tighter(&tight, &loose))
+                    && other.holders.len() == record.holders.len()
+                    && other
+                        .holders
+                        .iter()
+                        .zip(&record.holders)
+                        .all(|(a, b)| a.id == b.id)
+            })
+        })
+        .collect();
+    found
+        .into_iter()
+        .zip(redundant)
+        .filter(|(_, redundant)| !redundant)
+        .map(|(record, _)| record)
+        .collect()
 }
 
 #[cfg(test)]
@@ -951,6 +1389,39 @@ mod tests {
         let only = board(&all[..1], &Wanted::default(), &[Measure::Width]);
         assert_eq!(only.inputs, Inputs::Interleaved);
         assert_eq!(only.builds.len(), 1);
+    }
+
+    /// The smaller interleaved build makes no record among the split ones,
+    /// but one of its own among the interleaved.
+    #[test]
+    fn interleaved_builds_hold_records_apart() {
+        let interleaved = |id: &str, volume: i64| Schematic {
+            operands: crate::models::schematic::Operands::Interleaved,
+            ..build(id, 1, None, Some(3), volume)
+        };
+        let adders = [
+            interleaved("p", 10),
+            interleaved("q", 12),
+            build("a", 1, None, Some(3), 20),
+            build("b", 1, None, Some(3), 30),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest 1-bit adder".to_owned(), vec!["a"]),
+                (
+                    "Smallest 1-bit interleaved inputs adder".to_owned(),
+                    vec!["p"]
+                ),
+            ]
+        );
     }
 
     /// A gate of `bits`, `size`, stacking `ways`, each `(west, up, pitch)`.
@@ -1036,6 +1507,98 @@ mod tests {
         assert_eq!(board.ruler, Ruler::Whole);
     }
 
+    /// Of builds that cross bits, as adders, a board of any stacking
+    /// takes every pitch class's builds, so its first place, a tighter
+    /// class's too, is held once, as the tighter class's record.
+    #[test]
+    fn a_stackable_record_held_by_a_pitch_classs_holder_is_shown_once() {
+        let stacking = |up: i64, pitch: i64, s: Schematic| Schematic {
+            stacking: vec![StackDirection {
+                west: 0,
+                up,
+                max_copies: None,
+                faces: None,
+                pitch: Some(pitch),
+            }],
+            ..s
+        };
+        let adders = [
+            build("a", 8, None, Some(3), 500),
+            // 400 blocks, 200 a copy, 2 high.
+            stacking(2, 2, build("b", 8, None, Some(4), 200)),
+            stacking(8, 8, build("c", 8, None, Some(5), 300)),
+            stacking(2, 2, build("d", 8, None, Some(6), 400)),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(
+            names,
+            [
+                "Smallest 8-bit adder",
+                "Fastest 8-bit adder",
+                "Fastest 8-bit 2-high stackable adder",
+            ]
+        );
+    }
+
+    /// Boards of the same builds with the same first place are one record,
+    /// named by a pitch class over a design, and a design over a latency.
+    #[test]
+    fn a_merged_record_is_named_by_its_stacking_then_design_then_ticks() {
+        // Copies 2 apart, each as big as its box.
+        let stacking = |s: Schematic| Schematic {
+            size: (2, 5, s.size.0 / 10),
+            stacking: vec![StackDirection {
+                west: 2,
+                up: 0,
+                max_copies: None,
+                faces: None,
+                pitch: Some(2),
+            }],
+            ..s
+        };
+        let names = |adders: &[Schematic]| -> Vec<String> {
+            let builds: Vec<&Schematic> = adders.iter().collect();
+            records(&builds).iter().map(Record::name).collect()
+        };
+        // The 6-tick builds are the 2-wide stackable ones, ripple carry.
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            stacking(build("a", 1, None, Some(6), 100)),
+            stacking(build("c", 1, None, Some(6), 150)),
+        ];
+        assert_eq!(
+            names(&adders),
+            [
+                "Smallest 1-bit adder",
+                "Smallest 1-bit 2-wide stackable adder",
+            ]
+        );
+        let ripple = Some("ripple_carry");
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            build("a", 1, ripple, Some(6), 100),
+            build("c", 1, ripple, Some(6), 150),
+        ];
+        assert_eq!(
+            names(&adders),
+            ["Smallest 1-bit adder", "Smallest 1-bit ripple carry adder",]
+        );
+        let adders = [
+            build("x", 1, None, Some(4), 50),
+            stacking(build("a", 1, ripple, Some(6), 100)),
+            stacking(build("c", 1, ripple, Some(6), 150)),
+        ];
+        assert_eq!(
+            names(&adders),
+            [
+                "Smallest 1-bit adder",
+                "Smallest 1-bit 2-wide stackable adder",
+            ]
+        );
+    }
+
     /// Registers, cells on shared lines, rank as cells too: an 8-bit one
     /// and a 1-bit one on one board, each measured a bit.
     #[test]
@@ -1059,6 +1622,69 @@ mod tests {
         assert_eq!(ids(&smallest), [(1, "eight"), (2, "one")]);
         let size = board.ruler.size(smallest[0].1);
         assert_eq!((size.blocks, size.bits), (3 * 19 * 7, 8));
+        let names: Vec<String> =
+            records(&all).iter().map(Record::name).collect();
+        assert_eq!(names, ["Smallest register"]);
+    }
+
+    /// A looser pitch class's board takes the tighter classes' builds, so
+    /// a 2-wide gate may hold the 4-wide record; where it holds the 2-wide
+    /// one too, it holds that alone.
+    #[test]
+    fn a_looser_class_record_held_by_the_tighter_ones_holder_is_shown_once() {
+        let gates = [
+            // Smallest alone, but its copies need air between them.
+            gate("narrow", 1, (1, 5, 5), 3, &[(2, 0, 2)]),
+            gate("snug", 1, (2, 5, 4), 3, &[(2, 0, 2)]),
+            gate("wide", 1, (3, 5, 4), 3, &[(4, 0, 4)]),
+            gate("high", 1, (2, 3, 5), 3, &[(0, 4, 4)]),
+            gate("tall", 1, (3, 3, 5), 3, &[(0, 4, 4)]),
+        ];
+        let builds: Vec<&Schematic> = gates.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest XOR gate".to_owned(), vec!["narrow"]),
+                (
+                    "Smallest 2-wide stackable XOR gate".to_owned(),
+                    vec!["snug"]
+                ),
+                (
+                    "Smallest 4-high stackable XOR gate".to_owned(),
+                    vec!["high"]
+                ),
+            ]
+        );
+        // Alone on the 2-wide board, so holding no record there, the
+        // 2-wide gate holds the 4-wide one.
+        let gates = [
+            gate("tiny", 1, (1, 3, 3), 3, &[]),
+            gates[0].clone(),
+            gates[2].clone(),
+        ];
+        let builds: Vec<&Schematic> = gates.iter().collect();
+        let found: Vec<(String, Vec<&str>)> = records(&builds)
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest XOR gate".to_owned(), vec!["tiny"]),
+                (
+                    "Smallest 4-wide stackable XOR gate".to_owned(),
+                    vec!["narrow"]
+                ),
+            ]
+        );
     }
 
     /// A register whose copies add words on its shared bus carries how
@@ -1287,6 +1913,102 @@ mod tests {
             ids(&fastest(&tied, Ruler::Whole)),
             [(1, "z"), (2, "x"), (2, "y")]
         );
+    }
+
+    /// The builds of the tests below, each by one author.
+    fn credited_adders() -> Vec<Schematic> {
+        let by = |name: &str, s: Schematic| Schematic {
+            authors: vec![name.to_owned()],
+            ..s
+        };
+        vec![
+            // 8-bit: a is fastest and smallest.
+            by("Alex", build("a", 8, Some("carry_cancel"), Some(3), 684)),
+            by("bob", build("b", 8, Some("carry_cancel"), Some(4), 900)),
+            // Alone on its board, so no record.
+            by("bob", build("c", 16, Some("carry_cancel"), Some(4), 1960)),
+            by(
+                "alex",
+                build("d", 8, Some("carry_lookahead"), Some(4), 6498),
+            ),
+            by("Bob", build("e", 8, Some("carry_lookahead"), Some(8), 3762)),
+        ]
+    }
+
+    /// Records are first places on boards of two or more builds, each
+    /// trait changing who is first: a, first of all, is first of the CCAs
+    /// too, so they make no record; of the CLAs, d is fastest and e
+    /// smallest; and of the 4-tick builds, b is smallest.
+    #[test]
+    fn records_are_first_places_each_trait_changes() {
+        let adders = credited_adders();
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let records = records(&builds);
+        let found: Vec<(String, Vec<&str>)> = records
+            .iter()
+            .map(|r| {
+                (r.name(), r.holders.iter().map(|s| s.id.as_str()).collect())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Smallest 8-bit adder".to_owned(), vec!["a"]),
+                ("Smallest 4-tick 8-bit adder".to_owned(), vec!["b"]),
+                ("Smallest 8-bit carry lookahead adder".to_owned(), vec!["e"]),
+                ("Fastest 8-bit carry lookahead adder".to_owned(), vec!["d"]),
+            ]
+        );
+        let counts: Vec<(String, usize)> = most_records(&records)
+            .into_iter()
+            .map(|s| (s.name, s.count))
+            .collect();
+        assert_eq!(counts, [("Alex".to_owned(), 2), ("bob".to_owned(), 2)]);
+    }
+
+    /// When builds tie on the fewest ticks, size decides, so the record is
+    /// the smallest at that latency, not the fastest.
+    #[test]
+    fn a_tie_on_ticks_makes_a_record_of_the_smallest_at_them() {
+        let adders = [
+            build("a", 8, None, Some(3), 900),
+            build("b", 8, None, Some(3), 700),
+            build("c", 8, None, Some(5), 400),
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(
+            names,
+            ["Smallest 8-bit adder", "Smallest 3-tick 8-bit adder"]
+        );
+    }
+
+    /// A build with more traits than a bit mask holds still ranks: only its
+    /// sets of a few traits are boards.
+    #[test]
+    fn a_build_with_many_traits_still_ranks() {
+        let tags: Vec<Tag> = (0..40)
+            .map(|n| Tag {
+                name: format!("trait-{n}"),
+                token: None,
+                kind: Kind::Feature,
+            })
+            .collect();
+        let adders = [
+            Schematic {
+                tags: tags.clone(),
+                ..build("a", 8, None, Some(3), 900)
+            },
+            Schematic {
+                tags,
+                ..build("b", 8, None, Some(3), 700)
+            },
+        ];
+        let builds: Vec<&Schematic> = adders.iter().collect();
+        let names: Vec<String> =
+            records(&builds).iter().map(Record::name).collect();
+        assert_eq!(names, ["Smallest 8-bit adder"]);
     }
 
     #[test]
