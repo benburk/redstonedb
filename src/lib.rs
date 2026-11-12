@@ -74,6 +74,7 @@ macro_rules! named_values {
     };
 }
 
+pub mod build;
 pub mod category;
 pub mod db;
 pub mod details;
