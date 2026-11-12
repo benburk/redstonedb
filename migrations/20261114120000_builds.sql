@@ -104,3 +104,12 @@ DROP TABLE recognized;
 ALTER TABLE user DROP COLUMN welcomed;
 ALTER TABLE build DROP COLUMN bytes;
 ALTER TABLE build DROP COLUMN given_name;
+
+-- Whether a build is unverified because its test ran and found it wrong,
+-- so it is failing rather than untested, which the site read off the
+-- wording of its reason until now.
+ALTER TABLE build ADD COLUMN unverified_wrong INTEGER NOT NULL DEFAULT 0
+CHECK (unverified_wrong IN (0, 1) AND (unverified IS NOT NULL OR unverified_wrong = 0));
+UPDATE build SET unverified_wrong = 1
+WHERE unverified = 'Gives wrong outputs for some inputs'
+    OR unverified LIKE '%cases wrong%';

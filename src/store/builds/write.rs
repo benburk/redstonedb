@@ -119,6 +119,8 @@ pub async fn insert(
     new: &New<'_>,
 ) -> Result<String, sqlx::Error> {
     let (details, file) = (&new.ready.details, new.file);
+    let unverified = details.unverified.as_deref();
+    let wrong = details.unverified.as_ref().is_some_and(|r| r.wrong);
     let (size, facts) = (&file.size, &file.facts);
     let (x, y, z) = (size.x, size.y, size.z);
     let mut tx = db.begin().await?;
@@ -127,9 +129,9 @@ pub async fn insert(
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, logic,
             throughput, at_least, pulse, torches, works_from, works_from_by,
-            keeps_paste, uploaded_by, unverified)
+            keeps_paste, uploaded_by, unverified, unverified_wrong)
          VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?)
+            ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.id,
         details.category,
@@ -155,7 +157,8 @@ pub async fn insert(
         facts.works_from.because,
         file.keeps_paste,
         new.uploaded_by,
-        details.unverified,
+        unverified,
+        wrong,
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -177,11 +180,14 @@ pub async fn set_details(
     ready: &Ready,
 ) -> Result<(), sqlx::Error> {
     let details = &ready.details;
+    let unverified = details.unverified.as_deref();
+    let wrong = details.unverified.as_ref().is_some_and(|r| r.wrong);
     let mut tx = db.begin().await?;
     if ready.evaluated {
         sqlx::query!(
             "UPDATE build SET category = ?, built_on = ?,
                 description = ?, at_least = ?, unverified = NULL,
+                unverified_wrong = 0,
                 edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
              WHERE id = ?",
             details.category,
@@ -199,7 +205,7 @@ pub async fn set_details(
         "UPDATE build SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, logic = ?, throughput = ?,
-            at_least = ?, pulse = ?, unverified = ?,
+            at_least = ?, pulse = ?, unverified = ?, unverified_wrong = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -215,7 +221,8 @@ pub async fn set_details(
         details.specs.throughput,
         details.specs.at_least,
         details.specs.pulse,
-        details.unverified,
+        unverified,
+        wrong,
         id,
     )
     .execute(&mut *tx)

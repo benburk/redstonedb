@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT build.id, build.category, width, orientation\n            as \"orientation: Orientation\", encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            public as \"public: bool\", unverified,\n            build.logic as \"own_logic: Logic\",\n            conventional as \"conventional: bool\", description,\n            design, user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username) as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation WHERE simulation.failed\n                AND simulation.build_id = build.id\n                AND simulation.sha256 = file.sha256) as \"fails_simulation!: bool\",\n            (SELECT json_extract(simulation.report, '$.outcome') FROM simulation\n                WHERE simulation.build_id = build.id\n                AND simulation.sha256 = file.sha256) as \"outcome?: String\",\n            (SELECT count(*) FROM favorite WHERE favorite.build_id = build.id)\n                as \"favorites!: i64\",\n            build.deleted_at IS NOT NULL as \"deleted!: bool\"\n         FROM build\n         JOIN current_file AS file ON file.build_id = build.id\n         LEFT JOIN user ON user.id = build.uploaded_by\n         WHERE (?1 IS NULL OR build.id IN (SELECT value FROM json_each(?1)))\n            AND (?2 OR build.deleted_at IS NULL)\n         ORDER BY build.category, width, added_at",
+  "query": "SELECT build.id, build.category, width, orientation\n            as \"orientation: Orientation\", encoding as \"encoding: Encoding\", latency,\n            synchronized as \"synchronized: bool\", throughput, at_least, pulse,\n            torches, works_from, works_from_by, size_x, size_y, size_z,\n            built_on, imported_by, file.sha256 as \"sha256!\", added_at,\n            edited_at, downloads, keeps_paste as \"keeps_paste: bool\",\n            public as \"public: bool\", unverified,\n            unverified_wrong as \"unverified_wrong: bool\",\n            build.logic as \"own_logic: Logic\",\n            conventional as \"conventional: bool\", description,\n            design, user.username as \"uploader?: String\",\n            coalesce(user.minecraft_name, user.username) as \"uploader_name?: String\",\n            EXISTS (SELECT 1 FROM simulation WHERE simulation.failed\n                AND simulation.build_id = build.id\n                AND simulation.sha256 = file.sha256) as \"fails_simulation!: bool\",\n            (SELECT json_extract(simulation.report, '$.outcome') FROM simulation\n                WHERE simulation.build_id = build.id\n                AND simulation.sha256 = file.sha256) as \"outcome?: String\",\n            (SELECT count(*) FROM favorite WHERE favorite.build_id = build.id)\n                as \"favorites!: i64\",\n            build.deleted_at IS NOT NULL as \"deleted!: bool\"\n         FROM build\n         JOIN current_file AS file ON file.build_id = build.id\n         LEFT JOIN user ON user.id = build.uploaded_by\n         WHERE (?1 IS NULL OR build.id IN (SELECT value FROM json_each(?1)))\n            AND (?2 OR build.deleted_at IS NULL)\n         ORDER BY build.category, width, added_at",
   "describe": {
     "columns": [
       {
@@ -129,53 +129,58 @@
         "type_info": "Text"
       },
       {
-        "name": "own_logic: Logic",
+        "name": "unverified_wrong: bool",
         "ordinal": 25,
+        "type_info": "Integer"
+      },
+      {
+        "name": "own_logic: Logic",
+        "ordinal": 26,
         "type_info": "Text"
       },
       {
         "name": "conventional: bool",
-        "ordinal": 26,
+        "ordinal": 27,
         "type_info": "Integer"
       },
       {
         "name": "description",
-        "ordinal": 27,
-        "type_info": "Text"
-      },
-      {
-        "name": "design",
         "ordinal": 28,
         "type_info": "Text"
       },
       {
-        "name": "uploader?: String",
+        "name": "design",
         "ordinal": 29,
         "type_info": "Text"
       },
       {
-        "name": "uploader_name?: String",
+        "name": "uploader?: String",
         "ordinal": 30,
         "type_info": "Text"
       },
       {
-        "name": "fails_simulation!: bool",
+        "name": "uploader_name?: String",
         "ordinal": 31,
+        "type_info": "Text"
+      },
+      {
+        "name": "fails_simulation!: bool",
+        "ordinal": 32,
         "type_info": "Integer"
       },
       {
         "name": "outcome?: String",
-        "ordinal": 32,
+        "ordinal": 33,
         "type_info": "Null"
       },
       {
         "name": "favorites!: i64",
-        "ordinal": 33,
+        "ordinal": 34,
         "type_info": "Integer"
       },
       {
         "name": "deleted!: bool",
-        "ordinal": 34,
+        "ordinal": 35,
         "type_info": "Integer"
       }
     ],
@@ -208,6 +213,7 @@
       false,
       false,
       true,
+      false,
       true,
       false,
       true,
@@ -220,5 +226,5 @@
       false
     ]
   },
-  "hash": "a5ad947b1a5a981bf14cfae86b5fe22f96de4d4a12ed6b78df90f472c479eb1e"
+  "hash": "fedd413c2bc5e1fc104675ac9b8a1839986291a97c03b62338c8b62419dfb360"
 }

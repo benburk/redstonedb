@@ -115,15 +115,14 @@ fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
 /// reason decides, wrong outputs failing.
 #[test]
 fn a_build_stands_by_its_stored_result() {
-    let stale = Some("Couldn't read its inputs and outputs");
+    let stale = Reason::untested("Couldn't read its inputs and outputs");
+    let stale = Some(&stale);
     assert_eq!(Status::of(Some("ran"), false, stale), Status::Passing);
     assert_eq!(Status::of(Some("ran"), true, None), Status::Failing);
     assert_eq!(Status::of(Some("broken"), true, None), Status::NotTested);
     assert_eq!(Status::of(None, false, stale), Status::NotTested);
-    assert_eq!(
-        Status::of(None, false, Some("Gives wrong outputs for some inputs")),
-        Status::Failing
-    );
+    let wrong = Reason::failing("Gives wrong outputs for some inputs");
+    assert_eq!(Status::of(None, false, Some(&wrong)), Status::Failing);
     assert_eq!(Status::of(None, false, None), Status::NoTest);
     // A skip says no more than the reason, as an unverified build is only
     // tested to say what keeps it from being recognized.
@@ -137,7 +136,8 @@ fn a_passing_build_kept_as_built_lists_but_does_not_rank() {
     let mut s = cla();
     s.status = Status::Passing;
     s.file.conventional = false;
-    s.unverified = Some("Couldn't read its inputs and outputs".to_owned());
+    s.unverified =
+        Some(Reason::untested("Couldn't read its inputs and outputs"));
     assert!(s.verified());
     assert!(!s.ranks());
     assert_eq!(s.unranked().as_deref(), Some("kept as built"));

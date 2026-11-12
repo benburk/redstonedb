@@ -8,7 +8,7 @@ use sqlx::{SqliteExecutor, SqlitePool};
 
 use crate::{
     build::{
-        Build, Credits, Entry, File, Operands, Specs, Status, Widened,
+        Build, Credits, Entry, File, Operands, Reason, Specs, Status, Widened,
         tag::{self, Tag},
     },
     category::{self, Flag, Logic},
@@ -97,6 +97,7 @@ async fn load(
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
             public as "public: bool", unverified,
+            unverified_wrong as "unverified_wrong: bool",
             build.logic as "own_logic: Logic",
             conventional as "conventional: bool", description,
             design, user.username as "uploader?: String",
@@ -134,10 +135,14 @@ async fn load(
                 credits.remove(&row.id).unwrap_or_default();
             let (operands, unaligned) =
                 layouts.remove(&row.id).unwrap_or_default();
+            let unverified = row.unverified.map(|why| Reason {
+                why,
+                wrong: row.unverified_wrong,
+            });
             let status = Status::of(
                 row.outcome.as_deref(),
                 row.fails_simulation,
-                row.unverified.as_deref(),
+                unverified.as_ref(),
             );
             Build {
                 tags: tag::with_derived(
@@ -189,7 +194,7 @@ async fn load(
                 },
                 built_on: row.built_on,
                 description: row.description,
-                unverified: row.unverified,
+                unverified,
                 status,
                 operands,
                 unaligned,

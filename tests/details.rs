@@ -4,13 +4,13 @@
 mod common;
 
 use app::{
+    build::status::{ADDS, NO_HEX_INPUTS, SUBTRACTS, WITHOUT_LEVERS},
     build::{Details, Ready, Specs},
     ingest::{
         details::{self, Candidate},
         prepare::{self, Purpose},
     },
     interface::{Encoding, Orientation},
-    recognize::fault::{ADDS, NO_HEX_INPUTS, SUBTRACTS, WITHOUT_LEVERS},
     schem::{self, Blocks},
     stack::StackDirection,
 };
@@ -157,7 +157,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     };
     let unverified = |ready: Result<Ready, String>, why: &str| {
         let ready = ready.unwrap();
-        let said = ready.details.unverified.clone().unwrap_or_default();
+        let said = ready.details.unverified.as_deref().unwrap_or_default();
         assert!(said.contains(why), "{why}: {said}");
         assert_eq!(ready.details.category, "adder");
         assert_eq!(ready.details.specs.latency, Some(5), "{why}");

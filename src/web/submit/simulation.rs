@@ -18,11 +18,11 @@ use serde::Deserialize;
 
 use crate::{
     account::User,
-    build::Build,
+    build::{Build, Reason},
     category::{self, Category, Test},
     ingest::{details, jobs, prepare::Upload, results},
     interface::problem::{Problem, Rule},
-    recognize::{fault, probe::Recognition},
+    recognize::probe::Recognition,
     simulate::Report,
     store::builds,
     web::{
@@ -130,7 +130,7 @@ async fn readied(
 /// why.
 enum Filing {
     Verified,
-    Unverified(String),
+    Unverified(Reason),
 }
 
 impl Filing {
@@ -140,7 +140,7 @@ impl Filing {
         let state = match self {
             Filing::Verified => "pass",
             Filing::Unverified(why) => {
-                details_view::failing_or_untested(fault::wrong_outputs(why))
+                details_view::failing_or_untested(why.wrong)
             }
         };
         html! { template data-filing=(state) {} }
@@ -276,7 +276,7 @@ async fn cases(
     let passes = report.as_ref().is_some_and(Report::passed);
     let file = read_file(&data, &category, recognition, original, passes).await;
     let why = match &filing {
-        Some(Filing::Unverified(why)) => Some(why.as_str()),
+        Some(Filing::Unverified(why)) => Some(&**why),
         _ => None,
     };
     let subject = if let Some(s) = s {

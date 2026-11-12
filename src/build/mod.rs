@@ -11,7 +11,7 @@ mod name;
 mod prepared;
 mod specs;
 mod stacking;
-mod status;
+pub mod status;
 pub mod tag;
 mod tags;
 #[cfg(test)]
@@ -26,7 +26,7 @@ pub use name::file_stem;
 pub use prepared::{FileFacts, Prepared};
 pub use specs::Specs;
 pub use stacking::Widened;
-pub use status::{Operands, Status};
+pub use status::{Operands, Reason, Status};
 
 use crate::{
     build::tag::Tag,
@@ -66,7 +66,7 @@ pub struct Build {
     /// Why a build of a category the site recognizes builds of is not
     /// recognized as one, as `details::unrecognized` says; `None` for one
     /// that is, or any other build. Such a build is kept as built.
-    pub unverified: Option<String>,
+    pub unverified: Option<Reason>,
     /// How it stands against its category's test, from its current file's
     /// stored result when it has one, so a reason stored before the test
     /// last ran says nothing against it; see [`Status::of`].
@@ -114,7 +114,7 @@ impl Build {
         } else if !self.file.conventional {
             Some("kept as built".to_owned())
         } else {
-            self.unverified.clone()
+            self.unverified.as_deref().map(str::to_owned)
         }
     }
 
