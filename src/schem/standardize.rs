@@ -302,6 +302,21 @@ fn is_container(name: &str) -> bool {
     ) || name.ends_with("shulker_box")
 }
 
+/// The file without its trapdoors, which builders hang on an output to show
+/// it flipping, playing no part in the circuit; as it is when it has none.
+pub fn without_trapdoors(data: &[u8]) -> Result<Vec<u8>> {
+    let blocks = Blocks::read(data)?;
+    let gone: BTreeMap<Pos, String> = blocks
+        .iter()
+        .filter(|(_, state)| schem::short(state).ends_with("_trapdoor"))
+        .map(|(pos, _)| (pos, schem::AIR.to_owned()))
+        .collect();
+    if gone.is_empty() {
+        return Ok(data.to_vec());
+    }
+    edit(data, &gone)
+}
+
 /// The file with each furnace, cauldron, and cake, and each container whose
 /// id is in `also`, such as `hopper`, swapped for a barrel holding redstone
 /// dust that gives a comparator the same signal strength, and each barrel

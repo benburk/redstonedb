@@ -632,6 +632,38 @@ mod tests {
         assert!(blocks.signs.is_empty(), "{:?}", blocks.signs);
     }
 
+    /// A trapdoor, hung on a build to show an output flipping, plays no
+    /// part in it: the build is recognized with it, and preparing the file
+    /// takes it out, recognized or not.
+    #[test]
+    fn a_trapdoor_is_taken_out() {
+        let data = uncoloured("diag-3t-cca");
+        let blocks = Blocks::read(&data).unwrap();
+        let [x, y, z] = blocks.size;
+        let spot = (0..x)
+            .flat_map(|x| {
+                (0..y).flat_map(move |y| (0..z).map(move |z| [x, y, z]))
+            })
+            .find(|&pos| blocks.get(pos) == schem::AIR)
+            .expect("a build has some air");
+        let changes = BTreeMap::from([(
+            spot,
+            "minecraft:iron_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]"
+                .to_owned(),
+        )]);
+        let with = crate::schem::standardize::edit(&data, &changes).unwrap();
+        let found = recognize(&with).unwrap();
+        assert!(found.found.is_some(), "{:?}", found.problems);
+        let kept =
+            crate::import::prepare_for(&with, crate::import::Purpose::AS_BUILT)
+                .unwrap()
+                .blocks;
+        assert!(
+            !kept.iter().any(|(_, state)| state.contains("trapdoor")),
+            "its trapdoor is taken out"
+        );
+    }
+
     /// An ALU keeps the signs on its control lines, which name the
     /// operations each chooses, and loses the rest.
     #[test]
