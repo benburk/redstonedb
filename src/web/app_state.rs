@@ -6,7 +6,7 @@ use std::{
 use axum::body::Bytes;
 use sqlx::SqlitePool;
 
-use crate::external::discord;
+use crate::{external::discord, web::submit::analysis};
 
 /// Thumbnails rendered, as PNGs, by their file's SHA-256 and palette.
 pub type Thumbnails = Arc<Mutex<Drawn>>;
@@ -51,7 +51,7 @@ pub struct AppState {
     /// What draws thumbnails, with the game's files it has read.
     pub renderer: Arc<crate::thumbnail::Renderer>,
     /// Uploads being analyzed, and those analyzed lately.
-    pub analyses: crate::web::analysis::Analyses,
+    pub analyses: analysis::Analyses,
 }
 
 #[cfg(test)]

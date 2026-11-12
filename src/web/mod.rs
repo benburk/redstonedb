@@ -1,4 +1,6 @@
-//! Web routes.
+//! The site: its routes, and a folder for each part of it. In a folder, a
+//! file named for a page holds its handlers, and the one ending in `view`
+//! its markup; `ui` is the markup pages share.
 use std::fmt::Write as _;
 
 use axum::{
@@ -7,7 +9,7 @@ use axum::{
     http::header,
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
 };
 
 use crate::{
@@ -19,37 +21,22 @@ use crate::{
 };
 
 mod about;
-mod activity;
-pub mod analysis;
+mod account;
 pub mod app_state;
-mod auth;
 mod back;
-#[cfg(debug_assertions)]
-mod dev;
+mod browse;
+mod build;
 pub mod error;
 pub mod extractors;
-mod form;
-mod heads;
-mod leaderboards;
-mod pages;
-mod players;
-mod profile;
+mod leaderboard;
+mod moderation;
+mod people;
 mod schemati;
-mod schematics;
-mod session;
-mod settings;
-mod similar;
-mod simulation;
-pub mod trace;
-mod upload;
-mod users;
-mod versions;
+mod submit;
+mod ui;
 
-use about::about;
-use profile::profile;
-
-pub use heads::fetch_ahead as fetch_heads_ahead;
-pub use upload::publish_suggested;
+pub use people::heads::fetch_ahead as fetch_heads_ahead;
+pub use submit::upload::publish_suggested;
 
 /// A file under `static/`, built into the binary and served at `path`.
 /// Pages link it at [`Asset::url`], which names its version, so browsers
@@ -181,8 +168,8 @@ pub fn guide_image(name: &str) -> Option<String> {
 async fn viewing(
     db: &sqlx::SqlitePool,
     viewer: Option<&User>,
-) -> anyhow::Result<pages::Viewing> {
-    Ok(pages::Viewing {
+) -> anyhow::Result<browse::list_view::Viewing> {
+    Ok(browse::list_view::Viewing {
         palette: crate::store::users::palette_key(db, viewer).await?,
         signed_in: viewer.is_some(),
         favorites: match viewer {
@@ -273,8 +260,8 @@ async fn error_pages(
     .ok()
     .flatten();
     let body = match page {
-        ErrorPage::NotFound => pages::not_found(viewer.as_ref()),
-        ErrorPage::Forbidden => pages::forbidden(viewer.as_ref()),
+        ErrorPage::NotFound => ui::layout::not_found(viewer.as_ref()),
+        ErrorPage::Forbidden => ui::layout::forbidden(viewer.as_ref()),
     };
     (response.status(), body).into_response()
 }
@@ -286,90 +273,16 @@ async fn fallback() -> AppError {
 /// Dynamic routes - with request logging. `state` is for the layer that
 /// draws the not-found and forbidden pages.
 pub fn router(state: AppState) -> Router<AppState> {
-    let router = Router::new()
-        .route("/", get(schematics::home))
-        .route("/builds", get(schematics::list))
-        .route("/schematics/{id}", get(schematics::detail))
-        .route("/leaderboards", get(leaderboards::people))
-        .route("/leaderboards/{category}", get(leaderboards::show))
-        .route("/schematics/{id}/download", get(schematics::download))
-        .route(
-            "/schematics/{id}/thumbnail.webp",
-            get(schematics::thumbnail),
-        )
-        .route("/schematics/{id}/thumbnail.png", get(schematics::thumbnail))
-        .route(
-            "/schematics/{id}/edit",
-            get(schematics::edit).post(schematics::save),
-        )
-        .route("/schematics/{id}/delete", post(schematics::delete))
-        .route("/schematics/{id}/merge", post(versions::merge))
-        .route("/schematics/{id}/schemati", post(schemati::send))
-        .route("/schematics/{id}/favorite", post(schematics::favorite))
-        .route("/schematics/{id}/versions/new", get(versions::form))
-        .route(
-            "/schematics/{id}/versions/check/{check}",
-            get(schematics::checked),
-        )
-        .route(
-            "/schematics/{id}/versions/check/{check}/progress",
-            get(schematics::check_progress),
-        )
-        .route(
-            "/schematics/{id}/versions/{version}/download",
-            get(versions::download),
-        )
-        .route(
-            "/schematics/{id}/versions/{version}/restore",
-            post(versions::restore),
-        )
-        .route("/schematics/{id}/diff", get(versions::diff_page))
-        .route("/schematics/{id}/trace/glitch", get(trace::glitch_fragment))
-        .route("/schematics/{id}/diff/{side}", get(versions::diff_file))
-        .route("/upload", get(upload::form).post(upload::publish))
-        .route("/similar", get(similar::form).post(similar::search))
-        .route("/upload/preview", post(upload::preview))
-        .route("/upload/{id}", get(upload::analyzed))
-        .route("/upload/{id}/progress", get(upload::progress))
-        .route("/upload/simulation", post(simulation::upload))
-        .route(
-            "/schematics/{id}/simulation",
-            get(simulation::poll).post(simulation::stored),
-        )
-        .route("/settings", get(settings::show))
-        .route("/settings/minecraft", post(settings::set_minecraft_name))
-        .route(
-            "/settings/palette",
-            get(settings::palette_editor).post(settings::set_palette),
-        )
-        .route("/palette/custom", get(settings::custom_colours))
-        .route("/schemati/session", post(schemati::connect))
-        .route("/schemati/session/delete", post(schemati::disconnect))
-        .route("/schemati/picker", get(schemati::picker))
-        .route("/about", get(about))
-        .route("/about/recognized", get(about::recognized))
-        .route("/about/credits", get(about::credits))
-        .route("/heads/{uuid}", get(heads::show))
-        .route("/players/{name}", get(players::show))
-        .route("/players/{name}/head.png", get(players::head))
-        .route("/log", get(activity::show))
-        .route("/log/edits/{id}/revert", post(activity::revert))
-        .route("/log/deletions/{id}/restore", post(activity::restore))
-        .route("/users", get(users::list))
-        .route("/users/{username}", get(profile))
-        .route("/users/{username}/role", post(users::set_role))
-        .route(
-            "/users/{username}/minecraft/name",
-            post(users::name_minecraft),
-        )
-        .route("/sessions/new", get(auth::login))
-        .route("/logout", post(session::delete))
-        .route("/auth/discord", get(auth::start))
-        .route("/auth/discord/callback", get(auth::callback));
-    // Signing in without Discord, for a local server only.
-    #[cfg(debug_assertions)]
-    let router = router.route("/dev/login", get(dev::login));
-    router
+    Router::new()
+        .merge(browse::routes())
+        .merge(build::routes())
+        .merge(submit::routes())
+        .merge(leaderboard::routes())
+        .merge(people::routes())
+        .merge(account::routes())
+        .merge(moderation::routes())
+        .merge(schemati::routes())
+        .merge(about::routes())
         .fallback(fallback)
         .layer(middleware::from_fn_with_state(state, error_pages))
 }

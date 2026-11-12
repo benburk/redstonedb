@@ -137,7 +137,7 @@ src/
   store/         every query, one module per table or group of tables
   players.rs     who the players behind names are, asking Mojang once
   ingest/        the path from a file to a stored build with its results
-  web/           routes, handlers, and each page's markup
+  web/           the site: routes, then a folder for each part, holding its handlers and markup
   main.rs        the web server
   bin/rsdb/      the command-line tool
 static/          fixi, page scripts, and the built app.css
