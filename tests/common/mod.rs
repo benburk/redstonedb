@@ -5,9 +5,10 @@
 #![allow(dead_code)]
 
 use app::{
+    account::User,
     details::{self, Candidate, Details},
+    external::discord::DiscordProfile,
     import::{self, Prepared, Purpose},
-    models::user::{DiscordProfile, User},
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 

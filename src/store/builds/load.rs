@@ -7,10 +7,12 @@ use std::collections::HashMap;
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use crate::{
-    build::{Build, Credits, Entry, File, Operands, Specs, Status, Widened},
+    build::{
+        Build, Credits, Entry, File, Operands, Specs, Status, Widened,
+        tag::{self, Tag},
+    },
     category::{self, Flag, Logic},
     interface::{Encoding, Kept, Orientation},
-    models::tag::{self, Tag},
     stack::StackDirection,
 };
 
@@ -24,7 +26,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Build>, sqlx::Error> {
 /// private one is left out but for its uploader and admins.
 pub async fn visible(
     db: &SqlitePool,
-    viewer: Option<&crate::models::user::User>,
+    viewer: Option<&crate::account::User>,
 ) -> Result<Vec<Build>, sqlx::Error> {
     let mut all = all(db).await?;
     all.retain(|s| s.listed_to(viewer));
@@ -418,6 +420,16 @@ pub async fn ids_with_prefix<'e, E: SqliteExecutor<'e>>(
         "SELECT id FROM build
          WHERE id GLOB ? || '*' AND deleted_at IS NULL LIMIT 2",
         prefix
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// The description of every build that has one, but deleted ones.
+pub async fn descriptions(db: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT description AS "description!" FROM build
+         WHERE description IS NOT NULL AND deleted_at IS NULL"#
     )
     .fetch_all(db)
     .await

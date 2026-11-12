@@ -5,14 +5,16 @@
 use sqlx::SqlitePool;
 
 use crate::{
-    build::{Build, Credits, Specs, valid_player_name},
+    build::{Build, Credits, Specs, tag, valid_player_name},
     category::{self, Category, Kind, Measure, Test},
     external::mojang,
     import::Prepared,
     interface::Orientation,
-    models::{player, simulation, tag},
+    models::simulation,
+    players,
     simulate::Report,
     stack::{self, StackDirection},
+    store::tags,
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming
@@ -184,7 +186,7 @@ async fn ready(
     }
     details.tags = details.tags.iter().map(|name| tag::name(name)).collect();
     shaped(&details)?;
-    tag::check_new(db, &details.tags, may_create_tags).await??;
+    tags::check_new(db, &details.tags, may_create_tags).await??;
 
     let categories = Category::all();
     let listed = Category::find(&categories, &details.category).is_some();
@@ -233,7 +235,7 @@ async fn ready(
         .unwrap_or_default();
     let asked: Vec<String> =
         details.credits.everyone().chain(&named).cloned().collect();
-    let players = player::look_up(db, &asked).await?;
+    let players = players::look_up(db, &asked).await?;
     details.credits.authors =
         mojang::respell(&details.credits.authors, &players)?;
     details.credits.contributors =

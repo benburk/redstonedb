@@ -2,9 +2,12 @@
 
 mod common;
 
-use app::models::{
-    session::{Session, now_micros},
-    user::{Role, SchematiLink, User},
+use app::{
+    account::{Role, SchematiLink, User},
+    store::{
+        self,
+        sessions::{Session, now_micros},
+    },
 };
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -212,7 +215,10 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 
 #[tokio::test]
 async fn only_a_mod_or_admin_may_name_a_new_tag() {
-    use app::models::tag::{Kind, check_new, define};
+    use app::{
+        build::tag::Kind,
+        store::tags::{check_new, define},
+    };
     let db = common::database().await;
     define(&db, "instant", None, Kind::Other).await.unwrap();
     let known = vec!["instant".to_owned()];
@@ -301,18 +307,20 @@ async fn schemati_answers_mark_the_session_expired_or_working() {
 /// kept, which Mojang would not say, beside one kept as no player's.
 #[tokio::test]
 async fn a_player_looked_up_lately_is_not_asked_about_again() {
-    use app::{external::mojang::Profile, models::player};
+    use app::external::mojang::Profile;
     let db = common::database().await;
     let kept = Profile {
         uuid: "0123456789abcdef0123456789abcdef".to_owned(),
         name: "Not_A_Real_Player_Q".to_owned(),
     };
-    player::remember(&db, "not_a_real_player_q", Some(&kept))
+    store::players::remember(&db, "not_a_real_player_q", Some(&kept))
         .await
         .unwrap();
-    player::remember(&db, "nobody_here_q", None).await.unwrap();
+    store::players::remember(&db, "nobody_here_q", None)
+        .await
+        .unwrap();
     let names = ["NOT_A_REAL_PLAYER_Q".to_owned(), "Nobody_Here_Q".to_owned()];
-    let players = player::look_up(&db, &names).await.unwrap();
+    let players = app::players::look_up(&db, &names).await.unwrap();
     assert_eq!(players["not_a_real_player_q"], Some(kept));
     assert_eq!(players["nobody_here_q"], None);
 }

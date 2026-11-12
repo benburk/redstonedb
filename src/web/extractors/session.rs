@@ -7,10 +7,8 @@ use tracing::{Span, warn};
 use uuid::Uuid;
 
 use crate::{
-    models::{
-        session::{Session, now_micros},
-        user::User,
-    },
+    account::User,
+    store::sessions::{Session, now_micros},
     web::{app_state::AppState, error::AppError},
 };
 

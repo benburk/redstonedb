@@ -3,7 +3,7 @@
 
 use axum::response::IntoResponse;
 
-use crate::models::user::User;
+use crate::account::User;
 
 use super::pages;
 

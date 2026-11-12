@@ -15,84 +15,21 @@ pub use runner::{
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
-use sqlx::{SqliteExecutor, SqlitePool};
+use sqlx::SqlitePool;
 
 use crate::{
     build::Build,
     category::{self, Test},
     import, interface,
-    models::version,
     recognize::{evaluate::evaluate, roles},
     schem::Blocks,
     simulate::Report,
     stack::{self, StackDirection},
-    store::builds,
+    store::{builds, results, versions},
 };
 
 use derive::Derived;
 use runner::{CASES, TIMING, evaluated, taken_ahead};
-
-/// Build `id`'s stored result, when it ran on the file whose hash is
-/// `sha256` under `test`; a result of another file or test, none. A change
-/// to a test leaves its stored results as they are until a build is
-/// simulated again, as `rsdb refresh` does; one a change to what a report
-/// holds left unreadable is none until then.
-pub async fn stored<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    sha256: &str,
-    test: Test,
-) -> Result<Option<Report>> {
-    let name = test.name();
-    let report = sqlx::query_scalar!(
-        "SELECT report FROM simulation
-         WHERE build_id = ? AND sha256 = ? AND test = ?",
-        id,
-        sha256,
-        name
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(report.and_then(|report| {
-        serde_json::from_str(&report)
-            .inspect_err(|err| {
-                tracing::warn!(id, "stored report is unreadable: {err}");
-            })
-            .ok()
-    }))
-}
-
-/// Keeps `report` as build `id`'s result of `test` on the file whose hash
-/// is `sha256`, holding the circuit whose key is `circuit`, in place of any
-/// before.
-async fn set<'e, E: SqliteExecutor<'e>>(
-    db: E,
-    id: &str,
-    test: Test,
-    (sha256, circuit): (&str, Option<&str>),
-    report: &Report,
-) -> Result<()> {
-    let (name, failed) = (test.name(), report.failed());
-    let report = serde_json::to_string(report)?;
-    sqlx::query!(
-        "INSERT INTO simulation
-            (build_id, test, sha256, circuit, failed, report)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (build_id) DO UPDATE SET test = excluded.test,
-            sha256 = excluded.sha256, circuit = excluded.circuit,
-            failed = excluded.failed, report = excluded.report,
-            ran_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
-        id,
-        name,
-        sha256,
-        circuit,
-        failed,
-        report
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
 
 /// Whether the file `data` carries its lines' roles, as one the site
 /// reads, or whose lines its author marked, does.
@@ -116,24 +53,8 @@ async fn adopt(
     let Ok(key) = roles::circuit_key(data, ways, buses) else {
         return Ok(None);
     };
-    sqlx::query!(
-        "UPDATE simulation SET sha256 = ?
-         WHERE build_id = ? AND circuit = ? AND sha256 <> ?",
-        sha256,
-        id,
-        key,
-        sha256
-    )
-    .execute(db)
-    .await?;
+    results::adopt(db, id, &key, sha256).await?;
     Ok(Some(key))
-}
-
-async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
-    sqlx::query!("DELETE FROM simulation WHERE build_id = ?", id)
-        .execute(db)
-        .await?;
-    Ok(())
 }
 
 /// The test build `s` is held to: its category's at its width, or for one
@@ -152,7 +73,7 @@ pub fn test_for(s: &Build) -> Option<Test> {
 /// [`complete`]; nothing is run to find out.
 pub async fn current(db: &SqlitePool, s: &Build) -> Result<Option<Report>> {
     match test_for(s) {
-        Some(test) => stored(db, &s.id, &s.file.sha256, test).await,
+        Some(test) => results::stored(db, &s.id, &s.file.sha256, test).await,
         None => Ok(None),
     }
 }
@@ -206,7 +127,7 @@ pub async fn refresh(
             let kept = if again {
                 None
             } else {
-                stored(db, id, &s.file.sha256, test).await?
+                results::stored(db, id, &s.file.sha256, test).await?
             };
             if let Some(report) = kept {
                 Some(report)
@@ -229,7 +150,7 @@ pub async fn refresh(
     let mut tx = db.begin().await?;
     derived.save(&mut tx, &s).await?;
     match (test, ran) {
-        (None, _) => clear(&mut *tx, id).await?,
+        (None, _) => results::clear(&mut *tx, id).await?,
         (Some(_), Some((test, report))) => {
             let key = roles::circuit_key(
                 &data,
@@ -238,7 +159,7 @@ pub async fn refresh(
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
-            set(&mut *tx, id, test, file, &report).await?;
+            results::set(&mut *tx, id, test, file, &report).await?;
         }
         (Some(_), None) => {}
     }
@@ -252,7 +173,7 @@ pub async fn refresh(
 /// by probing it as its category, then kept with the version, so every
 /// reading of its lines takes them and none reads its colours.
 pub async fn current_file(db: &SqlitePool, s: &Build) -> Result<Vec<u8>> {
-    let data = version::current_file(db, &s.id)
+    let data = versions::current_file(db, &s.id)
         .await?
         .context("schematic vanished")?;
     if Blocks::read(&data)?.roles.is_some() {
@@ -263,7 +184,7 @@ pub async fn current_file(db: &SqlitePool, s: &Build) -> Result<Vec<u8>> {
         import::with_roles(&data, &category)
     })
     .await??;
-    version::set_current_roles(db, &s.id, &found).await?;
+    versions::set_current_roles(db, &s.id, &found).await?;
     tracing::info!(id = s.id, "found the roles of its current version");
     Ok(found)
 }
@@ -310,7 +231,7 @@ async fn at_zero(
     // At rest it may be a version before, which the build already holds;
     // it is kept as saved then, as each file is stored once.
     let held = match &fixed {
-        Ok(Some(prepared)) => version::holder(db, &prepared.sha256).await?,
+        Ok(Some(prepared)) => versions::holder(db, &prepared.sha256).await?,
         _ => None,
     };
     if let Some((other, number)) = &held {
@@ -324,8 +245,13 @@ async fn at_zero(
     }
     match fixed {
         Ok(Some(prepared)) if prepared.sha256 != s.file.sha256 => {
-            version::replace(db, &s.id, &prepared, version::Replacing::InPlace)
-                .await?;
+            versions::replace(
+                db,
+                &s.id,
+                &prepared,
+                versions::Replacing::InPlace,
+            )
+            .await?;
             Ok((prepared.data, prepared.sha256))
         }
         _ => kept(data),
@@ -387,7 +313,8 @@ async fn refresh_unverified(
             reason: format!("Couldn't standardize it: {err:#}."),
         },
     };
-    set(db, &s.id, test, (s.file.sha256.as_str(), None), &report).await?;
+    results::set(db, &s.id, test, (s.file.sha256.as_str(), None), &report)
+        .await?;
     Ok(Some(report))
 }
 
@@ -461,9 +388,9 @@ async fn refresh_evaluated(
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
-            set(&mut *tx, &s.id, test, file, report).await?;
+            results::set(&mut *tx, &s.id, test, file, report).await?;
         }
-        _ => clear(&mut *tx, &s.id).await?,
+        _ => results::clear(&mut *tx, &s.id).await?,
     }
     tx.commit().await?;
     Ok(report)
@@ -525,14 +452,14 @@ async fn keep_measures(
         Some(Report::Skipped { .. }) => "skipped",
         None => "untested",
     };
-    let measures = version::Measures {
+    let measures = versions::Measures {
         verdict: verdict.to_owned(),
         latency: s.specs.latency,
         throughput: s.specs.throughput,
         size: [s.file.size.0, s.file.size.1, s.file.size.2],
         pitch: s.stacking.iter().filter_map(|d| d.pitch).min(),
     };
-    version::set_measures(db, id, &measures).await?;
+    versions::set_measures(db, id, &measures).await?;
     Ok(())
 }
 
@@ -569,7 +496,7 @@ async fn timed(
     let mut tx = db.begin().await?;
     if let Some((test, key)) = measured {
         let file = (s.file.sha256.as_str(), key.as_deref());
-        set(&mut *tx, id, test, file, &report).await?;
+        results::set(&mut *tx, id, test, file, &report).await?;
     }
     derived.save(&mut tx, &s).await?;
     tx.commit().await?;
@@ -608,8 +535,8 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
         // In the version's own place, as its uploader saw it before
         // publishing, rather than as a version after it.
         if checked.refusals.is_empty() {
-            let how = version::Replacing::InPlace;
-            version::replace(db, id, &checked.prepared, how).await?;
+            let how = versions::Replacing::InPlace;
+            versions::replace(db, id, &checked.prepared, how).await?;
             // The same circuit, so its result carries over unsimulated.
             refresh(db, id, false).await?;
         }
@@ -631,17 +558,6 @@ pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
     }
     let needs =
         crate::recognize::palette::needs_of(&data, &s.stacking, s.buses())?;
-    let needs = serde_json::to_string(&needs)?;
-    sqlx::query!(
-        "UPDATE build_version SET needs = ?
-         WHERE build_id = ? AND version = (
-             SELECT max(version) FROM build_version WHERE build_id = ?
-         )",
-        needs,
-        id,
-        id
-    )
-    .execute(db)
-    .await?;
+    versions::set_needs(db, id, &needs).await?;
     Ok(())
 }

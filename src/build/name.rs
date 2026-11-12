@@ -2,8 +2,8 @@
 
 use super::Build;
 use crate::{
+    build::tag::{self, Tag},
     category::{self, Measure},
-    models::tag::{self, Tag},
 };
 
 /// `name` as a file's name, less `.schem`: an underscore for each run of

@@ -5,10 +5,10 @@
 use maud::{Markup, html};
 
 use crate::{
+    build::tag::Tag,
     category::{self, Category, Logic},
     import,
     interface::Orientation,
-    models::tag::Tag,
 };
 
 use super::{
@@ -532,7 +532,7 @@ fn cross() -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::tag::Kind;
+    use crate::build::tag::Kind;
 
     fn tag(name: &str, kind: Kind) -> Tag {
         Tag {

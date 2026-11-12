@@ -4,7 +4,7 @@
 
 use maud::{Markup, PreEscaped, html};
 
-use crate::{models::user::User, recognize::guide, web::guide_image};
+use crate::{account::User, recognize::guide, web::guide_image};
 
 use super::{PAGE_TITLE, SECTION_TITLE, base, description::player_badge};
 

@@ -18,6 +18,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
+    account::User,
     build::Build,
     category::{self, Category, Guessed},
     details,
@@ -25,10 +26,10 @@ use crate::{
     import::{self, Kept, Upload},
     ingest::standardize,
     interface,
-    models::{similarity, simulation, user::User, version},
+    models::{similarity, simulation},
     recognize::probe,
     schem::Blocks,
-    store::builds,
+    store::{builds, versions},
     web::{
         app_state::AppState,
         error::AppError,
@@ -548,7 +549,7 @@ async fn publish_checked(
             crate::recognize::colouring::read(raw, &prepared.data)
         && !colours.is_empty()
     {
-        version::set_colours(db, id, 1, &colours).await?;
+        versions::set_colours(db, id, 1, &colours).await?;
     }
     Ok(stored)
 }
@@ -574,11 +575,11 @@ async fn show_preview(
 ) -> Result<Response, AppError> {
     let prepared = &upload.original;
     // Either file may be the one kept.
-    let mut duplicate = version::holder(&state.db, &prepared.sha256)
+    let mut duplicate = versions::holder(&state.db, &prepared.sha256)
         .await?
         .map(|(id, _)| id);
     if let (None, Ok(standard)) = (&duplicate, &upload.standard) {
-        duplicate = version::holder(&state.db, &standard.sha256)
+        duplicate = versions::holder(&state.db, &standard.sha256)
             .await?
             .map(|(id, _)| id);
     }

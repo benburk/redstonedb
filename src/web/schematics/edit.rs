@@ -10,17 +10,17 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sqlx::SqlitePool;
 
 use crate::{
-    build::Build,
+    account::User,
+    build::{self, Build},
     category::{self, Category},
     details,
     import::{self, Prepared},
-    models::{
-        activity, similarity, simulation,
-        user::User,
-        version::{self, Replacing},
-    },
+    models::{similarity, simulation},
     schem::Blocks,
-    store::builds,
+    store::{
+        activity, builds,
+        versions::{self, Replacing},
+    },
     version::{Checked, check as check_version},
     web::{
         analysis,
@@ -154,7 +154,7 @@ pub async fn save(
     // What the edit changed, before a new version changes what its file
     // sets.
     if let Some(after) = builds::get(db, &id).await? {
-        let changed = activity::changed(&s, &after);
+        let changed = build::changed(&s, &after);
         activity::log_edit(db, &id, user.id, &changed).await?;
     }
     if let Some(prepared) = new_prepared {
@@ -164,7 +164,7 @@ pub async fn save(
             note: Some(note.as_str()).filter(|note| !note.is_empty()),
             restores: None,
         };
-        version::replace(db, &id, prepared, how).await?;
+        versions::replace(db, &id, prepared, how).await?;
         tracing::info!(id, by = user.username, ip, "new version");
     }
     // A new file, category, or width may call for a test, or another.
@@ -406,7 +406,7 @@ async fn saved(
     let build = if let Some(new) = new {
         details::Candidate::of(new)
     } else {
-        stored = version::current_file(db, &s.id).await?.unwrap_or_default();
+        stored = versions::current_file(db, &s.id).await?.unwrap_or_default();
         // Its file, kept under its category, passed its test already,
         // which a save of its details needn't run again.
         details::Candidate {
@@ -453,7 +453,7 @@ pub(in crate::web) async fn show_edit(
         new_file,
         reply,
     } = view;
-    let versions = version::list(db, &s.id).await?;
+    let versions = versions::list(db, &s.id).await?;
     let simulation = simulation::current(db, s).await?;
     let stored = Form::of(s);
     // What the page shows is the new file's, when one is waiting.
@@ -471,7 +471,7 @@ pub(in crate::web) async fn show_edit(
         };
         (file, Some(&new.checked.prepared.blocks))
     } else {
-        let data = version::current_file(db, &s.id).await?.unwrap_or_default();
+        let data = versions::current_file(db, &s.id).await?.unwrap_or_default();
         stored_blocks = Blocks::read(&data).ok();
         let file = File::Stored {
             s,

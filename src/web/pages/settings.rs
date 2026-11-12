@@ -4,7 +4,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::user::{SchematiLink, User},
+    account::{SchematiLink, User},
     recognize::palette::{self, Palette},
 };
 

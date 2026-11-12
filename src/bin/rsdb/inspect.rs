@@ -14,10 +14,9 @@ use app::{
         inspect::{self, Run},
         repeater_outputs::{self, Output},
     },
-    models::version,
     recognize::probe,
     schem::{self, Blocks, Pos},
-    store::builds,
+    store::{builds, versions},
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -59,7 +58,7 @@ pub(super) async fn inspect_command(
         Some(prefix) => {
             let id = resolve(db, prefix).await?;
             let s = load(db, &id).await?;
-            let data = version::current_file(db, &id)
+            let data = versions::current_file(db, &id)
                 .await?
                 .context("schematic vanished")?;
             files.push((format!("{}  {}", &id[..8], s.filename()), data));
@@ -72,7 +71,7 @@ pub(super) async fn inspect_command(
                 {
                     continue;
                 }
-                let data = version::current_file(db, &s.id)
+                let data = versions::current_file(db, &s.id)
                     .await?
                     .context("schematic vanished")?;
                 files.push((format!("{}  {}", &s.id[..8], s.filename()), data));

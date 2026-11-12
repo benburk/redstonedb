@@ -3,7 +3,7 @@
 
 use maud::{DOCTYPE, Markup, html};
 
-use crate::{APP_NAME, SITE_URL, models::user::User};
+use crate::{APP_NAME, SITE_URL, account::User};
 
 use super::{
     PAGE_TITLE,

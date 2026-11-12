@@ -393,9 +393,8 @@ fn versions(s: &Build) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        build::{Credits, Entry, File, Specs},
+        build::{Credits, Entry, File, Specs, tag::Tag},
         interface::{Encoding, Orientation},
-        models::tag::Tag,
     };
 
     /// A build of `category` with nothing but its orientation and `tags`,
@@ -442,7 +441,7 @@ pub(crate) mod tests {
                 .map(|name| Tag {
                     name: (*name).to_owned(),
                     token: None,
-                    kind: crate::models::tag::Kind::Other,
+                    kind: crate::build::tag::Kind::Other,
                 })
                 .collect(),
         }

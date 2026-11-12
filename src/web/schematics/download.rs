@@ -12,11 +12,14 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
+    account::User,
     build::{Build, file_stem},
-    models::{user::User, version},
     recognize::palette::{self, Palette},
     schem, stack,
-    store::builds::{self, DownloadKind},
+    store::{
+        builds::{self, DownloadKind},
+        versions,
+    },
     web::{app_state::AppState, error::AppError, settings::PaletteFields},
 };
 
@@ -150,7 +153,7 @@ pub async fn download(
     }
     let counted = !preview && method == Method::GET;
     let theme = match &viewer {
-        Some(user) => palette::of(&state.db, user.id).await?,
+        Some(user) => crate::store::users::palette(&state.db, user.id).await?,
         None => None,
     };
     let palette = asked.palette(fields, theme)?;
@@ -185,7 +188,7 @@ pub(in crate::web) async fn export(
     palette: Option<&Palette>,
 ) -> Result<(String, Vec<u8>), AppError> {
     let s = builds::get(db, id).await?.ok_or(AppError::NotFound)?;
-    let data = version::current_file(db, id)
+    let data = versions::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
     // In its author's colours, as stored, with any kept from before the
@@ -194,7 +197,7 @@ pub(in crate::web) async fn export(
     if asked.colours == Some(Colours::Original)
         || !crate::models::simulation::carries_roles(&data)
     {
-        let data = match version::colours(db, id).await? {
+        let data = match versions::colours(db, id).await? {
             Some(colours) => {
                 crate::recognize::colouring::apply(&data, &colours)?
             }
@@ -213,7 +216,7 @@ pub(in crate::web) async fn export(
     .unwrap_or_default();
     // Its building blocks before any stacking, by position; its roles'
     // colours after, as stacked copies carry their roles.
-    let needs = palette::needs(db, id).await?;
+    let needs = crate::store::versions::needs(db, id).await?;
     let data = match &needs {
         Some(needs) => palette::blocks_in(&data, needs, &palette)?,
         None => data,

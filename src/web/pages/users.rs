@@ -4,8 +4,8 @@
 use maud::{Markup, html};
 
 use crate::{
+    account::{Role, User},
     build::Build,
-    models::user::{Role, User},
 };
 
 use super::{

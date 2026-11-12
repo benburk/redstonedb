@@ -14,9 +14,10 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
+    account::User,
     category::{self, Guessed, Kind},
     import::{self, Upload},
-    models::{simulation, user::User},
+    models::simulation,
     recognize::probe::{self, Recognition},
     version::Checked,
     web::app_state::AppState,

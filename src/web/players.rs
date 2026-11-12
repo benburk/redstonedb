@@ -7,9 +7,9 @@ use axum::{
 };
 
 use crate::{
+    account::User,
     build::{Build, valid_player_name},
     leaderboard,
-    models::user::User,
     store::builds,
     web::{app_state::AppState, error::AppError},
 };

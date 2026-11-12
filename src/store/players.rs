@@ -3,7 +3,7 @@
 
 use sqlx::SqlitePool;
 
-use crate::external::mojang::{self, Players, Profile};
+use crate::external::mojang::Profile;
 
 /// How long a player found, or a head, is kept before Mojang is asked
 /// again, in the background.
@@ -38,45 +38,6 @@ pub async fn known(
             .map(|(uuid, name)| Profile { uuid, name });
         (profile, row.fresh)
     }))
-}
-
-/// What is known of each player `names` names, by name in lowercase: from
-/// what is kept while fresh, else from Mojang, in one lookup for all the
-/// rest, kept in turn, a name it doesn't return being no player's. Those
-/// Mojang can't be asked about are left out; see [`Players`].
-pub async fn look_up(
-    db: &SqlitePool,
-    names: &[String],
-) -> Result<Players, sqlx::Error> {
-    let mut players = Players::new();
-    let mut ask: Vec<String> = Vec::new();
-    for name in names {
-        let name = name.to_lowercase();
-        if players.contains_key(&name) || ask.contains(&name) {
-            continue;
-        }
-        match known(db, &name).await? {
-            Some((player, true)) => {
-                players.insert(name, player);
-            }
-            _ => ask.push(name),
-        }
-    }
-    if ask.is_empty() {
-        return Ok(players);
-    }
-    let Ok(found) = mojang::profiles(&ask).await else {
-        return Ok(players);
-    };
-    for name in ask {
-        let player = found
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(&name))
-            .cloned();
-        remember(db, &name, player.as_ref()).await?;
-        players.insert(name, player);
-    }
-    Ok(players)
 }
 
 /// Keeps what Mojang said of the player named `name`: `found`, or `None`

@@ -3,12 +3,12 @@
 //! them.
 
 use anyhow::{Result, bail};
-use app::{category::Kind, models::tag};
+use app::{build::tag, category::Kind, store::tags};
 use sqlx::SqlitePool;
 
 /// Prints every known tag with its kind and filename token.
 pub(super) async fn print_tags(db: &SqlitePool) -> Result<()> {
-    for tag in tag::all(db).await? {
+    for tag in tags::all(db).await? {
         let (kind, token) =
             (tag.kind.name(), tag.token.as_deref().unwrap_or(""));
         println!("{kind:<12} {token:<8} {}", tag.label());
@@ -34,7 +34,7 @@ pub(super) async fn define_tag(
             );
         }
     }
-    tag::define(db, name, token, kind).await?;
+    tags::define(db, name, token, kind).await?;
     Ok(())
 }
 

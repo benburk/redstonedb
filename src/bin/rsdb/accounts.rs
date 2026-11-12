@@ -1,7 +1,7 @@
 //! Accounts and their roles.
 
 use anyhow::{Context, Result};
-use app::models::user::{Role, User};
+use app::account::{Role, User};
 use sqlx::SqlitePool;
 
 /// Prints every account's role and username.

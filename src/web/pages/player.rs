@@ -2,7 +2,7 @@
 
 use maud::{Markup, html};
 
-use crate::{build::Build, leaderboard::Record, models::user::User};
+use crate::{account::User, build::Build, leaderboard::Record};
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base,

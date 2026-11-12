@@ -4,7 +4,13 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::models::user::DiscordProfile;
+/// Who Discord says a person is, from its `/users/@me`.
+pub struct DiscordProfile {
+    pub id: String,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar: Option<String>,
+}
 
 const AUTHORIZE: &str = "https://discord.com/oauth2/authorize";
 const TOKEN: &str = "https://discord.com/api/oauth2/token";

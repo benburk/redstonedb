@@ -10,7 +10,8 @@ use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
 use crate::{
-    models::user::{DiscordProfile, Role, User},
+    account::{Role, User},
+    external::discord::DiscordProfile,
     web::{app_state::AppState, error::AppError},
 };
 

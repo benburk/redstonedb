@@ -12,15 +12,15 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
+    account::User,
     diff::{self, Counts},
     import,
-    models::{
-        similarity, simulation,
-        user::User,
-        version::{self, Replacing, Version},
-    },
+    models::{similarity, simulation},
     schem,
-    store::builds,
+    store::{
+        builds,
+        versions::{self, Replacing, Version},
+    },
     web::{
         app_state::AppState,
         error::AppError,
@@ -60,7 +60,7 @@ pub async fn download(
     let s = builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let data = version::data(&state.db, &id, number)
+    let data = versions::data(&state.db, &id, number)
         .await?
         .ok_or(AppError::NotFound)?;
     builds::log_download(
@@ -89,13 +89,13 @@ pub async fn restore(
     if !user.may_restore(&s) {
         return Err(AppError::Forbidden);
     }
-    let current = version::list(db, &id).await?.first().map(|v| v.version);
+    let current = versions::list(db, &id).await?.first().map(|v| v.version);
     if current == Some(number) {
         return Err(AppError::BadRequest(
             "That version is the current one.".to_owned(),
         ));
     }
-    let file = version::file(db, &id, number)
+    let file = versions::file(db, &id, number)
         .await?
         .ok_or(AppError::NotFound)?;
     let prepared = import::prepare_for(&file, import::Purpose::of(&s, false))
@@ -107,9 +107,9 @@ pub async fn restore(
         note: Some(&note),
         restores: Some(number),
     };
-    let restored = version::replace(db, &id, &prepared, how).await?;
-    if let Some(colours) = version::colours_of(db, &id, number).await? {
-        version::set_colours(db, &id, restored, &colours).await?;
+    let restored = versions::replace(db, &id, &prepared, how).await?;
+    if let Some(colours) = versions::colours_of(db, &id, number).await? {
+        versions::set_colours(db, &id, restored, &colours).await?;
     }
     tracing::info!(id, by = user.username, ip, number, "restored a version");
     simulation::complete_soon(db, &id);
@@ -188,7 +188,7 @@ pub async fn count_changes(
         }
         let (newer, older) = (versions[i].version, versions[i + 1].version);
         let counts = changes(db, id, older, newer).await?;
-        version::set_changes(db, id, newer, counts).await?;
+        versions::set_changes(db, id, newer, counts).await?;
         versions[i].changes = Some(counts);
     }
     Ok(())
@@ -214,10 +214,10 @@ async fn files(
     older: i64,
     newer: i64,
 ) -> Result<(Vec<u8>, Vec<u8>), AppError> {
-    let old = version::data(db, id, older)
+    let old = versions::data(db, id, older)
         .await?
         .ok_or(AppError::NotFound)?;
-    let new = version::data(db, id, newer)
+    let new = versions::data(db, id, newer)
         .await?
         .ok_or(AppError::NotFound)?;
     Ok((old, new))
@@ -261,7 +261,7 @@ pub async fn diff_page(
 ) -> Result<Response, AppError> {
     let db = &state.db;
     let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
-    let versions = version::list(db, &id).await?;
+    let versions = versions::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let counts = changes(db, &id, from, to).await?;
     Ok(super::pages::diff_page(
@@ -290,7 +290,7 @@ pub async fn diff_file(
         return Err(AppError::SignedOut);
     }
     let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
-    let versions = version::list(db, &id).await?;
+    let versions = versions::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let (old, new) = files(db, &id, from, to).await?;
     let diff = diff::diff(&old, &new).map_err(AppError::from)?;

@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
-    models::{simulation, version},
+    models::simulation,
     simulate::{Action, Report, Stacking, Step, Timing},
     store,
 };
@@ -165,7 +165,7 @@ pub(super) async fn refresh_one(
 /// as its category, and which roles it kept.
 async fn reprobe(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
-    let data = version::current_file(db, id)
+    let data = store::versions::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     let category = s.category.clone();
@@ -175,7 +175,7 @@ async fn reprobe(db: &SqlitePool, id: &str) -> Result<()> {
     .await??;
     let kept = match reprobed {
         Some((file, found)) => {
-            version::set_current_roles(db, id, &file).await?;
+            store::versions::set_current_roles(db, id, &file).await?;
             if found {
                 return Ok(());
             }
@@ -214,7 +214,7 @@ async fn compare(
             versions::prune(db, id, true).await?;
         }
         let name = format!("{}  {}", &s.id[..8], s.filename());
-        let file = version::current_file(db, &s.id)
+        let file = store::versions::current_file(db, &s.id)
             .await?
             .context("schematic vanished")?;
         // Its test and timing spread over every core already.

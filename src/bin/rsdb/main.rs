@@ -12,9 +12,9 @@ use std::{path::PathBuf, str::FromStr as _};
 
 use anyhow::{Context, Result, bail};
 use app::{
-    build::Build,
+    build::{Build, tag},
     db::connect_to_database,
-    models::{similarity, tag},
+    models::similarity,
     store,
 };
 use clap::{Parser, Subcommand};
@@ -184,13 +184,7 @@ async fn main() -> Result<()> {
     let result = run(&db, cli.command).await;
     // Builds whose file or category the command changed are compared again.
     similarity::refresh(&db).await?;
-    // Move the write-ahead log's pages into the database file, so it alone
-    // holds every write when it is copied or backed up. Closing alone does
-    // this only when no other process, such as a running server, has the
-    // database open.
-    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .execute(&db)
-        .await?;
+    app::db::checkpoint(&db).await?;
     db.close().await;
     result
 }

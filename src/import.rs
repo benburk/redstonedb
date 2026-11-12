@@ -10,10 +10,12 @@ use crate::{
     details::{self, Ready},
     ingest::standardize,
     interface::{self, Encoding, Interface, Orientation, Port},
-    models::version,
     recognize::probe,
     schem::{self, Blocks, Size, turn::Turn},
-    store::builds::{self, New},
+    store::{
+        builds::{self, New},
+        versions,
+    },
     works_from::{self, WorksFrom},
 };
 
@@ -235,7 +237,7 @@ pub async fn store(
     imported_by: Option<&str>,
     id: Option<&str>,
 ) -> Result<Result<String, String>, sqlx::Error> {
-    if let Some((id, _)) = version::holder(db, &prepared.sha256).await? {
+    if let Some((id, _)) = versions::holder(db, &prepared.sha256).await? {
         return Ok(Err(format!(
             "This exact file is already on the site, as {}.",
             &id[..8]

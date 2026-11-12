@@ -13,13 +13,14 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
+    account::User,
     build::Build,
     import::{self, Analysis},
-    models::{similarity, simulation, user::User, version},
+    models::{similarity, simulation},
     recognize::palette,
     schem::{self, Blocks},
     stack,
-    store::builds,
+    store::{builds, versions},
     thumbnail,
     web::{
         app_state::AppState,
@@ -42,7 +43,7 @@ pub async fn thumbnail(
     let s = builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let data = version::current_file(&state.db, &id)
+    let data = versions::current_file(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     // A build is drawn in the viewer's palette, if they chose one, and kept
@@ -51,7 +52,7 @@ pub async fn thumbnail(
     // palette's. A build kept as built is drawn as its author made it.
     let chosen = match &viewer {
         Some(user) if s.file.conventional => {
-            palette::of(&state.db, user.id).await?
+            crate::store::users::palette(&state.db, user.id).await?
         }
         _ => None,
     };
@@ -60,7 +61,7 @@ pub async fn thumbnail(
     // Kept by what is drawn, so a build whose needs are kept later, its
     // file the same, is drawn again in its theme's building blocks.
     let (data, key) = if s.file.conventional {
-        let needs = palette::needs(&state.db, &id).await?;
+        let needs = crate::store::versions::needs(&state.db, &id).await?;
         let painted = palette::apply(&data, needs.as_ref(), &palette)?;
         let key = schem::sha256(&painted);
         (painted, key)
@@ -182,7 +183,7 @@ pub async fn detail(
     if panel == Some("banner") {
         return Ok(pages::build_banner(&s, simulating).into_response());
     }
-    let data = version::current_file(db, &id).await?.unwrap_or_default();
+    let data = versions::current_file(db, &id).await?.unwrap_or_default();
     let unrecognized = why_not_recognized(&s, &data).await;
     let file = Blocks::read(&data)
         .map(|blocks| pages::FileRead {
@@ -206,7 +207,7 @@ pub async fn detail(
             pages::build_info(&s, &similar, &file, report).into_response()
         );
     }
-    let mut versions = version::list(db, &id).await?;
+    let mut versions = versions::list(db, &id).await?;
     crate::web::versions::count_changes(db, &id, &mut versions).await?;
     let favorited = match &user_opt {
         Some(user) => builds::favorited(db, user.id, &id).await?,
@@ -216,10 +217,12 @@ pub async fn detail(
     // theme only for a build recognized, verified, and passing, whose
     // blocks the site knows the needs of, as any other's blocks are its
     // author's own.
-    let themeable = palette::needs(db, &id).await?.is_some();
+    let themeable = crate::store::versions::needs(db, &id).await?.is_some();
     let theme = themeable
         && match &user_opt {
-            Some(user) => palette::of(db, user.id).await?.is_some(),
+            Some(user) => {
+                crate::store::users::palette(db, user.id).await?.is_some()
+            }
             None => false,
         };
     // Its stored blocks, its author's, differ from the site's colours

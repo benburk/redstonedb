@@ -5,10 +5,9 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
 use app::{
-    models::{
-        simulation,
-        user::{DiscordProfile, Role, User},
-    },
+    account::{Role, User},
+    external::discord::DiscordProfile,
+    models::simulation,
     store::builds,
     web::publish_suggested,
 };

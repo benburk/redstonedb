@@ -16,7 +16,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     external::{head, mojang},
-    models::player,
+    store::players,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -33,7 +33,7 @@ pub async fn show(
     if !plain {
         return Err(AppError::NotFound);
     }
-    let png = match player::head(&state.db, &uuid).await? {
+    let png = match players::head(&state.db, &uuid).await? {
         Some((png, fresh)) => {
             if !fresh {
                 let (db, uuid) = (state.db.clone(), uuid.clone());
@@ -61,7 +61,7 @@ pub async fn show(
 async fn fetch_head(db: &SqlitePool, uuid: &str) -> Option<Vec<u8>> {
     match head::fetch(uuid).await {
         Ok(png) => {
-            if let Err(err) = player::keep_head(db, uuid, png.as_deref()).await
+            if let Err(err) = players::keep_head(db, uuid, png.as_deref()).await
             {
                 tracing::warn!("keeping the head of {uuid}: {err}");
             }
@@ -79,7 +79,7 @@ async fn fetch_head(db: &SqlitePool, uuid: &str) -> Option<Vec<u8>> {
 /// asked before. `None` for a name no player has, or when Mojang cannot be
 /// reached.
 pub async fn player(db: &SqlitePool, name: &str) -> Option<mojang::Profile> {
-    match player::known(db, name).await {
+    match players::known(db, name).await {
         Ok(Some((found, fresh))) => {
             if !fresh {
                 let (db, name) = (db.clone(), name.to_owned());
@@ -115,7 +115,7 @@ async fn look_up(
             .iter()
             .find(|p| p.name.eq_ignore_ascii_case(name))
             .cloned();
-        if let Err(err) = player::remember(db, name, profile.as_ref()).await {
+        if let Err(err) = players::remember(db, name, profile.as_ref()).await {
             tracing::warn!("keeping player {name}: {err}");
         }
         players.push(profile);
@@ -140,22 +140,17 @@ pub fn fetch_ahead(db: &SqlitePool) {
 }
 
 async fn fetch_all(db: &SqlitePool) -> anyhow::Result<()> {
-    let descriptions: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT description AS "description!" FROM build
-         WHERE description IS NOT NULL AND deleted_at IS NULL"#
-    )
-    .fetch_all(db)
-    .await?;
+    let descriptions = crate::store::builds::descriptions(db).await?;
     let mentioned: Vec<String> = descriptions
         .iter()
         .flat_map(|text| super::pages::mentions(text))
         .collect();
-    let names = player::unasked(db, &mentioned).await?;
+    let names = players::unasked(db, &mentioned).await?;
     for batch in names.chunks(10) {
         look_up(db, batch).await;
         tokio::time::sleep(PACE).await;
     }
-    let uuids = player::headless(db).await?;
+    let uuids = players::headless(db).await?;
     tracing::info!(
         players = names.len(),
         heads = uuids.len(),

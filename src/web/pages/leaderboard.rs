@@ -3,15 +3,15 @@
 use maud::{Markup, html};
 
 use crate::{
-    build::Build,
+    account::User,
+    build::{
+        Build,
+        tag::{self, Kind},
+    },
     category::{Category, Measure},
     leaderboard::{
         self, Board, Choice, Inputs, Placed, Rank, Record, Ruler, SHOWN,
         Standing, Wanted, in_sentence,
-    },
-    models::{
-        tag::{self, Kind},
-        user::User,
     },
     simulate::Group,
 };

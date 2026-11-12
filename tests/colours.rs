@@ -7,8 +7,8 @@ mod common;
 use app::{
     details::{self, Candidate, Details},
     import,
-    models::version::{self, Replacing},
     recognize::colouring,
+    store::versions::{self, Replacing},
 };
 
 #[tokio::test]
@@ -27,7 +27,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         .await
         .unwrap()
         .unwrap();
-    assert!(version::colours(&db, &id).await.unwrap().is_none());
+    assert!(versions::colours(&db, &id).await.unwrap().is_none());
 
     // The author's copy in blue wool, turned a half turn.
     let blocks = app::schem::Blocks::read(&first.data).unwrap();
@@ -44,7 +44,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
     let theirs = app::schem::turn::turned(&theirs, turn).unwrap();
     let colours = colouring::read(&theirs, &first.data).unwrap().unwrap();
     assert_eq!(colours.len(), wool.len());
-    version::set_colours(&db, &id, 1, &colours).await.unwrap();
+    versions::set_colours(&db, &id, 1, &colours).await.unwrap();
 
     // A version the site makes of the same size keeps them.
     let mut same = common::conventional("alpha-rca");
@@ -63,14 +63,14 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         note: Some("Unused blocks taken out"),
         restores: None,
     };
-    version::replace(&db, &id, &same, how).await.unwrap();
-    assert_eq!(version::colours(&db, &id).await.unwrap(), Some(colours));
+    versions::replace(&db, &id, &same, how).await.unwrap();
+    assert_eq!(versions::colours(&db, &id).await.unwrap(), Some(colours));
 
     // Another size is another arrangement, and has none.
-    version::replace(&db, &id, &common::conventional("inverter-1"), how)
+    versions::replace(&db, &id, &common::conventional("inverter-1"), how)
         .await
         .unwrap();
-    assert!(version::colours(&db, &id).await.unwrap().is_none());
+    assert!(versions::colours(&db, &id).await.unwrap().is_none());
 }
 
 /// A new version saved again from the game lying another way, here a half

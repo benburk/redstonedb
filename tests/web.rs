@@ -8,12 +8,12 @@ mod common;
 use std::sync::Arc;
 
 use app::{
+    account::{Role, User},
     details::Details,
-    models::{
-        session::{Session, now_micros},
-        user::{Role, User},
+    store::{
+        builds,
+        sessions::{Session, now_micros},
     },
-    store::builds,
     thumbnail::{Assets, Renderer},
     web::{self, app_state::AppState},
 };
@@ -353,7 +353,7 @@ async fn a_private_build_is_unlisted_but_opens_from_its_link() {
 /// Gives build `id` a second version, one of its solid blocks glass, and
 /// returns that block's position.
 async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
-    let old = app::models::version::data(db, id, 1)
+    let old = app::store::versions::data(db, id, 1)
         .await
         .unwrap()
         .unwrap();
@@ -368,13 +368,13 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
     )]);
     let new = app::schem::edit(&old, &changes).unwrap();
     let prepared = app::import::prepare_for(&new, common::IN_PLACE).unwrap();
-    let how = app::models::version::Replacing::NextVersion {
+    let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
         note: Some("glass"),
         restores: None,
     };
-    app::models::version::replace(db, id, &prepared, how)
+    app::store::versions::replace(db, id, &prepared, how)
         .await
         .unwrap();
     pos
@@ -464,13 +464,13 @@ async fn the_uploader_restores_an_earlier_version_as_a_new_one() {
         .ask(reqwest::Method::POST, &restore, Some(&owners))
         .await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    let versions = app::models::version::list(&site.db, &id).await.unwrap();
+    let versions = app::store::versions::list(&site.db, &id).await.unwrap();
     let (newest, first) = (&versions[0], &versions[2]);
     assert_eq!(newest.version, 3);
     assert_eq!(newest.restores, Some(1));
     assert_eq!(newest.note.as_deref(), Some("Restored version 1"));
     assert_eq!(newest.added_by.as_deref(), Some("steve"));
-    let file = |n| app::models::version::data(&site.db, &id, n);
+    let file = |n| app::store::versions::data(&site.db, &id, n);
     assert_eq!(file(3).await.unwrap(), file(first.version).await.unwrap());
 
     // The current version is no version to restore.
@@ -528,7 +528,7 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
         ..Details::default()
     };
     let from = common::store(&site.db, "alpha-cla", given, Some(&owner)).await;
-    let first = app::models::version::data(&site.db, &into, 1)
+    let first = app::store::versions::data(&site.db, &into, 1)
         .await
         .unwrap()
         .unwrap();
@@ -559,13 +559,13 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
     )]);
     let fixed = app::schem::edit(&first, &glass).unwrap();
     let fixed = app::import::prepare_for(&fixed, common::IN_PLACE).unwrap();
-    let how = app::models::version::Replacing::NextVersion {
+    let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
         note: None,
         restores: None,
     };
-    app::models::version::replace(&site.db, &from, &fixed, how)
+    app::store::versions::replace(&site.db, &from, &fixed, how)
         .await
         .unwrap();
     let merge = |cookie: String, target: String| {
@@ -589,7 +589,7 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
     let response = merge(mods, link).await.unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(location(&response), format!("/schematics/{into}"));
-    let versions = app::models::version::list(&site.db, &into).await.unwrap();
+    let versions = app::store::versions::list(&site.db, &into).await.unwrap();
     assert_eq!(versions[0].version, 2);
     assert_eq!(versions[0].added_by.as_deref(), Some("alex"));
     assert!(
