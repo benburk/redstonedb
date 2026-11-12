@@ -2,7 +2,8 @@
 //! along, the box within it later copies repeat, and the wider builds its
 //! copies make.
 
-use super::Orientation;
+use super::{Build, Orientation};
+use crate::category::Measure;
 
 /// One direction a stackable build repeats along. Each copy sits `west`
 /// or `up` blocks from the one before, since copies count up from the
@@ -218,6 +219,115 @@ impl std::str::FromStr for StackDirection {
             return Err("give a step west or up".to_owned());
         }
         Ok(direction)
+    }
+}
+
+impl Build {
+    /// The blocks a build takes, as it is compared: for a stackable build,
+    /// what each copy adds, since its copies may overlap; else its whole
+    /// box.
+    pub fn volume(&self) -> i64 {
+        let (x, y, z) = self.per_copy().unwrap_or(self.size);
+        x * y * z
+    }
+
+    /// The number of blocks inside the build's bounding box.
+    pub fn box_volume(&self) -> i64 {
+        let (x, y, z) = self.size;
+        x * y * z
+    }
+
+    /// The box a stack grows by with each copy: the build's size, but its
+    /// step along each way it stacks, so the parts copies overlap on count
+    /// once. `None` for a build that does not stack, or stacks diagonally,
+    /// whose stack does not grow by a box.
+    pub fn per_copy(&self) -> Option<(i64, i64, i64)> {
+        if self.stacking.is_empty() {
+            return None;
+        }
+        let (mut x, mut y, z) = self.size;
+        for d in &self.stacking {
+            match (d.west, d.up) {
+                (west, 0) => x = west,
+                (0, up) => y = up,
+                _ => return None,
+            }
+        }
+        Some((x, y, z))
+    }
+
+    /// This build stacked into a box of inner `size`, with `copies` along
+    /// each direction. Copies that add bits widen it, and every copy of a
+    /// memory holds its bytes. A stack's latency and timing are not its
+    /// slice's, so they are unknown, as is the throughput of any but a serial
+    /// build.
+    #[must_use]
+    pub fn stacked(
+        &self,
+        copies: &[(StackDirection, usize)],
+        size: [i32; 3],
+    ) -> Build {
+        let count = |n: &usize| i64::try_from(*n).unwrap_or(i64::MAX);
+        let factor: i64 = copies
+            .iter()
+            .filter(|(direction, _)| direction.adds_bits(self.orientation))
+            .map(|(_, n)| count(n))
+            .product();
+        let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
+        Build {
+            width: self.width.map(|w| w * factor),
+            bytes: self.bytes.map(|b| b.saturating_mul(all)),
+            latency: None,
+            synchronized: None,
+            throughput: self
+                .throughput
+                .filter(|_| self.has(Measure::Throughput)),
+            size: (size[0].into(), size[1].into(), size[2].into()),
+            ..self.clone()
+        }
+    }
+
+    /// Copies of this build stacked into the wider build `w`, as a
+    /// leaderboard ranks it among builds of `w`'s width: with the timing
+    /// measured so, and the box the copies take, the step its bits run
+    /// along counting once a copy. `None` for a build with no way of
+    /// stacking that adds bits.
+    #[must_use]
+    pub fn widened_to(&self, w: &Widened) -> Option<Build> {
+        let along = *self
+            .stacking
+            .iter()
+            .find(|d| d.adds_bits(self.orientation))?;
+        let more = w.copies - 1;
+        let (x, y, z) = self.size;
+        let size = (x + along.west * more, y + along.up * more, z);
+        let stacking = self
+            .stacking
+            .iter()
+            .map(|&d| {
+                if d == along {
+                    StackDirection {
+                        west: d.west * w.copies,
+                        up: d.up * w.copies,
+                        max_copies: None,
+                        ..d
+                    }
+                } else {
+                    d
+                }
+            })
+            .collect();
+        Some(Build {
+            width: Some(w.width),
+            latency: w.latency,
+            synchronized: w.synchronized,
+            throughput: w.throughput,
+            size,
+            stacking,
+            widened: Vec::new(),
+            stacked_from: self.width,
+            ..self.clone()
+        })
     }
 }
 

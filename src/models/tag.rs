@@ -132,7 +132,7 @@ const ALPHA: &str = "alpha";
 pub const DERIVED: [&str; 5] = [FAILING, UNTESTED, TORCHLESS, ALPHA, UNALIGNED];
 
 impl Tag {
-    pub(super) fn derived(name: &str, kind: Kind) -> Self {
+    pub(crate) fn derived(name: &str, kind: Kind) -> Self {
         Tag {
             name: name.to_owned(),
             token: None,
