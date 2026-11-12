@@ -8,7 +8,7 @@ mod write;
 // Until the queries move to a store of their own, the build's types are
 // still reached through here, as they were.
 pub use crate::build::{
-    Build, Encoding, Faces, Logic, Measured, Operands, Orientation, PITCHES,
+    Build, Encoding, Faces, Logic, Operands, Orientation, PITCHES, Specs,
     StackDirection, Status, Widened, classes, file_stem,
 };
 pub use load::{
@@ -18,6 +18,6 @@ pub use load::{
 pub use write::{
     DownloadKind, New, Restorable, count_download, delete, favorite_count,
     favorited, favorites, insert, log_download, purge, restore, set_details,
-    set_favorite, set_flags, set_import_details, set_measured, set_public,
+    set_favorite, set_flags, set_import_details, set_public, set_specs,
     set_stacking, set_widened, undelete,
 };

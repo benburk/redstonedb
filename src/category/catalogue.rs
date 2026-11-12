@@ -46,11 +46,11 @@ impl Measure {
     /// The build's value of it.
     pub fn of(self, s: &Build) -> Option<i64> {
         match self {
-            Measure::Width => s.width,
-            Measure::Bytes => s.bytes,
-            Measure::Throughput => s.throughput,
-            Measure::AtLeast => s.at_least,
-            Measure::Pulse => s.pulse,
+            Measure::Width => s.specs.width,
+            Measure::Bytes => s.specs.bytes,
+            Measure::Throughput => s.specs.throughput,
+            Measure::AtLeast => s.specs.at_least,
+            Measure::Pulse => s.specs.pulse,
         }
     }
 

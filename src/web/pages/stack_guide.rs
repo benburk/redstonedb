@@ -64,7 +64,7 @@ fn class(s: &Build, direction: StackDirection) -> Option<String> {
         })
         .unwrap_or_default();
     let Some(pitch) = direction.pitch else {
-        return (!direction.adds_bits(s.orientation)).then(|| {
+        return (!direction.adds_bits(s.specs.orientation)).then(|| {
             let shape = direction.pitch_shape().unwrap_or("wide");
             format!(
                 "Copies {step} {way} apart add words on its shared data bus, \
@@ -73,7 +73,7 @@ fn class(s: &Build, direction: StackDirection) -> Option<String> {
         });
     };
     let shape = direction.pitch_shape()?;
-    let bits = s.width.unwrap_or(1);
+    let bits = s.specs.width.unwrap_or(1);
     let each = match bits {
         1 => "its 1 bit".to_owned(),
         n => format!("each of its {n} bits"),

@@ -280,12 +280,14 @@ fn order(shown: &mut [Build], sort: &Sort) {
                 SortField::AddedAt => a.added_at.cmp(&b.added_at),
                 SortField::Volume => a.volume().cmp(&b.volume()),
                 SortField::Downloads => a.downloads.cmp(&b.downloads),
-                SortField::Latency => match (a.latency, b.latency) {
-                    (Some(x), Some(y)) => x.cmp(&y),
-                    (None, Some(_)) => return Ordering::Greater,
-                    (Some(_), None) => return Ordering::Less,
-                    (None, None) => Ordering::Equal,
-                },
+                SortField::Latency => {
+                    match (a.specs.latency, b.specs.latency) {
+                        (Some(x), Some(y)) => x.cmp(&y),
+                        (None, Some(_)) => return Ordering::Greater,
+                        (Some(_), None) => return Ordering::Less,
+                        (None, None) => Ordering::Equal,
+                    }
+                }
             };
             let ordering = if descending {
                 ordering.reverse()

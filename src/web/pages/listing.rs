@@ -721,7 +721,7 @@ fn on_card(s: &Build) -> Vec<Tag> {
                     tag.kind,
                     tag::Kind::Design | tag::Kind::Orientation
                 )
-                && s.design.as_deref() != Some(tag.name.as_str())
+                && s.specs.design.as_deref() != Some(tag.name.as_str())
                 && !SEEN.contains(&tag.name.as_str())
                 && !name.contains(&format!(" {} ", tag.label()))
         })
@@ -948,7 +948,7 @@ fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                             // Latency is what builds are compared by, so it
                             // leads.
                             p class="flex flex-wrap items-baseline gap-x-2 tabular-nums" {
-                                @if s.latency.is_some() {
+                                @if s.specs.latency.is_some() {
                                     span class="font-semibold" { (latency(s)) }
                                 }
                                 span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
@@ -1036,8 +1036,8 @@ fn table(schematics: &[Build], terms: &[Term]) -> Markup {
                                         (stacked_note(s, terms))
                                         (badges(s, "mt-1.5"))
                                     }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.orientation.label()) }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding.map_or("", Encoding::label)) }
+                                    td class={ (TABLE_CELL) " " (secondary) } { (s.specs.orientation.label()) }
+                                    td class={ (TABLE_CELL) " " (secondary) } { (s.specs.encoding.map_or("", Encoding::label)) }
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
@@ -1091,7 +1091,7 @@ mod tests {
             Orientation::Horizontal,
             tags,
         );
-        s.design = design.map(str::to_owned);
+        s.specs.design = design.map(str::to_owned);
         s.flags = flags
             .iter()
             .map(|&name| Flag { name, label: name })

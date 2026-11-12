@@ -29,7 +29,7 @@ impl Build {
             .filter(|way| {
                 decided
                     && way.pitch.is_none()
-                    && !way.adds_bits(self.orientation)
+                    && !way.adds_bits(self.specs.orientation)
             })
             .filter_map(|way| {
                 let shape = way.pitch_shape()?;
@@ -61,7 +61,7 @@ impl Build {
                 tag::Kind::Other
             }
         };
-        let design = self.design.as_ref().map(|design| Tag {
+        let design = self.specs.design.as_ref().map(|design| Tag {
             name: design.clone(),
             token: self
                 .listed_design()
@@ -70,8 +70,8 @@ impl Build {
             kind: found(tag::Kind::Design, behaviour.evaluated),
         });
         let orientation = Tag {
-            name: self.orientation.label().to_lowercase(),
-            token: Some(self.orientation.name().to_owned()),
+            name: self.specs.orientation.label().to_lowercase(),
+            token: Some(self.specs.orientation.name().to_owned()),
             kind: found(
                 tag::Kind::Orientation,
                 behaviour.evaluated
@@ -137,7 +137,7 @@ impl Build {
             kind: found(tag::Kind::Feature, true),
         });
         // Whether its outputs settle together, once measured, either way.
-        let synced = self.synchronized.map(|synced| Tag {
+        let synced = self.specs.synchronized.map(|synced| Tag {
             name: if synced { tag::SYNCED } else { tag::UNSYNCED }.to_owned(),
             token: None,
             kind: found(tag::Kind::Feature, behaviour.evaluated),

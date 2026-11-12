@@ -8,7 +8,7 @@ use app::{
     details::{self, Candidate, Details},
     import,
     models::{
-        schematic::{self, Encoding, Orientation},
+        schematic::{self, Encoding, Orientation, Specs},
         simulation, tag,
     },
     simulate::Report,
@@ -41,9 +41,12 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     // Typed wrong in every detail the file decides.
     let typed = Details {
         category: "adder".to_owned(),
-        width: Some(4),
-        orientation: Orientation::Vertical,
-        encoding: Some(Encoding::Hex),
+        specs: Specs {
+            width: Some(4),
+            orientation: Orientation::Vertical,
+            encoding: Some(Encoding::Hex),
+            ..Specs::default()
+        },
         ..Details::default()
     };
     let id = store(&db, "alpha-rca", typed).await;
@@ -52,9 +55,9 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     assert!(matches!(report, Some(Report::Ran(_))), "{report:?}");
     assert!(report.unwrap().passed());
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.width, Some(8));
-    assert_eq!(s.orientation, Orientation::Horizontal);
-    assert_eq!(s.encoding, Some(Encoding::Binary));
+    assert_eq!(s.specs.width, Some(8));
+    assert_eq!(s.specs.orientation, Orientation::Horizontal);
+    assert_eq!(s.specs.encoding, Some(Encoding::Binary));
     assert!(!s.tags.iter().any(|t| t.name == tag::FAILING));
     assert!(simulation::current(&db, &s).await.unwrap().is_some());
 
@@ -71,7 +74,10 @@ async fn a_build_without_a_test_keeps_no_result() {
     let db = setup_test_db().await;
     let typed = Details {
         category: "piston door".to_owned(),
-        latency: Some(64),
+        specs: Specs {
+            latency: Some(64),
+            ..Specs::default()
+        },
         ..Details::default()
     };
     let id = store(&db, "mult-8-buttons", typed).await;
@@ -82,7 +88,7 @@ async fn a_build_without_a_test_keeps_no_result() {
             .is_none()
     );
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.latency, Some(64), "its author's latency stands");
+    assert_eq!(s.specs.latency, Some(64), "its author's latency stands");
 }
 
 #[tokio::test]
@@ -91,18 +97,21 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
     let db = setup_test_db().await;
     let typed = Details {
         category: "adder".to_owned(),
-        latency: Some(99),
-        throughput: Some(99),
-        design: Some("carry_lookahead".to_owned()),
+        specs: Specs {
+            latency: Some(99),
+            throughput: Some(99),
+            design: Some("carry_lookahead".to_owned()),
+            ..Specs::default()
+        },
         ..Details::default()
     };
     let id = store(&db, "rca-slice-capped", typed).await;
     let report = simulation::refresh(&db, &id, false).await.unwrap();
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.design.as_deref(), Some("ripple_carry"));
-    assert_ne!(s.latency, Some(99));
-    assert!(s.throughput.is_some_and(|t| (2..99).contains(&t)));
+    assert_eq!(s.specs.design.as_deref(), Some("ripple_carry"));
+    assert_ne!(s.specs.latency, Some(99));
+    assert!(s.specs.throughput.is_some_and(|t| (2..99).contains(&t)));
 }
 
 /// An adder failing its test goes up as an adder all the same, unverified,
@@ -140,8 +149,11 @@ async fn an_unverified_build_is_tested_as_its_category() {
     let db = setup_test_db().await;
     let typed = Details {
         category: "adder".to_owned(),
-        width: Some(8),
-        latency: Some(99),
+        specs: Specs {
+            width: Some(8),
+            latency: Some(99),
+            ..Specs::default()
+        },
         ..Details::default()
     };
     let id = store(&db, "cca-8-dust-out", typed).await;
@@ -155,8 +167,8 @@ async fn an_unverified_build_is_tested_as_its_category() {
     assert!(s.unverified.is_some());
     assert!(!s.verified());
     assert!(s.tags.iter().any(|t| t.name == tag::FAILING));
-    assert_eq!(s.latency, Some(99), "its typed details stay");
-    assert_eq!(s.width, Some(8));
+    assert_eq!(s.specs.latency, Some(99), "its typed details stay");
+    assert_eq!(s.specs.width, Some(8));
     let stored = simulation::current(&db, &s).await.unwrap();
     assert!(stored.is_some_and(|report| report.failed()));
     let board = app::leaderboard::board(
@@ -174,7 +186,10 @@ async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
     let db = setup_test_db().await;
     let typed = Details {
         category: "8-bit adder".to_owned(),
-        latency: Some(99),
+        specs: Specs {
+            latency: Some(99),
+            ..Specs::default()
+        },
         ..Details::default()
     };
     let id = store(&db, "cca-8-dust-out", typed).await;
@@ -185,7 +200,7 @@ async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
     assert!(report.failed(), "the fixture fails the adder test");
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.category, "8-bit_adder");
-    assert_eq!(s.latency, Some(99), "its typed details stay");
+    assert_eq!(s.specs.latency, Some(99), "its typed details stay");
     let stored = simulation::current(&db, &s).await.unwrap();
     assert!(stored.is_some_and(|report| report.failed()));
 }
@@ -265,7 +280,9 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     .await;
     simulation::refresh(&db, &id, false).await.unwrap();
     let measured = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert!(measured.latency.is_some() && measured.throughput.is_some());
+    assert!(
+        measured.specs.latency.is_some() && measured.specs.throughput.is_some()
+    );
 
     let mut edited = Details::of(&measured);
     edited.authors = vec!["Someone_Else".to_owned()];
@@ -294,12 +311,12 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     assert_eq!(s.description.as_deref(), Some("A slice."));
     let fields = |s: &schematic::Build| {
         (
-            s.width,
-            s.orientation,
-            s.latency,
-            s.synchronized,
-            s.throughput,
-            s.design.clone(),
+            s.specs.width,
+            s.specs.orientation,
+            s.specs.latency,
+            s.specs.synchronized,
+            s.specs.throughput,
+            s.specs.design.clone(),
             s.logic(),
             s.stacking.clone(),
         )
@@ -315,7 +332,6 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
     let db = setup_test_db().await;
     let typed = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     let id = store(&db, "alpha-rca", typed).await;

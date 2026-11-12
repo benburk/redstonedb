@@ -6,7 +6,7 @@ mod common;
 use app::{
     details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
-    models::schematic::{Encoding, Orientation, StackDirection},
+    models::schematic::{Encoding, Orientation, Specs, StackDirection},
     schem::{Blocks, standardize},
 };
 use sqlx::SqlitePool;
@@ -33,12 +33,15 @@ fn adder() -> Vec<u8> {
 fn given(category: &str) -> Details {
     Details {
         category: category.to_owned(),
-        width: Some(8),
-        orientation: Orientation::Horizontal,
-        encoding: Some(Encoding::Binary),
+        specs: Specs {
+            width: Some(8),
+            orientation: Orientation::Horizontal,
+            encoding: Some(Encoding::Binary),
+            bytes: Some(32),
+            at_least: Some(3),
+            ..Specs::default()
+        },
         given_name: Some(" Bus Crossing ".to_owned()),
-        bytes: Some(32),
-        at_least: Some(3),
         ..Details::default()
     }
 }
@@ -84,7 +87,10 @@ async fn a_category_off_the_list_has_no_width_or_encoding() {
     let db = common::database().await;
     let diode = check(&db, given("8-Bit Horizontal Diode")).await.unwrap();
     assert_eq!(diode.details.category, "8-bit_horizontal_diode");
-    assert_eq!((diode.details.width, diode.details.encoding), (None, None));
+    assert_eq!(
+        (diode.details.specs.width, diode.details.specs.encoding),
+        (None, None)
+    );
 }
 
 #[tokio::test]
@@ -153,18 +159,19 @@ async fn a_build_date_still_to_come_is_refused() {
 #[tokio::test]
 async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     let db = common::database().await;
-    let typed = || Details {
-        width: Some(8),
-        latency: Some(5),
-        ..given("adder")
+    let typed = || {
+        let mut typed = given("adder");
+        typed.specs.width = Some(8);
+        typed.specs.latency = Some(5);
+        typed
     };
     let unverified = |ready: Result<Ready, String>, why: &str| {
         let ready = ready.unwrap();
         let said = ready.details.unverified.clone().unwrap_or_default();
         assert!(said.contains(why), "{why}: {said}");
         assert_eq!(ready.details.category, "adder");
-        assert_eq!(ready.details.latency, Some(5), "{why}");
-        assert_eq!(ready.details.width, Some(8), "{why}");
+        assert_eq!(ready.details.specs.latency, Some(5), "{why}");
+        assert_eq!(ready.details.specs.width, Some(8), "{why}");
         assert!(!ready.evaluated, "{why}");
     };
     // A piston in its first empty space, which the simulator does not
@@ -225,24 +232,23 @@ async fn a_build_that_passed_is_not_tested_again() {
 #[tokio::test]
 async fn an_evaluated_categorys_typed_measures_give_way_to_its_file() {
     let db = common::database().await;
-    let typed = Details {
-        width: Some(3),
-        encoding: Some(Encoding::Hex),
-        flags: vec!["carry_in".to_owned()],
-        ..given("adder")
-    };
-    let typed = Details {
-        orientation: Orientation::Diagonal,
-        ..typed
-    };
+    let mut typed = given("adder");
+    typed.specs.width = Some(3);
+    typed.specs.encoding = Some(Encoding::Hex);
+    typed.specs.orientation = Orientation::Diagonal;
+    typed.flags = vec!["carry_in".to_owned()];
     let ready = check(&db, typed).await.unwrap();
-    assert_eq!(ready.details.width, Some(8), "the ripple adder's own width");
     assert_eq!(
-        ready.details.orientation,
+        ready.details.specs.width,
+        Some(8),
+        "the ripple adder's own width"
+    );
+    assert_eq!(
+        ready.details.specs.orientation,
         Orientation::Horizontal,
         "as its bits run"
     );
-    assert_eq!(ready.details.encoding, Some(Encoding::Binary));
+    assert_eq!(ready.details.specs.encoding, Some(Encoding::Binary));
     assert!(ready.details.flags.is_empty());
 }
 

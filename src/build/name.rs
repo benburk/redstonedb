@@ -25,7 +25,8 @@ pub fn file_stem(name: &str) -> String {
 impl Build {
     /// The width in words, such as `8 bits` or `1 bit`.
     pub fn width_label(&self) -> Option<String> {
-        self.width
+        self.specs
+            .width
             .map(|w| format!("{w} {}", if w == 1 { "bit" } else { "bits" }))
     }
 
@@ -68,7 +69,7 @@ impl Build {
     /// A multiplier's operands and product, as `8x8=16`; `None` for any
     /// other build, or one of unknown width.
     fn product_shape(&self) -> Option<String> {
-        let width = self.width.filter(|_| {
+        let width = self.specs.width.filter(|_| {
             self.kind() == Some(crate::category::Kind::Multiplier)
         })?;
         let flagged = |name: &str| self.flags.iter().any(|f| f.name == name);
@@ -115,7 +116,7 @@ impl Build {
     /// The design in words, such as `Carry Lookahead`; `None` for no
     /// design.
     pub fn design_label(&self) -> Option<String> {
-        self.design.as_ref().map(|design| {
+        self.specs.design.as_ref().map(|design| {
             match self.listed_design().and_then(|listed| listed.label) {
                 Some(label) => label.to_owned(),
                 None => category::words(design),

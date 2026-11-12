@@ -3,8 +3,8 @@
 //! Loading and storing builds is `models::schematic`.
 
 mod facts;
-mod measured;
 mod name;
+mod specs;
 mod stacking;
 mod status;
 mod tags;
@@ -12,8 +12,8 @@ mod tags;
 mod tests;
 
 pub use facts::{Encoding, Logic, Orientation};
-pub use measured::Measured;
 pub use name::file_stem;
+pub use specs::Specs;
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use status::{Operands, Status};
 
@@ -32,23 +32,7 @@ use crate::{
 pub struct Build {
     pub id: String,
     pub category: String,
-    pub width: Option<i64>,
-    pub orientation: Orientation,
-    /// `None` for a category off the list, such as a piston door.
-    pub encoding: Option<Encoding>,
-    pub latency: Option<i64>,
-    /// Whether every output bit settles on the same tick.
-    pub synchronized: Option<bool>,
-    /// The build's own logic, where it says so; `None` follows its
-    /// category's, see [`Build::logic`].
-    pub own_logic: Option<Logic>,
-    /// The fewest ticks from one input to the next that still gives right
-    /// outputs; for a serial build, from one bit to the next.
-    pub throughput: Option<i64>,
-    /// For a threshold, the fewest inputs on that turn it on.
-    pub at_least: Option<i64>,
-    /// For a monostable, the ticks its pulse lasts.
-    pub pulse: Option<i64>,
+    pub specs: Specs,
     /// How many redstone torches its file has; `None` until counted.
     pub torches: Option<i64>,
     /// The oldest Minecraft release it works in, such as `1.5`; `None`
@@ -57,8 +41,6 @@ pub struct Build {
     /// The component or mechanic that sets `works_from`, such as
     /// `comparator`; `None` for a build of nothing newer than Alpha.
     pub works_from_by: Option<String>,
-    /// For a memory, how many bytes it holds.
-    pub bytes: Option<i64>,
     /// The build's box less any outer layer holding only its interface.
     pub size: (i64, i64, i64),
     /// Empty for a build that does not stack.
@@ -78,9 +60,6 @@ pub struct Build {
     /// The name the build was given, for a category that takes one, such
     /// as `Bus Crossing` under bussing.
     pub given_name: Option<String>,
-    /// The design within its category, such as `carry_lookahead`; `None`
-    /// for none.
-    pub design: Option<String>,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,
@@ -190,14 +169,15 @@ impl Build {
     /// Whether it holds state: as it says itself, else as its category's
     /// builds usually do; `None` where neither says.
     pub fn logic(&self) -> Option<Logic> {
-        self.own_logic
+        self.specs
+            .logic
             .or_else(|| self.kind().and_then(|kind| kind.facts().logic))
     }
 
     /// Its design as its category lists it, with its short name and label;
     /// `None` for no design, or one its category doesn't list.
     pub fn listed_design(&self) -> Option<&'static Design> {
-        Design::of(&self.category, self.design.as_deref()?)
+        Design::of(&self.category, self.specs.design.as_deref()?)
     }
 
     /// Whether `evaluate` works out its every measured detail: a
@@ -213,7 +193,7 @@ impl Build {
     /// copies tile with A and B split do not.
     pub fn interleaved_inputs(&self) -> bool {
         self.operands == Operands::Interleaved
-            && self.orientation == Orientation::Horizontal
+            && self.specs.orientation == Orientation::Horizontal
     }
 
     /// Whether its category is named and ranked by `measure`.
@@ -223,7 +203,7 @@ impl Build {
 
     /// `yes`, `no`, or `unknown`.
     pub fn synchronized_label(&self) -> &str {
-        match self.synchronized {
+        match self.specs.synchronized {
             Some(true) => "yes",
             Some(false) => "no",
             None => "unknown",
@@ -235,8 +215,8 @@ impl Build {
     /// latency.
     pub fn pipelined(&self) -> bool {
         self.logic() == Some(Logic::Stateless)
-            && self.synchronized == Some(true)
-            && matches!((self.throughput, self.latency), (Some(t), Some(l)) if t < l)
+            && self.specs.synchronized == Some(true)
+            && matches!((self.specs.throughput, self.specs.latency), (Some(t), Some(l)) if t < l)
     }
 
     /// Whether listings show it to `viewer`: a public build to anyone, and

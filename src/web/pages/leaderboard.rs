@@ -211,7 +211,7 @@ fn record_href(record: &Record) -> String {
         measures: record.measures.clone(),
         logic: Some(record.logic),
         orientation: of(Kind::Orientation)
-            .map(|_| record.holders[0].orientation),
+            .map(|_| record.holders[0].specs.orientation),
         design: of(Kind::Design).map(|tag| tag.name.clone()),
         ticks: record.ticks,
         tags: record
@@ -583,7 +583,10 @@ fn board_name(category: &Category, board: &Board) -> String {
 }
 
 fn ticks(s: &Build) -> String {
-    s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
+    s.specs
+        .latency
+        .map(|t| format!("{t} ticks"))
+        .unwrap_or_default()
 }
 
 /// Its size as `ruler` measures it: its volume, or a cell's blocks, those
@@ -662,7 +665,7 @@ fn ranking(
                             }
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                 a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
-                                @if let (Some(from), Some(width)) = (s.stacked_from, s.width) {
+                                @if let (Some(from), Some(width)) = (s.stacked_from, s.specs.width) {
                                     div class="mt-1 text-meta text-muted" {
                                         (width / from.max(1)) " copies of a " (from) "-bit build, stacked"
                                     }

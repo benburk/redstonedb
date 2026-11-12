@@ -8,19 +8,18 @@ fn cla() -> Build {
     Build {
         id: String::new(),
         category: "adder".to_owned(),
-        width: Some(8),
-        orientation: Orientation::Horizontal,
-        encoding: Some(Encoding::Binary),
-        latency: Some(8),
-        synchronized: Some(false),
-        own_logic: None,
-        throughput: None,
-        at_least: None,
-        pulse: None,
+        specs: Specs {
+            width: Some(8),
+            orientation: Orientation::Horizontal,
+            encoding: Some(Encoding::Binary),
+            latency: Some(8),
+            synchronized: Some(false),
+            design: Some("carry_lookahead".to_owned()),
+            ..Specs::default()
+        },
         torches: None,
         works_from: None,
         works_from_by: None,
-        bytes: None,
         size: (19, 11, 18),
         stacking: Vec::new(),
         widened: Vec::new(),
@@ -31,7 +30,6 @@ fn cla() -> Build {
         imported_by: None,
         conventional: true,
         keeps_paste: false,
-        design: Some("carry_lookahead".to_owned()),
         flags: Vec::new(),
         description: None,
         given_name: None,
@@ -53,6 +51,24 @@ fn cla() -> Build {
             token: None,
             kind: tag::Kind::Restriction,
         }],
+    }
+}
+
+/// A build of `category` with `specs`, no tags, and the rest as [`cla`]'s.
+fn of(category: &str, specs: Specs) -> Build {
+    Build {
+        category: category.to_owned(),
+        specs,
+        tags: Vec::new(),
+        ..cla()
+    }
+}
+
+/// [`cla`]'s specs with no design.
+fn plain() -> Specs {
+    Specs {
+        design: None,
+        ..cla().specs
     }
 }
 
@@ -232,12 +248,7 @@ fn a_gate_is_named_by_its_category() {
 #[test]
 fn a_multiplier_is_named_by_its_operands_and_product() {
     let flag = |name: &'static str| Flag { name, label: "" };
-    let mut multiplier = Build {
-        category: "multiplier".to_owned(),
-        design: None,
-        tags: Vec::new(),
-        ..cla()
-    };
+    let mut multiplier = of("multiplier", plain());
     assert_eq!(multiplier.name(), "8x8=8 Multiplier");
     multiplier.flags = vec![flag("upper_product")];
     assert_eq!(multiplier.name(), "8x8=16 Multiplier");
@@ -248,13 +259,11 @@ fn a_multiplier_is_named_by_its_operands_and_product() {
 
 #[test]
 fn a_memory_names_its_capacity_and_stacks_multiply_it() {
-    let ram = Build {
-        category: "ram".to_owned(),
-        design: None,
+    let specs = Specs {
         bytes: Some(32),
-        tags: Vec::new(),
-        ..cla()
+        ..plain()
     };
+    let ram = of("ram", specs);
     assert_eq!(ram.name(), "8-bit 32-byte RAM");
     let up = StackDirection {
         west: 0,
@@ -264,86 +273,70 @@ fn a_memory_names_its_capacity_and_stacks_multiply_it() {
         pitch: None,
     };
     let stacked = ram.stacked(&[(up, 4)], [19, 11, 72]);
-    assert_eq!(stacked.bytes, Some(128));
-    assert_eq!(stacked.width, Some(8), "copies up add words, not bits");
+    assert_eq!(stacked.specs.bytes, Some(128));
+    assert_eq!(
+        stacked.specs.width,
+        Some(8),
+        "copies up add words, not bits"
+    );
 }
 
 #[test]
 fn a_category_label_keeps_its_symbols_out_of_the_filename() {
-    let s = Build {
-        category: "inc_dec".to_owned(),
-        design: None,
-        tags: Vec::new(),
-        ..cla()
-    };
+    let s = of("inc_dec", plain());
     assert_eq!(s.name(), "8-bit Inc/Dec");
     assert_eq!(s.filename(), "8_bit_Inc_Dec.schem");
 }
 
 #[test]
 fn a_design_keeps_its_label() {
-    let s = Build {
-        category: "rng".to_owned(),
+    let specs = Specs {
         design: Some("lfsr".to_owned()),
-        tags: Vec::new(),
-        ..cla()
+        ..cla().specs
     };
+    let s = of("rng", specs);
     assert_eq!(s.name(), "8-bit LFSR RNG");
 }
 
 #[test]
 fn a_threshold_names_its_k_after_its_width() {
-    let s = Build {
-        category: "threshold".to_owned(),
-        design: None,
+    let specs = Specs {
         at_least: Some(3),
-        tags: Vec::new(),
-        ..cla()
+        ..plain()
     };
+    let s = of("threshold", specs);
     assert_eq!(s.name(), "8-bit At Least 3 Threshold");
     assert_eq!(s.filename(), "8_bit_At_Least_3_Threshold.schem");
 }
 
 #[test]
 fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
-    let serial = Build {
-        category: "serial_adder".to_owned(),
-        design: None,
+    let specs = Specs {
         width: None,
         throughput: Some(2),
-        tags: Vec::new(),
-        ..cla()
+        ..plain()
     };
+    let serial = of("serial_adder", specs);
     assert_eq!(serial.name(), "2-tick Serial Adder");
-    let adder = Build {
-        throughput: Some(3),
-        ..cla()
-    };
+    let mut adder = cla();
+    adder.specs.throughput = Some(3);
     assert_eq!(adder.name(), "8-bit Carry Lookahead Adder");
 }
 
 #[test]
 fn a_synchronized_stateless_build_faster_than_its_latency_is_pipelined() {
-    let piped = Build {
-        synchronized: Some(true),
-        throughput: Some(3),
-        ..cla()
-    };
+    let mut piped = cla();
+    piped.specs.synchronized = Some(true);
+    piped.specs.throughput = Some(3);
     assert!(piped.pipelined());
-    let unsynced = Build {
-        synchronized: Some(false),
-        ..piped.clone()
-    };
+    let mut unsynced = piped.clone();
+    unsynced.specs.synchronized = Some(false);
     assert!(!unsynced.pipelined(), "pipelining needs synced outputs");
-    let stateful = Build {
-        own_logic: Some(Logic::Stateful),
-        ..piped.clone()
-    };
+    let mut stateful = piped.clone();
+    stateful.specs.logic = Some(Logic::Stateful);
     assert!(!stateful.pipelined());
-    let as_slow = Build {
-        throughput: Some(8),
-        ..piped
-    };
+    let mut as_slow = piped;
+    as_slow.specs.throughput = Some(8);
     assert!(!as_slow.pipelined(), "throughput must beat latency");
 }
 
@@ -382,38 +375,26 @@ fn a_stack_grows_by_its_step_however_much_copies_overlap() {
 
 #[test]
 fn a_category_keeps_its_label() {
-    let s = Build {
-        category: "ram".to_owned(),
-        design: None,
-        ..cla()
-    };
+    let s = of("ram", plain());
     assert_eq!(s.name(), "8-bit RAM");
 }
 
 #[test]
 fn a_category_off_the_list_is_capitalized() {
-    let s = Build {
-        category: "maze_screen".to_owned(),
+    let specs = Specs {
         width: None,
-        design: None,
-        ..cla()
+        ..plain()
     };
+    let s = of("maze_screen", specs);
     assert_eq!(s.name(), "Maze Screen");
 }
 
 #[test]
 fn unknown_parts_are_left_out() {
     let s = Build {
-        width: None,
-        design: None,
-        latency: None,
-        synchronized: None,
-        throughput: None,
-        bytes: None,
         authors: Vec::new(),
         built_on: None,
-        tags: Vec::new(),
-        ..cla()
+        ..of("adder", Specs::default())
     };
     assert_eq!(s.title(), "Adder");
     assert_eq!(s.filename(), "Adder.schem");

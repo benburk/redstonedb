@@ -2,7 +2,7 @@
 //! along, the box within it later copies repeat, and the wider builds its
 //! copies make.
 
-use super::{Build, Orientation};
+use super::{Build, Orientation, Specs};
 use crate::category::Measure;
 
 /// One direction a stackable build repeats along. Each copy sits `west`
@@ -270,18 +270,24 @@ impl Build {
         let count = |n: &usize| i64::try_from(*n).unwrap_or(i64::MAX);
         let factor: i64 = copies
             .iter()
-            .filter(|(direction, _)| direction.adds_bits(self.orientation))
+            .filter(|(direction, _)| {
+                direction.adds_bits(self.specs.orientation)
+            })
             .map(|(_, n)| count(n))
             .product();
         let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
+        let specs = &self.specs;
         Build {
-            width: self.width.map(|w| w * factor),
-            bytes: self.bytes.map(|b| b.saturating_mul(all)),
-            latency: None,
-            synchronized: None,
-            throughput: self
-                .throughput
-                .filter(|_| self.has(Measure::Throughput)),
+            specs: Specs {
+                width: specs.width.map(|w| w * factor),
+                bytes: specs.bytes.map(|b| b.saturating_mul(all)),
+                latency: None,
+                synchronized: None,
+                throughput: specs
+                    .throughput
+                    .filter(|_| self.has(Measure::Throughput)),
+                ..specs.clone()
+            },
             size: (size[0].into(), size[1].into(), size[2].into()),
             ..self.clone()
         }
@@ -297,7 +303,7 @@ impl Build {
         let along = *self
             .stacking
             .iter()
-            .find(|d| d.adds_bits(self.orientation))?;
+            .find(|d| d.adds_bits(self.specs.orientation))?;
         let more = w.copies - 1;
         let (x, y, z) = self.size;
         let size = (x + along.west * more, y + along.up * more, z);
@@ -318,14 +324,17 @@ impl Build {
             })
             .collect();
         Some(Build {
-            width: Some(w.width),
-            latency: w.latency,
-            synchronized: w.synchronized,
-            throughput: w.throughput,
+            specs: Specs {
+                width: Some(w.width),
+                latency: w.latency,
+                synchronized: w.synchronized,
+                throughput: w.throughput,
+                ..self.specs.clone()
+            },
             size,
             stacking,
             widened: Vec::new(),
-            stacked_from: self.width,
+            stacked_from: self.specs.width,
             ..self.clone()
         })
     }

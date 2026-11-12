@@ -10,9 +10,7 @@ use crate::{
     import::Prepared,
     models::{
         player,
-        schematic::{
-            self, Build, Encoding, Logic, Orientation, StackDirection,
-        },
+        schematic::{self, Build, Orientation, Specs, StackDirection},
         simulation, tag,
     },
     schem::stack,
@@ -28,29 +26,15 @@ pub struct Details {
     /// A standard category by its name or label, in any capitals, or a name
     /// of the author's own.
     pub category: String,
-    pub width: Option<i64>,
-    pub orientation: Orientation,
-    pub encoding: Option<Encoding>,
-    pub latency: Option<i64>,
-    pub synchronized: Option<bool>,
+    /// Its specs as given; its design one of the category's, or `None`
+    /// for `other`.
+    pub specs: Specs,
     /// A date such as `2024-02-02`.
     pub built_on: Option<String>,
     pub description: Option<String>,
     /// The build's own name, kept only for a category that names each
     /// build.
     pub given_name: Option<String>,
-    /// `None` follows the category.
-    pub logic: Option<Logic>,
-    /// The fewest ticks from one input to the next.
-    pub throughput: Option<i64>,
-    /// How many bytes a memory holds.
-    pub bytes: Option<i64>,
-    /// A threshold's k.
-    pub at_least: Option<i64>,
-    /// A monostable's pulse, in ticks.
-    pub pulse: Option<i64>,
-    /// A design of the category; `None` for `other`.
-    pub design: Option<String>,
     /// Flags it has; any not of its category are dropped.
     pub flags: Vec<String>,
     pub authors: Vec<String>,
@@ -70,20 +54,10 @@ impl Details {
     pub fn of(s: &Build) -> Self {
         Details {
             category: s.category.clone(),
-            width: s.width,
-            orientation: s.orientation,
-            encoding: s.encoding,
-            latency: s.latency,
-            synchronized: s.synchronized,
+            specs: s.specs.clone(),
             built_on: s.built_on.clone(),
             description: s.description.clone(),
             given_name: s.given_name.clone(),
-            logic: s.own_logic,
-            throughput: s.throughput,
-            bytes: s.bytes,
-            at_least: s.at_least,
-            pulse: s.pulse,
-            design: s.design.clone(),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
             authors: s.authors.clone(),
             contributors: s.contributors.clone(),
@@ -180,6 +154,29 @@ impl From<sqlx::Error> for Stop {
 }
 
 /// [`check`], with `?` for both ways it stops.
+/// Drops from `details` what a build of `category` has no use for: a
+/// width, throughput, or encoding where it isn't `listed`, a given name
+/// where it names no build, a measure it isn't ranked by, and flags not
+/// of it. A number kept is above zero.
+fn keep_what_applies(details: &mut Details, category: &Category, listed: bool) {
+    let positive = |n: Option<i64>| n.filter(|n| *n > 0);
+    let specs = &mut details.specs;
+    specs.width = positive(specs.width).filter(|_| listed);
+    specs.throughput = positive(specs.throughput).filter(|_| listed);
+    specs.encoding = specs.encoding.filter(|_| listed);
+    specs.bytes =
+        positive(specs.bytes).filter(|_| category.has(Measure::Bytes));
+    specs.at_least =
+        positive(specs.at_least).filter(|_| category.has(Measure::AtLeast));
+    specs.pulse =
+        positive(specs.pulse).filter(|_| category.has(Measure::Pulse));
+    details.given_name = details.given_name.take().filter(|_| category.named);
+    details.flags = category::flags_among(&category.name, &details.flags)
+        .into_iter()
+        .map(|flag| flag.name.to_owned())
+        .collect();
+}
+
 async fn ready(
     db: &SqlitePool,
     mut details: Details,
@@ -190,7 +187,7 @@ async fn ready(
         &mut details.built_on,
         &mut details.description,
         &mut details.given_name,
-        &mut details.design,
+        &mut details.specs.design,
     ] {
         *text = text
             .take()
@@ -209,8 +206,10 @@ async fn ready(
             .to_owned()
             .into());
     }
-    let category =
-        category::check_category(&details.category, details.design.as_deref())?;
+    let category = category::check_category(
+        &details.category,
+        details.specs.design.as_deref(),
+    )?;
     // Only a blessed build, one probing recognizes, goes on the list.
     if listed && !category::blessed(&category.name) {
         let width = simulation::derived_width(&category.name, true, build.data)
@@ -225,21 +224,7 @@ async fn ready(
         .into());
     }
 
-    let positive = |n: Option<i64>| n.filter(|n| *n > 0);
-    details.width = positive(details.width).filter(|_| listed);
-    details.throughput = positive(details.throughput).filter(|_| listed);
-    details.encoding = details.encoding.filter(|_| listed);
-    details.given_name = details.given_name.filter(|_| category.named);
-    details.bytes =
-        positive(details.bytes).filter(|_| category.has(Measure::Bytes));
-    details.at_least =
-        positive(details.at_least).filter(|_| category.has(Measure::AtLeast));
-    details.pulse =
-        positive(details.pulse).filter(|_| category.has(Measure::Pulse));
-    details.flags = category::flags_among(&category.name, &details.flags)
-        .into_iter()
-        .map(|flag| flag.name.to_owned())
-        .collect();
+    keep_what_applies(&mut details, &category, listed);
 
     // Only a build of a category the site recognizes builds of is
     // unverified as one.
@@ -256,8 +241,10 @@ async fn ready(
         && verified
         && policy == category::Stacking::Inferred;
     if !stacking_inferred && policy != category::Stacking::Never {
-        let buses =
-            stack::Buses::of(Kind::named(&category.name), details.orientation);
+        let buses = stack::Buses::of(
+            Kind::named(&category.name),
+            details.specs.orientation,
+        );
         stack::check(build.data, &details.stacking, buses)?;
     }
 
@@ -329,8 +316,8 @@ async fn evaluated(
         details.unverified = Some(off.why);
     }
     if details.unverified.is_some() {
-        if details.width.is_none() {
-            details.width =
+        if details.specs.width.is_none() {
+            details.specs.width =
                 simulation::derived_width(&category.name, true, build.data)
                     .ok()
                     .flatten();
@@ -343,13 +330,13 @@ async fn evaluated(
     // Nothing measured is typed: what the file shows, its width, encoding,
     // and the way its bits run, is read from it, and the rest the
     // simulation sets once it is stored.
-    details.latency = None;
-    details.synchronized = None;
-    details.throughput = None;
-    details.logic = None;
-    details.pulse = None;
-    details.at_least = None;
-    details.design = None;
+    details.specs.latency = None;
+    details.specs.synchronized = None;
+    details.specs.throughput = None;
+    details.specs.logic = None;
+    details.specs.pulse = None;
+    details.specs.at_least = None;
+    details.specs.design = None;
     details.flags.clear();
     let read = crate::schem::Blocks::read(build.data)
         .map(|blocks| {
@@ -361,11 +348,13 @@ async fn evaluated(
         .unwrap_or_default();
     // A lone bit shows no way its bits run, so it is horizontal until its
     // copies, if they stack, show otherwise.
-    details.orientation = read.orientation.unwrap_or(Orientation::Horizontal);
-    details.encoding = read.encoding;
-    details.width = simulation::derived_width(&category.name, true, build.data)
-        .ok()
-        .flatten();
+    details.specs.orientation =
+        read.orientation.unwrap_or(Orientation::Horizontal);
+    details.specs.encoding = read.encoding;
+    details.specs.width =
+        simulation::derived_width(&category.name, true, build.data)
+            .ok()
+            .flatten();
     Ok(())
 }
 

@@ -149,7 +149,7 @@ fn ranked_values(s: &Build) -> Option<Vec<(Measure, i64)>> {
     let group = group_of(&s.category);
     let unknown_width = as_cells(group)
         && s.measures().contains(&Measure::Width)
-        && s.width.is_none();
+        && s.specs.width.is_none();
     if s.measures().is_empty() || unknown_width {
         return None;
     }
@@ -264,9 +264,10 @@ impl Ruler {
 /// The bits a build holds, as its cells count: a memory's bytes' bits,
 /// else its width, else one.
 fn bits(s: &Build) -> i64 {
-    s.bytes
+    s.specs
+        .bytes
         .map(|bytes| bytes * 8)
-        .or(s.width)
+        .or(s.specs.width)
         .unwrap_or(1)
         .max(1)
 }
@@ -479,10 +480,10 @@ pub fn board<'a>(
     let (stackings, ruler, mut ranked) =
         by_stacking(ranked, stacking.as_deref(), group);
     let orientations = choices(&ranked, |s| {
-        (s.orientation, s.orientation.label().to_owned())
+        (s.specs.orientation, s.specs.orientation.label().to_owned())
     });
     let orientation = wanted.orientation;
-    ranked.retain(|s| orientation.is_none_or(|o| s.orientation == o));
+    ranked.retain(|s| orientation.is_none_or(|o| s.specs.orientation == o));
 
     // By the short name people say, such as CCA, where there is one.
     let designs = choices(&ranked, |s| {
@@ -492,7 +493,10 @@ pub fn board<'a>(
             .map(str::to_owned)
             .or_else(|| s.design_label())
             .unwrap_or_else(|| "Other".to_owned());
-        (s.design.as_deref().unwrap_or(NO_DESIGN).to_owned(), label)
+        (
+            s.specs.design.as_deref().unwrap_or(NO_DESIGN).to_owned(),
+            label,
+        )
     });
     let all_designs = designs.len() > 1;
     let design = wanted.design.clone().or_else(|| {
@@ -503,15 +507,18 @@ pub fn board<'a>(
     ranked.retain(|s| {
         design
             .as_deref()
-            .is_none_or(|d| s.design.as_deref().unwrap_or(NO_DESIGN) == d)
+            .is_none_or(|d| s.specs.design.as_deref().unwrap_or(NO_DESIGN) == d)
     });
     let latencies = choices(&ranked, |s| {
-        let ticks = s.latency.unwrap_or(i64::MAX);
-        let label = s.latency.map_or("Unknown".to_owned(), |t| t.to_string());
+        let ticks = s.specs.latency.unwrap_or(i64::MAX);
+        let label = s
+            .specs
+            .latency
+            .map_or("Unknown".to_owned(), |t| t.to_string());
         (ticks, label)
     });
     let ticks = wanted.ticks;
-    ranked.retain(|s| ticks.is_none_or(|t| s.latency == Some(t)));
+    ranked.retain(|s| ticks.is_none_or(|t| s.specs.latency == Some(t)));
     let tag_choices = tag_choices(&ranked, cells);
     let tags = wanted.tags.clone();
     let builds = ranked
@@ -564,7 +571,9 @@ fn split<'a>(
         .copied()
         .filter(|s| s.ranks())
         .filter(|s| {
-            !(cells && measures.contains(&Measure::Width) && s.width.is_none())
+            !(cells
+                && measures.contains(&Measure::Width)
+                && s.specs.width.is_none())
         })
         .collect();
     let mut splits = Vec::new();
@@ -761,9 +770,9 @@ pub fn fastest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut timed: Vec<&Build> = builds
         .iter()
         .copied()
-        .filter(|s| s.latency.is_some())
+        .filter(|s| s.specs.latency.is_some())
         .collect();
-    let key = |s: &Build| (s.latency, ruler.size(s));
+    let key = |s: &Build| (s.specs.latency, ruler.size(s));
     timed.sort_by_key(|s| (key(s), s.added_at.clone()));
     placed(&timed, key)
 }
@@ -772,7 +781,7 @@ pub fn fastest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
 /// the quicker and then to one of known latency.
 pub fn smallest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut sorted = builds.to_vec();
-    let key = |s: &Build| (ruler.size(s), s.latency.unwrap_or(i64::MAX));
+    let key = |s: &Build| (ruler.size(s), s.specs.latency.unwrap_or(i64::MAX));
     sorted.sort_by_key(|s| (key(s), s.added_at.clone()));
     placed(&sorted, key)
 }
@@ -1167,7 +1176,7 @@ fn records_of<'a>(base: &[&'a Build]) -> Vec<Found<'a>> {
         .map(|(s, tags)| {
             tags.iter()
                 .map(|tag| Trait::Tag(tag.name.clone()))
-                .chain(s.latency.map(Trait::Ticks))
+                .chain(s.specs.latency.map(Trait::Ticks))
                 .collect()
         })
         .collect();
@@ -1180,12 +1189,14 @@ fn records_of<'a>(base: &[&'a Build]) -> Vec<Found<'a>> {
         (0..base.len())
             .filter(|&i| wanted.is_subset(&traits[i]))
             .filter(|&i| base[i].interleaved_inputs() == interleaving)
-            .filter(|&i| rank == Rank::Smallest || base[i].latency.is_some())
+            .filter(|&i| {
+                rank == Rank::Smallest || base[i].specs.latency.is_some()
+            })
             .collect()
     };
     // Ticks, then size, for the fastest; size, then ticks, the smallest.
     let key = |i: usize, rank: Rank, ruler: Ruler| {
-        let (s, ticks) = (base[i], base[i].latency.unwrap_or(i64::MAX));
+        let (s, ticks) = (base[i], base[i].specs.latency.unwrap_or(i64::MAX));
         match rank {
             Rank::Fastest => (ticks, ruler.size(s), 0),
             Rank::Smallest => (0, ruler.size(s), ticks),
@@ -1218,10 +1229,10 @@ fn records_of<'a>(base: &[&'a Build]) -> Vec<Found<'a>> {
             }
             let first = firsts(wanted, &ranked, rank);
             if rank == Rank::Fastest {
-                let fewest = base[first[0]].latency;
+                let fewest = base[first[0]].specs.latency;
                 if ranked
                     .iter()
-                    .filter(|&&i| base[i].latency == fewest)
+                    .filter(|&&i| base[i].specs.latency == fewest)
                     .count()
                     > 1
                 {
@@ -1334,7 +1345,7 @@ fn shown_once(found: Vec<Found>) -> Vec<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::{Encoding, StackDirection, Widened};
+    use crate::models::schematic::{Encoding, Specs, StackDirection, Widened};
 
     /// A board's address reads back as it was written, with each measure
     /// under its own name.
@@ -1593,11 +1604,12 @@ mod tests {
     /// and a 1-bit one on one board, each measured a bit.
     #[test]
     fn cells_on_shared_lines_rank_a_bit() {
-        let register = |id: &str, bits: i64, size: (i64, i64, i64)| Build {
-            category: "register".to_owned(),
-            own_logic: Some(Logic::Stateful),
-            size,
-            ..build(id, bits, None, Some(4), 0)
+        let register = |id: &str, bits: i64, size: (i64, i64, i64)| {
+            let mut register = build(id, bits, None, Some(4), 0);
+            register.category = "register".to_owned();
+            register.specs.logic = Some(Logic::Stateful);
+            register.size = size;
+            register
         };
         let registers = [
             register("one", 1, (3, 12, 4)),
@@ -1683,7 +1695,7 @@ mod tests {
     fn word_stacking_splits_no_board() {
         let mut register = build("r", 8, None, Some(3), 10);
         register.category = "register".to_owned();
-        register.orientation = Orientation::Vertical;
+        register.specs.orientation = Orientation::Vertical;
         register.stacking = vec![StackDirection {
             west: 3,
             up: 0,
@@ -1719,19 +1731,17 @@ mod tests {
         Build {
             id: id.to_owned(),
             category: "adder".to_owned(),
-            width: Some(width),
-            orientation: Orientation::Horizontal,
-            encoding: Some(Encoding::Binary),
-            latency,
-            synchronized: None,
-            own_logic: None,
-            throughput: None,
-            at_least: None,
-            pulse: None,
+            specs: Specs {
+                width: Some(width),
+                orientation: Orientation::Horizontal,
+                encoding: Some(Encoding::Binary),
+                latency,
+                design: design.map(str::to_owned),
+                ..Specs::default()
+            },
             torches: None,
             works_from: None,
             works_from_by: None,
-            bytes: None,
             size: (volume, 1, 1),
             stacking: Vec::new(),
             widened: Vec::new(),
@@ -1742,7 +1752,6 @@ mod tests {
             imported_by: None,
             conventional: true,
             keeps_paste: false,
-            design: design.map(str::to_owned),
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -1783,9 +1792,9 @@ mod tests {
     fn stateful_and_stateless_builds_never_share_a_board() {
         let mut adders = adders();
         for s in &mut adders {
-            s.own_logic = Some(Logic::Stateless);
+            s.specs.logic = Some(Logic::Stateless);
         }
-        adders[0].own_logic = Some(Logic::Stateful);
+        adders[0].specs.logic = Some(Logic::Stateful);
         let stateful_id = adders[0].id.clone();
         let all: Vec<&Build> = adders.iter().collect();
         let stateless = board(&all, &Wanted::default(), &[Measure::Width]);
@@ -1828,9 +1837,10 @@ mod tests {
 
     #[test]
     fn memories_compete_only_at_one_capacity() {
-        let ram = |id: &str, bytes: Option<i64>| Build {
-            bytes,
-            ..build(id, 8, None, Some(4), 100)
+        let ram = |id: &str, bytes: Option<i64>| {
+            let mut ram = build(id, 8, None, Some(4), 100);
+            ram.specs.bytes = bytes;
+            ram
         };
         let rams = [
             ram("a", Some(32)),
@@ -1855,9 +1865,10 @@ mod tests {
 
     #[test]
     fn a_threshold_competes_only_at_one_k() {
-        let threshold = |id: &str, at_least: i64| Build {
-            at_least: Some(at_least),
-            ..build(id, 8, None, Some(4), 100)
+        let threshold = |id: &str, at_least: i64| {
+            let mut threshold = build(id, 8, None, Some(4), 100);
+            threshold.specs.at_least = Some(at_least);
+            threshold
         };
         let all = [threshold("a", 3), threshold("b", 5), threshold("c", 5)];
         let all: Vec<&Build> = all.iter().collect();
@@ -2057,7 +2068,7 @@ mod tests {
         assert_eq!(ids(&fastest), [(1, "s"), (2, "a")]);
         let stack = fastest[0].1;
         assert_eq!(stack.stacked_from, Some(1));
-        assert_eq!(stack.latency, Some(20));
+        assert_eq!(stack.specs.latency, Some(20));
         assert_eq!(stack.size, (3 + 2 * 7, 4, 5));
         assert_eq!(stack.volume(), 2 * 8 * 4 * 5);
     }

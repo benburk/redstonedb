@@ -270,20 +270,21 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
         ("design", s.design_label()),
         ("description", s.description.clone()),
         ("date built", s.built_on.clone()),
-        ("width", number(s.width)),
-        ("orientation", Some(s.orientation.label().to_owned())),
-        ("encoding", s.encoding.map(|e| e.label().to_owned())),
-        ("logic", s.own_logic.map(|l| l.label().to_owned())),
-        ("latency", number(s.latency)),
+        ("width", number(s.specs.width)),
+        ("orientation", Some(s.specs.orientation.label().to_owned())),
+        ("encoding", s.specs.encoding.map(|e| e.label().to_owned())),
+        ("logic", s.specs.logic.map(|l| l.label().to_owned())),
+        ("latency", number(s.specs.latency)),
         (
             "synchronized",
-            s.synchronized
+            s.specs
+                .synchronized
                 .map(|yes| if yes { "yes" } else { "no" }.to_owned()),
         ),
-        ("throughput", number(s.throughput)),
-        ("at least", number(s.at_least)),
-        ("pulse", number(s.pulse)),
-        ("bytes", number(s.bytes)),
+        ("throughput", number(s.specs.throughput)),
+        ("at least", number(s.specs.at_least)),
+        ("pulse", number(s.specs.pulse)),
+        ("bytes", number(s.specs.bytes)),
         (
             "flags",
             list(s.flags.iter().map(|f| f.label.to_owned()).collect()),

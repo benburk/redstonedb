@@ -5,7 +5,7 @@
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
-use super::{Logic, Measured, StackDirection, Widened, load::Credit};
+use super::{Logic, Specs, StackDirection, Widened, load::Credit};
 use crate::{
     details::Ready,
     import::Prepared,
@@ -132,25 +132,25 @@ pub async fn insert(
          RETURNING id as "id!""#,
         new.id,
         details.category,
-        details.width,
-        details.orientation,
-        details.encoding,
-        details.latency,
-        details.synchronized,
+        details.specs.width,
+        details.specs.orientation,
+        details.specs.encoding,
+        details.specs.latency,
+        details.specs.synchronized,
         x,
         y,
         z,
         details.built_on,
         new.imported_by,
         file.conventional,
-        details.design,
+        details.specs.design,
         details.description,
         details.given_name,
-        details.logic,
-        details.throughput,
-        details.at_least,
-        details.pulse,
-        details.bytes,
+        details.specs.logic,
+        details.specs.throughput,
+        details.specs.at_least,
+        details.specs.pulse,
+        details.specs.bytes,
         facts.torches,
         facts.works_from.release,
         facts.works_from.because,
@@ -190,8 +190,8 @@ pub async fn set_details(
             details.built_on,
             details.description,
             details.given_name,
-            details.at_least,
-            details.bytes,
+            details.specs.at_least,
+            details.specs.bytes,
             id,
         )
         .execute(&mut *tx)
@@ -207,20 +207,20 @@ pub async fn set_details(
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
-        details.width,
-        details.orientation,
-        details.encoding,
-        details.latency,
-        details.synchronized,
-        details.design,
+        details.specs.width,
+        details.specs.orientation,
+        details.specs.encoding,
+        details.specs.latency,
+        details.specs.synchronized,
+        details.specs.design,
         details.built_on,
         details.description,
         details.given_name,
-        details.logic,
-        details.throughput,
-        details.at_least,
-        details.pulse,
-        details.bytes,
+        details.specs.logic,
+        details.specs.throughput,
+        details.specs.at_least,
+        details.specs.pulse,
+        details.specs.bytes,
         details.unverified,
         id,
     )
@@ -445,28 +445,28 @@ pub async fn set_flags(
     Ok(())
 }
 
-/// Sets what build `id`'s file and simulation decide, `measured`, none of
-/// it a person's edit.
-pub async fn set_measured<'e, E: SqliteExecutor<'e>>(
+/// Sets build `id`'s specs as its file and simulation decide them, none of
+/// it a person's edit; a memory's capacity, which neither decides, stays.
+pub async fn set_specs<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
-    measured: &Measured,
+    specs: &Specs,
 ) -> Result<(), sqlx::Error> {
-    let logic = measured.logic.map(Logic::name);
+    let logic = specs.logic.map(Logic::name);
     sqlx::query!(
         "UPDATE schematic SET width = ?, orientation = ?, encoding = ?,
             latency = ?, synchronized = ?, pulse = ?, at_least = ?,
             throughput = ?, design = ?, logic = ?
          WHERE id = ?",
-        measured.width,
-        measured.orientation,
-        measured.encoding,
-        measured.latency,
-        measured.synchronized,
-        measured.pulse,
-        measured.at_least,
-        measured.throughput,
-        measured.design,
+        specs.width,
+        specs.orientation,
+        specs.encoding,
+        specs.latency,
+        specs.synchronized,
+        specs.pulse,
+        specs.at_least,
+        specs.throughput,
+        specs.design,
         logic,
         id
     )

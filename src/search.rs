@@ -211,12 +211,12 @@ const WIDEST: i64 = 64;
 /// own, one copy, then each a stack of its copies reaches where they add
 /// bits, as a 1-bit adder slice's do, up to the most copies that work.
 pub fn widths(s: &Build) -> Vec<(i64, i64)> {
-    let Some(w) = s.width.filter(|&w| w > 0) else {
+    let Some(w) = s.specs.width.filter(|&w| w > 0) else {
         return Vec::new();
     };
     let mut widths = vec![(w, 1)];
     for direction in &s.stacking {
-        if !direction.adds_bits(s.orientation) {
+        if !direction.adds_bits(s.specs.orientation) {
             continue;
         }
         let most = direction.max_copies.unwrap_or(WIDEST / w);
@@ -268,15 +268,15 @@ fn facts(s: &Build) -> Vec<String> {
             format!("{w} bits"),
         ]);
     }
-    facts.extend(s.latency.into_iter().flat_map(ticks));
-    if let Some(b) = s.bytes {
+    facts.extend(s.specs.latency.into_iter().flat_map(ticks));
+    if let Some(b) = s.specs.bytes {
         facts.extend([
             format!("{b}-byte"),
             format!("{b} byte"),
             format!("{b} bytes"),
         ]);
     }
-    if let Some(t) = s.throughput {
+    if let Some(t) = s.specs.throughput {
         facts.push(format!("throughput:{t}"));
         // Only a serial build's throughput goes by its ticks alone, as its
         // name does; another's `3t` is its latency.
@@ -284,11 +284,11 @@ fn facts(s: &Build) -> Vec<String> {
             facts.extend(ticks(t));
         }
     }
-    if let Some(k) = s.at_least {
+    if let Some(k) = s.specs.at_least {
         facts.push(Measure::AtLeast.term(k));
     }
     // A monostable's name leads with its pulse, so its ticks find it too.
-    if let Some(p) = s.pulse {
+    if let Some(p) = s.specs.pulse {
         facts.push(format!("pulse:{p}"));
         facts.extend(ticks(p));
     }
@@ -330,7 +330,13 @@ fn facts(s: &Build) -> Vec<String> {
     }
     // Its design by its own label, and no design as `other`, which is no
     // tag.
-    facts.push(s.design.as_deref().unwrap_or(NO_DESIGN).replace('_', " "));
+    facts.push(
+        s.specs
+            .design
+            .as_deref()
+            .unwrap_or(NO_DESIGN)
+            .replace('_', " "),
+    );
     if let Some(label) = s.listed_design().and_then(|listed| listed.label) {
         facts.push(label.to_lowercase());
     }
@@ -366,7 +372,7 @@ fn ticks(n: i64) -> [String; 4] {
 /// The words for whether a build is synchronized, stateless or stateful,
 /// as combinational and sequential still find them, and pipelined.
 fn timing(s: &Build) -> Vec<&'static str> {
-    let mut words = match s.synchronized {
+    let mut words = match s.specs.synchronized {
         Some(true) => vec!["sync", "synced", "synchronized"],
         Some(false) => vec!["unsync", "unsynced", "unsynchronized"],
         None => Vec::new(),
@@ -402,7 +408,7 @@ fn versions(s: &Build) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::models::{
-        schematic::{Encoding, Orientation},
+        schematic::{Encoding, Orientation, Specs},
         tag::Tag,
     };
 
@@ -416,19 +422,15 @@ pub(crate) mod tests {
         Build {
             id: String::new(),
             category: category.to_owned(),
-            width: Some(8),
-            orientation,
-            encoding: Some(Encoding::Binary),
-            latency: None,
-            synchronized: None,
-            own_logic: None,
-            throughput: None,
-            at_least: None,
-            pulse: None,
+            specs: Specs {
+                width: Some(8),
+                orientation,
+                encoding: Some(Encoding::Binary),
+                ..Specs::default()
+            },
             torches: None,
             works_from: None,
             works_from_by: None,
-            bytes: None,
             size: (1, 1, 1),
             stacking: Vec::new(),
             widened: Vec::new(),
@@ -439,7 +441,6 @@ pub(crate) mod tests {
             imported_by: None,
             conventional: true,
             keeps_paste: false,
-            design: None,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -504,7 +505,7 @@ pub(crate) mod tests {
         assert!(find("xor interleaved_inputs", &xor));
         assert!(find("xor \"interleaved inputs\"", &xor));
         assert!(!find("xor -interleaved_inputs", &xor));
-        xor.orientation = Orientation::Vertical;
+        xor.specs.orientation = Orientation::Vertical;
         assert!(!find("xor interleaved_inputs", &xor));
     }
 
@@ -540,10 +541,8 @@ pub(crate) mod tests {
 
     #[test]
     fn latency_and_a_number_before_its_unit() {
-        let s = Build {
-            latency: Some(3),
-            ..schematic("adder", Orientation::Horizontal, &[])
-        };
+        let mut s = schematic("adder", Orientation::Horizontal, &[]);
+        s.specs.latency = Some(3);
         assert!(find("3t", &s));
         assert!(find("3 ticks", &s));
         assert!(find("adder 3 ticks", &s));
@@ -556,7 +555,7 @@ pub(crate) mod tests {
         use crate::models::schematic::StackDirection;
         let stacks = |width, west, up, max_copies| {
             let mut s = schematic("adder", Orientation::Horizontal, &[]);
-            s.width = Some(width);
+            s.specs.width = Some(width);
             let pitch = (width == 1 && west == 2).then_some(2);
             s.stacking = vec![StackDirection {
                 west,
@@ -599,20 +598,17 @@ pub(crate) mod tests {
 
     #[test]
     fn a_capacity_matches_in_bytes_not_bits() {
-        let ram = Build {
-            bytes: Some(32),
-            ..schematic("ram", Orientation::Horizontal, &[])
-        };
+        let mut ram = schematic("ram", Orientation::Horizontal, &[]);
+        ram.specs.bytes = Some(32);
         assert!(find("32-byte", &ram));
         assert!(!find("32b", &ram), "32b means 32 bits wide");
     }
 
     #[test]
     fn a_serial_throughput_matches_in_ticks() {
-        let serial = Build {
-            throughput: Some(2),
-            ..schematic("serial_adder", Orientation::Horizontal, &[])
-        };
+        let mut serial =
+            schematic("serial_adder", Orientation::Horizontal, &[]);
+        serial.specs.throughput = Some(2);
         assert!(find("2t", &serial));
         assert!(find("2-tick", &serial));
         assert!(find("throughput:2", &serial));
@@ -621,10 +617,9 @@ pub(crate) mod tests {
 
     #[test]
     fn a_category_is_found_by_its_aliases_and_a_threshold_by_its_k() {
-        let threshold = Build {
-            at_least: Some(3),
-            ..schematic("threshold", Orientation::Horizontal, &[])
-        };
+        let mut threshold =
+            schematic("threshold", Orientation::Horizontal, &[]);
+        threshold.specs.at_least = Some(3);
         assert!(find("majority", &threshold));
         assert!(find("\"at least 3\"", &threshold));
         assert!(find("at_least_3", &threshold));
@@ -645,22 +640,19 @@ pub(crate) mod tests {
 
     #[test]
     fn another_throughput_is_not_its_latency() {
-        let adder = Build {
-            throughput: Some(3),
-            latency: Some(8),
-            ..schematic("adder", Orientation::Horizontal, &[])
-        };
+        let mut adder = schematic("adder", Orientation::Horizontal, &[]);
+        adder.specs.throughput = Some(3);
+        adder.specs.latency = Some(8);
         assert!(find("throughput:3", &adder));
         assert!(!find("3t", &adder), "3t is a latency");
     }
 
     #[test]
     fn a_monostable_is_found_by_its_pulse() {
-        let monostable = Build {
-            pulse: Some(3),
-            latency: Some(1),
-            ..schematic("monostable", Orientation::Horizontal, &[])
-        };
+        let mut monostable =
+            schematic("monostable", Orientation::Horizontal, &[]);
+        monostable.specs.pulse = Some(3);
+        monostable.specs.latency = Some(1);
         assert!(find("pulse:3", &monostable));
         assert!(find("3t", &monostable), "its name leads with 3-tick");
         assert!(find("1t", &monostable), "1t is its latency");
@@ -669,19 +661,15 @@ pub(crate) mod tests {
 
     #[test]
     fn state_and_pipelining_are_words() {
-        let piped = Build {
-            throughput: Some(3),
-            latency: Some(8),
-            synchronized: Some(true),
-            ..schematic("multiplier", Orientation::Horizontal, &[])
-        };
+        let mut piped = schematic("multiplier", Orientation::Horizontal, &[]);
+        piped.specs.throughput = Some(3);
+        piped.specs.latency = Some(8);
+        piped.specs.synchronized = Some(true);
         assert!(find("comb pipelined", &piped));
         assert!(find("stateless pipelined", &piped));
         assert!(!find("seq", &piped));
-        let sequential = Build {
-            own_logic: Some(Logic::Stateful),
-            ..piped
-        };
+        let mut sequential = piped;
+        sequential.specs.logic = Some(Logic::Stateful);
         assert!(find("sequential", &sequential));
         assert!(find("stateful", &sequential));
         assert!(!find("pipe", &sequential));
@@ -735,11 +723,11 @@ pub(crate) mod tests {
     #[test]
     fn a_known_word_does_not_match_inside_another() {
         let mut unsynced = schematic("adder", Orientation::Horizontal, &[]);
-        unsynced.synchronized = Some(false);
+        unsynced.specs.synchronized = Some(false);
         let mut synced = unsynced.clone();
-        synced.synchronized = Some(true);
+        synced.specs.synchronized = Some(true);
         let found = matching(&parse("sync"), vec![unsynced, synced]);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].synchronized, Some(true));
+        assert_eq!(found[0].specs.synchronized, Some(true));
     }
 }
