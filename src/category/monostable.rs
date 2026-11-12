@@ -33,7 +33,7 @@ use crate::{
         Broken, Run, Signal, Value, Wrong,
         bench::mask,
         broken,
-        circuit::{Circuit, MAX_TICKS},
+        circuit::Circuit,
         stacking::{self, Stacker, Step},
         timing::{
             BitTiming, Edge, InputTiming, OutputTiming, Pulse, Start, Takes,
@@ -406,25 +406,13 @@ fn watch(
     circuit: &mut Circuit,
     outputs: &[(usize, usize)],
 ) -> Result<Vec<Vec<i32>>> {
-    let width = outputs.len();
-    let mut before = read(circuit, outputs);
-    let mut changes = vec![Vec::new(); width];
-    let mut tick = 0;
-    while circuit.step() {
-        tick += 1;
-        if tick > MAX_TICKS.cast_signed() {
-            bail!(
-                "It was still changing {MAX_TICKS} ticks after its input \
-                 changed."
-            );
-        }
-        let now = read(circuit, outputs);
-        for bit in bits(now ^ before, width) {
-            changes[bit].push(tick);
-        }
-        before = now;
-    }
-    Ok(changes)
+    let changes = crate::simulate::timing::watch(
+        circuit,
+        &[outputs.len()],
+        "its input changed",
+        |circuit| vec![read(circuit, outputs)],
+    )?;
+    Ok(changes.into_iter().next().unwrap_or_default())
 }
 
 /// When the monostable in `blocks` pulses, from A changing on its edge,
