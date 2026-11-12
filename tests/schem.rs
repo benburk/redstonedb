@@ -6,8 +6,8 @@ use app::{
     category::Kind,
     import,
     ingest::standardize,
-    models::schematic::{Orientation, StackDirection},
-    recognize::interface,
+    interface::{self, Orientation},
+    models::schematic::StackDirection,
     schem::{self, Blocks, Direction, lines::Role},
     simulate, stack,
 };
@@ -708,7 +708,7 @@ fn an_output_sticking_out_is_not_measured() {
     let blocks = app::schem::Blocks::read(&data).unwrap();
     let size = app::import::measure(&blocks, true).unwrap();
     assert_eq!((size.y, size.x, size.z), (6, 4, 6));
-    let (low, high) = app::recognize::interface::core(&blocks);
+    let (low, high) = app::interface::core(&blocks);
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
 }
 
@@ -784,9 +784,9 @@ fn an_adders_unsigned_carry_lines_are_named() {
         };
         let before = unnamed(&read.inputs) + unnamed(&read.outputs);
         let mut adder = interface::read(&blocks);
-        interface::name_lines(Kind::Adder, &blocks, &mut adder);
+        interface::name_lines(Kind::Adder.lines(), &blocks, &mut adder);
         let mut other = interface::read(&blocks);
-        interface::name_lines(None, &blocks, &mut other);
+        interface::name_lines(interface::Lines::Signed, &blocks, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,
@@ -817,7 +817,7 @@ fn an_adders_unsigned_carry_lines_are_named() {
 fn a_registers_lines_are_named_by_their_roles() {
     let blocks = Blocks::read(&raw("register-8-2-cells")).unwrap();
     let mut read = interface::read(&blocks);
-    interface::name_lines(Kind::Register, &blocks, &mut read);
+    interface::name_lines(Kind::Register.lines(), &blocks, &mut read);
     let inputs: Vec<&str> =
         read.inputs.iter().map(|p| p.name.as_str()).collect();
     let outputs: Vec<&str> =
@@ -863,7 +863,7 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     let read = interface::read(&blocks);
     assert!(read.inputs.iter().any(|p| p.name == "unnamed control"));
     let mut named = interface::read(&blocks);
-    interface::name_lines(Kind::Incrementer, &blocks, &mut named);
+    interface::name_lines(Kind::Incrementer.lines(), &blocks, &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
     let simulate::Report::Ran(run) = simulate::Test::Incrementer.run(&blocks)
     else {

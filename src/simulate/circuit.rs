@@ -22,10 +22,7 @@ use mchprs_world::{World, testing::TestWorld};
 
 use super::{Broken, Value};
 use crate::{
-    recognize::{
-        interface::{Interface, Port},
-        repeater_outputs,
-    },
+    interface::{Interface, Port, repeater_outputs},
     schem::{self, Blocks, Direction, Pos},
 };
 
@@ -867,7 +864,7 @@ pub(super) fn node_place(node: &CompileNode) -> Option<Pos> {
 pub fn compiled(blocks: &Blocks) -> Result<Compiled> {
     let graph = compile_graph(blocks)?;
     let pos = node_place;
-    let read: HashSet<Pos> = crate::recognize::interface::read(blocks)
+    let read: HashSet<Pos> = crate::interface::read(blocks)
         .outputs
         .iter()
         .flat_map(|p| p.bits.iter().map(|b| schem::step(b.pos, Direction::Up)))

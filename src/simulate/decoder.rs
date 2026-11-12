@@ -10,7 +10,7 @@ use super::{
     Broken,
     bench::{Bench, Cases, Kind, Spec, mask},
 };
-use crate::recognize::interface::Interface;
+use crate::interface::Interface;
 
 /// A decoder's cases, as they are named.
 const OFF: &str = "bit A off";

@@ -12,7 +12,7 @@ use super::{
     circuit::{Circuit, input_bits, output_bits},
     timing,
 };
-use crate::{recognize::interface::Interface, schem::Blocks};
+use crate::{interface::Interface, schem::Blocks};
 
 /// Up to this many input bits, every combination is tried; beyond it, every
 /// case of each byte and every pairing of the test patterns.
@@ -828,7 +828,7 @@ fn count_bits(
 mod tests {
     use super::*;
     use crate::{
-        recognize::interface::{Bit, Port},
+        interface::{Bit, Port},
         schem::lines::Role,
     };
 

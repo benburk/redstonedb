@@ -50,7 +50,7 @@ use super::{
     rng::Rng,
 };
 use crate::{
-    recognize::interface::{self, Interface, Port},
+    interface::{self, Interface, Port},
     schem::{self, Blocks, Direction, Pos},
 };
 

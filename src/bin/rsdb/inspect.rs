@@ -10,12 +10,12 @@ use std::{
 
 use anyhow::{Context, Result};
 use app::{
-    models::{schematic, version},
-    recognize::{
+    interface::{
         inspect::{self, Run},
-        probe,
         repeater_outputs::{self, Output},
     },
+    models::{schematic, version},
+    recognize::probe,
     schem::{self, Blocks, Pos},
 };
 use clap::Args;
@@ -83,7 +83,7 @@ pub(super) async fn inspect_command(
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
     for (name, data) in &files {
-        let report = inspect::inspect_file(data)?;
+        let report = app::recognize::bus_drivable::inspect_file(data)?;
         let buses = |runs: &[inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())

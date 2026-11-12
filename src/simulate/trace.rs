@@ -23,7 +23,7 @@ use super::{
     circuit::{self, Carried, Circuit, MAX_TICKS, output_bits},
 };
 use crate::{
-    recognize::interface::Interface,
+    interface::Interface,
     schem::{Blocks, Pos},
 };
 

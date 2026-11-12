@@ -10,7 +10,7 @@ use super::{
     circuit::output_bits,
     incrementer::incrementer_cases,
 };
-use crate::recognize::interface::Interface;
+use crate::interface::Interface;
 
 /// A negator's every case, or with too many, each byte's with the bits
 /// below it all clear and all set, as whether any lower bit is on decides

@@ -31,7 +31,7 @@ use super::{
     stacking::{self, Stacker, Step},
     timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
 };
-use crate::{category, recognize::interface, schem::Blocks};
+use crate::{category, interface, schem::Blocks};
 
 /// Which kind of build a test takes it for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -182,7 +182,7 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
     let mut interface = interface::read(blocks);
     // A counter's button is its clock and its lever its write enable, and
     // a T flip-flop's one control line its toggle.
-    interface::name_lines(kind.category(), blocks, &mut interface);
+    interface::name_lines(kind.category().lines(), blocks, &mut interface);
     let mut data = None;
     let mut controls = Vec::new();
     for (i, port) in interface.inputs.iter().enumerate() {

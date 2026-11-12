@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 
 use super::{Cell, Kind, Line, Read, Register, STRIDE, Shape};
 use crate::{
-    recognize::interface::{self, Interface},
+    interface::{self, Interface},
     schem::Blocks,
     simulate::{
         Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,

@@ -13,8 +13,12 @@ use super::{
 use crate::{
     category::{Kind, Probe, Probing},
     ingest::orient,
-    recognize::{inspect, matching},
-    schem::{self, Blocks, Pos, lines, lines::Role},
+    interface::inspect,
+    recognize::{bus_drivable::not_bus_drivable, matching},
+    schem::{
+        self, Blocks, Pos,
+        lines::{self, Role},
+    },
     simulate::{self, Test},
 };
 
@@ -128,11 +132,9 @@ fn recognize_laid(
     let mut problems: Vec<String> =
         report.faults().map(|p| p.message.clone()).collect();
     if problems.is_empty() {
-        problems.extend(inspect::not_bus_drivable(data)?.into_iter().map(
-            |lever| {
-                format!("Lever at {}: not bus-drivable", inspect::place(lever))
-            },
-        ));
+        problems.extend(not_bus_drivable(data)?.into_iter().map(|lever| {
+            format!("Lever at {}: not bus-drivable", inspect::place(lever))
+        }));
     }
     let lines = report.summary();
     let unrecognized = |problems| Recognition {
@@ -295,10 +297,8 @@ fn carry_on_top(kind: Kind, file: &[u8]) -> anyhow::Result<Vec<u8>> {
     let (true, Some(roles)) = (adds, blocks.roles.as_ref()) else {
         return Ok(file.to_vec());
     };
-    let found = crate::recognize::interface::read(&blocks);
-    let role = |port: &&crate::recognize::interface::Port, role| {
-        port.role == Some(role)
-    };
+    let found = crate::interface::read(&blocks);
+    let role = |port: &&crate::interface::Port, role| port.role == Some(role);
     let a = found.inputs.iter().find(|p| role(p, Role::Operand(0)));
     let sums: Vec<_> = found
         .outputs
@@ -700,7 +700,7 @@ mod tests {
             );
         }
         // Its status lines keep their names, which its test finds them by.
-        let interface = crate::recognize::interface::read(&blocks);
+        let interface = crate::interface::read(&blocks);
         let statuses: Vec<&str> = interface
             .outputs
             .iter()
@@ -711,5 +711,17 @@ mod tests {
             statuses.iter().all(|name| !name.starts_with("unnamed")),
             "{statuses:?}"
         );
+    }
+
+    /// The owner's 8-bit carry-cancel adder reworked to give every output
+    /// out through a repeater is recognized as the adder it is with those
+    /// outputs alone.
+    #[test]
+    #[ignore = "probes a whole build"]
+    fn a_carry_cancel_adder_with_repeater_outputs_probes_as_an_adder() {
+        let data =
+            std::fs::read("tests/fixtures/cca-8-repeater-out.schem").unwrap();
+        let recognition = recognize_as(&data, Some("adder")).unwrap();
+        assert!(recognition.found.is_some(), "{:?}", recognition.problems);
     }
 }

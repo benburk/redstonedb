@@ -8,9 +8,10 @@ use crate::{
     category::{self, Category, Kind, Measure},
     external::mojang,
     import::Prepared,
+    interface::Orientation,
     models::{
         player,
-        schematic::{self, Build, Credits, Orientation, Specs, StackDirection},
+        schematic::{self, Build, Credits, Specs, StackDirection},
         simulation, tag,
     },
     simulate::{Report, Test},
@@ -338,7 +339,7 @@ async fn evaluated(
         .map(|blocks| {
             crate::import::derived(
                 &category.name,
-                &crate::recognize::interface::read(&blocks),
+                &crate::interface::read(&blocks),
             )
         })
         .unwrap_or_default();
@@ -390,7 +391,7 @@ pub async fn unrecognized(
     // Inputs taking a strength, a hex digit per block, are only those of a
     // kind that takes digits, a hex adder's or a hex-to-binary converter's,
     // as a build kept as built says too.
-    let hex = crate::recognize::interface::takes_digits(&blocks);
+    let hex = crate::interface::takes_digits(&blocks);
     if !kind.digit_inputs() && hex {
         return off(WITHOUT_LEVERS.to_owned());
     }

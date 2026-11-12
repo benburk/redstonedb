@@ -12,7 +12,7 @@
 use anyhow::Result;
 
 use crate::{
-    recognize::interface,
+    interface,
     schem::{Blocks, Direction, turn::Turn},
     simulate,
 };

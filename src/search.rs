@@ -24,9 +24,9 @@
 use std::collections::HashSet;
 
 use crate::{
-    category::{Flag, Measure, NO_DESIGN},
-    models::schematic::{Build, Logic},
-    recognize::colour,
+    category::{Flag, Logic, Measure, NO_DESIGN},
+    interface::colour,
+    models::schematic::Build,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,9 +407,12 @@ fn versions(s: &Build) -> Vec<String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::models::{
-        schematic::{Credits, Encoding, Entry, File, Orientation, Specs},
-        tag::Tag,
+    use crate::{
+        interface::{Encoding, Orientation},
+        models::{
+            schematic::{Credits, Entry, File, Specs},
+            tag::Tag,
+        },
     };
 
     /// A build of `category` with nothing but its orientation and `tags`,

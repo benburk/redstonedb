@@ -6,7 +6,7 @@
 
 use super::{Fault, Role, Roles, try_roles};
 use crate::{
-    recognize::{inspect, repeater_outputs},
+    interface::{inspect, repeater_outputs},
     schem::{Blocks, Pos},
     simulate::{self, Test},
 };

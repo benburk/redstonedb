@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::Result;
 
 use crate::{
-    recognize::colour,
+    interface::colour,
     schem::{
         self, Blocks, Pos, block,
         turn::{self, Turn},

@@ -2,16 +2,13 @@
 //! how it behaves when probed, which category it belongs to, why it isn't
 //! verified, and the colours it is shown in.
 
-pub mod colour;
+pub mod bus_drivable;
 pub mod colouring;
 pub mod evaluate;
 pub mod fault;
 pub mod guide;
-pub mod inspect;
-pub mod interface;
 pub mod legacy;
 pub mod matching;
 pub mod palette;
 pub mod probe;
-pub mod repeater_outputs;
 pub mod roles;

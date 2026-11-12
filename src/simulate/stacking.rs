@@ -65,8 +65,8 @@ use super::{
 use crate::{
     category::{Group, Kind},
     import,
-    models::schematic::{Faces, Orientation, PITCHES, StackDirection},
-    recognize::interface::{self, Interface},
+    interface::{self, Interface, Orientation},
+    models::schematic::{Faces, PITCHES, StackDirection},
     schem::Blocks,
     stack,
 };

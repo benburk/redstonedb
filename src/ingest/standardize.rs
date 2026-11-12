@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use anyhow::{Result, ensure};
 
 use crate::{
-    recognize::{colour, interface, repeater_outputs},
+    interface::{self, colour, repeater_outputs},
     schem::{self, AIR, Blocks, Direction, Pos},
 };
 
@@ -186,7 +186,7 @@ pub fn zeroed(
 ) -> Result<Option<Blocks>> {
     let mut lines = interface::read(blocks);
     interface::name_lines(
-        crate::category::Kind::named(category),
+        crate::category::behaviour(category).lines,
         blocks,
         &mut lines,
     );

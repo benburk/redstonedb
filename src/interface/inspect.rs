@@ -33,14 +33,11 @@
 //!   block for each block across, or two such lines with their bits
 //!   alternating, as [`repeater_outputs::lines`] groups outputs.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-
-use anyhow::Result;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
-    recognize::repeater_outputs,
+    interface::repeater_outputs,
     schem::{self, Blocks, Direction, Pos, Switch, block},
-    simulate,
 };
 
 /// What the check found: what it puts right, and what it can't.
@@ -274,7 +271,7 @@ impl Report {
     }
 }
 
-fn problem(
+pub(crate) fn problem(
     report: &mut Report,
     rule: &'static str,
     at: Vec<Pos>,
@@ -288,7 +285,7 @@ pub fn place(pos: Pos) -> String {
     format!("({}, {}, {})", pos[0], pos[1], pos[2])
 }
 
-fn short(blocks: &Blocks, pos: Pos) -> &str {
+pub(crate) fn short(blocks: &Blocks, pos: Pos) -> &str {
     schem::short(blocks.get(pos))
 }
 
@@ -483,7 +480,7 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
 
 /// Whether the spot behind the switch, where a bus's driver would feed
 /// the repeater put in its place, is free.
-fn free_behind(blocks: &Blocks, switch: &Switch) -> bool {
+pub(crate) fn free_behind(blocks: &Blocks, switch: &Switch) -> bool {
     let behind = short(blocks, schem::step(switch.pos, switch.side));
     behind == "air" || behind.ends_with("sign")
 }
@@ -585,121 +582,6 @@ fn steps() -> Vec<Pos> {
         steps.extend([[s, s, 0], [-s, s, 0], [0, s, s], [0, s, -s]]);
     }
     steps
-}
-
-/// The check of the file in `data`, as [`inspect`] makes it.
-pub fn inspect_file(data: &[u8]) -> Result<Report> {
-    let blocks = Blocks::read(data)?;
-    let mut report = inspect(&blocks);
-    if !report
-        .errors
-        .iter()
-        .any(|p| p.rule == "no room for a repeater")
-    {
-        for lever in not_bus_drivable(data)? {
-            problem(
-                &mut report,
-                "lever not bus-drivable",
-                vec![lever],
-                format!("Lever at {}: not bus-drivable", place(lever)),
-            );
-        }
-    }
-    Ok(report)
-}
-
-/// The levers whose place a repeater can't take: the build in `data`
-/// compiled with every lever swapped for a repeater on a block, pointed
-/// into its input block and driven by a lever behind it, against the
-/// build as it is. Where the two differ but for those spots, a bus could
-/// not drive the input through a repeater as the lever does. A lever with
-/// a block behind it, which only a control line's may have, is left as it
-/// is. Read by the rules of redstone, with no simulation.
-pub fn not_bus_drivable(data: &[u8]) -> Result<Vec<Pos>> {
-    let blocks = Blocks::read(data)?;
-    let levers: Vec<Switch> = blocks
-        .switches()
-        .into_iter()
-        .filter(|s| {
-            !s.button
-                && !matches!(s.side, Direction::Up | Direction::Down)
-                && free_behind(&blocks, s)
-        })
-        .collect();
-    let mut changes: BTreeMap<Pos, String> = BTreeMap::new();
-    let mut spots: HashSet<Pos> = HashSet::new();
-    for lever in &levers {
-        let behind = schem::step(lever.pos, lever.side);
-        changes.insert(
-            lever.pos,
-            format!(
-                "minecraft:repeater[delay=1,facing={},locked=false,powered=false]",
-                lever.side.name()
-            ),
-        );
-        for spot in [lever.pos, behind] {
-            let under = schem::step(spot, Direction::Down);
-            if short(&blocks, under) == "air" && !changes.contains_key(&under) {
-                changes.insert(under, "minecraft:white_concrete".to_owned());
-            }
-            spots.insert(spot);
-        }
-        changes.insert(
-            behind,
-            "minecraft:lever[face=floor,facing=north,powered=false]".to_owned(),
-        );
-    }
-    let (swapped, moved) = schem::edit_grown(data, &changes)?;
-    let back = |p: Pos| [0, 1, 2].map(|axis| p[axis] - moved[axis]);
-    let before = simulate::compiled(&blocks)?;
-    let after = simulate::compiled(&Blocks::read(&swapped)?)?;
-    let kinds = |kinds: BTreeMap<Pos, String>, map: &dyn Fn(Pos) -> Pos| {
-        kinds
-            .into_iter()
-            .map(|(p, kind)| (map(p), kind))
-            .filter(|(p, _)| !spots.contains(p))
-            .collect::<BTreeMap<_, _>>()
-    };
-    let links = |links: BTreeMap<simulate::Link, u8>,
-                 map: &dyn Fn(Pos) -> Pos| {
-        links
-            .into_iter()
-            .map(|((from, to, side), ss)| ((map(from), map(to), side), ss))
-            // Links out of each lever's spot are compared, the repeater's
-            // against the lever's; those of the levers behind are not.
-            .filter(|((from, to, _), _)| {
-                let swapped = levers.iter().any(|l| l.pos == *from);
-                !spots.contains(to) && (swapped || !spots.contains(from))
-            })
-            .collect::<BTreeMap<_, _>>()
-    };
-    let (old_kinds, new_kinds) =
-        (kinds(before.kinds, &|p| p), kinds(after.kinds, &back));
-    let (old_links, new_links) =
-        (links(before.links, &|p| p), links(after.links, &back));
-    let mut wrong: BTreeSet<Pos> = BTreeSet::new();
-    let changed_ends: Vec<Pos> = old_links
-        .keys()
-        .chain(new_links.keys())
-        .filter(|k| old_links.get(*k) != new_links.get(*k))
-        .flat_map(|(from, to, _)| [*from, *to])
-        .chain(
-            old_kinds
-                .keys()
-                .chain(new_kinds.keys())
-                .filter(|p| old_kinds.get(*p) != new_kinds.get(*p))
-                .copied(),
-        )
-        .collect();
-    // Each difference is put down to the lever nearest it.
-    for end in changed_ends {
-        if let Some(lever) =
-            levers.iter().min_by_key(|l| schem::distance(l.pos, end))
-        {
-            wrong.insert(lever.pos);
-        }
-    }
-    Ok(wrong.into_iter().collect())
 }
 
 #[cfg(test)]
@@ -866,16 +748,11 @@ mod tests {
 
     /// The owner's parity circuit as uploaded, its dust climbing light gray
     /// glass, with its output on a repeater: the glass under its dust is no
-    /// output, and it is found a parity circuit.
+    /// output.
     #[test]
-    fn a_parity_circuit_on_a_glass_staircase_is_found_by_its_repeater() {
+    fn a_parity_circuit_on_a_glass_staircase_has_its_repeater_as_output() {
         let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
         let blocks = Blocks::read(&raw).unwrap();
         assert_eq!(inspect(&blocks).outputs.len(), 1);
-        let found = crate::recognize::probe::recognize(&raw).unwrap().found;
-        assert_eq!(
-            found.as_deref(),
-            Some("a parity circuit: all 256 cases right, xor of A's bits")
-        );
     }
 }

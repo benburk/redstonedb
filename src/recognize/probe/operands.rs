@@ -8,7 +8,7 @@ use super::{
     try_roles,
 };
 use crate::{
-    recognize::inspect::{self, Run},
+    interface::inspect::{self, Run},
     schem::Pos,
     simulate::{self, Gate, Test},
 };

@@ -7,8 +7,9 @@ mod common;
 use app::{
     details::{self, Candidate, Details},
     import,
+    interface::{Encoding, Orientation},
     models::{
-        schematic::{self, Encoding, Orientation, Specs},
+        schematic::{self, Specs},
         simulation, tag,
     },
     simulate::Report,
@@ -405,9 +406,7 @@ fn a_failing_build_probed_again_keeps_its_nearest_reading() {
         .unwrap()
         .expect("its test ran");
     assert!(!found);
-    let lines = app::recognize::interface::read(
-        &app::schem::Blocks::read(&file).unwrap(),
-    );
+    let lines = app::interface::read(&app::schem::Blocks::read(&file).unwrap());
     let operands: Vec<usize> = lines
         .inputs
         .iter()

@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 
 use app::{
+    category::Logic,
     import,
     ingest::standardize,
-    models::schematic::{Logic, Orientation},
+    interface::Orientation,
     recognize::evaluate::evaluate,
     schem::{self, Blocks},
     simulate::{Report, Stacking},

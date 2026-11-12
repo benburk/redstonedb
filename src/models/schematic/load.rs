@@ -12,8 +12,8 @@ use super::{
 };
 use crate::{
     category::{self, Flag},
+    interface::Kept,
     models::tag::{self, Tag},
-    recognize::interface::Kept,
 };
 
 /// Every schematic but deleted ones, ordered by category, width, then

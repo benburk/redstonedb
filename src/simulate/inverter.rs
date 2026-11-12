@@ -12,7 +12,7 @@ use super::{
     converters::byte_cases,
     stacking,
 };
-use crate::recognize::interface::Interface;
+use crate::interface::Interface;
 
 /// An inverter's every case, or with too many, each byte's and the test
 /// patterns, each with its line off and on: A, or every bit of it

@@ -55,7 +55,7 @@ use super::{
     rng::Rng,
     value,
 };
-use crate::{recognize::interface::Interface, schem::Blocks};
+use crate::{interface::Interface, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
 /// t = 0, as the slowest inputs change.
@@ -430,7 +430,7 @@ fn measured(
     let status: Vec<bool> = interface
         .outputs
         .iter()
-        .map(crate::recognize::interface::Port::status)
+        .map(crate::interface::Port::status)
         .collect();
     let carried = Circuit::new(blocks, interface)?.carried();
     let rig = Rig {

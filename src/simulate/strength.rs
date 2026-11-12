@@ -16,7 +16,7 @@ use super::{
     bench::{Bench, Case, paired},
     circuit::{Circuit, output_bits},
 };
-use crate::{recognize::interface::Interface, schem::Blocks};
+use crate::{interface::Interface, schem::Blocks};
 
 /// What weak inputs do to a build.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

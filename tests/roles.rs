@@ -120,7 +120,7 @@ fn taking_out_a_torchs_block_changes_the_circuit() {
 /// blocks stay, read alone or as the site stacks it.
 #[test]
 fn the_dust_joining_a_register_files_bus_stays() {
-    use app::models::schematic::{Orientation, StackDirection};
+    use app::{interface::Orientation, models::schematic::StackDirection};
     let data = read_fixture("tests/fixtures/register-8-shared-bus-stack.schem")
         .unwrap();
     let way = StackDirection {

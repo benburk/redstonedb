@@ -5,8 +5,7 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    diff::Counts, import::Prepared, models::user::REDSTONEDB,
-    recognize::interface::Kept,
+    diff::Counts, import::Prepared, interface::Kept, models::user::REDSTONEDB,
 };
 
 /// One version, without its file.

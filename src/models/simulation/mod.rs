@@ -18,12 +18,12 @@ use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use crate::{
-    category, import,
+    category, import, interface,
     models::{
         schematic::{self, Build, StackDirection},
         version,
     },
-    recognize::{evaluate::evaluate, interface, roles},
+    recognize::{evaluate::evaluate, roles},
     schem::Blocks,
     simulate::{Report, Test},
     stack,

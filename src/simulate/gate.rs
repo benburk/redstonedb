@@ -12,7 +12,7 @@ use super::{
     bench::{Bench, Case, Cases, Kind, Spec, mask},
     stacking,
 };
-use crate::recognize::interface::Interface;
+use crate::interface::Interface;
 
 /// A two-input gate, its category's: one function, or that function
 /// inverted, as a torch on the output makes it.

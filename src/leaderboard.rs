@@ -12,9 +12,10 @@ use std::{
 };
 
 use crate::{
-    category::{self, Flag, Group, Measure, NO_DESIGN},
+    category::{self, Flag, Group, Logic, Measure, NO_DESIGN},
+    interface::Orientation,
     models::{
-        schematic::{Build, Logic, Orientation, PITCHES},
+        schematic::{Build, PITCHES},
         tag::{self, Kind, Tag},
     },
 };
@@ -1349,8 +1350,11 @@ fn shown_once(found: Vec<Found>) -> Vec<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::{
-        Credits, Encoding, Entry, File, Specs, StackDirection, Widened,
+    use crate::{
+        interface::Encoding,
+        models::schematic::{
+            Credits, Entry, File, Specs, StackDirection, Widened,
+        },
     };
 
     /// A board's address reads back as it was written, with each measure

@@ -22,7 +22,7 @@ use super::{
     rng::Rng,
     timing,
 };
-use crate::{recognize::interface::Interface, schem::Blocks};
+use crate::{interface::Interface, schem::Blocks};
 
 /// A shift a barrel shifter may give, of A by the amount `n`, of `width`
 /// bits. On a tie, the one first in `Shift::ALL` is taken.
@@ -334,7 +334,7 @@ fn settings(shifter: &Shifter, found: &[Selection]) -> Vec<Setting> {
 /// Runs a barrel shifter through every shift its lines give, at every
 /// amount, on every value of A, or with `quick` a few telling ones.
 pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     let mut merged: Option<Run> = None;
@@ -397,7 +397,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
 /// shifts both ways, `rotate` when it rotates, and `arithmetic` when it
 /// shifts right keeping the sign.
 pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     let has =
@@ -425,7 +425,7 @@ pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
 /// Whether the barrel shifter in `blocks` holds state, as
 /// `bench::remembers` tells of each setting of its lines.
 pub fn remembers(blocks: &Blocks) -> Result<bool> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     bench::remembers_any(
@@ -443,7 +443,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
 /// would: synced only when its output changes cleanly, all its bits on one
 /// tick, whatever A and the setting change from and to.
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     // An off shift's output never changes, so it has nothing to time.
@@ -471,7 +471,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
 /// best, as a control line is. `None` when no period up to twice its
 /// slowest output keeps every result right.
 pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
     let settings = settings(&shifter, &found);

@@ -11,14 +11,12 @@ use crate::{
     category::{self, Category, Kind, Lines},
     details::{self, Ready},
     ingest::standardize,
+    interface::{self, Encoding, Interface, Orientation, Port},
     models::{
-        schematic::{self, Build, Encoding, New, Orientation},
+        schematic::{self, Build, New},
         version,
     },
-    recognize::{
-        interface::{self, Interface, Port},
-        probe,
-    },
+    recognize::probe,
     schem::{self, Blocks, Size, turn::Turn},
     works_from::{self, WorksFrom},
 };
@@ -176,7 +174,11 @@ impl Analysis {
     /// `blocks` read as a build of the category named `category`.
     pub fn of(blocks: &Blocks, category: &str) -> Self {
         let mut interface = interface::read(blocks);
-        interface::name_lines(Kind::named(category), blocks, &mut interface);
+        interface::name_lines(
+            category::behaviour(category).lines,
+            blocks,
+            &mut interface,
+        );
         Analysis { interface }
     }
 }

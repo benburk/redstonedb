@@ -23,13 +23,14 @@ use crate::{
     external::schemati,
     import::{self, Kept, Upload},
     ingest::standardize,
+    interface,
     models::{
         schematic::{self, Build},
         similarity, simulation,
         user::User,
         version,
     },
-    recognize::{interface, probe},
+    recognize::probe,
     schem::Blocks,
     simulate::{self, Guess},
     web::{

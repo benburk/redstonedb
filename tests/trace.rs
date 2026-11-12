@@ -6,7 +6,7 @@ mod common;
 use app::{
     category::Kind,
     import,
-    recognize::interface::Interface,
+    interface::Interface,
     schem::{Blocks, Pos},
     simulate::trace::Tracer,
 };

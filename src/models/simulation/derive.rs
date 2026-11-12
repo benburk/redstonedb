@@ -3,9 +3,9 @@
 //! written by `Derived::save` in the module above.
 
 use crate::{
-    category, import,
+    category, import, interface,
     models::schematic::{Build, Specs, StackDirection, Widened},
-    recognize::{evaluate::Evaluation, interface},
+    recognize::evaluate::Evaluation,
     schem::Blocks,
     simulate::{Edge, Report, Stacking, Test},
 };
@@ -193,7 +193,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{models::schematic::Orientation, search::tests::schematic};
+    use crate::{interface::Orientation, search::tests::schematic};
 
     /// A result that ran every case of a test, `wrong` of them wrong, read
     /// as `reading` says, with `timing` if it was measured.

@@ -11,10 +11,7 @@ use super::{
     Broken, Reading, Run, Value,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::recognize::{
-    colour,
-    interface::{Interface, Port},
-};
+use crate::interface::{Interface, Port, colour};
 
 /// How an adder's messages name it and its lone lines: the adder's test
 /// reads a subtractor too, its B inverted, so its lines may go by a
@@ -592,7 +589,7 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recognize::interface;
+    use crate::interface;
 
     /// A subtractor's borrow out may read inverted too, as an adder's carry
     /// out may: each subtract is tried with it either way.

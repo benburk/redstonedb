@@ -1,5 +1,5 @@
 //! A build's inputs and outputs, read from its blocks and signs. Which
-//! blocks are inputs and outputs the rule [`crate::recognize::inspect`]
+//! blocks are inputs and outputs the rule [`crate::interface::inspect`]
 //! checks says, colour playing no part: an input is a block with a lever on
 //! it, or for a control line a button, or for a signal-strength input the
 //! block under a comparator with air behind it; an output is the block
@@ -20,17 +20,20 @@
 //! the bounding box, unless an `lsb` or `msb` sign says otherwise; such a
 //! sign on one bus orders every unmarked bus running alongside it too.
 
+pub mod colour;
+mod facts;
+pub mod inspect;
+pub mod repeater_outputs;
+
+pub use facts::{Encoding, Orientation};
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    category::{Behaviour, Kind, Lines},
-    recognize::repeater_outputs,
-    schem::{
-        self, Blocks, Direction, Pos, Switch,
-        lines::{Role, Roles},
-    },
+use crate::schem::{
+    self, Blocks, Direction, Pos, Switch,
+    lines::{Role, Roles},
 };
 
 #[derive(Default)]
@@ -143,20 +146,53 @@ pub fn switches(blocks: &Blocks) -> HashMap<Pos, Switch> {
         .collect()
 }
 
-/// Names a build's unsigned ports for what its `category` takes them to
-/// be, as `category::Lines` gives them, so a page shows what the simulator
-/// reads: an adder's lone control and status lines are its carry in and
+/// What a category's unsigned control and status lines are taken to be.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Lines {
+    /// Every line needs a sign naming it.
+    #[default]
+    Signed,
+    /// Its lone control line and lone status line need no sign, their roles
+    /// being plain, and go by these names, such as an adder's carry in and
+    /// carry out. With `lone_output`, its one output is the status line
+    /// whatever its colour, as a carry out's is.
+    Lone {
+        control: &'static str,
+        status: &'static str,
+        lone_output: bool,
+    },
+    /// A register's: its unsigned control lines are its cells' writes, each
+    /// driven by a button, and reads, by a lever, and its data bus in and
+    /// out go by those roles.
+    Register,
+    /// A comparison's: its one output, an output bus or a status line, is
+    /// its result, which needs no sign and goes by this name, such as
+    /// `A > B`.
+    Result(&'static str),
+    /// An inverter's, multiplier's, or T flip-flop's: its lone control line
+    /// needs no sign and goes by this name, such as `invert` or
+    /// `calculate`; it has no status line.
+    Control(&'static str),
+    /// A buffer's: its data bus in and out as a register's, and its
+    /// unsigned control lines its cells' writes, by a button, or by a lever
+    /// when none has a button, as it has no reads; a lone one needs no
+    /// sign.
+    Buffer,
+    /// A counter's: each control line a lever of its own, its clock or its
+    /// write enable, which its test tells apart, a sign naming it.
+    Counter,
+}
+
+/// Names a build's unsigned ports for what its category takes them to be,
+/// as `lines` says, so a page shows what the simulator reads: an adder's
+/// lone control and status lines are its carry in and
 /// carry out; a register's data bus in and out are its data in and data
 /// out, and each of its control lines a write, driven by a button, or a
 /// read, by a lever, and a buffer's the same but every control line a
 /// write; a comparison's one output is its result, such as `A > B`; and an
 /// inverter's lone control line is its invert. A sign's name always
 /// stands.
-pub fn name_lines(
-    category: impl Into<Option<Kind>>,
-    blocks: &Blocks,
-    interface: &mut Interface,
-) {
+pub fn name_lines(lines: Lines, blocks: &Blocks, interface: &mut Interface) {
     let lone = |ports: &mut Vec<Port>, role: Role, name: &str| {
         let mut lines = ports.iter_mut().filter(|p| p.role == Some(role));
         if let (Some(line), None) = (lines.next(), lines.next())
@@ -166,7 +202,7 @@ pub fn name_lines(
             name.clone_into(&mut line.name);
         }
     };
-    let (control, status, lone_output) = match Behaviour::of(category).lines {
+    let (control, status, lone_output) = match lines {
         Lines::Lone {
             control,
             status,
@@ -499,8 +535,8 @@ impl Kept {
     pub fn unaligned(&self) -> bool {
         // Two runs side by side share no line; end to end, they do.
         let in_one_line =
-            |one: &crate::recognize::inspect::Run,
-             other: &crate::recognize::inspect::Run| {
+            |one: &crate::interface::inspect::Run,
+             other: &crate::interface::inspect::Run| {
                 let Some(axis) = (0..3).find(|&i| one.step[i] != 0) else {
                     return false;
                 };
@@ -522,7 +558,7 @@ impl Kept {
             .any(|line| {
                 let bits: Vec<(Pos, ())> =
                     line.bits.iter().map(|&pos| (pos, ())).collect();
-                match crate::recognize::inspect::runs(&bits).as_slice() {
+                match crate::interface::inspect::runs(&bits).as_slice() {
                     [] | [_] => false,
                     [one, other] => {
                         one.bits.len() != other.bits.len()

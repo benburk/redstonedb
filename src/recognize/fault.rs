@@ -261,7 +261,7 @@ mod tests {
                 continue;
             }
             let report =
-                crate::recognize::inspect::inspect(&example.schematic());
+                crate::interface::inspect::inspect(&example.schematic());
             for problem in &report.errors {
                 let advice = advice(&problem.message);
                 assert!(
