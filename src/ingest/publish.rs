@@ -2,13 +2,13 @@
 //! lines carry, and the build itself.
 
 use crate::{
-    build::{Prepared, Ready},
+    build::{Prepared, Ready, Reason},
     category::{self, Category, Kind},
     ingest::{
         details,
         prepare::{Purpose, Upload, prepare_for, rewrapped},
     },
-    interface::{self},
+    interface,
     recognize::probe,
     schem::{self, Blocks},
     store::{
@@ -56,7 +56,7 @@ pub enum Kept {
     Standard(Box<Prepared>),
     /// As built, unverified as its category, one the site recognizes
     /// builds of, for this reason.
-    Unverified(String),
+    Unverified(Reason),
     /// As built, in the category it was given, one of its author's own.
     Original,
 }

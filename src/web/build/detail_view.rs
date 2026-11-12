@@ -208,7 +208,7 @@ fn verdicts(s: &Build, report: Option<&Report>) -> Vec<Verdict> {
                 "The site has no test for its category and width yet."
                     .to_owned()
             }
-            _ => s.unverified.clone().unwrap_or_default(),
+            _ => s.unverified.as_deref().unwrap_or_default().to_owned(),
         };
         let (label, tone) = match s.status {
             Status::Passing => ("passing", Tone::Good),

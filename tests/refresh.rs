@@ -125,7 +125,7 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
         .unwrap()
         .unwrap();
     assert_eq!(ready.details.category, "adder");
-    let why = ready.details.unverified.unwrap_or_default();
+    let why = ready.details.unverified.as_deref().unwrap_or_default();
     assert!(why.contains("cases wrong: A="), "{why}");
     let as_other = Details {
         category: "8-bit adder".to_owned(),

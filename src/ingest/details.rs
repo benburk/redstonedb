@@ -3,16 +3,16 @@
 //! `rsdb set`.
 
 use crate::{
+    build::status::{
+        ADDS, INVERTS_SUM, KEEPS_SUM, NO_HEX_INPUTS, Reason, SUBTRACTS,
+        WITHOUT_LEVERS, WRONG_OUTPUTS,
+    },
     build::{Details, Prepared, Ready, tag, valid_player_name},
     category::{self, Category, Kind, Measure, Test},
     external::mojang,
     ingest::{jobs, results},
     interface::Orientation,
     players,
-    recognize::fault::{
-        ADDS, INVERTS_SUM, KEEPS_SUM, NO_HEX_INPUTS, SUBTRACTS, WITHOUT_LEVERS,
-        WRONG_OUTPUTS,
-    },
     simulate::Report,
     stack::{self},
     store::tags,
@@ -277,14 +277,14 @@ async fn evaluated(
 pub async fn unrecognized(
     category: &Category,
     build: Candidate<'_>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<Reason>, String> {
     let Some(kind) = Kind::named(&category.name) else {
         return Ok(None);
     };
     let width = results::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
-    let off = |why: String| Ok(Some(why));
+    let off = |why: String| Ok(Some(Reason::untested(why)));
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
         return off("Couldn't read its file".to_owned());
     };
@@ -334,12 +334,12 @@ pub async fn unrecognized(
                 _ => Ok(None),
             }
         }
-        Report::Ran(run) => off(run.wrong_cases()),
+        Report::Ran(run) => Ok(Some(Reason::failing(run.wrong_cases()))),
         // A block the simulator does not model, as a piston.
         Report::Skipped { reason } => {
             off(reason.trim().trim_end_matches('.').to_owned())
         }
-        Report::Broken { .. } => off(WRONG_OUTPUTS.to_owned()),
+        Report::Broken { .. } => Ok(Some(Reason::failing(WRONG_OUTPUTS))),
     }
 }
 

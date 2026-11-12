@@ -13,7 +13,6 @@ use crate::{
     compare::blocks::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
     ingest::read::Analysis,
     interface::problem::{Problem, Rule},
-    recognize::fault::wrong_outputs,
     simulate::Report,
     web::{
         assets::FORM_JS,
@@ -373,7 +372,7 @@ fn verdict(page: &DetailsPage) -> &'static str {
             failing_or_untested(wrong)
         }
         File::Stored { s, simulation } => match &s.unverified {
-            Some(why) => failing_or_untested(wrong_outputs(why)),
+            Some(reason) => failing_or_untested(reason.wrong),
             None if simulation.is_some_and(Report::failed) => "fail",
             None if simulation.is_some_and(Report::passed) => "pass",
             None => "",

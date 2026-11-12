@@ -409,10 +409,7 @@ fn problems(known: &Known) -> Vec<Found> {
         && !crate::category::Kind::named(known.s.category)
             .is_some_and(crate::category::Kind::digit_inputs);
     let strength = strength.then(|| {
-        Problem::said(
-            Rule::WithoutLevers,
-            crate::recognize::fault::WITHOUT_LEVERS,
-        )
+        Problem::said(Rule::WithoutLevers, crate::build::status::WITHOUT_LEVERS)
     });
     let mut kinds: BTreeMap<String, Found> = BTreeMap::new();
     for problem in strength.iter().chain(&file.unrecognized) {

@@ -2,7 +2,7 @@
 //! to the site's rules, ready to store.
 
 use crate::{
-    build::{Build, Credits, Specs},
+    build::{Build, Credits, Reason, Specs},
     category::Category,
     stack::StackDirection,
 };
@@ -33,7 +33,7 @@ pub struct Details {
     /// Why it is not recognized as its category, one the site recognizes
     /// builds of, so it goes up unverified with the details given; see
     /// [`unrecognized`].
-    pub unverified: Option<String>,
+    pub unverified: Option<Reason>,
 }
 
 impl Details {
