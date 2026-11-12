@@ -35,7 +35,7 @@ pub use decoder::{DecoderProbed, decoder};
 pub use hex_adder::{HexAdderProbed, hex_adder};
 pub use hex_to_binary::{HexToBinaryProbed, hex_to_binary};
 pub use multiplier::{MultiplierProbed, multiplier};
-pub use one_operand::{Line, OneInputProbed, one_operand};
+pub use one_operand::{OneInputProbed, one_operand};
 pub use operands::{OperandsProbed, operands_probe};
 pub use recognize::{
     Found, Recognition, kept_roles, recognize, recognize_as, recognize_watched,

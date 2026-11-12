@@ -158,7 +158,7 @@ fn ranked_values(s: &Build) -> Option<Vec<(Measure, i64)>> {
     }
     split_by(s.measures(), group)
         .into_iter()
-        .map(|m| Some((m, m.of(s)?)))
+        .map(|m| Some((m, s.specs.of(m)?)))
         .collect()
 }
 
@@ -581,10 +581,10 @@ fn split<'a>(
         .collect();
     let mut splits = Vec::new();
     for measure in split_by(measures, group) {
-        ranked.retain(|s| measure.of(s).is_some());
+        ranked.retain(|s| s.specs.of(measure).is_some());
         let (choices, chosen, left) =
             narrow(ranked, wanted.measure(measure), |s| {
-                let n = measure.of(s).unwrap_or_default();
+                let n = s.specs.of(measure).unwrap_or_default();
                 (n, measure.lead(n))
             });
         ranked = left;

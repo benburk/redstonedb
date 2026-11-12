@@ -522,7 +522,7 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
                         Measure::Pulse => sources.pulse,
                         _ => Source::Given,
                     };
-                    (fact(measure.label(), measure.of(s).map_or_else(unknown, |n| {
+                    (fact(measure.label(), s.specs.of(measure).map_or_else(unknown, |n| {
                         sourced(search_link(&measure.words(n), &measure.term(n)), source, sources)
                     })))
                 }
