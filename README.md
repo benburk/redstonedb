@@ -99,12 +99,12 @@ just rsdb export bb62 --out ~/.minecraft/config/worldedit/schematics
 just rsdb new-version bb62 fixed.schem --note "carry out reads through a repeater"
 just rsdb refresh $(just rsdb search --ids adder vertical)
 just rsdb refresh --all --prune --dry-run
-just rsdb inspect bb62 --stack west
+just rsdb inspect bb62
 ```
 
 - `refresh` brings what is worked out from builds' files up to date, or every build's with `--all`: it reads each file again, judges the build again as its category, runs its test and timing, and keeps what its building blocks must be, for themes. Nothing reruns on its own after the simulator changes. `--prune` also takes out blocks no part of a build's circuit uses, proving with Redpiler that the circuit is unchanged; `--dry-run` changes nothing, working builds out from their files alone and listing each field that differs from what is stored.
 - `set` changes a build's details and tags, and `new-version` replaces its file with a fix, as the site's edit page does, keeping the old one, or with `--in-place` fixes the file itself; each then refreshes the build, so nothing it leaves goes stale.
-- `inspect` checks a file or build by the rules for inputs and outputs, lists them in buses, and probes it with them; `--stack` checks how its copies stack.
+- `inspect` checks a file or build by the rules for inputs and outputs, lists them in buses, and says what the site recognizes it as.
 
 On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's user.
 

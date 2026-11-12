@@ -587,9 +587,8 @@ fn steps() -> Vec<Pos> {
     steps
 }
 
-/// The check of the file in `data`, as [`inspect`] makes it; with
-/// `adder`, then probed as an adder.
-pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
+/// The check of the file in `data`, as [`inspect`] makes it.
+pub fn inspect_file(data: &[u8]) -> Result<Report> {
     let blocks = Blocks::read(data)?;
     let mut report = inspect(&blocks);
     if !report
@@ -604,24 +603,6 @@ pub fn inspect_file(data: &[u8], adder: bool) -> Result<Report> {
                 vec![lever],
                 format!("Lever at {}: not bus-drivable", place(lever)),
             );
-        }
-    }
-    if adder && !report.inputs.is_empty() && !report.outputs.is_empty() {
-        match crate::recognize::probe::adder(data, &blocks, &report) {
-            Ok(probed) => report.notes.push(format!(
-                "It adds, as {}: all {} cases right, {}.",
-                probed.layout.describe(),
-                probed.run.cases,
-                probed.run.pattern
-            )),
-            Err(message) => {
-                problem(
-                    &mut report,
-                    "not an adder",
-                    Vec::new(),
-                    message.to_string(),
-                );
-            }
         }
     }
     Ok(report)

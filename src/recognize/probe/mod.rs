@@ -37,8 +37,8 @@ pub use multiplier::{MultiplierProbed, multiplier};
 pub use one_operand::{Line, OneInputProbed, one_operand};
 pub use operands::{OperandsProbed, operands_probe};
 pub use recognize::{
-    Found, Recognition, kept_roles, probe_as, recognize, recognize_as,
-    recognize_watched, reprobe, simulatable,
+    Found, Recognition, kept_roles, recognize, recognize_as, recognize_watched,
+    reprobe, simulatable,
 };
 pub use register::{RegisterProbed, register};
 pub use sequential::{SequentialProbed, sequential};

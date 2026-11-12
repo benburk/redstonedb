@@ -15,14 +15,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use anyhow::Result;
-
 use crate::{
-    category::Kind,
     recognize::{
         inspect::{self, Run},
         interface::{self, Bit, Interface, Port},
-        probe::{self, Fault, Found, Layout},
     },
     schem::{self, Blocks, Direction, Pos, lines::Role},
 };
@@ -418,78 +414,6 @@ pub fn interface(blocks: &Blocks) -> Interface {
     }
 }
 
-/// What probing makes of a build whose outputs this rule reads.
-pub struct Probed {
-    pub kind: Kind,
-    /// Its data inputs, its file carrying the roles found, and what it was
-    /// found to be, in words.
-    pub found: Found,
-    /// For an adder, the roles found.
-    pub layout: Option<Layout>,
-}
-
-/// The build in `data` probed with its outputs read by this rule, as
-/// `meant` alone, or as each kind probing tries in turn, as
-/// [`probe::recognize_as`] does: the first kind it holds as, or the fault
-/// of each it was tried as. A build with faults in its inputs or outputs is
-/// probed all the same, as a measure.
-pub fn probe(
-    data: &[u8],
-    meant: Option<Kind>,
-) -> Result<Result<Probed, Vec<(Kind, Fault)>>> {
-    let simulated = probe::simulatable(data)?;
-    let blocks = Blocks::read(&simulated)?;
-    let report = inspect::inspect(&blocks);
-    let mut faults = Vec::new();
-    for (kind, ..) in Kind::probed() {
-        if meant.is_some_and(|meant| probed_as(meant) != kind) {
-            continue;
-        }
-        if kind == Kind::Adder {
-            match probe::adder(&simulated, &blocks, &report) {
-                Ok(probed) => {
-                    let layout = probed.layout.clone();
-                    let kind = probed.run.adder_category(false);
-                    let found = format!(
-                        "{}: all {} cases right, {}",
-                        kind.a(),
-                        probed.run.cases,
-                        probed.run.pattern
-                    );
-                    let file = probe::with_layout(&simulated, &layout)?;
-                    let data_inputs = [layout.a.clone(), layout.b.clone()];
-                    return Ok(Ok(Probed {
-                        kind,
-                        found: (data_inputs.concat(), file, found),
-                        layout: Some(layout),
-                    }));
-                }
-                Err(fault) => faults.push((kind, fault)),
-            }
-            continue;
-        }
-        match probe::probe_as(kind, &simulated, &blocks, &report)? {
-            Ok(found) => {
-                return Ok(Ok(Probed {
-                    kind,
-                    found,
-                    layout: None,
-                }));
-            }
-            Err(fault) => faults.push((kind, fault)),
-        }
-    }
-    Ok(Err(faults))
-}
-
-/// The kind `kind` is probed as, such as an adder for a subtractor.
-fn probed_as(kind: Kind) -> Kind {
-    match kind.facts().probe {
-        crate::category::Probing::As(other) => other,
-        _ => kind,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -615,19 +539,22 @@ mod tests {
     }
 
     /// The owner's 8-bit carry-cancel adder reworked to give every output
-    /// out through a repeater probes as the adder it is with those outputs
-    /// alone, its sum one bus and its carry out a line.
+    /// out through a repeater is recognized as the adder it is with those
+    /// outputs alone, its sum one bus and its carry out a line.
     #[test]
     #[ignore = "probes a whole build"]
     fn a_carry_cancel_adder_with_repeater_outputs_probes_as_an_adder() {
         let data =
             std::fs::read("tests/fixtures/cca-8-repeater-out.schem").unwrap();
-        let probed = probe(&data, Some(Kind::Adder))
-            .unwrap()
-            .unwrap_or_else(|faults| panic!("{}", faults[0].1));
-        let layout = probed.layout.unwrap();
-        assert_eq!(layout.sum.len(), 8);
-        assert!(layout.carry_out.is_some());
+        let recognition =
+            crate::recognize::probe::recognize_as(&data, Some("adder"))
+                .unwrap();
+        assert!(recognition.found.is_some(), "{:?}", recognition.problems);
+        let outputs = lines(&find(&Blocks::read(&data).unwrap()));
+        let mut widths: Vec<usize> =
+            outputs.iter().map(|run| run.bits.len()).collect();
+        widths.sort_unstable();
+        assert_eq!(widths, [1, 8]);
     }
 
     /// Lime concrete with dust on it, open to the south, a digit input as

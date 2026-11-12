@@ -490,39 +490,11 @@ impl Circuit {
         })
     }
 
-    /// The strength each bit of output `port` shows, as of the last
-    /// `settle`, least significant first: the power of the dust standing
-    /// on its block, 15 for a repeater on, or a comparator's strength.
-    pub fn strengths(&self, port: usize) -> Vec<u8> {
-        let (blocks, _) = &self.outputs[port];
-        blocks
-            .iter()
-            .map(|&pos| {
-                let top = pos.offset(BlockFace::Top);
-                match self.world.get_block(top) {
-                    Block::RedstoneWire(wire) => wire.power,
-                    Block::Repeater(repeater) => {
-                        15 * u8::from(repeater.powered)
-                    }
-                    Block::Comparator(_) => {
-                        match self.world.get_block_entity(top) {
-                            Some(BlockEntity::Comparator {
-                                output_strength,
-                            }) => *output_strength,
-                            _ => 0,
-                        }
-                    }
-                    _ => 0,
-                }
-            })
-            .collect()
-    }
-
     /// The strength each bit of output `port` carries out of the build,
     /// as of the last `settle`, least significant first: for a repeater
     /// or comparator standing on its block, on, the strength arriving at
-    /// its input, as [`Circuit::arriving`] reads it, whatever it gives out
-    /// itself; for dust there, its power; 0 for a bit off.
+    /// its input, as [`Circuit::arriving_at`] reads it, whatever it gives
+    /// out itself; for dust there, its power; 0 for a bit off.
     pub fn arriving_strengths(&self, port: usize) -> Vec<u8> {
         let (blocks, _) = &self.outputs[port];
         blocks
@@ -544,14 +516,10 @@ impl Circuit {
     }
 
     /// The strength arriving at the input of the repeater or comparator at
-    /// `pos`, as of the last `settle`, as the game reads it: the power of
-    /// what is behind it, the side its `facing` names, dust at its level,
-    /// and for a comparator a container's fullness; 0 at any other block.
-    pub fn arriving(&self, pos: Pos) -> u8 {
-        self.arriving_at(at(pos))
-    }
-
-    /// [`Circuit::arriving`] at the world's `pos`.
+    /// the world's `pos`, as of the last `settle`, as the game reads it:
+    /// the power of what is behind it, the side its `facing` names, dust at
+    /// its level, and for a comparator a container's fullness; 0 at any
+    /// other block.
     fn arriving_at(&self, pos: BlockPos) -> u8 {
         let facing = match self.world.get_block(pos) {
             Block::Repeater(repeater) => repeater.facing,

@@ -69,15 +69,6 @@ pub fn shape(blocks: &Blocks, pos: Pos) -> [Side; 4] {
     sides
 }
 
-/// The sides the dust at `pos` in `blocks` really joins, in the order of
-/// [`Direction::SIDES`], before the game draws a line on through it or a
-/// cross where it joins nothing: what [`shape`] starts from.
-pub fn joins(blocks: &Blocks, pos: Pos) -> [Side; 4] {
-    let above = blocks.get(schem::step(pos, Direction::Up));
-    let open_above = !conductor(above);
-    Direction::SIDES.map(|direction| side(blocks, pos, direction, open_above))
-}
-
 /// How the dust at `pos` meets its side `direction`, `open_above` when the
 /// block above it lets dust climb: up the block beside it to dust on top,
 /// when that block can hold dust; along the ground to what it connects to,
