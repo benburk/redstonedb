@@ -22,7 +22,8 @@ use crate::{
     web::{
         app_state::AppState,
         browse::{
-            list_view::{self, Facet, Index, Listing, Tile},
+            home_view::{self, Index, Tile},
+            list_view::{self, Facet, Listing},
             query::{HomeQuery, Sort, SortField},
             similar,
         },
@@ -106,10 +107,10 @@ async fn index(
         viewing: &viewing,
     };
     if fixi {
-        return Ok(([("FX-Replace-Url", "/")], list_view::home_index(&index))
+        return Ok(([("FX-Replace-Url", "/")], home_view::home_index(&index))
             .into_response());
     }
-    Ok(list_view::home(viewer, &index).into_response())
+    Ok(home_view::home(viewer, &index).into_response())
 }
 
 /// Each category with a build, most builds first and Other last, pictured

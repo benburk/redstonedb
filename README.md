@@ -137,7 +137,17 @@ src/
   store/         every query, one module per table or group of tables
   players.rs     who the players behind names are, asking Mojang once
   ingest/        the path from a file to a stored build with its results
-  web/           the site: routes, then a folder for each part, holding its handlers and markup
+  web/           the site, a folder for each part with its routes, handlers, and markup
+    browse/      the home page, the listing and its search, and builds like a file
+    build/       one build: its page, files, versions, checks, and timing
+    submit/      uploading a build, editing one, and the form's live checks
+    leaderboard/ the records, and each category's board
+    people/      players, accounts, and their heads
+    account/     logging in and out, and the settings
+    moderation/  the log, and putting back what it lists
+    schemati/    a viewer's Schemati folder
+    about/       the About pages
+    ui/          what pages share: the frame, cards, people, dialogs, and text
   main.rs        the web server
   bin/rsdb/      the command-line tool
 static/          fixi, page scripts, and the built app.css

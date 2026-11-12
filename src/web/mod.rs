@@ -1,6 +1,7 @@
-//! The site: its routes, and a folder for each part of it. In a folder, a
-//! file named for a page holds its handlers, and the one ending in `view`
-//! its markup; `ui` is the markup pages share.
+//! The site. Each part of it has a folder with its routes: in it, a file
+//! named for a page holds its handlers, and the ones ending in `view` its
+//! markup. `ui` is the markup pages share, and `href` the addresses they
+//! link to.
 use std::fmt::Write as _;
 
 use axum::{

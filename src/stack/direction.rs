@@ -124,6 +124,24 @@ impl StackDirection {
             .join("-")
     }
 
+    /// The way copies go, in words, such as `west and up`.
+    pub fn words(&self) -> String {
+        self.name().replace('-', " and ")
+    }
+
+    /// The `//rstack` command for `copies` copies stacked this way: the
+    /// direction as the `RedstoneTools` plugin takes it, the copies after
+    /// the first, and the step.
+    pub fn rstack(&self, copies: i64) -> String {
+        let token = match (self.west > 0, self.up > 0) {
+            (true, false) => "w",
+            (false, true) => "u",
+            _ => "wu",
+        };
+        let step = self.west.max(self.up);
+        format!("//rstack {token} {} {step}", copies - 1)
+    }
+
     /// Such as `2 west per copy, up to 7 copies`, or `16 up per copy,
     /// pitch 2, any number of copies` for copies of pitch class 2.
     pub fn describe(&self) -> String {

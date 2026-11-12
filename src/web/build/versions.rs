@@ -34,26 +34,8 @@ use crate::{
             session::{Moderator, SignedIn},
         },
         href,
-        submit::{
-            details_view::Reply,
-            edit::{EditView, editable, show_edit},
-        },
     },
 };
-
-/// The edit page, its form for choosing a new version open.
-pub async fn form(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-    SignedIn(user): SignedIn,
-) -> Result<Response, AppError> {
-    let s = editable(&state.db, &user, &id).await?;
-    let view = EditView {
-        reply: Reply::Choosing(None),
-        ..EditView::default()
-    };
-    show_edit(&state.db, &user, &s, view).await
-}
 
 /// An earlier version's file, under the build's filename with its number,
 /// to an account alone.

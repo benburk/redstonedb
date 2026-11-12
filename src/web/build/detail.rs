@@ -1,12 +1,13 @@
 //! A build's page, or the part of it fixi redraws, with its picture, the
-//! builds like it, why it is not recognized, and favouriting it.
+//! builds like it, why it is not recognized, favouriting it, and deleting
+//! it.
 
 use std::sync::Arc;
 
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::{HeaderMap, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
@@ -28,11 +29,12 @@ use crate::{
     thumbnail,
     web::{
         app_state::AppState,
-        back,
-        browse::{self},
+        back, browse,
         build::{
+            actions_view,
             detail_view::{self, BuildPage, ColoursShown, FileRead},
             download::Colours,
+            info_view,
         },
         error::AppError,
         extractors::{fixi::Fixi, session::SignedIn},
@@ -213,8 +215,9 @@ pub async fn detail(
         .map_err(|err| err.to_string());
     let similar = similar_to(db, &id, user_opt.as_ref()).await?;
     if panel == Some("info") {
-        return Ok(detail_view::build_info(&s, &similar, &file, report)
-            .into_response());
+        return Ok(
+            info_view::build_info(&s, &similar, &file, report).into_response()
+        );
     }
     let mut versions = versions::list(db, &id).await?;
     super::versions::count_changes(db, &id, &mut versions).await?;
@@ -320,8 +323,55 @@ pub async fn favorite(
     }
     if fixi {
         let count = builds::favorite_count(&state.db, &id).await?;
-        return Ok(detail_view::favorite_button(&path, on.is_some(), count)
+        return Ok(actions_view::favorite_button(&path, on.is_some(), count)
             .into_response());
     }
     Ok(Redirect::to(&path).into_response())
+}
+
+/// Build `id`'s simulation, for its page to ask after while storing it
+/// simulates it in the background: 204 until that is done, then the page
+/// again, its checks drawn from what was stored.
+pub async fn poll(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Response, AppError> {
+    builds::get(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if jobs::completing(&id) {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+    let page = format!("/schematics/{id}#checks");
+    Ok((StatusCode::NO_CONTENT, [("FX-Redirect", page)]).into_response())
+}
+
+/// Where a deleted build's page goes back to.
+#[derive(serde::Deserialize)]
+pub struct Deleting {
+    /// The listing its page was come to from, if any.
+    #[serde(default)]
+    next: String,
+}
+
+/// Deletes a build, by its uploader, or a mod or admin: it is hidden, and
+/// the moderation log shows the delete, for an admin to restore. A 404 for
+/// no build, or one deleted already, and a 403 for anyone else. It goes
+/// back to the listing its page was come to from, else home.
+pub async fn delete(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    SignedIn(by): SignedIn,
+    axum::Form(deleting): axum::Form<Deleting>,
+) -> Result<Response, AppError> {
+    let s = builds::get(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if !by.may_delete(&s) {
+        return Err(AppError::Forbidden);
+    }
+    builds::delete(&state.db, &id, by.id).await?;
+    tracing::info!(id, by = by.username, "deleted a build");
+    let next = back::listing(&deleting.next).unwrap_or("/");
+    Ok(Redirect::to(next).into_response())
 }

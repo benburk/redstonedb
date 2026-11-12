@@ -1,6 +1,7 @@
 //! Finding builds: the home page and its listing, and the search for
 //! builds like a file.
 
+pub(crate) mod home_view;
 pub(crate) mod list;
 pub(crate) mod list_view;
 pub(crate) mod query;

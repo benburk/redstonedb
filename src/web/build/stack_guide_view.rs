@@ -35,7 +35,7 @@ pub fn stacking_section(
             @for review in reviews {
                 div class="mb-6 flex flex-col gap-2" {
                     @if reviews.len() > 1 {
-                        h3 class="font-semibold" { "Stacking " (way(review.direction)) }
+                        h3 class="font-semibold" { "Stacking " (review.direction.words()) }
                     }
                     @if let Some(class) = class(s, review.direction).filter(|_| decided) {
                         p class="text-muted" { (class) }
@@ -97,30 +97,12 @@ fn class(s: &Build, direction: StackDirection) -> Option<String> {
     ))
 }
 
-/// A direction as words, such as `west and up`.
-fn way(direction: StackDirection) -> String {
-    direction.name().replace('-', " and ")
-}
-
-/// The `//rstack` command for `copies` copies of a build stacked `direction`:
-/// its direction as the `RedstoneTools` plugin takes it, the copies after the
-/// first, and the step.
-fn rstack(direction: StackDirection, copies: i64) -> String {
-    let token = match direction.name().as_str() {
-        "west" => "w",
-        "up" => "u",
-        _ => "wu",
-    };
-    let step = direction.west.max(direction.up);
-    format!("//rstack {token} {} {step}", copies - 1)
-}
-
 /// The steps to stack it one way, with the files they paste, downloadable
 /// when `signed_in`.
 fn steps(s: &Build, review: &Review, signed_in: bool) -> Markup {
     let direction = review.direction;
     let copies = direction.max_copies.unwrap_or(8);
-    let command = rstack(direction, copies);
+    let command = direction.rstack(copies);
     let download = |part: &str, text: &str| {
         let href = format!(
             "/schematics/{}/download?part={part}&direction={}",
@@ -187,7 +169,7 @@ fn warnings(review: &Review) -> Markup {
                         1 => "at a spot",
                         n => { "at " (n) " spots" }
                     }
-                    ", where the next copy, " (way(review.direction)) ", covers a different block. "
+                    ", where the next copy, " (review.direction.words()) ", covers a different block. "
                     "Logic only the first copy needs goes outside the box later copies repeat."
                 }
                 ul class="mt-2 flex list-disc flex-col gap-0.5 pl-5 text-meta" {
@@ -209,7 +191,7 @@ fn warnings(review: &Review) -> Markup {
         @if let Some(better) = review.better {
             p class="rounded-control border border-line p-3" {
                 strong { "Step: " }
-                "copies " (better) " " (way(review.direction)) " apart agree wherever they overlap."
+                "copies " (better) " " (review.direction.words()) " apart agree wherever they overlap."
             }
         }
         @if let Some(shape) = &review.shape {

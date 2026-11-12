@@ -4,7 +4,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    category::{Flag, Kind},
+    category::{Inverts, inverts},
     ingest::read::Analysis,
     interface::{Bit, Port, colour},
     schem::lines::Role,
@@ -18,41 +18,6 @@ use crate::{
         },
     },
 };
-
-/// The lines a flag says are read inverted.
-pub(crate) enum Inverts {
-    /// The inputs of this role.
-    Input(Role),
-    /// The outputs of this role.
-    Output(Role),
-    /// Every output.
-    Outputs,
-}
-
-/// Which lines `flag` on a build of `category` says are read inverted,
-/// if it says any are: an adder's carry in, a control line, or the
-/// outputs of a register or a monostable, the only builds whose outputs
-/// may read inverted. A decoder's outputs always do, so no flag says so.
-pub(crate) fn inverts(category: &str, flag: &str) -> Option<Inverts> {
-    Some(match (Kind::named(category)?, flag) {
-        (
-            Kind::Adder
-            | Kind::HexAdder
-            | Kind::Subtractor
-            | Kind::InvertedAdder,
-            Flag::INVERTED_CARRY_IN,
-        ) => Inverts::Input(Role::Control),
-        (
-            Kind::Adder | Kind::HexAdder | Kind::InvertedAdder,
-            Flag::INVERTED_CARRY_OUT,
-        ) => Inverts::Output(Role::Status),
-        (
-            Kind::Register | Kind::Monostable | Kind::DualEdgeMonostable,
-            "inverted",
-        ) => Inverts::Outputs,
-        _ => return None,
-    })
-}
 
 /// The flag, of the build's `flags`, that says `port` is read inverted.
 fn inverted_by<'f>(

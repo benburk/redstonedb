@@ -129,6 +129,33 @@ pub struct DetailsPage<'a> {
     pub schemati: Option<&'a crate::account::SchematiLink>,
 }
 
+impl File<'_> {
+    /// Where the 3D viewer fetches the file from: a stored build's
+    /// download, and for a file not yet stored a data address, as the
+    /// viewer should be given it.
+    fn viewer_address(&self) -> String {
+        match self {
+            File::Upload {
+                shown: Some(shown), ..
+            } => format!("data:application/octet-stream;base64,{shown}"),
+            File::Upload { data, .. } | File::Version { data, .. } => {
+                let shown = STANDARD
+                    .decode(data)
+                    .ok()
+                    .and_then(|file| crate::schem::for_viewer(&file).ok())
+                    .map_or_else(
+                        || (*data).to_owned(),
+                        |file| STANDARD.encode(file),
+                    );
+                format!("data:application/octet-stream;base64,{shown}")
+            }
+            File::Stored { s, .. } => {
+                format!("{}/download?preview=yes", href::build(&s.id))
+            }
+        }
+    }
+}
+
 pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
     let (title, heading, nav) = match &page.file {
         File::Upload { .. } => (
@@ -147,27 +174,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             href::build(&s.id),
         ),
     };
-    let viewer = match &page.file {
-        // A file not yet stored is shown from a data address, as the
-        // viewer should be given it.
-        File::Upload {
-            shown: Some(shown), ..
-        } => format!("data:application/octet-stream;base64,{shown}"),
-        File::Upload { data, .. } | File::Version { data, .. } => {
-            let shown = STANDARD
-                .decode(data)
-                .ok()
-                .and_then(|file| crate::schem::for_viewer(&file).ok())
-                .map_or_else(
-                    || (*data).to_owned(),
-                    |file| STANDARD.encode(file),
-                );
-            format!("data:application/octet-stream;base64,{shown}")
-        }
-        File::Stored { s, .. } => {
-            format!("/schematics/{}/download?preview=yes", s.id)
-        }
-    };
+    let viewer = page.file.viewer_address();
     base(
         Some(user),
         &title,

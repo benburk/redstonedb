@@ -6,6 +6,7 @@ pub(crate) mod details_view;
 pub(crate) mod edit;
 pub(crate) mod form;
 pub(crate) mod form_view;
+pub(crate) mod simulation;
 pub(crate) mod upload;
 pub(crate) mod upload_view;
 
@@ -24,7 +25,9 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/upload/{id}", get(upload::analyzed))
         .route("/upload/{id}/progress", get(upload::progress))
         .route("/schematics/{id}/edit", get(edit::edit).post(edit::save))
-        .route("/schematics/{id}/delete", post(edit::delete))
+        .route("/schematics/{id}/versions/new", get(edit::new_version))
+        .route("/schematics/{id}/simulation", post(simulation::stored))
+        .route("/upload/simulation", post(simulation::upload))
         .route(
             "/schematics/{id}/versions/check/{check}",
             get(edit::checked),

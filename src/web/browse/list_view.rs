@@ -1,5 +1,5 @@
-//! Lists of builds, as cards or a table, and the home page that searches
-//! and narrows them, by its search and its menu of categories.
+//! The builds a search finds, as cards or a table, under the search and
+//! what narrows it: a category, tags, an order, and a layout.
 
 use maud::{Markup, html};
 
@@ -18,10 +18,7 @@ use crate::{
         href,
         ui::{
             PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, Tone,
-            cards::{
-                CARDS, Viewing, badges, card, cards, stacked_note,
-                thumbnail_src,
-            },
+            cards::{Viewing, badges, cards, stacked_note},
             icons::{self, icon},
             layout::base,
             person::name_links,
@@ -68,28 +65,6 @@ pub struct Facet {
     pub section: Option<Section>,
 }
 
-/// A category on the home page's index, pictured by its best build.
-pub struct Tile<'a> {
-    /// Such as `adder`, or `other` for every category off the list.
-    pub category: String,
-    /// Such as `Adders`.
-    pub label: String,
-    pub count: usize,
-    pub best: &'a Build,
-    /// Its sidebar section; `None` for Other.
-    pub section: Option<Section>,
-}
-
-/// The home page before anything is searched for.
-pub struct Index<'a> {
-    pub tiles: &'a [Tile<'a>],
-    /// The builds added last, each with how many share its name.
-    pub recent: &'a [(&'a Build, usize)],
-    /// How many builds there are in all.
-    pub total: usize,
-    pub viewing: &'a Viewing,
-}
-
 impl Listing<'_> {
     /// Whether words are searched for, or tags outside a category, whose
     /// page shows its tags chosen among its filters.
@@ -97,12 +72,6 @@ impl Listing<'_> {
         !self.query.q.is_empty()
             || (!self.query.tags.is_empty() && self.query.category.is_empty())
     }
-}
-
-/// The home page before anything is searched for: the search, and below it
-/// [`home_index`].
-pub fn home(viewer: Option<&User>, index: &Index) -> Markup {
-    home_page(viewer, "/", None, &home_index(index))
 }
 
 /// The home page: the search, sent to `action` with what `listing` chose,
@@ -223,62 +192,6 @@ pub fn home_results(listing: &Listing) -> Markup {
     }
 }
 
-/// The part of the home page below its search before anything is searched
-/// for: each category as a tile, and the builds added last. A search
-/// cleared redraws it.
-pub fn home_index(index: &Index) -> Markup {
-    html! {
-        div id="listing" class="pt-5" {
-            h1 class="sr-only" { (APP_NAME) }
-            section aria-labelledby="index-heading" class="mb-12" {
-                // The section headings say what the tiles are, so this one
-                // is for a screen reader's outline only.
-                h2 id="index-heading" class="sr-only" { "Categories" }
-                @for (heading, id, tiles) in tile_groups(index.tiles) {
-                    h3 id={ "tiles-" (id) } class={ (PAGE_TITLE) " mt-12 mb-4 first-of-type:mt-0" } { (heading) }
-                    // Five to a row at the page's full width, fewer as it
-                    // narrows, and never fewer than two.
-                    ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(min(13rem,calc(50%_-_0.5rem)),1fr))] gap-4" {
-                    @for tile in tiles {
-                        @let href = HomeQuery {
-                            category: tile.category.clone(),
-                            ..HomeQuery::default()
-                        }.href();
-                        li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                            img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
-                                class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
-                            div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
-                                h4 class="flex items-baseline justify-between gap-2 font-semibold" {
-                                    a href=(href) class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (tile.label) }
-                                    span class="text-meta font-normal text-muted tabular-nums" {
-                                        (tile.count) span class="sr-only" { " builds" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    }
-                }
-            }
-            section aria-labelledby="recent-heading" {
-                div class="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1" {
-                    h2 id="recent-heading" class={ (PAGE_TITLE) " mr-auto" } { "Recently added" }
-                    a href="/builds" { "All " (index.total) " builds" }
-                }
-                ul class=(CARDS) {
-                    @for &(s, named) in index.recent {
-                        (card(s, &html! {
-                            @if named > 1 {
-                                p class="text-meta text-muted" { (named) " builds by this name" }
-                            }
-                        }, index.viewing))
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// The categories to narrow a page to, as a menu named `category`: first
 /// `all`, the label of the choice of every category, then each
 /// category with its count, under its section, and the rest; `current` is
@@ -381,7 +294,12 @@ fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
 /// saying `label` and how many there are; nothing when there are none.
 /// Builds not verified as their category show when one is on, and
 /// unaligned builds hide when another is.
-fn switch(count: usize, on: bool, label: &str, other: &HomeQuery) -> Markup {
+pub(crate) fn switch(
+    count: usize,
+    on: bool,
+    label: &str,
+    other: &HomeQuery,
+) -> Markup {
     html! {
         @if count > 0 {
             a href=(other.href())
@@ -499,7 +417,12 @@ const PLAIN_CHIP: &str = "bg-selection text-ink";
 /// A chip naming one thing the search is narrowed by, `words`, in the
 /// colours of `tone`, which takes it off the search at `href`; `removes`
 /// says so to a screen reader.
-fn removable(href: &str, removes: &str, tone: &str, words: &str) -> Markup {
+pub(crate) fn removable(
+    href: &str,
+    removes: &str,
+    tone: &str,
+    words: &str,
+) -> Markup {
     html! {
         a href=(href) aria-label=(removes)
             class={ "badge gap-1.5 pr-2 hover:no-underline " (tone) } {
@@ -510,7 +433,7 @@ fn removable(href: &str, removes: &str, tone: &str, words: &str) -> Markup {
 }
 
 /// The query with term `index` taken out.
-fn without(terms: &[Term], index: usize) -> String {
+pub(crate) fn without(terms: &[Term], index: usize) -> String {
     terms
         .iter()
         .enumerate()
@@ -522,7 +445,7 @@ fn without(terms: &[Term], index: usize) -> String {
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
-struct Filter {
+pub(crate) struct Filter {
     tag: Tag,
     count: usize,
     /// The tag filter it is, as the address gives it, when chosen.
@@ -532,7 +455,7 @@ struct Filter {
 /// The tags to narrow a category's builds by: each the builds `shown`
 /// carry that some but not all of them do, and each already chosen, by
 /// kind, found before given, then most carried first.
-fn filters(shown: &[Build], chosen: &[String]) -> Vec<Filter> {
+pub(crate) fn filters(shown: &[Build], chosen: &[String]) -> Vec<Filter> {
     let mut filters: Vec<Filter> = Vec::new();
     for s in shown {
         for tag in s.every_tag() {
@@ -622,39 +545,8 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
     }
 }
 
-/// The tiles under their sections' headings, each with its heading and
-/// the id it goes by, in the sidebar's order, then under Other those off
-/// the list, keeping the order of `tiles`.
-fn tile_groups<'t>(
-    tiles: &'t [Tile<'t>],
-) -> Vec<(&'static str, &'static str, Vec<&'t Tile<'t>>)> {
-    let in_section = |section: Section| -> Vec<&Tile> {
-        tiles
-            .iter()
-            .filter(|t| t.section == Some(section))
-            .collect()
-    };
-    // Every section with a category that has builds keeps its heading, as
-    // the sidebar does.
-    let headed: Vec<Section> = Section::ALL
-        .iter()
-        .copied()
-        .filter(|&section| !in_section(section).is_empty())
-        .collect();
-    let mut groups: Vec<_> = headed
-        .iter()
-        .map(|&section| (section.label(), section.name(), in_section(section)))
-        .collect();
-    let rest: Vec<&Tile> =
-        tiles.iter().filter(|t| t.section.is_none()).collect();
-    if !rest.is_empty() {
-        groups.push(("Other", "other", rest));
-    }
-    groups
-}
-
 /// Builds as table rows, for the home page's List layout.
-fn table(schematics: &[Build], terms: &[Term]) -> Markup {
+pub(crate) fn table(schematics: &[Build], terms: &[Term]) -> Markup {
     // Columns a phone has no room for; the name and its tags come first.
     let secondary = "hidden desktop:table-cell";
     html! {

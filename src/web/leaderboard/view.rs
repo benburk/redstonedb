@@ -1,4 +1,5 @@
-//! A category's leaderboard page.
+//! A category's leaderboard page: the choices that narrow its board, and
+//! its rankings.
 
 use maud::{Markup, html};
 
@@ -6,12 +7,11 @@ use crate::{
     account::User,
     build::{
         Build,
-        tag::{self, Kind},
+        tag::{self},
     },
     category::{Category, Measure},
     leaderboard::{
-        self, Board, Choice, Inputs, Placed, Rank, Record, Ruler, SHOWN,
-        Standing, Wanted, in_sentence,
+        self, Board, Choice, Inputs, Placed, Ruler, SHOWN, Wanted, in_sentence,
     },
     simulate::Group,
     web::{
@@ -22,7 +22,6 @@ use crate::{
             layout::base,
             person, segmented,
             summary::{self, latency},
-            text::count,
         },
     },
 };
@@ -32,17 +31,6 @@ pub struct LeaderboardPage<'a> {
     pub category: &'a Category,
     pub board: &'a Board<'a>,
     /// Categories with builds to rank.
-    pub facets: &'a [Facet],
-}
-
-/// The leaderboards' front page: the records most contested, and who
-/// built, added, and holds the most records.
-pub struct PeoplePage<'a> {
-    pub records: &'a [Record<'a>],
-    pub built: &'a [Standing],
-    pub added: &'a [Standing],
-    pub holders: &'a [Standing],
-    /// Categories with builds to rank, for the sidebar.
     pub facets: &'a [Facet],
 }
 
@@ -56,228 +44,6 @@ fn board_menu(facets: &[Facet], current: &str) -> Markup {
             noscript { button type="submit" class="btn btn-quiet min-h-9" { "Go" } }
         }
     }
-}
-
-pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
-    let PeoplePage {
-        records,
-        built,
-        added,
-        holders,
-        facets,
-    } = *page;
-    let author = |s: &Standing| href::player(&s.name);
-    // An upload's account has a profile; an importer is only a name.
-    let adder = |name: &str, account: Option<&str>| match account {
-        Some(username) => href::user(username),
-        None => href::player(name),
-    };
-    base(
-        viewer,
-        "Leaderboards",
-        "/leaderboards",
-        &html! {
-            div {
-                (heading("Leaderboards", facets, ""))
-                (contested(records))
-                h2 class={ (SECTION_TITLE) " mt-10 mb-4" } { "People" }
-                div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
-                    (standings("most-built", "Most builds", "Builds", built, author))
-                    (standings("most-added", "Most added", "Added", added, |s| adder(&s.name, s.account.as_deref())))
-                    (standings("most-records", "Most records", "Records", holders, author))
-                }
-            }
-        },
-    )
-}
-
-/// The records most contested, each build's under the board with the
-/// most authors it is first on.
-fn contested(records: &[Record]) -> Markup {
-    let mut shown: Vec<&Record> = Vec::new();
-    for record in records {
-        let same = |other: &&Record| {
-            other.holders.len() == record.holders.len()
-                && other
-                    .holders
-                    .iter()
-                    .zip(&record.holders)
-                    .all(|(a, b)| a.id == b.id)
-        };
-        if !shown.iter().any(same) {
-            shown.push(record);
-        }
-    }
-    html! {
-        section aria-labelledby="records" {
-            h2 id="records" class={ (SECTION_TITLE) " mb-1" } { "Records" }
-            p class="mb-2 max-w-prose text-meta text-muted" {
-                "First place on boards of two or more builds, each tag or latency changing who is first. Most authors first."
-            }
-            @if shown.is_empty() {
-                p class="text-muted" { "No board has two builds yet." }
-            } @else {
-                (record_table(&shown, None))
-                (and_more(shown.len()))
-            }
-        }
-    }
-}
-
-/// The first [`SHOWN`] of `records`, each linking to its board, with how
-/// many built for it and the record itself, linking to the build holding
-/// it; or, for a `player`, every one, with the name of the build of theirs
-/// holding it.
-pub(crate) fn record_table(
-    records: &[&Record],
-    player: Option<&str>,
-) -> Markup {
-    let named = player.is_some();
-    let holder = |record: &Record<'_>| -> String {
-        let theirs = record.holders.iter().find(|s| {
-            s.credits
-                .authors
-                .iter()
-                .any(|b| player.is_some_and(|p| b.eq_ignore_ascii_case(p)))
-        });
-        theirs.unwrap_or(&record.holders[0]).id.clone()
-    };
-    html! {
-        div class="relative overflow-x-auto" {
-            table class="w-full border-collapse" {
-                thead {
-                    tr {
-                        th scope="col" class=(TABLE_HEAD) { "Record" }
-                        @if named {
-                            th scope="col" class=(TABLE_HEAD) { "Build" }
-                        }
-                        th scope="col" class=(TABLE_HEAD) { "Holds at" }
-                    }
-                }
-                tbody {
-                    @for record in records.iter().take(if named { usize::MAX } else { SHOWN }) {
-                        @let id = holder(record);
-                        @let holder = record.holders.iter().find(|s| s.id == id).unwrap_or(&record.holders[0]);
-                        @let href = href::build(&holder.id);
-                        tr class="hover:bg-selection/50" {
-                            th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                a href=(record_href(record)) class="font-semibold" { (record.name()) }
-                                div class="mt-1 text-meta text-muted" {
-                                    (count(record.authors, "author")) " · " (count(record.field.len(), "build"))
-                                }
-                            }
-                            @if named {
-                                td class=(TABLE_CELL) {
-                                    a href=(href) { (holder.title()) }
-                                }
-                            }
-                            td class={ (TABLE_CELL) " tabular-nums" } {
-                                a href=(href) {
-                                    @match record.rank {
-                                        Rank::Fastest => (latency(holder)),
-                                        Rank::Smallest => (blocks(holder, record.ruler)),
-                                    }
-                                }
-                                @if record.holders.len() > 1 {
-                                    div class="mt-1 text-meta text-muted" { (record.holders.len()) " tied" }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The address of the board a record is first on: its interleaved inputs
-/// and, for cells, its pitch class, chosen apart from its tags.
-fn record_href(record: &Record) -> String {
-    let of = |kind: Kind| record.tags.iter().find(|tag| tag.kind == kind);
-    let cells = leaderboard::as_cells(leaderboard::group_of(record.category));
-    let class = |name: &str| {
-        let (pitch, shape) = leaderboard::pitch_class(name)?;
-        cells.then(|| format!("{pitch}-{shape}"))
-    };
-    let interleaved = record
-        .tags
-        .iter()
-        .any(|t| t.name == tag::INTERLEAVED_INPUTS);
-    Wanted {
-        measures: record.measures.clone(),
-        logic: Some(record.logic),
-        orientation: of(Kind::Orientation)
-            .map(|_| record.holders[0].specs.orientation),
-        design: of(Kind::Design).map(|tag| tag.name.clone()),
-        ticks: record.ticks,
-        tags: record
-            .tags
-            .iter()
-            .filter(|tag| !matches!(tag.kind, Kind::Design | Kind::Orientation))
-            .filter(|tag| tag.name != tag::INTERLEAVED_INPUTS)
-            .filter(|tag| class(&tag.name).is_none())
-            .map(|tag| tag.name.clone())
-            .collect(),
-        inputs: interleaved.then_some(Inputs::Interleaved),
-        stacking: record.tags.iter().find_map(|tag| class(&tag.name)),
-    }
-    .href(&format!("/leaderboards/{}", record.category))
-}
-
-/// One people ranking under `heading`: the first [`SHOWN`], each linking
-/// where `href` says, with their count under `unit`.
-fn standings(
-    id: &str,
-    heading: &str,
-    unit: &str,
-    people: &[Standing],
-    href: impl Fn(&Standing) -> String,
-) -> Markup {
-    html! {
-        section aria-labelledby=(id) {
-            h2 id=(id) class={ (SECTION_TITLE) " mb-2" } { (heading) }
-            @if people.is_empty() {
-                p class="text-muted" { "No one yet." }
-            } @else {
-                table class="w-full border-collapse" {
-                    thead {
-                        tr {
-                            th scope="col" class={ (TABLE_HEAD) " w-8" } { "#" }
-                            th scope="col" class=(TABLE_HEAD) { "Name" }
-                            th scope="col" class={ (TABLE_HEAD) " text-right" } { (unit) }
-                        }
-                    }
-                    tbody {
-                        @for (place, person) in places(people).into_iter().take(SHOWN) {
-                            tr class="hover:bg-selection/50" {
-                                td class={ (TABLE_CELL) " tabular-nums text-muted" } { (place) }
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    (person::person_link(&person.name, &href(person)))
-                                }
-                                td class={ (TABLE_CELL) " text-right tabular-nums" } { (person.count) }
-                            }
-                        }
-                    }
-                }
-                (and_more(people.len()))
-            }
-        }
-    }
-}
-
-/// Each person with their place, a tie sharing one.
-fn places(people: &[Standing]) -> Vec<(usize, &Standing)> {
-    let mut place = 0;
-    people
-        .iter()
-        .enumerate()
-        .map(|(i, person)| {
-            if i == 0 || people[i - 1].count != person.count {
-                place = i + 1;
-            }
-            (place, person)
-        })
-        .collect()
 }
 
 pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
@@ -321,7 +87,7 @@ fn chosen_measures(board: &Board, count: usize) -> Vec<(Measure, i64)> {
 /// orientation, design, latency, and tags the board is narrowed to.
 /// Changing a measure or the logic resets those after it, which the new
 /// choice may not have; the rest keep one another.
-fn choices(path: &str, board: &Board) -> Markup {
+pub(crate) fn choices(path: &str, board: &Board) -> Markup {
     let measured = Wanted {
         measures: chosen_measures(board, board.splits.len()),
         ..Wanted::default()
@@ -420,7 +186,7 @@ fn choices(path: &str, board: &Board) -> Markup {
 
 /// A leaderboard page's title, with the menu of boards, `chosen` the one
 /// shown.
-fn heading(title: &str, facets: &[Facet], chosen: &str) -> Markup {
+pub(crate) fn heading(title: &str, facets: &[Facet], chosen: &str) -> Markup {
     html! {
         div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
             h1 class={ (PAGE_TITLE) " mr-auto" } { (title) }
@@ -431,7 +197,7 @@ fn heading(title: &str, facets: &[Facet], chosen: &str) -> Markup {
 
 /// Under a table of the first [`SHOWN`] of `all` rows, how many more
 /// there are, when there are any.
-fn and_more(all: usize) -> Markup {
+pub(crate) fn and_more(all: usize) -> Markup {
     html! {
         @if all > SHOWN {
             p class="mt-2 text-meta text-muted" { "And " (all - SHOWN) " more." }
@@ -603,7 +369,7 @@ fn board_name(category: &Category, board: &Board) -> String {
 
 /// Its size as `ruler` measures it: its volume, or a cell's blocks, those
 /// of each copy where its copies stack, or a bit where it holds more.
-fn blocks(s: &Build, ruler: Ruler) -> String {
+pub(crate) fn blocks(s: &Build, ruler: Ruler) -> String {
     if ruler == Ruler::Whole {
         return summary::volume(s);
     }
@@ -625,7 +391,7 @@ fn blocks(s: &Build, ruler: Ruler) -> String {
 /// How many copies of `s` still work stacked the ways its board, as
 /// `ruler` measures it, counts, the most of them: any number, up to a
 /// limit, or a dash for a build whose copies add no bits.
-fn copies(s: &Build, ruler: Ruler) -> String {
+pub(crate) fn copies(s: &Build, ruler: Ruler) -> String {
     let (west, up) = match ruler {
         Ruler::Cell { west, up } if west || up => (west, up),
         _ => (true, true),
@@ -649,7 +415,7 @@ fn copies(s: &Build, ruler: Ruler) -> String {
 
 /// A table of the first [`SHOWN`] of `placed`, with their places unless all
 /// are zero, and the measures `values` gives under `headings`.
-fn ranking(
+pub(crate) fn ranking(
     placed: &[Placed],
     headings: &[&str],
     values: impl Fn(&Build) -> Vec<String>,
