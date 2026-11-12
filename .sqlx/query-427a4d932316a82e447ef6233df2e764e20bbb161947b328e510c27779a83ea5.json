@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build_id as \"id!\", data as \"data!\" FROM current_file",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "data!",
+        "ordinal": 1,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "427a4d932316a82e447ef6233df2e764e20bbb161947b328e510c27779a83ea5"
+}

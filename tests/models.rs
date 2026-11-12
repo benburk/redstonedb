@@ -162,7 +162,7 @@ async fn an_account_goes_by_its_minecraft_name() {
 async fn a_confirmed_name_respells_its_credits_and_imports() {
     let db = common::database().await;
     sqlx::query(
-        "INSERT INTO schematic (id, category, orientation, size_x, size_y,
+        "INSERT INTO build (id, category, orientation, size_x, size_y,
             size_z, imported_by)
          VALUES ('b', 'adder', 'horz', 1, 1, 1, 'PISHLEBACK')",
     )
@@ -170,7 +170,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO credit (schematic_id, role, name, position)
+        "INSERT INTO credit (build_id, role, name, position)
          VALUES ('b', 'author', 'Pishleback', 0)",
     )
     .execute(&db)
@@ -179,7 +179,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
     let spelled = || async {
         sqlx::query_as::<_, (String, String)>(
             "SELECT credit.name, imported_by FROM credit
-             JOIN schematic ON schematic.id = credit.schematic_id",
+             JOIN build ON build.id = credit.build_id",
         )
         .fetch_one(&db)
         .await

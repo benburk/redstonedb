@@ -26,8 +26,8 @@ impl Status {
     /// stored as unverified for `reason`: its result, when it ran or broke,
     /// whatever reason was stored before; else the reason, wrong outputs
     /// failing and any other not tested; else no test. A result skipped
-    /// says no more than the reason, as one off the list is only tested
-    /// to say what keeps it from being recognized.
+    /// says no more than the reason, as an unverified build is only
+    /// tested to say what keeps it from being recognized.
     pub fn of(
         outcome: Option<&str>,
         failed: bool,

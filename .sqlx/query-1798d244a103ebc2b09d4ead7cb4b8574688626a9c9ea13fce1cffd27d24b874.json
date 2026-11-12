@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT category FROM build WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "category",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1798d244a103ebc2b09d4ead7cb4b8574688626a9c9ea13fce1cffd27d24b874"
+}

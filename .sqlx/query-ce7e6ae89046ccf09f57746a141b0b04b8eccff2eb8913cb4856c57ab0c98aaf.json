@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build SET downloads = downloads + 1 WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ce7e6ae89046ccf09f57746a141b0b04b8eccff2eb8913cb4856c57ab0c98aaf"
+}

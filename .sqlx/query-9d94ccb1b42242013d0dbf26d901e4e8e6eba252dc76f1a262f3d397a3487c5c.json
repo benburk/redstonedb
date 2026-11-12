@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build_id, version FROM build_version\n         WHERE sha256 = ? ORDER BY restores IS NOT NULL, version",
+  "describe": {
+    "columns": [
+      {
+        "name": "build_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "version",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9d94ccb1b42242013d0dbf26d901e4e8e6eba252dc76f1a262f3d397a3487c5c"
+}

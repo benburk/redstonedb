@@ -115,7 +115,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
 }
 
 /// An adder failing its test goes up as an adder all the same, unverified,
-/// saying why; under an off-list name of its own it is taken too.
+/// saying why; a name made from adder is no category for it.
 #[tokio::test]
 async fn an_adder_failing_its_test_goes_up_unverified() {
     let db = setup_test_db().await;
@@ -138,7 +138,7 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
     let other = details::check(&db, as_other, Candidate::of(&prepared), false)
         .await
         .unwrap();
-    assert!(other.is_ok(), "{:?}", other.err());
+    assert!(other.is_err_and(|why| why.contains("Choose Adder")));
 }
 
 /// Unverified as an adder, it is held to the adder test all the same, so
@@ -179,32 +179,6 @@ async fn an_unverified_build_is_tested_as_its_category() {
     assert!(board.builds.is_empty(), "an unverified build never ranks");
 }
 
-/// Off the list, it is held to the adder test all the same, so its page
-/// shows what keeps it from being one, though nothing else is set from it.
-#[tokio::test]
-async fn an_off_list_build_is_tested_as_what_it_stands_in_for() {
-    let db = setup_test_db().await;
-    let typed = Details {
-        category: "8-bit adder".to_owned(),
-        specs: Specs {
-            latency: Some(99),
-            ..Specs::default()
-        },
-        ..Details::default()
-    };
-    let id = store(&db, "cca-8-dust-out", typed).await;
-    let report = simulation::refresh(&db, &id, false)
-        .await
-        .unwrap()
-        .expect("it is tested");
-    assert!(report.failed(), "the fixture fails the adder test");
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.category, "8-bit_adder");
-    assert_eq!(s.specs.latency, Some(99), "its typed details stay");
-    let stored = simulation::current(&db, &s).await.unwrap();
-    assert!(stored.is_some_and(|report| report.failed()));
-}
-
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
 async fn a_new_file_with_the_same_circuit_keeps_its_result() {
@@ -217,7 +191,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     simulation::refresh(&db, &id, false).await.unwrap();
     let ran_at = || async {
         sqlx::query_scalar::<_, String>(
-            "SELECT ran_at FROM simulation WHERE schematic_id = ?",
+            "SELECT ran_at FROM simulation WHERE build_id = ?",
         )
         .bind(&id)
         .fetch_one(&db)

@@ -182,7 +182,7 @@ async fn chosen_version(
 ) -> Result<Checked, String> {
     // A listed build that follows the conventions is kept standardized;
     // one unverified or off the list as built, until a version it is
-    // recognized by moves it up.
+    // recognized by verifies it.
     let listed = s.kind().is_some();
     let standardize = s.file.conventional && listed && s.unverified.is_none();
     check_version(db, s, file, standardize)
@@ -329,8 +329,7 @@ pub async fn delete(
 
 /// Checks and stores `user`'s edit of build `s`, with the new version
 /// `checked` when one waits: the file it is kept as, when that differs
-/// from the one checked, and why the edit was refused, if it was. A build
-/// its version moves up goes under the category the version passes.
+/// from the one checked, and why the edit was refused, if it was.
 async fn save_details(
     db: &SqlitePool,
     user: &User,
@@ -348,53 +347,38 @@ async fn save_details(
         }
         None => None,
     };
-    let (kept, moved_to) = kept.map_or((None, None), |(p, to)| (Some(p), to));
-    let moved;
-    let saving = match moved_to {
-        Some(category) => {
-            moved = Form {
-                category,
-                ..form.clone()
-            };
-            &moved
-        }
-        None => form,
-    };
     let new = kept.as_ref().or(checked.map(|c| &c.prepared));
-    let refused = saved(db, user, s, saving, new).await?.err();
+    let refused = saved(db, user, s, form, new).await?.err();
     Ok((kept, refused))
 }
 
-/// The file a new version, `prepared`, is kept as, and the category build
-/// `s` goes up under with it, when either differs from what was given:
-/// a build unverified, or off the list, whose new version is recognized as
-/// the listed category it stands in for, as an 8-bit adder's as an adder,
-/// moves up,
-/// its file standardized and turned to lie the standard way, as an
-/// upload's is.
-/// Only a build whose category, as `category` gives it, is unchanged
-/// moves up.
+/// The file a new version, `prepared`, of build `s` is kept as, when that
+/// differs from the one given: standardized and turned to lie the standard
+/// way, as an upload's is, for a build unverified as its category whose
+/// new version is recognized as one, and kept as it stands for a build
+/// recognized already. Only a build whose category, as `category` gives
+/// it, is unchanged is verified by its version.
 async fn version_kept(
     s: &Build,
     category: &str,
     prepared: &Prepared,
-) -> anyhow::Result<Option<(Prepared, Option<String>)>> {
+) -> anyhow::Result<Option<Prepared>> {
     let categories = Category::all();
-    let evaluated = |c: &&Category| category::behaviour(&c.name).evaluated;
-    if Category::name_of(&categories, category) == s.category
-        && let Some(meant) = simulation::stands_in(s)
-        && let Some((moved, to)) =
-            import::moved_up(&categories, meant, prepared, s.file.keeps_paste)
-                .await?
+    let Some(listed) = Category::find(&categories, category) else {
+        return Ok(None);
+    };
+    if listed.name == s.category
+        && !s.verified()
+        && let Some(verified) =
+            import::verified_by(listed, prepared, s.file.keeps_paste).await?
     {
-        return Ok(Some((moved, Some(to.name.clone()))));
+        return Ok(Some(verified));
     }
-    match Category::find(&categories, category).filter(evaluated) {
-        Some(_) if prepared.conventional && s.unverified.is_none() => {
-            Ok(Some((import::rewrapped(prepared)?, None)))
-        }
-        _ => Ok(None),
+    let evaluated = category::behaviour(&listed.name).evaluated;
+    if evaluated && prepared.conventional && s.unverified.is_none() {
+        return Ok(Some(import::rewrapped(prepared)?));
     }
+    Ok(None)
 }
 
 /// Checks and stores `user`'s edit of build `s`, or says why it was

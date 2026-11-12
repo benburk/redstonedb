@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM credit WHERE build_id = ? AND role = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ed46df63af9d9f2c1b0bfc15cdcd15c17c5771e2fa93dd5a5055a42a8cb48fab"
+}

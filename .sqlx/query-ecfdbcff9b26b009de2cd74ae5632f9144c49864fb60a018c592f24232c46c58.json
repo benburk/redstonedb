@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM build_flag WHERE build_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ecfdbcff9b26b009de2cd74ae5632f9144c49864fb60a018c592f24232c46c58"
+}

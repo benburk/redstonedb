@@ -18,7 +18,7 @@ pub async fn set_public<'e, E: SqliteExecutor<'e>>(
     id: &str,
     public: bool,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE schematic SET public = ? WHERE id = ?", public, id)
+    sqlx::query!("UPDATE build SET public = ? WHERE id = ?", public, id)
         .execute(db)
         .await?;
     Ok(())
@@ -32,7 +32,7 @@ pub async fn favorited(
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar!(
         r#"SELECT EXISTS (SELECT 1 FROM favorite
-            WHERE user_id = ? AND schematic_id = ?) AS "found!: bool""#,
+            WHERE user_id = ? AND build_id = ?) AS "found!: bool""#,
         user,
         id
     )
@@ -46,7 +46,7 @@ pub async fn favorite_count(
     id: &str,
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!: i64" FROM favorite WHERE schematic_id = ?"#,
+        r#"SELECT count(*) AS "count!: i64" FROM favorite WHERE build_id = ?"#,
         id
     )
     .fetch_one(db)
@@ -62,7 +62,7 @@ pub async fn set_favorite(
 ) -> Result<(), sqlx::Error> {
     if on {
         sqlx::query!(
-            "INSERT OR IGNORE INTO favorite (user_id, schematic_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO favorite (user_id, build_id) VALUES (?, ?)",
             user,
             id
         )
@@ -70,7 +70,7 @@ pub async fn set_favorite(
         .await?;
     } else {
         sqlx::query!(
-            "DELETE FROM favorite WHERE user_id = ? AND schematic_id = ?",
+            "DELETE FROM favorite WHERE user_id = ? AND build_id = ?",
             user,
             id
         )
@@ -87,8 +87,8 @@ pub async fn favorites(
     user: uuid::Uuid,
 ) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT schematic_id FROM favorite
-         JOIN schematic ON schematic.id = favorite.schematic_id
+        "SELECT build_id FROM favorite
+         JOIN build ON build.id = favorite.build_id
          WHERE user_id = ? AND deleted_at IS NULL
          ORDER BY favorite.added_at DESC",
         user
@@ -122,7 +122,7 @@ pub async fn insert(
     let (x, y, z) = (size.x, size.y, size.z);
     let mut tx = db.begin().await?;
     let id = sqlx::query_scalar!(
-        r#"INSERT INTO schematic (id, category, width, orientation, encoding,
+        r#"INSERT INTO build (id, category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, given_name,
             logic, throughput, at_least, pulse, bytes, torches, works_from,
@@ -181,7 +181,7 @@ pub async fn set_details(
     let mut tx = db.begin().await?;
     if ready.evaluated {
         sqlx::query!(
-            "UPDATE schematic SET category = ?, built_on = ?,
+            "UPDATE build SET category = ?, built_on = ?,
                 description = ?, given_name = ?, at_least = ?, bytes = ?,
                 unverified = NULL,
                 edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
@@ -200,7 +200,7 @@ pub async fn set_details(
         return tx.commit().await;
     }
     sqlx::query!(
-        "UPDATE schematic SET category = ?, width = ?, orientation = ?,
+        "UPDATE build SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, given_name = ?, logic = ?,
             throughput = ?, at_least = ?, pulse = ?, bytes = ?, unverified = ?,
@@ -300,7 +300,7 @@ pub async fn restore(
     match detail {
         Restorable::Description => {
             sqlx::query!(
-                "UPDATE schematic SET description = ? WHERE id = ?",
+                "UPDATE build SET description = ? WHERE id = ?",
                 value,
                 id
             )
@@ -315,7 +315,7 @@ pub async fn restore(
         }
     }
     sqlx::query!(
-        "UPDATE schematic
+        "UPDATE build
          SET edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
         id
     )
@@ -334,7 +334,7 @@ async fn set_credits(
 ) -> Result<(), sqlx::Error> {
     let role = credit.as_str();
     sqlx::query!(
-        "DELETE FROM credit WHERE schematic_id = ? AND role = ?",
+        "DELETE FROM credit WHERE build_id = ? AND role = ?",
         id,
         role
     )
@@ -344,7 +344,7 @@ async fn set_credits(
         // A name an admin has confirmed for an account is stored as that
         // account spells it.
         sqlx::query!(
-            "INSERT OR IGNORE INTO credit (schematic_id, role, name, position)
+            "INSERT OR IGNORE INTO credit (build_id, role, name, position)
              VALUES (?, ?, coalesce(
                 (SELECT minecraft_name FROM user WHERE minecraft_verified
                     AND minecraft_name = ? COLLATE NOCASE),
@@ -367,7 +367,7 @@ pub async fn set_stacking(
     id: &str,
     directions: &[StackDirection],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM stack_direction WHERE schematic_id = ?", id)
+    sqlx::query!("DELETE FROM stack_direction WHERE build_id = ?", id)
         .execute(&mut *tx)
         .await?;
     for d in directions {
@@ -376,7 +376,7 @@ pub async fn set_stacking(
             .map(|faces| serde_json::to_string(&faces).unwrap_or_default());
         sqlx::query!(
             "INSERT INTO stack_direction
-                (schematic_id, west, up, max_copies, faces, pitch)
+                (build_id, west, up, max_copies, faces, pitch)
              VALUES (?, ?, ?, ?, ?, ?)",
             id,
             d.west,
@@ -397,13 +397,13 @@ pub async fn set_widened(
     id: &str,
     widened: &[Widened],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM stacked_width WHERE schematic_id = ?", id)
+    sqlx::query!("DELETE FROM stacked_width WHERE build_id = ?", id)
         .execute(&mut *tx)
         .await?;
     for w in widened {
         sqlx::query!(
             "INSERT INTO stacked_width
-                (schematic_id, width, copies, latency, synchronized,
+                (build_id, width, copies, latency, synchronized,
                  throughput)
              VALUES (?, ?, ?, ?, ?, ?)",
             id,
@@ -427,15 +427,15 @@ pub async fn set_flags(
     names: &[String],
 ) -> Result<(), sqlx::Error> {
     let category =
-        sqlx::query_scalar!("SELECT category FROM schematic WHERE id = ?", id)
+        sqlx::query_scalar!("SELECT category FROM build WHERE id = ?", id)
             .fetch_one(&mut *tx)
             .await?;
-    sqlx::query!("DELETE FROM schematic_flag WHERE schematic_id = ?", id)
+    sqlx::query!("DELETE FROM build_flag WHERE build_id = ?", id)
         .execute(&mut *tx)
         .await?;
     for flag in crate::category::flags_among(&category, names) {
         sqlx::query!(
-            "INSERT INTO schematic_flag (schematic_id, name) VALUES (?, ?)",
+            "INSERT INTO build_flag (build_id, name) VALUES (?, ?)",
             id,
             flag.name
         )
@@ -454,7 +454,7 @@ pub async fn set_specs<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     let logic = specs.logic.map(Logic::name);
     sqlx::query!(
-        "UPDATE schematic SET width = ?, orientation = ?, encoding = ?,
+        "UPDATE build SET width = ?, orientation = ?, encoding = ?,
             latency = ?, synchronized = ?, pulse = ?, at_least = ?,
             throughput = ?, design = ?, logic = ?
          WHERE id = ?",
@@ -484,7 +484,7 @@ pub async fn set_import_details<'e, E: SqliteExecutor<'e>>(
     conventional: bool,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET imported_by = ?, conventional = ? WHERE id = ?",
+        "UPDATE build SET imported_by = ?, conventional = ? WHERE id = ?",
         imported_by,
         conventional,
         id
@@ -500,7 +500,7 @@ pub async fn count_download<'e, E: SqliteExecutor<'e>>(
     id: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE schematic SET downloads = downloads + 1 WHERE id = ?",
+        "UPDATE build SET downloads = downloads + 1 WHERE id = ?",
         id
     )
     .execute(db)
@@ -546,9 +546,9 @@ pub async fn log_download<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     let kind = kind.name();
     sqlx::query!(
-        "INSERT INTO download (schematic_id, user_id, version, kind)
+        "INSERT INTO download (build_id, user_id, version, kind)
          VALUES (?1, ?2, coalesce(?3, (SELECT version FROM current_file
-             WHERE schematic_id = ?1)), ?4)",
+             WHERE build_id = ?1)), ?4)",
         id,
         user,
         version,
@@ -590,7 +590,7 @@ async fn hide(
 ) -> Result<bool, sqlx::Error> {
     let mut tx = db.begin().await?;
     let changed = sqlx::query!(
-        "UPDATE schematic
+        "UPDATE build
          SET deleted_at = iif(?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL)
          WHERE id = ?1 AND (deleted_at IS NULL) = ?2",
         id,
@@ -603,7 +603,7 @@ async fn hide(
     if changed {
         let restored = !hidden;
         sqlx::query!(
-            "INSERT INTO deletion (schematic_id, user_id, restored)
+            "INSERT INTO deletion (build_id, user_id, restored)
              VALUES (?, ?, ?)",
             id,
             by,
@@ -622,7 +622,7 @@ pub async fn purge<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM schematic WHERE id = ?", id)
+    sqlx::query!("DELETE FROM build WHERE id = ?", id)
         .execute(db)
         .await?;
     Ok(())

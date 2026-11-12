@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO stack_direction\n                (build_id, west, up, max_copies, faces, pitch)\n             VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "51b789a76d98a49fbfb1ad0f825f7b950b8739de1aaaf441a49323546768e0f0"
+}

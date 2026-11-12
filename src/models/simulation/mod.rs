@@ -46,7 +46,7 @@ pub async fn stored<'e, E: SqliteExecutor<'e>>(
     let name = test.name();
     let report = sqlx::query_scalar!(
         "SELECT report FROM simulation
-         WHERE schematic_id = ? AND sha256 = ? AND test = ?",
+         WHERE build_id = ? AND sha256 = ? AND test = ?",
         id,
         sha256,
         name
@@ -76,9 +76,9 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     let report = serde_json::to_string(report)?;
     sqlx::query!(
         "INSERT INTO simulation
-            (schematic_id, test, sha256, circuit, failed, report)
+            (build_id, test, sha256, circuit, failed, report)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (schematic_id) DO UPDATE SET test = excluded.test,
+        ON CONFLICT (build_id) DO UPDATE SET test = excluded.test,
             sha256 = excluded.sha256, circuit = excluded.circuit,
             failed = excluded.failed, report = excluded.report,
             ran_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
@@ -124,7 +124,7 @@ async fn adopt(
     };
     sqlx::query!(
         "UPDATE simulation SET sha256 = ?
-         WHERE schematic_id = ? AND circuit = ? AND sha256 <> ?",
+         WHERE build_id = ? AND circuit = ? AND sha256 <> ?",
         sha256,
         id,
         key,
@@ -136,42 +136,20 @@ async fn adopt(
 }
 
 async fn clear<'e, E: SqliteExecutor<'e>>(db: E, id: &str) -> Result<()> {
-    sqlx::query!("DELETE FROM simulation WHERE schematic_id = ?", id)
+    sqlx::query!("DELETE FROM simulation WHERE build_id = ?", id)
         .execute(db)
         .await?;
     Ok(())
 }
 
-/// The listed category an off-list one named for what it seems meant to
-/// be, such as `8-bit_register`, or `unrecognized_register` when its width
-/// could not be read, stands in for, when the simulation works out that
-/// category's builds; such a build goes up off the list while it is not
-/// recognized as one. See `details::off_list_name`.
-pub fn meant_by(category: &str) -> Option<&str> {
-    let meant = category.strip_prefix("unrecognized_").or_else(|| {
-        let (bits, meant) = category.split_once("-bit_")?;
-        bits.parse::<u32>().ok().map(|_| meant)
-    })?;
-    category::behaviour(meant).evaluated.then_some(meant)
-}
-
-/// The category whose test build `s` is held to only to say what keeps it
-/// from being recognized as one: its own, when it is unverified as one, or
-/// the one an off-list name stands in for, as [`meant_by`] reads it.
-/// `None` for any other build, held to its category's test as it is.
-pub fn stands_in(s: &Build) -> Option<&str> {
-    // An off-list name stands in for its category whether it works or not.
-    meant_by(&s.category)
-        .or_else(|| (!s.verified()).then_some(s.category.as_str()))
-}
-
 /// The test build `s` is held to: its category's at its width, or for one
-/// it [`stands_in`] for, that category's test, to say what keeps it from
-/// being recognized as one.
+/// not verified as its category, that test whatever its width, to say what
+/// keeps it from being recognized as one.
 pub fn test_for(s: &Build) -> Option<Test> {
-    match stands_in(s) {
-        Some(meant) => category::behaviour(meant).test,
-        None => Test::of(&s.category, s.specs.width),
+    if s.verified() {
+        Test::of(&s.category, s.specs.width)
+    } else {
+        category::behaviour(&s.category).test
     }
 }
 
@@ -220,8 +198,8 @@ pub async fn refresh(
     if s.evaluated() {
         return refresh_evaluated(db, &s, data, again).await;
     }
-    if let Some(meant) = stands_in(&s) {
-        return refresh_off_list(db, &s, &data, meant, again).await;
+    if !s.verified() {
+        return refresh_unverified(db, &s, &data, again).await;
     }
     let mut derived = Derived::of(&s);
     if s.file.conventional {
@@ -312,7 +290,7 @@ async fn at_zero(
     if !report.passed() || !s.file.conventional {
         return kept(data);
     }
-    let category = stands_in(s).unwrap_or(&s.category).to_owned();
+    let category = s.category.clone();
     let inverted = report.inverted().to_vec();
     let (conventional, keeps_paste) = (s.file.conventional, s.file.keeps_paste);
     let was = data.clone();
@@ -377,17 +355,14 @@ async fn reused_at_zero(
     Ok((data, sha256))
 }
 
-/// Brings build `s`, unverified or off the list while it is not
-/// recognized as the category `meant` it stands in for, up to date with
-/// its file `data`:
-/// that category's test run on the file standardized, as recognizing it
-/// would, to show what keeps it from being one. Nothing else is set from
-/// the result, its details being its author's.
-async fn refresh_off_list(
+/// Brings build `s`, not verified as its category, up to date with its
+/// file `data`: its category's test run on the file standardized, as
+/// recognizing it would, to show what keeps it from being one. Nothing
+/// else is set from the result, its details being its author's.
+async fn refresh_unverified(
     db: &SqlitePool,
     s: &Build,
     data: &[u8],
-    meant: &str,
     again: bool,
 ) -> Result<Option<Report>> {
     let Some(test) = test_for(s) else {
@@ -405,9 +380,9 @@ async fn refresh_off_list(
     let report = match standard {
         Ok(standard) => {
             // Its author's width, when its file shows none.
-            let width =
-                derived_width(meant, true, &standard.data)?.or(s.specs.width);
-            match Test::of(meant, width) {
+            let width = derived_width(&s.category, true, &standard.data)?
+                .or(s.specs.width);
+            match Test::of(&s.category, width) {
                 Some(test) => run(test, standard.data).await?,
                 None => Report::Skipped {
                     reason: "Couldn't count its bits.".to_owned(),
@@ -664,9 +639,9 @@ pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
         crate::recognize::palette::needs_of(&data, &s.stacking, buses(&s))?;
     let needs = serde_json::to_string(&needs)?;
     sqlx::query!(
-        "UPDATE schematic_version SET needs = ?
-         WHERE schematic_id = ? AND version = (
-             SELECT max(version) FROM schematic_version WHERE schematic_id = ?
+        "UPDATE build_version SET needs = ?
+         WHERE build_id = ? AND version = (
+             SELECT max(version) FROM build_version WHERE build_id = ?
          )",
         needs,
         id,

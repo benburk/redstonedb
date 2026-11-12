@@ -295,7 +295,7 @@ pub(super) async fn set(
     id: &str,
     names: &[String],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM schematic_tag WHERE schematic_id = ?", id)
+    sqlx::query!("DELETE FROM build_tag WHERE build_id = ?", id)
         .execute(&mut *tx)
         .await?;
     for name in names {
@@ -355,13 +355,13 @@ pub async fn find<'e, E: SqliteExecutor<'e>>(
 
 pub async fn attach<'e, E: SqliteExecutor<'e>>(
     db: E,
-    schematic_id: &str,
+    build_id: &str,
     tag_id: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT OR IGNORE INTO schematic_tag (schematic_id, tag_id)
+        "INSERT OR IGNORE INTO build_tag (build_id, tag_id)
          VALUES (?, ?)",
-        schematic_id,
+        build_id,
         tag_id
     )
     .execute(db)
@@ -371,12 +371,12 @@ pub async fn attach<'e, E: SqliteExecutor<'e>>(
 
 pub async fn detach<'e, E: SqliteExecutor<'e>>(
     db: E,
-    schematic_id: &str,
+    build_id: &str,
     tag_id: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "DELETE FROM schematic_tag WHERE schematic_id = ? AND tag_id = ?",
-        schematic_id,
+        "DELETE FROM build_tag WHERE build_id = ? AND tag_id = ?",
+        build_id,
         tag_id
     )
     .execute(db)

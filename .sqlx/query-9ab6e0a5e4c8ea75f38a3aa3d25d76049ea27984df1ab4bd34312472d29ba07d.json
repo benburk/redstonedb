@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build_version SET measures = ?\n         WHERE build_id = ? AND version = (\n             SELECT max(version) FROM build_version AS newest\n             WHERE newest.build_id = ?\n         )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9ab6e0a5e4c8ea75f38a3aa3d25d76049ea27984df1ab4bd34312472d29ba07d"
+}

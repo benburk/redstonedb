@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build.id as \"id!\", category,\n            category || '/' || file.sha256 as \"now!: String\", compared_as\n         FROM build\n         JOIN current_file AS file ON file.build_id = build.id\n         WHERE deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "now!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "compared_as",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5f4437ca0f895271416ebfedb58e39a04b96405fb488166c58f2b80110fdc0b0"
+}

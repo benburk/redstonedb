@@ -50,12 +50,12 @@ pub async fn list<'e, E: SqliteExecutor<'e>>(
     id: &str,
 ) -> Result<Vec<Version>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT version, schematic_version.added_at,
+        r#"SELECT version, build_version.added_at,
             coalesce(user.minecraft_name, user.username) as "added_by?: String",
             user.username as "added_by_username?: String",
             added_by as "added_by_id?: Uuid", note, restores, measures, changes
-         FROM schematic_version LEFT JOIN user ON user.id = added_by
-         WHERE schematic_id = ? ORDER BY version DESC"#,
+         FROM build_version LEFT JOIN user ON user.id = added_by
+         WHERE build_id = ? ORDER BY version DESC"#,
         id
     )
     .fetch_all(db)
@@ -89,10 +89,10 @@ pub async fn set_measures<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     let json = serde_json::to_string(measures).expect("measures are JSON");
     sqlx::query!(
-        "UPDATE schematic_version SET measures = ?
-         WHERE schematic_id = ? AND version = (
-             SELECT max(version) FROM schematic_version AS newest
-             WHERE newest.schematic_id = ?
+        "UPDATE build_version SET measures = ?
+         WHERE build_id = ? AND version = (
+             SELECT max(version) FROM build_version AS newest
+             WHERE newest.build_id = ?
          )",
         json,
         id,
@@ -113,8 +113,8 @@ pub async fn set_changes<'e, E: SqliteExecutor<'e>>(
 ) -> Result<(), sqlx::Error> {
     let json = serde_json::to_string(&changes).expect("counts are JSON");
     sqlx::query!(
-        "UPDATE schematic_version SET changes = ?
-         WHERE schematic_id = ? AND version = ?",
+        "UPDATE build_version SET changes = ?
+         WHERE build_id = ? AND version = ?",
         json,
         id,
         version
@@ -132,8 +132,8 @@ pub async fn file<'e, E: SqliteExecutor<'e>>(
     version: i64,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
     let row = sqlx::query!(
-        "SELECT data, roles FROM schematic_version
-         WHERE schematic_id = ? AND version = ?",
+        "SELECT data, roles FROM build_version
+         WHERE build_id = ? AND version = ?",
         id,
         version
     )
@@ -151,8 +151,8 @@ pub async fn colours_of<'e, E: SqliteExecutor<'e>>(
     version: i64,
 ) -> Result<Option<crate::recognize::colouring::Colouring>, sqlx::Error> {
     let json = sqlx::query_scalar!(
-        "SELECT colours FROM schematic_version
-         WHERE schematic_id = ? AND version = ?",
+        "SELECT colours FROM build_version
+         WHERE build_id = ? AND version = ?",
         id,
         version
     )
@@ -169,8 +169,8 @@ pub async fn data<'e, E: SqliteExecutor<'e>>(
     version: i64,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT data FROM schematic_version
-         WHERE schematic_id = ? AND version = ?",
+        "SELECT data FROM build_version
+         WHERE build_id = ? AND version = ?",
         id,
         version
     )
@@ -189,7 +189,7 @@ pub async fn set_colours<'e, E: SqliteExecutor<'e>>(
     let json =
         serde_json::to_string(colours).expect("positions and names are JSON");
     sqlx::query!(
-        "UPDATE schematic_version SET colours = ? WHERE schematic_id = ? AND version = ?",
+        "UPDATE build_version SET colours = ? WHERE build_id = ? AND version = ?",
         json,
         id,
         version
@@ -208,8 +208,8 @@ pub async fn colours(
     id: &str,
 ) -> Result<Option<crate::recognize::colouring::Colouring>, sqlx::Error> {
     let rows = sqlx::query!(
-        "SELECT data, colours FROM schematic_version
-         WHERE schematic_id = ? ORDER BY version DESC",
+        "SELECT data, colours FROM build_version
+         WHERE build_id = ? ORDER BY version DESC",
         id
     )
     .fetch_all(db)
@@ -236,7 +236,7 @@ pub async fn current_file<'e, E: SqliteExecutor<'e>>(
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
     let row = sqlx::query!(
         r#"SELECT data as "data!", roles FROM current_file
-         WHERE schematic_id = ?"#,
+         WHERE build_id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -288,10 +288,10 @@ pub async fn set_current_roles<'e, E: SqliteExecutor<'e>>(
     };
     let json = serde_json::to_string(&kept).expect("lines are JSON");
     sqlx::query!(
-        "UPDATE schematic_version SET roles = ?
-         WHERE schematic_id = ? AND version = (
-             SELECT max(version) FROM schematic_version AS newest
-             WHERE newest.schematic_id = ?
+        "UPDATE build_version SET roles = ?
+         WHERE build_id = ? AND version = (
+             SELECT max(version) FROM build_version AS newest
+             WHERE newest.build_id = ?
          )",
         json,
         id,
@@ -310,13 +310,13 @@ pub async fn holder<'e, E: SqliteExecutor<'e>>(
     sha256: &str,
 ) -> Result<Option<(String, i64)>, sqlx::Error> {
     Ok(sqlx::query!(
-        "SELECT schematic_id, version FROM schematic_version
+        "SELECT build_id, version FROM build_version
          WHERE sha256 = ? ORDER BY restores IS NOT NULL, version",
         sha256
     )
     .fetch_optional(db)
     .await?
-    .map(|row| (row.schematic_id, row.version)))
+    .map(|row| (row.build_id, row.version)))
 }
 
 /// Records a new build's file as its first version.
@@ -329,8 +329,8 @@ pub(super) async fn first(
 ) -> Result<(), sqlx::Error> {
     let (data, roles) = (stored(file)?, roles_json(file));
     sqlx::query!(
-        "INSERT INTO schematic_version
-            (schematic_id, version, data, sha256, added_by, added_from,
+        "INSERT INTO build_version
+            (build_id, version, data, sha256, added_by, added_from,
             roles)
          VALUES (?, 1, ?, ?, ?, ?, ?)",
         id,
@@ -377,7 +377,7 @@ pub async fn replace(
     let mut tx = db.begin().await?;
     let current = sqlx::query_scalar!(
         r#"SELECT coalesce(max(version), 0) as "version!: i64"
-         FROM schematic_version WHERE schematic_id = ?"#,
+         FROM build_version WHERE build_id = ?"#,
         id
     )
     .fetch_one(&mut *tx)
@@ -391,8 +391,8 @@ pub async fn replace(
         } => {
             let version = current + 1;
             sqlx::query!(
-                "INSERT INTO schematic_version
-                    (schematic_id, version, data, sha256, added_by,
+                "INSERT INTO build_version
+                    (build_id, version, data, sha256, added_by,
                     added_from, note, roles, restores)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 id,
@@ -413,10 +413,10 @@ pub async fn replace(
         // must be is read again rather than kept for the old file.
         Replacing::InPlace => {
             sqlx::query!(
-                "UPDATE schematic_version SET data = ?,
+                "UPDATE build_version SET data = ?,
                     needs = iif(sha256 = ?, needs, NULL), sha256 = ?,
                     roles = coalesce(?, iif(sha256 = ?, roles, NULL))
-                 WHERE schematic_id = ? AND version = ?",
+                 WHERE build_id = ? AND version = ?",
                 data,
                 file.sha256,
                 file.sha256,
@@ -433,7 +433,7 @@ pub async fn replace(
     let (size, facts) = (&file.size, &file.facts);
     let (x, y, z) = (size.x, size.y, size.z);
     sqlx::query!(
-        "UPDATE schematic SET size_x = ?, size_y = ?, size_z = ?,
+        "UPDATE build SET size_x = ?, size_y = ?, size_z = ?,
             conventional = ?, torches = ?, works_from = ?, works_from_by = ?,
             edited_at = iif(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                 edited_at)

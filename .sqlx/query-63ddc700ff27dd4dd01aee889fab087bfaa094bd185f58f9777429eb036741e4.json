@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build\n         SET deleted_at = iif(?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL)\n         WHERE id = ?1 AND (deleted_at IS NULL) = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "63ddc700ff27dd4dd01aee889fab087bfaa094bd185f58f9777429eb036741e4"
+}

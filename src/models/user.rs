@@ -516,7 +516,7 @@ async fn respell(
     .execute(&mut *tx)
     .await?;
     sqlx::query!(
-        "UPDATE schematic
+        "UPDATE build
          SET imported_by = (SELECT minecraft_name FROM user WHERE id = ?1)
          WHERE imported_by = (SELECT minecraft_name FROM user
             WHERE id = ?1 AND minecraft_verified) COLLATE NOCASE",

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT iif(build_id = ?, other_id, build_id) as \"other!: String\",\n            permille as \"permille!: u32\"\n         FROM similarity\n         WHERE (build_id = ? OR other_id = ?) AND permille >= ?\n         ORDER BY permille DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "other!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      },
+      {
+        "name": "permille!: u32",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "ab348bc4f4157dfb67b0761992d08206bc63acd75a5fda57b6a25ee7496e31b3"
+}

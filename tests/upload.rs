@@ -1,13 +1,11 @@
 //! Which file an upload keeps: standardized when the site recognizes it as
-//! the category it is given; as its author made it, under a category off
-//! the list, when it does not; and a new version that is recognized moving
-//! a build off the list up.
+//! the category it is given; as its author made it, unverified, when it
+//! does not; and a new version that is recognized verifying a build.
 
 mod common;
 
 use app::{
     category::Category,
-    details,
     import::{self, Kept, Upload},
     schem::{self, Blocks},
 };
@@ -32,45 +30,51 @@ async fn a_recognized_build_is_kept_standardized() {
         placed(&standard.blocks),
         "the raw build is not in the palette"
     );
-    let Ok(Kept::Standard { file, category }) =
+    let Ok(Kept::Standard(file)) =
         import::kept(&categories, "adder", &upload).await.unwrap()
     else {
         panic!("the adder is not recognized");
     };
-    assert_eq!(category, "adder");
     assert_eq!(placed(&file.blocks), placed(&standard.blocks));
-    // Named for it off the list, it goes up as one all the same.
-    let Ok(Kept::Standard { category, .. }) =
-        import::kept(&categories, "16-bit adder", &upload)
-            .await
-            .unwrap()
-    else {
-        panic!("the adder is not recognized by its off-list name");
-    };
-    assert_eq!(category, "adder");
 }
 
 #[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
-async fn an_unrecognized_build_keeps_its_own_blocks_off_the_list() {
+async fn an_unrecognized_build_keeps_its_own_blocks_unverified() {
     let categories = Category::all();
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
-    let Ok(Kept::Original(Some(off))) =
-        import::kept(&categories, "multiplier", &upload)
-            .await
-            .unwrap()
-    else {
-        panic!("an adder passed for a multiplier");
-    };
-    assert!(off.name.ends_with("multiplier"), "{}", off.name);
+    assert!(
+        matches!(
+            import::kept(&categories, "multiplier", &upload)
+                .await
+                .unwrap(),
+            Ok(Kept::Unverified(_))
+        ),
+        "an adder passed for a multiplier"
+    );
     let failing = Upload::read(&common::fixture("cca-8-dust-out")).unwrap();
-    let Ok(Kept::Original(Some(off))) =
+    let Ok(Kept::Unverified(why)) =
         import::kept(&categories, "adder", &failing).await.unwrap()
     else {
         panic!("a failing adder was recognized");
     };
-    assert_eq!(off.name, "8-bit adder");
-    assert!(off.why.contains("cases wrong: A="), "{}", off.why);
+    assert!(why.contains("cases wrong: A="), "{why}");
+}
+
+/// The site lists RAM but recognizes none yet, so one goes up as built
+/// under a category of its own, named for it.
+#[tokio::test]
+async fn a_build_of_a_category_not_recognized_yet_goes_off_the_list() {
+    let categories = Category::all();
+    let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
+    let Ok(Kept::OffList(name)) =
+        import::kept(&categories, "ram", &upload).await.unwrap()
+    else {
+        panic!("a RAM went on the list");
+    };
+    assert!(name.ends_with(" ram"), "{name}");
+    let slug = app::models::tag::name(&name);
+    assert!(app::category::check_category(&slug, None).is_ok(), "{slug}");
 }
 
 #[tokio::test]
@@ -81,69 +85,27 @@ async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
         import::kept(&categories, "piston door", &upload)
             .await
             .unwrap(),
-        Ok(Kept::Original(None))
+        Ok(Kept::Original)
     ));
 }
 
 #[tokio::test]
-async fn an_off_list_name_means_the_category_it_stands_in_for() {
-    let categories = Category::all();
-    let meant =
-        |name| details::meant(&categories, name).map(|c| c.name.clone());
-    assert_eq!(meant("8-bit adder").as_deref(), Some("adder"));
-    assert_eq!(meant("32-bit_adder").as_deref(), Some("adder"));
-    assert_eq!(meant("Adder").as_deref(), Some("adder"));
-    assert_eq!(meant("piston door"), None);
-    assert_eq!(meant("eight-bit adder"), None);
-}
-
-#[tokio::test]
 #[ignore = "measures whole builds: just test-full"]
-async fn a_new_version_that_is_recognized_moves_a_build_up() {
+async fn a_new_version_that_is_recognized_verifies_a_build() {
     let categories = Category::all();
+    let category = |name| Category::find(&categories, name).unwrap();
     let file = import::as_built(&common::fixture("cca-16-raw")).unwrap();
-    let (moved, to) =
-        import::moved_up(&categories, "16-bit_adder", &file, false)
-            .await
-            .unwrap()
-            .expect("it moves up");
-    assert_eq!(to.name, "adder");
-    assert!(moved.conventional);
+    let verified = import::verified_by(category("adder"), &file, false)
+        .await
+        .unwrap()
+        .expect("it is verified");
+    assert!(verified.conventional);
     assert!(
-        import::moved_up(&categories, "16-bit_multiplier", &file, false)
+        import::verified_by(category("multiplier"), &file, false)
             .await
             .unwrap()
             .is_none()
     );
-    // An adder unverified as one moves up the same way.
-    let (_, to) = import::moved_up(&categories, "adder", &file, false)
-        .await
-        .unwrap()
-        .expect("an unverified adder moves up");
-    assert_eq!(to.name, "adder");
-}
-
-/// Every category the site recognizes builds of names its off-list stand-in
-/// so it reads back, whatever its label holds, as NAND+XNOR Gate's plus.
-#[tokio::test]
-async fn an_off_list_name_reads_back_as_its_category() {
-    let categories = Category::all();
-    let evaluated = categories
-        .iter()
-        .filter(|c| app::category::behaviour(&c.name).evaluated);
-    for category in evaluated {
-        for width in [Some(8), None] {
-            let name = details::off_list_name(category, width);
-            let slug = app::models::tag::name(&name);
-            assert!(app::models::tag::valid_name(&slug), "{slug}");
-            assert_eq!(
-                app::models::simulation::meant_by(&slug),
-                Some(category.name.as_str()),
-                "{slug}"
-            );
-            assert!(Category::find(&categories, &name).is_none(), "{name}");
-        }
-    }
 }
 
 /// A build of wool, its levers on lamps and its outputs magenta wool, as
@@ -169,7 +131,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
         .await
         .expect("it is checked")
         .expect("it can be simulated");
-    assert!(matches!(kept, Kept::Standard { .. }));
+    assert!(matches!(kept, Kept::Standard(_)));
 }
 
 /// Publishing reads again the file its preview carries, the upload as
@@ -184,7 +146,7 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
     let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
     let published = Upload::read(&analyzed.original.data).unwrap();
     let categories = Category::all();
-    let Ok(Kept::Standard { file, .. }) =
+    let Ok(Kept::Standard(file)) =
         import::kept(&categories, "adder", &published)
             .await
             .unwrap()
@@ -271,14 +233,11 @@ async fn an_unaligned_build_is_kept_in_its_category() {
             recognized.problems
         );
         let upload = Upload::read(&recognized.file).unwrap();
-        let Ok(Kept::Standard {
-            file,
-            category: kept,
-        }) = import::kept(&categories, category, &upload).await.unwrap()
+        let Ok(Kept::Standard(file)) =
+            import::kept(&categories, category, &upload).await.unwrap()
         else {
             panic!("{name} is not kept as a {category}");
         };
-        assert_eq!(kept, category);
         let lines =
             app::recognize::interface::Kept::read(&file.blocks).unwrap();
         assert_eq!(lines.unaligned(), unaligned, "{name}");

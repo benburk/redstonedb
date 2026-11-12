@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM similarity WHERE build_id = ? OR other_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e94829c952bfd2e78215041864503bfd4ad7beeb9e88daa0f19838f9067e5f6c"
+}

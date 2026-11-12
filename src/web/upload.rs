@@ -18,7 +18,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
-    category::{self, Category},
+    category::Category,
     details,
     external::schemati,
     import::{self, Kept, Upload},
@@ -504,8 +504,7 @@ async fn guessed(data: &[u8]) -> Option<Guess> {
 /// why it was refused. A build not recognized as the category it is given
 /// goes up with its own blocks: unverified under that category when the
 /// site recognizes builds of it, saying why, as `details::unrecognized`
-/// does; else under a category of its own, named for what it seems meant
-/// to be.
+/// does; else under a category of its own, named for what it is.
 async fn publish_checked(
     db: &sqlx::SqlitePool,
     user: &User,
@@ -524,24 +523,16 @@ async fn publish_checked(
         Err(message) => return Ok(Err(message)),
     };
     let prepared = match &kept {
-        Kept::Standard { file, category } => {
-            given.category.clone_from(category);
-            file
-        }
-        Kept::Original(off) => {
-            let meant = details::meant(&categories, &given.category)
-                .map(|c| c.name.clone())
-                .filter(|c| category::blessed(c));
-            match (off, meant) {
-                (Some(off), Some(meant)) => {
-                    given.category = meant;
-                    given.unverified = Some(off.why.clone());
-                }
-                (Some(off), None) => given.category.clone_from(&off.name),
-                (None, _) => {}
-            }
+        Kept::Standard(file) => file,
+        Kept::Unverified(why) => {
+            given.unverified = Some(why.clone());
             &upload.original
         }
+        Kept::OffList(name) => {
+            given.category.clone_from(name);
+            &upload.original
+        }
+        Kept::Original => &upload.original,
     };
     let build = details::Candidate::of(prepared);
     let ready =

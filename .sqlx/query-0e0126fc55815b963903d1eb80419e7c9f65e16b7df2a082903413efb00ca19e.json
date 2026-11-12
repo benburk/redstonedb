@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build_version SET colours = ? WHERE build_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "0e0126fc55815b963903d1eb80419e7c9f65e16b7df2a082903413efb00ca19e"
+}

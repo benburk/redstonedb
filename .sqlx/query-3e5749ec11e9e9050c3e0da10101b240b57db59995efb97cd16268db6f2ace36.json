@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE simulation SET sha256 = ?\n         WHERE build_id = ? AND circuit = ? AND sha256 <> ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "3e5749ec11e9e9050c3e0da10101b240b57db59995efb97cd16268db6f2ace36"
+}

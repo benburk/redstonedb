@@ -199,7 +199,7 @@ async fn downloads(
     id: &str,
 ) -> Vec<(Option<Uuid>, i64, String)> {
     sqlx::query_as(
-        "SELECT user_id, version, kind FROM download WHERE schematic_id = ? ORDER BY id",
+        "SELECT user_id, version, kind FROM download WHERE build_id = ? ORDER BY id",
     )
     .bind(id)
     .fetch_all(db)

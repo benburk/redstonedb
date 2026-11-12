@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build_id, changes FROM edit WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "build_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "changes",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4853534d5622f777018ef7e13a371400d6e761443047ae4ede872df97f2a79aa"
+}

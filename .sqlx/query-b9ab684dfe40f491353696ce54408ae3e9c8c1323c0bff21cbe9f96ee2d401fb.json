@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build SET size_x = ?, size_y = ?, size_z = ?,\n            conventional = ?, torches = ?, works_from = ?, works_from_by = ?,\n            edited_at = iif(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),\n                edited_at)\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "b9ab684dfe40f491353696ce54408ae3e9c8c1323c0bff21cbe9f96ee2d401fb"
+}

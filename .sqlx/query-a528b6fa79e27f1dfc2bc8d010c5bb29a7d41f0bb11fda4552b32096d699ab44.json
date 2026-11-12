@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO credit (build_id, role, name, position)\n             VALUES (?, ?, coalesce(\n                (SELECT minecraft_name FROM user WHERE minecraft_verified\n                    AND minecraft_name = ? COLLATE NOCASE),\n                ?), ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "a528b6fa79e27f1dfc2bc8d010c5bb29a7d41f0bb11fda4552b32096d699ab44"
+}

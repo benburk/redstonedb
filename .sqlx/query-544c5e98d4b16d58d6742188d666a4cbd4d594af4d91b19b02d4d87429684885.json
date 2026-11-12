@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM stacked_width WHERE build_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "544c5e98d4b16d58d6742188d666a4cbd4d594af4d91b19b02d4d87429684885"
+}

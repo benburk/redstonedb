@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM favorite WHERE user_id = ? AND build_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "74155538d711d0c913f92b3a91766c51321e30af8469b542367bc02be4e07cf7"
+}

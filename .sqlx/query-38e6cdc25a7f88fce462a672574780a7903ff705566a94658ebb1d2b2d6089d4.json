@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT colours FROM build_version\n         WHERE build_id = ? AND version = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "colours",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "38e6cdc25a7f88fce462a672574780a7903ff705566a94658ebb1d2b2d6089d4"
+}

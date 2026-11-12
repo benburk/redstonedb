@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build SET imported_by = ?, conventional = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "b699650b38b474c580e42e92a8ba21f8fec250e60d2d1a1478e23e2b3194c917"
+}

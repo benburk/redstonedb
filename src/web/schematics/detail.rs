@@ -144,11 +144,10 @@ pub struct Asked {
 }
 
 /// What build `s`'s page shows of its file, `data`, with `blocks`: as its
-/// category reads it, or for one unverified or off the list while it is
-/// not recognized as the category it stands in for, standardized and read
-/// as that category, as recognizing it would.
+/// category reads it, or for one not verified as its category,
+/// standardized first, as recognizing it would.
 fn read_for_page(s: &Build, data: &[u8], blocks: &Blocks) -> Analysis {
-    if let Some(meant) = simulation::stands_in(s)
+    if !s.verified()
         && let Ok(standard) = import::prepare_for(
             data,
             import::Purpose::Standard {
@@ -156,7 +155,7 @@ fn read_for_page(s: &Build, data: &[u8], blocks: &Blocks) -> Analysis {
             },
         )
     {
-        return Analysis::of(&standard.blocks, meant);
+        return Analysis::of(&standard.blocks, &s.category);
     }
     Analysis::of(blocks, &s.category)
 }
@@ -261,20 +260,20 @@ pub async fn detail(
     .into_response())
 }
 
-/// For build `s`, unverified or filed off the list as an adder or a
-/// register, what keeps it from being recognized as one by the check by
+/// For build `s`, not verified as its category, one the site recognizes
+/// builds of, what keeps it from being recognized as one by the check by
 /// function on its file `data`: one line for each fault. Empty for any
 /// other build.
 async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<String> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
-    let Some(meant) = crate::models::simulation::stands_in(s)
-        .filter(|meant| crate::category::blessed(meant))
-        .filter(|meant| *meant != "hex_adder")
-        .map(str::to_owned)
-    else {
+    if s.verified()
+        || !crate::category::blessed(&s.category)
+        || s.category == "hex_adder"
+    {
         return Vec::new();
-    };
+    }
+    let meant = s.category.clone();
     let data = data.to_vec();
     // Probing simulates, so off the async threads.
     let recognized = tokio::task::spawn_blocking(move || {

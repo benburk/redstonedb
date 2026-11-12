@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM simulation WHERE build_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "015ff5ba620071a1d9a6213c8b146bcb63bfadc31daa9fe3a233622f1052f636"
+}
