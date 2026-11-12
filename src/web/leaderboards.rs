@@ -116,7 +116,7 @@ fn facets(
                 s.category == name
                     && s.ranks()
                     && !s.measures().is_empty()
-                    && s.measures().iter().all(|m| m.of(s).is_some())
+                    && s.measures().iter().all(|&m| s.specs.of(m).is_some())
             })
             .count()
     };

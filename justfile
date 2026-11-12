@@ -41,8 +41,6 @@ check:
     fd -e nix -X nixfmt --check
     tailwindcss --input styles/app.css --minify | cmp - static/app.css
     ! rg -l '[^\n]\z' --multiline .
-    # src/schem is the bottom layer: it uses nothing else of the crate.
-    ! rg -n 'crate::[a-z_]+' src/schem | rg -v 'crate::schem'
 
 # Run the test suite, noting the files it passed on
 test:

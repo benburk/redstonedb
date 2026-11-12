@@ -4,7 +4,6 @@
 //! off the list.
 
 use super::Kind;
-use crate::models::{schematic::Build, tag};
 
 /// A name's words for people to read, each capitalized, such as
 /// `Carry Lookahead` for `carry_lookahead`.
@@ -40,17 +39,6 @@ named_values! {
 }
 
 impl Measure {
-    /// The build's value of it.
-    pub fn of(self, s: &Build) -> Option<i64> {
-        match self {
-            Measure::Width => s.specs.width,
-            Measure::Bytes => s.specs.bytes,
-            Measure::Throughput => s.specs.throughput,
-            Measure::AtLeast => s.specs.at_least,
-            Measure::Pulse => s.specs.pulse,
-        }
-    }
-
     /// `n` of it as a name leads with it, such as `8-bit`, `32-byte`,
     /// `2-tick`, or `At Least 3`; a pulse as a throughput, as in `3-tick
     /// Monostable`.
@@ -109,6 +97,12 @@ named_values! {
         Display = "display", "Display";
         Wiring = "wiring", "Wiring";
     }
+}
+
+/// The form of a category's name a person types, with spaces for
+/// underscores.
+fn named(typed: &str) -> String {
+    typed.trim().to_lowercase().replace(' ', "_")
 }
 
 /// An entry in the list of categories a build may have: one function, so
@@ -170,7 +164,7 @@ impl Category {
     ) -> Option<&'a Self> {
         let typed = typed.trim();
         categories.iter().find(|c| {
-            c.label.eq_ignore_ascii_case(typed) || c.name == tag::name(typed)
+            c.label.eq_ignore_ascii_case(typed) || c.name == named(typed)
         })
     }
 
@@ -179,7 +173,7 @@ impl Category {
     /// author's own, empty when nothing is typed.
     pub fn name_of(categories: &[Category], typed: &str) -> String {
         Self::find(categories, typed)
-            .map_or_else(|| tag::name(typed), |c| c.name.clone())
+            .map_or_else(|| named(typed), |c| c.name.clone())
     }
 
     /// A category off the list, named `name`, which has no measures.

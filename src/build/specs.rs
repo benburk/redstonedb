@@ -1,6 +1,7 @@
 //! A build's specs: the facts it is named, searched, and ranked by.
 
 use super::{Encoding, Logic, Orientation};
+use crate::category::Measure;
 
 /// A build's specs: its width, how its bits run and are written, its
 /// timing, and its design, as its file and its simulation decide them, or,
@@ -29,4 +30,17 @@ pub struct Specs {
     /// Whether it holds state, where the build says so itself; `None`
     /// follows its category's, see [`super::Build::logic`].
     pub logic: Option<Logic>,
+}
+
+impl Specs {
+    /// Its value of `measure`, when it has one.
+    pub fn of(&self, measure: Measure) -> Option<i64> {
+        match measure {
+            Measure::Width => self.width,
+            Measure::Bytes => self.bytes,
+            Measure::Throughput => self.throughput,
+            Measure::AtLeast => self.at_least,
+            Measure::Pulse => self.pulse,
+        }
+    }
 }

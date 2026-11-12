@@ -111,21 +111,24 @@ On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's
 ## How it works
 
 1. **Import.** `import.rs` reads a Sponge `.schem` file (`schem/`), and `ingest/` lays it the standard way, takes out corner markers, and fits its box. Files live only in `build_version`; a later file becomes a new version only if `version.rs` finds it the same build, fixed.
-2. **Recognition.** `recognize/repeater_outputs.rs` finds the outputs, `recognize/inspect.rs` checks each input and output, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
-3. **Simulation.** `category/table.rs` says which test each category gets. `simulate/` runs the build in Redpiler through its cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack.rs`). Each result is stored with its file's hash.
+2. **Recognition.** `interface/` finds a build's inputs and outputs and checks each one, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
+3. **Simulation.** `category/` holds each category's facts and its test. `simulate/` is the engine: it runs the build in Redpiler through a test's cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack/`). Each result is stored with its file's hash.
 4. **Search, leaderboards, and similarity.** `search.rs` parses queries like `register vertical -torchless`, `leaderboard.rs` ranks builds and finds records, and `similarity.rs` scores how alike two builds are by the share of their redstone components that line up.
+
+The first five modules below `bin/` are layers, each using only those above it in the list; `tests/layers.rs` holds them to it.
 
 ```text
 src/
   main.rs        the web server
   bin/rsdb/      the command-line tool
   schem/         reading, writing, and editing .schem files; the bottom layer
+  interface/     a build's inputs and outputs, and the rules for them
+  stack/         joining copies of a build as //rstack does
+  simulate/      the engine: cases, timing, throughput, and stacking in Redpiler
+  category/      the standard categories, each with its facts and its test
+  recognize/     what a build is: the roles of its lines, by probing
   ingest/        laying an upload the standard way and shaping it to keep
-  stack.rs       joining copies of a build as //rstack does
   build/         what a stored build is: its specs, credits, status, and name
-  recognize/     what a build is: its inputs, outputs, and roles
-  category/      the standard categories and what each is tested on
-  simulate/      tests, timing, throughput, and stacking in Redpiler
   models/        queries, one module per table or group of tables
   web/           routes, handlers, and each page's markup
   external/      Discord, Mojang, player heads, and Schemati

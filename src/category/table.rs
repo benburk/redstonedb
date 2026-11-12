@@ -5,10 +5,9 @@
 
 use super::Logic;
 use super::{
-    Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Lines, Measure,
-    Probe, Probing, Reads, Section, Stacking,
+    Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Line, Lines,
+    Measure, Probe, Probing, Reads, Section, Stacking, Test,
 };
-use crate::{category::Test, recognize::probe::Line};
 
 /// What the code does with a category's builds when it does nothing
 /// special: the default `Behaviour`, here where a constant needs it.

@@ -41,7 +41,6 @@ pub use catalogue::{
     check_category, flags_among, words,
 };
 
-use crate::recognize::probe::Line;
 pub use crate::{
     interface::Lines,
     simulate::{Copying, Group},
@@ -203,7 +202,17 @@ pub enum Probe {
     Sequential,
 }
 
-/// Whether and when `simulate::guess` tries a kind's test.
+/// Whether a build of one operand, A, has a control line: an inverter's,
+/// its invert, always; an incrementer's, its increment, perhaps; an
+/// absolute value's or a monostable's, never.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Line {
+    Always,
+    Maybe,
+    Never,
+}
+
+/// Whether and when [`guess`] tries a kind's test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guess {
     /// Never: it has no test.

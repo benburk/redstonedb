@@ -4,17 +4,12 @@
 //! each way given those roles and run through its test.
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
-use crate::{category::Test, interface::inspect, schem::Pos, simulate};
-
-/// Whether a build of one operand, A, has a control line: an inverter's,
-/// its invert, always; an incrementer's, its increment, perhaps; an
-/// absolute value's or a monostable's, never.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Line {
-    Always,
-    Maybe,
-    Never,
-}
+use crate::{
+    category::{Line, Test},
+    interface::inspect,
+    schem::Pos,
+    simulate,
+};
 
 /// A build of one operand, A, as probing found it: A, the file carrying its
 /// lines' roles, as its test reads them, and that test's run.

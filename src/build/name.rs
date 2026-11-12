@@ -62,7 +62,7 @@ impl Build {
             .iter()
             .filter_map(move |m| match (m, &shape) {
                 (Measure::Width, Some(shape)) => Some(shape.clone()),
-                _ => m.of(self).map(|n| m.lead(n)),
+                _ => self.specs.of(*m).map(|n| m.lead(n)),
             })
     }
 
