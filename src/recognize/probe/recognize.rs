@@ -458,7 +458,8 @@ fn probe_by(
 /// as an ALU's names the operations a line chooses and which status line
 /// is its carry out, overflow, shift out, or zero, a barrel shifter's the
 /// amount a line shifts by, and a register's or buffer's whether a line
-/// reads or writes.
+/// reads or writes. A sign marking a bus's least or most significant bit
+/// stays too, as its buses are read in the order it gives.
 fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let reads_signs = matches!(
         kind,
@@ -475,11 +476,19 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
             )
         })
     };
+    let orders = |lines: &[String]| {
+        lines.iter().any(|line| {
+            matches!(line.trim().to_lowercase().as_str(), "lsb" | "msb")
+        })
+    };
     let changes: BTreeMap<Pos, String> = blocks
         .signs
-        .keys()
-        .filter(|&&pos| !(reads_signs && on_line(pos)))
-        .map(|&pos| (pos, schem::AIR.to_owned()))
+        .iter()
+        .filter(|&(&pos, lines)| {
+            let stays = (reads_signs && on_line(pos)) || orders(lines);
+            !stays
+        })
+        .map(|(&pos, _)| (pos, schem::AIR.to_owned()))
         .collect();
     if changes.is_empty() {
         return Ok(data.to_vec());
@@ -649,6 +658,21 @@ mod tests {
         assert!(found.found.is_some(), "{:?}", found.problems);
         let blocks = Blocks::read(&found.file).unwrap();
         assert!(blocks.signs.is_empty(), "{:?}", blocks.signs);
+    }
+
+    /// A sign marking a bus's least significant bit stays when the rest
+    /// go, as an adder whose low bits sit at the top is read by it.
+    #[test]
+    fn a_sign_ordering_a_bus_stays() {
+        let raw =
+            std::fs::read("tests/fixtures/adder-8-lsb-top.schem").unwrap();
+        let before = Blocks::read(&raw).unwrap().signs.len();
+        let file = unlabelled(Kind::Adder, &raw).unwrap();
+        let signs = Blocks::read(&file).unwrap().signs;
+        assert!(!signs.is_empty() && signs.len() < before, "{signs:?}");
+        for lines in signs.values() {
+            assert!(lines.iter().any(|line| line.trim() == "lsb"), "{lines:?}");
+        }
     }
 
     /// A trapdoor, hung on a build to show an output flipping, plays no
