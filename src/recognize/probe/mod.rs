@@ -591,9 +591,7 @@ fn stray_operands(runs: &[Run]) -> Vec<Operands> {
     let joined = |run: &Run, stray: Pos| {
         let mut bits = ordered(run);
         let near = |end: Option<&Pos>| {
-            end.map_or(i32::MAX, |&end| {
-                (0..3).map(|i| (end[i] - stray[i]).abs()).sum()
-            })
+            end.map_or(i32::MAX, |&end| crate::schem::distance(end, stray))
         };
         if near(bits.first()) < near(bits.last()) {
             bits.insert(0, stray);

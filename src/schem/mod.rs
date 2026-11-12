@@ -19,7 +19,7 @@ pub use blocks::{
     Blocks, Switch, as_placed, id, property, short, torch_block, unpowered,
     with_property,
 };
-pub use direction::{Direction, add, step};
+pub use direction::{Direction, add, distance, step};
 pub use edit::{edit, edit_grown, edit_grown_moving, for_viewer, rebox};
 pub use entity::{
     barrel_redstone, container_strength, entity_pos, plain_sign, slots,

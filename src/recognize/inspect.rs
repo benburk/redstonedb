@@ -693,11 +693,9 @@ pub fn not_bus_drivable(data: &[u8]) -> Result<Vec<Pos>> {
         .collect();
     // Each difference is put down to the lever nearest it.
     for end in changed_ends {
-        if let Some(lever) = levers.iter().min_by_key(|l| {
-            (0..3)
-                .map(|axis| (l.pos[axis] - end[axis]).abs())
-                .sum::<i32>()
-        }) {
+        if let Some(lever) =
+            levers.iter().min_by_key(|l| schem::distance(l.pos, end))
+        {
             wrong.insert(lever.pos);
         }
     }
