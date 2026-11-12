@@ -185,10 +185,7 @@ async fn a_file_published_as_suggested_goes_up_as_what_it_is() {
         .await
         .unwrap()
         .expect("it goes up");
-    let s = app::models::schematic::get(&db, &id)
-        .await
-        .unwrap()
-        .unwrap();
+    let s = app::store::builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.category, "adder");
     let again = app::web::publish_suggested(&db, &user, &raw).await.unwrap();
     assert!(again.is_err());

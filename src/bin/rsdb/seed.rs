@@ -6,9 +6,10 @@ use std::{path::Path, sync::Arc};
 use anyhow::{Context, Result, ensure};
 use app::{
     models::{
-        schematic, simulation,
+        simulation,
         user::{DiscordProfile, Role, User},
     },
+    store::builds,
     web::publish_suggested,
 };
 use sqlx::SqlitePool;
@@ -24,7 +25,7 @@ use crate::refresh::AT_ONCE;
 /// the live one.
 pub(super) async fn seed(db: &SqlitePool, dir: &Path) -> Result<()> {
     ensure!(
-        schematic::all(db).await?.is_empty(),
+        builds::all(db).await?.is_empty(),
         "the database has builds already; seed only a new one"
     );
     let profile = DiscordProfile {

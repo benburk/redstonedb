@@ -10,13 +10,11 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
+    build::Widened,
     category::{self, Logic, Test, adder_design},
     import::{self, Prepared},
     interface::{self, Encoding, Orientation},
-    models::{
-        schematic::Widened,
-        simulation::{FALLING_EDGE, INVERTED, SIGNED},
-    },
+    models::simulation::{FALLING_EDGE, INVERTED, SIGNED},
     schem::Blocks,
     simulate::{Design, Edge, Report, Run, Stacking, Timing},
     stack::{self, StackDirection},

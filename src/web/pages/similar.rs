@@ -4,9 +4,9 @@
 
 use maud::{Markup, html};
 
-use crate::models::{
-    schematic::Build,
-    user::{SchematiLink, User},
+use crate::{
+    build::Build,
+    models::user::{SchematiLink, User},
 };
 
 use super::{Offered, PAGE_TITLE, SECTION_TITLE, facts, schemati};

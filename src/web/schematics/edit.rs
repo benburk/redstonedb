@@ -10,17 +10,17 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sqlx::SqlitePool;
 
 use crate::{
+    build::Build,
     category::{self, Category},
     details,
     import::{self, Prepared},
     models::{
-        activity,
-        schematic::{self, Build},
-        similarity, simulation,
+        activity, similarity, simulation,
         user::User,
         version::{self, Replacing},
     },
     schem::Blocks,
+    store::builds,
     version::{Checked, check as check_version},
     web::{
         analysis,
@@ -55,7 +55,7 @@ pub(in crate::web) async fn editable(
     user: &User,
     id: &str,
 ) -> Result<Build, AppError> {
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, id).await?.ok_or(AppError::NotFound)?;
     if user.may_edit(&s) {
         Ok(s)
     } else {
@@ -149,11 +149,11 @@ pub async fn save(
     }
     let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
     if form.public != s.entry.public {
-        schematic::set_public(db, &id, form.public).await?;
+        builds::set_public(db, &id, form.public).await?;
     }
     // What the edit changed, before a new version changes what its file
     // sets.
-    if let Some(after) = schematic::get(db, &id).await? {
+    if let Some(after) = builds::get(db, &id).await? {
         let changed = activity::changed(&s, &after);
         activity::log_edit(db, &id, user.id, &changed).await?;
     }
@@ -315,13 +315,13 @@ pub async fn delete(
     SignedIn(by): SignedIn,
     axum::Form(deleting): axum::Form<Deleting>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
+    let s = builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     if !by.may_delete(&s) {
         return Err(AppError::Forbidden);
     }
-    schematic::delete(&state.db, &id, by.id).await?;
+    builds::delete(&state.db, &id, by.id).await?;
     tracing::info!(id, by = by.username, "deleted a build");
     let next = crate::web::back::listing(&deleting.next).unwrap_or("/");
     Ok(Redirect::to(next).into_response())
@@ -419,7 +419,7 @@ async fn saved(
         }
     };
     match details::check(db, given, build, user.can_create_tags()).await? {
-        Ok(ready) => Ok(Ok(schematic::set_details(db, &s.id, &ready).await?)),
+        Ok(ready) => Ok(Ok(builds::set_details(db, &s.id, &ready).await?)),
         Err(message) => Ok(Err(message)),
     }
 }

@@ -18,12 +18,14 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
+    build::Build,
     category::{self, Category, Test},
     details,
     import::Upload,
-    models::{schematic, simulation, user::User},
+    models::{simulation, user::User},
     recognize::{fault, probe::Recognition},
     simulate::Report,
+    store::builds,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -39,7 +41,7 @@ pub async fn poll(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Response, AppError> {
-    schematic::get(&state.db, &id)
+    builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     if simulation::completing(&id) {
@@ -206,8 +208,8 @@ async fn stored_file(
     state: &AppState,
     user: Option<&User>,
     id: &str,
-) -> Result<(schematic::Build, Vec<u8>), AppError> {
-    let s = schematic::get(&state.db, id)
+) -> Result<(Build, Vec<u8>), AppError> {
+    let s = builds::get(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
     if !user.is_some_and(|user| user.may_edit(&s)) {
@@ -239,7 +241,7 @@ fn test(
 /// The stored result of build `s`, when it is for `test` and its file.
 async fn stored_result(
     state: &AppState,
-    s: Option<&schematic::Build>,
+    s: Option<&Build>,
     test: Test,
 ) -> Result<Option<Report>, AppError> {
     let Some(s) = s else { return Ok(None) };
@@ -253,7 +255,7 @@ async fn cases(
     state: &AppState,
     pairs: &[(String, String)],
     data: Vec<u8>,
-    s: Option<&schematic::Build>,
+    s: Option<&Build>,
     filing: Option<Filing>,
 ) -> Result<Response, AppError> {
     let simulate = match s {
@@ -499,7 +501,7 @@ async fn timing(
     state: &AppState,
     pairs: &[(String, String)],
     data: Vec<u8>,
-    s: Option<&schematic::Build>,
+    s: Option<&Build>,
 ) -> Result<Response, AppError> {
     // Timed on the lines recognition finds, as its cases were.
     let category = meant_category(pairs);

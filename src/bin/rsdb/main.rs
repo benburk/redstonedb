@@ -12,8 +12,10 @@ use std::{path::PathBuf, str::FromStr as _};
 
 use anyhow::{Context, Result, bail};
 use app::{
+    build::Build,
     db::connect_to_database,
-    models::{schematic, similarity, tag},
+    models::{similarity, tag},
+    store,
 };
 use clap::{Parser, Subcommand};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
@@ -260,13 +262,15 @@ async fn connect_read_only() -> Result<SqlitePool> {
 
 /// Resolves a unique prefix of a schematic id to the full id.
 async fn resolve(db: &SqlitePool, prefix: &str) -> Result<String> {
-    match schematic::ids_with_prefix(db, prefix).await?.as_slice() {
+    match store::builds::ids_with_prefix(db, prefix).await?.as_slice() {
         [id] => Ok(id.clone()),
         [] => bail!("no schematic with id {prefix}"),
         _ => bail!("id prefix {prefix} is ambiguous"),
     }
 }
 
-async fn load(db: &SqlitePool, id: &str) -> Result<schematic::Build> {
-    schematic::get(db, id).await?.context("schematic vanished")
+async fn load(db: &SqlitePool, id: &str) -> Result<Build> {
+    store::builds::get(db, id)
+        .await?
+        .context("schematic vanished")
 }

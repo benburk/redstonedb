@@ -7,9 +7,9 @@
 use maud::{Markup, html};
 
 use crate::{
+    build::Build,
     diff::Counts,
     models::{
-        schematic::Build,
         user::User,
         version::{Measures, Version},
     },

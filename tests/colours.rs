@@ -91,10 +91,7 @@ async fn a_turned_new_version_is_compared_turned_back() {
         .await
         .unwrap()
         .unwrap();
-    let s = app::models::schematic::get(&db, &id)
-        .await
-        .unwrap()
-        .unwrap();
+    let s = app::store::builds::get(&db, &id).await.unwrap().unwrap();
     let turn = app::schem::turn::Turn {
         mirrored: true,
         quarters: 2,

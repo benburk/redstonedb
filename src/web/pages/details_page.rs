@@ -8,8 +8,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
 
 use crate::{
+    build::Build,
     import::Analysis,
-    models::{schematic::Build, user::User},
+    models::user::User,
     recognize::fault::wrong_outputs,
     simulate::Report,
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},

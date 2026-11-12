@@ -91,6 +91,7 @@ pub mod search;
 pub mod similarity;
 pub mod simulate;
 pub mod stack;
+pub mod store;
 pub mod thumbnail;
 pub mod version;
 pub mod web;

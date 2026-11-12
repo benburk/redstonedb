@@ -15,11 +15,12 @@ use crate::{
     diff::{self, Counts},
     import,
     models::{
-        schematic, similarity, simulation,
+        similarity, simulation,
         user::User,
         version::{self, Replacing, Version},
     },
     schem,
+    store::builds,
     web::{
         app_state::AppState,
         error::AppError,
@@ -56,18 +57,18 @@ pub async fn download(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
+    let s = builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::data(&state.db, &id, number)
         .await?
         .ok_or(AppError::NotFound)?;
-    schematic::log_download(
+    builds::log_download(
         &state.db,
         &id,
         user.id,
         Some(number),
-        schematic::DownloadKind::Version,
+        builds::DownloadKind::Version,
     )
     .await?;
     let filename = s.filename().replace(".schem", &format!("_v{number}.schem"));
@@ -84,7 +85,7 @@ pub async fn restore(
     ClientIp(ip): ClientIp,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     if !user.may_restore(&s) {
         return Err(AppError::Forbidden);
     }
@@ -146,8 +147,8 @@ pub async fn merge(
                 "Give the build to merge into by its link or id.".to_owned(),
             )
         })?;
-    let from = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
-    let Some(into) = schematic::get(db, &into).await? else {
+    let from = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let Some(into) = builds::get(db, &into).await? else {
         return Err(AppError::BadRequest(
             "There is no build to merge into at that link.".to_owned(),
         ));
@@ -259,7 +260,7 @@ pub async fn diff_page(
     Query(between): Query<Between>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let versions = version::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let counts = changes(db, &id, from, to).await?;
@@ -288,7 +289,7 @@ pub async fn diff_file(
     if !preview && viewer.is_none() {
         return Err(AppError::SignedOut);
     }
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let versions = version::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let (old, new) = files(db, &id, from, to).await?;
@@ -303,12 +304,12 @@ pub async fn diff_file(
         return Ok(super::attachment("diff.schem", data));
     }
     if let (Some(user), true) = (&viewer, method == Method::GET) {
-        schematic::log_download(
+        builds::log_download(
             db,
             &id,
             user.id,
             Some(number),
-            schematic::DownloadKind::Diff,
+            builds::DownloadKind::Diff,
         )
         .await?;
     }

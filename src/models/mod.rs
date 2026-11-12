@@ -1,6 +1,5 @@
 pub mod activity;
 pub mod player;
-pub mod schematic;
 pub mod session;
 pub mod similarity;
 pub mod simulation;

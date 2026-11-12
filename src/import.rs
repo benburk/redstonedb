@@ -5,16 +5,15 @@ use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 
 use crate::{
+    build::Build,
     category::{self, Category, Kind, Lines},
     details::{self, Ready},
     ingest::standardize,
     interface::{self, Encoding, Interface, Orientation, Port},
-    models::{
-        schematic::{self, Build, New},
-        version,
-    },
+    models::version,
     recognize::probe,
     schem::{self, Blocks, Size, turn::Turn},
+    store::builds::{self, New},
     works_from::{self, WorksFrom},
 };
 
@@ -250,7 +249,7 @@ pub async fn store(
         imported_by,
         id,
     };
-    Ok(Ok(schematic::insert(db, &new).await?))
+    Ok(Ok(builds::insert(db, &new).await?))
 }
 
 /// What a category that reads its builds' files, as

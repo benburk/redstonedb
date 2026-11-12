@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use maud::{Markup, html};
 use uuid::Uuid;
 
-use crate::models::{
-    activity::{self, Change, Event, Filter, Kind, Page},
-    schematic::Build,
-    user::User,
+use crate::{
+    build::Build,
+    models::{
+        activity::{self, Change, Event, Filter, Kind, Page},
+        user::User,
+    },
 };
 
 use super::{

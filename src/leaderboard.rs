@@ -12,12 +12,10 @@ use std::{
 };
 
 use crate::{
+    build::Build,
     category::{self, Flag, Logic, Measure, NO_DESIGN},
     interface::Orientation,
-    models::{
-        schematic::Build,
-        tag::{self, Kind, Tag},
-    },
+    models::tag::{self, Kind, Tag},
     simulate::Group,
     stack::PITCHES,
 };
@@ -1348,8 +1346,8 @@ fn shown_once(found: Vec<Found>) -> Vec<Found> {
 mod tests {
     use super::*;
     use crate::{
+        build::{Credits, Entry, File, Specs, Widened},
         interface::Encoding,
-        models::schematic::{Credits, Entry, File, Specs, Widened},
         stack::StackDirection,
     };
 
@@ -1372,7 +1370,7 @@ mod tests {
     #[test]
     fn interleaved_builds_compete_only_when_asked_for() {
         let mut odd = build("odd", 1, None, Some(3), 10);
-        odd.operands = crate::models::schematic::Operands::Interleaved;
+        odd.operands = crate::build::Operands::Interleaved;
         let adders = [odd, build("a", 1, None, Some(4), 20)];
         let all: Vec<&Build> = adders.iter().collect();
         let ids = |inputs: Option<Inputs>| {
@@ -1404,7 +1402,7 @@ mod tests {
     #[test]
     fn interleaved_builds_hold_records_apart() {
         let interleaved = |id: &str, volume: i64| Build {
-            operands: crate::models::schematic::Operands::Interleaved,
+            operands: crate::build::Operands::Interleaved,
             ..build(id, 1, None, Some(3), volume)
         };
         let adders = [
@@ -1768,8 +1766,8 @@ mod tests {
             flags: Vec::new(),
             description: None,
             unverified: None,
-            status: crate::models::schematic::Status::default(),
-            operands: crate::models::schematic::Operands::Split,
+            status: crate::build::Status::default(),
+            operands: crate::build::Operands::Split,
             unaligned: false,
             tags: Vec::new(),
         }

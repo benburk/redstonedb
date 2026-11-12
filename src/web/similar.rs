@@ -9,8 +9,10 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    models::{schematic, similarity, user::User},
+    build::Build,
+    models::{similarity, user::User},
     schem::Blocks,
+    store::builds,
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
 };
 
@@ -55,7 +57,7 @@ async fn shown(
     state: &AppState,
     viewer: Option<&User>,
     found: &str,
-) -> Result<Vec<(schematic::Build, u32)>, sqlx::Error> {
+) -> Result<Vec<(Build, u32)>, sqlx::Error> {
     let ranked: Vec<(String, u32)> = found
         .split(',')
         .take(LISTED)
@@ -76,9 +78,9 @@ pub(super) async fn builds(
     db: &sqlx::SqlitePool,
     ranked: &[(String, u32)],
     viewer: Option<&User>,
-) -> Result<Vec<(schematic::Build, u32)>, sqlx::Error> {
+) -> Result<Vec<(Build, u32)>, sqlx::Error> {
     let ids: Vec<&str> = ranked.iter().map(|(id, _)| id.as_str()).collect();
-    let builds = schematic::get_many(db, &ids).await?;
+    let builds = builds::get_many(db, &ids).await?;
     Ok(builds
         .into_iter()
         .filter(|s| s.listed_to(viewer))

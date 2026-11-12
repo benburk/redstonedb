@@ -3,9 +3,9 @@
 
 use maud::{Markup, html};
 
-use crate::models::{
-    schematic::Build,
-    user::{Role, User},
+use crate::{
+    build::Build,
+    models::user::{Role, User},
 };
 
 use super::{

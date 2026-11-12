@@ -6,7 +6,7 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use super::schematic::Build;
+use crate::build::Build;
 
 /// The account of `RedstoneDB` itself, the author of the versions the site
 /// makes, as when it takes out a build's unused blocks. No one signs in as

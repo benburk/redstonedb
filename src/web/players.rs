@@ -7,11 +7,10 @@ use axum::{
 };
 
 use crate::{
+    build::{Build, valid_player_name},
     leaderboard,
-    models::{
-        schematic::{self, Build},
-        user::User,
-    },
+    models::user::User,
+    store::builds,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -27,10 +26,10 @@ pub async fn show(
     State(state): State<AppState>,
     user_opt: Option<User>,
 ) -> Result<Response, AppError> {
-    if !schematic::valid_player_name(&name) {
+    if !valid_player_name(&name) {
         return Err(AppError::NotFound);
     }
-    let mut all = schematic::visible(&state.db, user_opt.as_ref()).await?;
+    let mut all = builds::visible(&state.db, user_opt.as_ref()).await?;
     let users = User::all(&state.db).await?;
     let same = |other: &String| other.eq_ignore_ascii_case(&name);
     let account = users.iter().find(|u| {
@@ -134,7 +133,7 @@ pub async fn head(
     Path(name): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Response, AppError> {
-    if !schematic::valid_player_name(&name) {
+    if !valid_player_name(&name) {
         return Err(AppError::NotFound);
     }
     let found = super::heads::player(&state.db, &name)

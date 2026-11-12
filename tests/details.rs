@@ -4,10 +4,10 @@
 mod common;
 
 use app::{
+    build::Specs,
     details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
     interface::{Encoding, Orientation},
-    models::schematic::Specs,
     schem::{self, Blocks},
     stack::StackDirection,
 };

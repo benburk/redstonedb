@@ -3,13 +3,13 @@
 use maud::{Markup, html};
 
 use crate::{
+    build::Build,
     category::{Category, Measure},
     leaderboard::{
         self, Board, Choice, Inputs, Placed, Rank, Record, Ruler, SHOWN,
         Standing, Wanted, in_sentence,
     },
     models::{
-        schematic::Build,
         tag::{self, Kind},
         user::User,
     },

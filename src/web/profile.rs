@@ -5,8 +5,10 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    build::{Build, valid_player_name},
     external::mojang,
-    models::{schematic, user::User},
+    models::user::User,
+    store::builds,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -40,7 +42,7 @@ pub async fn profile(
 pub(super) async fn player_named(
     name: &str,
 ) -> Result<mojang::Profile, String> {
-    if !schematic::valid_player_name(name) {
+    if !valid_player_name(name) {
         return Err(format!(
             "{name} is not a Minecraft name: letters, digits, and \
              underscores, up to 16."
@@ -77,7 +79,7 @@ async fn show_profile(
     show: Option<&str>,
 ) -> Result<Response, AppError> {
     let own = viewer.is_some_and(|viewer| viewer.id == account.id);
-    let mut all = schematic::visible(&state.db, viewer).await?;
+    let mut all = builds::visible(&state.db, viewer).await?;
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
     // Credits are in-game names, so they match the profile's Minecraft
@@ -87,10 +89,10 @@ async fn show_profile(
             names.iter().any(|name| name.eq_ignore_ascii_case(own))
         })
     };
-    let pick = |keep: &dyn Fn(&schematic::Build) -> bool| -> Vec<_> {
+    let pick = |keep: &dyn Fn(&Build) -> bool| -> Vec<_> {
         all.iter().filter(|s| keep(s)).cloned().collect()
     };
-    let uploaded = |s: &schematic::Build| account.uploaded(s);
+    let uploaded = |s: &Build| account.uploaded(s);
     let mut lists = vec![
         pages::ProfileList {
             name: "all",
@@ -124,7 +126,7 @@ async fn show_profile(
             builds: pick(&|s| uploaded(s) && !s.entry.public),
         });
         // Most lately favourited first.
-        let ids = schematic::favorites(&state.db, account.id).await?;
+        let ids = builds::favorites(&state.db, account.id).await?;
         let favourites = ids
             .iter()
             .filter_map(|id| all.iter().find(|s| &s.id == id).cloned())

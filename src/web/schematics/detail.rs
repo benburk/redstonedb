@@ -13,16 +13,14 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
+    build::Build,
     import::{self, Analysis},
-    models::{
-        schematic::{self, Build},
-        similarity, simulation,
-        user::User,
-        version,
-    },
+    models::{similarity, simulation, user::User, version},
     recognize::palette,
     schem::{self, Blocks},
-    stack, thumbnail,
+    stack,
+    store::builds,
+    thumbnail,
     web::{
         app_state::AppState,
         error::AppError,
@@ -41,7 +39,7 @@ pub async fn thumbnail(
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get(&state.db, &id)
+    let s = builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::current_file(&state.db, &id)
@@ -176,7 +174,7 @@ pub async fn detail(
 ) -> Result<Response, AppError> {
     let db = &state.db;
     let from = crate::web::back::came_from(&headers, from.as_deref());
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let simulation = simulation::current(db, &s).await?;
     let report = simulation.as_ref();
     let simulating = simulation::completing(&id);
@@ -211,7 +209,7 @@ pub async fn detail(
     let mut versions = version::list(db, &id).await?;
     crate::web::versions::count_changes(db, &id, &mut versions).await?;
     let favorited = match &user_opt {
-        Some(user) => schematic::favorited(db, user.id, &id).await?,
+        Some(user) => builds::favorited(db, user.id, &id).await?,
         None => false,
     };
     // A theme or an author's colours give the page a choice of colours; a
@@ -300,16 +298,16 @@ pub async fn favorite(
     Fixi(fixi): Fixi,
     axum::Form(Favorite { on, card }): axum::Form<Favorite>,
 ) -> Result<Response, AppError> {
-    schematic::get(&state.db, &id)
+    builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    schematic::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
+    builds::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
     let path = format!("/schematics/{id}");
     if fixi && card.is_some() {
         return Ok(pages::card_star(&id, on.is_some()).into_response());
     }
     if fixi {
-        let count = schematic::favorite_count(&state.db, &id).await?;
+        let count = builds::favorite_count(&state.db, &id).await?;
         return Ok(
             pages::favorite_button(&path, on.is_some(), count).into_response()
         );
