@@ -29,7 +29,7 @@ use crate::{
     web::{
         app_state::AppState,
         back,
-        browse::{self, list_view},
+        browse::{self},
         build::{
             detail_view::{self, BuildPage, ColoursShown, FileRead},
             download::Colours,
@@ -37,6 +37,7 @@ use crate::{
         error::AppError,
         extractors::{fixi::Fixi, session::SignedIn},
         href,
+        ui::cards,
     },
 };
 
@@ -315,7 +316,7 @@ pub async fn favorite(
     builds::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
     let path = href::build(&id);
     if fixi && card.is_some() {
-        return Ok(list_view::card_star(&id, on.is_some()).into_response());
+        return Ok(cards::card_star(&id, on.is_some()).into_response());
     }
     if fixi {
         let count = builds::favorite_count(&state.db, &id).await?;

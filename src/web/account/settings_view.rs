@@ -9,7 +9,8 @@ use crate::{
     web::{
         schemati::view,
         ui::{
-            CHOICE, PAGE_TITLE, SWITCHES,
+            CHOICE, PAGE_TITLE, SWITCHES, dialog,
+            editable::{self, ICON_BUTTON},
             icons::{self, PENCIL, icon},
             layout::base,
         },
@@ -61,9 +62,6 @@ fn row(name: &Markup, value: &Markup) -> Markup {
     }
 }
 
-/// The look of a bare icon button at a row's end.
-const ICON_BUTTON: &str = "inline-flex size-8 shrink-0 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink";
-
 /// A value shown with its edit button at the row's end, after `actions`,
 /// anything else done to it, and the form that takes its place, open
 /// already when `open`, as when its last try was refused, saying
@@ -94,9 +92,7 @@ fn editable(e: &Editable) -> Markup {
             div data-view hidden[*open] class="flex items-center gap-2" {
                 div class="flex min-w-0 flex-1 items-center gap-2" { (shown) }
                 (actions)
-                button type="button" data-edit aria-label={ (edit) " " (what) } title=(edit) class=(ICON_BUTTON) {
-                    (icon(PENCIL, "size-4"))
-                }
+                (editable::pencil(&format!("{edit} {what}"), edit))
             }
             div data-editor hidden[!*open] {
                 (form)
@@ -130,8 +126,7 @@ fn minecraft_row(user: &User, message: &str) -> Markup {
                 pattern="[A-Za-z0-9_]{1,16}" maxlength="16" autocomplete="off"
                 aria-invalid=[(!message.is_empty()).then_some("true")]
                 class="inline-input";
-            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
-            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+            (editable::buttons())
         }
     };
     row(
@@ -193,8 +188,7 @@ fn schemati_row(link: Option<&SchematiLink>, message: &str) -> Markup {
             input name="session" required autocomplete="off" spellcheck="false"
                 aria-label="Schemati session ID" placeholder=(placeholder)
                 class="inline-input font-mono";
-            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
-            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+            (editable::buttons())
         }
         (session_steps())
     };
@@ -256,11 +250,10 @@ pub fn block_theme(chosen: &Palette) -> Markup {
     html! {
         dialog id="block-theme" data-show aria-labelledby="block-theme-title"
             class="dialog max-w-calm" {
-            div class="mb-4 flex items-center justify-between gap-4" {
-                h2 id="block-theme-title" class="font-semibold" { "Block theme" }
-                // Its choices save as they change; done shows them.
+            // Its choices save as they change; done shows them.
+            (dialog::header("block-theme", "Block theme", &html! {
                 a href="/settings" class="btn btn-quiet" { "Done" }
-            }
+            }))
             (palette_form(chosen))
         }
     }
@@ -337,10 +330,7 @@ pub fn custom_colours(start: &Palette, signed_in: bool) -> Markup {
     html! {
         dialog id="custom-colours" data-show aria-labelledby="custom-colours-title"
             class="dialog max-w-calm" {
-            div class="mb-2 flex items-center justify-between gap-4" {
-                h3 id="custom-colours-title" class="font-semibold" { "Custom colours" }
-                button type="button" commandfor="custom-colours" command="close" class="btn btn-quiet" { "Done" }
-            }
+            (dialog::header("custom-colours", "Custom colours", &dialog::close("custom-colours", "Done")))
             p class="mb-4 text-meta text-muted" {
                 "For this download only."
                 @if signed_in {
@@ -492,10 +482,7 @@ fn picker(
             }
             dialog id=(dialog) data-picker aria-labelledby={ (dialog) "-title" }
                 class="dialog max-w-calm" {
-                div class="mb-3 flex items-center justify-between gap-4" {
-                    h3 id={ (dialog) "-title" } class="font-semibold" { (label) }
-                    button type="button" commandfor=(dialog) command="close" class="btn btn-quiet" { "Done" }
-                }
+                (dialog::header(&dialog, label, &dialog::close(&dialog, "Done")))
                 @for (group, choices) in groups {
                     fieldset class="mb-3" {
                         legend class="mb-1 text-meta text-muted" { (group) }

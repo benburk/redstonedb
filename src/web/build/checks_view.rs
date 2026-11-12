@@ -19,7 +19,9 @@ use crate::{
             detail_view::FileRead,
             simulation_view::{self, cell_faults, shown, timing_section},
         },
-        ui::{self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, text::grouped},
+        ui::{
+            self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, Tone, text::grouped,
+        },
     },
 };
 
@@ -53,12 +55,12 @@ impl State {
         }
     }
 
-    fn tone(self) -> &'static str {
+    fn tone(self) -> Tone {
         match self {
-            State::Pass => "bg-success/12 text-success",
-            State::Warn => "bg-restriction text-on-restriction",
-            State::Fail => "bg-danger/12 text-danger",
-            State::Skip => "bg-muted/12 text-muted",
+            State::Pass => Tone::Good,
+            State::Warn => Tone::Warn,
+            State::Fail => Tone::Bad,
+            State::Skip => Tone::Plain,
         }
     }
 }
@@ -122,7 +124,6 @@ pub fn form_checks(known: &Known) -> Markup {
     html! {
         section id="simulation" class="max-w-calm"
             data-state=(if report.is_some_and(Report::failed) { "fail" } else { "pass" })
-            data-summary=[report.map(simulation_view::simulation_summary)]
             data-stack=[report.and_then(simulation_view::found_stack)]
             data-measures-timing[report.is_some_and(Report::passed)]
             data-skipped[matches!(report, Some(Report::Skipped { .. }) | None)] {
@@ -691,10 +692,7 @@ fn timing_stage(known: &Known) -> Stage {
             body: html! {
                 div data-timing-pending fx-action=(url) fx-method="post" fx-trigger="load"
                     data-form="details-form" {
-                    p class="flex items-center gap-2 text-muted" {
-                        (ui::spinner())
-                        "Measuring when each output settles, which takes up to a minute…"
-                    }
+                    (ui::waiting("Measuring when each output settles, which takes up to a minute…"))
                 }
             },
         };

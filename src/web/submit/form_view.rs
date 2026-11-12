@@ -10,6 +10,7 @@ use crate::{
     ingest::read::FromFile,
     interface::Orientation,
     web::{
+        href,
         submit::form::{Form, STACK_DIRECTIONS, StackRow},
         ui::sections,
     },
@@ -61,12 +62,12 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             div id={ "category-group-" (key) } role="presentation"
                                 class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
-                                @let blessed = category::listed(&category.name);
+                                @let listed = category::listed(&category.name);
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name)
                                     data-logic=(category.logic.map_or("unknown", Logic::name))
-                                    data-blessed[blessed]
+                                    data-listed[listed]
                                     data-never-stacks[category::behaviour(&category.name).stacking == category::Stacking::Never]
                                     class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
                                     (category.label)
@@ -177,7 +178,7 @@ pub(crate) fn fields(
                     @for (i, name) in choices.people.iter().enumerate() {
                         div id={ "mention-option-" (i) } role="option" aria-selected="false" data-name=(name) hidden
                             class="flex cursor-pointer items-center gap-2 rounded-control px-2.5 py-1.5 hover:bg-selection aria-selected:bg-selection" {
-                            img src={ "/players/" (name) "/head.png" } alt="" width="16" height="16" loading="lazy"
+                            img src=(href::head(name)) alt="" width="16" height="16" loading="lazy"
                                 class="size-4 rounded-[3px] bg-line [image-rendering:pixelated]";
                             (name)
                         }

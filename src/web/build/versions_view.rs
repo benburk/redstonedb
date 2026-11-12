@@ -84,7 +84,7 @@ pub fn versions_section(
                                     @if viewer.is_some() {
                                         a href={ (path) "/versions/" (number) "/download" } class=(action) { "Download" }
                                     } @else {
-                                        button type="button" aria-disabled="true" title=(ui::SIGN_IN_TO_DOWNLOAD) class=(action) { "Download" }
+                                        (ui::locked_download("Download", action))
                                     }
                                     @if may_restore {
                                         form action={ (path) "/versions/" (number) "/restore" } method="post" class="contents" {

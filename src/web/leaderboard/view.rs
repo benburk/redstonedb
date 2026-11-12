@@ -18,10 +18,9 @@ use crate::{
         browse::list_view::{Facet, category_menu},
         href,
         ui::{
-            PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL,
-            TABLE_HEAD,
+            PAGE_TITLE, SECTION_TITLE, Segment, TABLE_CELL, TABLE_HEAD,
             layout::base,
-            person,
+            person, segmented,
             summary::{self, latency},
             text::count,
         },
@@ -79,10 +78,7 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         "/leaderboards",
         &html! {
             div {
-                div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                    h1 class={ (PAGE_TITLE) " mr-auto" } { "Leaderboards" }
-                    (board_menu(facets, ""))
-                }
+                (heading("Leaderboards", facets, ""))
                 (contested(records))
                 h2 class={ (SECTION_TITLE) " mt-10 mb-4" } { "People" }
                 div class="grid grid-cols-1 gap-x-10 gap-y-8 desktop:grid-cols-3" {
@@ -122,9 +118,7 @@ fn contested(records: &[Record]) -> Markup {
                 p class="text-muted" { "No board has two builds yet." }
             } @else {
                 (record_table(&shown, None))
-                @if shown.len() > SHOWN {
-                    p class="mt-2 text-meta text-muted" { "And " (shown.len() - SHOWN) " more." }
-                }
+                (and_more(shown.len()))
             }
         }
     }
@@ -265,9 +259,7 @@ fn standings(
                         }
                     }
                 }
-                @if people.len() > SHOWN {
-                    p class="mt-2 text-meta text-muted" { "And " (people.len() - SHOWN) " more." }
-                }
+                (and_more(people.len()))
             }
         }
     }
@@ -301,10 +293,7 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         &path,
         &html! {
             div {
-                div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                    h1 class={ (PAGE_TITLE) " mr-auto" } { (category.plural) }
-                    (board_menu(facets, &category.name))
-                }
+                (heading(&category.plural, facets, &category.name))
                 @if !board.ranked {
                     p class="text-muted" {
                         "No " (in_sentence(&category.plural)) " of known "
@@ -429,6 +418,27 @@ fn choices(path: &str, board: &Board) -> Markup {
     }
 }
 
+/// A leaderboard page's title, with the menu of boards, `chosen` the one
+/// shown.
+fn heading(title: &str, facets: &[Facet], chosen: &str) -> Markup {
+    html! {
+        div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+            h1 class={ (PAGE_TITLE) " mr-auto" } { (title) }
+            (board_menu(facets, chosen))
+        }
+    }
+}
+
+/// Under a table of the first [`SHOWN`] of `all` rows, how many more
+/// there are, when there are any.
+fn and_more(all: usize) -> Markup {
+    html! {
+        @if all > SHOWN {
+            p class="mt-2 text-meta text-muted" { "And " (all - SHOWN) " more." }
+        }
+    }
+}
+
 /// A labelled segmented control of `options`. `link` gives each option
 /// whether it is chosen and its address; `all` adds an option first, its
 /// label, as "All", whether it is chosen, and its address.
@@ -438,21 +448,28 @@ fn choice_row<V>(
     link: impl Fn(&Choice<V>) -> (bool, String),
     all: Option<(&str, bool, String)>,
 ) -> Markup {
+    let all = all.map(|(label, chosen, href)| Segment {
+        label,
+        href,
+        chosen,
+        count: None,
+    });
+    let segments: Vec<Segment> = all
+        .into_iter()
+        .chain(options.iter().map(|option| {
+            let (chosen, href) = link(option);
+            Segment {
+                label: &option.label,
+                href,
+                chosen,
+                count: Some(option.count),
+            }
+        }))
+        .collect();
     html! {
         nav aria-label=(label) class="flex flex-wrap items-center gap-x-3 gap-y-1" {
             span class="w-24 text-meta font-semibold text-muted" aria-hidden="true" { (label) }
-            div class=(SWITCHES) {
-                @if let Some((all, chosen, href)) = all {
-                    a href=(href) class=(SWITCH) aria-current=[chosen.then_some("page")] { (all) }
-                }
-                @for option in options {
-                    @let (chosen, href) = link(option);
-                    a href=(href) class=(SWITCH) aria-current=[chosen.then_some("page")] {
-                        (option.label)
-                        span class="ml-1.5 text-meta text-muted tabular-nums" { (option.count) }
-                    }
-                }
-            }
+            (segmented(&segments))
         }
     }
 }
@@ -681,10 +698,6 @@ fn ranking(
                 }
             }
         }
-        @if placed.len() > SHOWN {
-            p class="mt-2 text-meta text-muted" {
-                "And " (placed.len() - SHOWN) " more."
-            }
-        }
+        (and_more(placed.len()))
     }
 }

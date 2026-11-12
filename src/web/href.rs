@@ -15,6 +15,11 @@ pub(crate) fn player(name: &str) -> String {
     format!("/players/{name}")
 }
 
+/// The picture of the Minecraft player `name`'s head.
+pub(crate) fn head(name: &str) -> String {
+    format!("/players/{name}/head.png")
+}
+
 /// The home page listing the builds of `category`.
 pub(crate) fn category(category: &str) -> String {
     let query = form_urlencoded::Serializer::new(String::new())

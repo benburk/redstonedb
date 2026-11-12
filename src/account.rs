@@ -141,26 +141,8 @@ impl User {
             .unwrap_or(&self.username)
     }
 
-    /// The account's picture at `size` pixels square: its player's head,
-    /// drawn pixelated, when Mojang knows the player, else the Discord
-    /// avatar, round, if it has one.
-    pub fn picture(&self, size: u32) -> Option<maud::Markup> {
-        let (src, shape) = match (&self.minecraft_uuid, self.avatar_url()) {
-            (Some(uuid), _) => (
-                format!("/heads/{uuid}"),
-                "rounded-[2px] [image-rendering:pixelated]",
-            ),
-            (None, Some(avatar)) => (avatar, "rounded-full"),
-            (None, None) => return None,
-        };
-        Some(maud::html! {
-            img src=(src) alt="" width=(size) height=(size)
-                class=(shape) style={ "width:" (size) "px;height:" (size) "px" };
-        })
-    }
-
     /// The Discord avatar's image address, when the account has one.
-    fn avatar_url(&self) -> Option<String> {
+    pub fn avatar_url(&self) -> Option<String> {
         self.avatar.as_ref().map(|hash| {
             format!(
                 "https://cdn.discordapp.com/avatars/{}/{hash}.png?size=64",

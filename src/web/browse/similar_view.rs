@@ -11,7 +11,7 @@ use crate::{
         browse::list_view,
         href,
         schemati::view::{self, Offered},
-        ui::{PAGE_TITLE, SECTION_TITLE, summary::facts, text},
+        ui::{PAGE_TITLE, SECTION_TITLE, cards, dialog, summary::facts, text},
     },
 };
 
@@ -56,7 +56,7 @@ pub fn similar_dialog(
                 }
                 div class="flex flex-wrap items-center gap-3" {
                     button type="submit" class="btn btn-primary" { "Search" }
-                    button type="button" commandfor="similar" command="close" class="btn btn-quiet" { "Cancel" }
+                    (dialog::close("similar", "Cancel"))
                     // Shown while the search runs, as its button is busy,
                     // not while the Schemati files load.
                     span class="hidden text-meta text-muted group-has-[[type=submit][aria-busy=true]]:inline" {
@@ -100,7 +100,7 @@ fn results(found: &Found) -> Markup {
             ol class="flex flex-col" {
                 @for (s, permille) in found.builds {
                     li class="group relative flex items-center gap-4 border-b border-line py-3" {
-                        img src=(list_view::thumbnail_src(s, None))
+                        img src=(cards::thumbnail_src(s, None))
                             alt="" loading="lazy" decoding="async" width="96" height="72"
                             class="aspect-[4/3] w-24 shrink-0 rounded-control bg-sidebar object-contain";
                         div class="flex min-w-0 flex-1 flex-col gap-0.5" {

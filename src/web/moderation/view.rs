@@ -13,9 +13,10 @@ use crate::{
     web::{
         href,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES,
+            Segment, Tone,
             icons::{self, icon},
             layout::base,
+            page_header, segmented,
             text::{self, long_date},
         },
     },
@@ -64,28 +65,26 @@ pub fn activity(log: &ActivityLog) -> Markup {
             _ => days.push((day, vec![event])),
         }
     }
+    let filters: Vec<Segment> = Filter::ALL
+        .into_iter()
+        .map(|filter| Segment {
+            label: filter.label(),
+            href: activity_href(filter, None),
+            chosen: filter == log.filter,
+            count: None,
+        })
+        .collect();
     base(
         Some(log.viewer),
         "Moderation log",
         "/log",
         &html! {
-            h1 class={ (PAGE_TITLE) " mb-2" } { "Moderation log" }
-            p class="mb-6 max-w-prose text-muted" {
-                "Accounts made, builds uploaded, details edited, files downloaded, and builds deleted, newest first. Times are UTC."
-            }
-            @if !log.message.is_empty() {
-                p role="alert" class="mb-6 text-danger" { (log.message) }
-            }
-            nav aria-label="Events" class="mb-6" {
-                div class={ (SWITCHES) " w-fit" } {
-                    @for filter in Filter::ALL {
-                        a href=(activity_href(filter, None)) class=(SWITCH)
-                            aria-current=[(filter == log.filter).then_some("page")] {
-                            (filter.label())
-                        }
-                    }
-                }
-            }
+            (page_header(
+                "Moderation log",
+                "Accounts made, builds uploaded, details edited, files downloaded, and builds deleted, newest first. Times are UTC.",
+                log.message,
+            ))
+            nav aria-label="Events" class="mb-6" { (segmented(&filters)) }
             @if days.is_empty() {
                 p class="text-muted" { "Nothing yet." }
             }
@@ -115,10 +114,10 @@ fn mark(kind: Kind) -> (&'static str, &'static str) {
         Kind::Upload | Kind::Version => {
             (icons::UPLOAD, "bg-selection text-brand")
         }
-        Kind::Edit => (icons::PENCIL, "bg-restriction text-on-restriction"),
+        Kind::Edit => (icons::PENCIL, Tone::Warn.class()),
         Kind::Download => (icons::DOWNLOAD, "bg-other text-on-other"),
-        Kind::Delete => (icons::TRASH, "bg-danger/10 text-danger"),
-        Kind::Restore => (icons::UNDO, "bg-success/10 text-success"),
+        Kind::Delete => (icons::TRASH, Tone::Bad.class()),
+        Kind::Restore => (icons::UNDO, Tone::Good.class()),
     }
 }
 
@@ -225,17 +224,37 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
     if s.entry.deleted || !build::revertible(s, change) {
         return html! {};
     }
-    let action = format!("/log/edits/{edit}/revert");
+    undo_button(
+        log,
+        &format!("/log/edits/{edit}/revert"),
+        Some(&change.detail),
+        "Revert",
+        "Put this back as it was before this edit",
+    )
+}
+
+/// A button that posts to `action` to undo something the log lists,
+/// naming the `detail` to put back when it is one of an edit's, and
+/// coming back to the page of the log it is on.
+fn undo_button(
+    log: &ActivityLog,
+    action: &str,
+    detail: Option<&str>,
+    label: &str,
+    title: &str,
+) -> Markup {
     html! {
         form action=(action) method="post" class="inline" {
-            input type="hidden" name="detail" value=(change.detail);
+            @if let Some(detail) = detail {
+                input type="hidden" name="detail" value=(detail);
+            }
             input type="hidden" name="show" value=(log.filter.name());
             @if let Some(before) = log.before {
                 input type="hidden" name="before" value=(before);
             }
             button type="submit" class="ml-1 rounded-control px-1.5 text-brand hover:bg-selection"
-                title="Put this back as it was before this edit" {
-                "Revert"
+                title=(title) {
+                (label)
             }
         }
     }
@@ -248,19 +267,13 @@ fn restore_button(log: &ActivityLog, event: &Event) -> Markup {
     let Some(s) = build.filter(|s| s.entry.deleted) else {
         return html! {};
     };
-    let action = format!("/log/deletions/{}/restore", s.id);
-    html! {
-        form action=(action) method="post" class="inline" {
-            input type="hidden" name="show" value=(log.filter.name());
-            @if let Some(before) = log.before {
-                input type="hidden" name="before" value=(before);
-            }
-            button type="submit" class="ml-1 rounded-control px-1.5 text-brand hover:bg-selection"
-                title="Put this build back on the site" {
-                "Restore"
-            }
-        }
-    }
+    undo_button(
+        log,
+        &format!("/log/deletions/{}/restore", s.id),
+        None,
+        "Restore",
+        "Put this build back on the site",
+    )
 }
 
 /// One detail an edit changed: on one line, before and after, when both

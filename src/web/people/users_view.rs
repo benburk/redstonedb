@@ -7,13 +7,14 @@ use crate::{
     account::{Role, User},
     build::Build,
     web::{
-        browse::list_view::{Viewing, cards},
         href,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES, TABLE_HEAD,
+            PAGE_TITLE, Segment, TABLE_HEAD, Tone,
+            cards::{Viewing, cards},
+            editable,
             icons::{self, icon},
             layout::base,
-            text,
+            page_header, person, segmented, text,
         },
     },
 };
@@ -54,13 +55,11 @@ pub fn users(admin: &User, users: &[User], message: &str) -> Markup {
         "Users",
         "/users",
         &html! {
-            h1 class={ (PAGE_TITLE) " mb-2" } { "Users" }
-            p class="mb-6 max-w-prose text-muted" {
-                "Mods edit and delete any build, as uploaders do their own, and make new tags; admins also set roles and restore deleted builds. A confirmed Minecraft name lets its account edit builds crediting it, so confirm only names you know are theirs."
-            }
-            @if !message.is_empty() {
-                p role="alert" class="mb-6 text-danger" { (message) }
-            }
+            (page_header(
+                "Users",
+                "Mods edit and delete any build, as uploaders do their own, and make new tags; admins also set roles and restore deleted builds. A confirmed Minecraft name lets its account edit builds crediting it, so confirm only names you know are theirs.",
+                message,
+            ))
             // Each control in its own column, of a fixed width so a name
             // opened for editing moves nothing; on a phone each account is
             // a block, its name and role over its Minecraft name.
@@ -138,7 +137,7 @@ fn role_colour(role: Role) -> &'static str {
     match role {
         Role::Admin => "bg-brand text-on-brand",
         Role::Mod => "badge-other",
-        Role::User => "bg-muted/12 text-muted",
+        Role::User => Tone::Plain.class(),
     }
 }
 
@@ -183,8 +182,7 @@ fn minecraft_name(user: &User, target: &str) -> Markup {
                     checked[confirmed || name.is_empty()] class="size-4 appearance-auto";
                 "Confirmed"
             }
-            button type="submit" class="btn btn-primary min-h-8 px-3" { "Save" }
-            button type="button" data-cancel class="btn btn-quiet min-h-8 px-3" { "Cancel" }
+            (editable::buttons())
         }
     };
     // The pencil right after the name, swapping the two for the form, as
@@ -193,11 +191,7 @@ fn minecraft_name(user: &User, target: &str) -> Markup {
         div data-editable {
             div data-view class="flex min-w-0 items-center gap-1" {
                 (shown)
-                button type="button" data-edit title="Edit"
-                    aria-label={ "Edit " (user.name()) "'s Minecraft name" }
-                    class="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-muted hover:bg-selection hover:text-ink" {
-                    (icon(icons::PENCIL, "size-4"))
-                }
+                (editable::pencil(&format!("Edit {}'s Minecraft name", user.name()), "Edit"))
             }
             div data-editor hidden { (form) }
         }
@@ -209,7 +203,7 @@ fn minecraft_name(user: &User, target: &str) -> Markup {
 fn account_link(user: &User) -> Markup {
     html! {
         div class="flex items-center gap-2.5" {
-            @if let Some(picture) = user.picture(28) { (picture) }
+            @if let Some(picture) = person::picture(user, 28) { (picture) }
             div class="flex min-w-0 flex-col" {
                 a href=(href::user(&user.username)) class="truncate" { (user.name()) }
                 @if user.name() != user.username {
@@ -248,13 +242,28 @@ pub fn profile(
 ) -> Markup {
     let path = href::user(&account.username);
     let own = viewer.is_some_and(|viewer| viewer.id == account.id);
+    let lists: Vec<Segment> = builds
+        .lists
+        .iter()
+        .enumerate()
+        .map(|(i, list)| Segment {
+            label: list.label,
+            href: if i == 0 {
+                path.clone()
+            } else {
+                format!("{path}?show={}", list.name)
+            },
+            chosen: i == builds.shown,
+            count: Some(list.builds.len()),
+        })
+        .collect();
     base(
         viewer,
         account.name(),
         &path,
         &html! {
             div class="mb-8 flex items-center gap-4" {
-                @if let Some(picture) = account.picture(64) { (picture) }
+                @if let Some(picture) = person::picture(account, 64) { (picture) }
                 div class="min-w-0 flex-1" {
                     h1 class=(PAGE_TITLE) { (account.name()) }
                     p class="flex items-center gap-2 text-muted" {
@@ -278,17 +287,7 @@ pub fn profile(
                 }
             }
             @let shown = &builds.lists[builds.shown];
-            nav aria-label="Builds" class="mb-5" {
-                div class={ (SWITCHES) " w-fit" } {
-                    @for (i, list) in builds.lists.iter().enumerate() {
-                        @let href = if i == 0 { path.clone() } else { format!("{path}?show={}", list.name) };
-                        a href=(href) class=(SWITCH) aria-current=[(i == builds.shown).then_some("page")] {
-                            (list.label)
-                            span class="ml-1.5 text-meta text-muted tabular-nums" { (list.builds.len()) }
-                        }
-                    }
-                }
-            }
+            nav aria-label="Builds" class="mb-5" { (segmented(&lists)) }
             @if shown.builds.is_empty() {
                 p class="text-muted" {
                     @match (shown.name, &account.minecraft_name) {

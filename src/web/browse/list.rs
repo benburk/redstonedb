@@ -22,14 +22,13 @@ use crate::{
     web::{
         app_state::AppState,
         browse::{
-            list_view::{
-                self, Facet, HomeQuery, Index, Listing, Sort, SortField, Tile,
-                Viewing,
-            },
+            list_view::{self, Facet, Index, Listing, Tile},
+            query::{HomeQuery, Sort, SortField},
             similar,
         },
         error::AppError,
         extractors::fixi::Fixi,
+        ui::cards::Viewing,
     },
 };
 

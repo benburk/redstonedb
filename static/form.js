@@ -33,11 +33,11 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     const option = chosen();
     if (!option && !settled) return;
     const has = (attribute) => option?.hasAttribute(attribute) ?? false;
-    const blessed = has("data-blessed");
-    // One not recognized as its blessed category goes up unverified, its
+    const listed = has("data-listed");
+    // One not recognized as its listed category goes up unverified, its
     // specs typed, its width among them.
-    const unverified = blessed && form.hasAttribute("data-unverified");
-    const evaluated = blessed && !unverified;
+    const unverified = listed && form.hasAttribute("data-unverified");
+    const evaluated = listed && !unverified;
     for (const what of ["width", "orientation", "stacking"]) {
       const derived = form.querySelector(`[data-derived-${what}]`);
       const typed = form.querySelector(`[data-typed-${what}]`);
@@ -262,9 +262,8 @@ for (const link of document.querySelectorAll("a[data-open-chooser]")) {
 // fields lock and fill in as the timing comes.
 //
 // The category's badge follows along, saying whether the build is
-// verified, and the section under the form says why not, beside the
-// failing cases; and the button waits for the cases' result, though not the timing, which
-// carries on after publishing. Anything the server found, such as a
+// verified; and the button waits for the cases' result, though not the
+// timing, which carries on after publishing. Anything the server found, such as a
 // duplicate, it disables the button for itself and says why beside it,
 // which this leaves be.
 for (const form of document.querySelectorAll("form[data-simulate]")) {
@@ -275,7 +274,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
   const button = form.querySelector("[data-publish]");
   const reason = form.querySelector("[data-gate-reason]");
   const key = () => category.value.trim().toLowerCase();
-  let asked = form.hasAttribute("data-simulated") ? key() : null;
+  let asked = null;
   // Requests for the cases under way; the button waits on them.
   let running = 0;
 
@@ -311,22 +310,9 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     badge.textContent = words;
     badge.className = `badge ${kind}`;
   };
-  // Why it isn't verified, under the form, as `state` says, failing or
-  // untested: `items`, its reasons as list items; none hides it.
-  const reasons = document.querySelector("[data-reasons]");
-  const why = (state, items) => {
-    if (!reasons) return;
-    reasons.querySelector("[data-reasons-heading]").textContent =
-      state === "fail" ? "Why it's failing" : "Why it's untested";
-    reasons.querySelector("[data-reason-list]").replaceChildren(...items);
-    reasons.hidden = items.length === 0;
-  };
   // What the page first said, from the check by function or the stored
   // result, for when the simulation has nothing to say.
-  const first = {
-    state: form.dataset.verdict,
-    items: [...(reasons?.querySelectorAll("[data-reason-list] > li") ?? [])],
-  };
+  const first = form.dataset.verdict;
 
   // A category with a test has its latency and synchronized measured, so
   // their fields lock from the start, and are not sent, unless the
@@ -339,7 +325,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     found(fresh);
     if (!timingFields) return;
     const option = chosenOption();
-    const tested = option?.hasAttribute("data-blessed") ?? false;
+    const tested = option?.hasAttribute("data-listed") ?? false;
     const shown = fresh ? results() : null;
     const skipped = shown?.querySelector("[data-skipped]") != null;
     const passed = shown?.querySelector("[data-measures-timing]") != null;
@@ -385,13 +371,10 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     const section = results().querySelector("#simulation");
     if (filing) {
       verdict(filing.dataset.filing);
-      why(filing.dataset.filing, [...filing.content.cloneNode(true).children]);
     } else if (section && !section.hasAttribute("data-skipped")) {
       verdict(section.dataset.state);
-      why(section.dataset.state, []);
     } else {
-      verdict(first.state);
-      why(first.state, first.items);
+      verdict(first);
     }
   };
 
@@ -440,15 +423,15 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     if (!timing || !stage || !pill) return;
     const synced = timing.dataset.synced === "true";
     const [state, mark, tone] = synced
-      ? ["pass", "✓", "bg-success/12 text-success"]
-      : ["warn", "!", "bg-restriction text-on-restriction"];
+      ? ["pass", "✓", "tone-good"]
+      : ["warn", "!", "tone-warn"];
     pill.dataset.state = state;
-    pill.className = pill.className.replace(/bg-muted\/12 text-muted/, tone);
+    pill.classList.replace("tone-plain", tone);
     pill.querySelector("span").textContent = mark;
     const summary = stage.querySelector("summary");
     const icon = summary.querySelector("span");
     icon.textContent = mark;
-    icon.className = icon.className.replace(/bg-muted\/12 text-muted/, tone);
+    icon.classList.replace("tone-plain", tone);
     summary.lastElementChild.textContent = timing.dataset.summary ?? "";
     stage.open = !synced;
   };

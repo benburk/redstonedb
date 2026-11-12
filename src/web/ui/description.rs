@@ -8,6 +8,7 @@
 
 use std::fmt::Write as _;
 
+use crate::web::ui::person;
 use maud::{Markup, PreEscaped};
 
 /// `text` as HTML: blank lines part paragraphs, lines within one break,
@@ -76,7 +77,7 @@ fn inline(text: &str) -> String {
         }
         let prior = html.chars().last();
         if let Some(name) = crate::build::mention(rest, prior) {
-            html.push_str(&player_badge(name));
+            html.push_str(&person::mention(name).into_string());
             rest = &rest[name.len() + 1..];
             continue;
         }
@@ -159,14 +160,6 @@ fn link(text: &str) -> Option<(String, usize)> {
         return Some((anchor(url, &escape(url)), url.len()));
     }
     None
-}
-
-/// A player as a badge in running text: their head, blank until it loads,
-/// and their name, linking to their page.
-pub(crate) fn player_badge(name: &str) -> String {
-    format!(
-        r#"<a href="/players/{name}" class="mention"><img src="/players/{name}/head.png" alt="" width="16" height="16" loading="lazy">{name}</a>"#
-    )
 }
 
 /// Whether `url` starts as a web address and has more after.

@@ -15,6 +15,7 @@ use crate::{
             PAGE_TITLE, SECTION_TITLE,
             icons::{self, LINK, UPLOAD, icon},
             layout::base,
+            spinner,
         },
     },
 };
@@ -90,10 +91,7 @@ pub fn upload(
         "/upload",
         &html! {
             div class="max-w-form" {
-                div class="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1" {
-                    h1 class=(PAGE_TITLE) { "Upload a build" }
-                    a href="/about/recognized" { "How builds are recognized" }
-                }
+                (heading())
                 @if !message.is_empty() {
                     p role="alert" class="mb-4 text-danger" { (message) }
                 }
@@ -110,6 +108,16 @@ pub fn upload(
     )
 }
 
+/// The upload pages' heading, with the way to how builds are recognized.
+fn heading() -> Markup {
+    html! {
+        div class="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1" {
+            h1 class=(PAGE_TITLE) { "Upload a build" }
+            a href="/about/recognized" { "How builds are recognized" }
+        }
+    }
+}
+
 /// The page of an upload being analyzed, `step` showing how far it has
 /// got, asking after it until it is done and then loading again as the
 /// preview.
@@ -120,10 +128,7 @@ pub fn analyzing(user: &User, id: &str, step: &Step) -> Markup {
         "/upload",
         &html! {
             div class="max-w-form" {
-                div class="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1" {
-                    h1 class=(PAGE_TITLE) { "Upload a build" }
-                    a href="/about/recognized" { "How builds are recognized" }
-                }
+                (heading())
                 div fx-action={ "/upload/" (id) "/progress" } fx-trigger="poll" data-every="250"
                     fx-swap="innerHTML" role="status" aria-live="polite" {
                     (analysis_steps(step.place(), Some(step)))
@@ -157,60 +162,59 @@ pub fn checking_version(user: &User, s: &Build, id: &str) -> Markup {
 /// The steps of checking a new version: the file uploaded, and the check
 /// under way.
 pub fn version_steps() -> Markup {
-    const STEPS: [&str; 2] =
-        ["Uploading the file", "Checking it against this version"];
-    html! {
-        ol class="flex flex-col" {
-            @for (i, label) in STEPS.iter().enumerate() {
-                li class="flex min-h-row-rich items-start gap-3 py-1.5" {
-                    span class="flex h-6 w-5 shrink-0 items-center justify-center" {
-                        @if i == 0 {
-                            (icon(icons::CHECK, "size-5 text-brand"))
-                        } @else {
-                            span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" {}
-                        }
-                    }
-                    span class="leading-6" { (label) }
-                }
-            }
-        }
-    }
+    steps(
+        &["Uploading the file", "Checking it against this version"],
+        1,
+        &html! {},
+    )
 }
 
 /// The steps of analyzing an upload, those before `place` done and the
 /// one at it under way; while it is probed as each category, `step` says
 /// which, and how many it has tried.
 pub fn analysis_steps(place: usize, step: Option<&Step>) -> Markup {
-    const STEPS: [&str; 4] = [
-        "Uploading the file",
-        "Finding its inputs and outputs",
-        "Testing it as each kind of build",
-        "Preparing the preview",
-    ];
+    let trying = html! {
+        @if let Some(Step::Testing { label, tried }) = step {
+            span class="text-meta text-muted" {
+                "Trying " (label) " · " ((tried + 1)) " of " (analysis::kinds())
+            }
+            span class="block h-1 w-full max-w-xs overflow-hidden rounded-full bg-line" {
+                span class="block h-full rounded-full bg-brand transition-[width] duration-200 ease-calm motion-reduce:transition-none"
+                    style={ "width: " (((tried + 1) * 100 / analysis::kinds())) "%" } {}
+            }
+        }
+    };
+    steps(
+        &[
+            "Uploading the file",
+            "Finding its inputs and outputs",
+            "Testing it as each kind of build",
+            "Preparing the preview",
+        ],
+        place,
+        &trying,
+    )
+}
+
+/// Steps taken one after another: those before `place` ticked, the one at
+/// it under way, with `detail` under its name, and the rest still to come.
+fn steps(labels: &[&str], place: usize, detail: &Markup) -> Markup {
     html! {
         ol class="flex flex-col" {
-            @for (i, label) in STEPS.iter().enumerate() {
+            @for (i, label) in labels.iter().enumerate() {
                 li class="flex min-h-row-rich items-start gap-3 py-1.5" {
                     span class="flex h-6 w-5 shrink-0 items-center justify-center" {
                         @if i < place {
                             (icon(icons::CHECK, "size-5 text-brand"))
                         } @else if i == place {
-                            span class="size-4 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" {}
+                            (spinner())
                         } @else {
                             span class="size-4 rounded-full border-2 border-line" {}
                         }
                     }
                     div class="flex min-w-0 flex-1 flex-col gap-1.5" {
                         span class={ "leading-6 " (if i > place { "text-muted" } else { "" }) } { (label) }
-                        @if i == place && let Some(Step::Testing { label, tried }) = step {
-                            span class="text-meta text-muted" {
-                                "Trying " (label) " · " ((tried + 1)) " of " (analysis::kinds())
-                            }
-                            span class="block h-1 w-full max-w-xs overflow-hidden rounded-full bg-line" {
-                                span class="block h-full rounded-full bg-brand transition-[width] duration-200 ease-calm motion-reduce:transition-none"
-                                    style={ "width: " (((tried + 1) * 100 / analysis::kinds())) "%" } {}
-                            }
-                        }
+                        @if i == place { (detail) }
                     }
                 }
             }

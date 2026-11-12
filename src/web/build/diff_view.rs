@@ -14,8 +14,8 @@ use crate::{
     web::{
         href,
         ui::{
-            PAGE_TITLE, SECTION_TITLE, SIGN_IN_TO_DOWNLOAD, SWITCHES,
-            layout::base, text::plural, viewer::viewer_3d_sides,
+            PAGE_TITLE, SECTION_TITLE, SWITCHES, layout::base, locked_download,
+            text::plural, viewer::viewer_3d_sides,
         },
     },
 };
@@ -85,7 +85,7 @@ pub fn diff_page(
                                 @if viewer.is_some() {
                                     a href=(file(side)) class="btn btn-quiet" { "Download " (label) }
                                 } @else {
-                                    button type="button" aria-disabled="true" title=(SIGN_IN_TO_DOWNLOAD) class="btn btn-quiet" { "Download " (label) }
+                                    (locked_download(&format!("Download {label}"), "btn btn-quiet"))
                                 }
                             }
                         }
