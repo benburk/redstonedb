@@ -443,68 +443,34 @@ pub async fn publish_suggested(
 /// workers, as probing takes a second or two.
 /// What the site will keep of an upload, shown before it is published,
 /// so its uploader sees the build as it will be: its file as recognized,
-/// its signs out but those its test reads, its unused blocks out when it
-/// passes, in the site's default theme, base64; and how many signs and
-/// blocks were taken out. Nothing to show for a build the site can't
-/// read, which is kept as it came.
-struct AsKept {
-    shown: Option<String>,
-    signs: usize,
-    pruned: usize,
-}
-
-async fn as_kept(uploaded: &[u8], recognition: &probe::Recognition) -> AsKept {
+/// its signs and trapdoors out but those its test reads, its unused blocks
+/// out when it passes, in the site's default theme, base64. Its checks'
+/// File stage says what came out. `None` for a build the site can't read,
+/// which is kept as it came.
+async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
     let read = recognition.file.clone();
     let passes = recognition.found.is_some();
-    let uploaded = uploaded.to_vec();
     tokio::task::spawn_blocking(move || {
         if !crate::models::simulation::carries_roles(&read) {
-            return AsKept {
-                shown: None,
-                signs: 0,
-                pruned: 0,
-            };
+            return None;
         }
-        let signs = signs_in(&uploaded).saturating_sub(signs_in(&read));
         let buses = crate::schem::stack::Buses::own();
-        let pruned = passes
+        let file = passes
             .then(|| {
                 crate::recognize::roles::prune(&read, &[], buses)
                     .ok()
                     .flatten()
             })
-            .flatten();
-        let (file, pruned) = match pruned {
-            Some(pruned) => (pruned.file, pruned.gone.len()),
-            None => (read, 0),
-        };
+            .flatten()
+            .map_or(read, |pruned| pruned.file);
         let palette = crate::recognize::palette::Palette::default();
-        let shown =
-            crate::recognize::palette::themed(&file, &[], buses, &palette)
-                .ok()
-                .map(|file| STANDARD.encode(file));
-        AsKept {
-            shown,
-            signs,
-            pruned,
-        }
+        crate::recognize::palette::themed(&file, &[], buses, &palette)
+            .ok()
+            .map(|file| STANDARD.encode(file))
     })
     .await
-    .unwrap_or(AsKept {
-        shown: None,
-        signs: 0,
-        pruned: 0,
-    })
-}
-
-/// How many signs the file `data` has.
-fn signs_in(data: &[u8]) -> usize {
-    crate::schem::Blocks::read(data).map_or(0, |blocks| {
-        blocks
-            .iter()
-            .filter(|(_, state)| crate::schem::id(state).ends_with("_sign"))
-            .count()
-    })
+    .ok()
+    .flatten()
 }
 
 async fn recognition(data: &[u8]) -> anyhow::Result<probe::Recognition> {
@@ -645,17 +611,14 @@ async fn show_preview(
         (size.x.into(), size.y.into(), size.z.into()),
     )
     .await?;
-    let kept = as_kept(&prepared.data, recognition).await;
+    let shown = as_kept(recognition).await;
     let file = File::Upload {
-        shown: kept.shown.as_deref(),
-        signs_out: kept.signs,
-        pruned_out: kept.pruned,
+        shown: shown.as_deref(),
         data: &STANDARD.encode(&prepared.data),
         original: said.original,
         duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
         unconventional: !upload.read_as().conventional,
-        swapped: &prepared.swapped,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
         recognized: recognition.found.as_deref(),
         problems: &recognition.problems,

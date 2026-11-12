@@ -31,14 +31,11 @@ pub enum File<'a> {
     Upload {
         /// The prepared file, base64.
         data: &'a str,
-        /// The file as the site will keep it, recognized, its signs and
-        /// unused blocks out, in the site's theme, base64, which the viewer
-        /// shows; `None` for a build the site can't read.
+        /// The file as the site will keep it, recognized, its signs,
+        /// trapdoors, and unused blocks out, in the site's theme, base64,
+        /// which the viewer shows; `None` for a build the site can't read.
+        /// Its checks' File stage says what came out.
         shown: Option<&'a str>,
-        /// How many of its signs, and unused blocks, the
-        /// site takes out.
-        signs_out: usize,
-        pruned_out: usize,
         /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
@@ -50,9 +47,6 @@ pub enum File<'a> {
         /// Whether the blocks read for it break the conventions, so are
         /// not read by them.
         unconventional: bool,
-        /// The furnaces, cauldrons, and cakes swapped for barrels, by kind,
-        /// with how many.
-        swapped: &'a [(String, usize)],
         /// How many hoppers it has, kept unless the uploader asks to swap
         /// them.
         hoppers: usize,
@@ -228,19 +222,10 @@ fn check(name: &str, state: State, text: &Markup) -> Markup {
     }
 }
 
-/// For an upload, the furnaces, cauldrons, and cakes swapped for barrels,
-/// and its hoppers, with an offer to swap them too.
+/// For an upload, its hoppers, with an offer to swap them for barrels;
+/// what it swapped already its checks' File stage says.
 fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
-        @if let File::Upload { swapped, .. } = &page.file {
-            @if !swapped.is_empty() {
-                (check("swapped", State::Pass, &html! {
-                    "Swapped " (counted(swapped)) " for "
-                    @if matches!(swapped, [(_, 1)]) { "a barrel" } @else { "barrels" }
-                    " giving the same signal strength."
-                }))
-            }
-        }
         @if let File::Upload { hoppers, .. } = &page.file {
             @if *hoppers > 0 {
                 (check("hoppers", State::Wait, &html! {
@@ -255,7 +240,7 @@ fn swap_checks(page: &DetailsPage) -> Markup {
 
 /// Blocks by kind with how many, as words, such as `a water cauldron and
 /// 2 cakes`.
-fn counted(kinds: &[(String, usize)]) -> String {
+pub fn counted(kinds: &[(String, usize)]) -> String {
     let each: Vec<String> = kinds
         .iter()
         .map(|(name, count)| match count {
@@ -310,20 +295,6 @@ fn checks(page: &DetailsPage) -> Markup {
             (check("duplicate", State::Fail, &html! {
                 "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
             }))
-        }
-        @if let File::Upload { signs_out, pruned_out, .. } = &page.file {
-            @if *signs_out > 0 {
-                (check("signs", State::Warn, &html! {
-                    (signs_out) @if *signs_out == 1 { " sign" } @else { " signs" }
-                    " taken out; the site names its lines itself."
-                }))
-            }
-            @if *pruned_out > 0 {
-                (check("pruned", State::Warn, &html! {
-                    (pruned_out) @if *pruned_out == 1 { " block" } @else { " blocks" }
-                    " no part of its circuit uses taken out, as the viewer shows it."
-                }))
-            }
         }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
             (check("similar", State::Warn, &html! {

@@ -204,21 +204,32 @@ fn needs(key: &str) -> &'static [&'static str] {
     }
 }
 
-/// Reading its file: its blocks and their box.
+/// Reading its file: its blocks and their box, and for an upload, what
+/// uploading it takes out or swaps, a warning so its uploader sees the
+/// build as it will be kept.
 fn file_stage(known: &Known) -> Stage {
     let (x, y, z) = known.s.size;
     match known.file {
         Ok(file) => {
             let blocks: usize = file.block_counts.iter().map(|(_, n)| n).sum();
+            let size =
+                format!("{} blocks, {y}×{x}×{z}", grouped(blocks as u64));
+            let (state, summary) = match file.kept.len() {
+                0 => (State::Pass, size),
+                1 => (State::Warn, format!("{size}; 1 change on upload")),
+                n => (State::Warn, format!("{size}; {n} changes on upload")),
+            };
             Stage {
                 key: "file",
                 name: "File",
-                state: State::Pass,
-                summary: format!(
-                    "{} blocks, {y}×{x}×{z}",
-                    grouped(blocks as u64)
-                ),
+                state,
+                summary,
                 body: html! {
+                    @if !file.kept.is_empty() {
+                        ul class="mb-3 flex list-disc flex-col gap-1 pl-5" {
+                            @for change in &file.kept { li { (change) } }
+                        }
+                    }
                     table class="border-collapse" {
                         tbody {
                             @for (block, n) in file.block_counts.iter().take(8) {
