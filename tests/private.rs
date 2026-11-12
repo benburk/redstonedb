@@ -4,8 +4,8 @@
 mod common;
 
 use app::{
+    account::{Role, User},
     details::Details,
-    models::user::{Role, User},
     store::builds,
 };
 use sqlx::SqlitePool;

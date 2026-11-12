@@ -12,13 +12,13 @@ use super::{
 };
 use crate::{
     APP_NAME,
-    build::Build,
+    account::User,
+    build::{
+        Build,
+        tag::{self, Tag},
+    },
     category::{Flag, Section},
     interface::Encoding,
-    models::{
-        tag::{self, Tag},
-        user::User,
-    },
     search::Term,
 };
 

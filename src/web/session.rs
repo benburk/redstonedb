@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
-    models::session::{self, Session},
+    store::sessions::{self, Session},
     web::{app_state::AppState, error::AppError},
 };
 
@@ -36,7 +36,7 @@ pub async fn create_session(
     db: &SqlitePool,
     user_id: Uuid,
 ) -> Result<Cookie<'static>, sqlx::Error> {
-    let now = session::now_micros();
+    let now = sessions::now_micros();
     Session::delete_expired(db, now).await?;
     let lifetime = i64::try_from(LIFETIME.whole_microseconds())
         .expect("a week in microseconds fits in i64");

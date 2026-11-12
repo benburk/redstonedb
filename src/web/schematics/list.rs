@@ -13,11 +13,10 @@ use axum::{
 };
 
 use crate::{
-    build::Build,
+    account::User,
+    build::{Build, tag},
     category::Category,
-    leaderboard,
-    models::{tag, user::User},
-    search,
+    leaderboard, search,
     store::builds,
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
 };

@@ -7,12 +7,10 @@
 use maud::{Markup, html};
 
 use crate::{
+    account::User,
     build::Build,
     diff::Counts,
-    models::{
-        user::User,
-        version::{Measures, Version},
-    },
+    store::versions::{Measures, Version},
 };
 
 use super::{

@@ -11,7 +11,7 @@ use axum_extra::extract::{
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::{models::user::User, web::app_state::AppState};
+use crate::{account::User, web::app_state::AppState};
 
 use super::{pages, session::create_session};
 

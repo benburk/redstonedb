@@ -21,11 +21,11 @@ use crate::{
     build::Build,
     import::{self, Prepared},
     interface::inspect,
-    models::version,
     schem::{
         self, Blocks, Pos,
         turn::{self, Turn},
     },
+    store::versions,
 };
 
 /// The share of blocks, in percent, a new version keeps at least before it
@@ -50,8 +50,9 @@ async fn laid_as(
         (blocks.size, states)
     };
     let new = placed(blocks);
-    for listed in version::list(db, &s.id).await? {
-        let Some(data) = version::data(db, &s.id, listed.version).await? else {
+    for listed in versions::list(db, &s.id).await? {
+        let Some(data) = versions::data(db, &s.id, listed.version).await?
+        else {
             continue;
         };
         if placed(&Blocks::read(&data)?) == new {
@@ -214,7 +215,7 @@ async fn checked(
     } else {
         file.to_vec()
     };
-    let current = version::current_file(db, &s.id).await?.unwrap_or_default();
+    let current = versions::current_file(db, &s.id).await?.unwrap_or_default();
     let current = Blocks::read(&current)?;
     // Saved again from the game, it may lie another way than the version
     // before: it is compared turned and mirrored as matches that best.
@@ -263,7 +264,7 @@ async fn checked(
             ));
         }
     }
-    let holder = version::holder(db, &prepared.sha256).await?;
+    let holder = versions::holder(db, &prepared.sha256).await?;
     match holder {
         Some((other, number)) if other == s.id => {
             refusals.push(format!("It is the same file as version {number}."));
@@ -310,33 +311,33 @@ pub async fn merge(
             "A build can't be merged into itself.".to_owned(),
         ]));
     }
-    let Some(number) = version::list(db, &from.id)
+    let Some(number) = versions::list(db, &from.id)
         .await?
         .first()
         .map(|v| v.version)
     else {
         return Ok(Err(vec!["It has no file to merge.".to_owned()]));
     };
-    let file = version::file(db, &from.id, number)
+    let file = versions::file(db, &from.id, number)
         .await?
         .ok_or_else(|| anyhow::anyhow!("its version {number} has no file"))?;
     let checked = checked(db, into, &file, false, Some(&from.id)).await?;
     if !checked.refusals.is_empty() {
         return Ok(Err(checked.refusals));
     }
-    let colours = version::colours_of(db, &from.id, number).await?;
+    let colours = versions::colours_of(db, &from.id, number).await?;
     // A file is held by one version at most, so `from` goes first, its file
     // and colours read already and every check passed.
     crate::store::builds::purge(db, &from.id).await?;
-    let how = version::Replacing::NextVersion {
+    let how = versions::Replacing::NextVersion {
         added_by: by,
         added_from: None,
         note: Some(note),
         restores: None,
     };
-    let added = version::replace(db, &into.id, &checked.prepared, how).await?;
+    let added = versions::replace(db, &into.id, &checked.prepared, how).await?;
     if let Some(colours) = colours {
-        version::set_colours(db, &into.id, added, &colours).await?;
+        versions::set_colours(db, &into.id, added, &colours).await?;
     }
     Ok(Ok(added))
 }

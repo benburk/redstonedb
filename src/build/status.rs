@@ -1,7 +1,7 @@
 //! How a build stands against its category's test, and how its operands
 //! lie.
 
-use crate::models::tag;
+use crate::build::tag;
 
 /// How a build stands against its category's test, which says whether it
 /// works: passing, failing, not tested though its category has a test, or

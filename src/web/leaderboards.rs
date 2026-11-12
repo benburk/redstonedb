@@ -5,10 +5,10 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    account::User,
     build::Build,
     category::Category,
     leaderboard::{self, Wanted},
-    models::user::User,
     store::builds,
     web::{app_state::AppState, error::AppError},
 };

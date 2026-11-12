@@ -12,10 +12,12 @@ use std::{
 };
 
 use crate::{
-    build::Build,
+    build::{
+        Build,
+        tag::{self, Kind, Tag},
+    },
     category::{self, Flag, Logic, Measure, NO_DESIGN},
     interface::Orientation,
-    models::tag::{self, Kind, Tag},
     simulate::Group,
     stack::PITCHES,
 };
@@ -1719,9 +1721,10 @@ mod tests {
         // A stacking its author gave says nothing of words.
         register.file.conventional = false;
         assert!(
-            !register.every_tag().iter().any(|tag| {
-                crate::models::tag::is_word_stackable(&tag.name)
-            })
+            !register
+                .every_tag()
+                .iter()
+                .any(|tag| { crate::build::tag::is_word_stackable(&tag.name) })
         );
     }
 

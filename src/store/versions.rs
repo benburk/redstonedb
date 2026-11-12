@@ -5,7 +5,8 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    diff::Counts, import::Prepared, interface::Kept, models::user::REDSTONEDB,
+    account::REDSTONEDB, diff::Counts, import::Prepared, interface::Kept,
+    recognize::palette::Needs,
 };
 
 /// One version, without its file.
@@ -451,4 +452,43 @@ pub async fn replace(
     .await?;
     tx.commit().await?;
     Ok(version)
+}
+
+/// What each building block of build `id`'s current file must be, for
+/// block themes, if it is a recognized build's.
+pub async fn needs(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<Option<Needs>, sqlx::Error> {
+    let json: Option<String> = sqlx::query_scalar(
+        "SELECT v.needs FROM build_version AS v
+         JOIN current_file AS c USING (build_id, version)
+         WHERE v.build_id = ?",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
+}
+
+/// Keeps `needs` with build `id`'s current version.
+pub async fn set_needs(
+    db: &SqlitePool,
+    id: &str,
+    needs: &Needs,
+) -> Result<(), sqlx::Error> {
+    let needs = serde_json::to_string(needs).expect("needs are JSON");
+    sqlx::query!(
+        "UPDATE build_version SET needs = ?
+         WHERE build_id = ? AND version = (
+             SELECT max(version) FROM build_version WHERE build_id = ?
+         )",
+        needs,
+        id,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

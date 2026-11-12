@@ -16,8 +16,6 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::schem::{self, Blocks, Pos, lines::Role};
 
@@ -581,58 +579,6 @@ fn role_glass(site: &str, mark: Option<&str>, transparent: &str) -> String {
         Some(dye) => format!("{dye}_stained_glass"),
         None => transparent.to_owned(),
     }
-}
-
-/// `user`'s palette, if they chose one.
-pub async fn of(db: &SqlitePool, user: Uuid) -> Result<Option<Palette>> {
-    let json: Option<String> =
-        sqlx::query_scalar("SELECT palette FROM user WHERE id = ?")
-            .bind(user)
-            .fetch_one(db)
-            .await?;
-    Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
-}
-
-/// The key of `viewer`'s palette, for thumbnails' addresses, if they chose
-/// one.
-pub async fn key_for(
-    db: &SqlitePool,
-    viewer: Option<&crate::models::user::User>,
-) -> Result<Option<String>> {
-    Ok(match viewer {
-        Some(user) => of(db, user.id).await?.map(|palette| palette.key()),
-        None => None,
-    })
-}
-
-/// Keeps `palette` as `user`'s, or with `None` goes back to the site's.
-pub async fn set(
-    db: &SqlitePool,
-    user: Uuid,
-    palette: Option<&Palette>,
-) -> Result<()> {
-    let json = palette.map(serde_json::to_string).transpose()?;
-    sqlx::query("UPDATE user SET palette = ? WHERE id = ?")
-        .bind(json)
-        .bind(user)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// The palette `needs` of build `id`'s current file, if it is a recognized
-/// build's.
-pub async fn needs(db: &SqlitePool, id: &str) -> Result<Option<Needs>> {
-    let json: Option<String> = sqlx::query_scalar(
-        "SELECT v.needs FROM build_version AS v
-         JOIN current_file AS c USING (build_id, version)
-         WHERE v.build_id = ?",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
 }
 
 #[cfg(test)]

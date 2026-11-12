@@ -129,7 +129,8 @@ src/
   recognize/     what a build is: the roles of its lines, by probing
   ingest/        laying an upload the standard way and shaping it to keep
   build/         what a stored build is: its specs, credits, status, and name
-  models/        queries, one module per table or group of tables
+  store/         every query, one module per table or group of tables
+  models/        keeping builds' results and comparisons up to date
   web/           routes, handlers, and each page's markup
   external/      Discord, Mojang, player heads, and Schemati
 static/          fixi, page scripts, and the built app.css

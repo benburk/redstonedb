@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
+    build::tag::{self, Tag},
     category::Flag,
-    models::tag::{self, Tag},
 };
 
 fn cla() -> Build {
@@ -184,7 +184,7 @@ fn a_value_parses_from_its_name_or_label() {
 
 #[test]
 fn only_a_mod_a_confirmed_author_or_the_uploader_may_edit() {
-    use crate::models::user::{Role, User};
+    use crate::account::{Role, User};
     let user = |name: Option<&str>, verified, role| User {
         id: uuid::Uuid::nil(),
         discord_id: String::new(),

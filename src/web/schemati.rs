@@ -18,8 +18,8 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
+    account::User,
     external::schemati::{self, Folder, Refusal},
-    models::user::User,
     store::builds,
     web::{
         app_state::AppState,
@@ -356,7 +356,7 @@ pub async fn send(
     let sent = match Connected::of(&state.db, &user).await? {
         Some(connected) => {
             let theme =
-                crate::recognize::palette::of(&state.db, user.id).await?;
+                crate::store::users::palette(&state.db, user.id).await?;
             let palette = asked.palette(fields, theme)?;
             let (filename, data) = schematics::export(
                 &state.db,
@@ -394,7 +394,7 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     use super::*;
-    use crate::models::user::{DiscordProfile, SchematiLink};
+    use crate::{account::SchematiLink, external::discord::DiscordProfile};
 
     async fn signed_in() -> (SqlitePool, User) {
         let db = SqlitePoolOptions::new()

@@ -11,13 +11,13 @@ use maud::html;
 use crate::{
     category::Kind,
     interface::Interface,
-    models::{simulation, version},
+    models::simulation,
     schem::Blocks,
     simulate::{
         Glitch, OutputTiming, Timing, Value,
         trace::{Case, Race, Trace, Tracer},
     },
-    store::builds,
+    store::{builds, versions},
     web::{app_state::AppState, error::AppError},
 };
 
@@ -197,7 +197,7 @@ pub async fn glitch_fragment(
         };
         ("Slowest change", output.name.clone(), slowest)
     };
-    let data = version::current_file(db, &id)
+    let data = versions::current_file(db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let kind = Kind::named(&s.category);

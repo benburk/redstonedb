@@ -18,11 +18,12 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
+    account::User,
     build::Build,
     category::{self, Category, Test},
     details,
     import::Upload,
-    models::{simulation, user::User},
+    models::simulation,
     recognize::{fault, probe::Recognition},
     simulate::Report,
     store::builds,
@@ -245,7 +246,10 @@ async fn stored_result(
     test: Test,
 ) -> Result<Option<Report>, AppError> {
     let Some(s) = s else { return Ok(None) };
-    Ok(simulation::stored(&state.db, &s.id, &s.file.sha256, test).await?)
+    Ok(
+        crate::store::results::stored(&state.db, &s.id, &s.file.sha256, test)
+            .await?,
+    )
 }
 
 /// The details form's checks: the same stages a build's page shows, its

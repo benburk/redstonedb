@@ -5,13 +5,14 @@ use std::{collections::HashMap, fs, io::Write as _, path::Path};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
+    build::tag,
     category::{self, Logic},
     details::{self, Details},
     interface::{Encoding, Orientation},
-    models::{simulation, tag, version},
+    models::simulation,
     search,
     stack::{self, StackDirection},
-    store::builds,
+    store::{builds, tags, versions},
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -186,7 +187,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     if details.category != s.category || conventional != s.file.conventional {
         details.unverified = None;
     }
-    let data = version::current_file(db, &id)
+    let data = versions::current_file(db, &id)
         .await?
         .context("schematic vanished")?;
     // Its stored file, kept under its category, passed its test already.
@@ -231,7 +232,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
 /// token, which must be known; see `rsdb tags`.
 async fn tag_name(db: &SqlitePool, given: &str) -> Result<String> {
     let name = tag::name(given);
-    let found = tag::all(db)
+    let found = tags::all(db)
         .await?
         .into_iter()
         .find(|t| t.name == name || t.token.as_deref() == Some(&name))
@@ -251,7 +252,7 @@ async fn tag_name(db: &SqlitePool, given: &str) -> Result<String> {
 /// Mojang no longer knows, leave it as it was, saying why.
 pub(super) async fn rejudge(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
-    let data = version::current_file(db, id)
+    let data = versions::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     let details = Details {
@@ -348,7 +349,7 @@ pub(super) async fn export(
 ) -> Result<()> {
     let id = resolve(db, id).await?;
     let s = load(db, &id).await?;
-    let data = version::current_file(db, &id)
+    let data = versions::current_file(db, &id)
         .await?
         .context("schematic vanished")?;
     let (data, s) = match copies {
@@ -526,7 +527,7 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
 
 /// Build `id`'s versions, a line each, when it has more than one.
 async fn print_versions(db: &SqlitePool, id: &str) -> Result<()> {
-    let versions = version::list(db, id).await?;
+    let versions = versions::list(db, id).await?;
     if versions.len() > 1 {
         for v in &versions {
             println!(

@@ -9,13 +9,15 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
+use sqlx::SqlitePool;
 
 use crate::{
-    models::{
+    account::User,
+    build::{Change, Restorable, revertible},
+    store::{
         activity::{self, Filter},
-        user::User,
+        builds,
     },
-    store::builds,
     web::{app_state::AppState, error::AppError, extractors::session::Admin},
 };
 
@@ -67,7 +69,7 @@ pub async fn revert(
     Admin(viewer): Admin,
     Form(form): Form<Revert>,
 ) -> Result<Response, AppError> {
-    match activity::revert(&state.db, id, &form.detail, &viewer).await? {
+    match put_back(&state.db, id, &form.detail, &viewer).await? {
         Ok(build) => {
             tracing::info!(
                 build,
@@ -146,4 +148,42 @@ async fn render(
         builds: &builds,
     };
     Ok(pages::activity(&log).into_response())
+}
+
+/// Puts back `detail` as it was before edit `edit`, by `by`, keeping that
+/// as an edit of its own; the build's id, or a sentence saying why it
+/// cannot be put back.
+async fn put_back(
+    db: &SqlitePool,
+    edit: i64,
+    detail: &str,
+    by: &User,
+) -> Result<Result<String, &'static str>, sqlx::Error> {
+    let Some((build_id, changes)) = activity::edit(db, edit).await? else {
+        return Ok(Err("That edit is not in the log."));
+    };
+    let Some(change) = changes.into_iter().find(|c| c.detail == detail) else {
+        return Ok(Err("That edit did not change that."));
+    };
+    let Some(restorable) = Restorable::named(detail) else {
+        return Ok(Err(
+            "Only a description, authors, or contributors can be put back.",
+        ));
+    };
+    let Some(s) = builds::get(db, &build_id).await? else {
+        return Ok(Err("That build is gone."));
+    };
+    if !revertible(&s, &change) {
+        return Ok(Err(
+            "It has changed since that edit, so it was left as it is; edit the build to change it.",
+        ));
+    }
+    builds::restore(db, &s.id, restorable, change.from.as_deref()).await?;
+    let undone = Change {
+        detail: change.detail,
+        from: change.to,
+        to: change.from,
+    };
+    activity::log_edit(db, &s.id, by.id, &[undone]).await?;
+    Ok(Ok(s.id))
 }

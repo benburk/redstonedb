@@ -9,13 +9,13 @@ use app::{
     import,
     ingest::standardize,
     interface::{self, Kept},
-    models::version,
     recognize::palette::{self, Palette},
     schem::{
         self, Blocks,
         lines::{self, Role},
         turn::{self, Turn},
     },
+    store::versions,
 };
 
 /// Each line's name, role, and bit count, as the file in `data` reads.
@@ -107,9 +107,9 @@ async fn a_versions_roles_are_kept_with_it() {
         .await
         .unwrap()
         .unwrap();
-    let stored = version::data(&db, &id, 1).await.unwrap().unwrap();
+    let stored = versions::data(&db, &id, 1).await.unwrap().unwrap();
     assert_eq!(Blocks::read(&stored).unwrap().roles, None);
-    let current = version::current_file(&db, &id).await.unwrap().unwrap();
+    let current = versions::current_file(&db, &id).await.unwrap().unwrap();
     assert_eq!(lines_of(&current), lines_of(&first.data));
 }
 

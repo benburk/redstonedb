@@ -6,15 +6,15 @@ use sqlx::SqlitePool;
 
 use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
-    build::{Build, Credits, Specs},
+    account::User,
+    build::{Build, Credits, Specs, tag},
     category::{Category, Guessed, Logic},
     details::Details,
     import::{self, Analysis, FileFacts},
     interface::{self, Interface, Orientation},
-    models::{tag, user::User},
     schem::{Blocks, Size},
     stack::StackDirection,
-    store::builds,
+    store::{builds, tags},
     web::error::AppError,
 };
 
@@ -370,7 +370,7 @@ pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
         categories: Category::all(),
         people: builds::all_people(db).await?,
-        tags: tag::all(db).await?,
+        tags: tags::all(db).await?,
     })
 }
 
@@ -419,7 +419,10 @@ pub async fn page(
         .unwrap_or_default();
     // The tags the file gives the build, which no one may add or remove.
     let fixed = match (shown.blocks, &shown.file) {
-        (Some(blocks), _) => tag::from_file(&FileFacts::of(blocks)),
+        (Some(blocks), _) => {
+            let facts = FileFacts::of(blocks);
+            tag::from_file(facts.torches, facts.works_from.release)
+        }
         (None, File::Stored { s, .. } | File::Version { s, .. }) => s
             .tags
             .iter()

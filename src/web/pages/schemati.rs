@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use serde::Deserialize;
 
-use crate::{external::schemati::Folder, models::user::SchematiLink};
+use crate::{account::SchematiLink, external::schemati::Folder};
 
 /// How the viewer's Schemati folder stands.
 pub enum Connection<'a> {

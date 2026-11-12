@@ -25,3 +25,14 @@ pub async fn connect_to_database() -> SqlitePool {
         .expect("Failed to apply migrations");
     pool
 }
+
+/// Moves the write-ahead log's pages into the database file, so it alone
+/// holds every write when it is copied or backed up. Closing alone does
+/// this only when no other process, such as a running server, has the
+/// database open.
+pub async fn checkpoint(db: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(db)
+        .await?;
+    Ok(())
+}

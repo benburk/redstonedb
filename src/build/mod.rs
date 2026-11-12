@@ -2,6 +2,7 @@
 //! how it stands. Its file lives in its versions; see `models::version`.
 //! Loading and storing builds is `models::schematic`.
 
+mod changes;
 mod credits;
 mod entry;
 mod file;
@@ -9,10 +10,12 @@ mod name;
 mod specs;
 mod stacking;
 mod status;
+pub mod tag;
 mod tags;
 #[cfg(test)]
 mod tests;
 
+pub use changes::{Change, Restorable, changed, revertible};
 pub use credits::{Credits, valid_player_name};
 pub use entry::Entry;
 pub use file::File;
@@ -21,18 +24,18 @@ pub use specs::Specs;
 pub use stacking::Widened;
 pub use status::{Operands, Status};
 
+use crate::{
+    build::tag::Tag,
+    category::{Design, Flag, Kind, Measure},
+};
 pub use crate::{
     category::Logic,
     interface::{Encoding, Orientation},
     stack::{Faces, PITCHES, StackDirection, classes},
 };
-use crate::{
-    category::{Design, Flag, Kind, Measure},
-    models::tag::Tag,
-};
 
 /// A stored build's details. Its file stays in the database until
-/// [`crate::models::version::current_file`] fetches it.
+/// [`crate::store::versions::current_file`] fetches it.
 #[derive(Debug, Clone)]
 pub struct Build {
     pub id: String,
@@ -200,10 +203,7 @@ impl Build {
     /// Whether listings show it to `viewer`: a public build to anyone, and
     /// a private one to its uploader and admins. Anyone with its link may
     /// open it either way.
-    pub fn listed_to(
-        &self,
-        viewer: Option<&crate::models::user::User>,
-    ) -> bool {
+    pub fn listed_to(&self, viewer: Option<&crate::account::User>) -> bool {
         self.entry.public
             || viewer.is_some_and(|user| user.is_admin() || user.uploaded(self))
     }

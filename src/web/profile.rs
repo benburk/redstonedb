@@ -5,9 +5,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    account::User,
     build::{Build, valid_player_name},
     external::mojang,
-    models::user::User,
     store::builds,
     web::{app_state::AppState, error::AppError},
 };

@@ -5,8 +5,8 @@
 use maud::{Markup, html};
 
 use crate::{
+    account::{SchematiLink, User},
     build::Build,
-    models::user::{SchematiLink, User},
     web::analysis::{self, Step},
 };
 

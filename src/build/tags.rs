@@ -3,8 +3,8 @@
 
 use super::{Build, classes};
 use crate::{
+    build::tag::{self, Tag},
     category::Flag,
-    models::tag::{self, Tag},
 };
 
 impl Build {

@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 use crate::{
     schem::Blocks,
     similarity::{self, Skeleton},
+    store::similarity as store,
 };
 
 /// One comparison at a time, so two never write the same pairs at once.
@@ -21,79 +22,30 @@ static COMPARING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// replacing what was kept for it.
 pub async fn refresh(db: &SqlitePool) -> Result<()> {
     let _alone = COMPARING.lock().await;
-    let builds = sqlx::query!(
-        r#"SELECT build.id as "id!", category,
-            category || '/' || file.sha256 as "now!: String", compared_as
-         FROM build
-         JOIN current_file AS file ON file.build_id = build.id
-         WHERE deleted_at IS NULL"#
-    )
-    .fetch_all(db)
-    .await?;
-    let stale: HashSet<&str> = builds
+    let builds = store::compared(db).await?;
+    let stale: Vec<(&str, &str)> = builds
         .iter()
         .filter(|b| b.compared_as.as_deref() != Some(&b.now))
-        .map(|b| b.id.as_str())
+        .map(|b| (b.id.as_str(), b.now.as_str()))
         .collect();
     if stale.is_empty() {
         return Ok(());
     }
+    let stale_ids: HashSet<String> =
+        stale.iter().map(|(id, _)| (*id).to_owned()).collect();
     // Every build of a category with a stale one, read at once.
-    let categories: HashSet<&str> = builds
+    let mut categories: Vec<&str> = builds
         .iter()
-        .filter(|b| stale.contains(b.id.as_str()))
+        .filter(|b| stale_ids.contains(&b.id))
         .map(|b| b.category.as_str())
         .collect();
-    let categories = serde_json::to_string(&categories)?;
-    let files: Vec<(String, String, Vec<u8>)> = sqlx::query!(
-        r#"SELECT build.id as "id!", category, file.data as "data!"
-         FROM build
-         JOIN current_file AS file ON file.build_id = build.id
-         WHERE category IN (SELECT value FROM json_each(?))
-            AND deleted_at IS NULL"#,
-        categories
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| (row.id, row.category, row.data))
-    .collect();
-    let stale_ids: HashSet<String> =
-        stale.iter().map(|id| (*id).to_owned()).collect();
+    categories.sort_unstable();
+    categories.dedup();
+    let files = store::files_of(db, &categories).await?;
     let pairs =
         tokio::task::spawn_blocking(move || compare_stale(&files, &stale_ids))
             .await??;
-    let mut tx = db.begin().await?;
-    for id in &stale {
-        sqlx::query!(
-            "DELETE FROM similarity WHERE build_id = ? OR other_id = ?",
-            id,
-            id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    for (a, b, permille) in &pairs {
-        sqlx::query!(
-            "INSERT OR REPLACE INTO similarity (build_id, other_id, permille)
-             VALUES (?, ?, ?)",
-            a,
-            b,
-            permille
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    for b in builds.iter().filter(|b| stale.contains(b.id.as_str())) {
-        sqlx::query!(
-            "UPDATE build SET compared_as = ? WHERE id = ?",
-            b.now,
-            b.id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
+    store::replace(db, &stale, &pairs).await?;
     Ok(())
 }
 
@@ -140,23 +92,7 @@ pub fn refresh_soon(db: &SqlitePool) {
 /// The builds of its category build `id` is similar to, with how alike, the
 /// most alike first.
 pub async fn similar(db: &SqlitePool, id: &str) -> Result<Vec<(String, u32)>> {
-    let at_least = similarity::SIMILAR;
-    Ok(sqlx::query!(
-        r#"SELECT iif(build_id = ?, other_id, build_id) as "other!: String",
-            permille as "permille!: u32"
-         FROM similarity
-         WHERE (build_id = ? OR other_id = ?) AND permille >= ?
-         ORDER BY permille DESC"#,
-        id,
-        id,
-        id,
-        at_least
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| (row.other, row.permille))
-    .collect())
+    Ok(store::similar(db, id, similarity::SIMILAR).await?)
 }
 
 /// The stored builds most like `blocks`, any category, with how alike, the
@@ -167,21 +103,17 @@ pub async fn ranked(
     blocks: &Blocks,
     limit: usize,
 ) -> Result<Vec<(String, u32)>> {
-    let candidates = sqlx::query!(
-        r#"SELECT build_id as "id!", data as "data!" FROM current_file"#
-    )
-    .fetch_all(db)
-    .await?;
+    let candidates = store::current_files(db).await?;
     let mine = Skeleton::of(blocks);
     let found = tokio::task::spawn_blocking(move || {
         // From the most a build could be alike down, so the comparing stops
         // once none left could make the list.
         let mut theirs: Vec<(String, Skeleton, u32)> = candidates
             .into_iter()
-            .filter_map(|row| {
-                let skeleton = Skeleton::of(&Blocks::read(&row.data).ok()?);
+            .filter_map(|(id, data)| {
+                let skeleton = Skeleton::of(&Blocks::read(&data).ok()?);
                 let bound = mine.bound(&skeleton);
-                Some((row.id, skeleton, bound))
+                Some((id, skeleton, bound))
             })
             .collect();
         theirs.sort_by_key(|(_, _, bound)| std::cmp::Reverse(*bound));
@@ -213,25 +145,14 @@ pub async fn closest(
     size: (i64, i64, i64),
 ) -> Result<Option<(String, u32)>> {
     let volume = size.0 * size.1 * size.2;
-    let candidates = sqlx::query!(
-        r#"SELECT id as "id!", file.data as "data!"
-         FROM build
-         JOIN current_file AS file ON file.build_id = build.id
-         WHERE size_x * size_y * size_z * 3 >= ? * 2
-            AND size_x * size_y * size_z * 2 <= ? * 3
-            AND deleted_at IS NULL"#,
-        volume,
-        volume
-    )
-    .fetch_all(db)
-    .await?;
+    let candidates = store::files_sized(db, volume).await?;
     let mine = Skeleton::of(blocks);
     let found = tokio::task::spawn_blocking(move || {
         candidates
             .into_iter()
-            .filter_map(|row| {
-                let theirs = Skeleton::of(&Blocks::read(&row.data).ok()?);
-                Some((row.id, similarity::permille(&mine, &theirs)))
+            .filter_map(|(id, data)| {
+                let theirs = Skeleton::of(&Blocks::read(&data).ok()?);
+                Some((id, similarity::permille(&mine, &theirs)))
             })
             .max_by_key(|(_, permille)| *permille)
     })

@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    models::user::User,
+    account::User,
     recognize::palette::{self, Palette},
     web::{
         app_state::AppState,
@@ -47,7 +47,9 @@ pub(super) async fn page(
     said: &Said<'_>,
 ) -> Result<Response, AppError> {
     let link = User::schemati_link(&state.db, user.id).await?;
-    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
+    let chosen = crate::store::users::palette(&state.db, user.id)
+        .await?
+        .unwrap_or_default();
     Ok(pages::settings(
         user,
         link.as_ref(),
@@ -156,7 +158,12 @@ pub async fn set_palette(
     let reset = form.reset.reset.is_some();
     let chosen = form.fields.palette();
     let keep = !reset && chosen.valid() && chosen != site;
-    palette::set(&state.db, user.id, keep.then_some(&chosen)).await?;
+    crate::store::users::set_palette(
+        &state.db,
+        user.id,
+        keep.then_some(&chosen),
+    )
+    .await?;
     if fixi {
         let saved = if keep { chosen } else { site };
         return Ok((
@@ -181,7 +188,9 @@ pub async fn palette_editor(
     SignedIn(user): SignedIn,
     Fixi(fixi): Fixi,
 ) -> Result<Response, AppError> {
-    let chosen = palette::of(&state.db, user.id).await?.unwrap_or_default();
+    let chosen = crate::store::users::palette(&state.db, user.id)
+        .await?
+        .unwrap_or_default();
     Ok(if fixi {
         pages::block_theme(&chosen).into_response()
     } else {
@@ -206,7 +215,9 @@ pub async fn custom_colours(
             .unwrap_or_default()
     } else {
         match &viewer {
-            Some(user) => palette::of(&state.db, user.id).await?,
+            Some(user) => {
+                crate::store::users::palette(&state.db, user.id).await?
+            }
             None => None,
         }
         .unwrap_or_default()

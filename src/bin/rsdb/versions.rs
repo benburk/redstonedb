@@ -10,11 +10,11 @@ use app::{
     category::Category,
     details::{self, Details},
     import,
-    models::{
-        simulation,
-        version::{self, Replacing},
+    models::simulation,
+    store::{
+        builds,
+        versions::{self, Replacing},
     },
-    store::builds,
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -46,7 +46,7 @@ impl Standardizing {
 /// prints what changed; see [`refile`].
 pub(super) async fn reread(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
-    let stored = version::current_file(db, id)
+    let stored = versions::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     refile(db, &s, &stored, false).await
@@ -80,7 +80,7 @@ async fn refile(
     let size = (size.x.into(), size.y.into(), size.z.into());
     let rewritten = prepared.sha256 != s.file.sha256;
     if rewritten || stored != read || size != s.file.size {
-        version::replace(db, &s.id, &prepared, Replacing::InPlace).await?;
+        versions::replace(db, &s.id, &prepared, Replacing::InPlace).await?;
     }
     if rewritten {
         println!("{}  file rewritten", &s.id[..8]);
@@ -142,7 +142,7 @@ pub(super) async fn merge(
         Some(note) if !note.is_empty() => note.to_owned(),
         _ => format!("Merged from {}, {}", from.name(), &from.id[..8]),
     };
-    let by = Some(app::models::user::REDSTONEDB);
+    let by = Some(app::account::REDSTONEDB);
     match app::version::merge(db, &from, &into, by, &note).await? {
         Ok(number) => println!(
             "merged {}  {} into {}  {}: version {number}",
@@ -204,7 +204,7 @@ async fn next_version(
     // Any new version from here is the site's own, as its pruning's is, so
     // its log names RedstoneDB rather than no account.
     let how = Replacing::NextVersion {
-        added_by: Some(app::models::user::REDSTONEDB),
+        added_by: Some(app::account::REDSTONEDB),
         added_from: None,
         note: note.map(str::trim).filter(|note| !note.is_empty()),
         restores: None,
@@ -220,13 +220,13 @@ async fn next_version(
         _ => None,
     };
     let kept = verified.as_ref().unwrap_or(&checked.prepared);
-    let number = version::replace(db, id, kept, how).await?;
+    let number = versions::replace(db, id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
     // The colours its author gave it, read off the file given.
     match app::recognize::colouring::read(raw, &kept.data)? {
         Ok(colours) if !colours.is_empty() => {
-            version::set_colours(db, id, number, &colours).await?;
+            versions::set_colours(db, id, number, &colours).await?;
             println!("{name}: kept {} blocks' colours", colours.len());
         }
         Ok(_) => {}
@@ -267,7 +267,7 @@ pub(super) async fn prune(
     if app::category::Test::of(&s.category, s.specs.width).is_none() {
         return Ok(());
     }
-    let data = version::current_file(db, id)
+    let data = versions::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     let buses = s.buses();
@@ -296,12 +296,12 @@ pub(super) async fn prune(
         return Ok(());
     }
     let how = Replacing::NextVersion {
-        added_by: Some(app::models::user::REDSTONEDB),
+        added_by: Some(app::account::REDSTONEDB),
         added_from: None,
         note: Some("Unused blocks taken out"),
         restores: None,
     };
-    version::replace(db, id, &checked.prepared, how).await?;
+    versions::replace(db, id, &checked.prepared, how).await?;
     if simulation::refresh(db, id, false).await?.is_some() {
         simulation::refresh_timing(db, id, false).await?;
     }

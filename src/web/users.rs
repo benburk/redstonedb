@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    models::user::{Role, User},
+    account::{Role, User},
     web::{
         app_state::AppState,
         error::AppError,

@@ -7,11 +7,9 @@ use maud::{Markup, html};
 use uuid::Uuid;
 
 use crate::{
-    build::Build,
-    models::{
-        activity::{self, Change, Event, Filter, Kind, Page},
-        user::User,
-    },
+    account::User,
+    build::{self, Build, Change},
+    store::activity::{Event, Filter, Kind, Page},
 };
 
 use super::{
@@ -221,7 +219,7 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
     let (Some(edit), Some(s)) = (event.edit, build) else {
         return html! {};
     };
-    if s.entry.deleted || !activity::revertible(s, change) {
+    if s.entry.deleted || !build::revertible(s, change) {
         return html! {};
     }
     let action = format!("/log/edits/{edit}/revert");

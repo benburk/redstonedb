@@ -5,13 +5,14 @@
 use maud::{Markup, html};
 
 use crate::{
-    build::{Build, Status},
+    account::User,
+    build::{Build, Status, tag},
     category::{self, Logic, Measure},
     import::{self, Analysis},
     interface::Interface,
-    models::{tag, user::User, version::Version},
     simulate::{Report, Timing},
     stack::StackDirection,
+    store::versions::Version,
     web::schematics::Colours,
 };
 

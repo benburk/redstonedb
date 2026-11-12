@@ -74,6 +74,7 @@ macro_rules! named_values {
     };
 }
 
+pub mod account;
 pub mod build;
 pub mod category;
 pub mod db;
@@ -85,6 +86,7 @@ pub mod ingest;
 pub mod interface;
 pub mod leaderboard;
 pub mod models;
+pub mod players;
 pub mod recognize;
 pub mod schem;
 pub mod search;

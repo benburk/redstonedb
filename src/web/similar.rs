@@ -9,8 +9,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    account::User,
     build::Build,
-    models::{similarity, user::User},
+    models::similarity,
     schem::Blocks,
     store::builds,
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},

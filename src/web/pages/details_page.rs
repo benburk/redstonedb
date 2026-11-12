@@ -8,9 +8,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use maud::{Markup, html};
 
 use crate::{
+    account::User,
     build::Build,
     import::Analysis,
-    models::user::User,
     recognize::fault::wrong_outputs,
     simulate::Report,
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
@@ -112,11 +112,11 @@ pub struct DetailsPage<'a> {
     pub derived: crate::import::Derived,
     /// The tags its file gives it, such as torchless, shown in the tag
     /// field but not to be removed.
-    pub fixed: &'a [crate::models::tag::Tag],
+    pub fixed: &'a [crate::build::tag::Tag],
     pub reply: Reply<'a>,
     /// How the viewer's Schemati session stands, as the site keeps it,
     /// for the slot their files load into.
-    pub schemati: Option<&'a crate::models::user::SchematiLink>,
+    pub schemati: Option<&'a crate::account::SchematiLink>,
 }
 
 pub fn details_page(user: &User, page: &DetailsPage) -> Markup {

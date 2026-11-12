@@ -5,11 +5,11 @@
 mod common;
 
 use app::{
-    build::{Build, Specs},
+    build::{Build, Specs, tag},
     details::{self, Candidate, Details},
     import,
     interface::{Encoding, Orientation},
-    models::{simulation, tag},
+    models::simulation,
     simulate::Report,
     store::builds,
 };
@@ -202,7 +202,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
 
     // A copy with a building block recoloured: another file, the same
     // circuit.
-    let old = app::models::version::current_file(&db, &id)
+    let old = app::store::versions::current_file(&db, &id)
         .await
         .unwrap()
         .unwrap();
@@ -220,13 +220,13 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
         .unwrap();
     let new = app::schem::encode(nbt).unwrap();
     let prepared = import::prepare_for(&new, common::IN_PLACE).unwrap();
-    let how = app::models::version::Replacing::NextVersion {
+    let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
         note: None,
         restores: None,
     };
-    app::models::version::replace(&db, &id, &prepared, how)
+    app::store::versions::replace(&db, &id, &prepared, how)
         .await
         .unwrap();
 
@@ -261,7 +261,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     let mut edited = Details::of(&measured);
     edited.credits.authors = vec!["Someone_Else".to_owned()];
     edited.description = Some("A slice.".to_owned());
-    let data = app::models::version::current_file(&db, &id)
+    let data = app::store::versions::current_file(&db, &id)
         .await
         .unwrap()
         .unwrap();
@@ -324,7 +324,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
             })
             .count()
     };
-    let current = app::models::version::current_file(&db, &id)
+    let current = app::store::versions::current_file(&db, &id)
         .await
         .unwrap()
         .unwrap();
@@ -373,19 +373,19 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
     let mut prepared = import::prepare_for(&data, common::IN_PLACE).unwrap();
     prepared.data = data;
     prepared.sha256 = app::schem::sha256(&prepared.data);
-    let how = app::models::version::Replacing::NextVersion {
+    let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
         note: None,
         restores: None,
     };
-    app::models::version::replace(&db, &id, &prepared, how)
+    app::store::versions::replace(&db, &id, &prepared, how)
         .await
         .unwrap();
 
     let report = simulation::refresh(&db, &id, false).await.unwrap().unwrap();
     assert!(report.passed());
-    let now = app::models::version::current_file(&db, &id)
+    let now = app::store::versions::current_file(&db, &id)
         .await
         .unwrap()
         .unwrap();

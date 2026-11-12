@@ -11,7 +11,7 @@ use axum::{
 };
 
 use crate::{
-    models::user::User,
+    account::User,
     web::{
         app_state::AppState,
         error::{AppError, ErrorPage},
@@ -184,7 +184,7 @@ async fn viewing(
     viewer: Option<&User>,
 ) -> anyhow::Result<pages::Viewing> {
     Ok(pages::Viewing {
-        palette: crate::recognize::palette::key_for(db, viewer).await?,
+        palette: crate::store::users::palette_key(db, viewer).await?,
         signed_in: viewer.is_some(),
         favorites: match viewer {
             Some(viewer) => crate::store::builds::favorites(db, viewer.id)

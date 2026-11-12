@@ -7,12 +7,12 @@ use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::load::Credit;
 use crate::{
-    build::{Specs, Widened},
+    build::{Restorable, Specs, Widened},
     category::Logic,
     details::Ready,
     import::Prepared,
-    models::{tag, version},
     stack::StackDirection,
+    store::{tags, versions},
 };
 
 /// Makes build `id` public or private.
@@ -161,7 +161,7 @@ pub async fn insert(
     )
     .fetch_one(&mut *tx)
     .await?;
-    version::first(&mut tx, &id, file, new.uploaded_by, new.uploaded_from)
+    versions::first(&mut tx, &id, file, new.uploaded_by, new.uploaded_from)
         .await?;
     set_lists(&mut tx, &id, new.ready).await?;
     tx.commit().await?;
@@ -255,27 +255,7 @@ async fn set_people(
     for (credit, names) in credits {
         set_credits(tx, id, credit, names).await?;
     }
-    tag::set(tx, id, &details.tags).await
-}
-
-/// A detail the moderation log can put back as an edit left it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Restorable {
-    Description,
-    Authors,
-    Contributors,
-}
-
-impl Restorable {
-    /// The detail the log names `name`, if it can be put back.
-    pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "description" => Some(Self::Description),
-            "authors" => Some(Self::Authors),
-            "contributors" => Some(Self::Contributors),
-            _ => None,
-        }
-    }
+    tags::set(tx, id, &details.tags).await
 }
 
 /// Sets build `id`'s `detail` to `value`, as the log keeps it: a
