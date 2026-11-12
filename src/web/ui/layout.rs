@@ -190,7 +190,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     @match viewer {
                         None => (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))),
                         Some(user) => {
-                            @let profile = href::user(&user.username);
+                            @let profile = href::account(user);
                             li {
                                 a href=(profile) aria-current=[current(&profile)] class=(SIDEBAR_LINK) {
                                     @match person::picture(user, 16) {

@@ -1,5 +1,7 @@
 //! The addresses of the site's pages, for links and redirects.
 
+use crate::account::User;
+
 /// The page of build `id`.
 pub(crate) fn build(id: &str) -> String {
     format!("/schematics/{id}")
@@ -8,6 +10,15 @@ pub(crate) fn build(id: &str) -> String {
 /// The page of the account `username`.
 pub(crate) fn user(username: &str) -> String {
     format!("/users/{username}")
+}
+
+/// The page of account `user`: the player's, once their Minecraft name is
+/// confirmed, as an account and its player share a page.
+pub(crate) fn account(user: &User) -> String {
+    match &user.minecraft_name {
+        Some(name) if user.minecraft_verified => player(name),
+        _ => self::user(&user.username),
+    }
 }
 
 /// The page of the Minecraft player `name`.

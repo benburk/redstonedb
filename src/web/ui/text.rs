@@ -87,3 +87,9 @@ pub(crate) fn long_date(date: &str) -> String {
         _ => date.to_owned(),
     }
 }
+
+/// A box of `x` by `y` by `z` blocks as height × width × depth, as a build
+/// looks from the south, such as `11×19×18`.
+pub(crate) fn dimensions((x, y, z): (i64, i64, i64)) -> String {
+    format!("{y}×{x}×{z}")
+}

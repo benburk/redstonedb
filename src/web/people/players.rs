@@ -2,41 +2,40 @@
 //! or the site credits them yet.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::{IntoResponse, Redirect, Response},
 };
 
 use crate::{
     account::User,
     build::{Build, valid_player_name},
-    leaderboard,
     store::builds,
     web::{
         app_state::AppState,
-        browse::list,
         error::AppError,
         href,
         people::{
             heads,
-            player_view::{self, PlayerPage},
+            person::{self, Person, Shown},
         },
     },
 };
 
 /// The page of the player `name`, whatever its capitals: what they built,
-/// helped with, are named in with `@name`, and hold records for, and their
-/// account if they have signed up. The address takes the spelling the
+/// helped with, are named in with `@name`, and hold records for, with
+/// their account's builds if they have signed up. The address takes the spelling the
 /// site credits, or else the first a description writes, or else Mojang's;
 /// a 404 for a name no player has.
 pub async fn show(
     Path(name): Path<String>,
     State(state): State<AppState>,
     user_opt: Option<User>,
+    Query(Shown { show }): Query<Shown>,
 ) -> Result<Response, AppError> {
     if !valid_player_name(&name) {
         return Err(AppError::NotFound);
     }
-    let mut all = builds::visible(&state.db, user_opt.as_ref()).await?;
+    let all = builds::visible(&state.db, user_opt.as_ref()).await?;
     let users = User::all(&state.db).await?;
     let same = |other: &String| other.eq_ignore_ascii_case(&name);
     let account = users.iter().find(|u| {
@@ -76,60 +75,14 @@ pub async fn show(
         }
     };
     if spelling != name {
-        return Ok(
-            Redirect::permanent(&href::player(&spelling)).into_response()
-        );
+        let page = person::showing(&href::player(&spelling), show.as_deref());
+        return Ok(Redirect::permanent(&page).into_response());
     }
-    // Newest first, as on the home page.
-    all.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
-    // Private builds compete with no one.
-    let public: Vec<&Build> = all.iter().filter(|s| s.entry.public).collect();
-    let stacks = leaderboard::stacked(public.iter().copied());
-    let builds: Vec<&Build> = public.into_iter().chain(&stacks).collect();
-    let records = leaderboard::records(&builds);
-    let held: Vec<&leaderboard::Record> = records
-        .iter()
-        .filter(|r| {
-            r.holders.iter().any(|s| s.credits.authors.iter().any(same))
-        })
-        .collect();
-    let pick = |names: fn(&Build) -> &Vec<String>| -> Vec<Build> {
-        all.iter()
-            .filter(|s| names(s).iter().any(same))
-            .cloned()
-            .collect()
+    let who = Person::Player {
+        name: &spelling,
+        account,
     };
-    let uuid = match account.and_then(|u| u.minecraft_uuid.clone()) {
-        Some(uuid) => Some(uuid),
-        None => heads::player(&state.db, &spelling).await.map(|p| p.uuid),
-    };
-    Ok(player_view::player(
-        user_opt.as_ref(),
-        &PlayerPage {
-            name: &spelling,
-            uuid: uuid.as_deref(),
-            account,
-            built: &pick(|s| &s.credits.authors),
-            contributed: &pick(|s| &s.credits.contributors),
-            // Those that credit them already list them there.
-            mentioned: &all
-                .iter()
-                .filter(|s| {
-                    named(s).is_some()
-                        && !s
-                            .credits
-                            .authors
-                            .iter()
-                            .chain(&s.credits.contributors)
-                            .any(same)
-                })
-                .cloned()
-                .collect::<Vec<_>>(),
-            records: &held,
-            viewing: &list::viewing(&state.db, user_opt.as_ref()).await?,
-        },
-    )
-    .into_response())
+    person::page(&state, user_opt.as_ref(), &who, show.as_deref(), all).await
 }
 
 /// The head of the player `name`, for a badge to show beside their name:

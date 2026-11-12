@@ -1,7 +1,9 @@
-//! People: players credited on builds, accounts, and their heads.
+//! People: the page a player and an account share, the admin's list of
+//! accounts, and players' heads.
 
 pub(crate) mod heads;
-pub(crate) mod player_view;
+pub(crate) mod person;
+pub(crate) mod person_view;
 pub(crate) mod players;
 pub(crate) mod profile;
 pub(crate) mod users;

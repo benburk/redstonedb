@@ -20,7 +20,8 @@ use crate::{
             simulation_view::{self, cell_faults, shown, timing_section},
         },
         ui::{
-            self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, Tone, text::grouped,
+            self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, Tone,
+            text::{dimensions, grouped},
         },
     },
 };
@@ -210,12 +211,14 @@ fn needs(key: &str) -> &'static [&'static str] {
 /// uploading it takes out or swaps, a warning so its uploader sees the
 /// build as it will be kept.
 fn file_stage(known: &Known) -> Stage {
-    let (x, y, z) = known.s.size;
     match known.file {
         Ok(file) => {
             let blocks: usize = file.block_counts.iter().map(|(_, n)| n).sum();
-            let size =
-                format!("{} blocks, {y}×{x}×{z}", grouped(blocks as u64));
+            let size = format!(
+                "{} blocks, {}",
+                grouped(blocks as u64),
+                dimensions(known.s.size)
+            );
             let (state, summary) = match file.kept.len() {
                 0 => (State::Pass, size),
                 1 => (State::Warn, format!("{size}; 1 change on upload")),
