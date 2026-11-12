@@ -25,19 +25,21 @@ use std::{
 
 use anyhow::{Result, bail};
 
-use super::{
-    Broken, Run, Signal, Value, Wrong,
-    bench::mask,
-    circuit::{Circuit, MAX_TICKS},
-    stacking::{self, Stacker, Step},
-    timing::{
-        BitTiming, Edge, InputTiming, OutputTiming, Pulse, Start, Takes, Timing,
-    },
-};
 use crate::{
     category::Kind,
     interface::{self, Interface},
     schem::Blocks,
+    simulate::{
+        Broken, Run, Signal, Value, Wrong,
+        bench::mask,
+        broken,
+        circuit::{Circuit, MAX_TICKS},
+        stacking::{self, Stacker, Step},
+        timing::{
+            BitTiming, Edge, InputTiming, OutputTiming, Pulse, Start, Takes,
+            Timing,
+        },
+    },
 };
 
 /// The most wrong cases a run keeps to show.
@@ -742,5 +744,5 @@ pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
         Kind::Monostable
     };
     let ways = (width, stacking::bit_ways(&interface, width));
-    Some(Stacker::new(data, kind, ways, works, not))
+    Some(Stacker::new(data, kind.copying(), ways, works, not))
 }

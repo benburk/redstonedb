@@ -34,60 +34,22 @@
 //! look ahead some other way, as two-bit groups skipping a carry do: carry
 //! lookahead.
 
-use crate::schem::lines::Role;
+use crate::{
+    category::adder::Variant,
+    interface::{self, Interface, Port},
+    schem::{self, Blocks, Direction, Pos, lines::Role},
+    simulate::{
+        Design, Terms, Value,
+        circuit::{Circuit, compiled},
+        rng::Rng,
+    },
+};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     ops::RangeInclusive,
 };
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-
-use super::{
-    Value,
-    adder::Variant,
-    circuit::{Circuit, compiled},
-    rng::Rng,
-};
-use crate::{
-    interface::{self, Interface, Port},
-    schem::{self, Blocks, Direction, Pos},
-};
-
-/// How an adder makes its carries.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Design {
-    /// The design's name, as stored: `ripple_carry`, `carry_cancel`,
-    /// `carry_lookahead`, `carry_look_everywhere`, `hybrid`, or `other`.
-    pub name: String,
-    /// A letter per carry, from the carry into bit 1 up to the carry out.
-    pub signature: String,
-    /// How many components are lookahead terms.
-    pub products: usize,
-    /// How many bits each group holds, when it has more than one group
-    /// and they are alike but for the lowest and highest.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group: Option<usize>,
-    /// Each group's lookahead terms: how many a component holds, of all.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub terms: Vec<Terms>,
-}
-
-impl Design {
-    /// The design a build of it is given, as its category lists them;
-    /// `None` for [`OTHER`], as its carries name none.
-    pub fn given(&self) -> Option<&str> {
-        (self.name != OTHER).then_some(self.name.as_str())
-    }
-}
-
-/// A group's lookahead terms: how many have a component of their own, of
-/// how many it has.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Terms {
-    pub found: usize,
-    pub all: usize,
-}
 
 /// The most input bits every case of is run; past that, `SAMPLED` cases,
 /// as many, which tell a carry from every other signal: the test runs
@@ -185,14 +147,10 @@ fn group_size(groups: &[RangeInclusive<usize>]) -> Option<usize> {
     }
 }
 
-/// The name a report gives an adder whose carries name no design, as one
-/// with a carry no component holds; a build of it is given none.
-pub const OTHER: &str = "other";
-
 /// The design a carry signature names, given each group's lookahead terms.
 pub fn design_of(signature: &str, terms: &[Terms]) -> &'static str {
     if signature.contains('?') {
-        return OTHER;
+        return Design::OTHER;
     }
     if signature.chars().all(|c| c == 'r') {
         return "ripple_carry";

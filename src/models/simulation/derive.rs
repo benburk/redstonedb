@@ -3,11 +3,12 @@
 //! written by `Derived::save` in the module above.
 
 use crate::{
-    category, import, interface,
+    category::{self, Test},
+    import, interface,
     models::schematic::{Build, Specs, Widened},
     recognize::evaluate::Evaluation,
     schem::Blocks,
-    simulate::{Edge, Report, Stacking, Test},
+    simulate::{Edge, Report, Stacking},
     stack::StackDirection,
 };
 

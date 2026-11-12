@@ -3,7 +3,7 @@
 //! those roles and run through its test.
 
 use super::{Fault, OneInputProbed, Role, Roles, lengths, try_roles};
-use crate::{interface::inspect, simulate::Test};
+use crate::{category::Test, interface::inspect};
 
 /// The barrel shifter the file in `data` is, from `report`'s levers and
 /// outputs: its one output line, A shifted, an input line as wide its A,

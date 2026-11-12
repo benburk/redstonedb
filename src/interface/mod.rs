@@ -25,7 +25,7 @@ mod facts;
 pub mod inspect;
 pub mod repeater_outputs;
 
-pub use facts::{Encoding, Orientation};
+pub use facts::{Encoding, Orientation, orientation, suggested};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 

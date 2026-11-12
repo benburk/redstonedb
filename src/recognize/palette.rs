@@ -381,7 +381,7 @@ impl Palette {
     /// thumbnails are cached apart.
     pub fn key(&self) -> String {
         let json = serde_json::to_string(self).unwrap_or_default();
-        crate::import::sha256(json.as_bytes())[..12].to_owned()
+        crate::schem::sha256(json.as_bytes())[..12].to_owned()
     }
 
     /// The block role `key` is marked with, `None` for none.

@@ -56,7 +56,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         )]),
     )
     .unwrap();
-    same.sha256 = import::sha256(&same.data);
+    same.sha256 = app::schem::sha256(&same.data);
     let how = Replacing::NextVersion {
         added_by: None,
         added_from: None,

@@ -373,7 +373,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
     );
     let mut prepared = import::prepare_for(&data, common::IN_PLACE).unwrap();
     prepared.data = data;
-    prepared.sha256 = import::sha256(&prepared.data);
+    prepared.sha256 = app::schem::sha256(&prepared.data);
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,
         added_from: None,

@@ -3,14 +3,14 @@
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use app::{
-    category::Kind,
+    category::{Kind, Test},
     import,
     ingest::standardize,
     interface::{self, Encoding, Orientation},
     schem::{self, Blocks, turn},
     simulate::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Step,
-        Takes, Test,
+        Takes,
     },
 };
 
@@ -333,12 +333,12 @@ fn an_incrementer_gets_every_value_right() {
 /// A quick run of the tests a file fits tells what it is.
 #[test]
 fn a_build_is_known_for_what_it_does() {
-    let adder = simulate::guess(&blocks("alpha-rca")).unwrap();
+    let adder = app::category::guess(&blocks("alpha-rca")).unwrap();
     assert_eq!((adder.category, adder.wrong), ("adder", 0));
-    let incrementer = simulate::guess(&blocks("inc-8")).unwrap();
+    let incrementer = app::category::guess(&blocks("inc-8")).unwrap();
     assert_eq!(incrementer.category, "incrementer");
     // A carry in a torch inverts is still an adder's.
-    let inverted = simulate::guess(&blocks("vert-3t-cca")).unwrap();
+    let inverted = app::category::guess(&blocks("vert-3t-cca")).unwrap();
     assert_eq!((inverted.category, inverted.wrong), ("adder", 0));
 }
 
@@ -359,7 +359,7 @@ fn a_hex_adder_is_driven_digit_by_digit() {
         (Some(32), Some(Orientation::Vertical), Some(Encoding::Hex))
     );
     // Its inputs taking hex digits, it's taken for a hex adder.
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "hex_adder");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_adder");
     let Report::Ran(run) = Test::Adder.run(&blocks) else {
         panic!("the hex adder was not simulated");
     };
@@ -557,9 +557,9 @@ fn a_bcd_converter_is_timed_on_valid_values() {
 
 #[test]
 fn a_converter_is_known_for_what_it_does() {
-    let guess = simulate::guess(&blocks("bin2bcd-8")).unwrap();
+    let guess = app::category::guess(&blocks("bin2bcd-8")).unwrap();
     assert_eq!((guess.category, guess.wrong), ("binary_to_bcd", 0));
-    let guess = simulate::guess(&blocks("bcd2bin-10")).unwrap();
+    let guess = app::category::guess(&blocks("bcd2bin-10")).unwrap();
     assert_eq!((guess.category, guess.wrong), ("bcd_to_binary", 0));
 }
 
@@ -713,7 +713,7 @@ fn a_register_stores_and_reads_each_cell() {
         };
         assert!(earliest < latest, "{}: {earliest} to {latest}", write.name);
     }
-    let guess = simulate::guess(&blocks).unwrap();
+    let guess = app::category::guess(&blocks).unwrap();
     assert_eq!(guess.category, "register");
 }
 
@@ -832,7 +832,7 @@ fn a_buffer_shows_what_it_holds_without_a_read() {
     assert_eq!(timing.start, Start::Write);
     assert_eq!((timing.write, timing.data), (Some(3), Some(2)));
     assert_eq!((timing.latency(), timing.synced), (Some(2), false));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "buffer");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "buffer");
 }
 
 /// Copies of the buffer 4 west share its write line and make more bits.
@@ -1033,7 +1033,10 @@ fn an_absolute_value_gives_each_inputs_magnitude() {
     };
     assert_eq!((run.cases, run.wrong), (256, 0));
     assert_eq!(run.pattern, "|A|");
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "absolute_value");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "absolute_value"
+    );
 }
 
 /// An 8-bit negator: −A in two's complement, in every one of its 256
@@ -1053,7 +1056,7 @@ fn a_negator_gives_each_inputs_twos_complement() {
     };
     assert_eq!((run.cases, run.wrong), (256, 0));
     assert_eq!(run.pattern, "−A");
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "negator");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "negator");
 }
 
 /// An 8-bit parity circuit: on when an odd number of A's bits are, in
@@ -1074,7 +1077,7 @@ fn a_parity_circuit_gives_whether_an_odd_number_of_bits_are_on() {
     assert_eq!((run.cases, run.wrong), (256, 0), "{:?}", run.examples);
     assert_eq!(run.pattern, "xor of A's bits");
     assert!(run.inverted.is_empty());
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "parity");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "parity");
     let timing = Test::Parity.time(&blocks, &AtomicBool::new(false)).unwrap();
     assert!(timing.latency().is_some());
 }
@@ -1099,7 +1102,10 @@ fn a_hex_to_binary_converter_gives_each_digit_in_binary() {
         panic!("the converter was not simulated");
     };
     assert_eq!((run.cases, run.wrong), (16, 0), "{:?}", run.examples);
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "hex_to_binary");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "hex_to_binary"
+    );
     let timing = Test::HexToBinary
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
@@ -1164,7 +1170,7 @@ fn a_carry_out_gives_the_carry_of_every_sum() {
     };
     assert_eq!((run.cases, run.wrong), (1 << 16, 0));
     assert_eq!(run.pattern, "carry of A + B");
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "carry_out");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "carry_out");
     let timing = Test::CarryOut
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
@@ -1200,7 +1206,7 @@ fn one_lsb_sign_orders_the_buses_alongside() {
         panic!("the adder was not simulated");
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A + B", 0));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "adder");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "adder");
 }
 
 /// A 16-bit double density carry-cancel subtractor: a bit per layer, each
@@ -1237,7 +1243,10 @@ fn a_double_density_subtractor_takes_b_from_a() {
     };
     assert_eq!((run.pattern.as_str(), run.wrong), ("A − B − borrow in", 0));
     // An adder whose B is subtracted is taken for a subtractor.
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "subtractor");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "subtractor"
+    );
 }
 
 /// However a recognized build is turned or mirrored, an upload lays it
@@ -1275,7 +1284,7 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
                 let turn = turn::Turn { mirrored, quarters };
                 let scrambled = turn::turned(&standard.data, turn).unwrap();
                 let blocks = upload(&scrambled).blocks;
-                let guess = simulate::guess(&blocks).unwrap();
+                let guess = app::category::guess(&blocks).unwrap();
                 assert_eq!(
                     (guess.category, guess.wrong),
                     (category, 0),
@@ -1324,7 +1333,10 @@ fn a_greater_than_comparator_compares_unsigned() {
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
     assert_eq!((timing.latency(), timing.synced), (Some(2), true));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "greater_than"
+    );
 }
 
 /// The unsigned comparator with both its sign bits' levers saved on. How a
@@ -1338,7 +1350,10 @@ fn a_comparator_signed_only_by_its_levers_compares_unsigned() {
     };
     assert_eq!(run.pattern, "A > B");
     assert_eq!((run.cases, run.wrong), (1 << 16, 0));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "greater_than");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "greater_than"
+    );
 }
 
 /// An 8-bit equality comparator whose bits' differences climb one dust
@@ -1358,7 +1373,7 @@ fn an_equality_comparator_whose_lowest_bit_dies_out_fails() {
             .iter()
             .all(|case| case.inputs[0] ^ case.inputs[1] == 1)
     );
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "equality");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "equality");
 }
 
 /// A 1-wide monostable whose output rests on: A's lever turns one torch
@@ -1382,7 +1397,10 @@ fn an_inverted_monostable_gives_a_3_tick_pulse_and_stacks() {
     let pulse = timing.pulse.unwrap();
     assert_eq!((pulse.ticks, pulse.inverted), (3, true));
     assert_eq!((timing.latency(), timing.synced), (Some(1), true));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "monostable"
+    );
     let stacking = Test::Monostable.stacking(&data);
     let Some(Stacking::Wider {
         step, copies, most, ..
@@ -1407,7 +1425,10 @@ fn a_monostable_whose_output_rests_off_gives_a_high_pulse() {
     let pulse = timing.pulse.unwrap();
     assert_eq!((pulse.ticks, pulse.inverted), (3, false));
     assert_eq!(timing.latency(), Some(2));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "monostable"
+    );
 }
 
 /// An 8-bit adder has two operands, so it is no monostable.
@@ -1440,7 +1461,7 @@ fn a_dual_edge_monostable_pulses_both_ways() {
     assert_eq!(pulse.edge, Edge::Both);
     assert!(Test::Monostable.run(&blocks).failed());
     assert_eq!(
-        simulate::guess(&blocks).unwrap().category,
+        app::category::guess(&blocks).unwrap().category,
         "dual_edge_monostable"
     );
 }
@@ -1461,7 +1482,10 @@ fn a_falling_edge_monostable_pulses_as_a_turns_off() {
     let pulse = timing.pulse.unwrap();
     assert_eq!((pulse.ticks, pulse.edge), (3, Edge::Falling));
     assert!(Test::DualEdgeMonostable.run(&blocks).failed());
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "monostable");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "monostable"
+    );
 }
 
 /// A 1-bit inverter: two torches give A and not the line, and not A and
@@ -1477,7 +1501,7 @@ fn an_inverter_inverts_a_while_its_line_is_on_and_stacks() {
     };
     assert_eq!(run.pattern, "A xor invert");
     assert_eq!((run.cases, run.wrong), (4, 0));
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "inverter");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "inverter");
     let Some(Stacking::Wider { step, .. }) = Test::Inverter.stacking(&data)
     else {
         panic!("it does not stack");
@@ -1592,7 +1616,7 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
         panic!("it passed for an adder: {report:?}");
     };
     assert!(reason.ends_with("it is an XOR gate."), "{reason}");
-    let guess = simulate::guess(&prepared.blocks).unwrap();
+    let guess = app::category::guess(&prepared.blocks).unwrap();
     assert_eq!(
         (guess.category, guess.pattern.as_str(), guess.wrong),
         ("xor_gate", "A xor B", 0)
@@ -1813,7 +1837,7 @@ fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
 #[ignore = "measures whole builds: just test-full"]
 fn a_64_bit_hex_adder_is_tested_digit_by_digit() {
     let blocks = blocks("hex-adder-64");
-    assert_eq!(simulate::guess(&blocks).unwrap().category, "hex_adder");
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_adder");
     let Report::Ran(run) = Test::Adder.run(&blocks) else {
         panic!("a 64-bit hex adder was not simulated");
     };

@@ -7,16 +7,46 @@
 //! the list, in the same form, which the code knows nothing about: it gets
 //! the default [`Behaviour`], nothing special.
 
+mod adder;
+mod alu;
 mod catalogue;
+mod converters;
+mod decoder;
+mod design;
+mod gate;
+mod incrementer;
+mod inverter;
+mod monostable;
+mod multiplier;
+mod negator;
+mod register;
+mod sequential;
+mod shifter;
+mod stacks;
 mod table;
+mod test;
+
+pub use alu::flags as alu_flags;
+/// An ALU's operations and status lines, as its test reads them.
+pub mod alu_ops {
+    pub use super::alu::{Op, carry_out, overflow, shift_out, zero};
+}
+pub use design::{adder_design, design_of, groups};
+pub use gate::Gate;
+pub use shifter::flags as shifter_flags;
+pub use test::{Guessed, Test, guess};
 
 pub use catalogue::{
     Category, Design, Flag, Logic, Measure, NO_DESIGN, Section, aliases,
     check_category, flags_among, words,
 };
 
-pub use crate::{interface::Lines, stack::Copies};
-use crate::{recognize::probe::Line, simulate::Test};
+use crate::recognize::probe::Line;
+pub use crate::{
+    interface::Lines,
+    simulate::{Copying, Group},
+    stack::Copies,
+};
 
 /// A standard category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -248,6 +278,16 @@ impl Kind {
         self.facts().behaviour.copies
     }
 
+    /// How its copies stacked are tested.
+    pub fn copying(self) -> Copying {
+        let behaviour = self.facts().behaviour;
+        Copying {
+            group: behaviour.group,
+            copies: behaviour.copies,
+            end_to_end: behaviour.test == Some(Test::Adder),
+        }
+    }
+
     /// Whether its inputs take hex digits; see `Facts::digit_inputs`.
     pub fn digit_inputs(self) -> bool {
         self.facts().digit_inputs
@@ -362,26 +402,6 @@ pub enum Reads {
     /// Its widest output, the value it holds, as a counter's, which may
     /// have no A.
     Output,
-}
-
-/// How a category's copies stacked must work together: the group its
-/// stacking test puts them in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Group {
-    /// Data crosses its bits, as an adder's carry, a comparison's result,
-    /// or an ALU's, a multiplier's, a shifter's, or a converter's whole
-    /// value does, so copies must chain into one wider build.
-    #[default]
-    CrossesBits,
-    /// Each bit is a cell of its own, as a gate's or a monostable's: each
-    /// copy must still compute or pulse alone, its neighbours not
-    /// interfering, and the stack be the wider build.
-    Cells,
-    /// Its cells share lines, as an inverter's control line, or a
-    /// register's or buffer's control lines and data bus: copies must work
-    /// together on them, and how many still do is kept, as a shared line
-    /// reaches only so far.
-    SharedLines,
 }
 
 /// Who decides how a category's builds stack.

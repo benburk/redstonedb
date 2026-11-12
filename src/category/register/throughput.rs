@@ -53,7 +53,13 @@ pub fn stacker(data: &[u8], kind: Kind) -> Option<Stacker<'_>> {
         }
     };
     let ways = (single.width, bit_ways(&interface, single.width));
-    Some(Stacker::new(data, kind.category(), ways, works, not))
+    Some(Stacker::new(
+        data,
+        kind.category().copying(),
+        ways,
+        works,
+        not,
+    ))
 }
 
 /// Whether copies of the register or buffer in `data`, a file whose own

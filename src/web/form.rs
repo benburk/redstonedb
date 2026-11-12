@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 
 use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
-    category::Category,
+    category::{Category, Guessed},
     details::Details,
     import::{self, Analysis, FileFacts},
     interface::{self, Interface, Orientation},
@@ -16,7 +16,6 @@ use crate::{
         user::User,
     },
     schem::{Blocks, Size},
-    simulate::Guess,
     stack::StackDirection,
     web::error::AppError,
 };
@@ -254,12 +253,12 @@ impl Form {
     /// to be, by `guess`, and the orientation its `interface` suggests,
     /// with a first stacking direction its `size` apart.
     pub fn suggested(
-        guess: Option<&Guess>,
+        guess: Option<&Guessed>,
         interface: &Interface,
         size: &Size,
     ) -> Self {
         let category = guess.map_or("", |guess| guess.category).to_owned();
-        let orientation = import::guess(interface).1.unwrap_or_default();
+        let orientation = interface::suggested(interface).1.unwrap_or_default();
         let size = (size.x.into(), size.y.into(), size.z.into());
         Form {
             orientation: orientation.name().to_owned(),

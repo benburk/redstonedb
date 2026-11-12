@@ -262,7 +262,7 @@ pub(super) async fn prune(
 ) -> Result<()> {
     let s = load(db, id).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
-    if app::simulate::Test::of(&s.category, s.specs.width).is_none() {
+    if app::category::Test::of(&s.category, s.specs.width).is_none() {
         return Ok(());
     }
     let data = version::current_file(db, id)

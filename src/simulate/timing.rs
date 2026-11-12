@@ -314,7 +314,7 @@ pub struct BitTiming {
 /// at random take any value of each input's width when `any`, as an
 /// adder's operands may, else only the values `chosen` gives, as only
 /// valid BCD may drive a converter from it.
-pub(super) fn measure(
+pub(crate) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
@@ -339,7 +339,7 @@ pub(super) fn measure(
 
 /// The values each input takes, with whether they are a selection rather
 /// than every one; `None` for every value, or the test patterns.
-pub(super) type Chosen = Option<(Vec<Vec<Value>>, bool)>;
+pub(crate) type Chosen = Option<(Vec<Vec<Value>>, bool)>;
 
 /// The changes a control group, such as an ALU's operation lines or a
 /// barrel shifter's shift and amount, is timed through, beside the most
@@ -372,7 +372,7 @@ const CONTROLLED_CASES: u64 = 4096;
 /// together, data and control are streamed, each change from one case
 /// straight to another, as instructions follow one another; every output
 /// must change cleanly, the data on one tick, through each.
-pub(super) fn measure_controlled(
+pub(crate) fn measure_controlled(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
@@ -581,7 +581,7 @@ type Runs = Vec<Vec<Vec<Vec<i32>>>>;
 /// test, pressing later until each comes out right, as a press too soon
 /// for some operands gets them wrong. Each output's latency is the last
 /// tick it changed by.
-pub(super) fn pressed(
+pub(crate) fn pressed(
     blocks: &Blocks,
     interface: &Interface,
     bench: &bench::Bench,

@@ -3,13 +3,16 @@
 //! subtracting 1.
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
-use super::{
-    Broken, Reading, Value,
-    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+use crate::{
+    category,
+    interface::Interface,
+    simulate::{
+        Broken, Counts, Reading, Value,
+        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        broken,
+    },
 };
-use crate::{category, interface::Interface};
 
 /// Every value of A with its control line each way, checked against what
 /// each kind of incrementer that `counts` gives: an incrementer's A plus 1
@@ -53,18 +56,6 @@ pub(super) fn spec(
         kinds,
         by_digit: false,
     })
-}
-
-/// Which way an incrementer counts, which names its category.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Counts {
-    /// Up, by 1 or by its control line: an incrementer.
-    Up,
-    /// Down, by 1 or by its control line: a decrementer.
-    Down,
-    /// Up one way of its control line and down the other: an inc/dec.
-    Either,
 }
 
 impl Counts {

@@ -3,11 +3,11 @@
 use std::collections::{BTreeMap, HashMap};
 
 use app::{
-    category::Kind,
+    category::{Kind, Test},
     ingest::standardize,
     recognize::roles::{self, Need, Role},
     schem::{self, Blocks, Pos},
-    simulate::{Report, Test},
+    simulate::Report,
     stack,
 };
 

@@ -6,13 +6,18 @@
 
 use anyhow::{Result, bail};
 
-use super::{
-    Broken, Reading, Value,
-    bench::{Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec},
-    bench::{mask, patterns},
-    circuit::output_bits,
+use crate::{
+    interface::{Interface, Port},
+    simulate::{
+        Broken, Reading, Value,
+        bench::{
+            Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec, mask,
+            patterns,
+        },
+        broken,
+        circuit::output_bits,
+    },
 };
-use crate::interface::{Interface, Port};
 
 /// A binary-to-BCD converter's every value of A, or with too many, each
 /// byte's, the test patterns, and each power of ten and the number before
@@ -397,6 +402,10 @@ fn binary_cases(width: usize) -> (Vec<Case>, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        schem::lines::Role,
+        simulate::bench::testing::{judged, port},
+    };
 
     #[test]
     fn the_most_negative_input_is_its_own_absolute_value() {
@@ -428,5 +437,48 @@ mod tests {
         assert!(!every);
         assert_eq!(values.last(), Some(&to_bcd(99_999_999)));
         assert!(values.iter().all(|&v| from_bcd(v) < 1 << 27));
+    }
+
+    /// A popcount counts at least four bits: one of fewer is refused, as
+    /// a one-bit one's count is the bit itself, as a buffer's is.
+    #[test]
+    fn a_popcount_counts_at_least_four_bits() {
+        let counted = |bits: usize| {
+            popcount(&mut Interface {
+                inputs: vec![port("A", Role::Operand(0), bits)],
+                outputs: vec![port("output", Role::Output(0), 3)],
+                binary_outputs: false,
+            })
+        };
+        for bits in 1..4 {
+            assert!(counted(bits).is_err(), "{bits}");
+        }
+        assert!(counted(4).is_ok());
+    }
+
+    /// A parity circuit is on for an odd number of A's bits on; its
+    /// inverse, on for an even number, gets every case wrong.
+    #[test]
+    fn a_parity_circuit_is_odd() {
+        let interface = || {
+            (
+                vec![port("A", Role::Operand(0), 4)],
+                vec![port("output", Role::Output(0), 1)],
+            )
+        };
+        let (inputs, outputs) = interface();
+        let spec = parity(&Interface {
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+            binary_outputs: false,
+        })
+        .unwrap();
+        let odd = |case: &Case| Value::from(case[0].count_ones() % 2 == 1);
+        let run = judged(inputs, outputs, &spec.kinds, odd);
+        assert_eq!((run.wrong, run.cases), (0, 16));
+        assert_eq!(run.pattern, "xor of A's bits");
+        let (inputs, outputs) = interface();
+        let run = judged(inputs, outputs, &spec.kinds, |case| odd(case) ^ 1);
+        assert_eq!((run.wrong, run.cases), (16, 16));
     }
 }

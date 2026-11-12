@@ -30,17 +30,18 @@ use std::{
 
 use anyhow::Result;
 
-use super::{
-    Broken, Run, Timing, Value,
-    adder::adder_cases,
-    bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
-    circuit::{input_bits, output_bits},
-    rng::Rng,
-    timing,
-};
 use crate::{
+    category::adder::adder_cases,
     interface::{Interface, colour},
     schem::Blocks,
+    simulate::{
+        Broken, Run, Timing, Value,
+        bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
+        broken,
+        circuit::{input_bits, output_bits},
+        rng::Rng,
+        timing,
+    },
 };
 
 /// An operation an ALU may offer. They are ordered as a result lists
@@ -846,7 +847,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
     if ops.is_empty() {
         return Ok(None);
     }
-    super::throughput::controlled(
+    crate::simulate::throughput::controlled(
         blocks,
         &interface,
         timing,

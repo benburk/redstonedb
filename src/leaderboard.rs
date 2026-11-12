@@ -12,12 +12,13 @@ use std::{
 };
 
 use crate::{
-    category::{self, Flag, Group, Logic, Measure, NO_DESIGN},
+    category::{self, Flag, Logic, Measure, NO_DESIGN},
     interface::Orientation,
     models::{
         schematic::Build,
         tag::{self, Kind, Tag},
     },
+    simulate::Group,
     stack::PITCHES,
 };
 

@@ -5,9 +5,10 @@
 
 use super::{Fault, Order, Role, Roles, lengths, try_roles};
 use crate::{
+    category::Test,
     interface::inspect::{self, Run},
     schem::Pos,
-    simulate::{self, Test},
+    simulate,
 };
 
 /// An ALU as probing found it: its operands A and B, its control lines, its

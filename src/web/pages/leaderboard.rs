@@ -3,7 +3,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    category::{Category, Group, Measure},
+    category::{Category, Measure},
     leaderboard::{
         self, Board, Choice, Inputs, Placed, Rank, Record, Ruler, SHOWN,
         Standing, Wanted, in_sentence,
@@ -13,6 +13,7 @@ use crate::{
         tag::{self, Kind},
         user::User,
     },
+    simulate::Group,
 };
 
 use super::{

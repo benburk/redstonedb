@@ -3,7 +3,7 @@
 
 /// A xorshift generator from one fixed seed: not random, only spread out
 /// enough that its numbers cover every bit.
-pub(super) struct Rng(u64);
+pub(crate) struct Rng(u64);
 
 impl Default for Rng {
     fn default() -> Self {

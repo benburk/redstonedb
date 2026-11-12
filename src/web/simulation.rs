@@ -18,13 +18,12 @@ use maud::{Markup, html};
 use serde::Deserialize;
 
 use crate::{
-    category::{self, Category},
+    category::{self, Category, Test},
     details,
     import::Upload,
     models::{schematic, simulation, user::User},
-    recognize::fault,
-    recognize::probe::Recognition,
-    simulate::{Report, Test},
+    recognize::{fault, probe::Recognition},
+    simulate::Report,
     web::{app_state::AppState, error::AppError},
 };
 

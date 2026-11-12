@@ -31,3 +31,17 @@ pub const AIR: &str = "minecraft:air";
 
 /// A block position, as x, y, z.
 pub type Pos = [i32; 3];
+
+/// The SHA-256 of `data`, a file's or any other bytes', in hex.
+pub fn sha256(data: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    use sha2::Digest as _;
+
+    sha2::Sha256::digest(data)
+        .iter()
+        .fold(String::new(), |mut hex, b| {
+            let _ = write!(hex, "{b:02x}");
+            hex
+        })
+}

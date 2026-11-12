@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
-    category::{self, Logic},
+    category::{self, Logic, Test, adder_design},
     import::{self, Prepared},
     interface::{self, Encoding, Orientation},
     models::{
@@ -18,9 +18,7 @@ use crate::{
         simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
     schem::Blocks,
-    simulate::{
-        self, Design, Edge, Report, Run, Stacking, Test, Timing, adder_design,
-    },
+    simulate::{Design, Edge, Report, Run, Stacking, Timing},
     stack::{self, StackDirection},
 };
 
@@ -83,7 +81,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let blocks = &prepared.blocks;
     // An adder whose inputs take hex digits, comparators with air behind,
     // is guessed a hex adder.
-    let category = simulate::guess(blocks).map(|guess| guess.category);
+    let category = category::guess(blocks).map(|guess| guess.category);
     let interface = interface::read(blocks);
     let read = category
         .map(|c| import::derived(c, &interface))
@@ -263,11 +261,11 @@ impl Evaluation {
             self.flags.push(SIGNED.to_owned());
         }
         if test == Test::Alu {
-            self.flags = simulate::alu_flags(&self.prepared.blocks)?;
+            self.flags = category::alu_flags(&self.prepared.blocks)?;
         }
         // A barrel shifter's are the shifts its lines give.
         if test == Test::BarrelShifter {
-            self.flags = simulate::shifter_flags(&self.prepared.blocks)?;
+            self.flags = category::shifter_flags(&self.prepared.blocks)?;
         }
         // An adder's carry in may read inverted, and its B, as a
         // subtractor's does, and a register's reads may show its cells

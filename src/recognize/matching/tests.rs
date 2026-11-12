@@ -173,7 +173,7 @@ fn a_broken_adder_is_matched_as_an_adder_with_cases_wrong() {
         sum: line("output").unwrap(),
         carry_out: None,
     };
-    let run = crate::simulate::Test::Adder
+    let run = crate::category::Test::Adder
         .check_with(&blocks, layout.interface(&blocks), false)
         .unwrap();
     assert_eq!(

@@ -6,9 +6,9 @@
 
 use super::{Category, Op, Shape, Slot, Want, Width};
 use crate::{
-    category::Kind,
+    category::{Kind, alu_ops},
     schem::lines::Role,
-    simulate::{alu_ops, mask},
+    simulate::mask,
 };
 
 use Width::{Bit, N, NPlus1, Pow2};

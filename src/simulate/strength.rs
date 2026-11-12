@@ -43,7 +43,7 @@ struct Look {
 /// every one of `cases` right, as `got`, with them at 15. `None` for a
 /// bench with no data input, presses, or a signal-strength input, whose
 /// strength is its value.
-pub(super) fn measure(
+pub(crate) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,

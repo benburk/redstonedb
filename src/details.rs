@@ -5,7 +5,7 @@
 use sqlx::SqlitePool;
 
 use crate::{
-    category::{self, Category, Kind, Measure},
+    category::{self, Category, Kind, Measure, Test},
     external::mojang,
     import::Prepared,
     interface::Orientation,
@@ -14,7 +14,7 @@ use crate::{
         schematic::{self, Build, Credits, Specs},
         simulation, tag,
     },
-    simulate::{Report, Test},
+    simulate::Report,
     stack::{self, StackDirection},
 };
 
