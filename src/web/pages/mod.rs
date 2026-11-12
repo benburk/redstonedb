@@ -91,8 +91,8 @@ fn facts(s: &Build) -> Markup {
             .collect();
     html! {
         (measures.join(" · "))
-        @if !s.authors.is_empty() {
-            " · " (name_links(&s.authors))
+        @if !s.credits.authors.is_empty() {
+            " · " (name_links(&s.credits.authors))
         }
     }
 }

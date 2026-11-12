@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{
-    Build, Encoding, Logic, Operands, Orientation, Specs, StackDirection,
-    Status, Widened,
+    Build, Credits, Encoding, Logic, Operands, Orientation, Specs,
+    StackDirection, Status, Widened,
 };
 use crate::{
     category::{self, Flag},
@@ -150,8 +150,10 @@ async fn load(
                 stacking: stacking.remove(&row.id).unwrap_or_default(),
                 widened: widened.remove(&row.id).unwrap_or_default(),
                 stacked_from: None,
-                authors,
-                contributors,
+                credits: Credits {
+                    authors,
+                    contributors,
+                },
                 category: row.category,
                 specs: Specs {
                     width: row.width,

@@ -2,6 +2,7 @@
 //! how it stands. Its file lives in its versions; see `models::version`.
 //! Loading and storing builds is `models::schematic`.
 
+mod credits;
 mod facts;
 mod name;
 mod specs;
@@ -11,6 +12,7 @@ mod tags;
 #[cfg(test)]
 mod tests;
 
+pub use credits::Credits;
 pub use facts::{Encoding, Logic, Orientation};
 pub use name::file_stem;
 pub use specs::Specs;
@@ -70,10 +72,7 @@ pub struct Build {
     /// That account as people know it: its Minecraft name, else its
     /// username.
     pub uploader_name: Option<String>,
-    /// In-game names, in the order given; empty when unknown.
-    pub authors: Vec<String>,
-    /// In-game names of people who helped without building it, in order.
-    pub contributors: Vec<String>,
+    pub credits: Credits,
     pub built_on: Option<String>,
     /// The in-game name of whoever imported the build.
     pub imported_by: Option<String>,

@@ -285,7 +285,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     );
 
     let mut edited = Details::of(&measured);
-    edited.authors = vec!["Someone_Else".to_owned()];
+    edited.credits.authors = vec!["Someone_Else".to_owned()];
     edited.description = Some("A slice.".to_owned());
     let data = app::models::version::current_file(&db, &id)
         .await
@@ -306,7 +306,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     // Respelled as the player spells it, whatever that is.
     assert!(
-        matches!(s.authors.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
+        matches!(s.credits.authors.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
     );
     assert_eq!(s.description.as_deref(), Some("A slice."));
     let fields = |s: &schematic::Build| {

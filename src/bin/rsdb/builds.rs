@@ -325,9 +325,9 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
     put(&mut details.specs.logic, given.logic, unsets("logic"));
     // A list given replaces the stored one whole.
     let lists = [
-        (&mut details.authors, &given.authors, "authors"),
+        (&mut details.credits.authors, &given.authors, "authors"),
         (
-            &mut details.contributors,
+            &mut details.credits.contributors,
             &given.contributors,
             "contributors",
         ),
@@ -501,14 +501,14 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     }
     println!(
         "built by     {}",
-        if s.authors.is_empty() {
+        if s.credits.authors.is_empty() {
             "unknown".to_owned()
         } else {
-            s.authors.join(", ")
+            s.credits.authors.join(", ")
         }
     );
-    if !s.contributors.is_empty() {
-        println!("contributors {}", s.contributors.join(", "));
+    if !s.credits.contributors.is_empty() {
+        println!("contributors {}", s.credits.contributors.join(", "));
     }
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));

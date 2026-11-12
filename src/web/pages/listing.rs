@@ -964,12 +964,12 @@ fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                         (badges(s, ""))
                         // Its authors, then who helped, on one line; the
                         // build's page names them all.
-                        @if !s.authors.is_empty() || !s.contributors.is_empty() {
+                        @if !s.credits.authors.is_empty() || !s.credits.contributors.is_empty() {
                             p class="mt-auto truncate pt-1 text-meta text-muted" {
-                                (name_links(&s.authors))
-                                @if !s.contributors.is_empty() {
-                                    @if !s.authors.is_empty() { " · " }
-                                    "with " (name_links(&s.contributors))
+                                (name_links(&s.credits.authors))
+                                @if !s.credits.contributors.is_empty() {
+                                    @if !s.credits.authors.is_empty() { " · " }
+                                    "with " (name_links(&s.credits.contributors))
                                 }
                             }
                         }
@@ -1041,7 +1041,7 @@ fn table(schematics: &[Build], terms: &[Term]) -> Markup {
                                     td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
                                     td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(&s.authors)) }
+                                    td class=(TABLE_CELL) { (name_links(&s.credits.authors)) }
                                     td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
                                         (s.built_on.as_deref().unwrap_or(""))
                                     }

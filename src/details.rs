@@ -10,7 +10,7 @@ use crate::{
     import::Prepared,
     models::{
         player,
-        schematic::{self, Build, Orientation, Specs, StackDirection},
+        schematic::{self, Build, Credits, Orientation, Specs, StackDirection},
         simulation, tag,
     },
     schem::stack,
@@ -37,8 +37,8 @@ pub struct Details {
     pub given_name: Option<String>,
     /// Flags it has; any not of its category are dropped.
     pub flags: Vec<String>,
-    pub authors: Vec<String>,
-    pub contributors: Vec<String>,
+    /// The names credited, each respelled as its player spells it.
+    pub credits: Credits,
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
     /// Tag names, which may be written with spaces and capitals.
@@ -59,8 +59,7 @@ impl Details {
             description: s.description.clone(),
             given_name: s.given_name.clone(),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
-            authors: s.authors.clone(),
-            contributors: s.contributors.clone(),
+            credits: s.credits.clone(),
             stacking: s.stacking.clone(),
             tags: s
                 .tags
@@ -257,16 +256,13 @@ async fn ready(
         .as_deref()
         .map(crate::web::mentions)
         .unwrap_or_default();
-    let asked: Vec<String> = details
-        .authors
-        .iter()
-        .chain(&details.contributors)
-        .chain(&named)
-        .cloned()
-        .collect();
+    let asked: Vec<String> =
+        details.credits.everyone().chain(&named).cloned().collect();
     let players = player::look_up(db, &asked).await?;
-    details.authors = mojang::respell(&details.authors, &players)?;
-    details.contributors = mojang::respell(&details.contributors, &players)?;
+    details.credits.authors =
+        mojang::respell(&details.credits.authors, &players)?;
+    details.credits.contributors =
+        mojang::respell(&details.credits.contributors, &players)?;
     if let Some(message) = unnamed(&mojang::unknown(&named, &players)) {
         return Err(message.into());
     }
@@ -500,9 +496,8 @@ pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 /// with a sentence saying which.
 fn shaped(details: &Details) -> Result<(), String> {
     if let Some(name) = details
-        .authors
-        .iter()
-        .chain(&details.contributors)
+        .credits
+        .everyone()
         .find(|n| !schematic::valid_player_name(n))
     {
         return Err(format!(

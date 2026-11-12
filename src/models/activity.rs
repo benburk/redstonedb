@@ -289,8 +289,8 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
             "flags",
             list(s.flags.iter().map(|f| f.label.to_owned()).collect()),
         ),
-        ("authors", list(s.authors.clone())),
-        ("contributors", list(s.contributors.clone())),
+        ("authors", list(s.credits.authors.clone())),
+        ("contributors", list(s.credits.contributors.clone())),
         (
             "tags",
             list(

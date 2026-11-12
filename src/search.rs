@@ -189,9 +189,8 @@ fn in_id(text: &str, s: &Build) -> bool {
 /// and credited names, lowercase, names with spaces for underscores.
 fn text(s: &Build) -> String {
     let names = s
-        .authors
-        .iter()
-        .chain(&s.contributors)
+        .credits
+        .everyone()
         .map(|name| name.to_lowercase().replace('_', " "))
         .collect::<Vec<_>>()
         .join(" ");
@@ -296,7 +295,7 @@ fn facts(s: &Build) -> Vec<String> {
     // lowercase, with spaces for underscores.
     let person =
         |name: &String| name.to_lowercase().replace('_', " ").trim().to_owned();
-    let people = s.authors.iter().chain(&s.contributors);
+    let people = s.credits.authors.iter().chain(&s.credits.contributors);
     facts.extend(
         people
             .chain(&s.imported_by)
@@ -305,10 +304,10 @@ fn facts(s: &Build) -> Vec<String> {
             .map(person),
     );
     let roles = [
-        ("author", s.authors.iter().collect::<Vec<_>>()),
+        ("author", s.credits.authors.iter().collect::<Vec<_>>()),
         // As authors were called before, so older links still find them.
-        ("builder", s.authors.iter().collect()),
-        ("contributor", s.contributors.iter().collect()),
+        ("builder", s.credits.authors.iter().collect()),
+        ("contributor", s.credits.contributors.iter().collect()),
         (
             "importer",
             s.imported_by
@@ -408,7 +407,7 @@ fn versions(s: &Build) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::models::{
-        schematic::{Encoding, Orientation, Specs},
+        schematic::{Credits, Encoding, Orientation, Specs},
         tag::Tag,
     };
 
@@ -435,8 +434,10 @@ pub(crate) mod tests {
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
-            authors: vec!["embizone".to_owned()],
-            contributors: Vec::new(),
+            credits: Credits {
+                authors: vec!["embizone".to_owned()],
+                ..Credits::default()
+            },
             built_on: None,
             imported_by: None,
             conventional: true,
@@ -521,8 +522,10 @@ pub(crate) mod tests {
     #[test]
     fn part_of_a_credited_name_finds_their_builds() {
         let s = Build {
-            authors: vec!["Don_Manuel_1229".to_owned()],
-            contributors: vec!["Owenage_".to_owned()],
+            credits: Credits {
+                authors: vec!["Don_Manuel_1229".to_owned()],
+                contributors: vec!["Owenage_".to_owned()],
+            },
             ..schematic("adder", Orientation::Horizontal, &[])
         };
         assert!(find("don manuel", &s));
@@ -678,7 +681,10 @@ pub(crate) mod tests {
     #[test]
     fn an_author_matches_whatever_its_case_and_underscores() {
         let s = Build {
-            authors: vec!["FEARLESS_Z_".to_owned()],
+            credits: Credits {
+                authors: vec!["FEARLESS_Z_".to_owned()],
+                ..Credits::default()
+            },
             ..schematic("adder", Orientation::Horizontal, &[])
         };
         let terms = parse("fearless_z_");
@@ -688,11 +694,17 @@ pub(crate) mod tests {
     #[test]
     fn a_role_ties_a_name_to_it() {
         let built = Build {
-            authors: vec!["Alex_you".to_owned()],
+            credits: Credits {
+                authors: vec!["Alex_you".to_owned()],
+                ..Credits::default()
+            },
             ..schematic("adder", Orientation::Horizontal, &[])
         };
         let helped = Build {
-            contributors: vec!["alex_you".to_owned()],
+            credits: Credits {
+                contributors: vec!["alex_you".to_owned()],
+                ..Credits::default()
+            },
             ..schematic("register", Orientation::Horizontal, &[])
         };
         let found = matching(
